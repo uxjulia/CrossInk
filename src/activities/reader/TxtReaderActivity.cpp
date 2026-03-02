@@ -600,3 +600,188 @@ void TxtReaderActivity::savePageIndexCache() const {
   f.close();
   LOG_DBG("TRS", "Saved page index cache: %d pages", totalPages);
 }
+
+bool TxtReaderActivity::drawCurrentPageToBuffer(const std::string& filePath, GfxRenderer& renderer) {
+  Txt txt(filePath, "/.crosspoint");
+  if (!txt.load()) {
+    LOG_DBG("SLP", "TXT: failed to load %s", filePath.c_str());
+    return false;
+  }
+
+  // Compute layout values that match what initializeReader() produces
+  const int fontId = SETTINGS.getReaderFontId();
+  const uint8_t screenMargin = SETTINGS.screenMargin;
+  const uint8_t paragraphAlignment = SETTINGS.paragraphAlignment;
+
+  int marginTop, marginRight, marginBottom, marginLeft;
+  renderer.getOrientedViewableTRBL(&marginTop, &marginRight, &marginBottom, &marginLeft);
+  marginTop += screenMargin;
+  marginLeft += screenMargin;
+  marginRight += screenMargin;
+  marginBottom += std::max(screenMargin, static_cast<uint8_t>(UITheme::getInstance().getStatusBarHeight()));
+
+  const int vw = renderer.getScreenWidth() - marginLeft - marginRight;
+  const int vh = renderer.getScreenHeight() - marginTop - marginBottom;
+  const int lineHeight = renderer.getLineHeight(fontId);
+  const int linesPerPage = std::max(1, vh / lineHeight);
+
+  // Load the page offset index from cache (must already exist from normal reading)
+  std::string cachePath = txt.getCachePath() + "/index.bin";
+  FsFile cacheFile;
+  if (!Storage.openFileForRead("SLP", cachePath, cacheFile)) {
+    LOG_DBG("SLP", "TXT: no page index cache");
+    return false;
+  }
+
+  uint32_t magic;
+  serialization::readPod(cacheFile, magic);
+  if (magic != CACHE_MAGIC) {
+    cacheFile.close();
+    return false;
+  }
+
+  uint8_t version;
+  serialization::readPod(cacheFile, version);
+  if (version != CACHE_VERSION) {
+    cacheFile.close();
+    return false;
+  }
+
+  uint32_t cachedFileSize;
+  serialization::readPod(cacheFile, cachedFileSize);
+  if (cachedFileSize != txt.getFileSize()) {
+    cacheFile.close();
+    return false;
+  }
+
+  int32_t cachedVw, cachedLpp, cachedFontId, cachedMargin;
+  serialization::readPod(cacheFile, cachedVw);
+  serialization::readPod(cacheFile, cachedLpp);
+  serialization::readPod(cacheFile, cachedFontId);
+  serialization::readPod(cacheFile, cachedMargin);
+  if (cachedVw != vw || cachedLpp != linesPerPage || cachedFontId != fontId || cachedMargin != screenMargin) {
+    LOG_DBG("SLP", "TXT: cache invalid (settings changed)");
+    cacheFile.close();
+    return false;
+  }
+
+  uint8_t cachedAlignment;
+  serialization::readPod(cacheFile, cachedAlignment);
+  if (cachedAlignment != paragraphAlignment) {
+    cacheFile.close();
+    return false;
+  }
+
+  uint32_t numPages;
+  serialization::readPod(cacheFile, numPages);
+  if (numPages == 0) {
+    cacheFile.close();
+    return false;
+  }
+
+  std::vector<size_t> pageOffsets;
+  pageOffsets.reserve(numPages);
+  for (uint32_t i = 0; i < numPages; i++) {
+    uint32_t offset;
+    serialization::readPod(cacheFile, offset);
+    pageOffsets.push_back(offset);
+  }
+  cacheFile.close();
+
+  // Load saved page number from progress file
+  int savedPage = 0;
+  FsFile progFile;
+  if (Storage.openFileForRead("SLP", txt.getCachePath() + "/progress.bin", progFile)) {
+    uint8_t data[4];
+    if (progFile.read(data, 4) == 4) {
+      savedPage = data[0] + (data[1] << 8);
+    }
+    progFile.close();
+  }
+  if (savedPage < 0 || savedPage >= static_cast<int>(numPages)) savedPage = 0;
+
+  // Load the page lines from file
+  std::vector<std::string> pageLines;
+  const size_t fileSize = txt.getFileSize();
+  size_t offset = pageOffsets[savedPage];
+  if (offset >= fileSize) {
+    LOG_DBG("SLP", "TXT: page offset out of bounds");
+    return false;
+  }
+
+  // Replicate loadPageAtOffset() logic with local layout variables
+  size_t chunkSize = std::min(CHUNK_SIZE, fileSize - offset);
+  auto* buffer = static_cast<uint8_t*>(malloc(chunkSize + 1));
+  if (!buffer) return false;
+
+  if (!txt.readContent(buffer, offset, chunkSize)) {
+    free(buffer);
+    return false;
+  }
+  buffer[chunkSize] = '\0';
+
+  size_t pos = 0;
+  while (pos < chunkSize && static_cast<int>(pageLines.size()) < linesPerPage) {
+    size_t lineEnd = pos;
+    while (lineEnd < chunkSize && buffer[lineEnd] != '\n') lineEnd++;
+    bool lineComplete = (lineEnd < chunkSize) || (offset + lineEnd >= fileSize);
+    if (!lineComplete && !pageLines.empty()) break;
+
+    size_t lineContentLen = lineEnd - pos;
+    bool hasCR = (lineContentLen > 0 && buffer[pos + lineContentLen - 1] == '\r');
+    size_t displayLen = hasCR ? lineContentLen - 1 : lineContentLen;
+    std::string line(reinterpret_cast<char*>(buffer + pos), displayLen);
+    size_t lineBytePos = 0;
+
+    while (!line.empty() && static_cast<int>(pageLines.size()) < linesPerPage) {
+      if (renderer.getTextWidth(fontId, line.c_str()) <= vw) {
+        pageLines.push_back(line);
+        lineBytePos = displayLen;
+        line.clear();
+        break;
+      }
+      size_t breakPos = line.length();
+      while (breakPos > 0 && renderer.getTextWidth(fontId, line.substr(0, breakPos).c_str()) > vw) {
+        size_t spacePos = line.rfind(' ', breakPos - 1);
+        if (spacePos != std::string::npos && spacePos > 0) {
+          breakPos = spacePos;
+        } else {
+          breakPos--;
+          while (breakPos > 0 && (line[breakPos] & 0xC0) == 0x80) breakPos--;
+        }
+      }
+      if (breakPos == 0) breakPos = 1;
+      pageLines.push_back(line.substr(0, breakPos));
+      size_t skipChars = breakPos;
+      if (breakPos < line.length() && line[breakPos] == ' ') skipChars++;
+      lineBytePos += skipChars;
+      line = line.substr(skipChars);
+    }
+    pos = line.empty() ? lineEnd + 1 : pos + lineBytePos;
+  }
+  free(buffer);
+
+  if (pageLines.empty()) return false;
+
+  // Render lines to frame buffer (no displayBuffer call)
+  renderer.clearScreen();
+  int y = marginTop;
+  for (const auto& line : pageLines) {
+    if (!line.empty()) {
+      int x = marginLeft;
+      switch (paragraphAlignment) {
+        case CrossPointSettings::CENTER_ALIGN:
+          x = marginLeft + (vw - renderer.getTextWidth(fontId, line.c_str())) / 2;
+          break;
+        case CrossPointSettings::RIGHT_ALIGN:
+          x = marginLeft + vw - renderer.getTextWidth(fontId, line.c_str());
+          break;
+        default:
+          break;
+      }
+      renderer.drawText(fontId, x, y, line.c_str());
+    }
+    y += lineHeight;
+  }
+  return true;
+}

@@ -829,3 +829,65 @@ void EpubReaderActivity::restoreSavedPosition() {
   }
   requestUpdate();
 }
+
+bool EpubReaderActivity::drawCurrentPageToBuffer(const std::string& filePath, GfxRenderer& renderer) {
+  auto epub = std::make_shared<Epub>(filePath, "/.crosspoint");
+  // skip CSS (second arg) since we only need layout/section data
+  if (!epub->load(true, false)) {
+    LOG_DBG("SLP", "EPUB: failed to load %s", filePath.c_str());
+    return false;
+  }
+
+  epub->setupCacheDir();
+
+  // Load saved spine index and page number
+  int spineIndex = 0, pageNumber = 0;
+  FsFile f;
+  if (Storage.openFileForRead("SLP", epub->getCachePath() + "/progress.bin", f)) {
+    uint8_t data[6];
+    if (f.read(data, 6) == 6) {
+      spineIndex = data[0] | (data[1] << 8);
+      pageNumber = data[2] | (data[3] << 8);
+    }
+    f.close();
+  }
+  if (spineIndex < 0 || spineIndex >= epub->getSpineItemsCount()) spineIndex = 0;
+
+  // Apply the reader orientation so margins match what the reader would produce
+  applyReaderOrientation(renderer, SETTINGS.orientation);
+
+  // Compute margins exactly as render() does
+  int marginTop, marginRight, marginBottom, marginLeft;
+  renderer.getOrientedViewableTRBL(&marginTop, &marginRight, &marginBottom, &marginLeft);
+  marginTop += SETTINGS.screenMargin;
+  marginLeft += SETTINGS.screenMargin;
+  marginRight += SETTINGS.screenMargin;
+  const uint8_t statusBarHeight = UITheme::getInstance().getStatusBarHeight();
+  marginBottom += std::max(SETTINGS.screenMargin, statusBarHeight);
+
+  const uint16_t viewportWidth = renderer.getScreenWidth() - marginLeft - marginRight;
+  const uint16_t viewportHeight = renderer.getScreenHeight() - marginTop - marginBottom;
+
+  // Load the cached section file (won't rebuild if cache missing — too slow for sleep)
+  auto section = std::unique_ptr<Section>(new Section(epub, spineIndex, renderer));
+  if (!section->loadSectionFile(SETTINGS.getReaderFontId(), SETTINGS.getReaderLineCompression(),
+                                SETTINGS.extraParagraphSpacing, SETTINGS.paragraphAlignment, viewportWidth,
+                                viewportHeight, SETTINGS.hyphenationEnabled, SETTINGS.embeddedStyle)) {
+    LOG_DBG("SLP", "EPUB: section cache not found for spine %d", spineIndex);
+    return false;
+  }
+
+  if (pageNumber < 0 || pageNumber >= section->pageCount) pageNumber = 0;
+  section->currentPage = pageNumber;
+
+  auto page = section->loadPageFromSectionFile();
+  if (!page) {
+    LOG_DBG("SLP", "EPUB: failed to load page %d", pageNumber);
+    return false;
+  }
+
+  renderer.clearScreen();
+  page->render(renderer, SETTINGS.getReaderFontId(), marginLeft, marginTop);
+  // No displayBuffer call — caller (SleepActivity) handles that after compositing the overlay
+  return true;
+}
