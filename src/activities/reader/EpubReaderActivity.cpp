@@ -877,11 +877,13 @@ bool EpubReaderActivity::drawCurrentPageToBuffer(const std::string& filePath, Gf
   auto section = std::make_unique<Section>(epub, spineIndex, renderer);
   if (!section->loadSectionFile(SETTINGS.getReaderFontId(), SETTINGS.getReaderLineCompression(),
                                 SETTINGS.extraParagraphSpacing, SETTINGS.paragraphAlignment, viewportWidth,
-                                viewportHeight, SETTINGS.hyphenationEnabled, SETTINGS.embeddedStyle)) {
+                                viewportHeight, SETTINGS.hyphenationEnabled, SETTINGS.embeddedStyle,
+                                SETTINGS.imageRendering)) {
     LOG_DBG("SLP", "EPUB: section cache not found for spine %d, rebuilding", spineIndex);
     if (!section->createSectionFile(SETTINGS.getReaderFontId(), SETTINGS.getReaderLineCompression(),
                                     SETTINGS.extraParagraphSpacing, SETTINGS.paragraphAlignment, viewportWidth,
-                                    viewportHeight, SETTINGS.hyphenationEnabled, SETTINGS.embeddedStyle, []() {})) {
+                                    viewportHeight, SETTINGS.hyphenationEnabled, SETTINGS.embeddedStyle,
+                                    SETTINGS.imageRendering, []() {})) {
       LOG_ERR("SLP", "EPUB: failed to rebuild section cache for spine %d", spineIndex);
       return false;
     }
