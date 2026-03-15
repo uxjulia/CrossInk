@@ -1,5 +1,10 @@
 #pragma once
 
+#ifndef OMIT_ATKINSON_FONT
+#include <builtinFonts/atkinsonhl_10_bold.h>
+#include <builtinFonts/atkinsonhl_10_bolditalic.h>
+#include <builtinFonts/atkinsonhl_10_italic.h>
+#include <builtinFonts/atkinsonhl_10_regular.h>
 #include <builtinFonts/atkinsonhl_12_bold.h>
 #include <builtinFonts/atkinsonhl_12_bolditalic.h>
 #include <builtinFonts/atkinsonhl_12_italic.h>
@@ -12,10 +17,12 @@
 #include <builtinFonts/atkinsonhl_16_bolditalic.h>
 #include <builtinFonts/atkinsonhl_16_italic.h>
 #include <builtinFonts/atkinsonhl_16_regular.h>
-#include <builtinFonts/atkinsonhl_18_bold.h>
-#include <builtinFonts/atkinsonhl_18_bolditalic.h>
-#include <builtinFonts/atkinsonhl_18_italic.h>
-#include <builtinFonts/atkinsonhl_18_regular.h>
+#endif  // OMIT_ATKINSON_FONT
+#ifndef OMIT_CHAREINK_FONT
+#include <builtinFonts/charein_10_bold.h>
+#include <builtinFonts/charein_10_bolditalic.h>
+#include <builtinFonts/charein_10_italic.h>
+#include <builtinFonts/charein_10_regular.h>
 #include <builtinFonts/charein_12_bold.h>
 #include <builtinFonts/charein_12_bolditalic.h>
 #include <builtinFonts/charein_12_italic.h>
@@ -28,10 +35,11 @@
 #include <builtinFonts/charein_16_bolditalic.h>
 #include <builtinFonts/charein_16_italic.h>
 #include <builtinFonts/charein_16_regular.h>
-#include <builtinFonts/charein_18_bold.h>
-#include <builtinFonts/charein_18_bolditalic.h>
-#include <builtinFonts/charein_18_italic.h>
-#include <builtinFonts/charein_18_regular.h>
+#endif  // OMIT_CHAREINK_FONT
+#include <builtinFonts/lexenddeca_10_bold.h>
+#include <builtinFonts/lexenddeca_10_bolditalic.h>
+#include <builtinFonts/lexenddeca_10_italic.h>
+#include <builtinFonts/lexenddeca_10_regular.h>
 #include <builtinFonts/lexenddeca_12_bold.h>
 #include <builtinFonts/lexenddeca_12_bolditalic.h>
 #include <builtinFonts/lexenddeca_12_italic.h>
@@ -44,12 +52,24 @@
 #include <builtinFonts/lexenddeca_16_bolditalic.h>
 #include <builtinFonts/lexenddeca_16_italic.h>
 #include <builtinFonts/lexenddeca_16_regular.h>
-#include <builtinFonts/lexenddeca_18_bold.h>
-#include <builtinFonts/lexenddeca_18_bolditalic.h>
-#include <builtinFonts/lexenddeca_18_italic.h>
-#include <builtinFonts/lexenddeca_18_regular.h>
-#include <builtinFonts/notosans_8_regular.h>
+#include <builtinFonts/inter_8_regular.h>
 #include <builtinFonts/ubuntu_10_bold.h>
 #include <builtinFonts/ubuntu_10_regular.h>
 #include <builtinFonts/ubuntu_12_bold.h>
 #include <builtinFonts/ubuntu_12_regular.h>
+#include <builtinFonts/bitter_10_bold.h>
+#include <builtinFonts/bitter_10_bolditalic.h>
+#include <builtinFonts/bitter_10_italic.h>
+#include <builtinFonts/bitter_10_regular.h>
+#include <builtinFonts/bitter_12_bold.h>
+#include <builtinFonts/bitter_12_bolditalic.h>
+#include <builtinFonts/bitter_12_italic.h>
+#include <builtinFonts/bitter_12_regular.h>
+#include <builtinFonts/bitter_14_bold.h>
+#include <builtinFonts/bitter_14_bolditalic.h>
+#include <builtinFonts/bitter_14_italic.h>
+#include <builtinFonts/bitter_14_regular.h>
+#include <builtinFonts/bitter_16_bold.h>
+#include <builtinFonts/bitter_16_bolditalic.h>
+#include <builtinFonts/bitter_16_italic.h>
+#include <builtinFonts/bitter_16_regular.h>

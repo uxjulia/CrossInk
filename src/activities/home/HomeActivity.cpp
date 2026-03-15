@@ -10,8 +10,10 @@
 #include <Xtc.h>
 
 #include <cstring>
+#include <functional>
 #include <vector>
 
+#include "../reader/BookReadingStats.h"
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
 #include "MappedInputManager.h"
@@ -118,6 +120,13 @@ void HomeActivity::onEnter() {
   const auto& metrics = UITheme::getInstance().getMetrics();
   loadRecentBooks(metrics.homeRecentBooksCount);
 
+  // Load reading stats for the most recent EPUB book so they can be shown on the home card.
+  currentBookStats = BookReadingStats{};
+  if (!recentBooks.empty() && FsHelpers::hasEpubExtension(recentBooks[0].path)) {
+    const std::string cachePath = "/.crosspoint/epub_" + std::to_string(std::hash<std::string>{}(recentBooks[0].path));
+    currentBookStats = BookReadingStats::load(cachePath);
+  }
+
   // Trigger first update
   requestUpdate();
 }
@@ -222,7 +231,8 @@ void HomeActivity::render(RenderLock&&) {
 
   GUI.drawRecentBookCover(renderer, Rect{0, metrics.homeTopPadding, pageWidth, metrics.homeCoverTileHeight},
                           recentBooks, selectorIndex, coverRendered, coverBufferStored, bufferRestored,
-                          std::bind(&HomeActivity::storeCoverBuffer, this));
+                          std::bind(&HomeActivity::storeCoverBuffer, this),
+                          currentBookStats.sessionCount > 0 ? &currentBookStats : nullptr);
 
   // Build menu items dynamically
   std::vector<const char*> menuItems = {tr(STR_BROWSE_FILES), tr(STR_MENU_RECENT_BOOKS), tr(STR_FILE_TRANSFER),

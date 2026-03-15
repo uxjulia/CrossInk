@@ -92,9 +92,11 @@ class CrossPointSettings {
   enum SIDE_BUTTON_LAYOUT { PREV_NEXT = 0, NEXT_PREV = 1, SIDE_BUTTON_LAYOUT_COUNT };
 
   // Font family options
-  enum FONT_FAMILY { LEXENDDECA = 0, CHAREINK = 1, ATKINSONHL = 2, FONT_FAMILY_COUNT };
+  // IMPORTANT: ATKINSONHL must come before CHAREINK so its index matches the SettingsList.h enum
+  // order when OMIT_CHAREINK_FONT is defined (release builds omit Chare Ink, shifting Atkinson to index 2).
+  enum FONT_FAMILY { LEXENDDECA = 0, BITTER = 1, ATKINSONHL = 2, CHAREINK = 3, FONT_FAMILY_COUNT };
   // Font size options
-  enum FONT_SIZE { SMALL = 0, MEDIUM = 1, LARGE = 2, EXTRA_LARGE = 3, FONT_SIZE_COUNT };
+  enum FONT_SIZE { TINY = 0, SMALL = 1, MEDIUM = 2, LARGE = 3, FONT_SIZE_COUNT };
   enum LINE_COMPRESSION { TIGHT = 0, NORMAL = 1, WIDE = 2, LINE_COMPRESSION_COUNT };
   enum PARAGRAPH_ALIGNMENT {
     JUSTIFIED = 0,
