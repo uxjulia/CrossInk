@@ -41,27 +41,13 @@ EpdFont lexenddeca14BoldFont(&lexenddeca_14_bold);
 EpdFont lexenddeca14ItalicFont(&lexenddeca_14_italic);
 EpdFont lexenddeca14BoldItalicFont(&lexenddeca_14_bolditalic);
 EpdFontFamily lexenddeca14FontFamily(&lexenddeca14RegularFont, &lexenddeca14BoldFont, &lexenddeca14ItalicFont,
-                                     &lexenddeca14BoldItalicFont);
-#ifndef OMIT_FONTS
-EpdFont lexenddeca12RegularFont(&lexenddeca_12_regular);
-EpdFont lexenddeca12BoldFont(&lexenddeca_12_bold);
-EpdFont lexenddeca12ItalicFont(&lexenddeca_12_italic);
-EpdFont lexenddeca12BoldItalicFont(&lexenddeca_12_bolditalic);
-EpdFontFamily lexenddeca12FontFamily(&lexenddeca12RegularFont, &lexenddeca12BoldFont, &lexenddeca12ItalicFont,
-                                     &lexenddeca12BoldItalicFont);
-EpdFont lexenddeca16RegularFont(&lexenddeca_16_regular);
-EpdFont lexenddeca16BoldFont(&lexenddeca_16_bold);
-EpdFont lexenddeca16ItalicFont(&lexenddeca_16_italic);
-EpdFont lexenddeca16BoldItalicFont(&lexenddeca_16_bolditalic);
-EpdFontFamily lexenddeca16FontFamily(&lexenddeca16RegularFont, &lexenddeca16BoldFont, &lexenddeca16ItalicFont,
-                                     &lexenddeca16BoldItalicFont);
-EpdFont lexenddeca18RegularFont(&lexenddeca_18_regular);
-EpdFont lexenddeca18BoldFont(&lexenddeca_18_bold);
-EpdFont lexenddeca18ItalicFont(&lexenddeca_18_italic);
-EpdFont lexenddeca18BoldItalicFont(&lexenddeca_18_bolditalic);
-EpdFontFamily lexenddeca18FontFamily(&lexenddeca18RegularFont, &lexenddeca18BoldFont, &lexenddeca18ItalicFont,
-                                     &lexenddeca18BoldItalicFont);
-
+                                    &lexenddeca14BoldItalicFont);
+EpdFont charein10RegularFont(&charein_10_regular);
+EpdFont charein10BoldFont(&charein_10_bold);
+EpdFont charein10ItalicFont(&charein_10_italic);
+EpdFont charein10BoldItalicFont(&charein_10_bolditalic);
+EpdFontFamily charein10FontFamily(&charein10RegularFont, &charein10BoldFont, &charein10ItalicFont,
+                                  &charein10BoldItalicFont);
 EpdFont charein12RegularFont(&charein_12_regular);
 EpdFont charein12BoldFont(&charein_12_bold);
 EpdFont charein12ItalicFont(&charein_12_italic);
@@ -80,13 +66,33 @@ EpdFont charein16ItalicFont(&charein_16_italic);
 EpdFont charein16BoldItalicFont(&charein_16_bolditalic);
 EpdFontFamily charein16FontFamily(&charein16RegularFont, &charein16BoldFont, &charein16ItalicFont,
                                   &charein16BoldItalicFont);
-EpdFont charein18RegularFont(&charein_18_regular);
-EpdFont charein18BoldFont(&charein_18_bold);
-EpdFont charein18ItalicFont(&charein_18_italic);
-EpdFont charein18BoldItalicFont(&charein_18_bolditalic);
-EpdFontFamily charein18FontFamily(&charein18RegularFont, &charein18BoldFont, &charein18ItalicFont,
-                                  &charein18BoldItalicFont);
+#ifndef OMIT_FONTS
+EpdFont lexenddeca10RegularFont(&lexenddeca_10_regular);
+EpdFont lexenddeca10BoldFont(&lexenddeca_10_bold);
+EpdFont lexenddeca10ItalicFont(&lexenddeca_10_italic);
+EpdFont lexenddeca10BoldItalicFont(&lexenddeca_10_bolditalic);
+EpdFontFamily lexenddeca10FontFamily(&lexenddeca10RegularFont, &lexenddeca10BoldFont, &lexenddeca10ItalicFont,
+                                     &lexenddeca10BoldItalicFont);
+EpdFont lexenddeca12RegularFont(&lexenddeca_12_regular);
+EpdFont lexenddeca12BoldFont(&lexenddeca_12_bold);
+EpdFont lexenddeca12ItalicFont(&lexenddeca_12_italic);
+EpdFont lexenddeca12BoldItalicFont(&lexenddeca_12_bolditalic);
+EpdFontFamily lexenddeca12FontFamily(&lexenddeca12RegularFont, &lexenddeca12BoldFont, &lexenddeca12ItalicFont,
+                                     &lexenddeca12BoldItalicFont);
+EpdFont lexenddeca16RegularFont(&lexenddeca_16_regular);
+EpdFont lexenddeca16BoldFont(&lexenddeca_16_bold);
+EpdFont lexenddeca16ItalicFont(&lexenddeca_16_italic);
+EpdFont lexenddeca16BoldItalicFont(&lexenddeca_16_bolditalic);
+EpdFontFamily lexenddeca16FontFamily(&lexenddeca16RegularFont, &lexenddeca16BoldFont, &lexenddeca16ItalicFont,
+                                     &lexenddeca16BoldItalicFont);
 
+#ifndef OMIT_ATKINSON_FONT
+EpdFont atkinsonhl10RegularFont(&atkinsonhl_10_regular);
+EpdFont atkinsonhl10BoldFont(&atkinsonhl_10_bold);
+EpdFont atkinsonhl10ItalicFont(&atkinsonhl_10_italic);
+EpdFont atkinsonhl10BoldItalicFont(&atkinsonhl_10_bolditalic);
+EpdFontFamily atkinsonhl10FontFamily(&atkinsonhl10RegularFont, &atkinsonhl10BoldFont, &atkinsonhl10ItalicFont,
+                                     &atkinsonhl10BoldItalicFont);
 EpdFont atkinsonhl12RegularFont(&atkinsonhl_12_regular);
 EpdFont atkinsonhl12BoldFont(&atkinsonhl_12_bold);
 EpdFont atkinsonhl12ItalicFont(&atkinsonhl_12_italic);
@@ -105,15 +111,35 @@ EpdFont atkinsonhl16ItalicFont(&atkinsonhl_16_italic);
 EpdFont atkinsonhl16BoldItalicFont(&atkinsonhl_16_bolditalic);
 EpdFontFamily atkinsonhl16FontFamily(&atkinsonhl16RegularFont, &atkinsonhl16BoldFont, &atkinsonhl16ItalicFont,
                                      &atkinsonhl16BoldItalicFont);
-EpdFont atkinsonhl18RegularFont(&atkinsonhl_18_regular);
-EpdFont atkinsonhl18BoldFont(&atkinsonhl_18_bold);
-EpdFont atkinsonhl18ItalicFont(&atkinsonhl_18_italic);
-EpdFont atkinsonhl18BoldItalicFont(&atkinsonhl_18_bolditalic);
-EpdFontFamily atkinsonhl18FontFamily(&atkinsonhl18RegularFont, &atkinsonhl18BoldFont, &atkinsonhl18ItalicFont,
-                                     &atkinsonhl18BoldItalicFont);
+#endif  // OMIT_ATKINSON_FONT
+
+EpdFont bitter10RegularFont(&bitter_10_regular);
+EpdFont bitter10BoldFont(&bitter_10_bold);
+EpdFont bitter10ItalicFont(&bitter_10_italic);
+EpdFont bitter10BoldItalicFont(&bitter_10_bolditalic);
+EpdFontFamily bitter10FontFamily(&bitter10RegularFont, &bitter10BoldFont, &bitter10ItalicFont,
+                                     &bitter10BoldItalicFont);
+EpdFont bitter12RegularFont(&bitter_12_regular);
+EpdFont bitter12BoldFont(&bitter_12_bold);
+EpdFont bitter12ItalicFont(&bitter_12_italic);
+EpdFont bitter12BoldItalicFont(&bitter_12_bolditalic);
+EpdFontFamily bitter12FontFamily(&bitter12RegularFont, &bitter12BoldFont, &bitter12ItalicFont,
+                                     &bitter12BoldItalicFont);
+EpdFont bitter14RegularFont(&bitter_14_regular);
+EpdFont bitter14BoldFont(&bitter_14_bold);
+EpdFont bitter14ItalicFont(&bitter_14_italic);
+EpdFont bitter14BoldItalicFont(&bitter_14_bolditalic);
+EpdFontFamily bitter14FontFamily(&bitter14RegularFont, &bitter14BoldFont, &bitter14ItalicFont,
+                                     &bitter14BoldItalicFont);
+EpdFont bitter16RegularFont(&bitter_16_regular);
+EpdFont bitter16BoldFont(&bitter_16_bold);
+EpdFont bitter16ItalicFont(&bitter_16_italic);
+EpdFont bitter16BoldItalicFont(&bitter_16_bolditalic);
+EpdFontFamily bitter16FontFamily(&bitter16RegularFont, &bitter16BoldFont, &bitter16ItalicFont,
+                                     &bitter16BoldItalicFont);
 #endif  // OMIT_FONTS
 
-EpdFont smallFont(&notosans_8_regular);
+EpdFont smallFont(&inter_8_regular);
 EpdFontFamily smallFontFamily(&smallFont);
 
 EpdFont ui10RegularFont(&ubuntu_10_regular);
@@ -208,20 +234,26 @@ void setupDisplayAndFonts() {
   fontCacheManager.setFontDecompressor(&fontDecompressor);
   renderer.setFontCacheManager(&fontCacheManager);
   renderer.insertFont(LEXENDDECA_14_FONT_ID, lexenddeca14FontFamily);
-#ifndef OMIT_FONTS
-  renderer.insertFont(LEXENDDECA_12_FONT_ID, lexenddeca12FontFamily);
-  renderer.insertFont(LEXENDDECA_16_FONT_ID, lexenddeca16FontFamily);
-  renderer.insertFont(LEXENDDECA_18_FONT_ID, lexenddeca18FontFamily);
-
+  renderer.insertFont(CHAREINK_10_FONT_ID, charein10FontFamily);
   renderer.insertFont(CHAREINK_12_FONT_ID, charein12FontFamily);
   renderer.insertFont(CHAREINK_14_FONT_ID, charein14FontFamily);
   renderer.insertFont(CHAREINK_16_FONT_ID, charein16FontFamily);
-  renderer.insertFont(CHAREINK_18_FONT_ID, charein18FontFamily);
+#ifndef OMIT_FONTS
+  renderer.insertFont(LEXENDDECA_10_FONT_ID, lexenddeca10FontFamily);
+  renderer.insertFont(LEXENDDECA_12_FONT_ID, lexenddeca12FontFamily);
+  renderer.insertFont(LEXENDDECA_16_FONT_ID, lexenddeca16FontFamily);
 
+#ifndef OMIT_ATKINSON_FONT
+  renderer.insertFont(ATKINSONHL_10_FONT_ID, atkinsonhl10FontFamily);
   renderer.insertFont(ATKINSONHL_12_FONT_ID, atkinsonhl12FontFamily);
   renderer.insertFont(ATKINSONHL_14_FONT_ID, atkinsonhl14FontFamily);
   renderer.insertFont(ATKINSONHL_16_FONT_ID, atkinsonhl16FontFamily);
-  renderer.insertFont(ATKINSONHL_18_FONT_ID, atkinsonhl18FontFamily);
+#endif  // OMIT_ATKINSON_FONT
+
+  renderer.insertFont(BITTER_10_FONT_ID, bitter10FontFamily);
+  renderer.insertFont(BITTER_12_FONT_ID, bitter12FontFamily);
+  renderer.insertFont(BITTER_14_FONT_ID, bitter14FontFamily);
+  renderer.insertFont(BITTER_16_FONT_ID, bitter16FontFamily);
 #endif  // OMIT_FONTS
   renderer.insertFont(UI_10_FONT_ID, ui10FontFamily);
   renderer.insertFont(UI_12_FONT_ID, ui12FontFamily);

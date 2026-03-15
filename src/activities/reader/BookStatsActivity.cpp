@@ -8,7 +8,6 @@
 #include "components/UITheme.h"
 #include "fontIds.h"
 
-
 BookStatsActivity::BookStatsActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, const std::string& title,
                                      const BookReadingStats& stats)
     : Activity("BookStats", renderer, mappedInput), bookTitle(title), stats(stats) {}

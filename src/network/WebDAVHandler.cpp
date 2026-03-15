@@ -1,5 +1,6 @@
 #include "WebDAVHandler.h"
 
+#include <Arduino.h>
 #include <Epub.h>
 #include <FsHelpers.h>
 #include <HalStorage.h>

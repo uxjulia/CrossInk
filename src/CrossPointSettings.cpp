@@ -238,6 +238,7 @@ float CrossPointSettings::getReaderLineCompression() const {
         case WIDE:
           return 1.0f;
       }
+#ifndef OMIT_CHAREINK_FONT
     case CHAREINK:
       switch (lineSpacing) {
         case TIGHT:
@@ -248,6 +249,8 @@ float CrossPointSettings::getReaderLineCompression() const {
         case WIDE:
           return 1.1f;
       }
+#endif  // OMIT_CHAREINK_FONT
+#ifndef OMIT_ATKINSON_FONT
     case ATKINSONHL:
       switch (lineSpacing) {
         case TIGHT:
@@ -257,6 +260,17 @@ float CrossPointSettings::getReaderLineCompression() const {
           return 0.95f;
         case WIDE:
           return 1.0f;
+      }
+#endif  // OMIT_ATKINSON_FONT
+    case BITTER:
+      switch (lineSpacing) {
+        case TIGHT:
+          return 0.95f;
+        case NORMAL:
+        default:
+          return 1.0f;
+        case WIDE:
+          return 1.1f;
       }
   }
 }
@@ -298,39 +312,53 @@ int CrossPointSettings::getReaderFontId() const {
     case LEXENDDECA:
     default:
       switch (fontSize) {
+        case TINY:
+          return LEXENDDECA_10_FONT_ID;
         case SMALL:
           return LEXENDDECA_12_FONT_ID;
         case MEDIUM:
-        default:
           return LEXENDDECA_14_FONT_ID;
         case LARGE:
+        default:
           return LEXENDDECA_16_FONT_ID;
-        case EXTRA_LARGE:
-          return LEXENDDECA_18_FONT_ID;
       }
     case CHAREINK:
       switch (fontSize) {
+        case TINY:
+          return CHAREINK_10_FONT_ID;
         case SMALL:
           return CHAREINK_12_FONT_ID;
         case MEDIUM:
-        default:
           return CHAREINK_14_FONT_ID;
         case LARGE:
+        default:
           return CHAREINK_16_FONT_ID;
-        case EXTRA_LARGE:
-          return CHAREINK_18_FONT_ID;
       }
+#ifndef OMIT_ATKINSON_FONT
     case ATKINSONHL:
       switch (fontSize) {
+        case TINY:
+          return ATKINSONHL_10_FONT_ID;
         case SMALL:
           return ATKINSONHL_12_FONT_ID;
         case MEDIUM:
-        default:
           return ATKINSONHL_14_FONT_ID;
         case LARGE:
+        default:
           return ATKINSONHL_16_FONT_ID;
-        case EXTRA_LARGE:
-          return ATKINSONHL_18_FONT_ID;
+      }
+#endif  // OMIT_ATKINSON_FONT
+    case BITTER:
+      switch (fontSize) {
+        case TINY:
+          return BITTER_10_FONT_ID;
+        case SMALL:
+          return BITTER_12_FONT_ID;
+        case MEDIUM:
+          return BITTER_14_FONT_ID;
+        case LARGE:
+        default:
+          return BITTER_16_FONT_ID;
       }
   }
 }

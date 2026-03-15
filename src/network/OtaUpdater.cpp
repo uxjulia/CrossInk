@@ -1,3 +1,10 @@
+#ifdef SIMULATOR
+#include "OtaUpdater.h"
+bool OtaUpdater::isUpdateNewer() const { return false; }
+const std::string& OtaUpdater::getLatestVersion() const { return latestVersion; }
+OtaUpdater::OtaUpdaterError OtaUpdater::checkForUpdate() { return NO_UPDATE; }
+OtaUpdater::OtaUpdaterError OtaUpdater::installUpdate() { return NO_UPDATE; }
+#else
 #include "OtaUpdater.h"
 
 #include <ArduinoJson.h>
@@ -270,3 +277,4 @@ OtaUpdater::OtaUpdaterError OtaUpdater::installUpdate() {
   LOG_INF("OTA", "Update completed");
   return OK;
 }
+#endif

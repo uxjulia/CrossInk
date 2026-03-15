@@ -3,8 +3,8 @@
 #include <vector>
 
 #include "../Activity.h"
-#include "./FileBrowserActivity.h"
 #include "../reader/BookReadingStats.h"
+#include "./FileBrowserActivity.h"
 #include "util/ButtonNavigator.h"
 
 struct RecentBook;

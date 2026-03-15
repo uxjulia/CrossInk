@@ -108,8 +108,11 @@ void EpubReaderActivity::onExit() {
   APP_STATE.saveToFile();
 
   // Accumulate this session's reading time and persist final stats.
+  // Ignore sessions shorter than 3 seconds to avoid skewing the average.
   const unsigned long elapsedMs = millis() - sessionStartMs;
-  stats.totalReadingSeconds += static_cast<uint32_t>(elapsedMs / 1000UL);
+  if (elapsedMs >= 3000UL) {
+    stats.totalReadingSeconds += static_cast<uint32_t>(elapsedMs / 1000UL);
+  }
   stats.save(epub->getCachePath());
 
   section.reset();
@@ -167,6 +170,10 @@ void EpubReaderActivity::loop() {
                              const auto& menu = std::get<MenuResult>(result.data);
                              applyOrientation(menu.orientation);
                              toggleAutoPageTurn(menu.pageTurnOption);
+                             if (menu.settingsChanged) {
+                               RenderLock lock(*this);
+                               section.reset();  // Force re-layout with changed reader settings
+                             }
                              if (!result.isCancelled) {
                                onReaderMenuConfirm(static_cast<EpubReaderMenuActivity::MenuAction>(menu.action));
                              }
@@ -398,9 +405,8 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
       // Include elapsed time from the current session in the display stats.
       BookReadingStats displayStats = stats;
       displayStats.totalReadingSeconds += static_cast<uint32_t>((millis() - sessionStartMs) / 1000UL);
-      startActivityForResult(
-          std::make_unique<BookStatsActivity>(renderer, mappedInput, epub->getTitle(), displayStats),
-          [this](const ActivityResult&) { requestUpdate(); });
+      startActivityForResult(std::make_unique<BookStatsActivity>(renderer, mappedInput, epub->getTitle(), displayStats),
+                             [this](const ActivityResult&) { requestUpdate(); });
       break;
     }
     case EpubReaderMenuActivity::MenuAction::SYNC: {

@@ -552,12 +552,10 @@ void BaseTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
       char line1[64];
       snprintf(line1, sizeof(line1), "%s%s", tr(STR_STATS_TOTAL_TIME), buf);
       renderer.drawCenteredText(SMALL_FONT_ID, statsBottomY - statsLineHeight * 2, line1, !bookSelected);
-      if (stats->sessionCount > 0) {
-        BookReadingStats::formatDuration(stats->totalReadingSeconds / stats->sessionCount, buf, sizeof(buf));
-        char line2[64];
-        snprintf(line2, sizeof(line2), "%s%s", tr(STR_STATS_AVG_SESSION), buf);
-        renderer.drawCenteredText(SMALL_FONT_ID, statsBottomY - statsLineHeight, line2, !bookSelected);
-      }
+      BookReadingStats::formatDuration(stats->totalReadingSeconds / stats->sessionCount, buf, sizeof(buf));
+      char line2[64];
+      snprintf(line2, sizeof(line2), "%s%s", tr(STR_STATS_AVG_SESSION), buf);
+      renderer.drawCenteredText(SMALL_FONT_ID, statsBottomY - statsLineHeight, line2, !bookSelected);
     }
 
     // "Continue Reading" label at the bottom

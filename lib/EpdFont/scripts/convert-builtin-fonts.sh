@@ -5,7 +5,7 @@ set -e
 cd "$(dirname "$0")"
 
 READER_FONT_STYLES=("Regular" "Italic" "Bold" "BoldItalic")
-READER_FONT_SIZES=(12 14 16 18)
+READER_FONT_SIZES=(10 12 14 16)
 
 for size in ${READER_FONT_SIZES[@]}; do
   for style in ${READER_FONT_STYLES[@]}; do
@@ -21,9 +21,23 @@ for size in ${READER_FONT_SIZES[@]}; do
   for style in ${READER_FONT_STYLES[@]}; do
     font_name="lexenddeca_${size}_$(echo $style | tr '[:upper:]' '[:lower:]')"
     if [ "$style" = "BoldItalic" ]; then
-      font_path="../builtinFonts/source/LexendDeca/LexendDeca-ItalicBold.ttf"
+      font_path="../builtinFonts/source/LexendDeca/LexendDeca-BoldItalic.ttf"
     else
       font_path="../builtinFonts/source/LexendDeca/LexendDeca-${style}.ttf"
+    fi
+    output_path="../builtinFonts/${font_name}.h"
+    python fontconvert.py $font_name $size $font_path --2bit --compress > $output_path
+    echo "Generated $output_path"
+  done
+done
+
+for size in ${READER_FONT_SIZES[@]}; do
+  for style in ${READER_FONT_STYLES[@]}; do
+    font_name="bitter_${size}_$(echo $style | tr '[:upper:]' '[:lower:]')"
+    if [ "$style" = "BoldItalic" ]; then
+      font_path="../builtinFonts/source/Bitter/Bitter-BoldItalic.ttf"
+    else
+      font_path="../builtinFonts/source/Bitter/Bitter-${style}.ttf"
     fi
     output_path="../builtinFonts/${font_name}.h"
     python fontconvert.py $font_name $size $font_path --2bit --compress > $output_path
@@ -54,7 +68,7 @@ for size in ${UI_FONT_SIZES[@]}; do
   done
 done
 
-python fontconvert.py notosans_8_regular 8 ../builtinFonts/source/NotoSans/NotoSans-Regular.ttf > ../builtinFonts/notosans_8_regular.h
+python fontconvert.py inter_8_regular 8 ../builtinFonts/source/Inter/Inter-Regular.ttf > ../builtinFonts/inter_8_regular.h
 
 echo ""
 echo "Running compression verification..."

@@ -13,9 +13,9 @@
 #include <functional>
 #include <vector>
 
+#include "../reader/BookReadingStats.h"
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
-#include "../reader/BookReadingStats.h"
 #include "MappedInputManager.h"
 #include "RecentBooksStore.h"
 #include "components/UITheme.h"
@@ -123,8 +123,7 @@ void HomeActivity::onEnter() {
   // Load reading stats for the most recent EPUB book so they can be shown on the home card.
   currentBookStats = BookReadingStats{};
   if (!recentBooks.empty() && FsHelpers::hasEpubExtension(recentBooks[0].path)) {
-    const std::string cachePath =
-        "/.crosspoint/epub_" + std::to_string(std::hash<std::string>{}(recentBooks[0].path));
+    const std::string cachePath = "/.crosspoint/epub_" + std::to_string(std::hash<std::string>{}(recentBooks[0].path));
     currentBookStats = BookReadingStats::load(cachePath);
   }
 
