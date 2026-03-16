@@ -1,9 +1,10 @@
 #include "ReaderOptionsActivity.h"
 
-#include <algorithm>
-#include <iterator>
 #include <GfxRenderer.h>
 #include <I18n.h>
+
+#include <algorithm>
+#include <iterator>
 
 #include "CrossPointSettings.h"
 #include "MappedInputManager.h"

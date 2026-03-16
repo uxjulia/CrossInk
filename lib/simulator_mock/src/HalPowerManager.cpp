@@ -1,4 +1,5 @@
 #include "HalPowerManager.h"
+
 #include "HalGPIO.h"
 
 HalPowerManager powerManager;

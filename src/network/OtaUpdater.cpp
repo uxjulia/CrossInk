@@ -5,11 +5,10 @@ const std::string& OtaUpdater::getLatestVersion() const { return latestVersion; 
 OtaUpdater::OtaUpdaterError OtaUpdater::checkForUpdate() { return NO_UPDATE; }
 OtaUpdater::OtaUpdaterError OtaUpdater::installUpdate() { return NO_UPDATE; }
 #else
-#include "OtaUpdater.h"
-
 #include <ArduinoJson.h>
 #include <Logging.h>
 
+#include "OtaUpdater.h"
 #include "esp_http_client.h"
 #include "esp_https_ota.h"
 #include "esp_wifi.h"

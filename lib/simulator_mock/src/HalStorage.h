@@ -6,8 +6,9 @@
 
 #include <memory>
 #include <string>
-#include "WString.h"
 #include <vector>
+
+#include "WString.h"
 
 class HalFile;
 

@@ -3,17 +3,12 @@
 #include <cstdint>
 
 // Dummy QR code library for simulator
-enum QrCodeEcc {
-    ECC_LOW = 0,
-    ECC_MEDIUM,
-    ECC_QUARTILE,
-    ECC_HIGH
-};
+enum QrCodeEcc { ECC_LOW = 0, ECC_MEDIUM, ECC_QUARTILE, ECC_HIGH };
 
 class QRCode {
-public:
-    uint8_t size;
-    QRCode() : size(0) {}
+ public:
+  uint8_t size;
+  QRCode() : size(0) {}
 };
 
 uint32_t qrcode_getBufferSize(uint8_t version);

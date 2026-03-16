@@ -1,5 +1,7 @@
 #include "HalGPIO.h"
+
 #include <SDL2/SDL.h>
+
 #include <atomic>
 
 // Defined in HalDisplay.cpp — set here so all SDL event polling lives in one place.
@@ -31,84 +33,84 @@ static bool releasedThisFrame[NUM_BUTTONS] = {};
 static unsigned long buttonPressTime[NUM_BUTTONS] = {};
 
 static int scancodeToButton(SDL_Scancode sc) {
-    for (int i = 0; i < NUM_BUTTONS; i++) {
-        if (buttonScancode[i] == sc) return i;
-    }
-    return -1;
+  for (int i = 0; i < NUM_BUTTONS; i++) {
+    if (buttonScancode[i] == sc) return i;
+  }
+  return -1;
 }
 
 void HalGPIO::begin() {}
 
 void HalGPIO::update() {
-    // Reset per-frame state
-    for (int i = 0; i < NUM_BUTTONS; i++) {
-        pressedThisFrame[i] = false;
-        releasedThisFrame[i] = false;
-    }
+  // Reset per-frame state
+  for (int i = 0; i < NUM_BUTTONS; i++) {
+    pressedThisFrame[i] = false;
+    releasedThisFrame[i] = false;
+  }
 
-    // HalGPIO owns all SDL event polling so keyboard and quit events are never
-    // split between two callers (HalDisplay::presentIfNeeded only renders).
-    SDL_Event e;
-    while (SDL_PollEvent(&e) != 0) {
-        if (e.type == SDL_QUIT) {
-            quitRequested.store(true);
-        } else if (e.type == SDL_KEYDOWN && !e.key.repeat) {
-            int btn = scancodeToButton(e.key.keysym.scancode);
-            if (btn >= 0) {
-                pressedThisFrame[btn] = true;
-                buttonPressTime[btn] = SDL_GetTicks();
-            }
-        } else if (e.type == SDL_KEYUP) {
-            int btn = scancodeToButton(e.key.keysym.scancode);
-            if (btn >= 0) {
-                releasedThisFrame[btn] = true;
-            }
-        }
+  // HalGPIO owns all SDL event polling so keyboard and quit events are never
+  // split between two callers (HalDisplay::presentIfNeeded only renders).
+  SDL_Event e;
+  while (SDL_PollEvent(&e) != 0) {
+    if (e.type == SDL_QUIT) {
+      quitRequested.store(true);
+    } else if (e.type == SDL_KEYDOWN && !e.key.repeat) {
+      int btn = scancodeToButton(e.key.keysym.scancode);
+      if (btn >= 0) {
+        pressedThisFrame[btn] = true;
+        buttonPressTime[btn] = SDL_GetTicks();
+      }
+    } else if (e.type == SDL_KEYUP) {
+      int btn = scancodeToButton(e.key.keysym.scancode);
+      if (btn >= 0) {
+        releasedThisFrame[btn] = true;
+      }
     }
+  }
 }
 
 bool HalGPIO::isPressed(uint8_t buttonIndex) const {
-    if (buttonIndex >= NUM_BUTTONS) return false;
-    const uint8_t* state = SDL_GetKeyboardState(NULL);
-    return state[buttonScancode[buttonIndex]];
+  if (buttonIndex >= NUM_BUTTONS) return false;
+  const uint8_t* state = SDL_GetKeyboardState(NULL);
+  return state[buttonScancode[buttonIndex]];
 }
 
 bool HalGPIO::wasPressed(uint8_t buttonIndex) const {
-    if (buttonIndex >= NUM_BUTTONS) return false;
-    return pressedThisFrame[buttonIndex];
+  if (buttonIndex >= NUM_BUTTONS) return false;
+  return pressedThisFrame[buttonIndex];
 }
 
 bool HalGPIO::wasReleased(uint8_t buttonIndex) const {
-    if (buttonIndex >= NUM_BUTTONS) return false;
-    return releasedThisFrame[buttonIndex];
+  if (buttonIndex >= NUM_BUTTONS) return false;
+  return releasedThisFrame[buttonIndex];
 }
 
 bool HalGPIO::wasAnyPressed() const {
-    for (int i = 0; i < NUM_BUTTONS; i++) {
-        if (pressedThisFrame[i]) return true;
-    }
-    return false;
+  for (int i = 0; i < NUM_BUTTONS; i++) {
+    if (pressedThisFrame[i]) return true;
+  }
+  return false;
 }
 
 bool HalGPIO::wasAnyReleased() const {
-    for (int i = 0; i < NUM_BUTTONS; i++) {
-        if (releasedThisFrame[i]) return true;
-    }
-    return false;
+  for (int i = 0; i < NUM_BUTTONS; i++) {
+    if (releasedThisFrame[i]) return true;
+  }
+  return false;
 }
 
 unsigned long HalGPIO::getHeldTime() const {
-    // Return the longest held time among all currently pressed buttons
-    unsigned long now = SDL_GetTicks();
-    unsigned long maxHeld = 0;
-    const uint8_t* state = SDL_GetKeyboardState(NULL);
-    for (int i = 0; i < NUM_BUTTONS; i++) {
-        if (state[buttonScancode[i]] && buttonPressTime[i] > 0) {
-            unsigned long held = now - buttonPressTime[i];
-            if (held > maxHeld) maxHeld = held;
-        }
+  // Return the longest held time among all currently pressed buttons
+  unsigned long now = SDL_GetTicks();
+  unsigned long maxHeld = 0;
+  const uint8_t* state = SDL_GetKeyboardState(NULL);
+  for (int i = 0; i < NUM_BUTTONS; i++) {
+    if (state[buttonScancode[i]] && buttonPressTime[i] > 0) {
+      unsigned long held = now - buttonPressTime[i];
+      if (held > maxHeld) maxHeld = held;
     }
-    return maxHeld;
+  }
+  return maxHeld;
 }
 
 HalGPIO::WakeupReason HalGPIO::getWakeupReason() const { return WakeupReason::Other; }

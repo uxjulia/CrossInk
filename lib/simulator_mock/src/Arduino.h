@@ -11,43 +11,42 @@
 #define IRAM_ATTR
 #define DRAM_ATTR
 #define RTC_NOINIT_ATTR
-#define PGM_P const char *
+#define PGM_P const char*
 #define PSTR(s) (s)
 
-
-
-
 inline unsigned long millis() {
-    using namespace std::chrono;
-    return duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+  using namespace std::chrono;
+  return duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
 }
 
 inline unsigned long micros() {
-    using namespace std::chrono;
-    return duration_cast<microseconds>(system_clock::now().time_since_epoch()).count();
+  using namespace std::chrono;
+  return duration_cast<microseconds>(system_clock::now().time_since_epoch()).count();
 }
 
-inline void delay(unsigned long ms) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(ms));
-}
-inline void yield() {
-    std::this_thread::yield();
-}
+inline void delay(unsigned long ms) { std::this_thread::sleep_for(std::chrono::milliseconds(ms)); }
+inline void yield() { std::this_thread::yield(); }
 
-#include "WString.h"
-#include "Print.h"
 #include "HardwareSerial.h"
+#include "Print.h"
+#include "WString.h"
 
 struct ESPMock {
-    uint32_t getFreeHeap() { return 1024*1024; }
-    void restart() {}
-    uint32_t getHeapSize() { return 1024*1024; }
-    uint32_t getMinFreeHeap() { return 1024*1024; }
-    uint32_t getMaxAllocHeap() { return 1024*1024; }
+  uint32_t getFreeHeap() { return 1024 * 1024; }
+  void restart() {}
+  uint32_t getHeapSize() { return 1024 * 1024; }
+  uint32_t getMinFreeHeap() { return 1024 * 1024; }
+  uint32_t getMaxAllocHeap() { return 1024 * 1024; }
 };
 extern ESPMock ESP;
 
 inline long random(long max) { return std::rand() % max; }
 
-template <typename A, typename B> constexpr auto max(A a, B b) -> decltype(a > b ? a : b) { return a > b ? a : b; }
-template <typename A, typename B> constexpr auto min(A a, B b) -> decltype(a < b ? a : b) { return a < b ? a : b; }
+template <typename A, typename B>
+constexpr auto max(A a, B b) -> decltype(a > b ? a : b) {
+  return a > b ? a : b;
+}
+template <typename A, typename B>
+constexpr auto min(A a, B b) -> decltype(a < b ? a : b) {
+  return a < b ? a : b;
+}
