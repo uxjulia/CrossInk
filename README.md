@@ -16,9 +16,9 @@ My goal with this fork was to maintain the core Crosspoint firmware while integr
 
 ### Reader Fonts
 
-The default fonts have been replaced with Bitter, Lexend Deca, and Atkinson Hyperlegible. These fonts have been chosen specifically to improve reading fluency and e-ink performance. These 'sturdier' typefaces feature uniform stroke weights and open geometries, allowing the X4 to render crisp, high-contrast text while significantly reducing ghosting and artifacts.
+The default fonts have been replaced with Bitter, Lexend Deca, and Atkinson Hyperlegible. These fonts have been chosen specifically to improve reading fluency and e-ink performance. These 'sturdier' typefaces feature uniform stroke weights and open geometries, allowing the X4 to render crisp, high-contrast text with font-aliasing on while significantly reducing ghosting and artifacts.
 
-- [Bitter](https://fonts.google.com/specimen/Bitter) — A "contemporary" slab serif typeface for text, it is specially designed for comfortably reading on any computer or device.
+- [Bitter](https://fonts.google.com/specimen/Bitter) — A "contemporary" slab serif typeface for text, it is specially designed for comfortably reading on any computer or device. Note: The medium weight of Bitter has been chosen specifically for improved rendering on the X4.
 - [Lexend Deca](https://fonts.google.com/specimen/Lexend+Deca) — A sans-serif typeface designed to improve reading fluency
 - [Atkinson Hyperlegible](https://fonts.google.com/specimen/Atkinson+Hyperlegible) — A typeface designed specifically to increase legibility for readers with low vision, and to improve comprehension.
 - [ChareInk](https://www.mobileread.com/forums/showthread.php?t=184056) - An eReader-optimized typeface based off of [Charis](https://software.sil.org/charis/)

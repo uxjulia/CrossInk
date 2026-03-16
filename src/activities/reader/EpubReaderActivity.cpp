@@ -172,6 +172,11 @@ void EpubReaderActivity::loop() {
                              toggleAutoPageTurn(menu.pageTurnOption);
                              if (menu.settingsChanged) {
                                RenderLock lock(*this);
+                               if (section) {
+                                 cachedSpineIndex = currentSpineIndex;
+                                 cachedChapterTotalPageCount = section->pageCount;
+                                 nextPageNumber = section->currentPage;
+                               }
                                section.reset();  // Force re-layout with changed reader settings
                              }
                              if (!result.isCancelled) {
