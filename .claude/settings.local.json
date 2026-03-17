@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 scripts/gen_i18n.py lib/I18n/translations lib/I18n/)",
+      "Bash(ls /Users/home/Dev/crosspoint/lib/EpdFont/builtinFonts/lexenddeca_*.h)",
+      "Bash(brew list:*)",
+      "Read(//opt/homebrew/include/**)",
+      "Bash(python scripts/gen_i18n.py lib/I18n/translations lib/I18n/)"
+    ]
+  }
+}
