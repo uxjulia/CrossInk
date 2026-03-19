@@ -1,7 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "Bash(pio run:*)"
+      "Bash(pio run:*)",
+      "Bash(grep -l \"BookReadingStats\\\\|BookStatsActivity\" /Users/home/Dev/crossink-reader/src/activities/reader/*.cpp /Users/home/Dev/crossink-reader/src/activities/reader/*.h)",
+      "Bash(grep -E \"\\\\.h$|\\\\.cpp$\")"
     ]
   }
 }
