@@ -6,7 +6,7 @@ My goal with this fork was to maintain the core Crosspoint firmware while integr
 
 ### Summary
 
-- New reader fonts: Bitter, Lexend Deca, Atkinson Hyperlegible, ChareInk
+- New reader fonts: ChareInk, Lexend Deca, Bitter, and Atkinson Hyperlegible
 - Adjusted font sizes: Tiny (10pt), Small (12pt), Medium (14pt), Large (16pt)
 - In-book menu to quickly adjust font options without having to exit the book
 - Reading stats per book (total reading time, number of sessions, pages turned, average session time)
@@ -18,10 +18,10 @@ My goal with this fork was to maintain the core Crosspoint firmware while integr
 
 The default fonts have been replaced with Bitter, Lexend Deca, and Atkinson Hyperlegible. These fonts have been chosen specifically to improve reading fluency and e-ink performance. These 'sturdier' typefaces feature uniform stroke weights and open geometries, allowing the X4 to render crisp, high-contrast text with font-aliasing on while significantly reducing ghosting and artifacts.
 
-- [Bitter](https://fonts.google.com/specimen/Bitter) — A "contemporary" slab serif typeface for text, it is specially designed for comfortably reading on any computer or device. Note: The medium weight of Bitter has been chosen specifically for improved rendering on the X4.
-- [Lexend Deca](https://fonts.google.com/specimen/Lexend+Deca) — A sans-serif typeface designed to improve reading fluency
-- [Atkinson Hyperlegible](https://fonts.google.com/specimen/Atkinson+Hyperlegible) — A typeface designed specifically to increase legibility for readers with low vision, and to improve comprehension.
-- [ChareInk](https://www.mobileread.com/forums/showthread.php?t=184056) - An eReader-optimized typeface based off of [Charis](https://software.sil.org/charis/)
+- [ChareInk](https://www.mobileread.com/forums/showthread.php?t=184056) - A cult favorite among the e-reading community for over a decade based off of the typeface [Charis](https://software.sil.org/charis/). It is specially designed to make long texts pleasant and easy to read.
+- [Lexend Deca](https://fonts.google.com/specimen/Lexend+Deca) — A research-backed sans-serif typeface designed to improve reading fluency. Lexend was engineered based on the theory that reading issues are often a design problem (visual crowding) rather than a cognitive one.
+- [Bitter](https://fonts.google.com/specimen/Bitter) — A "contemporary" slab serif typeface for text, it is specially designed for comfortably reading on digital screens. The consistent stroke weight of Bitter helps it render particularly well on e-ink devices. The medium weight has been chosen specifically for improved rendering on the X4.
+- [Atkinson Hyperlegible Next](https://fonts.google.com/specimen/Atkinson+Hyperlegible+Next) — A sans-serif typeface designed specifically to increase legibility for readers with low vision, and to improve comprehension. Next is the latest iteration of Atkinson Hyperlegible that refines kerning and curves. The medium weight has been chosen specifically for improved rendering on the X4.
 
 The UI still uses [Ubuntu](https://fonts.google.com/specimen/Ubuntu) as the display font, however the old font used to display the smallest text on the UI, Noto Sans, has been replaced with [Inter](https://fonts.google.com/specimen/Inter), which has improved readability at smaller sizes.
 
@@ -38,7 +38,7 @@ I've removed the "Large" (18pt) font size in favor of a "Tiny" (10pt) font size.
 
 Reader settings (font, size, line spacing, margins, alignment, etc.) are now accessible directly from the in-book menu without leaving the book. Open the menu while reading and select **Reader Options** to adjust any reader setting on the spot. Changes take effect immediately.
 
-### Reading stats (Lyra theme only)
+### Reading stats
 
 Some simple per-book reading stats are tracked automatically and displayed in two places:
 
@@ -49,14 +49,14 @@ Some simple per-book reading stats are tracked automatically and displayed in tw
 - Pages turned
 - Average session time
 
-**Home screen book card:**
+**Home screen book card (Lyra theme only):**
 
 - Total reading time
 - Average session time
 
 ### Development Device Simulator
 
-A [device simulator](https://github.com/uxjulia/crosspoint-simulator) has been added for development purposes to quickly sanity check updates without having to flash the firmware every time. It renders the e-ink display in an SDL2 window.
+A [device simulator](https://github.com/uxjulia/crosspoint-simulator) has been added for development purposes to quickly sanity check updates without having to flash the firmware every time. It renders the e-ink display in an SDL2 window. Use with Platformio by choosing the `simulator` environment.
 
 > **Platform support:** The simulator is currently configured for **macOS (Apple Silicon)** only. The `platformio.ini` `[env:simulator]` section contains hardcoded `-arch arm64` and Homebrew paths (`/opt/homebrew`). Intel Mac users need to remove `-arch arm64` and change those paths to `/usr/local`. Linux requires the same path changes plus a replacement for `lib/simulator_mock/src/MD5Builder.h` (which uses the macOS-only `CommonCrypto` API). Native Windows is not supported; use WSL and follow the Linux instructions.
 
