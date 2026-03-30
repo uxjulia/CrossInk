@@ -9,8 +9,8 @@
 #include "fontIds.h"
 
 BookStatsActivity::BookStatsActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, const std::string& title,
-                                     const BookReadingStats& stats)
-    : Activity("BookStats", renderer, mappedInput), bookTitle(title), stats(stats) {}
+                                     const BookReadingStats& stats, const GlobalReadingStats& globalStats)
+    : Activity("BookStats", renderer, mappedInput), bookTitle(title), stats(stats), globalStats(globalStats) {}
 
 void BookStatsActivity::onEnter() {
   Activity::onEnter();
@@ -115,6 +115,33 @@ void BookStatsActivity::render(RenderLock&&) {
 
   y += cellH;
   renderer.drawLine(0, y, screenWidth, y, true);
+  y += metrics.verticalSpacing;
+
+  // ─── Section 3: "ALL TIME" ─────────────────────────────────────────────────
+  // Only rendered if there is enough vertical space before the button hints.
+  const int screenHeight = renderer.getScreenHeight();
+  const int spaceNeeded = sectionHeaderH + cellH + 1;
+  const int spaceAvailable = screenHeight - y - metrics.buttonHintsHeight - metrics.verticalSpacing;
+  if (spaceAvailable >= spaceNeeded) {
+    renderer.fillRect(0, y, screenWidth, sectionHeaderH);
+    renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding, y + 9, tr(STR_STATS_ALL_TIME), false,
+                      EpdFontFamily::BOLD);
+    y += sectionHeaderH;
+
+    snprintf(buf, sizeof(buf), "%lu", static_cast<unsigned long>(globalStats.totalSessions));
+    drawStatCell(0, thirdW, buf, tr(STR_STATS_SESSIONS_LBL));
+    renderer.drawLine(thirdW, y + 12, thirdW, y + cellH - 12, true);
+
+    BookReadingStats::formatDuration(globalStats.totalReadingSeconds, buf, sizeof(buf));
+    drawStatCell(thirdW, thirdW, buf, tr(STR_STATS_TIME_LBL));
+    renderer.drawLine(thirdW * 2, y + 12, thirdW * 2, y + cellH - 12, true);
+
+    snprintf(buf, sizeof(buf), "%lu", static_cast<unsigned long>(globalStats.totalPagesTurned));
+    drawStatCell(thirdW * 2, thirdW, buf, tr(STR_STATS_PAGES_LBL));
+
+    y += cellH;
+    renderer.drawLine(0, y, screenWidth, y, true);
+  }
 
   // Button hint
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");

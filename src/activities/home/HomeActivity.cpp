@@ -132,6 +132,8 @@ void HomeActivity::onEnter() {
   }
   hasReadingStats = currentBookStats.sessionCount > 0;
 
+  globalStats = GlobalReadingStats::load();
+
   // Trigger first update
   requestUpdate();
 }
@@ -297,6 +299,6 @@ void HomeActivity::onOpdsBrowserOpen() { activityManager.goToBrowser(); }
 
 void HomeActivity::onReadingStatsOpen() {
   startActivityForResult(
-      std::make_unique<BookStatsActivity>(renderer, mappedInput, recentBooks[0].title, currentBookStats),
+      std::make_unique<BookStatsActivity>(renderer, mappedInput, recentBooks[0].title, currentBookStats, globalStats),
       [this](const ActivityResult&) { requestUpdate(); });
 }

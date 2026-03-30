@@ -89,6 +89,11 @@ void EpubReaderActivity::onEnter() {
   sessionStartMs = millis();
   stats.save(epub->getCachePath());
 
+  // Mirror session count increment in global stats.
+  globalStats = GlobalReadingStats::load();
+  globalStats.totalSessions++;
+  globalStats.save();
+
   // Save current epub as last opened epub and add to recent books
   APP_STATE.openEpubPath = epub->getPath();
   APP_STATE.saveToFile();
@@ -111,9 +116,12 @@ void EpubReaderActivity::onExit() {
   // Ignore sessions shorter than 3 seconds to avoid skewing the average.
   const unsigned long elapsedMs = millis() - sessionStartMs;
   if (elapsedMs >= 3000UL) {
-    stats.totalReadingSeconds += static_cast<uint32_t>(elapsedMs / 1000UL);
+    const uint32_t elapsedSecs = static_cast<uint32_t>(elapsedMs / 1000UL);
+    stats.totalReadingSeconds += elapsedSecs;
+    globalStats.totalReadingSeconds += elapsedSecs;
   }
   stats.save(epub->getCachePath());
+  globalStats.save();
 
   section.reset();
   epub.reset();
@@ -410,7 +418,7 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
       // Include elapsed time from the current session in the display stats.
       BookReadingStats displayStats = stats;
       displayStats.totalReadingSeconds += static_cast<uint32_t>((millis() - sessionStartMs) / 1000UL);
-      startActivityForResult(std::make_unique<BookStatsActivity>(renderer, mappedInput, epub->getTitle(), displayStats),
+      startActivityForResult(std::make_unique<BookStatsActivity>(renderer, mappedInput, epub->getTitle(), displayStats, globalStats),
                              [this](const ActivityResult&) { requestUpdate(); });
       break;
     }
@@ -517,6 +525,7 @@ void EpubReaderActivity::pageTurn(bool isForwardTurn) {
     }
   }
   stats.totalPagesTurned++;
+  globalStats.totalPagesTurned++;
   lastPageTurnTime = millis();
   requestUpdate();
 }
