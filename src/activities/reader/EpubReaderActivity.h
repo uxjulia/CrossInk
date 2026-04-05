@@ -3,6 +3,8 @@
 #include <Epub/FootnoteEntry.h>
 #include <Epub/Section.h>
 
+#include "BookReadingStats.h"
+#include "GlobalReadingStats.h"
 #include "EpubReaderMenuActivity.h"
 #include "activities/Activity.h"
 
@@ -19,6 +21,9 @@ class EpubReaderActivity final : public Activity {
   int cachedChapterTotalPageCount = 0;
   unsigned long lastPageTurnTime = 0UL;
   unsigned long pageTurnDuration = 0UL;
+  BookReadingStats stats;
+  GlobalReadingStats globalStats;
+  unsigned long sessionStartMs = 0UL;
   // Signals that the next render should reposition within the newly loaded section
   // based on a cross-book percentage jump.
   bool pendingPercentJump = false;

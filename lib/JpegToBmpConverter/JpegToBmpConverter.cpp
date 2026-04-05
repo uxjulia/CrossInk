@@ -2,6 +2,7 @@
 
 #include <HalDisplay.h>
 #include <HalStorage.h>
+#include <JPEGDEC.h>
 #include <Logging.h>
 #include <picojpeg.h>
 
@@ -197,9 +198,254 @@ unsigned char JpegToBmpConverter::jpegReadCallback(unsigned char* pBuf, const un
   return 0;  // Success
 }
 
+// ============================================================================
+// JPEGDEC-based fallback for progressive JPEGs (unsupported by picojpeg)
+// ============================================================================
+
+// Opens a fresh read-only FsFile by path so JPEGDEC gets an uncontaminated
+// file handle.  The existing FsFile (partially consumed by picojpeg) is not
+// reused — attempting seekSet(0) on it is unreliable after picojpeg reads
+// ahead to detect the SOF2 marker.
+static void* jpegDecBmpFileOpen(const char* filename, int32_t* size) {
+  FsFile* f = new (std::nothrow) FsFile();
+  if (!f) return nullptr;
+  if (!Storage.openFileForRead("JPG", std::string(filename), *f)) {
+    delete f;
+    return nullptr;
+  }
+  *size = static_cast<int32_t>(f->size());
+  return f;
+}
+static void jpegDecBmpFileClose(void* handle) {
+  FsFile* f = static_cast<FsFile*>(handle);
+  f->close();
+  delete f;
+}
+static int32_t jpegDecBmpFileRead(JPEGFILE* pFile, uint8_t* buf, int32_t len) {
+  FsFile* f = static_cast<FsFile*>(pFile->fHandle);
+  int32_t n = f->read(buf, len);
+  if (n < 0) n = 0;
+  pFile->iPos += n;
+  return n;
+}
+static int32_t jpegDecBmpFileSeek(JPEGFILE* pFile, int32_t pos) {
+  FsFile* f = static_cast<FsFile*>(pFile->fHandle);
+  if (!f->seekSet(pos)) return -1;
+  pFile->iPos = pos;
+  return pos;
+}
+
+struct JpegDecBmpContext {
+  Print* bmpOut;
+  int scaledSrcWidth;
+  int scaledSrcHeight;
+  int outWidth;
+  int outHeight;
+  uint8_t* rowBuffer;
+  int bytesPerRow;
+  bool oneBit;
+  AtkinsonDitherer* atkinsonDitherer;
+  Atkinson1BitDitherer* atkinson1BitDitherer;
+  int lastFlushedOutY;
+};
+
+static int jpegDecBmpDrawCallback(JPEGDRAW* pDraw) {
+  JpegDecBmpContext* ctx = static_cast<JpegDecBmpContext*>(pDraw->pUser);
+  uint8_t* pixels = reinterpret_cast<uint8_t*>(pDraw->pPixels);
+  const int blockY = pDraw->y;
+  const int blockH = pDraw->iHeight;
+  const int stride = pDraw->iWidth;
+  const int validW = pDraw->iWidthUsed;
+
+  for (int row = 0; row < blockH; row++) {
+    const int srcY = blockY + row;
+    if (srcY >= ctx->scaledSrcHeight) break;
+
+    // Map source Y → output Y (nearest-neighbour)
+    const int outY = static_cast<int>(static_cast<int64_t>(srcY) * ctx->outHeight / ctx->scaledSrcHeight);
+    if (outY >= ctx->outHeight) break;
+    if (outY <= ctx->lastFlushedOutY) continue;
+
+    // Build output row with nearest-neighbour X mapping
+    memset(ctx->rowBuffer, 0, ctx->bytesPerRow);
+    const uint8_t* srcRow = pixels + row * stride;
+
+    for (int outX = 0; outX < ctx->outWidth; outX++) {
+      int srcX = static_cast<int>(static_cast<int64_t>(outX) * ctx->scaledSrcWidth / ctx->outWidth);
+      if (srcX >= validW) srcX = validW - 1;
+      const uint8_t gray = srcRow[srcX];
+
+      if (ctx->oneBit) {
+        const uint8_t bit = ctx->atkinson1BitDitherer ? ctx->atkinson1BitDitherer->processPixel(gray, outX)
+                                                      : quantize1bit(gray, outX, outY);
+        ctx->rowBuffer[outX / 8] |= static_cast<uint8_t>(bit << (7 - (outX % 8)));
+      } else {
+        const uint8_t adj = adjustPixel(gray);
+        const uint8_t twoBit =
+            ctx->atkinsonDitherer ? ctx->atkinsonDitherer->processPixel(adj, outX) : quantize(adj, outX, outY);
+        ctx->rowBuffer[(outX * 2) / 8] |= static_cast<uint8_t>(twoBit << (6 - ((outX * 2) % 8)));
+      }
+    }
+    if (ctx->oneBit && ctx->atkinson1BitDitherer)
+      ctx->atkinson1BitDitherer->nextRow();
+    else if (ctx->atkinsonDitherer)
+      ctx->atkinsonDitherer->nextRow();
+
+    // For upscaling: repeat this row for any output rows between last flush and outY
+    for (int oy = ctx->lastFlushedOutY + 1; oy <= outY; oy++) {
+      ctx->bmpOut->write(ctx->rowBuffer, ctx->bytesPerRow);
+    }
+    ctx->lastFlushedOutY = outY;
+  }
+  return 1;
+}
+
+// Decodes a progressive (or any) JPEG to BMP using JPEGDEC when picojpeg
+// has rejected the file.  Progressive JPEGs are decoded at 1/8 resolution
+// (DC coefficients only), which is then scaled to the target dimensions.
+static bool jpegFileToBmpStreamViaJpegDec(const char* filePath, Print& bmpOut, int targetWidth, int targetHeight,
+                                          bool oneBit) {
+  if (!filePath) {
+    LOG_ERR("JPG", "JPEGDEC fallback: no file path provided");
+    return false;
+  }
+  constexpr size_t MIN_FREE_HEAP = 28 * 1024;  // ~20 KB decoder + 8 KB headroom
+  if (ESP.getFreeHeap() < MIN_FREE_HEAP) {
+    LOG_ERR("JPG", "Not enough heap for JPEGDEC fallback (%u free)", ESP.getFreeHeap());
+    return false;
+  }
+
+  JPEGDEC* jpeg = new (std::nothrow) JPEGDEC();
+  if (!jpeg) {
+    LOG_ERR("JPG", "JPEGDEC fallback: failed to allocate decoder");
+    return false;
+  }
+
+  // Pass filePath as the filename so jpegDecBmpFileOpen can open a fresh handle
+  int rc = jpeg->open(filePath, jpegDecBmpFileOpen, jpegDecBmpFileClose, jpegDecBmpFileRead, jpegDecBmpFileSeek,
+                      jpegDecBmpDrawCallback);
+  if (rc != 1) {
+    LOG_ERR("JPG", "JPEGDEC fallback: open failed (err=%d)", jpeg->getLastError());
+    delete jpeg;
+    return false;
+  }
+
+  const int srcWidth = jpeg->getWidth();
+  const int srcHeight = jpeg->getHeight();
+
+  // Progressive JPEGs are always decoded at 1/8 scale (DC coefficients only).
+  // Baseline JPEGs reaching this path get the best fitting integer scale.
+  const bool isProgressive = jpeg->getJPEGType() == JPEG_MODE_PROGRESSIVE;
+  int scaleOption;
+  int scaleDenom;
+  if (isProgressive) {
+    scaleOption = JPEG_SCALE_EIGHTH;
+    scaleDenom = 8;
+  } else {
+    const float ts = (targetWidth > 0 && targetHeight > 0) ? std::min(static_cast<float>(targetWidth) / srcWidth,
+                                                                      static_cast<float>(targetHeight) / srcHeight)
+                                                           : 1.0f;
+    if (ts <= 0.125f) {
+      scaleOption = JPEG_SCALE_EIGHTH;
+      scaleDenom = 8;
+    } else if (ts <= 0.25f) {
+      scaleOption = JPEG_SCALE_QUARTER;
+      scaleDenom = 4;
+    } else if (ts <= 0.5f) {
+      scaleOption = JPEG_SCALE_HALF;
+      scaleDenom = 2;
+    } else {
+      scaleOption = 0;
+      scaleDenom = 1;
+    }
+  }
+
+  const int scaledSrcW = (srcWidth + scaleDenom - 1) / scaleDenom;
+  const int scaledSrcH = (srcHeight + scaleDenom - 1) / scaleDenom;
+
+  // Compute output dimensions preserving aspect ratio
+  int outWidth = scaledSrcW;
+  int outHeight = scaledSrcH;
+  if (targetWidth > 0 && targetHeight > 0) {
+    const float scaleW = static_cast<float>(targetWidth) / scaledSrcW;
+    const float scaleH = static_cast<float>(targetHeight) / scaledSrcH;
+    const float scale = std::min(scaleW, scaleH);
+    outWidth = std::max(1, static_cast<int>(scaledSrcW * scale));
+    outHeight = std::max(1, static_cast<int>(scaledSrcH * scale));
+  }
+
+  LOG_INF("JPG", "JPEGDEC fallback: %dx%d -> scaled %dx%d -> out %dx%d%s", srcWidth, srcHeight, scaledSrcW, scaledSrcH,
+          outWidth, outHeight, isProgressive ? " [progressive/DC-only]" : "");
+
+  // Write BMP header
+  int bytesPerRow;
+  if (oneBit) {
+    writeBmpHeader1bit(bmpOut, outWidth, outHeight);
+    bytesPerRow = (outWidth + 31) / 32 * 4;
+  } else {
+    writeBmpHeader2bit(bmpOut, outWidth, outHeight);
+    bytesPerRow = (outWidth * 2 + 31) / 32 * 4;
+  }
+
+  uint8_t* rowBuffer = static_cast<uint8_t*>(malloc(bytesPerRow));
+  if (!rowBuffer) {
+    LOG_ERR("JPG", "JPEGDEC fallback: failed to alloc row buffer");
+    jpeg->close();
+    delete jpeg;
+    return false;
+  }
+  memset(rowBuffer, 0, bytesPerRow);
+
+  AtkinsonDitherer* atkinsonDitherer = nullptr;
+  Atkinson1BitDitherer* atkinson1BitDitherer = nullptr;
+  if (oneBit) {
+    atkinson1BitDitherer = new (std::nothrow) Atkinson1BitDitherer(outWidth);
+  } else {
+    atkinsonDitherer = new (std::nothrow) AtkinsonDitherer(outWidth);
+  }
+
+  JpegDecBmpContext ctx;
+  ctx.bmpOut = &bmpOut;
+  ctx.scaledSrcWidth = scaledSrcW;
+  ctx.scaledSrcHeight = scaledSrcH;
+  ctx.outWidth = outWidth;
+  ctx.outHeight = outHeight;
+  ctx.rowBuffer = rowBuffer;
+  ctx.bytesPerRow = bytesPerRow;
+  ctx.oneBit = oneBit;
+  ctx.atkinsonDitherer = atkinsonDitherer;
+  ctx.atkinson1BitDitherer = atkinson1BitDitherer;
+  ctx.lastFlushedOutY = -1;
+
+  jpeg->setPixelType(EIGHT_BIT_GRAYSCALE);
+  jpeg->setUserPointer(&ctx);
+
+  const bool success = jpeg->decode(0, 0, scaleOption) == 1;
+
+  // Flush any remaining rows (source may end before full output height when upscaling)
+  if (success) {
+    for (int oy = ctx.lastFlushedOutY + 1; oy < outHeight; oy++) {
+      bmpOut.write(ctx.rowBuffer, bytesPerRow);
+    }
+  }
+
+  free(rowBuffer);
+  delete atkinsonDitherer;
+  delete atkinson1BitDitherer;
+  jpeg->close();
+  delete jpeg;
+
+  if (!success) {
+    LOG_ERR("JPG", "JPEGDEC fallback: decode failed");
+  }
+  return success;
+}
+
+// ============================================================================
+
 // Internal implementation with configurable target size and bit depth
 bool JpegToBmpConverter::jpegFileToBmpStreamInternal(FsFile& jpegFile, Print& bmpOut, int targetWidth, int targetHeight,
-                                                     bool oneBit, bool crop) {
+                                                     bool oneBit, bool crop, const char* filePath) {
   LOG_DBG("JPG", "Converting JPEG to %s BMP (target: %dx%d)", oneBit ? "1-bit" : "2-bit", targetWidth, targetHeight);
 
   // Setup context for picojpeg callback
@@ -209,6 +455,15 @@ bool JpegToBmpConverter::jpegFileToBmpStreamInternal(FsFile& jpegFile, Print& bm
   pjpeg_image_info_t imageInfo;
   const unsigned char status = pjpeg_decode_init(&imageInfo, jpegReadCallback, &context, 0);
   if (status != 0) {
+    if (status == PJPG_UNSUPPORTED_MODE) {
+      // Progressive JPEG — picojpeg doesn't support these.  Fall back to JPEGDEC
+      // which decodes progressive files using DC coefficients at 1/8 resolution.
+      // Close the existing handle first: SdFat will not allow a second reader
+      // on the same file while one is already open.
+      LOG_INF("JPG", "Progressive JPEG detected, using JPEGDEC fallback decoder");
+      jpegFile.close();
+      return jpegFileToBmpStreamViaJpegDec(filePath, bmpOut, targetWidth, targetHeight, oneBit);
+    }
     LOG_ERR("JPG", "JPEG decode init failed with error code: %d", status);
     return false;
   }
@@ -565,13 +820,13 @@ bool JpegToBmpConverter::jpegFileToBmpStream(FsFile& jpegFile, Print& bmpOut, bo
 }
 
 // Convert with custom target size (for thumbnails, 2-bit)
-bool JpegToBmpConverter::jpegFileToBmpStreamWithSize(FsFile& jpegFile, Print& bmpOut, int targetMaxWidth,
-                                                     int targetMaxHeight) {
-  return jpegFileToBmpStreamInternal(jpegFile, bmpOut, targetMaxWidth, targetMaxHeight, false);
+bool JpegToBmpConverter::jpegFileToBmpStreamWithSize(FsFile& jpegFile, Print& bmpOut, const char* filePath,
+                                                     int targetMaxWidth, int targetMaxHeight) {
+  return jpegFileToBmpStreamInternal(jpegFile, bmpOut, targetMaxWidth, targetMaxHeight, false, true, filePath);
 }
 
 // Convert to 1-bit BMP (black and white only, no grays) for fast home screen rendering
-bool JpegToBmpConverter::jpegFileTo1BitBmpStreamWithSize(FsFile& jpegFile, Print& bmpOut, int targetMaxWidth,
-                                                         int targetMaxHeight) {
-  return jpegFileToBmpStreamInternal(jpegFile, bmpOut, targetMaxWidth, targetMaxHeight, true, true);
+bool JpegToBmpConverter::jpegFileTo1BitBmpStreamWithSize(FsFile& jpegFile, Print& bmpOut, const char* filePath,
+                                                         int targetMaxWidth, int targetMaxHeight) {
+  return jpegFileToBmpStreamInternal(jpegFile, bmpOut, targetMaxWidth, targetMaxHeight, true, true, filePath);
 }

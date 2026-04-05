@@ -4,55 +4,75 @@ set -e
 
 cd "$(dirname "$0")"
 
-READER_FONT_STYLES=("Regular" "Italic" "Bold" "BoldItalic")
-BOOKERLY_FONT_SIZES=(12 14 16 18)
-NOTOSANS_FONT_SIZES=(12 14 16 18)
-OPENDYSLEXIC_FONT_SIZES=(8 10 12 14)
+EMOJI_FONT="../builtinFonts/source/NotoEmoji/NotoEmoji-Regular.ttf"
+SYMBOLS_FONT="../builtinFonts/source/NotoSymbols/NotoSansSymbols-Regular.ttf"
+SYMBOLS2_FONT="../builtinFonts/source/NotoSymbols/NotoSansSymbols2-Regular.ttf"
 
-for size in ${BOOKERLY_FONT_SIZES[@]}; do
-  for style in ${READER_FONT_STYLES[@]}; do
-    font_name="bookerly_${size}_$(echo $style | tr '[:upper:]' '[:lower:]')"
-    font_path="../builtinFonts/source/Bookerly/Bookerly-${style}.ttf"
+# Additional Unicode intervals to include beyond the default Latin/Cyrillic/math set.
+# 0x2600-0x26FF: Miscellaneous Symbols (♩♪♫♬♭♮♯ stars, hearts, etc.)
+# 0x1F600-0x1F64F: Emoticons (😀😂🙂 etc.)
+EMOJI_INTERVALS=(
+  --additional-intervals 0x2600,0x26FF
+  --additional-intervals 0x1F600,0x1F64F
+)
+
+READING_FONT_SIZES=(10 12 14 16)
+READING_FONT_STYLES=("Regular" "Bold" "Italic" "BoldItalic")
+
+# LEXEND DECA
+
+for size in ${READING_FONT_SIZES[@]}; do
+  for style in ${READING_FONT_STYLES[@]}; do
+    font_name="lexenddeca_${size}_$(echo $style | tr '[:upper:]' '[:lower:]')"
+    font_path="../builtinFonts/source/LexendDeca/LexendDeca-${style}.ttf"
     output_path="../builtinFonts/${font_name}.h"
-    python fontconvert.py $font_name $size $font_path --2bit --compress > $output_path
+    python fontconvert.py $font_name $size $font_path $EMOJI_FONT $SYMBOLS_FONT $SYMBOLS2_FONT "${EMOJI_INTERVALS[@]}" --2bit --compress > $output_path
     echo "Generated $output_path"
   done
 done
 
-for size in ${NOTOSANS_FONT_SIZES[@]}; do
-  for style in ${READER_FONT_STYLES[@]}; do
-    font_name="notosans_${size}_$(echo $style | tr '[:upper:]' '[:lower:]')"
-    font_path="../builtinFonts/source/NotoSans/NotoSans-${style}.ttf"
+# BITTER
+
+for size in ${READING_FONT_SIZES[@]}; do
+  for style in ${READING_FONT_STYLES[@]}; do
+    font_name="bitter_${size}_$(echo $style | tr '[:upper:]' '[:lower:]')"
+    font_path="../builtinFonts/source/Bitter/Bitter-${style}.ttf"
     output_path="../builtinFonts/${font_name}.h"
-    python fontconvert.py $font_name $size $font_path --2bit --compress > $output_path
+    python fontconvert.py $font_name $size $font_path $EMOJI_FONT $SYMBOLS_FONT $SYMBOLS2_FONT "${EMOJI_INTERVALS[@]}" --2bit --compress > $output_path
     echo "Generated $output_path"
   done
 done
 
-for size in ${OPENDYSLEXIC_FONT_SIZES[@]}; do
-  for style in ${READER_FONT_STYLES[@]}; do
-    font_name="opendyslexic_${size}_$(echo $style | tr '[:upper:]' '[:lower:]')"
-    font_path="../builtinFonts/source/OpenDyslexic/OpenDyslexic-${style}.otf"
+# CHARE INK
+
+for size in ${READING_FONT_SIZES[@]}; do
+  for style in ${READING_FONT_STYLES[@]}; do
+    font_name="charein_${size}_$(echo $style | tr '[:upper:]' '[:lower:]')"
+    font_path="../builtinFonts/source/ChareInk7/ChareInk7-${style}.ttf"
     output_path="../builtinFonts/${font_name}.h"
-    python fontconvert.py $font_name $size $font_path --2bit --compress > $output_path
+    python fontconvert.py $font_name $size $font_path $EMOJI_FONT $SYMBOLS_FONT $SYMBOLS2_FONT "${EMOJI_INTERVALS[@]}" --2bit --compress > $output_path
     echo "Generated $output_path"
   done
 done
+
+# UI Font - DM Sans
 
 UI_FONT_SIZES=(10 12)
 UI_FONT_STYLES=("Regular" "Bold")
 
 for size in ${UI_FONT_SIZES[@]}; do
   for style in ${UI_FONT_STYLES[@]}; do
-    font_name="ubuntu_${size}_$(echo $style | tr '[:upper:]' '[:lower:]')"
-    font_path="../builtinFonts/source/Ubuntu/Ubuntu-${style}.ttf"
+    font_name="dmsans_${size}_$(echo $style | tr '[:upper:]' '[:lower:]')"
+    font_path="../builtinFonts/source/DMSans/DMSans-${style}.ttf"
     output_path="../builtinFonts/${font_name}.h"
     python fontconvert.py $font_name $size $font_path > $output_path
     echo "Generated $output_path"
   done
 done
 
-python fontconvert.py notosans_8_regular 8 ../builtinFonts/source/NotoSans/NotoSans-Regular.ttf > ../builtinFonts/notosans_8_regular.h
+# Small UI Font - Inter
+
+python fontconvert.py inter_8_regular 8 ../builtinFonts/source/Inter/Inter-Regular.ttf > ../builtinFonts/inter_8_regular.h
 
 echo ""
 echo "Running compression verification..."

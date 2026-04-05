@@ -10,6 +10,7 @@
 #include <Logging.h>
 #include <esp_system.h>
 
+#include "BookStatsActivity.h"
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
 #include "EpubReaderChapterSelectionActivity.h"
@@ -81,6 +82,18 @@ void EpubReaderActivity::onEnter() {
     }
   }
 
+  // Load reading stats, increment session count, and record session start time.
+  // Stats are saved immediately so the session is counted even if the device crashes.
+  stats = BookReadingStats::load(epub->getCachePath());
+  stats.sessionCount++;
+  sessionStartMs = millis();
+  stats.save(epub->getCachePath());
+
+  // Mirror session count increment in global stats.
+  globalStats = GlobalReadingStats::load();
+  globalStats.totalSessions++;
+  globalStats.save();
+
   // Save current epub as last opened epub and add to recent books
   APP_STATE.openEpubPath = epub->getPath();
   APP_STATE.saveToFile();
@@ -98,6 +111,18 @@ void EpubReaderActivity::onExit() {
 
   APP_STATE.readerActivityLoadCount = 0;
   APP_STATE.saveToFile();
+
+  // Accumulate this session's reading time and persist final stats.
+  // Ignore sessions shorter than 3 seconds to avoid skewing the average.
+  const unsigned long elapsedMs = millis() - sessionStartMs;
+  if (elapsedMs >= 3000UL) {
+    const uint32_t elapsedSecs = static_cast<uint32_t>(elapsedMs / 1000UL);
+    stats.totalReadingSeconds += elapsedSecs;
+    globalStats.totalReadingSeconds += elapsedSecs;
+  }
+  stats.save(epub->getCachePath());
+  globalStats.save();
+
   section.reset();
   epub.reset();
 }
@@ -153,6 +178,15 @@ void EpubReaderActivity::loop() {
                              const auto& menu = std::get<MenuResult>(result.data);
                              applyOrientation(menu.orientation);
                              toggleAutoPageTurn(menu.pageTurnOption);
+                             if (menu.settingsChanged) {
+                               RenderLock lock(*this);
+                               if (section) {
+                                 cachedSpineIndex = currentSpineIndex;
+                                 cachedChapterTotalPageCount = section->pageCount;
+                                 nextPageNumber = section->currentPage;
+                               }
+                               section.reset();  // Force re-layout with changed reader settings
+                             }
                              if (!result.isCancelled) {
                                onReaderMenuConfirm(static_cast<EpubReaderMenuActivity::MenuAction>(menu.action));
                              }
@@ -380,6 +414,14 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
       requestUpdate();
       break;
     }
+    case EpubReaderMenuActivity::MenuAction::READING_STATS: {
+      // Include elapsed time from the current session in the display stats.
+      BookReadingStats displayStats = stats;
+      displayStats.totalReadingSeconds += static_cast<uint32_t>((millis() - sessionStartMs) / 1000UL);
+      startActivityForResult(std::make_unique<BookStatsActivity>(renderer, mappedInput, epub->getTitle(), displayStats, globalStats),
+                             [this](const ActivityResult&) { requestUpdate(); });
+      break;
+    }
     case EpubReaderMenuActivity::MenuAction::SYNC: {
       if (KOREADER_STORE.hasCredentials()) {
         const int currentPage = section ? section->currentPage : 0;
@@ -482,6 +524,8 @@ void EpubReaderActivity::pageTurn(bool isForwardTurn) {
       }
     }
   }
+  stats.totalPagesTurned++;
+  globalStats.totalPagesTurned++;
   lastPageTurnTime = millis();
   requestUpdate();
 }
@@ -520,14 +564,19 @@ void EpubReaderActivity::render(RenderLock&& lock) {
 
   const uint8_t statusBarHeight = UITheme::getInstance().getStatusBarHeight();
 
+  // Minimum padding between last line of text and the status bar
+  static constexpr uint8_t STATUS_BAR_TEXT_PADDING = 3;
+
   // reserves space for automatic page turn indicator when no status bar or progress bar only
   if (automaticPageTurnActive &&
       (statusBarHeight == 0 || statusBarHeight == UITheme::getInstance().getProgressBarHeight())) {
     orientedMarginBottom +=
         std::max(SETTINGS.screenMargin,
-                 static_cast<uint8_t>(statusBarHeight + UITheme::getInstance().getMetrics().statusBarVerticalMargin));
+                 static_cast<uint8_t>(statusBarHeight + UITheme::getInstance().getMetrics().statusBarVerticalMargin +
+                                      STATUS_BAR_TEXT_PADDING));
   } else {
-    orientedMarginBottom += std::max(SETTINGS.screenMargin, statusBarHeight);
+    orientedMarginBottom +=
+        std::max(SETTINGS.screenMargin, static_cast<uint8_t>(statusBarHeight + STATUS_BAR_TEXT_PADDING));
   }
 
   const uint16_t viewportWidth = renderer.getScreenWidth() - orientedMarginLeft - orientedMarginRight;

@@ -10,8 +10,11 @@
 #include <Xtc.h>
 
 #include <cstring>
+#include <functional>
 #include <vector>
 
+#include "../reader/BookReadingStats.h"
+#include "../reader/BookStatsActivity.h"
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
 #include "MappedInputManager.h"
@@ -25,6 +28,9 @@ int HomeActivity::getMenuItemCount() const {
     count += recentBooks.size();
   }
   if (hasOpdsUrl) {
+    count++;
+  }
+  if (hasReadingStats) {
     count++;
   }
   return count;
@@ -118,6 +124,16 @@ void HomeActivity::onEnter() {
   const auto& metrics = UITheme::getInstance().getMetrics();
   loadRecentBooks(metrics.homeRecentBooksCount);
 
+  // Load reading stats for the most recent EPUB book so they can be shown on the home card.
+  currentBookStats = BookReadingStats{};
+  if (!recentBooks.empty() && FsHelpers::hasEpubExtension(recentBooks[0].path)) {
+    const std::string cachePath = "/.crosspoint/epub_" + std::to_string(std::hash<std::string>{}(recentBooks[0].path));
+    currentBookStats = BookReadingStats::load(cachePath);
+  }
+  hasReadingStats = currentBookStats.sessionCount > 0;
+
+  globalStats = GlobalReadingStats::load();
+
   // Trigger first update
   requestUpdate();
 }
@@ -191,6 +207,7 @@ void HomeActivity::loop() {
     const int fileBrowserIdx = idx++;
     const int recentsIdx = idx++;
     const int opdsLibraryIdx = hasOpdsUrl ? idx++ : -1;
+    const int readingStatsIdx = hasReadingStats ? idx++ : -1;
     const int fileTransferIdx = idx++;
     const int settingsIdx = idx;
 
@@ -202,6 +219,8 @@ void HomeActivity::loop() {
       onRecentsOpen();
     } else if (menuSelectedIndex == opdsLibraryIdx) {
       onOpdsBrowserOpen();
+    } else if (menuSelectedIndex == readingStatsIdx) {
+      onReadingStatsOpen();
     } else if (menuSelectedIndex == fileTransferIdx) {
       onFileTransferOpen();
     } else if (menuSelectedIndex == settingsIdx) {
@@ -222,7 +241,8 @@ void HomeActivity::render(RenderLock&&) {
 
   GUI.drawRecentBookCover(renderer, Rect{0, metrics.homeTopPadding, pageWidth, metrics.homeCoverTileHeight},
                           recentBooks, selectorIndex, coverRendered, coverBufferStored, bufferRestored,
-                          std::bind(&HomeActivity::storeCoverBuffer, this));
+                          std::bind(&HomeActivity::storeCoverBuffer, this),
+                          currentBookStats.sessionCount > 0 ? &currentBookStats : nullptr);
 
   // Build menu items dynamically
   std::vector<const char*> menuItems = {tr(STR_BROWSE_FILES), tr(STR_MENU_RECENT_BOOKS), tr(STR_FILE_TRANSFER),
@@ -233,6 +253,13 @@ void HomeActivity::render(RenderLock&&) {
     // Insert OPDS Browser after File Browser
     menuItems.insert(menuItems.begin() + 2, tr(STR_OPDS_BROWSER));
     menuIcons.insert(menuIcons.begin() + 2, Library);
+  }
+
+  if (hasReadingStats) {
+    // Insert Reading Stats after OPDS (or after Recents if no OPDS), before File Transfer
+    const int insertPos = hasOpdsUrl ? 3 : 2;
+    menuItems.insert(menuItems.begin() + insertPos, tr(STR_READING_STATS));
+    menuIcons.insert(menuIcons.begin() + insertPos, Book);
   }
 
   GUI.drawButtonMenu(
@@ -269,3 +296,9 @@ void HomeActivity::onSettingsOpen() { activityManager.goToSettings(); }
 void HomeActivity::onFileTransferOpen() { activityManager.goToFileTransfer(); }
 
 void HomeActivity::onOpdsBrowserOpen() { activityManager.goToBrowser(); }
+
+void HomeActivity::onReadingStatsOpen() {
+  startActivityForResult(
+      std::make_unique<BookStatsActivity>(renderer, mappedInput, recentBooks[0].title, currentBookStats, globalStats),
+      [this](const ActivityResult&) { requestUpdate(); });
+}

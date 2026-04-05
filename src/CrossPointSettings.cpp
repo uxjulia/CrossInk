@@ -227,36 +227,38 @@ bool CrossPointSettings::loadFromBinaryFile() {
 
 float CrossPointSettings::getReaderLineCompression() const {
   switch (fontFamily) {
-    case BOOKERLY:
+    case LEXENDDECA:
     default:
       switch (lineSpacing) {
         case TIGHT:
-          return 0.95f;
+          return 0.85f;
         case NORMAL:
         default:
           return 1.0f;
         case WIDE:
-          return 1.1f;
+          return 1.2f;
       }
-    case NOTOSANS:
+#ifndef OMIT_CHAREINK_FONT
+    case CHAREINK:
       switch (lineSpacing) {
         case TIGHT:
-          return 0.90f;
+          return 0.95f;
         case NORMAL:
         default:
-          return 0.95f;
-        case WIDE:
           return 1.0f;
+        case WIDE:
+          return 1.5f;
       }
-    case OPENDYSLEXIC:
+#endif  // OMIT_CHAREINK_FONT
+    case BITTER:
       switch (lineSpacing) {
         case TIGHT:
-          return 0.90f;
+          return 0.93f;
         case NORMAL:
         default:
-          return 0.95f;
-        case WIDE:
           return 1.0f;
+        case WIDE:
+          return 1.3f;
       }
   }
 }
@@ -295,42 +297,42 @@ int CrossPointSettings::getRefreshFrequency() const {
 
 int CrossPointSettings::getReaderFontId() const {
   switch (fontFamily) {
-    case BOOKERLY:
+    case LEXENDDECA:
     default:
       switch (fontSize) {
+        case TINY:
+          return LEXENDDECA_10_FONT_ID;
         case SMALL:
-          return BOOKERLY_12_FONT_ID;
+          return LEXENDDECA_12_FONT_ID;
         case MEDIUM:
-        default:
-          return BOOKERLY_14_FONT_ID;
+          return LEXENDDECA_14_FONT_ID;
         case LARGE:
-          return BOOKERLY_16_FONT_ID;
-        case EXTRA_LARGE:
-          return BOOKERLY_18_FONT_ID;
+        default:
+          return LEXENDDECA_16_FONT_ID;
       }
-    case NOTOSANS:
+    case CHAREINK:
       switch (fontSize) {
+        case TINY:
+          return CHAREINK_10_FONT_ID;
         case SMALL:
-          return NOTOSANS_12_FONT_ID;
+          return CHAREINK_12_FONT_ID;
         case MEDIUM:
-        default:
-          return NOTOSANS_14_FONT_ID;
+          return CHAREINK_14_FONT_ID;
         case LARGE:
-          return NOTOSANS_16_FONT_ID;
-        case EXTRA_LARGE:
-          return NOTOSANS_18_FONT_ID;
+        default:
+          return CHAREINK_16_FONT_ID;
       }
-    case OPENDYSLEXIC:
+    case BITTER:
       switch (fontSize) {
+        case TINY:
+          return BITTER_10_FONT_ID;
         case SMALL:
-          return OPENDYSLEXIC_8_FONT_ID;
+          return BITTER_12_FONT_ID;
         case MEDIUM:
-        default:
-          return OPENDYSLEXIC_10_FONT_ID;
+          return BITTER_14_FONT_ID;
         case LARGE:
-          return OPENDYSLEXIC_12_FONT_ID;
-        case EXTRA_LARGE:
-          return OPENDYSLEXIC_14_FONT_ID;
+        default:
+          return BITTER_16_FONT_ID;
       }
   }
 }

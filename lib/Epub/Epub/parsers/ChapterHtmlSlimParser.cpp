@@ -267,12 +267,20 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
     std::string src;
     std::string alt;
     if (atts != nullptr) {
+      bool amznM8Removed = false;
       for (int i = 0; atts[i]; i += 2) {
         if (strcmp(atts[i], "src") == 0) {
           src = atts[i + 1];
         } else if (strcmp(atts[i], "alt") == 0) {
           alt = atts[i + 1];
+        } else if (strncmp(atts[i], "data-AmznRemoved-M8", 19) == 0) {
+          amznM8Removed = true;
         }
+      }
+      // Skip low-res Kindle fallback images (not intended for modern readers)
+      if (amznM8Removed) {
+        LOG_DBG("EHP", "Skipping Kindle M8 low-res fallback image");
+        return;
       }
 
       // imageRendering: 0=display, 1=placeholder (alt text only), 2=suppress entirely

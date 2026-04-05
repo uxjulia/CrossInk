@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "../Activity.h"
+#include "ReaderOptionsActivity.h"
 #include "util/ButtonNavigator.h"
 
 class EpubReaderMenuActivity final : public Activity {
@@ -21,7 +22,9 @@ class EpubReaderMenuActivity final : public Activity {
     DISPLAY_QR,
     GO_HOME,
     SYNC,
-    DELETE_CACHE
+    DELETE_CACHE,
+    READING_STATS,
+    READER_OPTIONS
   };
 
   explicit EpubReaderMenuActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, const std::string& title,
@@ -56,4 +59,5 @@ class EpubReaderMenuActivity final : public Activity {
   int currentPage = 0;
   int totalPages = 0;
   int bookProgressPercent = 0;
+  bool settingsChanged = false;
 };

@@ -1,5 +1,6 @@
 #include "Page.h"
 
+#include <GfxRenderer.h>
 #include <Logging.h>
 #include <Serialization.h>
 
@@ -26,7 +27,8 @@ std::unique_ptr<PageLine> PageLine::deserialize(FsFile& file) {
 }
 
 void PageImage::render(GfxRenderer& renderer, const int fontId, const int xOffset, const int yOffset) {
-  // Images don't use fontId or text rendering
+  // Images are only rendered in BW mode; grayscale passes are for text anti-aliasing only
+  if (renderer.getRenderMode() != GfxRenderer::BW) return;
   imageBlock->render(renderer, xPos + xOffset, yPos + yOffset);
 }
 

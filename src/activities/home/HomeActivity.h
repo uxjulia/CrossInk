@@ -3,6 +3,8 @@
 #include <vector>
 
 #include "../Activity.h"
+#include "../reader/BookReadingStats.h"
+#include "../reader/GlobalReadingStats.h"
 #include "./FileBrowserActivity.h"
 #include "util/ButtonNavigator.h"
 
@@ -16,9 +18,12 @@ class HomeActivity final : public Activity {
   bool recentsLoaded = false;
   bool firstRenderDone = false;
   bool hasOpdsUrl = false;
+  bool hasReadingStats = false;
   bool coverRendered = false;      // Track if cover has been rendered once
   bool coverBufferStored = false;  // Track if cover buffer is stored
   uint8_t* coverBuffer = nullptr;  // HomeActivity's own buffer for cover image
+  BookReadingStats currentBookStats;
+  GlobalReadingStats globalStats;
   std::vector<RecentBook> recentBooks;
   void onSelectBook(const std::string& path);
   void onFileBrowserOpen();
@@ -26,6 +31,7 @@ class HomeActivity final : public Activity {
   void onSettingsOpen();
   void onFileTransferOpen();
   void onOpdsBrowserOpen();
+  void onReadingStatsOpen();
 
   int getMenuItemCount() const;
   bool storeCoverBuffer();    // Store frame buffer for cover image

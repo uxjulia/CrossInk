@@ -38,10 +38,16 @@ inline const std::vector<SettingInfo>& getSettingsList() {
 
       // --- Reader ---
       SettingInfo::Enum(StrId::STR_FONT_FAMILY, &CrossPointSettings::fontFamily,
-                        {StrId::STR_BOOKERLY, StrId::STR_NOTO_SANS, StrId::STR_OPEN_DYSLEXIC}, "fontFamily",
-                        StrId::STR_CAT_READER),
+                        {
+                            StrId::STR_LEXEND_DECA,
+                            StrId::STR_BITTER,
+#ifndef OMIT_CHAREINK_FONT
+                            StrId::STR_CHAREINK,
+#endif
+                        },
+                        "fontFamily", StrId::STR_CAT_READER),
       SettingInfo::Enum(StrId::STR_FONT_SIZE, &CrossPointSettings::fontSize,
-                        {StrId::STR_SMALL, StrId::STR_MEDIUM, StrId::STR_LARGE, StrId::STR_X_LARGE}, "fontSize",
+                        {StrId::STR_TINY, StrId::STR_SMALL, StrId::STR_MEDIUM, StrId::STR_LARGE}, "fontSize",
                         StrId::STR_CAT_READER),
       SettingInfo::Enum(StrId::STR_LINE_SPACING, &CrossPointSettings::lineSpacing,
                         {StrId::STR_TIGHT, StrId::STR_NORMAL, StrId::STR_WIDE}, "lineSpacing", StrId::STR_CAT_READER),

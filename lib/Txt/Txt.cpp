@@ -143,7 +143,7 @@ bool Txt::generateCoverBmp() const {
       coverJpg.close();
       return false;
     }
-    const bool success = JpegToBmpConverter::jpegFileToBmpStream(coverJpg, coverBmp);
+    const bool success = JpegToBmpConverter::jpegFileToBmpStream(coverJpg, coverBmp, coverImagePath.c_str());
     coverJpg.close();
     coverBmp.close();
 

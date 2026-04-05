@@ -1,6 +1,9 @@
 #include "CrossPointWebServer.h"
 
 #include <ArduinoJson.h>
+#ifdef SIMULATOR
+#include <ArduinoJsonStringCompat.h>
+#endif
 #include <Epub.h>
 #include <FsHelpers.h>
 #include <HalStorage.h>
@@ -548,7 +551,9 @@ void CrossPointWebServer::handleDownload() const {
       totalWritten += wrote;
     }
   }
+#ifndef SIMULATOR
   client.clear();
+#endif
   file.close();
 }
 
