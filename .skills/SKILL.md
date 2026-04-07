@@ -456,19 +456,10 @@ void onExit()   { /* free: vTaskDelete, free buffer, close files */ Activity::on
 
 **Total**: ~80+ global `EpdFont` and `EpdFontFamily` objects
 
-**Compilation Flag**:
-
-```cpp
-#ifndef OMIT_FONTS
-  // Most fonts loaded here
-#endif
-```
-
 **Implications**:
 
 - Fonts stored in **Flash** (marked as `static const` in `lib/EpdFont/builtinFonts/`)
 - Font rendering data cached in **DRAM** when first used
-- `OMIT_FONTS` can reduce binary size for minimal builds
 - Font IDs defined in [src/fontIds.h](../src/fontIds.h)
 
 **Usage**:

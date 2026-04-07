@@ -64,7 +64,6 @@ EpdFont charein16ItalicFont(&charein_16_italic);
 EpdFont charein16BoldItalicFont(&charein_16_bolditalic);
 EpdFontFamily charein16FontFamily(&charein16RegularFont, &charein16BoldFont, &charein16ItalicFont,
                                   &charein16BoldItalicFont);
-#ifndef OMIT_FONTS
 EpdFont lexenddeca10RegularFont(&lexenddeca_10_regular);
 EpdFont lexenddeca10BoldFont(&lexenddeca_10_bold);
 EpdFont lexenddeca10ItalicFont(&lexenddeca_10_italic);
@@ -104,7 +103,6 @@ EpdFont bitter16BoldFont(&bitter_16_bold);
 EpdFont bitter16ItalicFont(&bitter_16_italic);
 EpdFont bitter16BoldItalicFont(&bitter_16_bolditalic);
 EpdFontFamily bitter16FontFamily(&bitter16RegularFont, &bitter16BoldFont, &bitter16ItalicFont, &bitter16BoldItalicFont);
-#endif  // OMIT_FONTS
 
 EpdFont smallFont(&inter_8_regular);
 EpdFontFamily smallFontFamily(&smallFont);
@@ -203,7 +201,6 @@ void setupDisplayAndFonts() {
   renderer.insertFont(CHAREINK_12_FONT_ID, charein12FontFamily);
   renderer.insertFont(CHAREINK_14_FONT_ID, charein14FontFamily);
   renderer.insertFont(CHAREINK_16_FONT_ID, charein16FontFamily);
-#ifndef OMIT_FONTS
   renderer.insertFont(LEXENDDECA_10_FONT_ID, lexenddeca10FontFamily);
   renderer.insertFont(LEXENDDECA_12_FONT_ID, lexenddeca12FontFamily);
   renderer.insertFont(LEXENDDECA_16_FONT_ID, lexenddeca16FontFamily);
@@ -212,7 +209,6 @@ void setupDisplayAndFonts() {
   renderer.insertFont(BITTER_12_FONT_ID, bitter12FontFamily);
   renderer.insertFont(BITTER_14_FONT_ID, bitter14FontFamily);
   renderer.insertFont(BITTER_16_FONT_ID, bitter16FontFamily);
-#endif  // OMIT_FONTS
   renderer.insertFont(UI_10_FONT_ID, ui10FontFamily);
   renderer.insertFont(UI_12_FONT_ID, ui12FontFamily);
   renderer.insertFont(SMALL_FONT_ID, smallFontFamily);
