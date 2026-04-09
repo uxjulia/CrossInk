@@ -1,5 +1,7 @@
 # CrossPoint Reader — Consolidated Project Context
 
+Any simulator patches should be made to the `crosspoint-simulator` project itself. If it is not co-located with this project, inform the user of all changes that should be made to the simulator project and request that they open a pull request for them.
+
 ## Known Simulator Limitations
 
 - **No image rendering**: `lib_ignore = hal, PNGdec, JPEGDEC` in `platformio.ini`. `ImageDecoderFactory::getDecoder()` returns null → images silently skipped. Would need `stb_image` to fix.
@@ -33,6 +35,7 @@ static bool jpegFileTo1BitBmpStreamWithSize(FsFile& jpegFile, Print& bmpOut, con
 ```
 
 JPEGDEC callbacks pattern (matches `JpegToFramebufferConverter`):
+
 - `open(filename, size)`: `new FsFile`, `Storage.openFileForRead(filename, *f)`, return `f`
 - `close(handle)`: `f->close(); delete f;`
 
@@ -63,8 +66,8 @@ Note: `Page.cpp` must `#include <GfxRenderer.h>` explicitly — `Block.h` only f
 Some Kindle-format EPUBs include two `<img>` tags for the same image — one high-res, one low-res fallback for old Kindle M8 hardware:
 
 ```html
-<img src="high-res.jpeg" class="high-res" data-AmznRemoved="mobi7"/>
-<img src="low-res.jpeg" class="low-res" width="120" height="120" data-AmznRemoved-M8="true"/>
+<img src="high-res.jpeg" class="high-res" data-AmznRemoved="mobi7" />
+<img src="low-res.jpeg" class="low-res" width="120" height="120" data-AmznRemoved-M8="true" />
 ```
 
 Kindle/Calibre hides one via CSS `@media` query. `ChapterHtmlSlimParser` does not evaluate media queries → both render → two stacked images of different sizes.
@@ -98,6 +101,7 @@ if (amznM8Removed) {
 ### lut_grayscale entries (SSD1677)
 
 Indexed by 2-bit value (RED_bit=MSB, BW_bit=LSB):
+
 - `0b00`: no waveform → pixel **unchanged**
 - `0b01`: light gray waveform
 - `0b10`: gray waveform
@@ -125,6 +129,7 @@ After every `displayBuffer(FAST_REFRESH)`, RED RAM is synced with current frameB
 POSIX TZ sign is **inverted** from ISO 8601. `"UTC-1"` = 1 hour EAST (UTC+1).
 
 Formula used in `TimeStore::applyTimezone()`:
+
 ```cpp
 const int posixOffset = 12 - static_cast<int>(SETTINGS.timezoneIndex);
 // timezoneIndex: 0=UTC-12, 12=UTC+0, 26=UTC+14
