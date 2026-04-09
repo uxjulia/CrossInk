@@ -511,6 +511,8 @@ void WifiSelectionActivity::render(RenderLock&&) {
     case WifiSelectionState::FORGET_PROMPT:
       renderForgetPrompt();
       break;
+    case WifiSelectionState::PASSWORD_ENTRY:
+      break;  // Handled by early return above
   }
 
   renderer.displayBuffer();
