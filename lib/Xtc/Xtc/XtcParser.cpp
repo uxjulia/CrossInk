@@ -322,9 +322,7 @@ XtcError XtcParser::readChapters() {
   return XtcError::OK;
 }
 
-bool XtcParser::getPageInfo(uint32_t pageIndex, PageInfo& info) const {
-  return readPageTableEntry(pageIndex, info);
-}
+bool XtcParser::getPageInfo(uint32_t pageIndex, PageInfo& info) const { return readPageTableEntry(pageIndex, info); }
 
 size_t XtcParser::loadPage(uint32_t pageIndex, uint8_t* buffer, size_t bufferSize) {
   if (!m_isOpen) {
