@@ -247,12 +247,12 @@ float CrossPointSettings::getReaderLineCompression() const {
     default:
       switch (lineSpacing) {
         case TIGHT:
-          return 0.85f;
+          return 0.90f;
         case NORMAL:
         default:
           return 1.0f;
         case WIDE:
-          return 1.4f;
+          return 1.2f;
       }
     case CHAREINK:
       switch (lineSpacing) {
@@ -262,7 +262,7 @@ float CrossPointSettings::getReaderLineCompression() const {
         default:
           return 1.1f;
         case WIDE:
-          return 1.5f;
+          return 1.3f;
       }
     case BITTER:
       switch (lineSpacing) {
@@ -272,7 +272,7 @@ float CrossPointSettings::getReaderLineCompression() const {
         default:
           return 1.1f;
         case WIDE:
-          return 1.5f;
+          return 1.3f;
       }
   }
 }
