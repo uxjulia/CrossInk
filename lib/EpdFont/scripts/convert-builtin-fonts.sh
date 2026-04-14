@@ -6,7 +6,7 @@ cd "$(dirname "$0")"
 
 EMOJI_FONT="../builtinFonts/source/NotoEmoji/NotoEmoji-Regular.ttf"
 SYMBOLS_FONT="../builtinFonts/source/NotoSymbols/NotoSansSymbols-Regular.ttf"
-SYMBOLS2_FONT="../builtinFonts/source/NotoSymbols/NotoSansSymbols2-Regular.ttf"
+SYMBOLS2_FONT="../builtinFonts/source/NotoSymbols2/NotoSansSymbols2-Regular.ttf"
 
 # Additional Unicode intervals to include beyond the default Latin/Cyrillic/math set.
 # 0x2600-0x26FF: Miscellaneous Symbols (♩♪♫♬♭♮♯ stars, hearts, etc.)
@@ -16,7 +16,7 @@ EMOJI_INTERVALS=(
   --additional-intervals 0x1F600,0x1F64F
 )
 
-READING_FONT_SIZES=(10 12 14 16)
+READING_FONT_SIZES=(10 12 14 16 18)
 READING_FONT_STYLES=("Regular" "Bold" "Italic" "BoldItalic")
 
 # =============================================================================

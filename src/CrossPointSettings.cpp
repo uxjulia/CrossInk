@@ -168,7 +168,20 @@ bool CrossPointSettings::loadFromBinaryFile() {
     if (++settingsRead >= fileSettingsCount) break;
     readAndValidate(inputFile, fontFamily, FONT_FAMILY_COUNT);
     if (++settingsRead >= fileSettingsCount) break;
-    readAndValidate(inputFile, fontSize, FONT_SIZE_COUNT);
+    {
+      constexpr uint8_t activeFontSizeCount = FONT_SIZE_COUNT
+#ifdef OMIT_TINY_FONT
+                                              - 1
+#endif
+#ifdef OMIT_SMALL_FONT
+                                              - 1
+#endif
+#ifdef OMIT_XLARGE_FONT
+                                              - 1
+#endif
+          ;
+      readAndValidate(inputFile, fontSize, activeFontSizeCount);
+    }
     if (++settingsRead >= fileSettingsCount) break;
     readAndValidate(inputFile, lineSpacing, LINE_COMPRESSION_COUNT);
     if (++settingsRead >= fileSettingsCount) break;
@@ -310,43 +323,80 @@ int CrossPointSettings::getRefreshFrequency() const {
 }
 
 int CrossPointSettings::getReaderFontId() const {
+  // Map the stored fontSize index (which skips omitted sizes) back to a FONT_SIZE enum value.
+#if defined(OMIT_TINY_FONT) && defined(OMIT_SMALL_FONT)
+  // Options: [Medium, Large, XLarge] — stored 0→MEDIUM(2), add 2
+  const FONT_SIZE effectiveSize = static_cast<FONT_SIZE>(fontSize + 2);
+#elif defined(OMIT_TINY_FONT)
+  // Options: [Small, Medium, Large, XLarge] — stored 0→SMALL(1), add 1
+  const FONT_SIZE effectiveSize = static_cast<FONT_SIZE>(fontSize + 1);
+#elif defined(OMIT_SMALL_FONT)
+  // Options: [Tiny, Medium, Large, XLarge] — stored 0→TINY(0), stored 1+→skip SMALL(1)
+  const FONT_SIZE effectiveSize = (fontSize == 0) ? TINY : static_cast<FONT_SIZE>(fontSize + 1);
+#else
+  const FONT_SIZE effectiveSize = static_cast<FONT_SIZE>(fontSize);
+#endif
   switch (fontFamily) {
     case LEXENDDECA:
     default:
-      switch (fontSize) {
+      switch (effectiveSize) {
+#ifndef OMIT_TINY_FONT
         case TINY:
           return LEXENDDECA_10_FONT_ID;
+#endif
+#ifndef OMIT_SMALL_FONT
         case SMALL:
           return LEXENDDECA_12_FONT_ID;
+#endif
         case MEDIUM:
+        default:
           return LEXENDDECA_14_FONT_ID;
         case LARGE:
-        default:
           return LEXENDDECA_16_FONT_ID;
+#ifndef OMIT_XLARGE_FONT
+        case EXTRA_LARGE:
+          return LEXENDDECA_18_FONT_ID;
+#endif
       }
     case CHAREINK:
-      switch (fontSize) {
+      switch (effectiveSize) {
+#ifndef OMIT_TINY_FONT
         case TINY:
           return CHAREINK_10_FONT_ID;
+#endif
+#ifndef OMIT_SMALL_FONT
         case SMALL:
           return CHAREINK_12_FONT_ID;
+#endif
         case MEDIUM:
+        default:
           return CHAREINK_14_FONT_ID;
         case LARGE:
-        default:
           return CHAREINK_16_FONT_ID;
+#ifndef OMIT_XLARGE_FONT
+        case EXTRA_LARGE:
+          return CHAREINK_18_FONT_ID;
+#endif
       }
     case BITTER:
-      switch (fontSize) {
+      switch (effectiveSize) {
+#ifndef OMIT_TINY_FONT
         case TINY:
           return BITTER_10_FONT_ID;
+#endif
+#ifndef OMIT_SMALL_FONT
         case SMALL:
           return BITTER_12_FONT_ID;
+#endif
         case MEDIUM:
+        default:
           return BITTER_14_FONT_ID;
         case LARGE:
-        default:
           return BITTER_16_FONT_ID;
+#ifndef OMIT_XLARGE_FONT
+        case EXTRA_LARGE:
+          return BITTER_18_FONT_ID;
+#endif
       }
   }
 }

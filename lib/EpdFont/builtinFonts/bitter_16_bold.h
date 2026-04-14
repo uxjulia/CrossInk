@@ -3,7 +3,7 @@
  * name: bitter_16_bold
  * size: 16
  * mode: 2-bit  compressed: true
- * Command used: fontconvert.py bitter_16_bold 16 ../builtinFonts/source/Bitter/Bitter-Bold.ttf ../builtinFonts/source/NotoEmoji/NotoEmoji-Regular.ttf ../builtinFonts/source/NotoSymbols/NotoSansSymbols-Regular.ttf ../builtinFonts/source/NotoSymbols/NotoSansSymbols2-Regular.ttf --additional-intervals 0x2600,0x26FF --additional-intervals 0x1F600,0x1F64F --2bit --compress
+ * Command used: fontconvert.py bitter_16_bold 16 ../builtinFonts/source/Bitter/Bitter-Bold.ttf ../builtinFonts/source/NotoEmoji/NotoEmoji-Regular.ttf ../builtinFonts/source/NotoSymbols/NotoSansSymbols-Regular.ttf ../builtinFonts/source/NotoSymbols2/NotoSansSymbols2-Regular.ttf --additional-intervals 0x2600,0x26FF --additional-intervals 0x1F600,0x1F64F --2bit --compress
  */
 #pragma once
 #include "EpdFontData.h"

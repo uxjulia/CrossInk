@@ -59,6 +59,8 @@ reading_font_id LEXENDDECA_14_FONT_ID \
   ./lexenddeca_14_regular.h ./lexenddeca_14_bold.h ./lexenddeca_14_bolditalic.h ./lexenddeca_14_italic.h
 reading_font_id LEXENDDECA_16_FONT_ID \
   ./lexenddeca_16_regular.h ./lexenddeca_16_bold.h ./lexenddeca_16_bolditalic.h ./lexenddeca_16_italic.h
+reading_font_id LEXENDDECA_18_FONT_ID \
+  ./lexenddeca_18_regular.h ./lexenddeca_18_bold.h ./lexenddeca_18_bolditalic.h ./lexenddeca_18_italic.h
 
 reading_font_id CHAREINK_10_FONT_ID \
   ./charein_10_regular.h ./charein_10_bold.h ./charein_10_bolditalic.h ./charein_10_italic.h
@@ -68,6 +70,8 @@ reading_font_id CHAREINK_14_FONT_ID \
   ./charein_14_regular.h ./charein_14_bold.h ./charein_14_bolditalic.h ./charein_14_italic.h
 reading_font_id CHAREINK_16_FONT_ID \
   ./charein_16_regular.h ./charein_16_bold.h ./charein_16_bolditalic.h ./charein_16_italic.h
+reading_font_id CHAREINK_18_FONT_ID \
+  ./charein_18_regular.h ./charein_18_bold.h ./charein_18_bolditalic.h ./charein_18_italic.h
 
 reading_font_id BITTER_10_FONT_ID \
   ./bitter_10_regular.h ./bitter_10_bold.h ./bitter_10_bolditalic.h ./bitter_10_italic.h
@@ -77,6 +81,8 @@ reading_font_id BITTER_14_FONT_ID \
   ./bitter_14_regular.h ./bitter_14_bold.h ./bitter_14_bolditalic.h ./bitter_14_italic.h
 reading_font_id BITTER_16_FONT_ID \
   ./bitter_16_regular.h ./bitter_16_bold.h ./bitter_16_bolditalic.h ./bitter_16_italic.h
+reading_font_id BITTER_18_FONT_ID \
+  ./bitter_18_regular.h ./bitter_18_bold.h ./bitter_18_bolditalic.h ./bitter_18_italic.h
 
 # UI fonts — no emoji variant
 echo "#define UI_10_FONT_ID ($(hash_files ./ubuntu_10_regular.h ./ubuntu_10_bold.h))"

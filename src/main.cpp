@@ -40,18 +40,22 @@ EpdFont lexenddeca14ItalicFont(&lexenddeca_14_italic);
 EpdFont lexenddeca14BoldItalicFont(&lexenddeca_14_bolditalic);
 EpdFontFamily lexenddeca14FontFamily(&lexenddeca14RegularFont, &lexenddeca14BoldFont, &lexenddeca14ItalicFont,
                                      &lexenddeca14BoldItalicFont);
+#ifndef OMIT_TINY_FONT
 EpdFont charein10RegularFont(&charein_10_regular);
 EpdFont charein10BoldFont(&charein_10_bold);
 EpdFont charein10ItalicFont(&charein_10_italic);
 EpdFont charein10BoldItalicFont(&charein_10_bolditalic);
 EpdFontFamily charein10FontFamily(&charein10RegularFont, &charein10BoldFont, &charein10ItalicFont,
                                   &charein10BoldItalicFont);
+#endif
+#ifndef OMIT_SMALL_FONT
 EpdFont charein12RegularFont(&charein_12_regular);
 EpdFont charein12BoldFont(&charein_12_bold);
 EpdFont charein12ItalicFont(&charein_12_italic);
 EpdFont charein12BoldItalicFont(&charein_12_bolditalic);
 EpdFontFamily charein12FontFamily(&charein12RegularFont, &charein12BoldFont, &charein12ItalicFont,
                                   &charein12BoldItalicFont);
+#endif
 EpdFont charein14RegularFont(&charein_14_regular);
 EpdFont charein14BoldFont(&charein_14_bold);
 EpdFont charein14ItalicFont(&charein_14_italic);
@@ -64,35 +68,59 @@ EpdFont charein16ItalicFont(&charein_16_italic);
 EpdFont charein16BoldItalicFont(&charein_16_bolditalic);
 EpdFontFamily charein16FontFamily(&charein16RegularFont, &charein16BoldFont, &charein16ItalicFont,
                                   &charein16BoldItalicFont);
+#ifndef OMIT_XLARGE_FONT
+EpdFont charein18RegularFont(&charein_18_regular);
+EpdFont charein18BoldFont(&charein_18_bold);
+EpdFont charein18ItalicFont(&charein_18_italic);
+EpdFont charein18BoldItalicFont(&charein_18_bolditalic);
+EpdFontFamily charein18FontFamily(&charein18RegularFont, &charein18BoldFont, &charein18ItalicFont,
+                                  &charein18BoldItalicFont);
+#endif
+#ifndef OMIT_TINY_FONT
 EpdFont lexenddeca10RegularFont(&lexenddeca_10_regular);
 EpdFont lexenddeca10BoldFont(&lexenddeca_10_bold);
 EpdFont lexenddeca10ItalicFont(&lexenddeca_10_italic);
 EpdFont lexenddeca10BoldItalicFont(&lexenddeca_10_bolditalic);
 EpdFontFamily lexenddeca10FontFamily(&lexenddeca10RegularFont, &lexenddeca10BoldFont, &lexenddeca10ItalicFont,
                                      &lexenddeca10BoldItalicFont);
+#endif
+#ifndef OMIT_SMALL_FONT
 EpdFont lexenddeca12RegularFont(&lexenddeca_12_regular);
 EpdFont lexenddeca12BoldFont(&lexenddeca_12_bold);
 EpdFont lexenddeca12ItalicFont(&lexenddeca_12_italic);
 EpdFont lexenddeca12BoldItalicFont(&lexenddeca_12_bolditalic);
 EpdFontFamily lexenddeca12FontFamily(&lexenddeca12RegularFont, &lexenddeca12BoldFont, &lexenddeca12ItalicFont,
                                      &lexenddeca12BoldItalicFont);
+#endif
 EpdFont lexenddeca16RegularFont(&lexenddeca_16_regular);
 EpdFont lexenddeca16BoldFont(&lexenddeca_16_bold);
 EpdFont lexenddeca16ItalicFont(&lexenddeca_16_italic);
 EpdFont lexenddeca16BoldItalicFont(&lexenddeca_16_bolditalic);
 EpdFontFamily lexenddeca16FontFamily(&lexenddeca16RegularFont, &lexenddeca16BoldFont, &lexenddeca16ItalicFont,
                                      &lexenddeca16BoldItalicFont);
+#ifndef OMIT_XLARGE_FONT
+EpdFont lexenddeca18RegularFont(&lexenddeca_18_regular);
+EpdFont lexenddeca18BoldFont(&lexenddeca_18_bold);
+EpdFont lexenddeca18ItalicFont(&lexenddeca_18_italic);
+EpdFont lexenddeca18BoldItalicFont(&lexenddeca_18_bolditalic);
+EpdFontFamily lexenddeca18FontFamily(&lexenddeca18RegularFont, &lexenddeca18BoldFont, &lexenddeca18ItalicFont,
+                                     &lexenddeca18BoldItalicFont);
+#endif
 
+#ifndef OMIT_TINY_FONT
 EpdFont bitter10RegularFont(&bitter_10_regular);
 EpdFont bitter10BoldFont(&bitter_10_bold);
 EpdFont bitter10ItalicFont(&bitter_10_italic);
 EpdFont bitter10BoldItalicFont(&bitter_10_bolditalic);
 EpdFontFamily bitter10FontFamily(&bitter10RegularFont, &bitter10BoldFont, &bitter10ItalicFont, &bitter10BoldItalicFont);
+#endif
+#ifndef OMIT_SMALL_FONT
 EpdFont bitter12RegularFont(&bitter_12_regular);
 EpdFont bitter12BoldFont(&bitter_12_bold);
 EpdFont bitter12ItalicFont(&bitter_12_italic);
 EpdFont bitter12BoldItalicFont(&bitter_12_bolditalic);
 EpdFontFamily bitter12FontFamily(&bitter12RegularFont, &bitter12BoldFont, &bitter12ItalicFont, &bitter12BoldItalicFont);
+#endif
 EpdFont bitter14RegularFont(&bitter_14_regular);
 EpdFont bitter14BoldFont(&bitter_14_bold);
 EpdFont bitter14ItalicFont(&bitter_14_italic);
@@ -103,6 +131,13 @@ EpdFont bitter16BoldFont(&bitter_16_bold);
 EpdFont bitter16ItalicFont(&bitter_16_italic);
 EpdFont bitter16BoldItalicFont(&bitter_16_bolditalic);
 EpdFontFamily bitter16FontFamily(&bitter16RegularFont, &bitter16BoldFont, &bitter16ItalicFont, &bitter16BoldItalicFont);
+#ifndef OMIT_XLARGE_FONT
+EpdFont bitter18RegularFont(&bitter_18_regular);
+EpdFont bitter18BoldFont(&bitter_18_bold);
+EpdFont bitter18ItalicFont(&bitter_18_italic);
+EpdFont bitter18BoldItalicFont(&bitter_18_bolditalic);
+EpdFontFamily bitter18FontFamily(&bitter18RegularFont, &bitter18BoldFont, &bitter18ItalicFont, &bitter18BoldItalicFont);
+#endif
 
 EpdFont smallFont(&inter_8_regular);
 EpdFontFamily smallFontFamily(&smallFont);
@@ -196,19 +231,43 @@ void setupDisplayAndFonts() {
   }
   fontCacheManager.setFontDecompressor(&fontDecompressor);
   renderer.setFontCacheManager(&fontCacheManager);
-  renderer.insertFont(LEXENDDECA_14_FONT_ID, lexenddeca14FontFamily);
+
+#ifndef OMIT_TINY_FONT
   renderer.insertFont(CHAREINK_10_FONT_ID, charein10FontFamily);
+#endif
+#ifndef OMIT_SMALL_FONT
   renderer.insertFont(CHAREINK_12_FONT_ID, charein12FontFamily);
+#endif
   renderer.insertFont(CHAREINK_14_FONT_ID, charein14FontFamily);
   renderer.insertFont(CHAREINK_16_FONT_ID, charein16FontFamily);
-  renderer.insertFont(LEXENDDECA_10_FONT_ID, lexenddeca10FontFamily);
-  renderer.insertFont(LEXENDDECA_12_FONT_ID, lexenddeca12FontFamily);
-  renderer.insertFont(LEXENDDECA_16_FONT_ID, lexenddeca16FontFamily);
+#ifndef OMIT_XLARGE_FONT
+  renderer.insertFont(CHAREINK_18_FONT_ID, charein18FontFamily);
+#endif
 
+#ifndef OMIT_TINY_FONT
+  renderer.insertFont(LEXENDDECA_10_FONT_ID, lexenddeca10FontFamily);
+#endif
+#ifndef OMIT_SMALL_FONT
+  renderer.insertFont(LEXENDDECA_12_FONT_ID, lexenddeca12FontFamily);
+#endif
+  renderer.insertFont(LEXENDDECA_14_FONT_ID, lexenddeca14FontFamily);
+  renderer.insertFont(LEXENDDECA_16_FONT_ID, lexenddeca16FontFamily);
+#ifndef OMIT_XLARGE_FONT
+  renderer.insertFont(LEXENDDECA_18_FONT_ID, lexenddeca18FontFamily);
+#endif
+
+#ifndef OMIT_TINY_FONT
   renderer.insertFont(BITTER_10_FONT_ID, bitter10FontFamily);
+#endif
+#ifndef OMIT_SMALL_FONT
   renderer.insertFont(BITTER_12_FONT_ID, bitter12FontFamily);
+#endif
   renderer.insertFont(BITTER_14_FONT_ID, bitter14FontFamily);
   renderer.insertFont(BITTER_16_FONT_ID, bitter16FontFamily);
+#ifndef OMIT_XLARGE_FONT
+  renderer.insertFont(BITTER_18_FONT_ID, bitter18FontFamily);
+#endif
+
   renderer.insertFont(UI_10_FONT_ID, ui10FontFamily);
   renderer.insertFont(UI_12_FONT_ID, ui12FontFamily);
   renderer.insertFont(SMALL_FONT_ID, smallFontFamily);
@@ -244,7 +303,6 @@ void setup() {
   }
 
   HalSystem::checkPanic();
-  HalSystem::clearPanic();  // TODO: move this to an activity when we have one to display the panic info
 
   SETTINGS.loadFromFile();
   I18N.loadSettings();
@@ -281,10 +339,13 @@ void setup() {
   APP_STATE.loadFromFile();
   RECENT_BOOKS.loadFromFile();
 
-  // Boot to home screen if no book is open, last sleep was not from reader, back button is held, or reader activity
-  // crashed (indicated by readerActivityLoadCount > 0)
-  if (APP_STATE.openEpubPath.empty() || !APP_STATE.lastSleepFromReader ||
-      mappedInputManager.isPressed(MappedInputManager::Button::Back) || APP_STATE.readerActivityLoadCount > 0) {
+  if (HalSystem::isRebootFromPanic()) {
+    // If we rebooted from a panic, go to crash report screen to show the panic info
+    activityManager.goToCrashReport();
+  } else if (APP_STATE.openEpubPath.empty() || !APP_STATE.lastSleepFromReader ||
+             mappedInputManager.isPressed(MappedInputManager::Button::Back) || APP_STATE.readerActivityLoadCount > 0) {
+    // Boot to home screen if no book is open, last sleep was not from reader, back button is held, or reader activity
+    // crashed (indicated by readerActivityLoadCount > 0)
     activityManager.goHome();
   } else {
     // Clear app state to avoid getting into a boot loop if the epub doesn't load

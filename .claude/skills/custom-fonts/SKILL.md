@@ -29,9 +29,9 @@ EpdFontFamily myfont`10`FontFamily(&myfont`10`RegularFont, &myfont`10`BoldFont,
                                    &myfont`10`ItalicFont, &myfont`10`BoldItalicFont);
 ```
 
-6. Register all font sizes further down in `src/main.cpp` with `renderer.insertFont(MYFONT_10_FONT_ID, myfont10FontFamily);`
-7. Add the new FONT_FAMILY enum in `src/CrossPointSettings.h`
-8. Add font ID mapping and line settings in `src/CrossPointSettings.cpp`
+6. Register all font sizes further down in `src/main.cpp` (~line 216) with `renderer.insertFont(MYFONT_10_FONT_ID, myfont10FontFamily);`
+7. Add the new FONT_FAMILY enum in `src/CrossPointSettings.h` (~line 95)
+8. Add font ID mapping and line settings in `src/CrossPointSettings.cpp` (~line 312)
 9. Add a new `StrId` for the font to `src/SettingsList.h`
 10. Add a new translation string in `lib/I18n/translations/english.yaml`
 11. Generate the new i18n file: `python3 scripts/gen_i18n.py lib/I18n/translations lib/I18n/`

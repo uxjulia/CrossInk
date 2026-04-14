@@ -3,7 +3,7 @@
  * name: lexenddeca_10_regular
  * size: 10
  * mode: 2-bit  compressed: true
- * Command used: fontconvert.py lexenddeca_10_regular 10 ../builtinFonts/source/LexendDeca/LexendDeca-Regular.ttf ../builtinFonts/source/NotoEmoji/NotoEmoji-Regular.ttf ../builtinFonts/source/NotoSymbols/NotoSansSymbols-Regular.ttf ../builtinFonts/source/NotoSymbols/NotoSansSymbols2-Regular.ttf --additional-intervals 0x2600,0x26FF --additional-intervals 0x1F600,0x1F64F --2bit --compress
+ * Command used: fontconvert.py lexenddeca_10_regular 10 ../builtinFonts/source/LexendDeca/LexendDeca-Regular.ttf ../builtinFonts/source/NotoEmoji/NotoEmoji-Regular.ttf ../builtinFonts/source/NotoSymbols/NotoSansSymbols-Regular.ttf ../builtinFonts/source/NotoSymbols2/NotoSansSymbols2-Regular.ttf --additional-intervals 0x2600,0x26FF --additional-intervals 0x1F600,0x1F64F --2bit --compress
  */
 #pragma once
 #include "EpdFontData.h"

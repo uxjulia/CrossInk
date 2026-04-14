@@ -45,8 +45,20 @@ inline const std::vector<SettingInfo>& getSettingsList() {
                         },
                         "fontFamily", StrId::STR_CAT_READER),
       SettingInfo::Enum(StrId::STR_FONT_SIZE, &CrossPointSettings::fontSize,
-                        {StrId::STR_TINY, StrId::STR_SMALL, StrId::STR_MEDIUM, StrId::STR_LARGE}, "fontSize",
-                        StrId::STR_CAT_READER),
+                        {
+#ifndef OMIT_TINY_FONT
+                            StrId::STR_TINY,
+#endif
+#ifndef OMIT_SMALL_FONT
+                            StrId::STR_SMALL,
+#endif
+                            StrId::STR_MEDIUM,
+                            StrId::STR_LARGE,
+#ifndef OMIT_XLARGE_FONT
+                            StrId::STR_X_LARGE,
+#endif
+                        },
+                        "fontSize", StrId::STR_CAT_READER),
       SettingInfo::Enum(StrId::STR_LINE_SPACING, &CrossPointSettings::lineSpacing,
                         {StrId::STR_TIGHT, StrId::STR_NORMAL, StrId::STR_WIDE}, "lineSpacing", StrId::STR_CAT_READER),
       SettingInfo::Value(StrId::STR_SCREEN_MARGIN, &CrossPointSettings::screenMargin, {5, 40, 5}, "screenMargin",
