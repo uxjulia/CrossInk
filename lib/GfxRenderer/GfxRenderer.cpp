@@ -263,10 +263,21 @@ void GfxRenderer::drawText(const int fontId, const int x, const int y, const cha
 
     const EpdGlyph* glyph = font.getGlyph(cp, style);
 
-    lastBaseLeft = glyph ? glyph->left : 0;
-    lastBaseWidth = glyph ? glyph->width : 0;
-    lastBaseTop = glyph ? glyph->top : 0;
-    prevAdvanceFP = glyph ? glyph->advanceX : 0;  // 12.4 fixed-point
+    if (!glyph) {
+      // Advance was already flushed into lastBaseX above; clear base metrics so the
+      // next character does not kern or attach to stale state.
+      prevAdvanceFP = 0;
+      lastBaseLeft = 0;
+      lastBaseWidth = 0;
+      lastBaseTop = 0;
+      prevCp = 0;
+      continue;
+    }
+
+    lastBaseLeft = glyph->left;
+    lastBaseWidth = glyph->width;
+    lastBaseTop = glyph->top;
+    prevAdvanceFP = glyph->advanceX;  // 12.4 fixed-point
 
     renderCharImpl<TextRotation::None>(*this, renderMode, font, cp, lastBaseX, yPos, black, style);
     prevCp = cp;
@@ -1104,10 +1115,21 @@ void GfxRenderer::drawTextRotated90CW(const int fontId, const int x, const int y
 
     const EpdGlyph* glyph = font.getGlyph(cp, style);
 
-    lastBaseLeft = glyph ? glyph->left : 0;
-    lastBaseWidth = glyph ? glyph->width : 0;
-    lastBaseTop = glyph ? glyph->top : 0;
-    prevAdvanceFP = glyph ? glyph->advanceX : 0;  // 12.4 fixed-point
+    if (!glyph) {
+      // Advance was already flushed into lastBaseY above; clear base metrics so the
+      // next character does not kern or attach to stale state.
+      prevAdvanceFP = 0;
+      lastBaseLeft = 0;
+      lastBaseWidth = 0;
+      lastBaseTop = 0;
+      prevCp = 0;
+      continue;
+    }
+
+    lastBaseLeft = glyph->left;
+    lastBaseWidth = glyph->width;
+    lastBaseTop = glyph->top;
+    prevAdvanceFP = glyph->advanceX;  // 12.4 fixed-point
 
     renderCharImpl<TextRotation::Rotated90CW>(*this, renderMode, font, cp, x, lastBaseY, black, style);
     prevCp = cp;

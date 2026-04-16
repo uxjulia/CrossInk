@@ -330,10 +330,11 @@ int bmpDrawCallback(JPEGDRAW* pDraw) {
   // Wait for the last MCU column before processing any rows
   if (blockX + validW < ctx->srcWidth) return 1;
 
-  // Process each complete source row in this MCU row
-  const int endRow = blockY + blockH;
+  // Process each complete source row in this MCU row.
+  // Clamp to MAX_MCU_HEIGHT so srcRow never indexes past the populated mcuBuf rows.
+  const int safeEndRow = blockY + std::min(blockH, MAX_MCU_HEIGHT);
 
-  for (int y = blockY; y < endRow && y < ctx->srcHeight; y++) {
+  for (int y = blockY; y < safeEndRow && y < ctx->srcHeight; y++) {
     const uint8_t* srcRow = ctx->mcuBuf + (y - blockY) * ctx->srcWidth;
 
     if (!ctx->needsScaling) {
