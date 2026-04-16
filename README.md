@@ -9,18 +9,17 @@ My goal with this fork was to maintain the core Crosspoint firmware while integr
 - New reader fonts: ChareInk, Lexend Deca, and Bitter
 - Unicode emoji and miscellaneous symbols support
 - Added ~~strikethrough~~ support
-- Adjusted font sizes: Tiny (10pt), Small (12pt), Medium (14pt), Large (16pt)
+- Adjusted font sizes: Tiny (10pt), Small (12pt), Medium (14pt), Large (16pt), Extra Large (18pt). See [Font Sizes](#font-sizes) for more details.
 - Added ability to remap front buttons that only applies in the reader
 - In-book menu to quickly adjust font options without having to exit the book
 - Reading stats per book (total reading time, number of sessions, pages turned, average session time)
 - Device simulator during development
-- 3 build variants: tiny, xlarge, and no_emoji (see [Font Sizes](#font-sizes) for more details)
 
 ---
 
 ### Reader Fonts
 
-The default fonts have been replaced with Bitter, Lexend Deca, and Atkinson Hyperlegible. These fonts have been chosen specifically to improve reading fluency and e-ink performance. These 'sturdier' typefaces feature uniform stroke weights and open geometries, allowing the X4 to render crisp, high-contrast text with font-aliasing on while significantly reducing ghosting and artifacts.
+The default fonts have been replaced with Bitter, Lexend Deca, and ChareInk. These fonts have been chosen specifically to improve reading fluency and e-ink performance. These 'sturdier' typefaces feature uniform stroke weights and open geometries, allowing the X4 to render crisp, high-contrast text with font-aliasing on while significantly reducing ghosting and artifacts.
 
 - [ChareInk](https://www.mobileread.com/forums/showthread.php?t=184056) - A cult favorite among the e-reading community for over a decade based off of the typeface [Charis](https://software.sil.org/charis/). It is specially designed to make long texts pleasant and easy to read.
 - [Lexend Deca](https://fonts.google.com/specimen/Lexend+Deca) — A research-backed sans-serif typeface designed to improve reading fluency. Lexend was engineered based on the theory that reading issues are often a design problem (visual crowding) rather than a cognitive one.
@@ -40,7 +39,7 @@ There are 3 available build variants to choose from due to build size constraint
 
 **tiny**
 
-> No Extra Large font size
+> No Extra Large font size. My preferred build.
 
 - Emoji & Misc. Symbols Support
 - 4 Font sizes:
@@ -209,19 +208,25 @@ back to the other partition using the "Swap boot partition" button here https://
 ### Command line (specific firmware version)
 
 1. Install [`esptool`](https://github.com/espressif/esptool) :
+
 ```bash
 pip install esptool
 ```
+
 2. Download the `firmware.bin` file from the release of your choice via the [releases page](https://github.com/crosspoint-reader/crosspoint-reader/releases)
 3. Connect your Xteink X4 to your computer via USB-C.
 4. Note the device location. On Linux, run `dmesg` after connecting. On MacOS, run :
+
 ```bash
 log stream --predicate 'subsystem == "com.apple.iokit"' --info
 ```
+
 5. Flash the firmware :
+
 ```bash
 esptool.py --chip esp32c3 --port /dev/ttyACM0 --baud 921600 write_flash 0x10000 /path/to/firmware.bin
 ```
+
 Change `/dev/ttyACM0` to the device for your system.
 
 ### Manual
