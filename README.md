@@ -13,17 +13,19 @@ My goal with this fork was to maintain the core Crosspoint firmware while integr
 - Added ability to remap front buttons that only applies in the reader
 - In-book menu to quickly adjust font options without having to exit the book
 - Reading stats per book (total reading time, number of sessions, pages turned, average session time)
+- Changed "Auto Turn (Pages Per Minute)" to "Auto Page Turn Interval" since this is more intuitive to me.
+  - Added additional page turn intervals. Options are now: 60s, 45s (new), 30s (new), 20s, 15s (new), 10s, 5s, OFF.
 - Device simulator during development
 
 ---
 
 ### Reader Fonts
 
-The default fonts have been replaced with Bitter, Lexend Deca, and ChareInk. These fonts have been chosen specifically to improve reading fluency and e-ink performance. These 'sturdier' typefaces feature uniform stroke weights and open geometries, allowing the X4 to render crisp, high-contrast text with font-aliasing on while significantly reducing ghosting and artifacts.
+The default fonts have been replaced with ChareInk, Lexend Deca, and Bitter. These fonts have been chosen specifically to improve reading fluency and e-ink performance. These 'sturdier' typefaces feature uniform stroke weights and open geometries, allowing the X4 to render crisp, high-contrast text with font-aliasing on while significantly reducing ghosting and artifacts.
 
 - [ChareInk](https://www.mobileread.com/forums/showthread.php?t=184056) - A cult favorite among the e-reading community for over a decade based off of the typeface [Charis](https://software.sil.org/charis/). It is specially designed to make long texts pleasant and easy to read.
-- [Lexend Deca](https://fonts.google.com/specimen/Lexend+Deca) — A research-backed sans-serif typeface designed to improve reading fluency. Lexend was engineered based on the theory that reading issues are often a design problem (visual crowding) rather than a cognitive one.
-- [Bitter](https://fonts.google.com/specimen/Bitter) — A "contemporary" slab serif typeface for text, it is specially designed for comfortably reading on digital screens. The consistent stroke weight of Bitter helps it render particularly well on e-ink devices. The medium weight has been chosen specifically for improved rendering on the X4.
+- [Lexend Deca](https://fonts.google.com/specimen/Lexend+Deca) - A research-backed sans-serif typeface designed to improve reading fluency. Lexend was engineered based on the theory that reading issues are often a design problem (visual crowding) rather than a cognitive one.
+- [Bitter](https://fonts.google.com/specimen/Bitter) - A "contemporary" slab serif typeface for text, it is specially designed for comfortably reading on digital screens. The consistent stroke weight of Bitter helps it render particularly well on e-ink devices. The medium weight has been chosen specifically for improved rendering on the X4.
 
 The UI now uses [DM Sans](https://fonts.google.com/specimen/DM+Sans) as the display font and the smallest text on the UI has been replaced with [Inter](https://fonts.google.com/specimen/Inter), both fonts have improved readability at smaller sizes.
 

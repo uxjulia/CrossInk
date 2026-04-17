@@ -29,8 +29,8 @@
 namespace {
 // pagesPerRefresh now comes from SETTINGS.getRefreshFrequency()
 constexpr unsigned long skipChapterMs = 700;
-// pages per minute, first item is 1 to prevent division by zero if accessed
-const std::vector<int> PAGE_TURN_LABELS = {1, 1, 3, 6, 12};
+// seconds per page, ordered slowest to fastest; index 0 is unused (off state)
+const std::vector<int> PAGE_TURN_INTERVALS_S = {0, 60, 45, 30, 20, 15, 10, 5};
 
 int clampPercent(int percent) {
   if (percent < 0) {
@@ -489,14 +489,13 @@ void EpubReaderActivity::applyOrientation(const uint8_t orientation) {
 }
 
 void EpubReaderActivity::toggleAutoPageTurn(const uint8_t selectedPageTurnOption) {
-  if (selectedPageTurnOption == 0 || selectedPageTurnOption >= PAGE_TURN_LABELS.size()) {
+  if (selectedPageTurnOption == 0 || selectedPageTurnOption >= PAGE_TURN_INTERVALS_S.size()) {
     automaticPageTurnActive = false;
     return;
   }
 
   lastPageTurnTime = millis();
-  // calculates page turn duration by dividing by number of pages
-  pageTurnDuration = (1UL * 60 * 1000) / PAGE_TURN_LABELS[selectedPageTurnOption];
+  pageTurnDuration = static_cast<unsigned long>(PAGE_TURN_INTERVALS_S[selectedPageTurnOption]) * 1000UL;
   automaticPageTurnActive = true;
 
   const uint8_t statusBarHeight = UITheme::getInstance().getStatusBarHeight();
@@ -870,7 +869,7 @@ void EpubReaderActivity::renderStatusBar() const {
   int textYOffset = 0;
 
   if (automaticPageTurnActive) {
-    title = tr(STR_AUTO_TURN_ENABLED) + std::to_string(60 * 1000 / pageTurnDuration);
+    title = tr(STR_AUTO_TURN_ENABLED) + std::to_string(pageTurnDuration / 1000) + "s";
 
     // calculates textYOffset when rendering title in status bar
     const uint8_t statusBarHeight = UITheme::getInstance().getStatusBarHeight();
