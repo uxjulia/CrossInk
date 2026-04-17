@@ -6,7 +6,6 @@
 
 #include "MappedInputManager.h"
 #include "components/UITheme.h"
-#include "components/icons/chart.h"
 #include "fontIds.h"
 
 BookStatsActivity::BookStatsActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, const std::string& title,
@@ -39,15 +38,14 @@ void BookStatsActivity::render(RenderLock&&) {
   // then draw the chart icon + title text manually to produce the "<icon> Reading Stats" layout.
   GUI.drawHeader(renderer, Rect{0, metrics.topPadding, screenWidth, metrics.headerHeight}, "");
 
-  constexpr int iconSize = 32;
-  const int iconX = metrics.contentSidePadding;
-  const int iconY =
-      metrics.topPadding + metrics.batteryBarHeight + (metrics.headerHeight - metrics.batteryBarHeight - iconSize) / 2;
-  renderer.drawIcon(ChartIcon, iconX, iconY, iconSize, iconSize);
-
-  const int titleX = iconX + iconSize + 6;
-  const int titleY = metrics.topPadding + metrics.batteryBarHeight + 8;
-  renderer.drawText(UI_12_FONT_ID, titleX, titleY, tr(STR_READING_STATS), true, EpdFontFamily::BOLD);
+  const int availableH = metrics.headerHeight - metrics.batteryBarHeight;
+  const int titleX = metrics.contentSidePadding;
+  const int lineHeight = renderer.getLineHeight(UI_12_FONT_ID);
+  const int titleY = metrics.topPadding + metrics.batteryBarHeight + (availableH - lineHeight) / 2;
+  const int batteryStartX = screenWidth - metrics.contentSidePadding - metrics.batteryWidth;
+  const int maxTitleWidth = batteryStartX - titleX - metrics.contentSidePadding;
+  const std::string truncTitle = renderer.truncatedText(UI_12_FONT_ID, tr(STR_READING_STATS), maxTitleWidth, EpdFontFamily::BOLD);
+  renderer.drawText(UI_12_FONT_ID, titleX, titleY, truncTitle.c_str(), true, EpdFontFamily::BOLD);
 
   int y = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
 
