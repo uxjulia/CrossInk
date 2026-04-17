@@ -13,7 +13,7 @@ My goal with this fork was to maintain the core Crosspoint firmware while integr
 - Added ability to remap front buttons that only applies in the reader
 - In-book menu to quickly adjust font options without having to exit the book
 - Reading stats per book (total reading time, number of sessions, pages turned, average session time)
-- Changed "Auto Turn (Pages Per Minute)" to "Auto Page Turn Interval" since this is more intuitive to me.
+- Changed "Auto Turn (Pages Per Minute)" to "Auto Page Turn Interval" since this better describes the feature.
   - Added additional page turn intervals. Options are now: 60s, 45s (new), 30s (new), 20s, 15s (new), 10s, 5s, OFF.
 - Device simulator during development
 
@@ -31,7 +31,7 @@ The UI now uses [DM Sans](https://fonts.google.com/specimen/DM+Sans) as the disp
 
 ### Emojis and Misc Glyphs
 
-- Support for Unicode [Emoticons](https://unicode-explorer.com/b/1F600) and [Miscellaenous Symbols](https://unicode-explorer.com/b/2600) using [Noto Emoji](https://fonts.google.com/noto/specimen/Noto+Emoji) and [Noto Sans Symbols](https://fonts.google.com/noto/specimen/Noto+Sans+Symbols) font.
+- Support for Unicode [Emoticons](https://unicode-explorer.com/b/1F600) and [Miscellaneous Symbols](https://unicode-explorer.com/b/2600) using [Noto Emoji](https://fonts.google.com/noto/specimen/Noto+Emoji) and [Noto Sans Symbols](https://fonts.google.com/noto/specimen/Noto+Sans+Symbols) font.
 
 ---
 
