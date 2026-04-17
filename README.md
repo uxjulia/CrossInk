@@ -8,12 +8,13 @@ My goal with this fork was to maintain the core Crosspoint firmware while integr
 
 - New reader fonts: ChareInk, Lexend Deca, and Bitter
 - Unicode emoji and miscellaneous symbols support
-- Added ~~strikethrough~~ support; Made <u>underlines</u> thicker for better visibility
 - Adjusted font sizes: Tiny (10pt), Small (12pt), Medium (14pt), Large (16pt), Extra Large (18pt). See [Font Sizes](#font-sizes) for more details.
+- Added ~~strikethrough~~ support
+- Made <u>underlines</u> thicker for better visibility
 - Added ability to remap front buttons that only applies in the reader
 - In-book menu to quickly adjust font options without having to exit the book
-- Reading stats per book (total reading time, number of sessions, pages turned, average session time)
-- Changed "Auto Turn (Pages Per Minute)" to "Auto Page Turn Interval (seconds)" since this better describes the feature.
+- Reading stats: total reading time, number of sessions, pages turned, average session time, pages turned per minute
+- Changed label for "Auto Turn (Pages Per Minute)" to "Auto Page Turn Interval (seconds)"
   - Added additional page turn intervals (how many seconds pass between page turns). Options are now (in seconds): 60, 45, 30, 20, 15, 10, 5, OFF.
 - Device simulator during development
 

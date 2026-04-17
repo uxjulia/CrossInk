@@ -120,7 +120,7 @@ void BookStatsActivity::render(RenderLock&&) {
   // ─── Card 2: All Books ───────────────────────────────────────────────────────
   // Only rendered if there is enough vertical space before the button hints.
   const int screenHeight = renderer.getScreenHeight();
-  const int card2H = cardTitleH + cellH;
+  const int card2H = cardTitleH + cellH * 2;
   if (screenHeight - y - metrics.buttonHintsHeight - metrics.verticalSpacing >= card2H) {
     renderer.drawRect(cardX, y, cardW, card2H);
 
@@ -139,6 +139,22 @@ void BookStatsActivity::render(RenderLock&&) {
 
     snprintf(buf, sizeof(buf), "%lu", static_cast<unsigned long>(globalStats.totalPagesTurned));
     drawStatCell(cardX + thirdW * 2, thirdW, y, buf, tr(STR_STATS_PAGES_LBL));
+
+    y += cellH;
+
+    const uint32_t globalAvgSecs =
+        globalStats.totalSessions > 0 ? globalStats.totalReadingSeconds / globalStats.totalSessions : 0;
+    BookReadingStats::formatDuration(globalAvgSecs, buf, sizeof(buf));
+    drawStatCell(cardX, halfW, y, buf, tr(STR_STATS_AVG_SESSION_LBL));
+
+    if (globalStats.totalReadingSeconds > 60) {
+      const float ppm = static_cast<float>(globalStats.totalPagesTurned) * 60.0f /
+                        static_cast<float>(globalStats.totalReadingSeconds);
+      snprintf(buf, sizeof(buf), "%.1f", ppm);
+    } else {
+      snprintf(buf, sizeof(buf), "0.0");
+    }
+    drawStatCell(cardX + halfW, halfW, y, buf, tr(STR_STATS_PAGES_PER_MIN));
   }
 
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
