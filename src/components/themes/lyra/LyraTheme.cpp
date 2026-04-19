@@ -531,11 +531,33 @@ void LyraTheme::drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount
                                const std::function<std::string(int index)>& buttonLabel,
                                const std::function<UIIcon(int index)>& rowIcon) const {
   const auto& menuMetrics = UITheme::getInstance().getMetrics();
-  for (int i = 0; i < buttonCount; ++i) {
+
+  constexpr int maxVisibleItems = 6;
+  const int pageItems = maxVisibleItems;
+  const int totalPages = (buttonCount + pageItems - 1) / pageItems;
+
+  if (totalPages > 1) {
+    const int scrollAreaHeight = maxVisibleItems * (menuMetrics.menuRowHeight + menuMetrics.menuSpacing) - menuMetrics.menuSpacing;
+    const int scrollBarHeight = (scrollAreaHeight * pageItems) / buttonCount;
+    const int currentPage = selectedIndex / pageItems;
+    const int scrollBarY = rect.y + ((scrollAreaHeight - scrollBarHeight) * currentPage) / (totalPages - 1);
+    const int scrollBarX = rect.x + rect.width - LyraMetrics::values.scrollBarRightOffset;
+    renderer.drawLine(scrollBarX, rect.y, scrollBarX, rect.y + scrollAreaHeight, true);
+    renderer.fillRect(scrollBarX - LyraMetrics::values.scrollBarWidth, scrollBarY, LyraMetrics::values.scrollBarWidth,
+                      scrollBarHeight, true);
+  }
+
+  const int pageStartIndex = (selectedIndex / pageItems) * pageItems;
+
+  for (int i = pageStartIndex; i < buttonCount && i < pageStartIndex + pageItems; ++i) {
+    const int displayIndex = i - pageStartIndex;
     int tileWidth = rect.width - menuMetrics.contentSidePadding * 2;
+    if (totalPages > 1) {
+      tileWidth -= (LyraMetrics::values.scrollBarWidth + LyraMetrics::values.scrollBarRightOffset);
+    }
     Rect tileRect =
         Rect{rect.x + menuMetrics.contentSidePadding,
-             rect.y + i * (menuMetrics.menuRowHeight + menuMetrics.menuSpacing), tileWidth, menuMetrics.menuRowHeight};
+             rect.y + displayIndex * (menuMetrics.menuRowHeight + menuMetrics.menuSpacing), tileWidth, menuMetrics.menuRowHeight};
 
     const bool selected = selectedIndex == i;
 
@@ -551,10 +573,26 @@ void LyraTheme::drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount
 
     if (rowIcon != nullptr) {
       UIIcon icon = rowIcon(i);
-      const uint8_t* iconBitmap = iconForName(icon, mainMenuIconSize);
-      if (iconBitmap != nullptr) {
-        renderer.drawIcon(iconBitmap, textX, textY + 3, mainMenuIconSize, mainMenuIconSize);
+      if (icon == UIIcon::BookmarkIcon) {
+        // Draw a small bookmark ribbon icon to match the status bar ribbon.
+        const int ribbonWidth = 16;
+        const int ribbonHeight = 22;
+        const int notchSize = 6;
+        // Center the ribbon horizontally within the mainMenuIconSize box
+        const int iconX = textX + (mainMenuIconSize - ribbonWidth) / 2;
+        const int iconY = textY + 4;
+        const int centerX = iconX + ribbonWidth / 2;
+
+        int polyX[5] = {iconX, iconX + ribbonWidth, iconX + ribbonWidth, centerX, iconX};
+        int polyY[5] = {iconY, iconY, iconY + ribbonHeight, iconY + ribbonHeight - notchSize, iconY + ribbonHeight};
+        renderer.fillPolygon(polyX, polyY, 5, true);
         textX += mainMenuIconSize + hPaddingInSelection + 2;
+      } else {
+        const uint8_t* iconBitmap = iconForName(icon, mainMenuIconSize);
+        if (iconBitmap != nullptr) {
+          renderer.drawIcon(iconBitmap, textX, textY + 3, mainMenuIconSize, mainMenuIconSize);
+          textX += mainMenuIconSize + hPaddingInSelection + 2;
+        }
       }
     }
 

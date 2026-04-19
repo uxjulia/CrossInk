@@ -41,7 +41,7 @@ void EpubReaderBookmarkListActivity::loop() {
 
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
     if (!bookmarks.empty() && selectedIndex >= 0 && selectedIndex < static_cast<int>(bookmarks.size())) {
-      setResult(BookmarkResult{bookmarks[selectedIndex].spineIndex, bookmarks[selectedIndex].pageNumber});
+      setResult(BookmarkResult{bookmarks[selectedIndex].spineIndex, bookmarks[selectedIndex].progress});
       finish();
     }
     return;
@@ -119,7 +119,7 @@ void EpubReaderBookmarkListActivity::render(RenderLock&&) {
     renderer.drawText(UI_10_FONT_ID, marginLeft, rowY + 6, chapterTrunc.c_str(), !isSelected);
 
     char pageBuf[24];
-    snprintf(pageBuf, sizeof(pageBuf), tr(STR_BOOKMARK_PAGE_FORMAT), static_cast<int>(bm.pageNumber) + 1);
+    snprintf(pageBuf, sizeof(pageBuf), "%d%%", static_cast<int>(bm.progress * 100.0f));
     renderer.drawText(SMALL_FONT_ID, marginLeft, rowY + 28, pageBuf, !isSelected);
   }
 

@@ -53,7 +53,8 @@ struct FootnoteResult {
 
 struct BookmarkResult {
   uint16_t spineIndex = 0;
-  uint16_t pageNumber = 0;
+  // uint16_t pageNumber = 0;
+  float progress = 0.0f;
 };
 
 using ResultVariant = std::variant<std::monostate, WifiResult, KeyboardResult, MenuResult, ChapterResult, PercentResult,

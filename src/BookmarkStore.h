@@ -4,7 +4,7 @@
 
 struct Bookmark {
   uint16_t spineIndex;
-  uint16_t pageNumber;
+  float progress;
   uint32_t timestamp;
   char chapterTitle[48];
 };
@@ -38,10 +38,9 @@ class BookmarkStore {
                    const std::string& bookType);
   void unload();
 
-  bool addBookmark(uint16_t spineIndex, uint16_t pageNumber, const char* chapterTitle);
-  bool removeBookmark(uint16_t spineIndex, uint16_t pageNumber);
-  bool isBookmarked(uint16_t spineIndex, uint16_t pageNumber) const;
-  bool hasBookmarks() const { return !bookmarks.empty(); }
+  void addBookmark(uint16_t spineIndex, float progress, const char* chapterTitle);
+  void removeBookmarkForPage(uint16_t spineIndex, float pageProgress, int pageCount);
+  bool hasBookmarkForPage(uint16_t spineIndex, float pageProgress, int pageCount);
   const std::vector<Bookmark>& getBookmarks() const { return bookmarks; }
 
   // Flush to disk if dirty. Called automatically by add/remove; also call from reader onExit().

@@ -8,15 +8,15 @@
 #include <functional>
 
 namespace {
-constexpr uint8_t VERSION = 1;
+constexpr uint8_t VERSION = 2;
 constexpr uint8_t MAX_BOOKMARKS = 32;
 constexpr char BOOKMARKS_DIR[] = "/.crosspoint/bookmarks";
 }  // namespace
 
 BookmarkStore BookmarkStore::instance;
 
-bool BookmarkStore::loadForBook(const std::string& filePath, const std::string& title,
-                                const std::string& author, const std::string& bookType) {
+bool BookmarkStore::loadForBook(const std::string& filePath, const std::string& title, const std::string& author,
+                                const std::string& bookType) {
   bookFilePath = filePath;
   bookTitle = title;
   bookAuthor = author;
@@ -45,41 +45,45 @@ void BookmarkStore::unload() {
   dirty = false;
 }
 
-bool BookmarkStore::addBookmark(uint16_t spineIndex, uint16_t pageNumber, const char* chapterTitle) {
+void BookmarkStore::addBookmark(uint16_t spineIndex, float progress, const char* chapterTitle) {
   if (bookmarks.size() >= MAX_BOOKMARKS) {
     LOG_ERR("BKS", "Bookmark limit (%d) reached", MAX_BOOKMARKS);
-    return false;
+    return;
   }
-
-  if (isBookmarked(spineIndex, pageNumber)) return true;
 
   Bookmark bm{};
   bm.spineIndex = spineIndex;
-  bm.pageNumber = pageNumber;
+  bm.progress = progress;
   bm.timestamp = 0;  // ESP32-C3 has no battery-backed RTC; reserved for future use
   snprintf(bm.chapterTitle, sizeof(bm.chapterTitle), "%s", chapterTitle ? chapterTitle : "");
 
   bookmarks.push_back(bm);
   dirty = true;
   saveToFile();
-  return true;
 }
 
-bool BookmarkStore::removeBookmark(uint16_t spineIndex, uint16_t pageNumber) {
+void BookmarkStore::removeBookmarkForPage(uint16_t spineIndex, float pageProgress, int pageCount) {
+  float pageSlice = 1.0f / static_cast<float>(pageCount);
+  float pageStart = pageProgress;
+  float pageEnd = pageProgress + pageSlice;
+
   auto it = std::find_if(bookmarks.begin(), bookmarks.end(), [&](const Bookmark& b) {
-    return b.spineIndex == spineIndex && b.pageNumber == pageNumber;
+    return b.spineIndex == spineIndex && b.progress >= pageStart && b.progress < pageEnd;
   });
-  if (it == bookmarks.end()) return false;
+  if (it == bookmarks.end()) return;
 
   bookmarks.erase(it);
   dirty = true;
   saveToFile();
-  return true;
 }
 
-bool BookmarkStore::isBookmarked(uint16_t spineIndex, uint16_t pageNumber) const {
+bool BookmarkStore::hasBookmarkForPage(uint16_t spineIndex, float pageProgress, int pageCount) {
+  float pageSlice = 1.0f / static_cast<float>(pageCount);
+  float pageStart = pageProgress;
+  float pageEnd = pageProgress + pageSlice;
+
   for (const auto& b : bookmarks) {
-    if (b.spineIndex == spineIndex && b.pageNumber == pageNumber) return true;
+    if (b.spineIndex == spineIndex && b.progress >= pageStart && b.progress < pageEnd) return true;
   }
   return false;
 }
@@ -135,7 +139,7 @@ bool BookmarkStore::readFromFile() {
   for (uint8_t i = 0; i < count; i++) {
     Bookmark bm{};
     serialization::readPod(f, bm.spineIndex);
-    serialization::readPod(f, bm.pageNumber);
+    serialization::readPod(f, bm.progress);
     serialization::readPod(f, bm.timestamp);
     f.read(bm.chapterTitle, sizeof(bm.chapterTitle));
     bookmarks.push_back(bm);
@@ -164,7 +168,7 @@ bool BookmarkStore::writeToFile() const {
 
   for (const auto& bm : bookmarks) {
     serialization::writePod(f, bm.spineIndex);
-    serialization::writePod(f, bm.pageNumber);
+    serialization::writePod(f, bm.progress);
     serialization::writePod(f, bm.timestamp);
     f.write(reinterpret_cast<const uint8_t*>(bm.chapterTitle), sizeof(bm.chapterTitle));
   }

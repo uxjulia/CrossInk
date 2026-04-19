@@ -4,6 +4,7 @@
 #include <HalStorage.h>
 #include <I18n.h>
 
+#include "CrossPointState.h"
 #include "../reader/EpubReaderBookmarkListActivity.h"
 #include "BookmarkStore.h"
 #include "MappedInputManager.h"
@@ -99,7 +100,9 @@ void BookmarksHomeActivity::openBookmarkList(int bookIndex) {
       [this, entry](const ActivityResult& result) {
         if (!result.isCancelled) {
           const auto& bm = std::get<BookmarkResult>(result.data);
-          writeProgressBin(entry.bookPath, bm.spineIndex, bm.pageNumber);
+          APP_STATE.pendingBookmarkSpine = bm.spineIndex;
+          APP_STATE.pendingBookmarkProgress = bm.progress;
+          APP_STATE.saveToFile();
           onSelectBook(entry.bookPath);
         } else {
           requestUpdate();

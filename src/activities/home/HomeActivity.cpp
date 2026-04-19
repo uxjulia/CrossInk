@@ -282,28 +282,22 @@ void HomeActivity::render(RenderLock&&) {
     if (hasOpdsUrl) insertPos++;
     if (hasReadingStats) insertPos++;
     menuItems.insert(menuItems.begin() + insertPos, tr(STR_BOOKMARKS));
-    menuIcons.insert(menuIcons.begin() + insertPos, Book);
+    menuIcons.insert(menuIcons.begin() + insertPos, BookmarkIcon);
   }
 
   const int menuStartY = metrics.homeTopPadding + metrics.homeCoverTileHeight + metrics.verticalSpacing;
   const int menuEndY = pageHeight - metrics.buttonHintsHeight;
-  const int visibleMenuItems = std::max(1, (menuEndY - menuStartY) / (metrics.menuRowHeight + metrics.menuSpacing));
   const int menuCount = static_cast<int>(menuItems.size());
   const int menuSelectedIndex = selectorIndex - static_cast<int>(recentBooks.size());
-  const int viewStart = menuSelectedIndex >= 0
-                            ? std::max(0, std::min(menuSelectedIndex - (visibleMenuItems - 1),
-                                                   std::max(0, menuCount - visibleMenuItems)))
-                            : 0;
-  const int viewCount = std::min(visibleMenuItems, menuCount - viewStart);
 
   GUI.drawButtonMenu(
       renderer,
       Rect{0, menuStartY, pageWidth,
            pageHeight - (metrics.headerHeight + metrics.homeTopPadding + metrics.verticalSpacing * 2 +
                          metrics.buttonHintsHeight)},
-      viewCount, menuSelectedIndex - viewStart,
-      [&menuItems, viewStart](int index) { return std::string(menuItems[viewStart + index]); },
-      [&menuIcons, viewStart](int index) { return menuIcons[viewStart + index]; });
+      menuCount, menuSelectedIndex,
+      [&menuItems](int index) { return std::string(menuItems[index]); },
+      [&menuIcons](int index) { return menuIcons[index]; });
 
   const auto labels = mappedInput.mapLabels("", tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
