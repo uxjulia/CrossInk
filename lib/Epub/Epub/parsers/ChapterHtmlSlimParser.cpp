@@ -424,8 +424,8 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
                   }
                   if (displayHeight < 1) displayHeight = 1;
                   LOG_DBG("EHP", "Display size from CSS width: %dx%d", displayWidth, displayHeight);
-                } else if (self->currentTextBlock != nullptr && dims.width > 0 && dims.height > 0) {
-                  // Inline image with no CSS dimensions (e.g. emoji PNG inside a paragraph).
+                } else if ((self->insideParagraph || self->spanDepth > 0) && dims.width > 0 && dims.height > 0) {
+                  // Inline image with no CSS dimensions (e.g. emoji PNG inside a <p>, <li>, or <span>).
                   // Size to the font ascender height to match surrounding text.
                   displayHeight = static_cast<int>(emSize + 0.5f);
                   if (displayHeight < 1) displayHeight = 1;
@@ -612,6 +612,9 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
       self->startNewTextBlock(userAlignmentBlockStyle);
       self->updateEffectiveInlineStyle();
 
+      if (strcmp(name, "p") == 0 || strcmp(name, "li") == 0) {
+        self->insideParagraph = true;
+      }
       if (strcmp(name, "li") == 0) {
         self->currentTextBlock->addWord("\xe2\x80\xa2", EpdFontFamily::REGULAR);
       }
@@ -710,6 +713,9 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
     self->updateEffectiveInlineStyle();
   } else if (strcmp(name, "span") == 0 || !isHeaderOrBlock(name)) {
     // Handle span and other inline elements for CSS styling
+    if (strcmp(name, "span") == 0) {
+      self->spanDepth++;
+    }
     if (cssStyle.hasFontWeight() || cssStyle.hasFontStyle() || cssStyle.hasTextDecoration()) {
       // Flush buffer before style change so preceding text gets current style
       if (self->partWordBufferIndex > 0) {
@@ -1034,7 +1040,14 @@ void XMLCALL ChapterHtmlSlimParser::endElement(void* userData, const XML_Char* n
   }
 
   // Clear block style when leaving header or block elements
+  if (strcmp(name, "span") == 0 && self->spanDepth > 0) {
+    self->spanDepth--;
+  }
+
   if (headerOrBlockTag) {
+    if (strcmp(name, "p") == 0 || strcmp(name, "li") == 0) {
+      self->insideParagraph = false;
+    }
     self->currentCssStyle.reset();
     self->updateEffectiveInlineStyle();
 
