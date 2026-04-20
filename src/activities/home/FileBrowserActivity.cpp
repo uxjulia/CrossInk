@@ -9,6 +9,7 @@
 #include <algorithm>
 
 #include "../util/ConfirmationActivity.h"
+#include "BookmarkStore.h"
 #include "CrossPointSettings.h"
 #include "MappedInputManager.h"
 #include "components/UITheme.h"
@@ -133,11 +134,15 @@ void FileBrowserActivity::onExit() {
 }
 
 void FileBrowserActivity::clearFileMetadata(const std::string& fullPath) {
-  // Only clear cache for .epub files
   if (FsHelpers::hasEpubExtension(fullPath)) {
     Epub(fullPath, "/.crosspoint").clearCache();
-    LOG_DBG("FileBrowser", "Cleared metadata cache for: %s", fullPath.c_str());
+    BookmarkStore::deleteForFilePath(fullPath, "epub");
+  } else if (FsHelpers::hasXtcExtension(fullPath)) {
+    BookmarkStore::deleteForFilePath(fullPath, "xtc");
+  } else if (FsHelpers::hasTxtExtension(fullPath) || FsHelpers::hasMarkdownExtension(fullPath)) {
+    BookmarkStore::deleteForFilePath(fullPath, "txt");
   }
+  LOG_DBG("FileBrowser", "Cleared metadata for: %s", fullPath.c_str());
 }
 
 void FileBrowserActivity::loop() {

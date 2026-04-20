@@ -224,6 +224,17 @@ bool BookmarkStore::writeToFile() const {
   return true;
 }
 
+void BookmarkStore::deleteForFilePath(const std::string& filePath, const std::string& bookType) {
+  const uint32_t crc = uzlib_crc32(filePath.data(), static_cast<unsigned int>(filePath.size()), 0);
+  const std::string path = std::string(BOOKMARKS_DIR) + "/" + bookType + "_" + std::to_string(crc) + ".bin";
+  if (!Storage.exists(path.c_str())) return;
+  if (!Storage.remove(path.c_str())) {
+    LOG_ERR("BKS", "Failed to delete bookmark file: %s", path.c_str());
+  } else {
+    LOG_DBG("BKS", "Deleted bookmark file for: %s", filePath.c_str());
+  }
+}
+
 bool BookmarkStore::hasAnyBookmarks() {
   if (!Storage.exists(BOOKMARKS_DIR)) return false;
   return !Storage.listFiles(BOOKMARKS_DIR).empty();

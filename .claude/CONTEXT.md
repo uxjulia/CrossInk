@@ -24,25 +24,6 @@ See: `lib/JpegToBmpConverter/JpegToBmpConverter.cpp` — `jpegFileToBmpStreamInt
 
 ---
 
-## JpegToBmpConverter — JPEGDEC Fallback
-
-All three public methods require `const char* filePath` (so JPEGDEC open callback can reopen):
-
-```cpp
-static bool jpegFileToBmpStream(FsFile& jpegFile, Print& bmpOut, const char* filePath, bool crop = true);
-static bool jpegFileToBmpStreamWithSize(FsFile& jpegFile, Print& bmpOut, const char* filePath, int targetMaxWidth, int targetMaxHeight);
-static bool jpegFileTo1BitBmpStreamWithSize(FsFile& jpegFile, Print& bmpOut, const char* filePath, int targetMaxWidth, int targetMaxHeight);
-```
-
-JPEGDEC callbacks pattern (matches `JpegToFramebufferConverter`):
-
-- `open(filename, size)`: `new FsFile`, `Storage.openFileForRead(filename, *f)`, return `f`
-- `close(handle)`: `f->close(); delete f;`
-
-Callers: `lib/Epub/Epub.cpp:561`, `lib/Epub/Epub.cpp:652`, `lib/Txt/Txt.cpp:146`.
-
----
-
 ## Image Rendering Pipeline
 
 ### PageImage::render — Grayscale Skip
