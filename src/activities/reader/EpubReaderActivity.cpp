@@ -15,6 +15,7 @@
 #include "BookStatsActivity.h"
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
+#include "EpubReaderBookmarkListActivity.h"
 #include "EpubReaderChapterSelectionActivity.h"
 #include "EpubReaderFootnotesActivity.h"
 #include "EpubReaderPercentSelectionActivity.h"
@@ -63,24 +64,38 @@ void EpubReaderActivity::onEnter() {
   mappedInput.setReaderMode(true);
 
   epub->setupCacheDir();
+  BOOKMARKS.loadForBook(epub->getPath(), epub->getTitle(), epub->getAuthor(), "epub");
 
-  FsFile f;
-  if (Storage.openFileForRead("ERS", epub->getCachePath() + "/progress.bin", f)) {
-    uint8_t data[6];
-    int dataSize = f.read(data, 6);
-    if (dataSize == 4 || dataSize == 6) {
-      currentSpineIndex = data[0] + (data[1] << 8);
-      nextPageNumber = data[2] + (data[3] << 8);
-      cachedSpineIndex = currentSpineIndex;
-      LOG_DBG("ERS", "Loaded cache: %d, %d", currentSpineIndex, nextPageNumber);
-    }
-    if (dataSize == 6) {
-      cachedChapterTotalPageCount = data[4] + (data[5] << 8);
+  if (APP_STATE.pendingBookmarkSpine != UINT16_MAX && APP_STATE.pendingBookmarkProgress >= 0.0f) {
+    // Resume from a bookmark selected on the Home screen
+    currentSpineIndex = APP_STATE.pendingBookmarkSpine;
+    pendingSpineProgress = APP_STATE.pendingBookmarkProgress;
+    pendingPercentJump = true;
+    cachedSpineIndex = currentSpineIndex;
+
+    // Clear the pending jump
+    APP_STATE.pendingBookmarkSpine = UINT16_MAX;
+    APP_STATE.pendingBookmarkProgress = -1.0f;
+    APP_STATE.saveToFile();
+  } else {
+    FsFile f;
+    if (Storage.openFileForRead("ERS", epub->getCachePath() + "/progress.bin", f)) {
+      uint8_t data[6];
+      int dataSize = f.read(data, 6);
+      if (dataSize == 4 || dataSize == 6) {
+        currentSpineIndex = data[0] + (data[1] << 8);
+        nextPageNumber = data[2] + (data[3] << 8);
+        cachedSpineIndex = currentSpineIndex;
+        LOG_DBG("ERS", "Loaded cache: %d, %d", currentSpineIndex, nextPageNumber);
+      }
+      if (dataSize == 6) {
+        cachedChapterTotalPageCount = data[4] + (data[5] << 8);
+      }
     }
   }
   // We may want a better condition to detect if we are opening for the first time.
   // This will trigger if the book is re-opened at Chapter 0.
-  if (currentSpineIndex == 0) {
+  if (currentSpineIndex == 0 && !pendingPercentJump) {
     int textSpineIndex = epub->getSpineIndexForTextReference();
     if (textSpineIndex != 0) {
       currentSpineIndex = textSpineIndex;
@@ -132,6 +147,7 @@ void EpubReaderActivity::onExit() {
   stats.save(epub->getCachePath());
   globalStats.save();
 
+  BOOKMARKS.unload();
   section.reset();
   epub.reset();
 }
@@ -141,6 +157,19 @@ void EpubReaderActivity::loop() {
     // Should never happen
     finish();
     return;
+  }
+
+  if (pendingBookmarkFeedback) {
+    const bool timedOut = (millis() - bookmarkFeedbackShowTime) >= 1000UL;
+    const bool navPressed = mappedInput.wasReleased(MappedInputManager::Button::Left) ||
+                            mappedInput.wasReleased(MappedInputManager::Button::Right) ||
+                            mappedInput.wasReleased(MappedInputManager::Button::Up) ||
+                            mappedInput.wasReleased(MappedInputManager::Button::Down);
+    if (timedOut || navPressed) {
+      pendingBookmarkFeedback = false;
+      requestUpdate();
+      return;
+    }
   }
 
   if (automaticPageTurnActive) {
@@ -179,9 +208,15 @@ void EpubReaderActivity::loop() {
       bookProgress = epub->calculateProgress(currentSpineIndex, chapterProgress) * 100.0f;
     }
     const int bookProgressPercent = clampPercent(static_cast<int>(bookProgress + 0.5f));
+    const uint16_t bmSpine = static_cast<uint16_t>(currentSpineIndex);
+
+    const float bmProgress =
+        (section && section->pageCount > 0) ? static_cast<float>(section->currentPage) / section->pageCount : 0.0f;
+
     startActivityForResult(std::make_unique<EpubReaderMenuActivity>(
                                renderer, mappedInput, epub->getTitle(), currentPage, totalPages, bookProgressPercent,
-                               SETTINGS.orientation, !currentPageFootnotes.empty()),
+                               SETTINGS.orientation, !currentPageFootnotes.empty(), !BOOKMARKS.getBookmarks().empty(),
+                               BOOKMARKS.hasBookmarkForPage(bmSpine, bmProgress, section ? section->pageCount : 1)),
                            [this](const ActivityResult& result) {
                              // Always apply orientation change even if the menu was cancelled
                              const auto& menu = std::get<MenuResult>(result.data);
@@ -463,6 +498,55 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
       }
       break;
     }
+    case EpubReaderMenuActivity::MenuAction::BOOKMARK_TOGGLE: {
+      if (!section || section->pageCount == 0) break;
+      const uint16_t spine = static_cast<uint16_t>(currentSpineIndex);
+      const float progress = static_cast<float>(section->currentPage) / static_cast<float>(section->pageCount);
+
+      if (BOOKMARKS.hasBookmarkForPage(spine, progress, section->pageCount)) {
+        BOOKMARKS.removeBookmarkForPage(spine, progress, section->pageCount);
+        bookmarkFeedbackIsAdd = false;
+      } else {
+        const char* chapterTitle = nullptr;
+        std::string titleStr;
+        const int tocIndex = epub->getTocIndexForSpineIndex(currentSpineIndex);
+        if (tocIndex != -1) {
+          titleStr = epub->getTocItem(tocIndex).title;
+          chapterTitle = titleStr.c_str();
+        }
+        BOOKMARKS.addBookmark(spine, progress, section->pageCount, chapterTitle);
+        bookmarkFeedbackIsAdd = true;
+      }
+      pendingBookmarkFeedback = true;
+      bookmarkFeedbackShowTime = millis();
+      requestUpdate();
+      break;
+    }
+    case EpubReaderMenuActivity::MenuAction::VIEW_BOOKMARKS: {
+      startActivityForResult(
+          std::make_unique<EpubReaderBookmarkListActivity>(renderer, mappedInput, BOOKMARKS.getBookmarks()),
+          [this](const ActivityResult& result) {
+            if (!result.isCancelled) {
+              const auto& bm = std::get<BookmarkResult>(result.data);
+              RenderLock lock(*this);
+              currentSpineIndex = bm.spineIndex;
+              pendingSpineProgress = bm.progress;
+              pendingPercentJump = true;
+              section.reset();
+            }
+            requestUpdate();
+          });
+      break;
+    }
+    case EpubReaderMenuActivity::MenuAction::DELETE_BOOKMARKS: {
+      BOOKMARKS.clearAll();
+      requestUpdate();
+      break;
+    }
+    case EpubReaderMenuActivity::MenuAction::AUTO_PAGE_TURN:
+    case EpubReaderMenuActivity::MenuAction::ROTATE_SCREEN:
+    case EpubReaderMenuActivity::MenuAction::READER_OPTIONS:
+      break;
   }
 }
 
@@ -663,6 +747,16 @@ void EpubReaderActivity::render(RenderLock&& lock) {
       section->currentPage = newPage;
       pendingPercentJump = false;
     }
+
+    // Clamp the current page to ensure we stay within bounds if reader settings have
+    // changed since the page number (e.g., via a bookmark) was saved.
+    if (section->pageCount > 0) {
+      if (section->currentPage >= section->pageCount) {
+        section->currentPage = section->pageCount - 1;
+      } else if (section->currentPage < 0) {
+        section->currentPage = 0;
+      }
+    }
   }
 
   renderer.clearScreen();
@@ -798,6 +892,19 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
 
   page->render(renderer, SETTINGS.getReaderFontId(), orientedMarginLeft, orientedMarginTop);
   renderStatusBar();
+  if (pendingBookmarkFeedback) {
+    const char* msg = bookmarkFeedbackIsAdd ? tr(STR_BOOKMARK_ADDED) : tr(STR_BOOKMARK_REMOVED);
+    constexpr int toastPadX = 20;
+    constexpr int toastPadY = 12;
+    const int msgW = renderer.getTextWidth(UI_10_FONT_ID, msg);
+    const int msgH = renderer.getLineHeight(UI_10_FONT_ID);
+    const int toastW = msgW + toastPadX * 2;
+    const int toastH = msgH + toastPadY * 2;
+    const int toastX = (renderer.getScreenWidth() - toastW) / 2;
+    const int toastY = (renderer.getScreenHeight() - toastH) / 2;
+    renderer.fillRect(toastX, toastY, toastW, toastH, true);
+    renderer.drawText(UI_10_FONT_ID, toastX + toastPadX, toastY + toastPadY, msg, false);
+  }
   fcm->logStats("bw_render");
   const auto tBwRender = millis();
 
@@ -875,7 +982,7 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
 }
 
 void EpubReaderActivity::renderStatusBar() const {
-  // Calculate progress in book
+  // Calculate progre  // Calculate progress in book
   const int currentPage = section->currentPage + 1;
   const float pageCount = section->pageCount;
   const float sectionChapterProg = (pageCount > 0) ? (static_cast<float>(currentPage) / pageCount) : 0;
@@ -908,7 +1015,10 @@ void EpubReaderActivity::renderStatusBar() const {
     title = epub->getTitle();
   }
 
-  GUI.drawStatusBar(renderer, bookProgress, currentPage, pageCount, title, 0, textYOffset);
+  const float rawProgress = (pageCount > 0) ? (static_cast<float>(section->currentPage) / pageCount) : 0.0f;
+  const bool bookmarked = BOOKMARKS.hasBookmarkForPage(static_cast<uint16_t>(currentSpineIndex), rawProgress,
+                                                       section->pageCount > 0 ? section->pageCount : 1);
+  GUI.drawStatusBar(renderer, bookProgress, currentPage, pageCount, title, 0, textYOffset, bookmarked);
 }
 
 void EpubReaderActivity::navigateToHref(const std::string& hrefStr, const bool savePosition) {

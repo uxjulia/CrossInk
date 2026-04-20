@@ -4,6 +4,7 @@
 #include <Epub/Section.h>
 
 #include "BookReadingStats.h"
+#include "BookmarkStore.h"
 #include "EpubReaderMenuActivity.h"
 #include "GlobalReadingStats.h"
 #include "activities/Activity.h"
@@ -33,6 +34,9 @@ class EpubReaderActivity final : public Activity {
   bool skipNextButtonCheck = false;  // Skip button processing for one frame after subactivity exit
   bool automaticPageTurnActive = false;
   int pageLoadRetryCount = 0;
+  bool pendingBookmarkFeedback = false;
+  bool bookmarkFeedbackIsAdd = false;
+  unsigned long bookmarkFeedbackShowTime = 0UL;
 
   // Footnote support
   std::vector<FootnoteEntry> currentPageFootnotes;

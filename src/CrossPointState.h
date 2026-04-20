@@ -29,6 +29,8 @@ class CrossPointState {
   bool saveToFile() const;
 
   bool loadFromFile();
+  uint16_t pendingBookmarkSpine = UINT16_MAX;
+  float pendingBookmarkProgress = -1.0f;
 
  private:
   bool loadFromBinaryFile();
