@@ -21,17 +21,33 @@
  *   - Class selectors: .classname
  *   - Combined: element.classname
  *   - Grouped: selector1, selector2 { }
+ *   - Two-part descendant: ancestor subject (e.g. "div p", "section.chapter p")
  *
  * Not supported (silently ignored):
- *   - Descendant/child selectors
+ *   - Three-or-more-part descendant selectors
+ *   - Child/sibling combinators (>, +, ~)
  *   - Pseudo-classes and pseudo-elements
  *   - Media queries (content is skipped)
  *   - @import, @font-face, etc.
  */
+
+/**
+ * Represents one open ancestor element in the HTML parse tree.
+ * The `depth` field is used by ChapterHtmlSlimParser for stack management;
+ * CssParser only reads `tag` and `classAttr` for selector matching.
+ */
+struct CssAncestorEntry {
+  int depth = 0;
+  std::string tag;
+  std::string classAttr;
+};
+
 class CssParser {
  public:
   // Bump when CSS cache format or rules change; section caches are invalidated when this changes
-  static constexpr uint8_t CSS_CACHE_VERSION = 4;
+  static constexpr uint8_t CSS_CACHE_VERSION = 5;
+
+  static constexpr size_t MAX_DESCENDANT_RULES = 100;
 
   explicit CssParser(std::string cachePath) : cachePath(std::move(cachePath)) {}
   ~CssParser() = default;
@@ -49,14 +65,16 @@ class CssParser {
   bool loadFromStream(FsFile& source);
 
   /**
-   * Look up the style for an HTML element, considering tag name and class attributes.
-   * Applies CSS cascade: element style < class style < element.class style
+   * Look up the style for an HTML element, considering tag name, class attributes, and ancestors.
+   * Applies CSS cascade: element style < descendant rules < class style < element.class style
    *
    * @param tagName The HTML element name (e.g., "p", "div")
    * @param classAttr The class attribute value (may contain multiple space-separated classes)
+   * @param ancestors Open ancestor elements in the parse tree, innermost last
    * @return Combined style with all applicable rules merged
    */
-  [[nodiscard]] CssStyle resolveStyle(const std::string& tagName, const std::string& classAttr) const;
+  [[nodiscard]] CssStyle resolveStyle(const std::string& tagName, const std::string& classAttr,
+                                      const std::vector<CssAncestorEntry>& ancestors = {}) const;
 
   /**
    * Parse an inline style attribute string.
@@ -78,7 +96,10 @@ class CssParser {
   /**
    * Clear all loaded rules
    */
-  void clear() { rulesBySelector_.clear(); }
+  void clear() {
+    rulesBySelector_.clear();
+    descendantRules_.clear();
+  }
 
   /**
    * Check if CSS rules cache file exists
@@ -104,13 +125,22 @@ class CssParser {
   bool loadFromCache();
 
  private:
+  struct DescendantRule {
+    std::string ancestorSelector;  // e.g. "div", ".chapter", "section.body"
+    std::string subjectSelector;   // e.g. "p", ".indent", "p.indent"
+    CssStyle style;
+  };
+
   // Storage: maps normalized selector -> style properties
   std::unordered_map<std::string, CssStyle> rulesBySelector_;
+  std::vector<DescendantRule> descendantRules_;
 
   std::string cachePath;
 
   // Internal parsing helpers
   void processRuleBlockWithStyle(const std::string& selectorGroup, const CssStyle& style);
+  static bool selectorMatchesElement(const std::string& selector, const std::string& tag,
+                                     const std::string& classAttr);
   static CssStyle parseDeclarations(const std::string& declBlock);
   static void parseDeclarationIntoStyle(const std::string& decl, CssStyle& style, std::string& propNameBuf,
                                         std::string& propValueBuf);

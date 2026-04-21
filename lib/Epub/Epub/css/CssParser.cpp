@@ -41,6 +41,9 @@ constexpr size_t READ_BUFFER_SIZE = 512;
 // Prevents unbounded memory growth from pathological CSS files
 constexpr size_t MAX_RULES = 1500;
 
+// Maximum number of two-part descendant rules (ancestor subject) to store
+constexpr size_t MAX_DESCENDANT_RULES = CssParser::MAX_DESCENDANT_RULES;
+
 // Minimum free heap required to apply CSS during rendering
 // If below this threshold, we skip CSS to avoid display artifacts.
 constexpr size_t MIN_FREE_HEAP_FOR_CSS = 48 * 1024;
@@ -372,6 +375,31 @@ CssStyle CssParser::parseDeclarations(const std::string& declBlock) {
   return style;
 }
 
+// Returns true if a normalized simple selector (tag, .class, or tag.class) matches the element.
+// Both `selector` and the incoming `tag` are expected to be normalized (lowercase/trimmed).
+// Individual class tokens from `classAttr` are normalized inside this function.
+bool CssParser::selectorMatchesElement(const std::string& selector, const std::string& tag,
+                                       const std::string& classAttr) {
+  if (selector.empty()) return false;
+
+  const size_t dotPos = selector.find('.');
+  if (dotPos == std::string::npos) {
+    return selector == tag;
+  }
+
+  const std::string_view selectorTag(selector.data(), dotPos);
+  const std::string_view selectorClass(selector.data() + dotPos + 1, selector.size() - dotPos - 1);
+
+  if (!selectorTag.empty() && selectorTag != tag) return false;
+
+  if (classAttr.empty()) return false;
+  const auto classes = splitWhitespace(classAttr);
+  for (const auto& cls : classes) {
+    if (normalized(cls) == selectorClass) return true;
+  }
+  return false;
+}
+
 // Rule processing
 
 void CssParser::processRuleBlockWithStyle(const std::string& selectorGroup, const CssStyle& style) {
@@ -437,11 +465,40 @@ void CssParser::processRuleBlockWithStyle(const std::string& selectorGroup, cons
       continue;
     }
 
-    // TODO: Add support for more complex selectors in the future
-    // At the moment, we only ever check for `tag`, `tag.class1` or `.class1`
-    // If the selector has whitespace in it, then it's either a CSS selector for a descendant element (e.g. `tag1 tag2`)
-    // or some other slightly more advanced CSS selector which we don't support yet
+    // Two-part descendant selectors (e.g. "div p", "section.chapter p", "body .indent")
+    // Only single-ancestor + single-subject are supported; three-or-more-part selectors are skipped.
     if (key.find(' ') != std::string_view::npos) {
+      if (descendantRules_.size() >= MAX_DESCENDANT_RULES) continue;
+      const auto parts = splitWhitespace(key);
+      if (parts.size() != 2) continue;
+
+      // Validate both parts are simple selectors (no unsupported characters, at most one class)
+      auto isSimpleSelector = [](const std::string& s) -> bool {
+        int dotCount = 0;
+        for (const char c : s) {
+          if (c == '#' || c == ':' || c == '[' || c == '+' || c == '~' || c == '>' || c == '*') return false;
+          if (c == '.') ++dotCount;
+        }
+        return dotCount <= 1;
+      };
+      if (!isSimpleSelector(parts[0]) || !isSimpleSelector(parts[1])) continue;
+
+      DescendantRule rule;
+      rule.ancestorSelector = parts[0];
+      rule.subjectSelector = parts[1];
+      rule.style = style;
+
+      // Merge with existing rule for same selector pair, or append
+      auto it = std::find_if(descendantRules_.begin(), descendantRules_.end(),
+                             [&](const DescendantRule& r) {
+                               return r.ancestorSelector == rule.ancestorSelector &&
+                                      r.subjectSelector == rule.subjectSelector;
+                             });
+      if (it != descendantRules_.end()) {
+        it->style.applyOver(style);
+      } else {
+        descendantRules_.push_back(std::move(rule));
+      }
       continue;
     }
 
@@ -611,7 +668,8 @@ bool CssParser::loadFromStream(FsFile& source) {
 
 // Style resolution
 
-CssStyle CssParser::resolveStyle(const std::string& tagName, const std::string& classAttr) const {
+CssStyle CssParser::resolveStyle(const std::string& tagName, const std::string& classAttr,
+                                  const std::vector<CssAncestorEntry>& ancestors) const {
   static bool lowHeapWarningLogged = false;
   if (ESP.getFreeHeap() < MIN_FREE_HEAP_FOR_CSS) {
     if (!lowHeapWarningLogged) {
@@ -630,8 +688,22 @@ CssStyle CssParser::resolveStyle(const std::string& tagName, const std::string& 
     result.applyOver(tagIt->second);
   }
 
+  // 2. Apply two-part descendant rules — higher specificity than bare element, lower than class
+  // e.g. "div p { text-indent: 1em }" fires when any ancestor matches "div"
+  if (!ancestors.empty() && !descendantRules_.empty()) {
+    for (const auto& rule : descendantRules_) {
+      if (!selectorMatchesElement(rule.subjectSelector, tag, classAttr)) continue;
+      for (const auto& anc : ancestors) {
+        if (selectorMatchesElement(rule.ancestorSelector, normalized(anc.tag), anc.classAttr)) {
+          result.applyOver(rule.style);
+          break;
+        }
+      }
+    }
+  }
+
   // TODO: Support combinations of classes (e.g. style on .class1.class2)
-  // 2. Apply class styles (medium priority)
+  // 4. Apply class styles (medium priority)
   if (!classAttr.empty()) {
     const auto classes = splitWhitespace(classAttr);
 
@@ -645,7 +717,7 @@ CssStyle CssParser::resolveStyle(const std::string& tagName, const std::string& 
     }
 
     // TODO: Support combinations of classes (e.g. style on p.class1.class2)
-    // 3. Apply element.class styles (higher priority)
+    // 5. Apply element.class styles (highest priority)
     for (const auto& cls : classes) {
       std::string combinedKey = tag + "." + normalized(cls);
 
@@ -691,26 +763,16 @@ bool CssParser::saveToCache() const {
   const auto ruleCount = static_cast<uint16_t>(rulesBySelector_.size());
   file.write(reinterpret_cast<const uint8_t*>(&ruleCount), sizeof(ruleCount));
 
-  // Write each rule: selector string + CssStyle fields
-  for (const auto& pair : rulesBySelector_) {
-    // Write selector string (length-prefixed)
-    const auto selectorLen = static_cast<uint16_t>(pair.first.size());
-    file.write(reinterpret_cast<const uint8_t*>(&selectorLen), sizeof(selectorLen));
-    file.write(reinterpret_cast<const uint8_t*>(pair.first.data()), selectorLen);
+  auto writeLength = [&file](const CssLength& len) {
+    file.write(reinterpret_cast<const uint8_t*>(&len.value), sizeof(len.value));
+    file.write(static_cast<uint8_t>(len.unit));
+  };
 
-    // Write CssStyle fields (all are POD types)
-    const CssStyle& style = pair.second;
+  auto writeStyle = [&](const CssStyle& style) {
     file.write(static_cast<uint8_t>(style.textAlign));
     file.write(static_cast<uint8_t>(style.fontStyle));
     file.write(static_cast<uint8_t>(style.fontWeight));
     file.write(static_cast<uint8_t>(style.textDecoration));
-
-    // Write CssLength fields (value + unit)
-    auto writeLength = [&file](const CssLength& len) {
-      file.write(reinterpret_cast<const uint8_t*>(&len.value), sizeof(len.value));
-      file.write(static_cast<uint8_t>(len.unit));
-    };
-
     writeLength(style.textIndent);
     writeLength(style.marginTop);
     writeLength(style.marginBottom);
@@ -723,8 +785,6 @@ bool CssParser::saveToCache() const {
     writeLength(style.imageHeight);
     writeLength(style.imageWidth);
     file.write(static_cast<uint8_t>(style.display));
-
-    // Write defined flags as uint16_t
     uint16_t definedBits = 0;
     if (style.defined.textAlign) definedBits |= 1 << 0;
     if (style.defined.fontStyle) definedBits |= 1 << 1;
@@ -743,9 +803,30 @@ bool CssParser::saveToCache() const {
     if (style.defined.imageWidth) definedBits |= 1 << 14;
     if (style.defined.display) definedBits |= 1 << 15;
     file.write(reinterpret_cast<const uint8_t*>(&definedBits), sizeof(definedBits));
+  };
+
+  // Write each simple rule: selector string + CssStyle fields
+  for (const auto& pair : rulesBySelector_) {
+    const auto selectorLen = static_cast<uint16_t>(pair.first.size());
+    file.write(reinterpret_cast<const uint8_t*>(&selectorLen), sizeof(selectorLen));
+    file.write(reinterpret_cast<const uint8_t*>(pair.first.data()), selectorLen);
+    writeStyle(pair.second);
   }
 
-  LOG_DBG("CSS", "Saved %u rules to cache", ruleCount);
+  // Write descendant rules: count, then (ancestorSelector, subjectSelector, CssStyle) per entry
+  const auto descendantCount = static_cast<uint16_t>(descendantRules_.size());
+  file.write(reinterpret_cast<const uint8_t*>(&descendantCount), sizeof(descendantCount));
+  for (const auto& rule : descendantRules_) {
+    const auto ancLen = static_cast<uint16_t>(rule.ancestorSelector.size());
+    file.write(reinterpret_cast<const uint8_t*>(&ancLen), sizeof(ancLen));
+    file.write(reinterpret_cast<const uint8_t*>(rule.ancestorSelector.data()), ancLen);
+    const auto subLen = static_cast<uint16_t>(rule.subjectSelector.size());
+    file.write(reinterpret_cast<const uint8_t*>(&subLen), sizeof(subLen));
+    file.write(reinterpret_cast<const uint8_t*>(rule.subjectSelector.data()), subLen);
+    writeStyle(rule.style);
+  }
+
+  LOG_DBG("CSS", "Saved %u rules + %u descendant rules to cache", ruleCount, descendantCount);
   return true;
 }
 
@@ -802,101 +883,35 @@ bool CssParser::loadFromCache() {
   constexpr size_t CSS_FIXED_STYLE_BYTES =
       4 * sizeof(uint8_t) + (CSS_LENGTH_FIELD_COUNT * CSS_LENGTH_BYTES) + sizeof(uint8_t) + sizeof(uint16_t);
 
-  // Read each rule
-  for (uint16_t i = 0; i < ruleCount; ++i) {
-    // Read selector string
-    uint16_t selectorLen = 0;
-    if (!hasRemainingBytes(sizeof(selectorLen))) {
-      rulesBySelector_.clear();
-      return false;
-    }
-    if (file.read(&selectorLen, sizeof(selectorLen)) != sizeof(selectorLen)) {
-      rulesBySelector_.clear();
-      return false;
-    }
+  auto readLength = [&file](CssLength& len) -> bool {
+    if (file.read(&len.value, sizeof(len.value)) != sizeof(len.value)) return false;
+    uint8_t unitVal;
+    if (file.read(&unitVal, 1) != 1) return false;
+    len.unit = static_cast<CssUnit>(unitVal);
+    return true;
+  };
 
-    if (selectorLen == 0 || selectorLen > MAX_SELECTOR_LENGTH || !hasRemainingBytes(selectorLen)) {
-      LOG_DBG("CSS", "Invalid selector length in cache: %u", selectorLen);
-      rulesBySelector_.clear();
-      return false;
-    }
-
-    std::string selector;
-    selector.resize(selectorLen);
-    if (file.read(&selector[0], selectorLen) != selectorLen) {
-      rulesBySelector_.clear();
-      return false;
-    }
-
-    if (!hasRemainingBytes(CSS_FIXED_STYLE_BYTES)) {
-      LOG_DBG("CSS", "Truncated CSS cache while reading style payload");
-      rulesBySelector_.clear();
-      return false;
-    }
-
-    // Read CssStyle fields
-    CssStyle style;
+  auto readStyle = [&](CssStyle& style) -> bool {
     uint8_t enumVal;
-
-    if (file.read(&enumVal, 1) != 1) {
-      rulesBySelector_.clear();
-      return false;
-    }
+    if (file.read(&enumVal, 1) != 1) return false;
     style.textAlign = static_cast<CssTextAlign>(enumVal);
-
-    if (file.read(&enumVal, 1) != 1) {
-      rulesBySelector_.clear();
-      return false;
-    }
+    if (file.read(&enumVal, 1) != 1) return false;
     style.fontStyle = static_cast<CssFontStyle>(enumVal);
-
-    if (file.read(&enumVal, 1) != 1) {
-      rulesBySelector_.clear();
-      return false;
-    }
+    if (file.read(&enumVal, 1) != 1) return false;
     style.fontWeight = static_cast<CssFontWeight>(enumVal);
-
-    if (file.read(&enumVal, 1) != 1) {
-      rulesBySelector_.clear();
-      return false;
-    }
+    if (file.read(&enumVal, 1) != 1) return false;
     style.textDecoration = static_cast<CssTextDecoration>(enumVal);
-
-    // Read CssLength fields
-    auto readLength = [&file](CssLength& len) -> bool {
-      if (file.read(&len.value, sizeof(len.value)) != sizeof(len.value)) {
-        return false;
-      }
-      uint8_t unitVal;
-      if (file.read(&unitVal, 1) != 1) {
-        return false;
-      }
-      len.unit = static_cast<CssUnit>(unitVal);
-      return true;
-    };
-
     if (!readLength(style.textIndent) || !readLength(style.marginTop) || !readLength(style.marginBottom) ||
         !readLength(style.marginLeft) || !readLength(style.marginRight) || !readLength(style.paddingTop) ||
         !readLength(style.paddingBottom) || !readLength(style.paddingLeft) || !readLength(style.paddingRight) ||
         !readLength(style.imageHeight) || !readLength(style.imageWidth)) {
-      rulesBySelector_.clear();
       return false;
     }
-
-    // Read display value
     uint8_t displayVal;
-    if (file.read(&displayVal, 1) != 1) {
-      rulesBySelector_.clear();
-      return false;
-    }
+    if (file.read(&displayVal, 1) != 1) return false;
     style.display = static_cast<CssDisplay>(displayVal);
-
-    // Read defined flags
     uint16_t definedBits = 0;
-    if (file.read(&definedBits, sizeof(definedBits)) != sizeof(definedBits)) {
-      rulesBySelector_.clear();
-      return false;
-    }
+    if (file.read(&definedBits, sizeof(definedBits)) != sizeof(definedBits)) return false;
     style.defined.textAlign = (definedBits & 1 << 0) != 0;
     style.defined.fontStyle = (definedBits & 1 << 1) != 0;
     style.defined.fontWeight = (definedBits & 1 << 2) != 0;
@@ -913,10 +928,80 @@ bool CssParser::loadFromCache() {
     style.defined.imageHeight = (definedBits & 1 << 13) != 0;
     style.defined.imageWidth = (definedBits & 1 << 14) != 0;
     style.defined.display = (definedBits & 1 << 15) != 0;
+    return true;
+  };
 
+  // Read each simple rule
+  for (uint16_t i = 0; i < ruleCount; ++i) {
+    uint16_t selectorLen = 0;
+    if (!hasRemainingBytes(sizeof(selectorLen)) ||
+        file.read(&selectorLen, sizeof(selectorLen)) != sizeof(selectorLen)) {
+      rulesBySelector_.clear();
+      return false;
+    }
+    if (selectorLen == 0 || selectorLen > MAX_SELECTOR_LENGTH || !hasRemainingBytes(selectorLen)) {
+      LOG_DBG("CSS", "Invalid selector length in cache: %u", selectorLen);
+      rulesBySelector_.clear();
+      return false;
+    }
+    std::string selector;
+    selector.resize(selectorLen);
+    if (file.read(&selector[0], selectorLen) != selectorLen) {
+      rulesBySelector_.clear();
+      return false;
+    }
+    if (!hasRemainingBytes(CSS_FIXED_STYLE_BYTES)) {
+      LOG_DBG("CSS", "Truncated CSS cache while reading style payload");
+      rulesBySelector_.clear();
+      return false;
+    }
+    CssStyle style;
+    if (!readStyle(style)) {
+      rulesBySelector_.clear();
+      return false;
+    }
     rulesBySelector_[selector] = style;
   }
 
-  LOG_DBG("CSS", "Loaded %u rules from cache", ruleCount);
+  // Read descendant rules
+  uint16_t descendantCount = 0;
+  if (file.available() > 0) {
+    if (file.read(&descendantCount, sizeof(descendantCount)) != sizeof(descendantCount)) {
+      LOG_DBG("CSS", "Truncated CSS cache reading descendant count");
+      rulesBySelector_.clear();
+      return false;
+    }
+    if (descendantCount > MAX_DESCENDANT_RULES) {
+      LOG_DBG("CSS", "Invalid descendant rule count (%u > %zu)", descendantCount, MAX_DESCENDANT_RULES);
+      rulesBySelector_.clear();
+      return false;
+    }
+    descendantRules_.reserve(descendantCount);
+    for (uint16_t i = 0; i < descendantCount; ++i) {
+      auto readStr = [&](std::string& out) -> bool {
+        uint16_t len = 0;
+        if (file.read(&len, sizeof(len)) != sizeof(len)) return false;
+        if (len == 0 || len > MAX_SELECTOR_LENGTH || !hasRemainingBytes(len)) return false;
+        out.resize(len);
+        return file.read(&out[0], len) == len;
+      };
+      DescendantRule rule;
+      if (!readStr(rule.ancestorSelector) || !readStr(rule.subjectSelector)) {
+        LOG_DBG("CSS", "Truncated CSS cache reading descendant rule selectors");
+        rulesBySelector_.clear();
+        descendantRules_.clear();
+        return false;
+      }
+      if (!hasRemainingBytes(CSS_FIXED_STYLE_BYTES) || !readStyle(rule.style)) {
+        LOG_DBG("CSS", "Truncated CSS cache reading descendant rule style");
+        rulesBySelector_.clear();
+        descendantRules_.clear();
+        return false;
+      }
+      descendantRules_.push_back(std::move(rule));
+    }
+  }
+
+  LOG_DBG("CSS", "Loaded %u rules + %u descendant rules from cache", ruleCount, descendantCount);
   return true;
 }
