@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+EXPECTED_PIO_VERSION="6.1.19"
+
+if ! command -v pio >/dev/null 2>&1; then
+  echo "PlatformIO ('pio') is not installed or not on PATH." >&2
+  exit 127
+fi
+
+pio_version_output="$(pio --version 2>/dev/null || true)"
+pio_version="$(printf '%s\n' "$pio_version_output" | sed -n 's/.*version \([0-9][0-9.]*\).*/\1/p' | head -n1)"
+
+if [[ -n "$pio_version" && "$pio_version" != "$EXPECTED_PIO_VERSION" ]]; then
+  echo "Warning: CI uses PlatformIO Core $EXPECTED_PIO_VERSION, but local is $pio_version." >&2
+  echo "Local results may differ slightly from GitHub until the versions match." >&2
+fi
+
+exec pio check --fail-on-defect low --fail-on-defect medium --fail-on-defect high "$@"
