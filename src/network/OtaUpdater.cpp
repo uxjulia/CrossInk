@@ -20,7 +20,11 @@ OtaUpdater::OtaUpdaterError OtaUpdater::installUpdate(volatile bool*) { return N
 #include "esp_wifi.h"
 
 namespace {
+#ifdef CROSSINK_OTA_RELEASE_URL
+constexpr char latestReleaseUrl[] = CROSSINK_OTA_RELEASE_URL;
+#else
 constexpr char latestReleaseUrl[] = "https://api.github.com/repos/uxjulia/crossink-reader/releases/latest";
+#endif
 constexpr int otaHttpBufferSize = 4096;
 constexpr int otaHttpRequestSize = 4096;
 constexpr int otaMaxRedirects = 5;
@@ -153,6 +157,8 @@ OtaUpdater::OtaUpdaterError OtaUpdater::checkForUpdate() {
   JsonDocument filter;
   esp_err_t esp_err;
   JsonDocument doc;
+
+  LOG_INF("OTA", "Checking release feed: %s", latestReleaseUrl);
 
   esp_http_client_config_t client_config = {
       .url = latestReleaseUrl,
