@@ -1,5 +1,7 @@
 #pragma once
 
+#include <atomic>
+
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 
@@ -25,8 +27,10 @@ class OtaUpdateActivity : public Activity {
   unsigned int lastUpdaterPercentage = UNINITIALIZED_PERCENTAGE;
   OtaUpdater updater;
 
+  TaskHandle_t activityTaskHandle = nullptr;
   TaskHandle_t otaTaskHandle = nullptr;
-  volatile bool otaTaskDone = false;
+  volatile bool otaCancelRequested = false;
+  std::atomic<bool> otaTaskDone{false};
   OtaUpdater::OtaUpdaterError otaResult = OtaUpdater::OK;
 
   static void otaTaskTrampoline(void* param);

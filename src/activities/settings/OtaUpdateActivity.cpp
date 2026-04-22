@@ -52,6 +52,8 @@ void OtaUpdateActivity::onWifiSelectionComplete(const bool success) {
 
 void OtaUpdateActivity::onEnter() {
   Activity::onEnter();
+  activityTaskHandle = xTaskGetCurrentTaskHandle();
+  otaCancelRequested = false;
 
   // Turn on WiFi immediately
   LOG_DBG("OTA", "Turning on WiFi...");
@@ -65,15 +67,21 @@ void OtaUpdateActivity::onEnter() {
 
 void OtaUpdateActivity::otaTaskTrampoline(void* param) {
   auto* self = static_cast<OtaUpdateActivity*>(param);
-  self->otaResult = self->updater.installUpdate();
-  self->otaTaskDone = true;
-  self->otaTaskHandle = nullptr;
+  self->otaResult = self->updater.installUpdate(&self->otaCancelRequested);
+  self->otaTaskDone.store(true, std::memory_order_release);
+  if (self->activityTaskHandle) {
+    xTaskNotifyGive(self->activityTaskHandle);
+  }
   vTaskDelete(nullptr);
 }
 
 void OtaUpdateActivity::onExit() {
   if (otaTaskHandle) {
-    vTaskDelete(otaTaskHandle);
+    LOG_INF("OTA", "Waiting for OTA task to stop");
+    otaCancelRequested = true;
+    while (!otaTaskDone.load(std::memory_order_acquire)) {
+      ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    }
     otaTaskHandle = nullptr;
   }
 
@@ -159,7 +167,8 @@ void OtaUpdateActivity::loop() {
     if (!updater.isFinalizing() && updater.consumeRender()) {
       requestUpdate();
     }
-    if (otaTaskDone) {
+    if (otaTaskDone.load(std::memory_order_acquire)) {
+      otaTaskHandle = nullptr;
       if (otaResult != OtaUpdater::OK) {
         LOG_DBG("OTA", "Update failed: %d", otaResult);
         {
@@ -185,7 +194,8 @@ void OtaUpdateActivity::loop() {
         state = UPDATE_IN_PROGRESS;
       }
       requestUpdateAndWait();
-      otaTaskDone = false;
+      otaCancelRequested = false;
+      otaTaskDone.store(false, std::memory_order_relaxed);
       const BaseType_t created =
           xTaskCreate(otaTaskTrampoline, "OtaInstall", 12288, this, 1, &otaTaskHandle);
       if (created != pdPASS) {

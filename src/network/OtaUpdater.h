@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <functional>
 #include <string>
 
@@ -10,8 +11,8 @@ class OtaUpdater {
   size_t otaSize = 0;
   size_t processedSize = 0;
   size_t totalSize = 0;
-  volatile bool render = false;
-  volatile bool finalizing = false;
+  std::atomic<bool> render{false};
+  std::atomic<bool> finalizing{false};
 
  public:
   enum OtaUpdaterError {
@@ -22,6 +23,7 @@ class OtaUpdater {
     UPDATE_OLDER_ERROR,
     INTERNAL_UPDATE_ERROR,
     OOM_ERROR,
+    CANCELLED_ERROR,
   };
 
   size_t getOtaSize() const { return otaSize; }
@@ -30,18 +32,14 @@ class OtaUpdater {
 
   size_t getTotalSize() const { return totalSize; }
 
-  bool getRender() const { return render; }
-  bool isFinalizing() const { return finalizing; }
+  bool getRender() const { return render.load(); }
+  bool isFinalizing() const { return finalizing.load(); }
 
-  bool consumeRender() {
-    if (!render) return false;
-    render = false;
-    return true;
-  }
+  bool consumeRender() { return render.exchange(false); }
 
   OtaUpdater() = default;
   bool isUpdateNewer() const;
   const std::string& getLatestVersion() const;
   OtaUpdaterError checkForUpdate();
-  OtaUpdaterError installUpdate();
+  OtaUpdaterError installUpdate(volatile bool* cancelRequested = nullptr);
 };

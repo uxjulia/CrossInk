@@ -29,8 +29,7 @@ jobs:
         run: uv pip install --system -U https://github.com/pioarduino/platformio-core/archive/refs/tags/v6.1.19.zip
 
       - name: Set version from tag
-        run: VERSION="${GITHUB_REF_NAME#v}"
-          sed -i "s/crossink_version = .*/crossink_version = $VERSION/" platformio.ini
+        run: VERSION="${GITHUB_REF_NAME#v}"; sed -i "s/crossink_version = .*/crossink_version = $VERSION/" platformio.ini
 
       - name: Build CrossInk
         run: pio run -e tiny -e xlarge -e no_emoji

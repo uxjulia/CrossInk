@@ -3,7 +3,7 @@
 bool OtaUpdater::isUpdateNewer() const { return false; }
 const std::string& OtaUpdater::getLatestVersion() const { return latestVersion; }
 OtaUpdater::OtaUpdaterError OtaUpdater::checkForUpdate() { return NO_UPDATE; }
-OtaUpdater::OtaUpdaterError OtaUpdater::installUpdate() { return NO_UPDATE; }
+OtaUpdater::OtaUpdaterError OtaUpdater::installUpdate(volatile bool*) { return NO_UPDATE; }
 #else
 #include <ArduinoJson.h>
 #include <Logging.h>
@@ -296,7 +296,11 @@ bool OtaUpdater::isUpdateNewer() const {
 
 const std::string& OtaUpdater::getLatestVersion() const { return latestVersion; }
 
-OtaUpdater::OtaUpdaterError OtaUpdater::installUpdate() {
+OtaUpdater::OtaUpdaterError OtaUpdater::installUpdate(volatile bool* cancelRequested) {
+  const auto isCancellationRequested = [cancelRequested]() -> bool {
+    return cancelRequested != nullptr && *cancelRequested;
+  };
+
   if (!isUpdateNewer()) {
     return UPDATE_OLDER_ERROR;
   }
@@ -333,8 +337,8 @@ OtaUpdater::OtaUpdaterError OtaUpdater::installUpdate() {
   OtaUpdaterError installError = OK;
   esp_err_t esp_err;
   /* Signal for OtaUpdateActivity */
-  render = false;
-  finalizing = false;
+  render.store(false);
+  finalizing.store(false);
   processedSize = 0;
 
   esp_http_client_config_t client_config = {
@@ -362,6 +366,13 @@ OtaUpdater::OtaUpdaterError OtaUpdater::installUpdate() {
     return INTERNAL_UPDATE_ERROR;
   }
 
+  if (isCancellationRequested()) {
+    LOG_INF("OTA", "OTA install cancelled before download started");
+    esp_http_client_cleanup(client_handle);
+    esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
+    return CANCELLED_ERROR;
+  }
+
   esp_err = http_client_set_header_cb(client_handle);
   if (esp_err != ESP_OK) {
     LOG_ERR("OTA", "esp_http_client_set_header Failed: %s", esp_err_to_name(esp_err));
@@ -374,6 +385,13 @@ OtaUpdater::OtaUpdaterError OtaUpdater::installUpdate() {
   int statusCode = 0;
   bool headersReady = false;
   for (int redirectCount = 0; redirectCount <= otaMaxRedirects; ++redirectCount) {
+    if (isCancellationRequested()) {
+      LOG_INF("OTA", "OTA install cancelled before opening HTTP stream");
+      esp_http_client_cleanup(client_handle);
+      esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
+      return CANCELLED_ERROR;
+    }
+
     esp_err = esp_http_client_open(client_handle, 0);
     if (esp_err != ESP_OK) {
       LOG_ERR("OTA", "esp_http_client_open Failed: %s", esp_err_to_name(esp_err));
@@ -429,6 +447,14 @@ OtaUpdater::OtaUpdaterError OtaUpdater::installUpdate() {
     totalSize = static_cast<size_t>(contentLength);
   }
 
+  if (isCancellationRequested()) {
+    LOG_INF("OTA", "OTA install cancelled before esp_ota_begin");
+    esp_http_client_close(client_handle);
+    esp_http_client_cleanup(client_handle);
+    esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
+    return CANCELLED_ERROR;
+  }
+
   esp_err = esp_ota_begin(updatePartition, totalSize > 0 ? totalSize : OTA_SIZE_UNKNOWN, &otaHandle);
   if (esp_err != ESP_OK) {
     LOG_ERR("OTA", "esp_ota_begin Failed: %s", esp_err_to_name(esp_err));
@@ -453,6 +479,13 @@ OtaUpdater::OtaUpdaterError OtaUpdater::installUpdate() {
   unsigned long lastRenderMs = 0;
   bool incomingImageLogged = false;
   while (true) {
+    if (isCancellationRequested()) {
+      esp_err = ESP_ERR_INVALID_STATE;
+      installError = CANCELLED_ERROR;
+      LOG_INF("OTA", "OTA install cancelled during download");
+      break;
+    }
+
     const int bytesRead =
         esp_http_client_read(client_handle, reinterpret_cast<char*>(otaBuffer.get()), otaHttpRequestSize);
     if (bytesRead < 0) {
@@ -493,11 +526,18 @@ OtaUpdater::OtaUpdaterError OtaUpdater::installUpdate() {
     }
 
     processedSize += static_cast<size_t>(bytesRead);
+    if (isCancellationRequested()) {
+      esp_err = ESP_ERR_INVALID_STATE;
+      installError = CANCELLED_ERROR;
+      LOG_INF("OTA", "OTA install cancelled after writing %lu bytes", static_cast<unsigned long>(processedSize));
+      break;
+    }
+
     /* Throttle UI refresh requests without slowing down the OTA loop itself. */
     const unsigned long now = millis();
     const bool nearingFinalize = totalSize > 0 && processedSize >= totalSize;
     if (!nearingFinalize && now - lastRenderMs >= 100) {
-      render = true;
+      render.store(true);
       lastRenderMs = now;
     }
   }
@@ -508,11 +548,18 @@ OtaUpdater::OtaUpdaterError OtaUpdater::installUpdate() {
   esp_http_client_cleanup(client_handle);
 
   if (esp_err != ESP_OK) {
-    LOG_ERR("OTA", "OTA download/write Failed: %s, read=%lu, expected=%lu", esp_err_to_name(esp_err),
-            static_cast<unsigned long>(processedSize), static_cast<unsigned long>(totalSize));
+    if (installError == CANCELLED_ERROR) {
+      LOG_INF("OTA", "OTA install cancelled cleanly after reading %lu bytes",
+              static_cast<unsigned long>(processedSize));
+    } else {
+      LOG_ERR("OTA", "OTA download/write Failed: %s, read=%lu, expected=%lu", esp_err_to_name(esp_err),
+              static_cast<unsigned long>(processedSize), static_cast<unsigned long>(totalSize));
+    }
     if (otaBegun) {
       esp_ota_abort(otaHandle);
     }
+    finalizing.store(false);
+    render.store(false);
     return installError;
   }
 
@@ -523,9 +570,16 @@ OtaUpdater::OtaUpdaterError OtaUpdater::installUpdate() {
     return INTERNAL_UPDATE_ERROR;
   }
 
-  finalizing = true;
-  render = false;
+  finalizing.store(true);
+  render.store(false);
   logRuntimeHeadroom("Before esp_ota_end");
+
+  if (isCancellationRequested()) {
+    LOG_INF("OTA", "OTA install cancelled before finalizing");
+    finalizing.store(false);
+    esp_ota_abort(otaHandle);
+    return CANCELLED_ERROR;
+  }
 
   esp_app_desc_t stagedAppInfo = {};
   esp_err = esp_ota_get_partition_description(updatePartition, &stagedAppInfo);
@@ -537,13 +591,20 @@ OtaUpdater::OtaUpdaterError OtaUpdater::installUpdate() {
   logRawImageHeader("Staged", updatePartition);
   logPartitionSha256("Staged", updatePartition);
 
+  if (isCancellationRequested()) {
+    LOG_INF("OTA", "OTA install cancelled before esp_ota_end");
+    finalizing.store(false);
+    esp_ota_abort(otaHandle);
+    return CANCELLED_ERROR;
+  }
+
   esp_err = esp_ota_end(otaHandle);
   otaBegun = false;
   if (esp_err != ESP_OK) {
     logRuntimeHeadroom("esp_ota_end failed");
     LOG_ERR("OTA", "esp_ota_end Failed: %s, read=%lu, expected=%lu", esp_err_to_name(esp_err),
             static_cast<unsigned long>(processedSize), static_cast<unsigned long>(totalSize));
-    finalizing = false;
+    finalizing.store(false);
     return INTERNAL_UPDATE_ERROR;
   }
 
@@ -552,12 +613,12 @@ OtaUpdater::OtaUpdaterError OtaUpdater::installUpdate() {
     logRuntimeHeadroom("set_boot failed");
     LOG_ERR("OTA", "esp_ota_set_boot_partition Failed: %s, read=%lu, expected=%lu", esp_err_to_name(esp_err),
             static_cast<unsigned long>(processedSize), static_cast<unsigned long>(totalSize));
-    finalizing = false;
+    finalizing.store(false);
     return INTERNAL_UPDATE_ERROR;
   }
 
   logRuntimeHeadroom("After esp_ota_end");
-  finalizing = false;
+  finalizing.store(false);
   LOG_INF("OTA", "Update completed");
   return OK;
 }
