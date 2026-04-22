@@ -10,7 +10,8 @@ class OtaUpdater {
   size_t otaSize = 0;
   size_t processedSize = 0;
   size_t totalSize = 0;
-  bool render = false;
+  volatile bool render = false;
+  volatile bool finalizing = false;
 
  public:
   enum OtaUpdaterError {
@@ -30,6 +31,13 @@ class OtaUpdater {
   size_t getTotalSize() const { return totalSize; }
 
   bool getRender() const { return render; }
+  bool isFinalizing() const { return finalizing; }
+
+  bool consumeRender() {
+    if (!render) return false;
+    render = false;
+    return true;
+  }
 
   OtaUpdater() = default;
   bool isUpdateNewer() const;

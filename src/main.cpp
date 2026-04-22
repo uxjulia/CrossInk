@@ -15,6 +15,10 @@
 
 #include <cstring>
 
+#ifndef SIMULATOR
+#include "esp_ota_ops.h"
+#endif
+
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
 #include "KOReaderCredentialStore.h"
@@ -293,6 +297,13 @@ void setup() {
 
   LOG_INF("MAIN", "Hardware detect: %s", gpio.deviceIsX3() ? "X3" : "X4");
 
+#ifndef SIMULATOR
+  const esp_err_t otaStateErr = esp_ota_mark_app_valid_cancel_rollback();
+  if (otaStateErr != ESP_OK) {
+    LOG_DBG("MAIN", "Current app validation state unchanged: %s", esp_err_to_name(otaStateErr));
+  }
+#endif
+
   // SD Card Initialization
   // We need 6 open files concurrently when parsing a new chapter
   if (!Storage.begin()) {
@@ -330,7 +341,7 @@ void setup() {
   }
 
   // First serial output only here to avoid timing inconsistencies for power button press duration verification
-  LOG_DBG("MAIN", "Starting CrossPoint version " CROSSPOINT_VERSION);
+  LOG_DBG("MAIN", "Starting CrossPoint version " CROSSINK_VERSION);
 
   setupDisplayAndFonts();
 

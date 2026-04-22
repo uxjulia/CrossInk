@@ -86,9 +86,14 @@ def inject_version(env):
 
     if pioenv == 'default':
         base_version = get_base_version(project_dir)
+        ci_version = get_crossink_version(project_dir)
         branch = get_git_branch(project_dir)
         version_string = f'{base_version}-dev+{branch}'
-        env.Append(CPPDEFINES=[('CROSSPOINT_VERSION', f'\\"{version_string}\\"')])
+        ci_version_string = f'{ci_version}-dev+{branch}'
+        env.Append(CPPDEFINES=[
+            ('CROSSPOINT_VERSION', f'\\"{version_string}\\"'),
+            ('CROSSINK_VERSION', f'\\"{ci_version_string}\\"'),
+        ])
         print(f'CrossPoint build version: {version_string}')
 
     elif pioenv == 'gh_release_rc':

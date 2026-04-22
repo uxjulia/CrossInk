@@ -63,7 +63,20 @@ void OtaUpdateActivity::onEnter() {
                          [this](const ActivityResult& result) { onWifiSelectionComplete(!result.isCancelled); });
 }
 
+void OtaUpdateActivity::otaTaskTrampoline(void* param) {
+  auto* self = static_cast<OtaUpdateActivity*>(param);
+  self->otaResult = self->updater.installUpdate();
+  self->otaTaskDone = true;
+  self->otaTaskHandle = nullptr;
+  vTaskDelete(nullptr);
+}
+
 void OtaUpdateActivity::onExit() {
+  if (otaTaskHandle) {
+    vTaskDelete(otaTaskHandle);
+    otaTaskHandle = nullptr;
+  }
+
   Activity::onExit();
 
   // Turn off wifi
@@ -88,6 +101,9 @@ void OtaUpdateActivity::render(RenderLock&&) {
   if (state == UPDATE_IN_PROGRESS) {
     LOG_DBG("OTA", "Update progress: %d / %d", updater.getProcessedSize(), updater.getTotalSize());
     updaterProgress = static_cast<float>(updater.getProcessedSize()) / static_cast<float>(updater.getTotalSize());
+    if (updater.isFinalizing() || updaterProgress >= 1.0f) {
+      return;
+    }
     // Only update every 2% at the most
     if (static_cast<int>(updaterProgress * 50) == lastUpdaterPercentage / 2) {
       return;
@@ -100,7 +116,7 @@ void OtaUpdateActivity::render(RenderLock&&) {
   } else if (state == WAITING_CONFIRMATION) {
     renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_NEW_UPDATE), true, EpdFontFamily::BOLD);
     renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding, top + height + metrics.verticalSpacing,
-                      (std::string(tr(STR_CURRENT_VERSION)) + CROSSPOINT_VERSION).c_str());
+                      (std::string(tr(STR_CURRENT_VERSION)) + CROSSINK_VERSION).c_str());
     renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding, top + height * 2 + metrics.verticalSpacing * 2,
                       (std::string(tr(STR_NEW_VERSION)) + updater.getLatestVersion()).c_str());
 
@@ -139,9 +155,26 @@ void OtaUpdateActivity::render(RenderLock&&) {
 }
 
 void OtaUpdateActivity::loop() {
-  // TODO @ngxson : refactor this logic later
-  if (updater.getRender()) {
-    requestUpdate();
+  if (state == UPDATE_IN_PROGRESS) {
+    if (!updater.isFinalizing() && updater.consumeRender()) {
+      requestUpdate();
+    }
+    if (otaTaskDone) {
+      if (otaResult != OtaUpdater::OK) {
+        LOG_DBG("OTA", "Update failed: %d", otaResult);
+        {
+          RenderLock lock(*this);
+          state = FAILED;
+        }
+      } else {
+        {
+          RenderLock lock(*this);
+          state = FINISHED;
+        }
+      }
+      requestUpdate();
+    }
+    return;
   }
 
   if (state == WAITING_CONFIRMATION) {
@@ -152,23 +185,17 @@ void OtaUpdateActivity::loop() {
         state = UPDATE_IN_PROGRESS;
       }
       requestUpdateAndWait();
-      const auto res = updater.installUpdate();
-
-      if (res != OtaUpdater::OK) {
-        LOG_DBG("OTA", "Update failed: %d", res);
+      otaTaskDone = false;
+      const BaseType_t created =
+          xTaskCreate(otaTaskTrampoline, "OtaInstall", 12288, this, 1, &otaTaskHandle);
+      if (created != pdPASS) {
+        LOG_ERR("OTA", "Failed to create OTA task");
         {
           RenderLock lock(*this);
           state = FAILED;
         }
         requestUpdate();
-        return;
       }
-
-      {
-        RenderLock lock(*this);
-        state = FINISHED;
-      }
-      requestUpdate();
     }
 
     if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
