@@ -1,9 +1,9 @@
 #pragma once
 
-#include <atomic>
-
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
+
+#include <atomic>
 
 #include "activities/Activity.h"
 #include "network/OtaUpdater.h"

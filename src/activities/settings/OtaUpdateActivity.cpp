@@ -214,8 +214,7 @@ void OtaUpdateActivity::loop() {
       requestUpdateAndWait();
       otaCancelRequested = false;
       otaTaskDone.store(false, std::memory_order_relaxed);
-      const BaseType_t created =
-          xTaskCreate(otaTaskTrampoline, "OtaInstall", 12288, this, 1, &otaTaskHandle);
+      const BaseType_t created = xTaskCreate(otaTaskTrampoline, "OtaInstall", 12288, this, 1, &otaTaskHandle);
       if (created != pdPASS) {
         LOG_ERR("OTA", "Failed to create OTA task");
         {

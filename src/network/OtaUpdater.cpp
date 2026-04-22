@@ -5,13 +5,11 @@ const std::string& OtaUpdater::getLatestVersion() const { return latestVersion; 
 OtaUpdater::OtaUpdaterError OtaUpdater::checkForUpdate() { return NO_UPDATE; }
 OtaUpdater::OtaUpdaterError OtaUpdater::installUpdate(volatile bool*) { return NO_UPDATE; }
 #else
+#include <Arduino.h>
 #include <ArduinoJson.h>
 #include <Logging.h>
 
 #include <cstdio>
-
-#include <Arduino.h>
-
 #include <memory>
 
 #include "OtaUpdater.h"
@@ -113,11 +111,12 @@ void logRawImageHeader(const char* label, const esp_partition_t* partition) {
     return;
   }
 
-  LOG_INF("OTA",
-          "%s raw header: magic=0x%02x segments=%u chip_id=%u min_rev=%u min_rev_full=%u max_rev_full=%u hash_appended=%u",
-          label, header.magic, header.segment_count, static_cast<unsigned>(header.chip_id),
-          static_cast<unsigned>(header.min_chip_rev), static_cast<unsigned>(header.min_chip_rev_full),
-          static_cast<unsigned>(header.max_chip_rev_full), static_cast<unsigned>(header.hash_appended));
+  LOG_INF(
+      "OTA",
+      "%s raw header: magic=0x%02x segments=%u chip_id=%u min_rev=%u min_rev_full=%u max_rev_full=%u hash_appended=%u",
+      label, header.magic, header.segment_count, static_cast<unsigned>(header.chip_id),
+      static_cast<unsigned>(header.min_chip_rev), static_cast<unsigned>(header.min_chip_rev_full),
+      static_cast<unsigned>(header.max_chip_rev_full), static_cast<unsigned>(header.hash_appended));
 }
 
 void logPartitionSha256(const char* label, const esp_partition_t* partition) {
