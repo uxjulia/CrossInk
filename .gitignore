@@ -15,4 +15,5 @@ build
 .history/
 /.venv
 *.local*
+!platformio.local.example.ini
 fs_/

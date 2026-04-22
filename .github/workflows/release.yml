@@ -35,8 +35,9 @@ jobs:
         run: pio run -e tiny -e xlarge -e no_emoji
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
+          draft: true
           files: |
             .pio/build/tiny/firmware-tiny.bin
             .pio/build/xlarge/firmware-xlarge.bin
