@@ -9,10 +9,10 @@
 bool g_differentialQuantize = false;
 
 // Brightness/Contrast adjustments:
-constexpr bool USE_BRIGHTNESS = true;        // true: apply brightness/gamma adjustments
-constexpr int BRIGHTNESS_BOOST = 0;          // No boost — quality LUT already renders slightly lighter
-constexpr bool GAMMA_CORRECTION = false;     // Gamma curve (brightens midtones)
-constexpr float CONTRAST_FACTOR = 1.2f;      // Contrast boost for 1-bit thumbnails (applied inside Atkinson1BitDitherer)
+constexpr bool USE_BRIGHTNESS = true;     // true: apply brightness/gamma adjustments
+constexpr int BRIGHTNESS_BOOST = 0;       // No boost — quality LUT already renders slightly lighter
+constexpr bool GAMMA_CORRECTION = false;  // Gamma curve (brightens midtones)
+constexpr float CONTRAST_FACTOR = 1.2f;   // Contrast boost for 1-bit thumbnails (applied inside Atkinson1BitDitherer)
 constexpr bool USE_NOISE_DITHERING = false;  // Hash-based noise dithering
 
 // Integer approximation of gamma correction (brightens midtones)
