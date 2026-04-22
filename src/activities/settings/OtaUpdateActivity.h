@@ -15,6 +15,7 @@ class OtaUpdateActivity : public Activity {
     WAITING_CONFIRMATION,
     UPDATE_IN_PROGRESS,
     NO_UPDATE,
+    CANCELLED,
     FAILED,
     FINISHED,
     SHUTTING_DOWN

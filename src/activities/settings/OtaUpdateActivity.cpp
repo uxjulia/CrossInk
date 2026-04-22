@@ -146,8 +146,16 @@ void OtaUpdateActivity::render(RenderLock&&) {
     renderer.drawCenteredText(
         UI_10_FONT_ID, y,
         (std::to_string(updater.getProcessedSize()) + " / " + std::to_string(updater.getTotalSize())).c_str());
+    if (!updater.isFinalizing()) {
+      const auto labels = mappedInput.mapLabels(tr(STR_CANCEL), "", "", "");
+      GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+    }
   } else if (state == NO_UPDATE) {
     renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_NO_UPDATE), true, EpdFontFamily::BOLD);
+    const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
+    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+  } else if (state == CANCELLED) {
+    renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_UPDATE_CANCELLED), true, EpdFontFamily::BOLD);
     const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   } else if (state == FAILED) {
@@ -164,12 +172,22 @@ void OtaUpdateActivity::render(RenderLock&&) {
 
 void OtaUpdateActivity::loop() {
   if (state == UPDATE_IN_PROGRESS) {
+    if (!updater.isFinalizing() && !otaCancelRequested && mappedInput.wasPressed(MappedInputManager::Button::Back)) {
+      LOG_INF("OTA", "User requested OTA cancellation");
+      otaCancelRequested = true;
+    }
     if (!updater.isFinalizing() && updater.consumeRender()) {
       requestUpdate();
     }
     if (otaTaskDone.load(std::memory_order_acquire)) {
       otaTaskHandle = nullptr;
-      if (otaResult != OtaUpdater::OK) {
+      if (otaResult == OtaUpdater::CANCELLED_ERROR) {
+        LOG_DBG("OTA", "Update cancelled");
+        {
+          RenderLock lock(*this);
+          state = CANCELLED;
+        }
+      } else if (otaResult != OtaUpdater::OK) {
         LOG_DBG("OTA", "Update failed: %d", otaResult);
         {
           RenderLock lock(*this);
@@ -216,6 +234,13 @@ void OtaUpdateActivity::loop() {
   }
 
   if (state == FAILED) {
+    if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
+      finish();
+    }
+    return;
+  }
+
+  if (state == CANCELLED) {
     if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
       finish();
     }
