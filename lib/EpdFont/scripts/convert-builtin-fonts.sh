@@ -9,11 +9,16 @@ SYMBOLS_FONT="../builtinFonts/source/NotoSymbols/NotoSansSymbols-Regular.ttf"
 SYMBOLS2_FONT="../builtinFonts/source/NotoSymbols2/NotoSansSymbols2-Regular.ttf"
 
 # Additional Unicode intervals to include beyond the default Latin/Cyrillic/math set.
-# 0x2600-0x26FF: Miscellaneous Symbols (♩♪♫♬♭♮♯ stars, hearts, etc.)
+# 0x2699-0x266F: Music notes (♩♪♫♬♭♮♯)
 # 0x1F600-0x1F64F: Emoticons (😀😂🙂 etc.)
+# 0x1F44B-0x1F44F: Waving hand + other hand emojis (👋🤚🖐✋)
+# 0x2764: Heart symbol (❤️)
+# 0x0370-0x03FF: Greek and Coptic (for math symbols like π, Σ, etc.)
 EMOJI_INTERVALS=(
-  --additional-intervals 0x2600,0x26FF
+  --additional-intervals 0x266F,0x2699
   --additional-intervals 0x1F600,0x1F64F
+  --additional-intervals 0x1F44B,0x1F44F
+  --additional-intervals 0x2764,0x2764
   --additional-intervals 0x0370,0x03FF
 )
 
