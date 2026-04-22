@@ -59,7 +59,7 @@ for size in ${READING_FONT_SIZES[@]}; do
   done
 done
 
-# CHARE INK (no-emoji)
+# CHAREINK (no-emoji)
 
 for size in ${READING_FONT_SIZES[@]}; do
   for style in ${READING_FONT_STYLES[@]}; do
@@ -104,7 +104,7 @@ for size in ${READING_FONT_SIZES[@]}; do
   done
 done
 
-# CHARE INK
+# CHAREINK
 
 for size in ${READING_FONT_SIZES[@]}; do
   for style in ${READING_FONT_STYLES[@]}; do
