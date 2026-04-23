@@ -51,6 +51,7 @@ PlatformIO (`platformio.ini` committed; `platformio.local.ini` gitignored for pe
 - Monitor: `python3 scripts/debugging_monitor.py` (color-coded) or `pio device monitor`.
 
 Key build flags (in `platformio.ini`):
+
 ```
 -DEINK_DISPLAY_SINGLE_BUFFER_MODE=1   // Single framebuffer — grayscale needs storeBwBuffer()/restoreBwBuffer()
 -DXML_CONTEXT_BYTES=1024              // XML parser memory limit
@@ -81,7 +82,7 @@ docs/file-formats.md   Cache file format versions
 **Always use HAL classes — never SDK classes directly.**
 
 | HAL Class    | Wraps           | Singleton |
-|--------------|-----------------|-----------|
+| ------------ | --------------- | --------- |
 | `HalDisplay` | `EInkDisplay`   | —         |
 | `HalGPIO`    | `InputManager`  | —         |
 | `HalStorage` | `SDCardManager` | `Storage` |
@@ -147,6 +148,74 @@ void onExit()   { /* vTaskDelete, free buffers, close files */ Activity::onExit(
 
 Free in reverse order. `vTaskDelete()` **before** activity destruction. FreeRTOS task stacks: 2048 bytes (simple), 4096 (network/EPUB parsing).
 
+**Memory Implications**:
+
+- Activity navigation = `delete` old activity + `new` create next activity
+- Any memory allocated in `onEnter()` MUST be freed in `onExit()`
+- FreeRTOS tasks MUST be deleted in `onExit()` before activity destruction
+- File handles MUST be closed in `onExit()`
+
+**Activity Pattern**:
+
+```cpp
+void onEnter()  { Activity::onEnter(); /* alloc: buffer, tasks */ render(); }
+void loop()     { mappedInput.update(); /* handle input */ }
+void onExit()   { /* free: vTaskDelete, free buffer, close files */ Activity::onExit(); }
+```
+
+**Critical**: Free resources in reverse order. Delete tasks BEFORE activity destruction.
+
+### FreeRTOS Task Guidelines
+
+**Source**: [src/activities/util/KeyboardEntryActivity.cpp:45-50](../src/activities/util/KeyboardEntryActivity.cpp)
+
+**Pattern**: See Activity Lifecycle above. `xTaskCreate(&taskTrampoline, "Name", stackSize, this, 1, &handle)`
+
+**Stack Sizing** (in BYTES, not words):
+
+- **2048**: Simple rendering (most activities)
+- **4096**: Network, EPUB parsing
+- Monitor: `uxTaskGetStackHighWaterMark()` if crashes
+
+**Rules**: Always `vTaskDelete()` in `onExit()` before destruction. Use mutex if shared state.
+
+### Global Font Loading
+
+**Source**: [src/main.cpp:40-115](../src/main.cpp)
+
+**All fonts are loaded as global static objects** at firmware startup:
+
+- Noto Serif: 12, 14, 16, 18pt (4 styles each: regular, bold, italic, bold-italic)
+- Noto Sans: 12, 14, 16, 18pt (4 styles each)
+- OpenDyslexic: 8, 10, 12, 14pt (4 styles each)
+- Ubuntu UI fonts: 10, 12pt (2 styles)
+
+**Total**: ~80+ global `EpdFont` and `EpdFontFamily` objects
+
+**Compilation Flag**:
+
+```cpp
+#ifndef OMIT_FONTS
+  // Most fonts loaded here
+#endif
+```
+
+**Implications**:
+
+- Fonts stored in **Flash** (marked as `static const` in `lib/EpdFont/builtinFonts/`)
+- Font rendering data cached in **DRAM** when first used
+- `OMIT_FONTS` can reduce binary size for minimal builds
+- Font IDs defined in [src/fontIds.h](../src/fontIds.h)
+
+**Usage**:
+
+```cpp
+#include "fontIds.h"
+
+renderer.insertFont(FONT_UI_MEDIUM, ui12FontFamily);
+renderer.drawText(FONT_UI_MEDIUM, x, y, "Hello", true);
+```
+
 ---
 
 ## UI
@@ -160,9 +229,9 @@ Free in reverse order. `vTaskDelete()` **before** activity destruction. FreeRTOS
 
 ## Generated Files — Never Edit Directly
 
-| File(s) | Generator | Source to edit |
-|---------|-----------|----------------|
-| `src/network/html/*.generated.h` | `scripts/build_html.py` (pre-build) | `data/html/*.html` |
+| File(s)                                                   | Generator                                                    | Source to edit                 |
+| --------------------------------------------------------- | ------------------------------------------------------------ | ------------------------------ |
+| `src/network/html/*.generated.h`                          | `scripts/build_html.py` (pre-build)                          | `data/html/*.html`             |
 | `lib/I18n/I18nKeys.h`, `I18nStrings.h`, `I18nStrings.cpp` | `python scripts/gen_i18n.py lib/I18n/translations lib/I18n/` | `lib/I18n/translations/*.yaml` |
 
 **Commit source files only.** Generated files are in `.gitignore`.
@@ -180,6 +249,7 @@ Location on SD: `.crosspoint/epub_<hash>/` (hash = `std::hash<std::string>{}(fil
 **Manual clear**: delete `.crosspoint/epub_<hash>/` or all of `.crosspoint/`.
 
 **Current file format versions** (increment BEFORE changing binary structure):
+
 - `book.bin`: Version 5
 - `section.bin`: Version 21
 
@@ -189,12 +259,12 @@ After incrementing a version, document the change in `docs/file-formats.md`.
 
 ## CI/CD
 
-| Workflow       | File                                          |
-|----------------|-----------------------------------------------|
-| Build check    | `.github/workflows/ci.yml`                    |
-| Format check   | `.github/workflows/pr-formatting-check.yml`   |
-| Release build  | `.github/workflows/release.yml`               |
-| RC build       | `.github/workflows/release_candidate.yml`     |
+| Workflow      | File                                        |
+| ------------- | ------------------------------------------- |
+| Build check   | `.github/workflows/ci.yml`                  |
+| Format check  | `.github/workflows/pr-formatting-check.yml` |
+| Release build | `.github/workflows/release.yml`             |
+| RC build      | `.github/workflows/release_candidate.yml`   |
 
 Fix CI failures before requesting review. Format failures → run clang-format locally.
 
