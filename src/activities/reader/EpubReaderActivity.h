@@ -40,6 +40,7 @@ class EpubReaderActivity final : public Activity {
   bool pendingBookmarkFeedback = false;
   bool bookmarkFeedbackIsAdd = false;
   unsigned long bookmarkFeedbackShowTime = 0UL;
+  bool completionPromptShown = false;
 
   // Footnote support
   std::vector<FootnoteEntry> currentPageFootnotes;
@@ -62,6 +63,8 @@ class EpubReaderActivity final : public Activity {
   void applyOrientation(uint8_t orientation);
   void toggleAutoPageTurn(uint8_t selectedPageTurnOption);
   void pageTurn(bool isForwardTurn);
+  void setBookCompleted(bool isCompleted);
+  bool maybePromptToMarkCompleted();
 
   // Footnote navigation
   void navigateToHref(const std::string& href, bool savePosition = false);

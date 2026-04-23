@@ -26,6 +26,7 @@
 #include "QrDisplayActivity.h"
 #include "ReaderUtils.h"
 #include "RecentBooksStore.h"
+#include "activities/util/ConfirmationActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "util/ScreenshotUtil.h"
@@ -206,6 +207,10 @@ void EpubReaderActivity::loop() {
     }
   }
 
+  if (maybePromptToMarkCompleted()) {
+    return;
+  }
+
   // Enter reader menu activity.
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
     const int currentPage = section ? section->currentPage + 1 : 0;
@@ -224,7 +229,8 @@ void EpubReaderActivity::loop() {
     startActivityForResult(std::make_unique<EpubReaderMenuActivity>(
                                renderer, mappedInput, epub->getTitle(), currentPage, totalPages, bookProgressPercent,
                                SETTINGS.orientation, !currentPageFootnotes.empty(), !BOOKMARKS.getBookmarks().empty(),
-                               BOOKMARKS.hasBookmarkForPage(bmSpine, bmProgress, section ? section->pageCount : 1)),
+                               BOOKMARKS.hasBookmarkForPage(bmSpine, bmProgress, section ? section->pageCount : 1),
+                               stats.isCompleted),
                            [this](const ActivityResult& result) {
                              // Always apply orientation change even if the menu was cancelled
                              const auto& menu = std::get<MenuResult>(result.data);
@@ -486,6 +492,11 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
           [this](const ActivityResult&) { requestUpdate(); });
       break;
     }
+    case EpubReaderMenuActivity::MenuAction::TOGGLE_COMPLETED: {
+      setBookCompleted(!stats.isCompleted);
+      requestUpdate();
+      break;
+    }
     case EpubReaderMenuActivity::MenuAction::SYNC: {
       if (KOREADER_STORE.hasCredentials()) {
         const int currentPage = section ? section->currentPage : nextPageNumber;
@@ -568,6 +579,50 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
     case EpubReaderMenuActivity::MenuAction::READER_OPTIONS:
       break;
   }
+}
+
+void EpubReaderActivity::setBookCompleted(bool isCompleted) {
+  if (stats.isCompleted == isCompleted) {
+    return;
+  }
+
+  stats.isCompleted = isCompleted;
+  if (isCompleted) {
+    globalStats.completedBooks++;
+  } else if (globalStats.completedBooks > 0) {
+    globalStats.completedBooks--;
+  }
+
+  stats.save(epub->getCachePath());
+  globalStats.save();
+}
+
+bool EpubReaderActivity::maybePromptToMarkCompleted() {
+  if (completionPromptShown || stats.isCompleted || !section || section->pageCount <= 0 || !epub) {
+    return false;
+  }
+
+  if (currentSpineIndex < 0 || currentSpineIndex >= epub->getSpineItemsCount()) {
+    return false;
+  }
+
+  const float chapterProgress = static_cast<float>(section->currentPage + 1) / static_cast<float>(section->pageCount);
+  const float bookProgress = epub->calculateProgress(currentSpineIndex, chapterProgress) * 100.0f;
+  if (bookProgress < 99.0f) {
+    return false;
+  }
+
+  completionPromptShown = true;
+  startActivityForResult(
+      std::make_unique<ConfirmationActivity>(renderer, mappedInput, tr(STR_MARK_FINISHED_PROMPT_TITLE),
+                                             tr(STR_MARK_FINISHED_PROMPT_BODY)),
+      [this](const ActivityResult& result) {
+        if (!result.isCancelled) {
+          setBookCompleted(true);
+        }
+        requestUpdate();
+      });
+  return true;
 }
 
 void EpubReaderActivity::applyOrientation(const uint8_t orientation) {

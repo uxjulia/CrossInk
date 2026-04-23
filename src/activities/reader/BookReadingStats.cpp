@@ -5,13 +5,22 @@
 #include <Logging.h>
 
 namespace {
-// Binary layout (11 bytes):
+// Binary layout v1 (11 bytes):
 //   [0]     version (= 1)
 //   [1-2]   sessionCount        uint16_t LE
 //   [3-6]   totalReadingSeconds uint32_t LE
 //   [7-10]  totalPagesTurned    uint32_t LE
-static constexpr uint8_t STATS_FILE_VERSION = 1;
-static constexpr int STATS_FILE_SIZE = 11;
+//
+// Binary layout v2 (12 bytes):
+//   [0]     version (= 2)
+//   [1-2]   sessionCount        uint16_t LE
+//   [3-6]   totalReadingSeconds uint32_t LE
+//   [7-10]  totalPagesTurned    uint32_t LE
+//   [11]    isCompleted         uint8_t
+static constexpr uint8_t STATS_FILE_VERSION = 2;
+static constexpr uint8_t STATS_FILE_VERSION_V1 = 1;
+static constexpr int STATS_FILE_SIZE_V1 = 11;
+static constexpr int STATS_FILE_SIZE = 12;
 }  // namespace
 
 BookReadingStats BookReadingStats::load(const std::string& cachePath) {
@@ -20,9 +29,19 @@ BookReadingStats BookReadingStats::load(const std::string& cachePath) {
   if (!Storage.openFileForRead("STATS", cachePath + "/stats.bin", f)) {
     return stats;
   }
-  uint8_t data[STATS_FILE_SIZE];
+  uint8_t data[STATS_FILE_SIZE] = {};
   const int n = f.read(data, STATS_FILE_SIZE);
   f.close();
+
+  if (n == STATS_FILE_SIZE_V1 && data[0] == STATS_FILE_VERSION_V1) {
+    stats.sessionCount = static_cast<uint16_t>(data[1]) | (static_cast<uint16_t>(data[2]) << 8);
+    stats.totalReadingSeconds = static_cast<uint32_t>(data[3]) | (static_cast<uint32_t>(data[4]) << 8) |
+                                (static_cast<uint32_t>(data[5]) << 16) | (static_cast<uint32_t>(data[6]) << 24);
+    stats.totalPagesTurned = static_cast<uint32_t>(data[7]) | (static_cast<uint32_t>(data[8]) << 8) |
+                             (static_cast<uint32_t>(data[9]) << 16) | (static_cast<uint32_t>(data[10]) << 24);
+    return stats;
+  }
+
   if (n != STATS_FILE_SIZE || data[0] != STATS_FILE_VERSION) {
     LOG_DBG("STATS", "Stats missing or version mismatch, starting fresh");
     return stats;
@@ -32,6 +51,7 @@ BookReadingStats BookReadingStats::load(const std::string& cachePath) {
                               (static_cast<uint32_t>(data[5]) << 16) | (static_cast<uint32_t>(data[6]) << 24);
   stats.totalPagesTurned = static_cast<uint32_t>(data[7]) | (static_cast<uint32_t>(data[8]) << 8) |
                            (static_cast<uint32_t>(data[9]) << 16) | (static_cast<uint32_t>(data[10]) << 24);
+  stats.isCompleted = data[11] != 0;
   return stats;
 }
 
@@ -67,6 +87,7 @@ void BookReadingStats::save(const std::string& cachePath) const {
   data[8] = (totalPagesTurned >> 8) & 0xFF;
   data[9] = (totalPagesTurned >> 16) & 0xFF;
   data[10] = (totalPagesTurned >> 24) & 0xFF;
+  data[11] = isCompleted ? 1 : 0;
   f.write(data, STATS_FILE_SIZE);
   f.close();
 }
