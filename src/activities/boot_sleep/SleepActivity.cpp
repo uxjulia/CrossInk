@@ -397,11 +397,44 @@ void SleepActivity::renderCoverSleepScreen() const {
 
   // Check if the current book is XTC, TXT, or EPUB
   if (FsHelpers::hasXtcExtension(APP_STATE.openEpubPath)) {
-    // Handle XTC file
     Xtc lastXtc(APP_STATE.openEpubPath, "/.crosspoint");
     if (!lastXtc.load()) {
       LOG_ERR("SLP", "Failed to load last XTC");
       return (this->*renderNoCoverSleepScreen)();
+    }
+
+    if (lastXtc.getBitDepth() == 2) {
+      const size_t planeSize = (static_cast<size_t>(lastXtc.getPageWidth()) * lastXtc.getPageHeight() + 7) / 8;
+      uint8_t* plane1 = static_cast<uint8_t*>(malloc(planeSize));
+      if (!plane1) {
+        LOG_ERR("SLP", "Failed to alloc plane1 for direct XTCH render (%lu bytes)", static_cast<unsigned long>(planeSize));
+        return (this->*renderNoCoverSleepScreen)();
+      }
+      uint8_t* plane2 = static_cast<uint8_t*>(malloc(planeSize));
+      if (!plane2) {
+        LOG_ERR("SLP", "Failed to alloc plane2 for direct XTCH render (%lu bytes)", static_cast<unsigned long>(planeSize));
+        free(plane1);
+        return (this->*renderNoCoverSleepScreen)();
+      }
+
+      if (lastXtc.loadPageMsb(0, plane1, planeSize) == 0) {
+        LOG_ERR("SLP", "Failed to load XTCH plane1 for sleep cover");
+        free(plane1);
+        free(plane2);
+        return (this->*renderNoCoverSleepScreen)();
+      }
+      if (lastXtc.loadPageLsb(0, plane2, planeSize) == 0) {
+        LOG_ERR("SLP", "Failed to load XTCH plane2 for sleep cover");
+        free(plane1);
+        free(plane2);
+        return (this->*renderNoCoverSleepScreen)();
+      }
+
+      LOG_DBG("SLP", "Direct XTCH plane render: %ux%u", lastXtc.getPageWidth(), lastXtc.getPageHeight());
+      renderer.displayXtchPlanes(plane1, plane2, lastXtc.getPageWidth(), lastXtc.getPageHeight());
+      free(plane1);
+      free(plane2);
+      return;
     }
 
     if (!lastXtc.generateCoverBmp()) {
