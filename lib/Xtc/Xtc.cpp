@@ -11,8 +11,8 @@
 #include <HalStorage.h>
 #include <Logging.h>
 
-static inline void computeSrcRange(uint32_t dstCoord, uint32_t scaleInv, uint32_t maxSrc,
-                                    uint32_t& srcStart, uint32_t& srcEnd) {
+static inline void computeSrcRange(uint32_t dstCoord, uint32_t scaleInv, uint32_t maxSrc, uint32_t& srcStart,
+                                   uint32_t& srcEnd) {
   srcStart = (static_cast<uint32_t>(dstCoord) * scaleInv) >> 16;
   srcEnd = (static_cast<uint32_t>(dstCoord + 1) * scaleInv) >> 16;
   if (srcStart >= maxSrc) srcStart = maxSrc - 1;
@@ -438,89 +438,89 @@ bool Xtc::generateThumbBmp(int height) const {
     const uint32_t scaleInv_fp2 = static_cast<uint32_t>(65536.0f / scale);
 
     {
-    uint8_t* plane1Buf = static_cast<uint8_t*>(malloc(planeSize));
-    if (!plane1Buf) {
-      LOG_ERR("XTC", "Failed to alloc plane1 for thumb dither (%lu bytes)", static_cast<unsigned long>(planeSize));
-      return false;
-    }
-    if (const_cast<xtc::XtcParser*>(parser.get())->loadPageMsb(0, plane1Buf, planeSize) == 0) {
-      LOG_ERR("XTC", "Failed to load plane1 for thumb");
-      free(plane1Buf);
-      return false;
-    }
+      uint8_t* plane1Buf = static_cast<uint8_t*>(malloc(planeSize));
+      if (!plane1Buf) {
+        LOG_ERR("XTC", "Failed to alloc plane1 for thumb dither (%lu bytes)", static_cast<unsigned long>(planeSize));
+        return false;
+      }
+      if (const_cast<xtc::XtcParser*>(parser.get())->loadPageMsb(0, plane1Buf, planeSize) == 0) {
+        LOG_ERR("XTC", "Failed to load plane1 for thumb");
+        free(plane1Buf);
+        return false;
+      }
 
-    uint8_t* plane2Buf = static_cast<uint8_t*>(malloc(planeSize));
-    if (!plane2Buf) {
-      LOG_ERR("XTC", "Failed to alloc plane2 for thumb dither (%lu bytes), falling back to 2-bit BMP",
-              static_cast<unsigned long>(planeSize));
-      free(plane1Buf);
-      goto fallback_2bit_thumb;
-    }
-    if (const_cast<xtc::XtcParser*>(parser.get())->loadPageLsb(0, plane2Buf, planeSize) == 0) {
-      LOG_ERR("XTC", "Failed to load plane2 for thumb, falling back to 2-bit BMP");
-      free(plane1Buf);
-      free(plane2Buf);
-      goto fallback_2bit_thumb;
-    }
+      uint8_t* plane2Buf = static_cast<uint8_t*>(malloc(planeSize));
+      if (!plane2Buf) {
+        LOG_ERR("XTC", "Failed to alloc plane2 for thumb dither (%lu bytes), falling back to 2-bit BMP",
+                static_cast<unsigned long>(planeSize));
+        free(plane1Buf);
+        goto fallback_2bit_thumb;
+      }
+      if (const_cast<xtc::XtcParser*>(parser.get())->loadPageLsb(0, plane2Buf, planeSize) == 0) {
+        LOG_ERR("XTC", "Failed to load plane2 for thumb, falling back to 2-bit BMP");
+        free(plane1Buf);
+        free(plane2Buf);
+        goto fallback_2bit_thumb;
+      }
 
-    Atkinson1BitDitherer ditherer(thumbWidth);
+      Atkinson1BitDitherer ditherer(thumbWidth);
 
-    FsFile thumbBmp;
-    if (!Storage.openFileForWrite("XTC", getThumbBmpPath(height), thumbBmp)) {
-      free(plane1Buf);
-      free(plane2Buf);
-      return false;
-    }
+      FsFile thumbBmp;
+      if (!Storage.openFileForWrite("XTC", getThumbBmpPath(height), thumbBmp)) {
+        free(plane1Buf);
+        free(plane2Buf);
+        return false;
+      }
 
-    BmpHeader bmpHeader;
-    createBmpHeader(&bmpHeader, thumbWidth, thumbHeight, BmpRowOrder::TopDown);
-    thumbBmp.write(reinterpret_cast<const uint8_t*>(&bmpHeader), sizeof(bmpHeader));
+      BmpHeader bmpHeader;
+      createBmpHeader(&bmpHeader, thumbWidth, thumbHeight, BmpRowOrder::TopDown);
+      thumbBmp.write(reinterpret_cast<const uint8_t*>(&bmpHeader), sizeof(bmpHeader));
 
-    const uint32_t rowSize = (thumbWidth + 31) / 32 * 4;
-    uint8_t* rowBuf = static_cast<uint8_t*>(malloc(rowSize));
-    if (!rowBuf) {
+      const uint32_t rowSize = (thumbWidth + 31) / 32 * 4;
+      uint8_t* rowBuf = static_cast<uint8_t*>(malloc(rowSize));
+      if (!rowBuf) {
+        free(plane1Buf);
+        free(plane2Buf);
+        thumbBmp.close();
+        return false;
+      }
+
+      for (uint16_t dstY = 0; dstY < thumbHeight; dstY++) {
+        memset(rowBuf, 0xFF, rowSize);
+        uint32_t srcYS, srcYE;
+        computeSrcRange(dstY, scaleInv_fp2, pageInfo.height, srcYS, srcYE);
+        for (uint16_t dstX = 0; dstX < thumbWidth; dstX++) {
+          uint32_t srcXS, srcXE;
+          computeSrcRange(dstX, scaleInv_fp2, pageInfo.width, srcXS, srcXE);
+          int lumSum = 0, total = 0;
+          for (uint32_t sy = srcYS; sy < srcYE; sy++)
+            for (uint32_t sx = srcXS; sx < srcXE; sx++) {
+              const size_t bo = (pageInfo.width - 1 - sx) * colBytes + sy / 8;
+              if (bo < planeSize) {
+                const uint8_t b1 = (plane1Buf[bo] >> (7 - (sy % 8))) & 1;
+                const uint8_t b2 = (plane2Buf[bo] >> (7 - (sy % 8))) & 1;
+                lumSum += (1 - b1) * 85 + (1 - b2) * 170;
+                total++;
+              }
+            }
+          const int avgLum = (total > 0) ? (lumSum * 255 / total) / 255 : 255;
+          const uint8_t bit = ditherer.processPixel(avgLum, dstX);
+          if (!bit) {
+            const size_t bi = dstX / 8;
+            if (bi < rowSize) rowBuf[bi] &= ~(1 << (7 - (dstX % 8)));
+          }
+        }
+        thumbBmp.write(rowBuf, rowSize);
+        ditherer.nextRow();
+      }
+
+      free(rowBuf);
       free(plane1Buf);
       free(plane2Buf);
       thumbBmp.close();
-      return false;
-    }
-
-    for (uint16_t dstY = 0; dstY < thumbHeight; dstY++) {
-      memset(rowBuf, 0xFF, rowSize);
-      uint32_t srcYS, srcYE;
-      computeSrcRange(dstY, scaleInv_fp2, pageInfo.height, srcYS, srcYE);
-      for (uint16_t dstX = 0; dstX < thumbWidth; dstX++) {
-        uint32_t srcXS, srcXE;
-        computeSrcRange(dstX, scaleInv_fp2, pageInfo.width, srcXS, srcXE);
-        int lumSum = 0, total = 0;
-        for (uint32_t sy = srcYS; sy < srcYE; sy++)
-          for (uint32_t sx = srcXS; sx < srcXE; sx++) {
-            const size_t bo = (pageInfo.width - 1 - sx) * colBytes + sy / 8;
-            if (bo < planeSize) {
-              const uint8_t b1 = (plane1Buf[bo] >> (7 - (sy % 8))) & 1;
-              const uint8_t b2 = (plane2Buf[bo] >> (7 - (sy % 8))) & 1;
-              lumSum += (1 - b1) * 85 + (1 - b2) * 170;
-              total++;
-            }
-          }
-        const int avgLum = (total > 0) ? (lumSum * 255 / total) / 255 : 255;
-        const uint8_t bit = ditherer.processPixel(avgLum, dstX);
-        if (!bit) {
-          const size_t bi = dstX / 8;
-          if (bi < rowSize) rowBuf[bi] &= ~(1 << (7 - (dstX % 8)));
-        }
-      }
-      thumbBmp.write(rowBuf, rowSize);
-      ditherer.nextRow();
-    }
-
-    free(rowBuf);
-    free(plane1Buf);
-    free(plane2Buf);
-    thumbBmp.close();
-    LOG_DBG("XTC", "Generated 1-bit thumb BMP with dithering (%dx%d): %s", thumbWidth, thumbHeight,
-            getThumbBmpPath(height).c_str());
-    return true;
+      LOG_DBG("XTC", "Generated 1-bit thumb BMP with dithering (%dx%d): %s", thumbWidth, thumbHeight,
+              getThumbBmpPath(height).c_str());
+      return true;
     }
 
   fallback_2bit_thumb:
