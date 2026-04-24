@@ -142,19 +142,38 @@ void BookStatsActivity::render(RenderLock&&) {
 
     y += cellH;
 
-    const uint32_t globalAvgSecs =
-        globalStats.totalSessions > 0 ? globalStats.totalReadingSeconds / globalStats.totalSessions : 0;
-    BookReadingStats::formatDuration(globalAvgSecs, buf, sizeof(buf));
-    drawStatCell(cardX, halfW, y, buf, tr(STR_STATS_AVG_SESSION_LBL));
+    if (globalStats.completedBooks > 0) {
+      const uint32_t globalAvgSecs =
+          globalStats.totalSessions > 0 ? globalStats.totalReadingSeconds / globalStats.totalSessions : 0;
+      BookReadingStats::formatDuration(globalAvgSecs, buf, sizeof(buf));
+      drawStatCell(cardX, thirdW, y, buf, tr(STR_STATS_AVG_SESSION_LBL));
 
-    if (globalStats.totalReadingSeconds > 60) {
-      const float ppm = static_cast<float>(globalStats.totalPagesTurned) * 60.0f /
-                        static_cast<float>(globalStats.totalReadingSeconds);
-      snprintf(buf, sizeof(buf), "%.1f", ppm);
+      if (globalStats.totalReadingSeconds > 60) {
+        const float ppm = static_cast<float>(globalStats.totalPagesTurned) * 60.0f /
+                          static_cast<float>(globalStats.totalReadingSeconds);
+        snprintf(buf, sizeof(buf), "%.1f", ppm);
+      } else {
+        snprintf(buf, sizeof(buf), "0.0");
+      }
+      drawStatCell(cardX + thirdW, thirdW, y, buf, tr(STR_STATS_PAGES_PER_MIN));
+
+      snprintf(buf, sizeof(buf), "%lu", static_cast<unsigned long>(globalStats.completedBooks));
+      drawStatCell(cardX + thirdW * 2, thirdW, y, buf, tr(STR_STATS_COMPLETED_LBL));
     } else {
-      snprintf(buf, sizeof(buf), "0.0");
+      const uint32_t globalAvgSecs =
+          globalStats.totalSessions > 0 ? globalStats.totalReadingSeconds / globalStats.totalSessions : 0;
+      BookReadingStats::formatDuration(globalAvgSecs, buf, sizeof(buf));
+      drawStatCell(cardX, halfW, y, buf, tr(STR_STATS_AVG_SESSION_LBL));
+
+      if (globalStats.totalReadingSeconds > 60) {
+        const float ppm = static_cast<float>(globalStats.totalPagesTurned) * 60.0f /
+                          static_cast<float>(globalStats.totalReadingSeconds);
+        snprintf(buf, sizeof(buf), "%.1f", ppm);
+      } else {
+        snprintf(buf, sizeof(buf), "0.0");
+      }
+      drawStatCell(cardX + halfW, halfW, y, buf, tr(STR_STATS_PAGES_PER_MIN));
     }
-    drawStatCell(cardX + halfW, halfW, y, buf, tr(STR_STATS_PAGES_PER_MIN));
   }
 
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");

@@ -2,8 +2,11 @@
 #include <Epub.h>
 #include <Epub/FootnoteEntry.h>
 #include <Epub/Section.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 
 #include <optional>
+#include <string>
 
 #include "BookReadingStats.h"
 #include "BookmarkStore.h"
@@ -40,6 +43,18 @@ class EpubReaderActivity final : public Activity {
   bool pendingBookmarkFeedback = false;
   bool bookmarkFeedbackIsAdd = false;
   unsigned long bookmarkFeedbackShowTime = 0UL;
+  int completionTriggerSpineIndex = -1;
+  float completionTriggerSpineProgress = 1.0f;
+  bool completionPromptQueued = false;
+  bool completionPromptShown = false;
+  bool pendingReadFolderMove = false;
+
+  struct ReadFolderMoveParams {
+    std::string epubPath;
+    std::string cachePath;
+    std::string title;
+  };
+  static void readFolderMoveTask(void* arg);
 
   // Footnote support
   std::vector<FootnoteEntry> currentPageFootnotes;
@@ -62,6 +77,11 @@ class EpubReaderActivity final : public Activity {
   void applyOrientation(uint8_t orientation);
   void toggleAutoPageTurn(uint8_t selectedPageTurnOption);
   void pageTurn(bool isForwardTurn);
+  float getCurrentBookProgressPercent() const;
+  void initializeCompletionPromptTrigger();
+  bool isAtOrPastCompletionTrigger() const;
+  void queueCompletionPromptIfNeeded();
+  void setBookCompleted(bool isCompleted);
 
   // Footnote navigation
   void navigateToHref(const std::string& href, bool savePosition = false);

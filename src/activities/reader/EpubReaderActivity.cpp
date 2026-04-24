@@ -11,6 +11,7 @@
 #include <esp_system.h>
 
 #include <array>
+#include <functional>
 #include <limits>
 
 #include "BookStatsActivity.h"
@@ -26,6 +27,7 @@
 #include "QrDisplayActivity.h"
 #include "ReaderUtils.h"
 #include "RecentBooksStore.h"
+#include "activities/util/ConfirmationActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "util/ScreenshotUtil.h"
@@ -48,6 +50,88 @@ int clampPercent(int percent) {
 }
 
 }  // namespace
+
+float EpubReaderActivity::getCurrentBookProgressPercent() const {
+  if (!epub || !section || section->pageCount <= 0 || epub->getBookSize() == 0) {
+    return 0.0f;
+  }
+
+  const float chapterProgress = static_cast<float>(section->currentPage) / static_cast<float>(section->pageCount);
+  return epub->calculateProgress(currentSpineIndex, chapterProgress) * 100.0f;
+}
+
+void EpubReaderActivity::initializeCompletionPromptTrigger() {
+  completionTriggerSpineIndex = -1;
+  completionTriggerSpineProgress = 1.0f;
+  completionPromptQueued = false;
+  completionPromptShown = stats.isCompleted;
+
+  if (!epub) {
+    return;
+  }
+
+  const size_t bookSize = epub->getBookSize();
+  const int spineCount = epub->getSpineItemsCount();
+  if (bookSize == 0 || spineCount <= 0) {
+    return;
+  }
+
+  size_t targetSize = (bookSize / 100) * 99 + (bookSize % 100) * 99 / 100;
+  if (targetSize >= bookSize) {
+    targetSize = bookSize - 1;
+  }
+
+  int targetSpineIndex = spineCount - 1;
+  size_t prevCumulative = 0;
+
+  for (int i = 0; i < spineCount; i++) {
+    const size_t cumulative = epub->getCumulativeSpineItemSize(i);
+    if (targetSize <= cumulative) {
+      targetSpineIndex = i;
+      prevCumulative = (i > 0) ? epub->getCumulativeSpineItemSize(i - 1) : 0;
+      break;
+    }
+  }
+
+  const size_t cumulative = epub->getCumulativeSpineItemSize(targetSpineIndex);
+  const size_t spineSize = (cumulative > prevCumulative) ? (cumulative - prevCumulative) : 0;
+
+  completionTriggerSpineIndex = targetSpineIndex;
+  completionTriggerSpineProgress =
+      (spineSize == 0) ? 0.0f : static_cast<float>(targetSize - prevCumulative) / static_cast<float>(spineSize);
+
+  if (completionTriggerSpineProgress < 0.0f) {
+    completionTriggerSpineProgress = 0.0f;
+  } else if (completionTriggerSpineProgress > 1.0f) {
+    completionTriggerSpineProgress = 1.0f;
+  }
+}
+
+bool EpubReaderActivity::isAtOrPastCompletionTrigger() const {
+  if (!epub || !section || section->pageCount <= 0 || completionTriggerSpineIndex < 0) {
+    return false;
+  }
+
+  if (currentSpineIndex > completionTriggerSpineIndex) {
+    return true;
+  }
+  if (currentSpineIndex < completionTriggerSpineIndex) {
+    return false;
+  }
+
+  const float chapterProgress = static_cast<float>(section->currentPage) / static_cast<float>(section->pageCount);
+  return chapterProgress >= completionTriggerSpineProgress;
+}
+
+void EpubReaderActivity::queueCompletionPromptIfNeeded() {
+  if (completionPromptShown || completionPromptQueued || stats.isCompleted || footnoteDepth > 0) {
+    return;
+  }
+
+  if (isAtOrPastCompletionTrigger()) {
+    completionPromptQueued = true;
+  }
+}
 
 void EpubReaderActivity::onEnter() {
   Activity::onEnter();
@@ -123,6 +207,8 @@ void EpubReaderActivity::onEnter() {
   globalStats.totalSessions++;
   globalStats.save();
 
+  initializeCompletionPromptTrigger();
+
   // Save current epub as last opened epub and add to recent books
   APP_STATE.openEpubPath = epub->getPath();
   APP_STATE.saveToFile();
@@ -157,13 +243,40 @@ void EpubReaderActivity::onExit() {
 
   BOOKMARKS.unload();
   section.reset();
-  epub.reset();
+
+  if (pendingReadFolderMove) {
+    auto* params = new ReadFolderMoveParams{epub->getPath(), epub->getCachePath(), epub->getTitle()};
+    epub.reset();
+    TaskHandle_t moveTaskHandle = nullptr;
+    xTaskCreate(&readFolderMoveTask, "ReadFolderMove", 4096, params, 1, &moveTaskHandle);
+    if (!moveTaskHandle) {
+      LOG_ERR("ERS", "Failed to create readFolderMoveTask");
+      delete params;
+    }
+  } else {
+    epub.reset();
+  }
 }
 
 void EpubReaderActivity::loop() {
   if (!epub) {
     // Should never happen
     finish();
+    return;
+  }
+
+  if (completionPromptQueued) {
+    completionPromptQueued = false;
+    completionPromptShown = true;
+    startActivityForResult(
+        std::make_unique<ConfirmationActivity>(renderer, mappedInput, tr(STR_MARK_FINISHED_PROMPT_TITLE),
+                                               tr(STR_MARK_FINISHED_PROMPT_BODY)),
+        [this](const ActivityResult& result) {
+          if (!result.isCancelled) {
+            setBookCompleted(true);
+          }
+          requestUpdate();
+        });
     return;
   }
 
@@ -208,23 +321,31 @@ void EpubReaderActivity::loop() {
 
   // Enter reader menu activity.
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
-    const int currentPage = section ? section->currentPage + 1 : 0;
-    const int totalPages = section ? section->pageCount : 0;
+    int currentPage = 0;
+    int totalPages = 0;
     float bookProgress = 0.0f;
-    if (epub->getBookSize() > 0 && section && section->pageCount > 0) {
-      const float chapterProgress = static_cast<float>(section->currentPage) / static_cast<float>(section->pageCount);
-      bookProgress = epub->calculateProgress(currentSpineIndex, chapterProgress) * 100.0f;
+    uint16_t bmSpine = static_cast<uint16_t>(currentSpineIndex);
+    float bmProgress = 0.0f;
+    int bookmarkPageCount = 1;
+    bool isBookCompleted = stats.isCompleted;
+    {
+      // Serialize EPUB metadata/file access with the render task.
+      RenderLock lock(*this);
+      currentPage = section ? section->currentPage + 1 : 0;
+      totalPages = section ? section->pageCount : 0;
+      bmSpine = static_cast<uint16_t>(currentSpineIndex);
+      bmProgress =
+          (section && section->pageCount > 0) ? static_cast<float>(section->currentPage) / section->pageCount : 0.0f;
+      bookmarkPageCount = (section && section->pageCount > 0) ? section->pageCount : 1;
+      isBookCompleted = stats.isCompleted;
+      bookProgress = getCurrentBookProgressPercent();
     }
     const int bookProgressPercent = clampPercent(static_cast<int>(bookProgress + 0.5f));
-    const uint16_t bmSpine = static_cast<uint16_t>(currentSpineIndex);
-
-    const float bmProgress =
-        (section && section->pageCount > 0) ? static_cast<float>(section->currentPage) / section->pageCount : 0.0f;
 
     startActivityForResult(std::make_unique<EpubReaderMenuActivity>(
                                renderer, mappedInput, epub->getTitle(), currentPage, totalPages, bookProgressPercent,
                                SETTINGS.orientation, !currentPageFootnotes.empty(), !BOOKMARKS.getBookmarks().empty(),
-                               BOOKMARKS.hasBookmarkForPage(bmSpine, bmProgress, section ? section->pageCount : 1)),
+                               BOOKMARKS.hasBookmarkForPage(bmSpine, bmProgress, bookmarkPageCount), isBookCompleted),
                            [this](const ActivityResult& result) {
                              // Always apply orientation change even if the menu was cancelled
                              const auto& menu = std::get<MenuResult>(result.data);
@@ -407,9 +528,10 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
     }
     case EpubReaderMenuActivity::MenuAction::GO_TO_PERCENT: {
       float bookProgress = 0.0f;
-      if (epub && epub->getBookSize() > 0 && section && section->pageCount > 0) {
-        const float chapterProgress = static_cast<float>(section->currentPage) / static_cast<float>(section->pageCount);
-        bookProgress = epub->calculateProgress(currentSpineIndex, chapterProgress) * 100.0f;
+      {
+        // Serialize EPUB metadata/file access with the render task.
+        RenderLock lock(*this);
+        bookProgress = getCurrentBookProgressPercent();
       }
       const int initialPercent = clampPercent(static_cast<int>(bookProgress + 0.5f));
       startActivityForResult(
@@ -484,6 +606,11 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
       startActivityForResult(
           std::make_unique<BookStatsActivity>(renderer, mappedInput, epub->getTitle(), displayStats, globalStats),
           [this](const ActivityResult&) { requestUpdate(); });
+      break;
+    }
+    case EpubReaderMenuActivity::MenuAction::TOGGLE_COMPLETED: {
+      setBookCompleted(!stats.isCompleted);
+      requestUpdate();
       break;
     }
     case EpubReaderMenuActivity::MenuAction::SYNC: {
@@ -568,6 +695,30 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
     case EpubReaderMenuActivity::MenuAction::READER_OPTIONS:
       break;
   }
+}
+
+void EpubReaderActivity::setBookCompleted(bool isCompleted) {
+  if (stats.isCompleted == isCompleted) {
+    return;
+  }
+
+  stats.isCompleted = isCompleted;
+  if (isCompleted) {
+    completionPromptShown = true;
+    if (SETTINGS.moveFinishedToReadFolder && epub->getPath().rfind("/Read/", 0) != 0) {
+      pendingReadFolderMove = true;
+    }
+  } else {
+    pendingReadFolderMove = false;
+  }
+  if (isCompleted) {
+    globalStats.completedBooks++;
+  } else if (globalStats.completedBooks > 0) {
+    globalStats.completedBooks--;
+  }
+
+  stats.save(epub->getCachePath());
+  globalStats.save();
 }
 
 void EpubReaderActivity::applyOrientation(const uint8_t orientation) {
@@ -843,6 +994,7 @@ void EpubReaderActivity::render(RenderLock&& lock) {
   }
   silentIndexNextChapterIfNeeded(viewportWidth, viewportHeight);
   saveProgress(currentSpineIndex, section->currentPage, section->pageCount);
+  queueCompletionPromptIfNeeded();
 
   if (pendingScreenshot) {
     pendingScreenshot = false;
@@ -1014,11 +1166,9 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
 }
 
 void EpubReaderActivity::renderStatusBar() const {
-  // Calculate progre  // Calculate progress in book
   const int currentPage = section->currentPage + 1;
   const float pageCount = section->pageCount;
-  const float sectionChapterProg = (pageCount > 0) ? (static_cast<float>(currentPage) / pageCount) : 0;
-  const float bookProgress = epub->calculateProgress(currentSpineIndex, sectionChapterProg) * 100;
+  const float bookProgress = getCurrentBookProgressPercent();
 
   std::string title;
 
@@ -1112,4 +1262,63 @@ void EpubReaderActivity::restoreSavedPosition() {
     section.reset();
   }
   requestUpdate();
+}
+
+void EpubReaderActivity::readFolderMoveTask(void* arg) {
+  auto* params = static_cast<ReadFolderMoveParams*>(arg);
+
+  // Extract filename from source path
+  const size_t lastSlash = params->epubPath.rfind('/');
+  const std::string filename =
+      (lastSlash != std::string::npos) ? params->epubPath.substr(lastSlash + 1) : params->epubPath;
+
+  // Build destination path, avoiding collisions
+  Storage.mkdir("/Read");
+  std::string dstEpubPath = "/Read/" + filename;
+  if (Storage.exists(dstEpubPath.c_str())) {
+    // Strip .epub extension, append suffix, re-add extension
+    const size_t dotPos = filename.rfind('.');
+    const std::string base = (dotPos != std::string::npos) ? filename.substr(0, dotPos) : filename;
+    const std::string ext = (dotPos != std::string::npos) ? filename.substr(dotPos) : "";
+    int suffix = 2;
+    do {
+      dstEpubPath = "/Read/" + base + " (" + std::to_string(suffix) + ")" + ext;
+      suffix++;
+    } while (Storage.exists(dstEpubPath.c_str()) && suffix < 100);
+  }
+
+  LOG_INF("ERS", "Moving epub: %s -> %s", params->epubPath.c_str(), dstEpubPath.c_str());
+
+  if (!Storage.rename(params->epubPath.c_str(), dstEpubPath.c_str())) {
+    LOG_ERR("ERS", "Failed to move book to 'Read' folder");
+    snprintf(APP_STATE.pendingAlertTitle, sizeof(APP_STATE.pendingAlertTitle), "%s", tr(STR_MOVE_TO_READ_FAILED_TITLE));
+    snprintf(APP_STATE.pendingAlertBody, sizeof(APP_STATE.pendingAlertBody), tr(STR_MOVE_TO_READ_FAILED_BODY),
+             params->title.c_str());
+    APP_STATE.hasPendingAlert = true;
+    delete params;
+    vTaskDelete(nullptr);
+    return;
+  }
+
+  // Rename cache directory to match new epub path hash
+  const std::string oldCachePath = params->cachePath;
+  const std::string newCachePath = "/.crosspoint/epub_" + std::to_string(std::hash<std::string>{}(dstEpubPath));
+  if (!oldCachePath.empty() && Storage.exists(oldCachePath.c_str())) {
+    if (!Storage.rename(oldCachePath.c_str(), newCachePath.c_str())) {
+      LOG_ERR("ERS", "Failed to rename cache dir %s -> %s (non-fatal)", oldCachePath.c_str(), newCachePath.c_str());
+    }
+  }
+
+  // Update recent books store with new paths
+  RECENT_BOOKS.updatePath(params->epubPath, dstEpubPath, oldCachePath, newCachePath);
+
+  // Update the open epub path if it matched
+  if (APP_STATE.openEpubPath == params->epubPath) {
+    APP_STATE.openEpubPath = dstEpubPath;
+    APP_STATE.saveToFile();
+  }
+
+  LOG_INF("ERS", "Move to /Read/ complete");
+  delete params;
+  vTaskDelete(nullptr);
 }

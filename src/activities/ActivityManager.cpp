@@ -2,10 +2,12 @@
 
 #include <HalPowerManager.h>
 
+#include "CrossPointState.h"
 #include "OpdsServerStore.h"
 #include "boot_sleep/BootActivity.h"
 #include "boot_sleep/SleepActivity.h"
 #include "browser/OpdsBookBrowserActivity.h"
+#include "home/AlertActivity.h"
 #include "home/CrashActivity.h"
 #include "home/FileBrowserActivity.h"
 #include "home/HomeActivity.h"
@@ -133,6 +135,11 @@ void ActivityManager::loop() {
       // onEnter may request another pending action, we will handle it in the next loop iteration
       continue;
     }
+  }
+
+  if (APP_STATE.hasPendingAlert && pendingAction == PendingAction::None) {
+    APP_STATE.hasPendingAlert = false;
+    pushActivity(std::make_unique<AlertActivity>(renderer, mappedInput));
   }
 
   if (requestedUpdate) {

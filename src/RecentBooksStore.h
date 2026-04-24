@@ -37,6 +37,11 @@ class RecentBooksStore {
   void updateBook(const std::string& path, const std::string& title, const std::string& author,
                   const std::string& coverBmpPath);
 
+  // Update the stored path for a book (e.g. after moving the file).
+  // Also patches coverBmpPath if it was inside oldCachePath, replacing the prefix with newCachePath.
+  void updatePath(const std::string& oldPath, const std::string& newPath, const std::string& oldCachePath,
+                  const std::string& newCachePath);
+
   // Get the list of recent books (most recent first)
   const std::vector<RecentBook>& getBooks() const { return recentBooks; }
 

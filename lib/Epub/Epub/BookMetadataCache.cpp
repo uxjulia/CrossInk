@@ -419,6 +419,32 @@ BookMetadataCache::SpineEntry BookMetadataCache::getSpineEntry(const int index) 
   return readSpineEntry(bookFile);
 }
 
+size_t BookMetadataCache::getSpineCumulativeSize(const int index) {
+  if (!loaded) {
+    LOG_ERR("BMC", "getSpineCumulativeSize called but cache not loaded");
+    return 0;
+  }
+
+  if (index < 0 || index >= static_cast<int>(spineCount)) {
+    LOG_ERR("BMC", "getSpineCumulativeSize index %d out of range", index);
+    return 0;
+  }
+
+  // Seek to spine LUT item, then read only the cumulative size field from the entry.
+  bookFile.seek(lutOffset + sizeof(uint32_t) * index);
+  uint32_t spineEntryPos;
+  serialization::readPod(bookFile, spineEntryPos);
+  bookFile.seek(spineEntryPos);
+
+  uint32_t hrefLen = 0;
+  serialization::readPod(bookFile, hrefLen);
+  bookFile.seekCur(hrefLen);
+
+  size_t cumulativeSize = 0;
+  serialization::readPod(bookFile, cumulativeSize);
+  return cumulativeSize;
+}
+
 BookMetadataCache::TocEntry BookMetadataCache::getTocEntry(const int index) {
   if (!loaded) {
     LOG_ERR("BMC", "getTocEntry called but cache not loaded");
