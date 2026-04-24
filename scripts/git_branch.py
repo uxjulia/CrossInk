@@ -2,6 +2,7 @@
 PlatformIO pre-build script: inject git info into version defines.
 
   default:       1.1.0-dev+<branch>
+  test:          1.2.6-<branch>+<5-char-hash>
   gh_release_rc: 1.1.0-rc+<5-char-hash>   (hash from $CROSSPOINT_RC_HASH in
                                              CI, or from git locally)
 
@@ -90,6 +91,18 @@ def inject_version(env):
         version_string = f'{base_version}-dev+{branch}'
         env.Append(CPPDEFINES=[('CROSSPOINT_VERSION', f'\\"{version_string}\\"')])
         print(f'CrossPoint build version: {version_string}')
+
+    elif pioenv == 'test':
+        branch = get_git_branch(project_dir)
+        short_hash = get_git_short_hash(project_dir)
+        cp_version = get_base_version(project_dir)
+        ci_version = get_crossink_version(project_dir)
+        suffix = f'-{branch}+{short_hash}'
+        env.Append(CPPDEFINES=[
+            ('CROSSPOINT_VERSION', f'\\"{cp_version}{suffix}\\"'),
+            ('CROSSINK_VERSION', f'\\"{ci_version}{suffix}\\"'),
+        ])
+        print(f'CrossPoint test build version: {ci_version}{suffix}')
 
     elif pioenv == 'gh_release_rc':
         # CI passes CROSSPOINT_RC_HASH as an env var; locally we derive it from git.

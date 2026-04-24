@@ -4,6 +4,19 @@
 
 My goal with this fork was to maintain the core Crosspoint firmware while integrating my preferred typography and some lightweight reading statistics. I’ve focused on keeping the underlying system stable while layering in a few "nice-to-have" features and UI refinements along the way.
 
+<table>
+  <tr>
+    <td align="center">
+      <img src="./docs/images/bitter-small-15-margin.jpg" alt="Font: Bitter, Size: Small, Margin: 15" /><br/>
+      <em>Font: Bitter, Size: Small, Margin: 15</em>
+    </td>
+    <td align="center">
+      <img src="./docs/images/reading-stats.jpg" alt="Reading Stats with custom front button mapping shown" /><br/>
+      <em>Reading Stats with custom front button mapping shown</em>
+    </td>
+  </tr>
+</table>
+
 ### Summary
 
 - New reader fonts: ChareInk, Lexend Deca, and Bitter
