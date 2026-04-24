@@ -7,6 +7,7 @@ struct GlobalReadingStats {
   uint32_t totalSessions = 0;        // Total book-open events across all books
   uint32_t totalReadingSeconds = 0;  // Accumulated reading time across all books
   uint32_t totalPagesTurned = 0;     // Total page-turn actions across all books
+  uint32_t completedBooks = 0;       // Books manually marked as finished
 
   // Loads stats from /.crosspoint/global_stats.bin. Returns default-constructed
   // stats if the file is missing or the version byte does not match.
