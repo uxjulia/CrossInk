@@ -247,8 +247,7 @@ void EpubReaderActivity::onExit() {
   if (pendingReadFolderMove) {
     const std::string srcEpubPath = epub->getPath();
     const size_t lastSlash = srcEpubPath.rfind('/');
-    const std::string filename =
-        (lastSlash != std::string::npos) ? srcEpubPath.substr(lastSlash + 1) : srcEpubPath;
+    const std::string filename = (lastSlash != std::string::npos) ? srcEpubPath.substr(lastSlash + 1) : srcEpubPath;
 
     Storage.mkdir("/Read");
     std::string dstEpubPath = "/Read/" + filename;
@@ -1316,8 +1315,7 @@ void EpubReaderActivity::readFolderMoveTask(void* arg) {
 
   // Rename cache directory to match new epub path hash
   const std::string oldCachePath = params->cachePath;
-  const std::string newCachePath =
-      "/.crosspoint/epub_" + std::to_string(std::hash<std::string>{}(params->dstEpubPath));
+  const std::string newCachePath = "/.crosspoint/epub_" + std::to_string(std::hash<std::string>{}(params->dstEpubPath));
   if (!oldCachePath.empty() && Storage.exists(oldCachePath.c_str())) {
     if (!Storage.rename(oldCachePath.c_str(), newCachePath.c_str())) {
       LOG_ERR("ERS", "Failed to rename cache dir %s -> %s (non-fatal)", oldCachePath.c_str(), newCachePath.c_str());
