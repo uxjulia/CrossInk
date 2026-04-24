@@ -491,6 +491,7 @@ bool Xtc::generateThumbBmp(int height) const {
       free(darkCount1Buf);
       free(planeBuffer);
       thumbBmp.close();
+      Storage.remove(getThumbBmpPath(height).c_str());
       return false;
     }
 
@@ -506,6 +507,7 @@ bool Xtc::generateThumbBmp(int height) const {
         free(darkCount1Buf);
         free(planeBuffer);
         thumbBmp.close();
+        Storage.remove(getThumbBmpPath(height).c_str());
         return false;
       }
       for (int dy = 0; dy < curRows; dy++) {
@@ -542,6 +544,7 @@ bool Xtc::generateThumbBmp(int height) const {
         free(darkCount1Buf);
         free(planeBuffer);
         thumbBmp.close();
+        Storage.remove(getThumbBmpPath(height).c_str());
         return false;
       }
       for (int dy = 0; dy < curRows; dy++) {
