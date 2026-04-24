@@ -139,8 +139,7 @@ class CssParser {
 
   // Internal parsing helpers
   void processRuleBlockWithStyle(const std::string& selectorGroup, const CssStyle& style);
-  static bool selectorMatchesElement(const std::string& selector, const std::string& tag,
-                                     const std::string& classAttr);
+  static bool selectorMatchesElement(const std::string& selector, const std::string& tag, const std::string& classAttr);
   static CssStyle parseDeclarations(const std::string& declBlock);
   static void parseDeclarationIntoStyle(const std::string& decl, CssStyle& style, std::string& propNameBuf,
                                         std::string& propValueBuf);

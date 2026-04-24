@@ -489,11 +489,9 @@ void CssParser::processRuleBlockWithStyle(const std::string& selectorGroup, cons
       rule.style = style;
 
       // Merge with existing rule for same selector pair, or append
-      auto it = std::find_if(descendantRules_.begin(), descendantRules_.end(),
-                             [&](const DescendantRule& r) {
-                               return r.ancestorSelector == rule.ancestorSelector &&
-                                      r.subjectSelector == rule.subjectSelector;
-                             });
+      auto it = std::find_if(descendantRules_.begin(), descendantRules_.end(), [&](const DescendantRule& r) {
+        return r.ancestorSelector == rule.ancestorSelector && r.subjectSelector == rule.subjectSelector;
+      });
       if (it != descendantRules_.end()) {
         it->style.applyOver(style);
       } else {
@@ -669,7 +667,7 @@ bool CssParser::loadFromStream(FsFile& source) {
 // Style resolution
 
 CssStyle CssParser::resolveStyle(const std::string& tagName, const std::string& classAttr,
-                                  const std::vector<CssAncestorEntry>& ancestors) const {
+                                 const std::vector<CssAncestorEntry>& ancestors) const {
   static bool lowHeapWarningLogged = false;
   if (ESP.getFreeHeap() < MIN_FREE_HEAP_FOR_CSS) {
     if (!lowHeapWarningLogged) {
