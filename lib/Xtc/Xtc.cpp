@@ -513,18 +513,9 @@ bool Xtc::generateThumbBmp(int height) const {
       for (int dy = 0; dy < curRows; dy++) {
         const uint16_t dstY = static_cast<uint16_t>(stripStart + dy);
         for (uint16_t dstX = 0; dstX < thumbWidth; dstX++) {
-          uint32_t srcYS = (static_cast<uint32_t>(dstY) * scaleInv_fp2) >> 16;
-          uint32_t srcYE = (static_cast<uint32_t>(dstY + 1) * scaleInv_fp2) >> 16;
-          if (srcYS >= pageInfo.height) srcYS = pageInfo.height - 1;
-          if (srcYE > pageInfo.height) srcYE = pageInfo.height;
-          if (srcYE <= srcYS) srcYE = srcYS + 1;
-          if (srcYE > pageInfo.height) srcYE = pageInfo.height;
-          uint32_t srcXS = (static_cast<uint32_t>(dstX) * scaleInv_fp2) >> 16;
-          uint32_t srcXE = (static_cast<uint32_t>(dstX + 1) * scaleInv_fp2) >> 16;
-          if (srcXS >= pageInfo.width) srcXS = pageInfo.width - 1;
-          if (srcXE > pageInfo.width) srcXE = pageInfo.width;
-          if (srcXE <= srcXS) srcXE = srcXS + 1;
-          if (srcXE > pageInfo.width) srcXE = pageInfo.width;
+          uint32_t srcYS, srcYE, srcXS, srcXE;
+          computeSrcRange(dstY, scaleInv_fp2, pageInfo.height, srcYS, srcYE);
+          computeSrcRange(dstX, scaleInv_fp2, pageInfo.width, srcXS, srcXE);
           uint32_t darkCount = 0;
           for (uint32_t sy = srcYS; sy < srcYE; sy++)
             for (uint32_t sx = srcXS; sx < srcXE; sx++) {
@@ -551,18 +542,9 @@ bool Xtc::generateThumbBmp(int height) const {
         memset(rowBuf, 0xFF, rowSize);
         const uint16_t dstY = static_cast<uint16_t>(stripStart + dy);
         for (uint16_t dstX = 0; dstX < thumbWidth; dstX++) {
-          uint32_t srcYS = (static_cast<uint32_t>(dstY) * scaleInv_fp2) >> 16;
-          uint32_t srcYE = (static_cast<uint32_t>(dstY + 1) * scaleInv_fp2) >> 16;
-          if (srcYS >= pageInfo.height) srcYS = pageInfo.height - 1;
-          if (srcYE > pageInfo.height) srcYE = pageInfo.height;
-          if (srcYE <= srcYS) srcYE = srcYS + 1;
-          if (srcYE > pageInfo.height) srcYE = pageInfo.height;
-          uint32_t srcXS = (static_cast<uint32_t>(dstX) * scaleInv_fp2) >> 16;
-          uint32_t srcXE = (static_cast<uint32_t>(dstX + 1) * scaleInv_fp2) >> 16;
-          if (srcXS >= pageInfo.width) srcXS = pageInfo.width - 1;
-          if (srcXE > pageInfo.width) srcXE = pageInfo.width;
-          if (srcXE <= srcXS) srcXE = srcXS + 1;
-          if (srcXE > pageInfo.width) srcXE = pageInfo.width;
+          uint32_t srcYS, srcYE, srcXS, srcXE;
+          computeSrcRange(dstY, scaleInv_fp2, pageInfo.height, srcYS, srcYE);
+          computeSrcRange(dstX, scaleInv_fp2, pageInfo.width, srcXS, srcXE);
           uint32_t darkCount = 0, totalCount = 0;
           for (uint32_t sy = srcYS; sy < srcYE; sy++)
             for (uint32_t sx = srcXS; sx < srcXE; sx++) {
