@@ -62,6 +62,7 @@ class EpubReaderActivity final : public Activity {
   void applyOrientation(uint8_t orientation);
   void toggleAutoPageTurn(uint8_t selectedPageTurnOption);
   void pageTurn(bool isForwardTurn);
+  float getCurrentBookProgressPercent() const;
   void setBookCompleted(bool isCompleted);
 
   // Footnote navigation

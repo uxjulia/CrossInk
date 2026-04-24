@@ -14,7 +14,8 @@ Project: Open-source e-reader firmware for Xteink X4 (ESP32-C3).
 ## Session Setup
 
 - Read `.claude/CONTEXT-*.md` files at session start for prior context.
-- "Summarize session" → create `.claude/CONTEXT-YYYY-MM-DD.md` with relevant findings, code refs, and file:line pointers.
+- When any important updates have been made during a session, make sure to update this file.
+- When I say "Summarize session" → create `.claude/CONTEXT-YYYY-MM-DD.md` with relevant findings, code refs, and file:line pointers.
 - Detect platform: `uname -s` → `MINGW64_NT-*` (Windows Git Bash), `Darwin` (macOS), `Linux`.
 
 ---
