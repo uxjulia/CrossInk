@@ -144,12 +144,12 @@ EpdFontFamily bitter18FontFamily(&bitter18RegularFont, &bitter18BoldFont, &bitte
 EpdFont smallFont(&inter_8_regular);
 EpdFontFamily smallFontFamily(&smallFont);
 
-EpdFont ui10RegularFont(&dmsans_10_regular);
-EpdFont ui10BoldFont(&dmsans_10_bold);
+EpdFont ui10RegularFont(&inter_10_regular);
+EpdFont ui10BoldFont(&inter_10_bold);
 EpdFontFamily ui10FontFamily(&ui10RegularFont, &ui10BoldFont);
 
-EpdFont ui12RegularFont(&dmsans_12_regular);
-EpdFont ui12BoldFont(&dmsans_12_bold);
+EpdFont ui12RegularFont(&inter_12_regular);
+EpdFont ui12BoldFont(&inter_12_bold);
 EpdFontFamily ui12FontFamily(&ui12RegularFont, &ui12BoldFont);
 
 // measurement of power button press duration calibration value

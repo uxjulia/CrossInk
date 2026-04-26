@@ -116,15 +116,15 @@ for size in ${READING_FONT_SIZES[@]}; do
   done
 done
 
-# UI Font - DM Sans
+# UI Font - Inter
 
 UI_FONT_SIZES=(10 12)
 UI_FONT_STYLES=("Regular" "Bold")
 
 for size in ${UI_FONT_SIZES[@]}; do
   for style in ${UI_FONT_STYLES[@]}; do
-    font_name="dmsans_${size}_$(echo $style | tr '[:upper:]' '[:lower:]')"
-    font_path="../builtinFonts/source/DMSans/DMSans-${style}.ttf"
+    font_name="inter_${size}_$(echo $style | tr '[:upper:]' '[:lower:]')"
+    font_path="../builtinFonts/source/Inter/Inter-${style}.ttf"
     output_path="../builtinFonts/${font_name}.h"
     python fontconvert.py $font_name $size $font_path > $output_path
     echo "Generated $output_path"
