@@ -77,7 +77,8 @@ void TxtReaderActivity::loop() {
     return;
   }
 
-  auto [prevTriggered, nextTriggered] = ReaderUtils::detectPageTurn(mappedInput);
+  auto [prevTriggered, nextTriggered, fromSideBtn] = ReaderUtils::detectPageTurn(mappedInput);
+  (void)fromSideBtn;
   if (!prevTriggered && !nextTriggered) {
     return;
   }

@@ -85,19 +85,25 @@ void XtcReaderActivity::loop() {
     return;
   }
 
-  // When long-press chapter skip is disabled, turn pages on press instead of release.
-  const bool usePressForPageTurn = !SETTINGS.longPressChapterSkip;
-  const bool prevTriggered = usePressForPageTurn ? (mappedInput.wasPressed(MappedInputManager::Button::PageBack) ||
-                                                    mappedInput.wasPressed(MappedInputManager::Button::Left))
-                                                 : (mappedInput.wasReleased(MappedInputManager::Button::PageBack) ||
-                                                    mappedInput.wasReleased(MappedInputManager::Button::Left));
+  // Front buttons fire on press when long-press chapter skip is disabled (faster response).
+  const bool frontUsePress = !SETTINGS.longPressChapterSkip;
+  // Side buttons fire on press only when long-press action is OFF.
+  const bool sideUsePress = SETTINGS.sideButtonLongPress == CrossPointSettings::SIDE_LONG_PRESS::SIDE_LONG_OFF;
+
+  const bool sidePrev = sideUsePress ? mappedInput.wasPressed(MappedInputManager::Button::PageBack)
+                                     : mappedInput.wasReleased(MappedInputManager::Button::PageBack);
+  const bool sideNext = sideUsePress ? mappedInput.wasPressed(MappedInputManager::Button::PageForward)
+                                     : mappedInput.wasReleased(MappedInputManager::Button::PageForward);
+  const bool frontPrev = frontUsePress ? mappedInput.wasPressed(MappedInputManager::Button::Left)
+                                       : mappedInput.wasReleased(MappedInputManager::Button::Left);
   const bool powerPageTurn = SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::PAGE_TURN &&
                              mappedInput.wasReleased(MappedInputManager::Button::Power);
-  const bool nextTriggered = usePressForPageTurn
-                                 ? (mappedInput.wasPressed(MappedInputManager::Button::PageForward) || powerPageTurn ||
-                                    mappedInput.wasPressed(MappedInputManager::Button::Right))
-                                 : (mappedInput.wasReleased(MappedInputManager::Button::PageForward) || powerPageTurn ||
-                                    mappedInput.wasReleased(MappedInputManager::Button::Right));
+  const bool frontNext = frontUsePress ? (mappedInput.wasPressed(MappedInputManager::Button::Right) || powerPageTurn)
+                                       : (mappedInput.wasReleased(MappedInputManager::Button::Right) || powerPageTurn);
+
+  const bool fromSideBtn = (sidePrev || sideNext) && !(frontPrev || frontNext);
+  const bool prevTriggered = sidePrev || frontPrev;
+  const bool nextTriggered = sideNext || frontNext;
 
   if (!prevTriggered && !nextTriggered) {
     return;
@@ -114,7 +120,10 @@ void XtcReaderActivity::loop() {
     return;
   }
 
-  const bool skipPages = SETTINGS.longPressChapterSkip && mappedInput.getHeldTime() > skipPageMs;
+  const bool skipPages =
+      mappedInput.getHeldTime() > skipPageMs &&
+      (fromSideBtn ? SETTINGS.sideButtonLongPress == CrossPointSettings::SIDE_LONG_PRESS::SIDE_LONG_CHAPTER_SKIP
+                   : static_cast<bool>(SETTINGS.longPressChapterSkip));
   const int skipAmount = skipPages ? 10 : 1;
 
   if (prevTriggered) {

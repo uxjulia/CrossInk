@@ -407,7 +407,69 @@ void EpubReaderActivity::loop() {
     return;
   }
 
-  auto [prevTriggered, nextTriggered] = ReaderUtils::detectPageTurn(mappedInput);
+  // Side button long-press: change font size.
+  // Always uses Button::Up (increase) and Button::Down (decrease) to keep intuitive
+  // top=bigger / bottom=smaller regardless of the Prev/Next side layout setting.
+  if (SETTINGS.sideButtonLongPress == CrossPointSettings::SIDE_LONG_PRESS::SIDE_LONG_FONT_SIZE &&
+      mappedInput.getHeldTime() > skipChapterMs) {
+    if (mappedInput.wasReleased(MappedInputManager::Button::Up)) {
+      if (SETTINGS.fontSize < CrossPointSettings::FONT_SIZE_COUNT - 1) {
+        SETTINGS.fontSize++;
+        SETTINGS.saveToFile();
+        {
+          RenderLock lock(*this);
+          GUI.drawPopup(renderer, tr(STR_INDEXING));
+          if (section) {
+            cachedSpineIndex = currentSpineIndex;
+            cachedChapterTotalPageCount = section->pageCount;
+            nextPageNumber = section->currentPage;
+          }
+          section.reset();
+        }
+        requestUpdate();
+      }
+      return;
+    }
+    if (mappedInput.wasReleased(MappedInputManager::Button::Down)) {
+      if (SETTINGS.fontSize > 0) {
+        SETTINGS.fontSize--;
+        SETTINGS.saveToFile();
+        {
+          RenderLock lock(*this);
+          GUI.drawPopup(renderer, tr(STR_INDEXING));
+          if (section) {
+            cachedSpineIndex = currentSpineIndex;
+            cachedChapterTotalPageCount = section->pageCount;
+            nextPageNumber = section->currentPage;
+          }
+          section.reset();
+        }
+        requestUpdate();
+      }
+      return;
+    }
+  }
+
+  // Short power button: cycle font family
+  if (SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::TOGGLE_FONT &&
+      mappedInput.wasReleased(MappedInputManager::Button::Power)) {
+    SETTINGS.fontFamily = (SETTINGS.fontFamily + 1) % CrossPointSettings::FONT_FAMILY_COUNT;
+    SETTINGS.saveToFile();
+    {
+      RenderLock lock(*this);
+      GUI.drawPopup(renderer, tr(STR_INDEXING));
+      if (section) {
+        cachedSpineIndex = currentSpineIndex;
+        cachedChapterTotalPageCount = section->pageCount;
+        nextPageNumber = section->currentPage;
+      }
+      section.reset();
+    }
+    requestUpdate();
+    return;
+  }
+
+  auto [prevTriggered, nextTriggered, fromSideBtn] = ReaderUtils::detectPageTurn(mappedInput);
   if (!prevTriggered && !nextTriggered) {
     return;
   }
@@ -425,7 +487,10 @@ void EpubReaderActivity::loop() {
     return;
   }
 
-  const bool skipChapter = SETTINGS.longPressChapterSkip && mappedInput.getHeldTime() > skipChapterMs;
+  const bool skipChapter =
+      mappedInput.getHeldTime() > skipChapterMs &&
+      (fromSideBtn ? SETTINGS.sideButtonLongPress == CrossPointSettings::SIDE_LONG_PRESS::SIDE_LONG_CHAPTER_SKIP
+                   : static_cast<bool>(SETTINGS.longPressChapterSkip));
 
   // Don't skip chapter after screenshot
   if (gpio.wasReleased(HalGPIO::BTN_POWER) && gpio.wasReleased(HalGPIO::BTN_DOWN)) {
