@@ -104,6 +104,10 @@ if (parsedSize != fileSize) {
 
 ## `section.bin`
 
+### Version 23
+
+Added `guideReadingEnabled` (bool) to the header after `focusReadingEnabled`. Guide Dots feature flag: when enabled, a middle dot (U+00B7) is inserted between words during layout (skipped for Justify alignment).
+
 ### Version 22
 
 ImHex Pattern:

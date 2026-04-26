@@ -205,6 +205,8 @@ class CrossPointSettings {
   uint8_t embeddedStyle = 1;
   // Focus Reading - emphasizes the first part of words with bold
   uint8_t focusReadingEnabled = 0;
+  // Guide Dots - places a middle dot between words to guide the eye
+  uint8_t guideReadingEnabled = 0;
   // Show hidden files/directories (starting with '.') in the file browser (0 = hidden, 1 = show)
   uint8_t showHiddenFiles = 0;
   // Move epub to /Read/ folder on SD card when marked as finished (0 = disabled, 1 = enabled)

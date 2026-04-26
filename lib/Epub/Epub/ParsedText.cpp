@@ -116,6 +116,14 @@ void ParsedText::addWord(std::string word, const EpdFontFamily::Style fontStyle,
     baseStyle = static_cast<EpdFontFamily::Style>(baseStyle | EpdFontFamily::UNDERLINE);
   }
 
+  // GUIDE READING: insert middle dot (U+00B7) between non-continuation words.
+  // Skipped for justified alignment where variable gap widths would shift the dot off-center.
+  if (guideReadingEnabled && !attachToPrevious && !words.empty() && blockStyle.alignment != CssTextAlign::Justify) {
+    words.emplace_back("\xc2\xb7");
+    wordStyles.push_back(EpdFontFamily::REGULAR);
+    wordContinues.push_back(false);
+  }
+
   if (!this->focusReadingEnabled) {
     words.push_back(std::move(word));
     wordStyles.push_back(baseStyle);
