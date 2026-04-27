@@ -23,6 +23,37 @@
 
 namespace {
 
+void hideOverlayBatteryStrip(GfxRenderer& renderer) {
+  if (!SETTINGS.statusBarBattery) {
+    return;
+  }
+
+  const ThemeMetrics& metrics = UITheme::getInstance().getMetrics();
+  int orientedMarginTop, orientedMarginRight, orientedMarginBottom, orientedMarginLeft;
+  renderer.getOrientedViewableTRBL(&orientedMarginTop, &orientedMarginRight, &orientedMarginBottom,
+                                   &orientedMarginLeft);
+
+  const int statusBarHeight = UITheme::getInstance().getStatusBarHeight();
+  if (statusBarHeight <= 0) {
+    return;
+  }
+
+  const int textY = renderer.getScreenHeight() - statusBarHeight - orientedMarginBottom - 4;
+  const bool showBatteryPercentage =
+      SETTINGS.hideBatteryPercentage == CrossPointSettings::HIDE_BATTERY_PERCENTAGE::HIDE_NEVER;
+
+  // Reserve the full left-side status indicator lane used by bookmark + battery.
+  // This keeps chapter/progress text readable while removing the battery glance target.
+  static constexpr int bookmarkReserveWidth = 13;  // bookmark width + gap from BaseTheme::drawStatusBar()
+  static constexpr int batteryPercentSpacing = 4;  // matches BaseTheme::batteryPercentSpacing
+  const int clearWidth =
+      bookmarkReserveWidth + metrics.batteryWidth +
+      (showBatteryPercentage ? batteryPercentSpacing + renderer.getTextWidth(SMALL_FONT_ID, "100%") : 0);
+  const int clearHeight = std::max(renderer.getTextHeight(SMALL_FONT_ID), metrics.batteryHeight + 6);
+
+  renderer.fillRect(metrics.statusBarHorizontalMargin + orientedMarginLeft + 1, textY, clearWidth, clearHeight, false);
+}
+
 // Context passed through PNGdec's decode() user-pointer to the per-scanline draw callback.
 struct PngOverlayCtx {
   const GfxRenderer* renderer;
@@ -476,6 +507,10 @@ void SleepActivity::renderOverlaySleepScreen() const {
       renderer.clearScreen();
     }
   }
+
+  // Remove the live battery strip from the preserved/reconstructed reader page so the
+  // overlay sleep screen still shows chapter/progress details without the battery glance target.
+  hideOverlayBatteryStrip(renderer);
 
   // Step 2: Load the overlay image using the same selection logic as renderCustomSleepScreen.
   // BMP: white pixels are skipped (transparent via drawBitmap), black pixels composited on top.
