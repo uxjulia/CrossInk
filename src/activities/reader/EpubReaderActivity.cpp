@@ -300,6 +300,7 @@ void EpubReaderActivity::loop() {
         [this](const ActivityResult& result) {
           if (!result.isCancelled) {
             setBookCompleted(true);
+            showCompletedFeedback(true);
           }
           requestUpdate();
         });
@@ -705,7 +706,9 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
       break;
     }
     case EpubReaderMenuActivity::MenuAction::TOGGLE_COMPLETED: {
-      setBookCompleted(!stats.isCompleted);
+      const bool markCompleted = !stats.isCompleted;
+      setBookCompleted(markCompleted);
+      showCompletedFeedback(markCompleted);
       requestUpdate();
       break;
     }
@@ -839,9 +842,7 @@ void EpubReaderActivity::executeReaderQuickAction(CrossPointSettings::LONG_PRESS
       break;
     case CrossPointSettings::LONG_MENU_MARK_FINISHED:
       setBookCompleted(!stats.isCompleted);
-      completedFeedbackIsFinished = stats.isCompleted;
-      pendingCompletedFeedback = true;
-      completedFeedbackShowTime = millis();
+      showCompletedFeedback(stats.isCompleted);
       requestUpdate();
       break;
     case CrossPointSettings::LONG_MENU_READING_STATS:
@@ -930,6 +931,12 @@ void EpubReaderActivity::setBookCompleted(bool isCompleted) {
 
   stats.save(epub->getCachePath());
   globalStats.save();
+}
+
+void EpubReaderActivity::showCompletedFeedback(bool isCompleted) {
+  completedFeedbackIsFinished = isCompleted;
+  pendingCompletedFeedback = true;
+  completedFeedbackShowTime = millis();
 }
 
 void EpubReaderActivity::applyOrientation(const uint8_t orientation) {

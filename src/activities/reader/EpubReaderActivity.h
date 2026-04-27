@@ -91,6 +91,7 @@ class EpubReaderActivity final : public Activity {
   bool isAtOrPastCompletionTrigger() const;
   void queueCompletionPromptIfNeeded();
   void setBookCompleted(bool isCompleted);
+  void showCompletedFeedback(bool isCompleted);
 
   // Footnote navigation
   void navigateToHref(const std::string& href, bool savePosition = false);
