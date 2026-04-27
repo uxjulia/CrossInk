@@ -1540,8 +1540,7 @@ void GfxRenderer::displayXtchPlanes(const uint8_t* plane1, const uint8_t* plane2
     screenshotHookCtx = nullptr;
   }
 
-  const bool isX3 = gpio.deviceIsX3();
-  displayGrayBuffer(isX3 ? nullptr : lut_factory_quality, !isX3);
+  displayGrayBuffer(lut_factory_quality, true);
   setRenderMode(BW);
 }
 

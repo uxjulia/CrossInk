@@ -62,7 +62,7 @@ void PxcViewerActivity::onEnter() {
   PxcCtx ctx{&file, dataOffset, pxcWidth, pxcHeight, labels};
 
   renderer.renderGrayscaleSinglePass(
-      gpio.deviceIsX3() ? GfxRenderer::GrayscaleMode::Differential : GfxRenderer::GrayscaleMode::FactoryQuality,
+      GfxRenderer::GrayscaleMode::FactoryQuality,
       [](const GfxRenderer& r, const void* raw) {
         const auto* c = static_cast<const PxcCtx*>(raw);
         c->file->seek(c->dataOffset);
@@ -141,7 +141,7 @@ void PxcViewerActivity::renderGrayscaleImage() {
   PxcCtx ctx{&file, dataOffset, pxcWidth, pxcHeight, labels};
 
   renderer.renderGrayscaleSinglePass(
-      gpio.deviceIsX3() ? GfxRenderer::GrayscaleMode::Differential : GfxRenderer::GrayscaleMode::FactoryQuality,
+      GfxRenderer::GrayscaleMode::FactoryQuality,
       [](const GfxRenderer& r, const void* raw) {
         const auto* c = static_cast<const PxcCtx*>(raw);
         c->file->seek(c->dataOffset);

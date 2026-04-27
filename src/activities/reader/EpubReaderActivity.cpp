@@ -763,7 +763,7 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   const auto tBwRender = millis();
 
   const bool isImagePage = page->hasImages();
-  const bool useFactoryGray = SETTINGS.textAntiAliasing && isImagePage && !gpio.deviceIsX3();
+  const bool useFactoryGray = SETTINGS.textAntiAliasing && (isImagePage || gpio.deviceIsX3());
   lastPageWasFactoryGray = useFactoryGray;
   if (useFactoryGray) {
     // Factory gray mode: skip BW display entirely — factory LUT drives pixels absolutely
@@ -845,9 +845,7 @@ void EpubReaderActivity::onScreenshotRequest() {
     c->activity->renderStatusBar();
   };
 
-  renderer.renderGrayscale(
-      gpio.deviceIsX3() ? GfxRenderer::GrayscaleMode::Differential : GfxRenderer::GrayscaleMode::FactoryQuality, grayFn,
-      &grayCtx);
+  renderer.renderGrayscale(GfxRenderer::GrayscaleMode::FactoryQuality, grayFn, &grayCtx);
   renderer.clearScreen();
   renderer.cleanupGrayscaleWithFrameBuffer();
 }

@@ -222,7 +222,7 @@ void SleepActivity::renderPxcSleepScreen(const std::string& path) const {
     PxcCtx ctx{&file, dataOffset, pxcWidth, pxcHeight};
 
     renderer.renderGrayscaleSinglePass(
-        gpio.deviceIsX3() ? GfxRenderer::GrayscaleMode::Differential : GfxRenderer::GrayscaleMode::FactoryQuality,
+        GfxRenderer::GrayscaleMode::FactoryQuality,
         [](const GfxRenderer& r, const void* raw) {
           const auto* c = static_cast<const PxcCtx*>(raw);
           c->file->seek(c->dataOffset);
@@ -349,7 +349,7 @@ void SleepActivity::renderBitmapSleepScreen(const Bitmap& bitmap) const {
     };
     BitmapGrayCtx grayCtx{&bitmap, x, y, pageWidth, pageHeight, cropX, cropY};
     renderer.renderGrayscaleSinglePass(
-        gpio.deviceIsX3() ? GfxRenderer::GrayscaleMode::Differential : GfxRenderer::GrayscaleMode::FactoryQuality,
+        GfxRenderer::GrayscaleMode::FactoryQuality,
         [](const GfxRenderer& r, const void* raw) {
           const auto* c = static_cast<const BitmapGrayCtx*>(raw);
           r.drawBitmap(*c->bitmap, c->x, c->y, c->maxWidth, c->maxHeight, c->cropX, c->cropY);
