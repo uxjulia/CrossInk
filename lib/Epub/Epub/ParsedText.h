@@ -15,7 +15,9 @@ class GfxRenderer;
 class ParsedText {
   std::vector<std::string> words;
   std::vector<EpdFontFamily::Style> wordStyles;
-  std::vector<bool> wordContinues;  // true = word attaches to previous (no space before it)
+  std::vector<bool> wordContinues;       // true = word attaches to previous (no space before it)
+  std::vector<bool> wordIsBionicSuffix;  // true = token is the regular tail of a bionic bold-prefix split
+  std::vector<bool> wordIsGuideDot;      // true = token is a guide dot (U+00B7) inserted between words
   BlockStyle blockStyle;
   bool extraParagraphSpacing;
   bool forceParagraphIndents;

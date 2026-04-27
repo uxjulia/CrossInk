@@ -252,7 +252,7 @@ Location on SD: `.crosspoint/epub_<hash>/` (hash = `std::hash<std::string>{}(fil
 **Current file format versions** (increment BEFORE changing binary structure):
 
 - `book.bin`: Version 5
-- `section.bin`: Version 21
+- `section.bin`: Version 26
 
 After incrementing a version, document the change in `docs/file-formats.md`.
 
