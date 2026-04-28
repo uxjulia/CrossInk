@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <title>Embedded Style Off Check</title>
+  <link rel="stylesheet" type="text/css" href="styles/test.css"/>
+</head>
+<body>
+<h1>Embedded Style Off Check</h1>
+<p class="note">Optional extra check: disable embedded styles in the reader, keep Extra Paragraph Spacing ON, and compare Force Paragraph Indents OFF vs ON again.</p>
+<p class="note">Expected with OFF: the body paragraphs below start flush left.</p>
+<p class="note">Expected with ON: the body paragraphs below gain a first-line indent even though the CSS indent information is gone.</p>
+
+<p>This plain paragraph relies on the parser fallback path. It is useful for checking the case where book styling has been stripped or ignored and the reader setting has to synthesize the indent itself.</p>
+<p>This second plain paragraph should behave the same way, so the setting change is obvious after only one or two page refreshes.</p>
+</body>
+</html>

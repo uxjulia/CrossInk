@@ -26,6 +26,9 @@ My goal with this fork was to maintain the core Crosspoint firmware while integr
 - Made <u>underlines</u> thicker for better visibility
 - Added ability to add bookmarks
 - Added ability to remap front buttons that only applies in the reader
+- Added Bionic Reading and Guide Dots as optional reader modes
+- Added Force Paragraph Indents for books that render as one giant wall of text
+- Added more in-reader control remapping options for side buttons, short power button clicks, and long-press menu actions
 - Added ability to mark a book as finished from the in-book menu. A pop-up will also display once 99% of the book is reached. This status allows tracking of total books read.
 - Added ability to move finished books to "Read" folder
   - To turn this on, go to Settings > System > Move finished books to Read folder. Once a book is marked as finished, the book will be moved to the folder when the book is closed.
@@ -33,6 +36,7 @@ My goal with this fork was to maintain the core Crosspoint firmware while integr
 - Reading stats: total books read, total reading time, number of sessions, pages turned, average session time, pages turned per minute
 - Changed label for "Auto Turn (Pages Per Minute)" to "Auto Page Turn Interval (seconds)"
   - Added additional page turn intervals (how many seconds pass between page turns). Options are now (in seconds): 60, 45, 30, 20, 15, 10, 5, OFF.
+- Added Vietnamese language support
 - Device simulator during development
 
 ---
@@ -45,7 +49,7 @@ The default fonts have been replaced with ChareInk, Lexend Deca, and Bitter. The
 - [Lexend Deca](https://fonts.google.com/specimen/Lexend+Deca) - A research-backed sans-serif typeface designed to improve reading fluency. Lexend was engineered based on the theory that reading issues are often a design problem (visual crowding) rather than a cognitive one.
 - [Bitter](https://fonts.google.com/specimen/Bitter) - A "contemporary" slab serif typeface for text, it is specially designed for comfortably reading on digital screens. The consistent stroke weight of Bitter helps it render particularly well on e-ink devices. The medium weight has been chosen specifically for improved rendering on the X4.
 
-The UI now uses [DM Sans](https://fonts.google.com/specimen/DM+Sans) as the display font and the smallest text on the UI has been replaced with [Inter](https://fonts.google.com/specimen/Inter), both fonts have improved readability at smaller sizes.
+The UI now uses [Inter](https://fonts.google.com/specimen/Inter) as the display font which has improved readability at smaller sizes.
 
 ### Emojis and Misc Glyphs
 
@@ -96,6 +100,55 @@ There are 3 available build variants to choose from due to build size constraint
 
 Reader settings (font, size, line spacing, margins, alignment, etc.) are now accessible directly from the in-book menu without leaving the book. Open the menu while reading and select **Reader Options** to adjust any reader setting on the spot. Changes take effect immediately.
 
+### Bionic Reading
+
+This feature will bold the initial letters or parts of words, creating "artificial fixation points" that can make it easier to let your brain fill in the rest of the word without having to focus on every letter. You can toggle it from **Reader settings**.
+
+This was merged from [CrossPoint PR 1670](https://github.com/crosspoint-reader/crosspoint-reader/pull/1670).
+
+### Guide Dots
+
+This feature adds small dots between every word. The idea comes from the book [Speed Reading: Learn to Read a 200+ Page Book in 1 Hour](https://amzn.to/4mOPSJo): by focusing on the space between words instead of the words themselves, your peripheral vision can pick up more of the text. You can toggle it from **Reader settings**.
+
+### Force Paragraph Indents
+
+Have you ever opened a book and the paragraph indents just were not rendering, leaving you with an overwhelming wall of text? That usually happens because some publishers do not define their indents in ways the firmware understands. This setting forces each new paragraph to have an indent regardless of how the book is formatted.
+
+This works when **Reader Paragraph Alignment** is set to **Left**, **Justify**, or **Book's Style**. You can toggle it from **Reader settings**.
+
+### New settings in Controls
+
+#### Side Buttons Long Press
+
+Previously, **Long-press Chapter Skip** applied to both the front and side buttons. I split this out so the side buttons can do their own thing, which opens up a lot more flexibility.
+
+You can now choose what the side buttons do when you long-press them:
+
+- **Change Font Size**: Up increases the font size, Down decreases it
+- **Chapter Skip**: Previous behavior
+- **Ignore**: Do nothing
+
+#### Short Power Button Click
+
+There is now a new short power button action:
+
+- **Change Font**: Cycles through the fonts one by one
+
+#### Long Press Menu Action
+
+While you are in the reader, you can now set the Confirm/Menu button to do one of these actions when long-pressed:
+
+- **Change Font**: Cycles through the fonts one by one
+- **Guide Dots**: Turns Guide Dots on or off
+- **Bionic Reading**: Turns Bionic Reading on or off
+- **Toggle Bookmark**: Adds or removes a bookmark from the current page
+- **Refresh Screen**: Forces a screen refresh
+- **Sync Progress**: Syncs KOReader progress
+- **Mark as Finished**: Marks the current book as finished/unfinished
+- **Reading Stats**: Opens the reading stats screen
+- **Take Screenshot**: Takes a screenshot
+- **Cycle Page Turn**: Cycles through the auto page turn intervals: **Off → 5s → 10s → 15s → 20s → 30s → 45s → 60s → Off**
+
 ### Reading stats
 
 Some simple per-book reading stats are tracked automatically and displayed in two places:
@@ -119,6 +172,10 @@ Some simple per-book reading stats are tracked automatically and displayed in tw
 - At 99% book progress a pop-up will also display asking if you want to mark the book as finished
 - If you have the "Move finished books to Read folder" setting turned on, then once you have marked a book as finished, the book will automatically be moved to a folder named "Read" on your SD card
 - Marking books as finished also enables the total "Books Read" reading stat
+
+### Language Support
+
+- Added language support for Vietnamese. This addresses [issue #34](https://github.com/uxjulia/CrossInk/issues/34).
 
 ---
 

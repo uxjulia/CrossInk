@@ -104,7 +104,25 @@ if (parsedSize != fileSize) {
 
 ## `section.bin`
 
-### Version 21
+### Version 26
+
+Added `wordGuideDotXOffset` (uint16_t per word, appended after `wordBionicSuffixX` in the per-block data). Guide dot tokens (U+00B7, previously stored as individual TextBlock word entries) are now collapsed into the preceding word as a pixel offset annotation. Zero means no guide dot follows that word; non-zero is the offset from the word's x to where the dot is drawn. This eliminates ~N separate word entries per page when Guide Dots is active (where N is the inter-word gap count), reducing both cache size and deserialization time proportionally.
+
+### Version 25
+
+Added `wordBionicSuffixX` (uint16_t per word, appended after `wordBionicBoundary` in the per-block data). For words with `boundary > 0`, this stores the pixel offset from the word's x position to where the regular suffix begins - pre-computed at cache creation time from the layout x-position table. This eliminates a `getTextAdvanceX` call per bionic word from the render hot path (which ran twice per page turn). Zero when `boundary == 0`.
+
+### Version 24
+
+Bionic Reading words are now stored as a single merged TextBlock entry instead of split bold-prefix + regular-suffix token pairs. Each word gains a `wordBionicBoundary` byte (uint8_t per word, appended after `wordStyle` in the per-block data). A non-zero value N means the first N bytes of that word string are the bold prefix; the renderer applies the split at draw time. Zero means no split. This halves the token count for Bionic Reading pages, reducing serialized page size and deserialization time.
+
+### Version 23
+
+Added `guideReadingEnabled` (bool) to the header after `focusReadingEnabled`. Guide Dots feature flag: when enabled, a middle dot (U+00B7) is inserted between words during layout (skipped for Justify alignment).
+
+### Version 22
+
+Added `forceParagraphIndents` (bool) to the header after `extraParagraphSpacing`. This keeps cache invalidation aligned with the reader setting that synthesizes first-line indents when paragraph spacing is enabled.
 
 ImHex Pattern:
 
@@ -114,7 +132,7 @@ import std.string;
 import std.core;
 
 // === Configuration ===
-#define EXPECTED_VERSION 21
+#define EXPECTED_VERSION 26
 #define MAX_STRING_LENGTH 65535
 
 // === String Structure ===
@@ -192,6 +210,7 @@ struct SectionBin {
     s32 fontId;
     float lineCompression;
     bool extraParagraphSpacing;
+    bool forceParagraphIndents;
     u16 viewportWidth;
     u16 vieportHeight;
     u16 pageCount;

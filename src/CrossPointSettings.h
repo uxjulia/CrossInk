@@ -24,6 +24,7 @@ class CrossPointSettings {
     COVER = 3,
     BLANK = 4,
     COVER_CUSTOM = 5,
+    OVERLAY = 6,
     SLEEP_SCREEN_MODE_COUNT
   };
   enum SLEEP_SCREEN_COVER_MODE { FIT = 0, CROP = 1, SLEEP_SCREEN_COVER_MODE_COUNT };
@@ -91,6 +92,14 @@ class CrossPointSettings {
   // Swapped: Next, Previous
   enum SIDE_BUTTON_LAYOUT { PREV_NEXT = 0, NEXT_PREV = 1, SIDE_BUTTON_LAYOUT_COUNT };
 
+  // Side button long-press action options
+  enum SIDE_LONG_PRESS {
+    SIDE_LONG_CHAPTER_SKIP = 0,
+    SIDE_LONG_FONT_SIZE = 1,
+    SIDE_LONG_OFF = 2,
+    SIDE_LONG_PRESS_COUNT
+  };
+
   // Font family options
   enum FONT_FAMILY { LEXENDDECA = 0, BITTER = 1, CHAREINK = 2, FONT_FAMILY_COUNT };
   // Font size options
@@ -126,7 +135,22 @@ class CrossPointSettings {
   };
 
   // Short power button press actions
-  enum SHORT_PWRBTN { IGNORE = 0, SLEEP = 1, PAGE_TURN = 2, FORCE_REFRESH = 3, SHORT_PWRBTN_COUNT };
+  enum SHORT_PWRBTN {
+    IGNORE = 0,
+    SLEEP = 1,
+    PAGE_TURN = 2,
+    FORCE_REFRESH = 3,
+    TOGGLE_FONT = 4,
+    TOGGLE_GUIDE_DOTS = 5,
+    TOGGLE_BIONIC_READING = 6,
+    TOGGLE_BOOKMARK = 7,
+    SYNC_PROGRESS = 8,
+    MARK_FINISHED = 9,
+    READING_STATS = 10,
+    SCREENSHOT = 11,
+    CYCLE_PAGE_TURN = 12,
+    SHORT_PWRBTN_COUNT
+  };
 
   // Hide battery percentage
   enum HIDE_BATTERY_PERCENTAGE { HIDE_NEVER = 0, HIDE_READER = 1, HIDE_ALWAYS = 2, HIDE_BATTERY_PERCENTAGE_COUNT };
@@ -136,6 +160,23 @@ class CrossPointSettings {
 
   // Image rendering in EPUB reader
   enum IMAGE_RENDERING { IMAGES_DISPLAY = 0, IMAGES_PLACEHOLDER = 1, IMAGES_SUPPRESS = 2, IMAGE_RENDERING_COUNT };
+
+  // Long-press Confirm (menu button) quick action in reader
+  enum LONG_PRESS_MENU_ACTION {
+    LONG_MENU_OFF = 0,
+    LONG_MENU_SLEEP = 1,
+    LONG_MENU_CHANGE_FONT = 2,
+    LONG_MENU_TOGGLE_GUIDE_DOTS = 3,
+    LONG_MENU_TOGGLE_BIONIC = 4,
+    LONG_MENU_TOGGLE_BOOKMARK = 5,
+    LONG_MENU_REFRESH_SCREEN = 6,
+    LONG_MENU_SYNC_PROGRESS = 7,
+    LONG_MENU_MARK_FINISHED = 8,
+    LONG_MENU_READING_STATS = 9,
+    LONG_MENU_SCREENSHOT = 10,
+    LONG_MENU_CYCLE_PAGE_TURN = 11,
+    LONG_PRESS_MENU_ACTION_COUNT
+  };
 
   // Sleep screen settings
   uint8_t sleepScreen = DARK;
@@ -153,15 +194,20 @@ class CrossPointSettings {
   uint8_t statusBarBattery = 1;
   // Text rendering settings
   uint8_t extraParagraphSpacing = 1;
+  uint8_t forceParagraphIndents = 0;
   uint8_t textAntiAliasing = 1;
-  // Short power button click behaviour
+  // Short power button action behaviour
   uint8_t shortPwrBtn = IGNORE;
+  // Long power button action behaviour
+  uint8_t longPwrBtn = SLEEP;
   // EPUB reading orientation settings
   // 0 = portrait (default), 1 = landscape clockwise, 2 = inverted, 3 = landscape counter-clockwise
   uint8_t orientation = PORTRAIT;
   // Button layouts (front layout retained for migration only)
   uint8_t frontButtonLayout = BACK_CONFIRM_LEFT_RIGHT;
   uint8_t sideButtonLayout = PREV_NEXT;
+  // Action performed when side buttons are long-pressed in reader
+  uint8_t sideButtonLongPress = SIDE_LONG_CHAPTER_SKIP;
   // Front button remap (logical -> hardware)
   // Used by MappedInputManager to translate logical buttons into physical front buttons.
   uint8_t frontButtonBack = FRONT_HW_BACK;
@@ -202,21 +248,32 @@ class CrossPointSettings {
   uint8_t fadingFix = 0;
   // Use book's embedded CSS styles for EPUB rendering (1 = enabled, 0 = disabled)
   uint8_t embeddedStyle = 1;
+  // Focus Reading - emphasizes the first part of words with bold
+  uint8_t bionicReadingEnabled = 0;
+  // Guide Dots - places a middle dot between words to guide the eye
+  uint8_t guideReadingEnabled = 0;
   // Show hidden files/directories (starting with '.') in the file browser (0 = hidden, 1 = show)
   uint8_t showHiddenFiles = 0;
   // Move epub to /Read/ folder on SD card when marked as finished (0 = disabled, 1 = enabled)
   uint8_t moveFinishedToReadFolder = 0;
   // Image rendering mode in EPUB reader
   uint8_t imageRendering = IMAGES_DISPLAY;
+  // Long-press Confirm (menu button) quick action in reader (0 = off)
+  uint8_t longPressMenuAction = LONG_MENU_OFF;
 
   ~CrossPointSettings() = default;
 
   // Get singleton instance
   static CrossPointSettings& getInstance() { return instance; }
 
-  uint16_t getPowerButtonDuration() const {
-    return (shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::SLEEP) ? 10 : 400;
+  static constexpr uint16_t POWER_BUTTON_WAKE_SHORT_MS = 10;
+  static constexpr uint16_t POWER_BUTTON_LONG_PRESS_MS = 400;
+
+  uint16_t getPowerButtonWakeDuration() const {
+    return (shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::SLEEP) ? POWER_BUTTON_WAKE_SHORT_MS
+                                                                    : POWER_BUTTON_LONG_PRESS_MS;
   }
+  uint16_t getPowerButtonLongPressDuration() const { return POWER_BUTTON_LONG_PRESS_MS; }
   int getReaderFontId() const;
 
   // If count_only is true, returns the number of settings items that would be written.

@@ -18,11 +18,11 @@ class BookMetadataCache {
 
   struct SpineEntry {
     std::string href;
-    size_t cumulativeSize;
+    uint32_t cumulativeSize;  // cumulative size stored as 32-bit for on-disk format compatibility
     int16_t tocIndex;
 
     SpineEntry() : cumulativeSize(0), tocIndex(-1) {}
-    SpineEntry(std::string href, const size_t cumulativeSize, const int16_t tocIndex)
+    SpineEntry(std::string href, const uint32_t cumulativeSize, const int16_t tocIndex)
         : href(std::move(href)), cumulativeSize(cumulativeSize), tocIndex(tocIndex) {}
   };
 

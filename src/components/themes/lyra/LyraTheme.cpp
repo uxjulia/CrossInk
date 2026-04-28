@@ -7,6 +7,7 @@
 #include <I18n.h>
 
 #include <algorithm>
+#include <cctype>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -248,10 +249,12 @@ void LyraTheme::drawList(const GfxRenderer& renderer, Rect rect, int itemCount, 
                          const std::function<std::string(int index)>& rowTitle,
                          const std::function<std::string(int index)>& rowSubtitle,
                          const std::function<UIIcon(int index)>& rowIcon,
-                         const std::function<std::string(int index)>& rowValue, bool highlightValue) const {
+                         const std::function<std::string(int index)>& rowValue, bool highlightValue,
+                         const std::function<bool(int index)>& isHeader) const {
   int rowHeight =
       (rowSubtitle != nullptr) ? LyraMetrics::values.listWithSubtitleRowHeight : LyraMetrics::values.listRowHeight;
   int pageItems = rect.height / rowHeight;
+  constexpr int sectionHeaderTopPadding = 20;
 
   const int totalPages = (itemCount + pageItems - 1) / pageItems;
   if (totalPages > 1) {
@@ -267,12 +270,18 @@ void LyraTheme::drawList(const GfxRenderer& renderer, Rect rect, int itemCount, 
                       scrollBarHeight, true);
   }
 
-  // Draw selection
+  // Draw selection (skip header rows)
   int contentWidth =
       rect.width -
       (totalPages > 1 ? (LyraMetrics::values.scrollBarWidth + LyraMetrics::values.scrollBarRightOffset) : 1);
-  if (selectedIndex >= 0) {
-    renderer.fillRoundedRect(LyraMetrics::values.contentSidePadding, rect.y + selectedIndex % pageItems * rowHeight,
+  const auto pageStartIndex = selectedIndex / pageItems * pageItems;
+  if (selectedIndex >= 0 && !(isHeader && isHeader(selectedIndex))) {
+    int selY = rect.y;
+    for (int j = pageStartIndex; j < selectedIndex; j++) {
+      selY += rowHeight;
+      if (isHeader && isHeader(j + 1)) selY += sectionHeaderTopPadding;
+    }
+    renderer.fillRoundedRect(LyraMetrics::values.contentSidePadding, selY,
                              contentWidth - LyraMetrics::values.contentSidePadding * 2, rowHeight, cornerRadius,
                              Color::LightGray);
   }
@@ -286,11 +295,27 @@ void LyraTheme::drawList(const GfxRenderer& renderer, Rect rect, int itemCount, 
     textWidth -= iconSize + hPaddingInSelection;
   }
 
-  // Draw all items
-  const auto pageStartIndex = selectedIndex / pageItems * pageItems;
+  // Draw all items using a running Y to accommodate variable-height section headers
   int iconY = (rowSubtitle != nullptr) ? 16 : 10;
+  int currentY = rect.y;
   for (int i = pageStartIndex; i < itemCount && i < pageStartIndex + pageItems; i++) {
-    const int itemY = rect.y + (i % pageItems) * rowHeight;
+    if (i > pageStartIndex && isHeader && isHeader(i)) currentY += sectionHeaderTopPadding;
+    const int itemY = currentY;
+    currentY += rowHeight;
+
+    if (isHeader && isHeader(i)) {
+      // Section header: bold uppercase label + divider line below
+      std::string label = rowTitle(i);
+      std::transform(label.begin(), label.end(), label.begin(),
+                     [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
+      auto truncated = renderer.truncatedText(
+          UI_10_FONT_ID, label.c_str(), contentWidth - LyraMetrics::values.contentSidePadding * 2, EpdFontFamily::BOLD);
+      renderer.drawText(UI_10_FONT_ID, rect.x + LyraMetrics::values.contentSidePadding, itemY + 7, truncated.c_str(),
+                        true, EpdFontFamily::BOLD);
+      renderer.drawLine(rect.x, itemY + rowHeight - 1, rect.x + contentWidth, itemY + rowHeight - 1, true);
+      continue;
+    }
+
     int rowTextWidth = textWidth;
 
     // Draw name

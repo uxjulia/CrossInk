@@ -9,7 +9,7 @@
 #include "activities/Activity.h"
 #include "util/ButtonNavigator.h"
 
-enum class SettingType { TOGGLE, ENUM, ACTION, VALUE, STRING };
+enum class SettingType { TOGGLE, ENUM, ACTION, VALUE, STRING, SECTION_HEADER };
 
 enum class SettingAction {
   None,
@@ -85,6 +85,13 @@ struct SettingInfo {
     s.nameId = nameId;
     s.type = SettingType::ACTION;
     s.action = action;
+    return s;
+  }
+
+  static SettingInfo SectionHeader(StrId nameId) {
+    SettingInfo s;
+    s.nameId = nameId;
+    s.type = SettingType::SECTION_HEADER;
     return s;
   }
 

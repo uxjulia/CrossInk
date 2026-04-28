@@ -4,18 +4,44 @@
 #include <Logging.h>
 #include <Serialization.h>
 
+#include <algorithm>
+#include <cstring>
+
 void TextBlock::render(const GfxRenderer& renderer, const int fontId, const int x, const int y) const {
   // Validate iterator bounds before rendering
-  if (words.size() != wordXpos.size() || words.size() != wordStyles.size()) {
-    LOG_ERR("TXB", "Render skipped: size mismatch (words=%u, xpos=%u, styles=%u)\n", (uint32_t)words.size(),
-            (uint32_t)wordXpos.size(), (uint32_t)wordStyles.size());
+  if (words.size() != wordXpos.size() || words.size() != wordStyles.size() ||
+      words.size() != wordBionicBoundary.size() || words.size() != wordBionicSuffixX.size() ||
+      words.size() != wordGuideDotXOffset.size()) {
+    LOG_ERR("TXB", "Render skipped: size mismatch (words=%u, xpos=%u, styles=%u, boundary=%u, suffixX=%u, dotX=%u)\n",
+            (uint32_t)words.size(), (uint32_t)wordXpos.size(), (uint32_t)wordStyles.size(),
+            (uint32_t)wordBionicBoundary.size(), (uint32_t)wordBionicSuffixX.size(),
+            (uint32_t)wordGuideDotXOffset.size());
     return;
   }
 
   for (size_t i = 0; i < words.size(); i++) {
     const int wordX = wordXpos[i] + x;
     const EpdFontFamily::Style currentStyle = wordStyles[i];
-    renderer.drawText(fontId, wordX, y, words[i].c_str(), true, currentStyle);
+    const uint8_t boundary = wordBionicBoundary[i];
+
+    if (boundary > 0) {
+      // Bionic split: draw bold prefix (max 9 codepoints = 36 UTF-8 bytes + null).
+      // suffixX is pre-computed at cache creation time to avoid font metric lookups at render time.
+      const auto boldStyle = static_cast<EpdFontFamily::Style>(currentStyle | EpdFontFamily::BOLD);
+      char boldBuf[40];
+      const size_t boldLen = std::min<size_t>({static_cast<size_t>(boundary), words[i].size(), sizeof(boldBuf) - 1});
+      memcpy(boldBuf, words[i].c_str(), boldLen);
+      boldBuf[boldLen] = '\0';
+      renderer.drawText(fontId, wordX, y, boldBuf, true, boldStyle);
+      const int suffixX = wordX + wordBionicSuffixX[i];
+      renderer.drawText(fontId, suffixX, y, words[i].c_str() + boldLen, true, currentStyle);
+    } else {
+      renderer.drawText(fontId, wordX, y, words[i].c_str(), true, currentStyle);
+    }
+
+    if (wordGuideDotXOffset[i] > 0) {
+      renderer.drawText(fontId, wordX + wordGuideDotXOffset[i], y, "\xc2\xb7", true, EpdFontFamily::REGULAR);
+    }
 
     if ((currentStyle & EpdFontFamily::UNDERLINE) != 0) {
       const std::string& w = words[i];
@@ -67,9 +93,14 @@ void TextBlock::render(const GfxRenderer& renderer, const int fontId, const int 
 }
 
 bool TextBlock::serialize(FsFile& file) const {
-  if (words.size() != wordXpos.size() || words.size() != wordStyles.size()) {
-    LOG_ERR("TXB", "Serialization failed: size mismatch (words=%u, xpos=%u, styles=%u)\n", words.size(),
-            wordXpos.size(), wordStyles.size());
+  if (words.size() != wordXpos.size() || words.size() != wordStyles.size() ||
+      words.size() != wordBionicBoundary.size() || words.size() != wordBionicSuffixX.size() ||
+      words.size() != wordGuideDotXOffset.size()) {
+    LOG_ERR("TXB",
+            "Serialization failed: size mismatch (words=%u, xpos=%u, styles=%u, boundary=%u, suffixX=%u, dotX=%u)\n",
+            static_cast<uint32_t>(words.size()), static_cast<uint32_t>(wordXpos.size()),
+            static_cast<uint32_t>(wordStyles.size()), static_cast<uint32_t>(wordBionicBoundary.size()),
+            static_cast<uint32_t>(wordBionicSuffixX.size()), static_cast<uint32_t>(wordGuideDotXOffset.size()));
     return false;
   }
 
@@ -78,6 +109,9 @@ bool TextBlock::serialize(FsFile& file) const {
   for (const auto& w : words) serialization::writeString(file, w);
   for (auto x : wordXpos) serialization::writePod(file, x);
   for (auto s : wordStyles) serialization::writePod(file, s);
+  for (auto b : wordBionicBoundary) serialization::writePod(file, b);
+  for (auto sx : wordBionicSuffixX) serialization::writePod(file, sx);
+  for (auto dx : wordGuideDotXOffset) serialization::writePod(file, dx);
 
   // Style (alignment + margins/padding/indent)
   serialization::writePod(file, blockStyle.alignment);
@@ -101,6 +135,9 @@ std::unique_ptr<TextBlock> TextBlock::deserialize(FsFile& file) {
   std::vector<std::string> words;
   std::vector<int16_t> wordXpos;
   std::vector<EpdFontFamily::Style> wordStyles;
+  std::vector<uint8_t> wordBionicBoundary;
+  std::vector<uint16_t> wordBionicSuffixX;
+  std::vector<uint16_t> wordGuideDotXOffset;
   BlockStyle blockStyle;
 
   // Word count
@@ -116,9 +153,15 @@ std::unique_ptr<TextBlock> TextBlock::deserialize(FsFile& file) {
   words.resize(wc);
   wordXpos.resize(wc);
   wordStyles.resize(wc);
+  wordBionicBoundary.resize(wc);
+  wordBionicSuffixX.resize(wc);
+  wordGuideDotXOffset.resize(wc);
   for (auto& w : words) serialization::readString(file, w);
   for (auto& x : wordXpos) serialization::readPod(file, x);
   for (auto& s : wordStyles) serialization::readPod(file, s);
+  for (auto& b : wordBionicBoundary) serialization::readPod(file, b);
+  for (auto& sx : wordBionicSuffixX) serialization::readPod(file, sx);
+  for (auto& dx : wordGuideDotXOffset) serialization::readPod(file, dx);
 
   // Style (alignment + margins/padding/indent)
   serialization::readPod(file, blockStyle.alignment);
@@ -134,6 +177,7 @@ std::unique_ptr<TextBlock> TextBlock::deserialize(FsFile& file) {
   serialization::readPod(file, blockStyle.textIndent);
   serialization::readPod(file, blockStyle.textIndentDefined);
 
-  return std::unique_ptr<TextBlock>(
-      new TextBlock(std::move(words), std::move(wordXpos), std::move(wordStyles), blockStyle));
+  return std::unique_ptr<TextBlock>(new TextBlock(std::move(words), std::move(wordXpos), std::move(wordStyles),
+                                                  std::move(wordBionicBoundary), std::move(wordBionicSuffixX),
+                                                  std::move(wordGuideDotXOffset), blockStyle));
 }

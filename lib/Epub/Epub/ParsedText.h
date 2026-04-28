@@ -15,10 +15,15 @@ class GfxRenderer;
 class ParsedText {
   std::vector<std::string> words;
   std::vector<EpdFontFamily::Style> wordStyles;
-  std::vector<bool> wordContinues;  // true = word attaches to previous (no space before it)
-  BlockStyle blockStyle;
+  std::vector<bool> wordContinues;       // true = word attaches to previous (no space before it)
+  std::vector<bool> wordIsBionicSuffix;  // true = token is the regular tail of a bionic bold-prefix split
+  std::vector<bool> wordIsGuideDot;      // true = token is a guide dot (U+00B7) inserted between words
   bool extraParagraphSpacing;
+  bool forceParagraphIndents;
   bool hyphenationEnabled;
+  bool bionicReadingEnabled;
+  bool guideReadingEnabled;
+  BlockStyle blockStyle;
 
   void applyParagraphIndent();
   std::vector<size_t> computeLineBreaks(const GfxRenderer& renderer, int fontId, int pageWidth,
@@ -34,9 +39,15 @@ class ParsedText {
   std::vector<uint16_t> calculateWordWidths(const GfxRenderer& renderer, int fontId);
 
  public:
-  explicit ParsedText(const bool extraParagraphSpacing, const bool hyphenationEnabled = false,
-                      const BlockStyle& blockStyle = BlockStyle())
-      : blockStyle(blockStyle), extraParagraphSpacing(extraParagraphSpacing), hyphenationEnabled(hyphenationEnabled) {}
+  explicit ParsedText(const bool extraParagraphSpacing, const bool forceParagraphIndents = false,
+                      const bool hyphenationEnabled = false, const bool bionicReadingEnabled = false,
+                      const bool guideReadingEnabled = false, const BlockStyle& blockStyle = BlockStyle())
+      : extraParagraphSpacing(extraParagraphSpacing),
+        forceParagraphIndents(forceParagraphIndents),
+        hyphenationEnabled(hyphenationEnabled),
+        bionicReadingEnabled(bionicReadingEnabled),
+        guideReadingEnabled(guideReadingEnabled),
+        blockStyle(blockStyle) {}
   ~ParsedText() = default;
 
   void addWord(std::string word, EpdFontFamily::Style fontStyle, bool underline = false, bool attachToPrevious = false);

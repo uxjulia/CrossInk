@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <title>Should Gain Indents</title>
+  <link rel="stylesheet" type="text/css" href="styles/test.css"/>
+</head>
+<body>
+<h1>Should Gain Indents</h1>
+<p class="note">PASS when Force Paragraph Indents is ON: both paragraphs below should start with a first-line indent.</p>
+<p class="note">PASS when Force Paragraph Indents is OFF: both paragraphs below should stay flush left.</p>
+
+<h2>Case A: Explicit text-indent: 0</h2>
+<p class="zero-indent">This paragraph explicitly asks for no indent. The force-indent setting should override that only when the feature is turned on, making the first line step in from the left edge.</p>
+<p class="zero-indent">A second paragraph makes the difference easier to spot because the start of each block should line up differently when you toggle the setting.</p>
+
+<h2>Case B: Explicit text-indent: 0 with justified text</h2>
+<p class="zero-indent-justify">This paragraph is justified and still declares text-indent zero. The force-indent setting should add the same first-line indent here instead of leaving it as a solid wall of text.</p>
+<p class="zero-indent-justify">If the feature is working, the first line starts indented but the rest of the paragraph still uses normal justified layout.</p>
+</body>
+</html>

@@ -85,19 +85,29 @@ void XtcReaderActivity::loop() {
     return;
   }
 
-  // When long-press chapter skip is disabled, turn pages on press instead of release.
-  const bool usePressForPageTurn = !SETTINGS.longPressChapterSkip;
-  const bool prevTriggered = usePressForPageTurn ? (mappedInput.wasPressed(MappedInputManager::Button::PageBack) ||
-                                                    mappedInput.wasPressed(MappedInputManager::Button::Left))
-                                                 : (mappedInput.wasReleased(MappedInputManager::Button::PageBack) ||
-                                                    mappedInput.wasReleased(MappedInputManager::Button::Left));
-  const bool powerPageTurn = SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::PAGE_TURN &&
-                             mappedInput.wasReleased(MappedInputManager::Button::Power);
-  const bool nextTriggered = usePressForPageTurn
-                                 ? (mappedInput.wasPressed(MappedInputManager::Button::PageForward) || powerPageTurn ||
-                                    mappedInput.wasPressed(MappedInputManager::Button::Right))
-                                 : (mappedInput.wasReleased(MappedInputManager::Button::PageForward) || powerPageTurn ||
-                                    mappedInput.wasReleased(MappedInputManager::Button::Right));
+  // Front buttons fire on press when long-press chapter skip is disabled (faster response).
+  const bool frontUsePress = !SETTINGS.longPressChapterSkip;
+  // Side buttons fire on press only when long-press action is OFF.
+  const bool sideUsePress = SETTINGS.sideButtonLongPress == CrossPointSettings::SIDE_LONG_PRESS::SIDE_LONG_OFF;
+
+  const bool sidePrev = sideUsePress ? mappedInput.wasPressed(MappedInputManager::Button::PageBack)
+                                     : mappedInput.wasReleased(MappedInputManager::Button::PageBack);
+  const bool sideNext = sideUsePress ? mappedInput.wasPressed(MappedInputManager::Button::PageForward)
+                                     : mappedInput.wasReleased(MappedInputManager::Button::PageForward);
+  const bool frontPrev = frontUsePress ? mappedInput.wasPressed(MappedInputManager::Button::Left)
+                                       : mappedInput.wasReleased(MappedInputManager::Button::Left);
+  const bool powerReleased = mappedInput.wasReleased(MappedInputManager::Button::Power);
+  const bool shortPowerTurn = SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::PAGE_TURN && powerReleased &&
+                              mappedInput.getHeldTime() < SETTINGS.getPowerButtonLongPressDuration();
+  const bool longPowerTurn = SETTINGS.longPwrBtn == CrossPointSettings::SHORT_PWRBTN::PAGE_TURN && powerReleased &&
+                             mappedInput.getHeldTime() >= SETTINGS.getPowerButtonLongPressDuration();
+  const bool powerPageTurn = shortPowerTurn || longPowerTurn;
+  const bool frontNext = frontUsePress ? (mappedInput.wasPressed(MappedInputManager::Button::Right) || powerPageTurn)
+                                       : (mappedInput.wasReleased(MappedInputManager::Button::Right) || powerPageTurn);
+
+  const bool fromSideBtn = (sidePrev || sideNext) && !(frontPrev || frontNext);
+  const bool prevTriggered = sidePrev || frontPrev;
+  const bool nextTriggered = sideNext || frontNext;
 
   if (!prevTriggered && !nextTriggered) {
     return;
@@ -114,7 +124,10 @@ void XtcReaderActivity::loop() {
     return;
   }
 
-  const bool skipPages = SETTINGS.longPressChapterSkip && mappedInput.getHeldTime() > skipPageMs;
+  const bool skipPages =
+      !powerPageTurn && mappedInput.getHeldTime() > skipPageMs &&
+      (fromSideBtn ? SETTINGS.sideButtonLongPress == CrossPointSettings::SIDE_LONG_PRESS::SIDE_LONG_CHAPTER_SKIP
+                   : static_cast<bool>(SETTINGS.longPressChapterSkip));
   const int skipAmount = skipPages ? 10 : 1;
 
   if (prevTriggered) {
@@ -359,4 +372,79 @@ void XtcReaderActivity::loadProgress() {
     }
     f.close();
   }
+}
+
+bool XtcReaderActivity::drawCurrentPageToBuffer(const std::string& filePath, GfxRenderer& renderer) {
+  Xtc xtc(filePath, "/.crosspoint");
+  if (!xtc.load()) {
+    LOG_DBG("SLP", "XTC: failed to load %s", filePath.c_str());
+    return false;
+  }
+
+  // Load saved page number
+  uint32_t savedPage = 0;
+  FsFile f;
+  if (Storage.openFileForRead("SLP", xtc.getCachePath() + "/progress.bin", f)) {
+    uint8_t data[4];
+    if (f.read(data, 4) == 4) {
+      savedPage = (uint32_t)data[0] | ((uint32_t)data[1] << 8) | ((uint32_t)data[2] << 16) | ((uint32_t)data[3] << 24);
+    }
+    f.close();
+  }
+  if (savedPage >= xtc.getPageCount()) savedPage = 0;
+
+  const uint16_t pageWidth = xtc.getPageWidth();
+  const uint16_t pageHeight = xtc.getPageHeight();
+  const uint8_t bitDepth = xtc.getBitDepth();
+
+  // Only use the 1-bit BW path; grayscale is not needed as a background under the overlay
+  const size_t pageBufferSize = (bitDepth == 2) ? ((static_cast<size_t>(pageWidth) * pageHeight + 7) / 8) * 2
+                                                : ((pageWidth + 7) / 8) * pageHeight;
+
+  uint8_t* pageBuffer = static_cast<uint8_t*>(malloc(pageBufferSize));
+  if (!pageBuffer) {
+    LOG_ERR("SLP", "XTC: failed to allocate page buffer");
+    return false;
+  }
+
+  if (xtc.loadPage(savedPage, pageBuffer, pageBufferSize) == 0) {
+    LOG_ERR("SLP", "XTC: failed to load page %lu", savedPage);
+    free(pageBuffer);
+    return false;
+  }
+
+  renderer.clearScreen();
+
+  if (bitDepth == 2) {
+    // 2-bit XTH: draw all non-white pixels as black (BW pass only)
+    const size_t planeSize = (static_cast<size_t>(pageWidth) * pageHeight + 7) / 8;
+    const uint8_t* plane1 = pageBuffer;
+    const uint8_t* plane2 = pageBuffer + planeSize;
+    const size_t colBytes = (pageHeight + 7) / 8;
+    for (uint16_t y = 0; y < pageHeight; y++) {
+      for (uint16_t x = 0; x < pageWidth; x++) {
+        const size_t colIndex = pageWidth - 1 - x;
+        const size_t byteInCol = y / 8;
+        const size_t bitInByte = 7 - (y % 8);
+        const size_t byteOffset = colIndex * colBytes + byteInCol;
+        const uint8_t bit1 = (plane1[byteOffset] >> bitInByte) & 1;
+        const uint8_t bit2 = (plane2[byteOffset] >> bitInByte) & 1;
+        if ((bit1 << 1) | bit2) {
+          renderer.drawPixel(x, y, true);
+        }
+      }
+    }
+  } else {
+    // 1-bit XTG: draw black pixels
+    const size_t srcRowBytes = (pageWidth + 7) / 8;
+    for (uint16_t srcY = 0; srcY < pageHeight; srcY++) {
+      for (uint16_t srcX = 0; srcX < pageWidth; srcX++) {
+        const bool isBlack = !((pageBuffer[srcY * srcRowBytes + srcX / 8] >> (7 - srcX % 8)) & 1);
+        if (isBlack) renderer.drawPixel(srcX, srcY, true);
+      }
+    }
+  }
+
+  free(pageBuffer);
+  return true;
 }

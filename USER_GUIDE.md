@@ -1,8 +1,8 @@
-# CrossPoint User Guide
+# CrossInk User Guide
 
-Welcome to the **CrossPoint** firmware. This guide outlines the hardware controls, navigation, and reading features of the device.
+Welcome to the **CrossInk** firmware. This guide outlines the hardware controls, navigation, and reading features of the device.
 
-- [CrossPoint User Guide](#crosspoint-user-guide)
+- [CrossInk User Guide](#crossink-user-guide)
   - [1. Hardware Overview](#1-hardware-overview)
     - [Button Layout](#button-layout)
   - [2. Power \& Startup](#2-power--startup)
@@ -85,7 +85,7 @@ See [Reading Mode](#4-reading-mode) below for more information.
 The Browse Files screen acts as a file and folder browser.
 
 * **Navigate List:** Use **Left** (or **Volume Up**), or **Right** (or **Volume Down**) to move the selection cursor up and down through folders and books. You can also long-press these buttons to scroll a full page up or down.
-* **Open Selection:** Press **Confirm** to open a folder or read a selected book. 
+* **Open Selection:** Press **Confirm** to open a folder or read a selected book.
 * **Delete Files:** Hold and release **Confirm** to delete the selected file. You will be given an option to either confirm or cancel deletion. Folder deletion is not supported.
 
 ### 3.4 Recent Books Screen
@@ -103,7 +103,7 @@ See the [webserver docs](./docs/webserver.md) for more information on how to con
 
 ### 3.5.1 Calibre Wireless Transfers
 
-CrossPoint supports sending books from Calibre using the CrossPoint Reader device plugin.
+CrossInk supports sending books from Calibre using the CrossPoint Reader device plugin.
 
 1. Install the plugin in Calibre:
    - Head to https://github.com/crosspoint-reader/calibre-plugins/releases to download the latest version of the crosspoint_reader plugin.
@@ -120,7 +120,7 @@ The Settings screen allows you to configure the device's behavior. There are a f
 #### 3.6.1 Display
 
 - **Sleep Screen**: Which sleep screen to display when the device sleeps:
-  - "Dark" (default) - The default dark Crosspoint logo sleep screen
+  - "Dark" (default) - The default dark CrossInk logo sleep screen
   - "Light" - The same default sleep screen, on a white background
   - "Custom" - Custom images from the SD card; see [Sleep Screen](#37-sleep-screen) below for more information
   - "Cover" - The book cover image (Note: this is experimental and may not work as expected)
@@ -147,8 +147,8 @@ The Settings screen allows you to configure the device's behavior. There are a f
 - **Refresh Frequency**: Set how often the screen does a full refresh while reading to reduce ghosting; options are every 1, 5, 10, 15, or 30 pages.
 
 - **UI Theme**: Set which UI theme to use:
-  - "Classic" - The original Crosspoint theme
-  - "Lyra" - The new theme for Crosspoint featuring rounded elements and menu icons
+  - "Classic" - The original CrossInk theme
+  - "Lyra" - The new theme for CrossInk featuring rounded elements and menu icons
   - "Lyra Extended" - Lyra, but displays 3 books instead of 1 on the **[Home Screen](#31-home-screen)**
 - **Sunlight Fading Fix**: Configure whether to enable a software-fix for the issue where white X4 models may fade when used in direct sunlight:
   - "OFF" (default) - Disable the fix
@@ -184,7 +184,7 @@ The Settings screen allows you to configure the device's behavior. There are a f
 - **Long-press Chapter Skip**: Set whether long-pressing page turn buttons skips to the next/previous chapter:
   - "Chapter Skip" (default) - Long-pressing skips to next/previous chapter
   - "Page Scroll" - Long-pressing scrolls a page up/down
-- **Short Power Button Click**: Controls the effect of a short click of the power button:
+- **Short Power Button Action**: Controls the effect of a short click of the power button:
   - "Ignore" (default) - Require a long press to turn off the device
   - "Sleep" - A short press puts the device into sleep mode
   - "Page Turn" - A short press in reading mode turns to the next page; a long press turns the device off
@@ -197,12 +197,12 @@ The Settings screen allows you to configure the device's behavior. There are a f
 - **KOReader Sync**: Options for setting up KOReader for syncing book progress.
 - **OPDS Servers**: Manage one or more OPDS libraries for browsing and downloading books. See [OPDS Servers (Multiple Libraries)](#365-opds-servers-multiple-libraries) below.
 - **Clear Reading Cache**: Clear the internal SD card cache.
-- **Check for updates**: Check for Crosspoint firmware updates over WiFi.
+- **Check for updates**: Check for CrossInk firmware updates over WiFi.
 - **Language**: Set the system language (see **[Supported Languages](#supported-languages)** for more information).
 
 #### 3.6.5 OPDS Servers (Multiple Libraries)
 
-CrossPoint supports saving multiple OPDS servers and switching between them when browsing catalogs.
+CrossInk supports saving multiple OPDS servers and switching between them when browsing catalogs.
 
 1. Open **Settings -> System -> OPDS Servers**.
 2. Select **Add Server** to create a new entry, or select an existing server to edit it.
@@ -225,7 +225,7 @@ You can also manage OPDS servers from the web interface while in File Transfer m
 
 #### 3.6.6 KOReader Sync Quick Setup
 
-CrossPoint can sync reading progress with KOReader-compatible sync servers.
+CrossInk can sync reading progress with KOReader-compatible sync servers.
 It also interoperates with KOReader apps/devices when they use the same server and credentials.
 
 ##### Option A: Free Public Server (`sync.koreader.rocks`)
@@ -247,9 +247,9 @@ Already have KOReader Sync credentials? Skip registration; basic sync only requi
 
 When this returns `HTTP 402` with `{"code":2002,"message":"Username is already registered."}`, pick a different username or use that existing account.
 
-2. On each CrossPoint device:
+2. On each CrossInk device:
    - Go to **Settings -> System -> KOReader Sync**.
-   - Set **Username** and **Password** (enter the plain password; CrossPoint computes MD5 internally, and use the same values on all devices).
+   - Set **Username** and **Password** (enter the plain password; CrossInk computes MD5 internally, and use the same values on all devices).
    - Set **Sync Server URL** to `https://sync.koreader.rocks`, or leave it empty (both use the same default KOReader sync server).
    - Run **Authenticate**.
 
@@ -297,7 +297,7 @@ curl -H "Accept: application/vnd.koreader.v1+json" "http://<server-ip>:17200/hea
 ```
 
 3. Register a user once.
-CrossPoint authenticates against KOReader Sync (`koreader/kosync`) using an MD5 key, so register using the MD5 of your password:
+CrossInk authenticates against KOReader Sync (`koreader/kosync`) using an MD5 key, so register using the MD5 of your password:
 
 > [!WARNING]
 > Sending a reusable MD5-derived password over plain HTTP is insecure.
@@ -318,9 +318,9 @@ curl -i "http://<server-ip>:17200/users/create" \
 
 If this returns `HTTP 402` with `{"code":2002,"message":"Username is already registered."}`, the account already exists.
 
-4. On each CrossPoint device:
+4. On each CrossInk device:
    - Go to **Settings -> System -> KOReader Sync**.
-   - Set **Username** and **Password** (enter the plain password; CrossPoint computes MD5 internally, and use the same values on all devices).
+   - Set **Username** and **Password** (enter the plain password; CrossInk computes MD5 internally, and use the same values on all devices).
    - Set **Sync Server URL** to `http://<server-ip>:17200`.
    - Run **Authenticate**.
 
@@ -336,8 +336,8 @@ The **Sleep Screen** setting controls what is displayed when the device goes to 
 
 | Mode | Behavior |
 |------|----------|
-| **Dark** (default) | The CrossPoint logo on a dark background. |
-| **Light** | The CrossPoint logo on a white background. |
+| **Dark** (default) | The CrossInk logo on a dark background. |
+| **Light** | The CrossInk logo on a white background. |
 | **Custom** | A custom image from the SD card (see below). Falls back to **Dark** if no custom image is found. |
 | **Cover** | The cover of the currently open book. Falls back to **Dark** if no book is open. |
 | **Cover + Custom** | The cover of the currently open book. Falls back to **Custom** behavior if no book is open. |
@@ -377,7 +377,7 @@ Once you have opened a book, the button layout changes to facilitate reading.
 
 The role of the volume (side) buttons can be swapped in the **[Controls Settings](#363-controls)**.
 
-If the **Short Power Button Click** setting is set to "Page Turn", you can also turn to the next page by briefly pressing the Power button.
+If the **Short Power Button Action** setting is set to "Page Turn", you can also turn to the next page by briefly pressing the Power button.
 
 ### Chapter Navigation
 * **Next Chapter:** Press and **hold** the **Right** (or **Volume Down**) button briefly, then release.
@@ -393,7 +393,7 @@ This feature can be disabled in the **[Controls Settings](#363-controls)** to he
 
 ### Supported Languages
 
-CrossPoint renders text using the following Unicode character blocks, enabling support for a wide range of languages:
+CrossInk renders text using the following Unicode character blocks, enabling support for a wide range of languages:
 
 *   **Latin Script (Basic, Supplement, Extended-A):** Covers English, German, French, Spanish, Portuguese, Italian, Dutch, Swedish, Norwegian, Danish, Finnish, Polish, Czech, Hungarian, Romanian, Slovak, Slovenian, Turkish, and others.
 *   **Cyrillic Script (Standard and Extended):** Covers Russian, Ukrainian, Belarusian, Bulgarian, Serbian, Macedonian, Kazakh, Kyrgyz, Mongolian, and others.
@@ -423,7 +423,7 @@ Please note that this firmware is currently in active development. The following
 
 ## 7. Troubleshooting Issues & Escaping Bootloop
 
-If an issue or crash is encountered while using Crosspoint, feel free to raise an issue ticket and attach the serial monitor logs. The logs can be obtained by connecting the device to a computer and starting a serial monitor. Either [Serial Monitor](https://www.serialmonitor.org/) or the following command can be used:
+If an issue or crash is encountered while using CrossInk, feel free to raise an issue ticket and attach the serial monitor logs. The logs can be obtained by connecting the device to a computer and starting a serial monitor. Either [Serial Monitor](https://www.serialmonitor.org/) or the following command can be used:
 
 ```
 pio device monitor

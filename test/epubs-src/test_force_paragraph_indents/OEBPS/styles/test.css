@@ -1,0 +1,10 @@
+body { margin: 0; padding: 0; }
+h1 { text-align: center; margin: 0.5em 0; }
+h2 { text-align: center; margin: 0.4em 0; }
+p { margin-top: 0.2em; margin-bottom: 0; }
+.note { text-align: left; }
+.zero-indent { text-indent: 0; text-align: left; }
+.zero-indent-justify { text-indent: 0; text-align: justify; }
+.centered { text-align: center; text-indent: 0; }
+.righted { text-align: right; text-indent: 0; }
+.hanging { margin-left: 3em; text-indent: -1em; text-align: left; }

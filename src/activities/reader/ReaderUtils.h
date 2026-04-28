@@ -32,21 +32,34 @@ inline void applyOrientation(GfxRenderer& renderer, const uint8_t orientation) {
 struct PageTurnResult {
   bool prev;
   bool next;
+  bool fromSideBtn;
 };
 
 inline PageTurnResult detectPageTurn(const MappedInputManager& input) {
-  const bool usePress = !SETTINGS.longPressChapterSkip;
-  const bool prev = usePress ? (input.wasPressed(MappedInputManager::Button::PageBack) ||
-                                input.wasPressed(MappedInputManager::Button::Left))
-                             : (input.wasReleased(MappedInputManager::Button::PageBack) ||
-                                input.wasReleased(MappedInputManager::Button::Left));
-  const bool powerTurn = SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::PAGE_TURN &&
-                         input.wasReleased(MappedInputManager::Button::Power);
-  const bool next = usePress ? (input.wasPressed(MappedInputManager::Button::PageForward) || powerTurn ||
-                                input.wasPressed(MappedInputManager::Button::Right))
-                             : (input.wasReleased(MappedInputManager::Button::PageForward) || powerTurn ||
-                                input.wasReleased(MappedInputManager::Button::Right));
-  return {prev, next};
+  // Front buttons fire on press when long-press chapter skip is disabled (faster response).
+  const bool frontUsePress = !SETTINGS.longPressChapterSkip;
+  // Side buttons fire on press only when long-press action is OFF (nothing to detect).
+  const bool sideUsePress = SETTINGS.sideButtonLongPress == CrossPointSettings::SIDE_LONG_PRESS::SIDE_LONG_OFF;
+
+  const bool sidePrev = sideUsePress ? input.wasPressed(MappedInputManager::Button::PageBack)
+                                     : input.wasReleased(MappedInputManager::Button::PageBack);
+  const bool sideNext = sideUsePress ? input.wasPressed(MappedInputManager::Button::PageForward)
+                                     : input.wasReleased(MappedInputManager::Button::PageForward);
+
+  const bool frontPrev = frontUsePress ? input.wasPressed(MappedInputManager::Button::Left)
+                                       : input.wasReleased(MappedInputManager::Button::Left);
+  const bool powerReleased = input.wasReleased(MappedInputManager::Button::Power);
+  const bool shortPowerTurn = SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::PAGE_TURN && powerReleased &&
+                              input.getHeldTime() < SETTINGS.getPowerButtonLongPressDuration();
+  const bool longPowerTurn = SETTINGS.longPwrBtn == CrossPointSettings::SHORT_PWRBTN::PAGE_TURN && powerReleased &&
+                             input.getHeldTime() >= SETTINGS.getPowerButtonLongPressDuration();
+  const bool powerTurn = shortPowerTurn || longPowerTurn;
+  const bool frontNext = frontUsePress ? (input.wasPressed(MappedInputManager::Button::Right) || powerTurn)
+                                       : (input.wasReleased(MappedInputManager::Button::Right) || powerTurn);
+
+  // fromSideBtn is true when only side buttons contributed to this page turn.
+  const bool fromSide = (sidePrev || sideNext) && !(frontPrev || frontNext);
+  return {sidePrev || frontPrev, sideNext || frontNext, fromSide};
 }
 
 inline void displayWithRefreshCycle(const GfxRenderer& renderer, int& pagesUntilFullRefresh) {
