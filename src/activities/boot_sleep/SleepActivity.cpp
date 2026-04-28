@@ -23,7 +23,7 @@
 
 namespace {
 
-void hideOverlayBatteryStrip(GfxRenderer& renderer) {
+void hideOverlayBatteryStrip(const GfxRenderer& renderer) {
   if (!SETTINGS.statusBarBattery) {
     return;
   }
