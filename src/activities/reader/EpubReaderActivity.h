@@ -51,6 +51,8 @@ class EpubReaderActivity final : public Activity {
   float completionTriggerSpineProgress = 1.0f;
   bool completionPromptQueued = false;
   bool completionPromptShown = false;
+  bool completionTriggerSeenBelow = false;
+  bool lastAtOrPastCompletionTrigger = false;
   bool pendingReadFolderMove = false;
 
   struct ReadFolderMoveParams {

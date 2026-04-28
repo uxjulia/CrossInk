@@ -69,6 +69,8 @@ void EpubReaderActivity::initializeCompletionPromptTrigger() {
   completionTriggerSpineProgress = 1.0f;
   completionPromptQueued = false;
   completionPromptShown = stats.isCompleted;
+  completionTriggerSeenBelow = false;
+  lastAtOrPastCompletionTrigger = false;
 
   if (!epub) {
     return;
@@ -132,9 +134,17 @@ void EpubReaderActivity::queueCompletionPromptIfNeeded() {
     return;
   }
 
-  if (isAtOrPastCompletionTrigger()) {
+  const bool atOrPastTrigger = isAtOrPastCompletionTrigger();
+
+  if (!atOrPastTrigger) {
+    completionTriggerSeenBelow = true;
+  }
+
+  if (completionTriggerSeenBelow && !lastAtOrPastCompletionTrigger && atOrPastTrigger) {
     completionPromptQueued = true;
   }
+
+  lastAtOrPastCompletionTrigger = atOrPastTrigger;
 }
 
 void EpubReaderActivity::onEnter() {
