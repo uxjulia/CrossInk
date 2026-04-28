@@ -9,6 +9,9 @@ Default outputs:
 
 Release-candidate outputs when CROSSPOINT_RC_ARTIFACTS=1:
   .pio/build/tiny/firmware-tiny-<branch>-<hash>-RC.bin
+
+Release outputs when CROSSPOINT_RELEASE_VERSION is set:
+  .pio/build/tiny/firmware-tiny-v<version>.bin
 """
 
 import os
@@ -101,6 +104,18 @@ def _is_rc_artifact_build(env):
     return str(flag).strip().lower() in {'1', 'true', 'yes', 'on'}
 
 
+def _get_release_version(env):
+    version = _get_project_option(env, 'custom_release_version') or os.environ.get('CROSSPOINT_RELEASE_VERSION')
+    if not version:
+        return None
+    version = version.strip()
+    if not version:
+        return None
+    if not version.startswith('v'):
+        version = f'v{version}'
+    return re.sub(r'[^A-Za-z0-9._-]+', '-', version)
+
+
 def rename_firmware(source, target, env):
     env_name = env['PIOENV']
     project_dir = env['PROJECT_DIR']
@@ -113,6 +128,12 @@ def rename_firmware(source, target, env):
     if _is_rc_artifact_build(env):
         rc_dst = os.path.join(build_dir, _get_rc_artifact_name(project_dir, env))
         _copy_artifact(src, rc_dst)
+
+    release_version = _get_release_version(env)
+    if release_version:
+        release_env_name = _get_project_option(env, 'custom_rc_variant') or env_name
+        release_dst = os.path.join(build_dir, f'firmware-{release_env_name}-{release_version}.bin')
+        _copy_artifact(src, release_dst)
 
 
 try:
