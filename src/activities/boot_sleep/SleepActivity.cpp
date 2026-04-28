@@ -111,7 +111,7 @@ int pngOverlayDraw(PNGDRAW* pDraw) {
   if (ctx->transparentColor == -2) {
     const int pt = pDraw->iPixelType;
     ctx->transparentColor = (pDraw->iHasAlpha && (pt == PNG_PIXEL_TRUECOLOR || pt == PNG_PIXEL_GRAYSCALE))
-                                ? (int32_t)ctx->pngObj->getTransparentColor()
+                                ? static_cast<int32_t>(ctx->pngObj->getTransparentColor())
                                 : -1;
   }
 
