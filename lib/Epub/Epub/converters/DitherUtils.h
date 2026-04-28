@@ -20,9 +20,18 @@ inline uint8_t applyBayerDither4Level(uint8_t gray, int x, int y) {
   if (adjusted < 0) adjusted = 0;
   if (adjusted > 255) adjusted = 255;
 
-  // Midpoint thresholds for output palette {0, 85, 170, 255}.
+  // Output palette {0, 85, 170, 255}. EPUB image pages render on the factory
+  // LUT (EpubReaderActivity: useFactoryGray), where palette levels are
+  // physically lighter than on the differential LUT used upstream. To get
+  // brightness roughly equivalent to upstream's differential rendering, we
+  // raise T12 and T23 to push more pixels into the darker palette indices:
+  //   T01 = 43  — calibrated shadow boundary (linear midpoint, unchanged)
+  //   T12 = 170 — widens palette 1 band so mid-bright pixels (sRGB 128–170)
+  //               render as gray 85 instead of gray 170
+  //   T23 = 235 — narrows the white band so only true highlights come out
+  //               pure white; mid-light tones stay at gray 170
   if (adjusted < 43) return 0;
-  if (adjusted < 128) return 1;
-  if (adjusted < 213) return 2;
+  if (adjusted < 170) return 1;
+  if (adjusted < 235) return 2;
   return 3;
 }
