@@ -72,6 +72,13 @@ class EpubReaderActivity final : public Activity {
   SavedPosition savedPositions[MAX_FOOTNOTE_DEPTH] = {};
   int footnoteDepth = 0;
 
+  struct PageRenderCtx {
+    Page* page;
+    int fontId, left, top;
+    const EpubReaderActivity* activity;
+  };
+  static void renderPageCallback(const GfxRenderer& r, const void* raw);
+
   void renderContents(std::unique_ptr<Page> page, int orientedMarginTop, int orientedMarginRight,
                       int orientedMarginBottom, int orientedMarginLeft);
   void renderStatusBar() const;

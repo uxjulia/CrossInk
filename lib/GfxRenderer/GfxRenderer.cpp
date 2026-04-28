@@ -1381,15 +1381,6 @@ void GfxRenderer::renderGrayscale(GrayscaleMode mode, void (*renderFn)(const Gfx
                                   const void* ctx, void (*preFlashOverlayFn)(const GfxRenderer&, const void*),
                                   const void* preFlashCtx) {
   if (mode == GrayscaleMode::FactoryFast || mode == GrayscaleMode::FactoryQuality) {
-    // Pre-flash to white so the factory LUT can drive particles reliably from any prior state.
-    // Without this, particles stranded at intermediate grays may not complete their transition:
-    // from a known-white state only downward transitions are needed, which both LUTs handle cleanly.
-    //
-    // HALF_REFRESH (CTRL1_BYPASS_RED) guarantees true white regardless of RED RAM sync state.
-    // FAST_REFRESH is differential against RED RAM — after any prior grayscale operation the RED RAM
-    // may be stale (e.g. chapter menu rendered while display shows gray), so pixels the controller
-    // believes are already white may physically be at gray or chapter-menu positions and won't be
-    // driven to white, corrupting the subsequent gray render.
     clearScreen();
     if (preFlashOverlayFn) preFlashOverlayFn(*this, preFlashCtx);
     displayBuffer(HalDisplay::HALF_REFRESH);
@@ -1408,7 +1399,6 @@ void GfxRenderer::renderGrayscale(GrayscaleMode mode, void (*renderFn)(const Gfx
   setRenderMode(lsbMode);
   renderFn(*this, ctx);
 
-  // Save LSB plane for screenshot hook (needs both planes simultaneously).
   uint8_t* lsbCopy = nullptr;
   if (screenshotHook && factoryMode) {
     lsbCopy = static_cast<uint8_t*>(malloc(frameBufferSize));
@@ -1461,15 +1451,12 @@ void GfxRenderer::renderGrayscaleSinglePass(GrayscaleMode mode, void (*renderFn)
 
   g_differentialQuantize = (mode == GrayscaleMode::Differential);
 
-  // Allocate secondary buffer for the MSB plane.
   auto* secBuf = static_cast<uint8_t*>(malloc(frameBufferSize));
   if (!secBuf) {
     LOG_ERR("GFX", "renderGrayscaleSinglePass: malloc failed (%lu bytes), falling back to two-pass",
             static_cast<unsigned long>(frameBufferSize));
-    // Disarm hook — the two-pass fallback does not capture both planes simultaneously.
     screenshotHook = nullptr;
     screenshotHookCtx = nullptr;
-    // Pre-flash already done; run two-pass directly without repeating it.
     clearScreen(0x00);
     setRenderMode(lsbMode);
     renderFn(*this, ctx);
@@ -1562,8 +1549,7 @@ void GfxRenderer::displayXtchPlanes(const uint8_t* plane1, const uint8_t* plane2
     screenshotHookCtx = nullptr;
   }
 
-  const bool isX3 = gpio.deviceIsX3();
-  displayGrayBuffer(isX3 ? nullptr : lut_factory_quality, !isX3);
+  displayGrayBuffer(lut_factory_quality, true);
   setRenderMode(BW);
 }
 

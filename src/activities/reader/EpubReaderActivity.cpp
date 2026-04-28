@@ -133,6 +133,12 @@ void EpubReaderActivity::queueCompletionPromptIfNeeded() {
   }
 }
 
+void EpubReaderActivity::renderPageCallback(const GfxRenderer& r, const void* raw) {
+  const auto* c = static_cast<const PageRenderCtx*>(raw);
+  c->page->render(const_cast<GfxRenderer&>(r), c->fontId, c->left, c->top);
+  c->activity->renderStatusBar();
+}
+
 void EpubReaderActivity::onEnter() {
   Activity::onEnter();
   pageLoadRetryCount = 0;
@@ -1188,14 +1194,12 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   const auto tBwRender = millis();
 
   const bool isImagePage = page->hasImages();
-  const bool useFactoryGray = SETTINGS.textAntiAliasing && isImagePage && !gpio.deviceIsX3();
+  const bool useFactoryGray = SETTINGS.textAntiAliasing && isImagePage;
   lastPageWasFactoryGray = useFactoryGray;
   if (useFactoryGray) {
-    // Factory gray mode: skip BW display entirely — factory LUT drives pixels absolutely
     lastFactoryMarginTop = orientedMarginTop;
     lastFactoryMarginLeft = orientedMarginLeft;
   } else {
-    // Text-only AA or no AA: BW display with refresh cadence
     ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh);
   }
   const auto tDisplay = millis();
@@ -1206,22 +1210,12 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
 
   // grayscale rendering
   if (SETTINGS.textAntiAliasing) {
-    struct PageRenderCtx {
-      Page* page;
-      int fontId, left, top;
-      const EpubReaderActivity* activity;
-    };
     PageRenderCtx grayCtx{page.get(), SETTINGS.getReaderFontId(), orientedMarginLeft, orientedMarginTop, this};
-    const auto grayFn = [](const GfxRenderer& r, const void* raw) {
-      const auto* c = static_cast<const PageRenderCtx*>(raw);
-      c->page->render(const_cast<GfxRenderer&>(r), c->fontId, c->left, c->top);
-      c->activity->renderStatusBar();
-    };
 
     const auto tGrayStart = millis();
     const auto grayMode =
         useFactoryGray ? GfxRenderer::GrayscaleMode::FactoryQuality : GfxRenderer::GrayscaleMode::Differential;
-    renderer.renderGrayscale(grayMode, grayFn, &grayCtx);
+    renderer.renderGrayscale(grayMode, &renderPageCallback, &grayCtx);
     const auto tGrayEnd = millis();
     fcm->logStats(useFactoryGray ? "gray_factory_quality" : "gray");
 
@@ -1258,22 +1252,13 @@ void EpubReaderActivity::onScreenshotRequest() {
   auto p = section->loadPageFromSectionFile();
   if (!p) return;
 
-  struct PageRenderCtx {
-    Page* page;
-    int fontId, left, top;
-    const EpubReaderActivity* activity;
-  };
-  PageRenderCtx grayCtx{p.get(), SETTINGS.getReaderFontId(), lastFactoryMarginLeft, lastFactoryMarginTop, this};
-  const auto grayFn = [](const GfxRenderer& r, const void* raw) {
-    const auto* c = static_cast<const PageRenderCtx*>(raw);
-    c->page->render(const_cast<GfxRenderer&>(r), c->fontId, c->left, c->top);
-    c->activity->renderStatusBar();
-  };
+  // Preserve the BW page across the gray render so cleanupGrayscaleWithFrameBuffer
+  // syncs the controller to the actual page, not a cleared framebuffer.
+  if (!renderer.storeBwBuffer()) return;
 
-  renderer.renderGrayscale(
-      gpio.deviceIsX3() ? GfxRenderer::GrayscaleMode::Differential : GfxRenderer::GrayscaleMode::FactoryQuality, grayFn,
-      &grayCtx);
-  renderer.clearScreen();
+  PageRenderCtx grayCtx{p.get(), SETTINGS.getReaderFontId(), lastFactoryMarginLeft, lastFactoryMarginTop, this};
+  renderer.renderGrayscale(GfxRenderer::GrayscaleMode::FactoryQuality, &renderPageCallback, &grayCtx);
+  renderer.restoreBwBuffer();
   renderer.cleanupGrayscaleWithFrameBuffer();
 }
 

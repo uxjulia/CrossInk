@@ -17,6 +17,21 @@
 #include "fontIds.h"
 #include "images/Logo120.h"
 
+namespace {
+void drawEnteringSleepOverlay(const GfxRenderer& r, const void*) {
+  constexpr int margin = 15;
+  const char* msg = tr(STR_ENTERING_SLEEP);
+  const int y = static_cast<int>(r.getScreenHeight() * 0.075f);
+  const int textWidth = r.getTextWidth(UI_12_FONT_ID, msg, EpdFontFamily::BOLD);
+  const int w = textWidth + margin * 2;
+  const int h = r.getLineHeight(UI_12_FONT_ID) + margin * 2;
+  const int x = (r.getScreenWidth() - w) / 2;
+  r.fillRect(x - 2, y - 2, w + 4, h + 4, true);
+  r.fillRect(x, y, w, h, false);
+  r.drawText(UI_12_FONT_ID, x + margin, y + margin - 2, msg, true, EpdFontFamily::BOLD);
+}
+}  // namespace
+
 void SleepActivity::onEnter() {
   Activity::onEnter();
   GUI.drawPopup(renderer, tr(STR_ENTERING_SLEEP));
@@ -95,7 +110,7 @@ void SleepActivity::renderCustomSleepScreen() const {
         }
         const int sw = renderer.getScreenWidth();
         const int sh = renderer.getScreenHeight();
-        if (abs(w - sw) > 1 || abs(h - sh) > 1) {
+        if (w != sw || h != sh) {
           LOG_DBG("SLP", "Skipping PXC size mismatch %dx%d (screen %dx%d): %s", w, h, sw, sh, name);
           file.close();
           continue;
@@ -120,7 +135,9 @@ void SleepActivity::renderCustomSleepScreen() const {
       LOG_DBG("SLP", "Randomly loading: %s/%s", sleepDir, files[randomFileIndex].c_str());
       delay(100);
       if (FsHelpers::hasPxcExtension(files[randomFileIndex])) {
-        renderPxcSleepScreen(filename);
+        if (!renderPxcSleepScreen(filename)) {
+          renderDefaultSleepScreen();
+        }
         dir.close();
         return;
       }
@@ -144,8 +161,9 @@ void SleepActivity::renderCustomSleepScreen() const {
   // Check root for sleep.pxc (preferred) or sleep.bmp
   if (Storage.exists("/sleep.pxc")) {
     LOG_DBG("SLP", "Loading: /sleep.pxc");
-    renderPxcSleepScreen("/sleep.pxc");
-    return;
+    if (renderPxcSleepScreen("/sleep.pxc")) {
+      return;
+    }
   }
 
   // Look for sleep.bmp on the root of the sd card to determine if we should
@@ -185,26 +203,26 @@ void SleepActivity::renderDefaultSleepScreen() const {
   renderer.displayBuffer(HalDisplay::HALF_REFRESH);
 }
 
-void SleepActivity::renderPxcSleepScreen(const std::string& path) const {
+bool SleepActivity::renderPxcSleepScreen(const std::string& path) const {
   FsFile file;
   if (!Storage.openFileForRead("SLP", path, file)) {
     LOG_ERR("SLP", "Cannot open PXC: %s", path.c_str());
-    return renderDefaultSleepScreen();
+    return false;
   }
 
   uint16_t pxcWidth, pxcHeight;
   if (file.read(&pxcWidth, 2) != 2 || file.read(&pxcHeight, 2) != 2) {
     LOG_ERR("SLP", "PXC header read failed: %s", path.c_str());
     file.close();
-    return renderDefaultSleepScreen();
+    return false;
   }
 
   const int screenWidth = renderer.getScreenWidth();
   const int screenHeight = renderer.getScreenHeight();
-  if (abs(pxcWidth - screenWidth) > 1 || abs(pxcHeight - screenHeight) > 1) {
+  if (pxcWidth != screenWidth || pxcHeight != screenHeight) {
     LOG_ERR("SLP", "PXC size %dx%d does not match screen %dx%d", pxcWidth, pxcHeight, screenWidth, screenHeight);
     file.close();
-    return renderDefaultSleepScreen();
+    return false;
   }
 
   const uint32_t dataOffset = file.position();  // right after the 4-byte header
@@ -222,7 +240,7 @@ void SleepActivity::renderPxcSleepScreen(const std::string& path) const {
     PxcCtx ctx{&file, dataOffset, pxcWidth, pxcHeight};
 
     renderer.renderGrayscaleSinglePass(
-        gpio.deviceIsX3() ? GfxRenderer::GrayscaleMode::Differential : GfxRenderer::GrayscaleMode::FactoryQuality,
+        GfxRenderer::GrayscaleMode::FactoryQuality,
         [](const GfxRenderer& r, const void* raw) {
           const auto* c = static_cast<const PxcCtx*>(raw);
           c->file->seek(c->dataOffset);
@@ -247,20 +265,7 @@ void SleepActivity::renderPxcSleepScreen(const std::string& path) const {
           }
           free(rowBuf);
         },
-        &ctx,
-        [](const GfxRenderer& r, const void*) {
-          constexpr int margin = 15;
-          const char* msg = tr(STR_ENTERING_SLEEP);
-          const int y = static_cast<int>(r.getScreenHeight() * 0.075f);
-          const int textWidth = r.getTextWidth(UI_12_FONT_ID, msg, EpdFontFamily::BOLD);
-          const int w = textWidth + margin * 2;
-          const int h = r.getLineHeight(UI_12_FONT_ID) + margin * 2;
-          const int x = (r.getScreenWidth() - w) / 2;
-          r.fillRect(x - 2, y - 2, w + 4, h + 4, true);
-          r.fillRect(x, y, w, h, false);
-          r.drawText(UI_12_FONT_ID, x + margin, y + margin - 2, msg, true, EpdFontFamily::BOLD);
-        },
-        nullptr);
+        &ctx, &drawEnteringSleepOverlay, nullptr);
   } else {
     // BLACK_AND_WHITE / INVERTED_BLACK_AND_WHITE: threshold PXC to 1-bit
     // (pv 0=Black, 1=DarkGrey map to dark; 2=LightGrey, 3=White map to light)
@@ -268,14 +273,14 @@ void SleepActivity::renderPxcSleepScreen(const std::string& path) const {
     if (!file.seek(dataOffset)) {
       LOG_ERR("SLP", "PXC seek failed: %s", path.c_str());
       file.close();
-      return renderDefaultSleepScreen();
+      return false;
     }
 
     uint8_t* rowBuf = static_cast<uint8_t*>(malloc(bytesPerRow));
     if (!rowBuf) {
       LOG_ERR("SLP", "PXC malloc failed");
       file.close();
-      return renderDefaultSleepScreen();
+      return false;
     }
 
     for (int row = 0; row < pxcHeight; row++) {
@@ -294,6 +299,7 @@ void SleepActivity::renderPxcSleepScreen(const std::string& path) const {
   }
 
   file.close();
+  return true;
 }
 
 void SleepActivity::renderBitmapSleepScreen(const Bitmap& bitmap) const {
@@ -349,25 +355,12 @@ void SleepActivity::renderBitmapSleepScreen(const Bitmap& bitmap) const {
     };
     BitmapGrayCtx grayCtx{&bitmap, x, y, pageWidth, pageHeight, cropX, cropY};
     renderer.renderGrayscaleSinglePass(
-        gpio.deviceIsX3() ? GfxRenderer::GrayscaleMode::Differential : GfxRenderer::GrayscaleMode::FactoryQuality,
+        GfxRenderer::GrayscaleMode::FactoryQuality,
         [](const GfxRenderer& r, const void* raw) {
           const auto* c = static_cast<const BitmapGrayCtx*>(raw);
           r.drawBitmap(*c->bitmap, c->x, c->y, c->maxWidth, c->maxHeight, c->cropX, c->cropY);
         },
-        &grayCtx,
-        [](const GfxRenderer& r, const void*) {
-          constexpr int margin = 15;
-          const char* msg = tr(STR_ENTERING_SLEEP);
-          const int y = static_cast<int>(r.getScreenHeight() * 0.075f);
-          const int textWidth = r.getTextWidth(UI_12_FONT_ID, msg, EpdFontFamily::BOLD);
-          const int w = textWidth + margin * 2;
-          const int h = r.getLineHeight(UI_12_FONT_ID) + margin * 2;
-          const int x = (r.getScreenWidth() - w) / 2;
-          r.fillRect(x - 2, y - 2, w + 4, h + 4, true);
-          r.fillRect(x, y, w, h, false);
-          r.drawText(UI_12_FONT_ID, x + margin, y + margin - 2, msg, true, EpdFontFamily::BOLD);
-        },
-        nullptr);
+        &grayCtx, &drawEnteringSleepOverlay, nullptr);
   } else {
     renderer.clearScreen();
     renderer.drawBitmap(bitmap, x, y, pageWidth, pageHeight, cropX, cropY);
@@ -458,8 +451,10 @@ void SleepActivity::renderCoverSleepScreen() const {
         return (this->*renderNoCoverSleepScreen)();
       }
       LOG_DBG("SLP", "Direct XTC page render: %ux%u", lastXtc.getPageWidth(), lastXtc.getPageHeight());
-      renderer.clearScreen();
-      renderer.displayBuffer(HalDisplay::HALF_REFRESH);
+      if (!APP_STATE.lastSleepFromReader) {
+        renderer.clearScreen();
+        renderer.displayBuffer(HalDisplay::HALF_REFRESH);
+      }
       renderer.displayXtcBwPage(pageBuffer, lastXtc.getPageWidth(), lastXtc.getPageHeight());
       free(pageBuffer);
       return;
@@ -530,7 +525,9 @@ void SleepActivity::renderBlankSleepScreen() const {
 void SleepActivity::onScreenshotRequest() {
   if (lastGrayscalePath.empty()) return;
   if (lastGrayscaleIsPxc) {
-    renderPxcSleepScreen(lastGrayscalePath);
+    if (!renderPxcSleepScreen(lastGrayscalePath)) {
+      renderDefaultSleepScreen();
+    }
   } else {
     FsFile file;
     if (Storage.openFileForRead("SLP", lastGrayscalePath.c_str(), file)) {
@@ -541,6 +538,7 @@ void SleepActivity::onScreenshotRequest() {
       file.close();
     }
   }
+  // Device enters deep sleep next; on wake the new activity will full-refresh anyway.
   renderer.clearScreen();
   renderer.cleanupGrayscaleWithFrameBuffer();
 }

@@ -57,7 +57,7 @@ void BmpViewerActivity::onEnter() {
         };
         BmpGrayCtx grayCtx{&bitmap, x, y, pageWidth, pageHeight, labels};
         renderer.renderGrayscaleSinglePass(
-            gpio.deviceIsX3() ? GfxRenderer::GrayscaleMode::Differential : GfxRenderer::GrayscaleMode::FactoryQuality,
+            GfxRenderer::GrayscaleMode::FactoryQuality,
             [](const GfxRenderer& r, const void* raw) {
               const auto* c = static_cast<const BmpGrayCtx*>(raw);
               r.drawBitmap(*c->bitmap, c->x, c->y, c->maxWidth, c->maxHeight, 0, 0);
@@ -144,7 +144,7 @@ void BmpViewerActivity::renderGrayscaleImage() {
   BmpGrayCtx grayCtx{&bitmap, x, y, pageWidth, pageHeight, labels};
 
   renderer.renderGrayscaleSinglePass(
-      gpio.deviceIsX3() ? GfxRenderer::GrayscaleMode::Differential : GfxRenderer::GrayscaleMode::FactoryQuality,
+      GfxRenderer::GrayscaleMode::FactoryQuality,
       [](const GfxRenderer& r, const void* raw) {
         const auto* c = static_cast<const BmpGrayCtx*>(raw);
         r.drawBitmap(*c->bitmap, c->x, c->y, c->maxWidth, c->maxHeight, 0, 0);
