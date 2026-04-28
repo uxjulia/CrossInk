@@ -4,12 +4,15 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build-release-candidate:
     if: startsWith(github.ref_name, 'release/')
     runs-on: ubuntu-latest
+    env:
+      RC_BRANCH: ${{ github.ref_name }}
+      RC_HASH: ${{ github.sha }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -36,21 +39,68 @@ jobs:
       - name: Install PlatformIO Core
         run: uv pip install --system -U https://github.com/pioarduino/platformio-core/archive/refs/tags/v6.1.19.zip
 
-      - name: Set version from branch
+      - name: Resolve release-candidate metadata
+        shell: bash
         run: |
-          VERSION="${GITHUB_REF_NAME#release/}-RC"
-          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          branch_without_prefix="${RC_BRANCH#release/}"
+          branch_safe=$(printf '%s\n' "$branch_without_prefix" | sed -E 's/[^A-Za-z0-9._-]+/-/g; s/^-+//; s/-+$//')
+          hash_short="${RC_HASH::7}"
+          rc_tag="rc-${branch_safe}-${hash_short}"
+          echo "RC_BRANCH_RAW=$branch_without_prefix" >> "$GITHUB_ENV"
+          echo "RC_BRANCH_SAFE=$branch_safe" >> "$GITHUB_ENV"
+          echo "RC_HASH_SHORT=$hash_short" >> "$GITHUB_ENV"
+          echo "RC_TAG=$rc_tag" >> "$GITHUB_ENV"
+          echo "VERSION=${branch_safe}-RC" >> "$GITHUB_ENV"
+
+      - name: Resolve default PlatformIO envs
+        shell: bash
+        run: |
+          envs=$(python3 - <<'PY'
+          import configparser
+          config = configparser.ConfigParser()
+          config.read('platformio.ini')
+          default_envs = config.get('platformio', 'default_envs', fallback='')
+          envs = [part.strip() for part in default_envs.split(',') if part.strip()]
+          print(' '.join(envs))
+          PY
+          )
+          if [ -z "$envs" ]; then
+            echo "No default_envs found in platformio.ini" >&2
+            exit 1
+          fi
+          echo "RC_ENVS=$envs" >> "$GITHUB_ENV"
+
+      - name: Set version from branch
+        shell: bash
+        run: |
+          VERSION="${RC_BRANCH_RAW}-RC"
           escaped_version=$(printf '%s\n' "$VERSION" | sed 's/[&|]/\\&/g')
           sed -i "s|^crossink_version = .*|crossink_version = ${escaped_version}|" platformio.ini
 
       - name: Build CrossPoint
-        run: pio run -e tiny -e xlarge -e no_emoji
+        shell: bash
+        env:
+          CROSSPOINT_RC_ARTIFACTS: "1"
+          CROSSPOINT_RC_BRANCH: ${{ env.RC_BRANCH_RAW }}
+          CROSSPOINT_RC_HASH: ${{ env.RC_HASH_SHORT }}
+        run: |
+          build_args=()
+          for env_name in $RC_ENVS; do
+            build_args+=(-e "$env_name")
+          done
+          pio run "${build_args[@]}"
 
-      - name: Upload Artifacts
-        uses: actions/upload-artifact@v4
+      - name: Create GitHub RC Prerelease
+        uses: softprops/action-gh-release@v3
         with:
-          name: CrossPoint-RC-${{ env.VERSION }}
-          path: |
-            .pio/build/tiny/firmware-tiny.bin
-            .pio/build/xlarge/firmware-xlarge.bin
-            .pio/build/no_emoji/firmware-no_emoji.bin
+          tag_name: ${{ env.RC_TAG }}
+          target_commitish: ${{ github.sha }}
+          name: RC ${{ env.RC_BRANCH_SAFE }} ${{ env.RC_HASH_SHORT }}
+          body: |
+            Draft release candidate build from `release/${{ env.RC_BRANCH_RAW }}` at `${{ env.RC_HASH_SHORT }}`.
+          draft: true
+          prerelease: true
+          files: |
+            .pio/build/tiny/firmware-tiny-${{ env.RC_BRANCH_SAFE }}-${{ env.RC_HASH_SHORT }}-RC.bin
+            .pio/build/xlarge/firmware-xlarge-${{ env.RC_BRANCH_SAFE }}-${{ env.RC_HASH_SHORT }}-RC.bin
+            .pio/build/no_emoji/firmware-no_emoji-${{ env.RC_BRANCH_SAFE }}-${{ env.RC_HASH_SHORT }}-RC.bin
