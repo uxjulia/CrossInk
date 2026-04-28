@@ -97,11 +97,22 @@ void XtcReaderActivity::loop() {
   const bool frontPrev = frontUsePress ? mappedInput.wasPressed(MappedInputManager::Button::Left)
                                        : mappedInput.wasReleased(MappedInputManager::Button::Left);
   const bool powerReleased = mappedInput.wasReleased(MappedInputManager::Button::Power);
+  if (powerReleased && longPowerPageTurnHandled) {
+    longPowerPageTurnHandled = false;
+    return;
+  }
   const bool shortPowerTurn = SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::PAGE_TURN && powerReleased &&
                               mappedInput.getHeldTime() < SETTINGS.getPowerButtonLongPressDuration();
   const bool longPowerTurn = SETTINGS.longPwrBtn == CrossPointSettings::SHORT_PWRBTN::PAGE_TURN && powerReleased &&
                              mappedInput.getHeldTime() >= SETTINGS.getPowerButtonLongPressDuration();
-  const bool powerPageTurn = shortPowerTurn || longPowerTurn;
+  const bool timedLongPowerTurn = SETTINGS.longPwrBtn == CrossPointSettings::SHORT_PWRBTN::PAGE_TURN &&
+                                  !longPowerPageTurnHandled &&
+                                  mappedInput.isPressed(MappedInputManager::Button::Power) &&
+                                  mappedInput.getHeldTime() >= SETTINGS.getPowerButtonLongPressDuration();
+  if (timedLongPowerTurn) {
+    longPowerPageTurnHandled = true;
+  }
+  const bool powerPageTurn = shortPowerTurn || longPowerTurn || timedLongPowerTurn;
   const bool frontNext = frontUsePress ? (mappedInput.wasPressed(MappedInputManager::Button::Right) || powerPageTurn)
                                        : (mappedInput.wasReleased(MappedInputManager::Button::Right) || powerPageTurn);
 

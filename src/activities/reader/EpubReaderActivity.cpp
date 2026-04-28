@@ -372,8 +372,20 @@ void EpubReaderActivity::loop() {
   }
 
   // Long-press Confirm: execute the configured reader action without opening the menu
-  if (SETTINGS.longPressMenuAction != CrossPointSettings::LONG_MENU_OFF &&
-      mappedInput.wasReleased(MappedInputManager::Button::Confirm) && mappedInput.getHeldTime() >= longPressMenuMs) {
+  if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
+    if (longPressMenuHandled) {
+      longPressMenuHandled = false;
+      return;
+    }
+    if (SETTINGS.longPressMenuAction != CrossPointSettings::LONG_MENU_OFF &&
+        mappedInput.getHeldTime() >= longPressMenuMs) {
+      executeLongPressMenuAction();
+      return;
+    }
+  }
+  if (SETTINGS.longPressMenuAction != CrossPointSettings::LONG_MENU_OFF && !longPressMenuHandled &&
+      mappedInput.isPressed(MappedInputManager::Button::Confirm) && mappedInput.getHeldTime() >= longPressMenuMs) {
+    longPressMenuHandled = true;
     executeLongPressMenuAction();
     return;
   }
@@ -463,6 +475,9 @@ void EpubReaderActivity::loop() {
     }
   }
 
+  if (consumeLongPowerButtonRelease()) {
+    return;
+  }
   if (executeShortPowerButtonAction()) {
     return;
   }
@@ -471,6 +486,10 @@ void EpubReaderActivity::loop() {
   }
 
   auto [prevTriggered, nextTriggered, fromSideBtn] = ReaderUtils::detectPageTurn(mappedInput);
+  if (SETTINGS.longPwrBtn == CrossPointSettings::SHORT_PWRBTN::PAGE_TURN && consumeLongPowerButtonHold()) {
+    nextTriggered = true;
+    fromSideBtn = false;
+  }
   if (!prevTriggered && !nextTriggered) {
     return;
   }
@@ -904,9 +923,27 @@ bool EpubReaderActivity::executeShortPowerButtonAction() {
   }
 }
 
-bool EpubReaderActivity::executeLongPowerButtonAction() {
-  if (!mappedInput.wasReleased(MappedInputManager::Button::Power) ||
+bool EpubReaderActivity::consumeLongPowerButtonRelease() {
+  if (!mappedInput.wasReleased(MappedInputManager::Button::Power) || !longPowerButtonHandled) {
+    return false;
+  }
+
+  longPowerButtonHandled = false;
+  return true;
+}
+
+bool EpubReaderActivity::consumeLongPowerButtonHold() {
+  if (longPowerButtonHandled || !mappedInput.isPressed(MappedInputManager::Button::Power) ||
       mappedInput.getHeldTime() < SETTINGS.getPowerButtonLongPressDuration()) {
+    return false;
+  }
+
+  longPowerButtonHandled = true;
+  return true;
+}
+
+bool EpubReaderActivity::executeLongPowerButtonAction() {
+  if (SETTINGS.longPwrBtn == CrossPointSettings::SHORT_PWRBTN::PAGE_TURN || !consumeLongPowerButtonHold()) {
     return false;
   }
 
