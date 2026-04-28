@@ -39,14 +39,20 @@ class EpubReaderActivity final : public Activity {
   bool pendingScreenshot = false;
   bool skipNextButtonCheck = false;  // Skip button processing for one frame after subactivity exit
   bool automaticPageTurnActive = false;
+  uint8_t currentPageTurnOption = 0;
   int pageLoadRetryCount = 0;
   bool pendingBookmarkFeedback = false;
   bool bookmarkFeedbackIsAdd = false;
   unsigned long bookmarkFeedbackShowTime = 0UL;
+  bool pendingCompletedFeedback = false;
+  bool completedFeedbackIsFinished = false;
+  unsigned long completedFeedbackShowTime = 0UL;
   int completionTriggerSpineIndex = -1;
   float completionTriggerSpineProgress = 1.0f;
   bool completionPromptQueued = false;
   bool completionPromptShown = false;
+  bool completionTriggerSeenBelow = false;
+  bool lastAtOrPastCompletionTrigger = false;
   bool pendingReadFolderMove = false;
 
   struct ReadFolderMoveParams {
@@ -86,8 +92,13 @@ class EpubReaderActivity final : public Activity {
   void saveProgress(int spineIndex, int currentPage, int pageCount);
   // Jump to a percentage of the book (0-100), mapping it to spine and page.
   void jumpToPercent(int percent);
+  void reindexCurrentSection();
+  void executeReaderQuickAction(CrossPointSettings::LONG_PRESS_MENU_ACTION action);
+  bool executeShortPowerButtonAction();
+  bool executeLongPowerButtonAction();
   void onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction action);
   void applyOrientation(uint8_t orientation);
+  void executeLongPressMenuAction();
   void toggleAutoPageTurn(uint8_t selectedPageTurnOption);
   void pageTurn(bool isForwardTurn);
   float getCurrentBookProgressPercent() const;
@@ -95,6 +106,7 @@ class EpubReaderActivity final : public Activity {
   bool isAtOrPastCompletionTrigger() const;
   void queueCompletionPromptIfNeeded();
   void setBookCompleted(bool isCompleted);
+  void showCompletedFeedback(bool isCompleted);
 
   // Footnote navigation
   void navigateToHref(const std::string& href, bool savePosition = false);
@@ -109,4 +121,9 @@ class EpubReaderActivity final : public Activity {
   void render(RenderLock&& lock) override;
   void onScreenshotRequest() override;
   bool isReaderActivity() const override { return true; }
+
+  // Renders the last saved page to the frame buffer without flushing to display.
+  // Used by SleepActivity to prepare the background for the overlay sleep mode.
+  // Returns false if the page cannot be loaded (missing cache / file error).
+  static bool drawCurrentPageToBuffer(const std::string& filePath, GfxRenderer& renderer);
 };

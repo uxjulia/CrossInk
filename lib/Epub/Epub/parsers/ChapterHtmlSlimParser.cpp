@@ -177,7 +177,7 @@ void ChapterHtmlSlimParser::startNewTextBlock(const BlockStyle& blockStyle) {
     pendingAnchorId.clear();
   }
   currentTextBlock.reset(new ParsedText(extraParagraphSpacing, forceParagraphIndents, hyphenationEnabled,
-                                        bionicReadingEnabled, blockStyle, guideReadingEnabled));
+                                        bionicReadingEnabled, guideReadingEnabled, blockStyle));
   wordsExtractedInBlock = 0;
 }
 
@@ -626,12 +626,13 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
   // Force paragraph indent to prevent unreadable walls of text.
   // This applies if the publisher set text-indent: 0, omitted it, or if it was stripped by disabling embedded styles.
   if (self->forceParagraphIndents && strcmp(name, "p") == 0) {
+    static constexpr float forcedIndentEm = 1.0f;
     if (userAlignmentBlockStyle.alignment == CssTextAlign::Left ||
         userAlignmentBlockStyle.alignment == CssTextAlign::Justify ||
         userAlignmentBlockStyle.alignment == CssTextAlign::None) {
       if (!userAlignmentBlockStyle.textIndentDefined || userAlignmentBlockStyle.textIndent == 0) {
         userAlignmentBlockStyle.textIndentDefined = true;
-        userAlignmentBlockStyle.textIndent = static_cast<int16_t>(emSize * 1.0f);
+        userAlignmentBlockStyle.textIndent = static_cast<int16_t>(emSize * forcedIndentEm);
       }
     }
   }

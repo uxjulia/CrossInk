@@ -48,8 +48,12 @@ inline PageTurnResult detectPageTurn(const MappedInputManager& input) {
 
   const bool frontPrev = frontUsePress ? input.wasPressed(MappedInputManager::Button::Left)
                                        : input.wasReleased(MappedInputManager::Button::Left);
-  const bool powerTurn = SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::PAGE_TURN &&
-                         input.wasReleased(MappedInputManager::Button::Power);
+  const bool powerReleased = input.wasReleased(MappedInputManager::Button::Power);
+  const bool shortPowerTurn = SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::PAGE_TURN && powerReleased &&
+                              input.getHeldTime() < SETTINGS.getPowerButtonLongPressDuration();
+  const bool longPowerTurn = SETTINGS.longPwrBtn == CrossPointSettings::SHORT_PWRBTN::PAGE_TURN && powerReleased &&
+                             input.getHeldTime() >= SETTINGS.getPowerButtonLongPressDuration();
+  const bool powerTurn = shortPowerTurn || longPowerTurn;
   const bool frontNext = frontUsePress ? (input.wasPressed(MappedInputManager::Button::Right) || powerTurn)
                                        : (input.wasReleased(MappedInputManager::Button::Right) || powerTurn);
 

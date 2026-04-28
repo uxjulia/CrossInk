@@ -170,8 +170,8 @@
 #endif
 
 // UI fonts — no emoji variant in either build
-#include <builtinFonts/dmsans_10_bold.h>
-#include <builtinFonts/dmsans_10_regular.h>
-#include <builtinFonts/dmsans_12_bold.h>
-#include <builtinFonts/dmsans_12_regular.h>
+#include <builtinFonts/inter_10_bold.h>
+#include <builtinFonts/inter_10_regular.h>
+#include <builtinFonts/inter_12_bold.h>
+#include <builtinFonts/inter_12_regular.h>
 #include <builtinFonts/inter_8_regular.h>
