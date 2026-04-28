@@ -305,6 +305,10 @@ void EpubReaderActivity::loop() {
     return;
   }
 
+  if (!mappedInput.isPressed(MappedInputManager::Button::Power)) {
+    longPowerActionHandled = false;
+  }
+
   if (completionPromptQueued) {
     completionPromptQueued = false;
     completionPromptShown = true;
@@ -986,10 +990,12 @@ bool EpubReaderActivity::executeShortPowerButtonAction() {
 }
 
 bool EpubReaderActivity::executeLongPowerButtonAction() {
-  if (!mappedInput.wasReleased(MappedInputManager::Button::Power) ||
-      mappedInput.getHeldTime() < SETTINGS.getPowerButtonLongPressDuration()) {
+  if (!mappedInput.isPressed(MappedInputManager::Button::Power) ||
+      mappedInput.getHeldTime() < SETTINGS.getPowerButtonLongPressDuration() || longPowerActionHandled) {
     return false;
   }
+
+  longPowerActionHandled = true;
 
   switch (SETTINGS.longPwrBtn) {
     case CrossPointSettings::SHORT_PWRBTN::TOGGLE_FONT:

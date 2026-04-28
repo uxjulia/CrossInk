@@ -68,38 +68,38 @@ void ClipSelectionActivity::onExit() {
 void ClipSelectionActivity::loop() {
   const int total = static_cast<int>(words.size());
 
-  buttonNavigator.onNextRelease([this, total] {
+  buttonNavigator.onRelease({MappedInputManager::Button::Right}, [this, total] {
     if (cursorIdx + 1 >= total) return;
-    const int prevPage = words[cursorIdx].pageIdx;
-    cursorIdx = cursorIdx + 1;
-    if (words[cursorIdx].pageIdx != prevPage) needsPageSwitch = true;
-    requestUpdate();
+    moveCursorToIndex(cursorIdx + 1);
   });
 
-  buttonNavigator.onNextContinuous([this] {
-    const int prevPage = words[cursorIdx].pageIdx;
+  buttonNavigator.onContinuous({MappedInputManager::Button::Right}, [this] {
     const int next = lineEndForward(cursorIdx);
     if (next == cursorIdx) return;
-    cursorIdx = next;
-    if (words[cursorIdx].pageIdx != prevPage) needsPageSwitch = true;
-    requestUpdate();
+    moveCursorToIndex(next);
   });
 
-  buttonNavigator.onPreviousRelease([this] {
+  buttonNavigator.onRelease({MappedInputManager::Button::Left}, [this] {
     if (cursorIdx == 0) return;
-    const int prevPage = words[cursorIdx].pageIdx;
-    cursorIdx = cursorIdx - 1;
-    if (words[cursorIdx].pageIdx != prevPage) needsPageSwitch = true;
-    requestUpdate();
+    moveCursorToIndex(cursorIdx - 1);
   });
 
-  buttonNavigator.onPreviousContinuous([this] {
-    const int prevPage = words[cursorIdx].pageIdx;
+  buttonNavigator.onContinuous({MappedInputManager::Button::Left}, [this] {
     const int prev = lineEndBackward(cursorIdx);
     if (prev == cursorIdx) return;
-    cursorIdx = prev;
-    if (words[cursorIdx].pageIdx != prevPage) needsPageSwitch = true;
-    requestUpdate();
+    moveCursorToIndex(prev);
+  });
+
+  buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Down}, [this] {
+    const int nextLine = adjacentLineIndex(cursorIdx, 1);
+    if (nextLine == cursorIdx) return;
+    moveCursorToIndex(nextLine);
+  });
+
+  buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Up}, [this] {
+    const int prevLine = adjacentLineIndex(cursorIdx, -1);
+    if (prevLine == cursorIdx) return;
+    moveCursorToIndex(prevLine);
   });
 
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
@@ -237,4 +237,87 @@ int ClipSelectionActivity::lineEndBackward(int idx) const {
   }
 
   return first;
+}
+
+int ClipSelectionActivity::adjacentLineIndex(int idx, int direction) const {
+  if (direction == 0 || idx < 0 || idx >= static_cast<int>(words.size())) {
+    return idx;
+  }
+
+  const auto& current = words[idx];
+  const int currentPage = current.pageIdx;
+  const int currentY = current.y;
+  const int targetX = current.x + current.w / 2;
+  const int total = static_cast<int>(words.size());
+
+  int candidateStart = -1;
+  int candidateEnd = -1;
+  int candidatePage = currentPage;
+  int candidateY = currentY;
+
+  if (direction > 0) {
+    for (int i = idx + 1; i < total; ++i) {
+      if (words[i].pageIdx == currentPage && words[i].y == currentY) {
+        continue;
+      }
+      candidateStart = i;
+      candidatePage = words[i].pageIdx;
+      candidateY = words[i].y;
+      candidateEnd = i;
+      for (int j = i + 1; j < total; ++j) {
+        if (words[j].pageIdx != candidatePage || words[j].y != candidateY) {
+          break;
+        }
+        candidateEnd = j;
+      }
+      break;
+    }
+  } else {
+    for (int i = idx - 1; i >= 0; --i) {
+      if (words[i].pageIdx == currentPage && words[i].y == currentY) {
+        continue;
+      }
+      candidateEnd = i;
+      candidatePage = words[i].pageIdx;
+      candidateY = words[i].y;
+      candidateStart = i;
+      for (int j = i - 1; j >= 0; --j) {
+        if (words[j].pageIdx != candidatePage || words[j].y != candidateY) {
+          break;
+        }
+        candidateStart = j;
+      }
+      break;
+    }
+  }
+
+  if (candidateStart == -1 || candidateEnd == -1) {
+    return idx;
+  }
+
+  int bestIdx = candidateStart;
+  int bestDistance = std::abs((words[candidateStart].x + words[candidateStart].w / 2) - targetX);
+  for (int i = candidateStart + 1; i <= candidateEnd; ++i) {
+    const int wordCenter = words[i].x + words[i].w / 2;
+    const int distance = std::abs(wordCenter - targetX);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      bestIdx = i;
+    }
+  }
+
+  return bestIdx;
+}
+
+void ClipSelectionActivity::moveCursorToIndex(int idx) {
+  if (idx < 0 || idx >= static_cast<int>(words.size()) || idx == cursorIdx) {
+    return;
+  }
+
+  const int prevPage = words[cursorIdx].pageIdx;
+  cursorIdx = idx;
+  if (words[cursorIdx].pageIdx != prevPage) {
+    needsPageSwitch = true;
+  }
+  requestUpdate();
 }

@@ -40,6 +40,7 @@ class EpubReaderActivity final : public Activity {
   bool skipNextButtonCheck = false;  // Skip button processing for one frame after subactivity exit
   bool automaticPageTurnActive = false;
   uint8_t currentPageTurnOption = 0;
+  bool longPowerActionHandled = false;
   int pageLoadRetryCount = 0;
   bool pendingBookmarkFeedback = false;
   bool bookmarkFeedbackIsAdd = false;

@@ -61,4 +61,6 @@ class ClipSelectionActivity final : public Activity {
   void drawHighlights();
   int lineEndForward(int idx) const;
   int lineEndBackward(int idx) const;
+  int adjacentLineIndex(int idx, int direction) const;
+  void moveCursorToIndex(int idx);
 };
