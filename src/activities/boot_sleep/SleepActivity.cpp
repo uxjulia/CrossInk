@@ -214,6 +214,9 @@ enum class OverlayDrawResult : uint8_t { NotFound, Drawn, Failed };
 void SleepActivity::onEnter() {
   Activity::onEnter();
 
+  overlayPageBufferStored = SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::OVERLAY &&
+                            APP_STATE.lastSleepFromReader && renderer.storeBwBuffer();
+
   // Show the popup in the reader's orientation when sleep starts from an open book.
   // Reset to portrait afterwards so the sleep screen renderer keeps its existing layout.
   if (APP_STATE.lastSleepFromReader) {
@@ -526,9 +529,11 @@ void SleepActivity::renderOverlaySleepScreen() const {
   const auto pageHeight = renderer.getScreenHeight();
 
   // Step 1: Ensure the frame buffer contains only the reader page.
-  // The sleep popup was just drawn into the same buffer, so overlay mode must rebuild
-  // the saved page before compositing the transparent sleep artwork.
-  if (!APP_STATE.openEpubPath.empty()) {
+  // When sleeping from the reader, restore the page snapshot taken before the
+  // popup was drawn. Otherwise, rebuild from the saved position.
+  if (overlayPageBufferStored) {
+    renderer.restoreBwBuffer();
+  } else if (!APP_STATE.openEpubPath.empty()) {
     const auto& path = APP_STATE.openEpubPath;
     bool rendered = false;
 
