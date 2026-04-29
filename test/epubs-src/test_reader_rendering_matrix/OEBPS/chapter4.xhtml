@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en">
+<head>
+  <title>Line Breaking and Page Breaking</title>
+  <link rel="stylesheet" type="text/css" href="styles/test.css"/>
+</head>
+<body>
+  <h1>Breaking</h1>
+  <p class="note">PASS when no line has orphaned attached punctuation, nonbreaking-space groups stay together, and explicit page breaks start new pages.</p>
+
+  <h2>Line Breaking</h2>
+  <p>This paragraph contains a very long plain word: antidisestablishmentarianismantidisestablishmentarianismantidisestablishmentarianism. It should not crash layout or draw off the side of the screen.</p>
+  <p>This paragraph contains soft hyphens for hyphenation checks: extra&#x00AD;ordinary, char&#x00AD;acter&#x00AD;istically, micro&#x00AD;archi&#x00AD;tecture, and inter&#x00AD;national&#x00AD;ization.</p>
+  <p>This paragraph contains nonbreaking spaces: Chapter&#x00A0;12, 200&#x00A0;km, Mr.&#x00A0;Darcy, and 10&#x00A0;percent should avoid splitting between the paired words when possible.</p>
+  <p>This paragraph tests punctuation attachment: quoted words like "hello," parenthetical phrases (with punctuation), ellipses... and dashes - including text after the dash - should not create strange extra spaces.</p>
+  <p class="justify">This justified paragraph combines guide dots, hyphenation candidates, and punctuation. The quick brown fox jumps over several unusually long hyphenation-friendly words while the page tries to distribute the spaces evenly.</p>
+
+  <h2 class="page-before">Page Break Before</h2>
+  <p>This heading uses page-break-before. It should start at the top of a new page or at least force a clear page boundary if the parser supports this property.</p>
+  <p class="page-after">This paragraph uses page-break-after. The next heading should begin on a fresh page if page-break-after is supported.</p>
+
+  <h2>Page Break After Target</h2>
+  <p>If the previous paragraph's page-break-after was honored, this text should not appear on the same page as that paragraph.</p>
+  <p>Filler paragraph one. This text exists to create additional pages and catch progress, chapter navigation, and cache reuse issues after explicit page breaks.</p>
+  <p>Filler paragraph two. Repeated flowing text makes it easier to notice if a page is skipped, duplicated, or rendered with stale layout settings.</p>
+  <p>Filler paragraph three. Toggle font size, line compression, guide dots, bionic reading, and hyphenation while this chapter is open to force cache invalidation paths.</p>
+</body>
+</html>

@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" unique-identifier="bookid" version="3.0">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:identifier id="bookid">urn:uuid:test-reader-rendering-matrix</dc:identifier>
+    <dc:title>Test: Reader Rendering Matrix</dc:title>
+    <dc:creator>CrossPoint Test Fixture</dc:creator>
+    <dc:language>en</dc:language>
+  </metadata>
+  <manifest>
+    <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
+    <item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>
+    <item id="style" href="styles/test.css" media-type="text/css"/>
+    <item id="chapter1" href="chapter1.xhtml" media-type="application/xhtml+xml"/>
+    <item id="chapter2" href="chapter2.xhtml" media-type="application/xhtml+xml"/>
+    <item id="chapter3" href="chapter3.xhtml" media-type="application/xhtml+xml"/>
+    <item id="chapter4" href="chapter4.xhtml" media-type="application/xhtml+xml"/>
+    <item id="chapter5" href="chapter5.xhtml" media-type="application/xhtml+xml"/>
+  </manifest>
+  <spine toc="ncx">
+    <itemref idref="chapter1"/>
+    <itemref idref="chapter2"/>
+    <itemref idref="chapter3"/>
+    <itemref idref="chapter4"/>
+    <itemref idref="chapter5"/>
+  </spine>
+</package>

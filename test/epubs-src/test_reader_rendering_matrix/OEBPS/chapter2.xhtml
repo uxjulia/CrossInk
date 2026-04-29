@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en">
+<head>
+  <title>Paragraph Alignment and Indents</title>
+  <link rel="stylesheet" type="text/css" href="styles/test.css"/>
+</head>
+<body>
+  <h1>Alignment and Indents</h1>
+  <p class="note">PASS when each labeled paragraph visibly follows its requested alignment. With Reader Paragraph Alignment set to Justify, Guide Dots should still appear between words.</p>
+
+  <h2>Alignment</h2>
+  <p class="left"><strong>Left:</strong> This paragraph should start at the left edge of the content area and leave a ragged right edge. It contains enough words to wrap across multiple lines.</p>
+  <p class="center"><strong>Center:</strong> This paragraph should be centered as a block of lines. The left and right edges should both look ragged, and the text should not suddenly snap to left alignment.</p>
+  <p class="right"><strong>Right:</strong> This paragraph should end near the right edge of the content area. It should not gain first-line paragraph indentation.</p>
+  <p class="justify"><strong>Justify:</strong> This paragraph should spread spaces across each non-final line. It is the main guide-dot regression check because dots should still appear when Guide Reading is enabled even though the line is justified.</p>
+  <p class="book-style-justify"><strong>Book style justify:</strong> This paragraph gets justify from embedded CSS. With Book's Style selected, it should justify. With a user-selected alignment, the user setting should win.</p>
+
+  <h2>Indent Variants</h2>
+  <p class="zero-indent justify"><strong>Zero indent plus justify:</strong> This paragraph declares text-indent zero and justified alignment. Force Paragraph Indents should be able to add an indent when that setting is enabled.</p>
+  <p class="positive-indent left"><strong>Positive indent:</strong> The first line should start inward, while following lines return to the normal left edge. Extra Paragraph Spacing may suppress this unless Force Paragraph Indents is enabled.</p>
+  <p class="hanging-indent left"><strong>Hanging indent:</strong> The first line starts farther left than the following lines, like a definition list or bibliography entry. This checks negative text-indent handling.</p>
+  <p class="large-margins justify"><strong>Margins:</strong> This justified paragraph has left and right margins. Text should stay inside the narrower area, and guide dots should be placed between words inside that area.</p>
+  <div class="nested-indent">
+    <p class="left"><strong>Nested block:</strong> This paragraph lives inside an indented container. It should stay shifted right without pushing text off-screen.</p>
+  </div>
+</body>
+</html>
