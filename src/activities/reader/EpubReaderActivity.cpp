@@ -209,17 +209,12 @@ void EpubReaderActivity::onEnter() {
     }
   }
 
-  // Load reading stats, increment session count, and record session start time.
-  // Stats are saved immediately so the session is counted even if the device crashes.
+  // Load reading stats and record session start time.
+  // Session count and reading time are committed on exit once thresholds are met.
   stats = BookReadingStats::load(epub->getCachePath());
-  stats.sessionCount++;
   sessionStartMs = millis();
-  stats.save(epub->getCachePath());
 
-  // Mirror session count increment in global stats.
   globalStats = GlobalReadingStats::load();
-  globalStats.totalSessions++;
-  globalStats.save();
 
   initializeCompletionPromptTrigger();
 
@@ -244,10 +239,15 @@ void EpubReaderActivity::onExit() {
   APP_STATE.readerActivityLoadCount = 0;
   APP_STATE.saveToFile();
 
-  // Accumulate this session's reading time and persist final stats.
-  // Ignore sessions shorter than 3 seconds to avoid skewing the average.
+  // Commit session stats based on how long the session lasted.
+  // Sessions under 1 minute don't count toward session count or reading time.
+  // Sessions under 10 seconds don't add to reading time.
   const unsigned long elapsedMs = millis() - sessionStartMs;
-  if (elapsedMs >= 3000UL) {
+  if (elapsedMs >= 60000UL) {
+    stats.sessionCount++;
+    globalStats.totalSessions++;
+  }
+  if (elapsedMs >= 10000UL) {
     const uint32_t elapsedSecs = static_cast<uint32_t>(elapsedMs / 1000UL);
     stats.totalReadingSeconds += elapsedSecs;
     globalStats.totalReadingSeconds += elapsedSecs;
