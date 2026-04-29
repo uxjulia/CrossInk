@@ -2,7 +2,7 @@ _language_name: "Deutsch"
 _language_code: "DE"
 _order: "3"
 
-STR_CROSSPOINT: "CrossInk"
+STR_CROSSINK: "CrossInk"
 STR_BOOTING: "STARTEN"
 STR_SLEEPING: "STANDBY"
 STR_ENTERING_SLEEP: "Standby"

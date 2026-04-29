@@ -177,7 +177,7 @@ void ChapterHtmlSlimParser::startNewTextBlock(const BlockStyle& blockStyle) {
     pendingAnchorId.clear();
   }
   currentTextBlock.reset(new ParsedText(extraParagraphSpacing, forceParagraphIndents, hyphenationEnabled,
-                                        bionicReadingEnabled, blockStyle, guideReadingEnabled));
+                                        bionicReadingEnabled, guideReadingEnabled, blockStyle));
   wordsExtractedInBlock = 0;
 }
 
@@ -602,13 +602,13 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
 
   const float emSize = static_cast<float>(self->renderer.getFontAscenderSize(self->fontId));
 
-  CssTextAlign resolvedAlign = static_cast<CssTextAlign>(self->paragraphAlignment);
-  if (self->embeddedStyle && cssStyle.hasTextAlign()) {
-    resolvedAlign = cssStyle.textAlign;
+  const CssTextAlign requestedAlign = static_cast<CssTextAlign>(self->paragraphAlignment);
+  auto userAlignmentBlockStyle = BlockStyle::fromCssStyle(cssStyle, emSize, requestedAlign, self->viewportWidth);
+
+  if (!self->embeddedStyle || requestedAlign != CssTextAlign::None) {
+    userAlignmentBlockStyle.textAlignDefined = true;
+    userAlignmentBlockStyle.alignment = requestedAlign == CssTextAlign::None ? CssTextAlign::Justify : requestedAlign;
   }
-  auto userAlignmentBlockStyle = BlockStyle::fromCssStyle(cssStyle, emSize, resolvedAlign, self->viewportWidth);
-  userAlignmentBlockStyle.textAlignDefined = true;
-  userAlignmentBlockStyle.alignment = resolvedAlign;
 
   if (!self->embeddedStyle) {
     userAlignmentBlockStyle.marginLeft = 0;
@@ -626,12 +626,13 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
   // Force paragraph indent to prevent unreadable walls of text.
   // This applies if the publisher set text-indent: 0, omitted it, or if it was stripped by disabling embedded styles.
   if (self->forceParagraphIndents && strcmp(name, "p") == 0) {
+    static constexpr float forcedIndentEm = 1.0f;
     if (userAlignmentBlockStyle.alignment == CssTextAlign::Left ||
         userAlignmentBlockStyle.alignment == CssTextAlign::Justify ||
         userAlignmentBlockStyle.alignment == CssTextAlign::None) {
       if (!userAlignmentBlockStyle.textIndentDefined || userAlignmentBlockStyle.textIndent == 0) {
         userAlignmentBlockStyle.textIndentDefined = true;
-        userAlignmentBlockStyle.textIndent = static_cast<int16_t>(emSize * 1.0f);
+        userAlignmentBlockStyle.textIndent = static_cast<int16_t>(emSize * forcedIndentEm);
       }
     }
   }

@@ -15,13 +15,103 @@ OtaUpdater::OtaUpdaterError OtaUpdater::installUpdate(std::atomic<bool>*) { retu
 #include "esp_wifi.h"
 
 namespace {
-constexpr char latestReleaseUrl[] = "https://api.github.com/repos/uxjulia/crossink-reader/releases/latest";
+#ifndef CROSSINK_OTA_RELEASE_URL
+#define CROSSINK_OTA_RELEASE_URL "https://api.github.com/repos/uxjulia/crossink-reader/releases/latest"
+#endif
+
+constexpr char latestReleaseUrl[] = CROSSINK_OTA_RELEASE_URL;
 
 #ifdef CROSSPOINT_FIRMWARE_VARIANT
+constexpr char firmwareAssetStem[] = "firmware-" CROSSPOINT_FIRMWARE_VARIANT;
 constexpr char firmwareAssetName[] = "firmware-" CROSSPOINT_FIRMWARE_VARIANT ".bin";
 #else
+constexpr char firmwareAssetStem[] = "firmware";
 constexpr char firmwareAssetName[] = "firmware.bin";
 #endif
+
+constexpr size_t VERSION_SEGMENT_COUNT = 4;
+
+struct ParsedVersion {
+  int segments[VERSION_SEGMENT_COUNT] = {0, 0, 0, 0};
+  bool valid = false;
+  bool releaseCandidate = false;
+};
+
+bool isDigit(const char c) { return c >= '0' && c <= '9'; }
+
+bool startsWithNumberAfterOptionalV(const char* version) {
+  if (version == nullptr) return false;
+  if ((version[0] == 'v' || version[0] == 'V') && isDigit(version[1])) return true;
+  return isDigit(version[0]);
+}
+
+bool containsRcMarker(const char* version) {
+  if (version == nullptr) return false;
+  for (const char* p = version; p[0] != '\0' && p[1] != '\0' && p[2] != '\0'; ++p) {
+    if (p[0] == '-' && (p[1] == 'r' || p[1] == 'R') && (p[2] == 'c' || p[2] == 'C')) {
+      return true;
+    }
+  }
+  return false;
+}
+
+ParsedVersion parseVersion(const char* version) {
+  ParsedVersion parsed;
+  if (!startsWithNumberAfterOptionalV(version)) return parsed;
+
+  const char* p = version;
+  if (p[0] == 'v' || p[0] == 'V') ++p;
+
+  size_t segmentIndex = 0;
+  while (segmentIndex < VERSION_SEGMENT_COUNT) {
+    if (!isDigit(*p)) return parsed;
+
+    int value = 0;
+    while (isDigit(*p)) {
+      value = value * 10 + (*p - '0');
+      ++p;
+    }
+    parsed.segments[segmentIndex] = value;
+    ++segmentIndex;
+
+    if (*p != '.') break;
+    ++p;
+  }
+
+  parsed.valid = true;
+  parsed.releaseCandidate = containsRcMarker(version);
+  return parsed;
+}
+
+int compareVersions(const char* latestVersion, const char* currentVersion) {
+  const ParsedVersion latest = parseVersion(latestVersion);
+  const ParsedVersion current = parseVersion(currentVersion);
+  if (!latest.valid || !current.valid) return 0;
+
+  for (size_t i = 0; i < VERSION_SEGMENT_COUNT; ++i) {
+    if (latest.segments[i] != current.segments[i]) {
+      return latest.segments[i] > current.segments[i] ? 1 : -1;
+    }
+  }
+
+  if (current.releaseCandidate && !latest.releaseCandidate) return 1;
+  return 0;
+}
+
+std::string stripLeadingVersionPrefix(const std::string& version) {
+  if (version.length() > 1 && (version[0] == 'v' || version[0] == 'V') && isDigit(version[1])) {
+    return version.substr(1);
+  }
+  return version;
+}
+
+bool isMatchingFirmwareAsset(const std::string& assetName, const std::string& releaseVersion) {
+  if (assetName == firmwareAssetName) return true;
+
+  const std::string normalizedVersion = stripLeadingVersionPrefix(releaseVersion);
+  const std::string stem(firmwareAssetStem);
+  return assetName == stem + "-v" + normalizedVersion + ".bin" || assetName == stem + "-" + normalizedVersion + ".bin";
+}
 
 /* This is buffer and size holder to keep upcoming data from latestReleaseUrl */
 char* local_buf;
@@ -37,7 +127,7 @@ extern esp_err_t esp_crt_bundle_attach(void* conf);
 }
 
 esp_err_t http_client_set_header_cb(esp_http_client_handle_t http_client) {
-  return esp_http_client_set_header(http_client, "User-Agent", "CrossPoint-ESP32-" CROSSPOINT_VERSION);
+  return esp_http_client_set_header(http_client, "User-Agent", "CrossInk-ESP32-" CROSSINK_VERSION);
 }
 
 esp_err_t event_handler(esp_http_client_event_t* event) {
@@ -106,7 +196,7 @@ OtaUpdater::OtaUpdaterError OtaUpdater::checkForUpdate() {
     return INTERNAL_UPDATE_ERROR;
   }
 
-  esp_err = esp_http_client_set_header(client_handle, "User-Agent", "CrossPoint-ESP32-" CROSSPOINT_VERSION);
+  esp_err = esp_http_client_set_header(client_handle, "User-Agent", "CrossInk-ESP32-" CROSSINK_VERSION);
   if (esp_err != ESP_OK) {
     LOG_ERR("OTA", "esp_http_client_set_header Failed : %s", esp_err_to_name(esp_err));
     esp_http_client_cleanup(client_handle);
@@ -149,9 +239,13 @@ OtaUpdater::OtaUpdaterError OtaUpdater::checkForUpdate() {
 
   latestVersion = doc["tag_name"].as<std::string>();
 
-  LOG_DBG("OTA", "Looking for asset: %s", firmwareAssetName);
+  LOG_DBG("OTA", "Looking for firmware asset: %s or %s-<version>.bin", firmwareAssetName, firmwareAssetStem);
   for (int i = 0; i < doc["assets"].size(); i++) {
-    if (doc["assets"][i]["name"] == firmwareAssetName) {
+    if (!doc["assets"][i]["name"].is<std::string>()) continue;
+
+    const std::string assetName = doc["assets"][i]["name"].as<std::string>();
+    if (isMatchingFirmwareAsset(assetName, latestVersion)) {
+      LOG_DBG("OTA", "Matched firmware asset: %s", assetName.c_str());
       otaUrl = doc["assets"][i]["browser_download_url"].as<std::string>();
       otaSize = doc["assets"][i]["size"].as<size_t>();
       totalSize = otaSize;
@@ -161,7 +255,7 @@ OtaUpdater::OtaUpdaterError OtaUpdater::checkForUpdate() {
   }
 
   if (!updateAvailable) {
-    LOG_ERR("OTA", "No %s asset found in release", firmwareAssetName);
+    LOG_ERR("OTA", "No matching %s asset found for release %s", firmwareAssetStem, latestVersion.c_str());
     return NO_UPDATE;
   }
 
@@ -170,46 +264,14 @@ OtaUpdater::OtaUpdaterError OtaUpdater::checkForUpdate() {
 }
 
 bool OtaUpdater::isUpdateNewer() const {
-  if (!updateAvailable || latestVersion.empty() || latestVersion == CROSSPOINT_VERSION) {
+  if (!updateAvailable || latestVersion.empty() || latestVersion == CROSSINK_VERSION) {
     return false;
   }
 
-  int currentMajor, currentMinor, currentPatch;
-  int latestMajor, latestMinor, latestPatch;
-
-  const auto currentVersion = CROSSPOINT_VERSION;
-
-  // semantic version check (only match on 3 segments)
-  sscanf(latestVersion.c_str(), "%d.%d.%d", &latestMajor, &latestMinor, &latestPatch);
-  sscanf(currentVersion, "%d.%d.%d", &currentMajor, &currentMinor, &currentPatch);
-
-  /*
-   * Compare major versions.
-   * If they differ, return true if latest major version greater than current major version
-   * otherwise return false.
-   */
-  if (latestMajor != currentMajor) return latestMajor > currentMajor;
-
-  /*
-   * Compare minor versions.
-   * If they differ, return true if latest minor version greater than current minor version
-   * otherwise return false.
-   */
-  if (latestMinor != currentMinor) return latestMinor > currentMinor;
-
-  /*
-   * Check patch versions.
-   */
-  if (latestPatch != currentPatch) return latestPatch > currentPatch;
-
-  // If we reach here, it means all segments are equal.
-  // One final check, if we're on an RC build (contains "-rc"), we should consider the latest version as newer even if
-  // the segments are equal, since RC builds are pre-release versions.
-  if (strstr(currentVersion, "-rc") != nullptr) {
-    return true;
-  }
-
-  return false;
+  const int comparison = compareVersions(latestVersion.c_str(), CROSSINK_VERSION);
+  LOG_DBG("OTA", "Version comparison latest=%s current=%s result=%d", latestVersion.c_str(), CROSSINK_VERSION,
+          comparison);
+  return comparison > 0;
 }
 
 const std::string& OtaUpdater::getLatestVersion() const { return latestVersion; }

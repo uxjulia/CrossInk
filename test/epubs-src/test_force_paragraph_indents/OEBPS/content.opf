@@ -2,6 +2,7 @@
 <package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="uid">
   <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
     <dc:identifier id="uid">test-epub-force-paragraph-indents</dc:identifier>
+    <meta property="dcterms:modified">2024-01-01T00:00:00Z</meta>
     <dc:title>Test: Force Paragraph Indents</dc:title>
     <dc:language>en</dc:language>
   </metadata>

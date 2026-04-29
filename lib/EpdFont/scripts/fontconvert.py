@@ -16,9 +16,11 @@ parser.add_argument("size", type=int, help="font size to use.")
 parser.add_argument("fontstack", action="store", nargs='+', help="list of font files, ordered by descending priority.")
 parser.add_argument("--2bit", dest="is2Bit", action="store_true", help="generate 2-bit greyscale bitmap instead of 1-bit black and white.")
 parser.add_argument("--additional-intervals", dest="additional_intervals", action="append", help="Additional code point intervals to export as min,max. This argument can be repeated.")
+parser.add_argument("--font-include-intervals", dest="font_include_intervals", action="append", help="Restrict a font-stack entry to specific intervals. Format: faceIndex:min,max . This argument can be repeated.")
 parser.add_argument("--compress", dest="compress", action="store_true", help="Compress glyph bitmaps using DEFLATE with group-based compression.")
 parser.add_argument("--force-autohint", dest="force_autohint", action="store_true", help="Force FreeType auto-hinter instead of native font hinting. Improves stem width consistency for fonts with weak or no native TrueType hints.")
 parser.add_argument("--pnum", dest="pnum", action="store_true", help="Use proportional numerals (pnum OpenType feature) instead of default tabular figures. Reduces visual gaps between digits in running prose.")
+parser.add_argument("--darken-aa", dest="darken_aa", action="store_true", help="Use darker 2-bit anti-aliasing thresholds for reader fonts.")
 args = parser.parse_args()
 
 GlyphProps = namedtuple("GlyphProps", ["width", "height", "advance_x", "left", "top", "data_length", "data_offset", "code_point"])
@@ -27,6 +29,7 @@ font_stack = [freetype.Face(f) for f in args.fontstack]
 is2Bit = args.is2Bit
 size = args.size
 font_name = args.name
+aa_thresholds = (3, 6, 10) if args.darken_aa else (4, 8, 12)
 load_flags = freetype.FT_LOAD_RENDER | freetype.FT_LOAD_NO_BITMAP
 if args.force_autohint:
     load_flags |= freetype.FT_LOAD_FORCE_AUTOHINT
@@ -132,6 +135,22 @@ add_ints = []
 if args.additional_intervals:
     add_ints = [tuple([int(n, base=0) for n in i.split(",")]) for i in args.additional_intervals]
 
+font_include_intervals = {}
+if args.font_include_intervals:
+    for spec in args.font_include_intervals:
+        face_str, interval_str = spec.split(":", 1)
+        face_idx = int(face_str, base=0)
+        interval = tuple(int(n, base=0) for n in interval_str.split(","))
+        if face_idx < 0 or face_idx >= len(font_stack):
+            raise ValueError(f"font-include-intervals face index out of range: {spec}")
+        font_include_intervals.setdefault(face_idx, []).append(interval)
+
+def code_point_in_intervals(code_point, cp_intervals):
+    for i_start, i_end in cp_intervals:
+        if i_start <= code_point <= i_end:
+            return True
+    return False
+
 def norm_floor(val):
     return int(math.floor(val / (1 << 6)))
 
@@ -227,6 +246,10 @@ if args.pnum:
 def load_glyph(code_point):
     face_index = 0
     while face_index < len(font_stack):
+        allowed_intervals = font_include_intervals.get(face_index)
+        if allowed_intervals and not code_point_in_intervals(code_point, allowed_intervals):
+            face_index += 1
+            continue
         face = font_stack[face_index]
         glyph_index = pnum_glyph_overrides.get((face_index, code_point))
         if glyph_index is None:
@@ -286,7 +309,8 @@ for i_start, i_end in intervals:
                 px = 0
 
         if is2Bit:
-            # 0-3 white, 4-7 light grey, 8-11 dark grey, 12-15 black
+            # Default: 0-3 white, 4-7 light grey, 8-11 dark grey, 12-15 black.
+            # --darken-aa lowers the cutoffs to push edge pixels one shade darker.
             # Downsample to 2-bit bitmap
             pixels2b = []
             px = 0
@@ -297,11 +321,11 @@ for i_start, i_end in intervals:
                     bm = pixels4g[y * pitch + (x // 2)]
                     bm = (bm >> ((x % 2) * 4)) & 0xF
 
-                    if bm >= 12:
+                    if bm >= aa_thresholds[2]:
                         px += 3
-                    elif bm >= 8:
+                    elif bm >= aa_thresholds[1]:
                         px += 2
-                    elif bm >= 4:
+                    elif bm >= aa_thresholds[0]:
                         px += 1
 
                     if (y * bitmap.width + x) % 4 == 3:

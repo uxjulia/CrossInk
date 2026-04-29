@@ -5,6 +5,7 @@
 #include <ZipFile.h>
 
 #include <deque>
+#include <limits>
 
 #include "FsHelpers.h"
 
@@ -253,6 +254,16 @@ bool BookMetadataCache::buildBookBin(const std::string& epubPath, const BookMeta
       if (!zip.getInflatedFileSize(path.c_str(), &itemSize)) {
         LOG_ERR("BMC", "Warning: Could not get size for spine item: %s", path.c_str());
       }
+    }
+
+    constexpr size_t maxStoredCumulativeSize = std::numeric_limits<uint32_t>::max();
+    if (itemSize > maxStoredCumulativeSize || cumSize > maxStoredCumulativeSize - itemSize) {
+      LOG_ERR("BMC", "Spine cumulative size overflow for item %d (cumSize=%u, itemSize=%zu)", i, cumSize, itemSize);
+      zip.close();
+      bookFile.close();
+      spineFile.close();
+      tocFile.close();
+      return false;
     }
 
     cumSize += itemSize;

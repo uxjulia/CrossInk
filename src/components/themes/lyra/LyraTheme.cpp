@@ -306,7 +306,8 @@ void LyraTheme::drawList(const GfxRenderer& renderer, Rect rect, int itemCount, 
     if (isHeader && isHeader(i)) {
       // Section header: bold uppercase label + divider line below
       std::string label = rowTitle(i);
-      for (char& c : label) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+      std::transform(label.begin(), label.end(), label.begin(),
+                     [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
       auto truncated = renderer.truncatedText(
           UI_10_FONT_ID, label.c_str(), contentWidth - LyraMetrics::values.contentSidePadding * 2, EpdFontFamily::BOLD);
       renderer.drawText(UI_10_FONT_ID, rect.x + LyraMetrics::values.contentSidePadding, itemY + 7, truncated.c_str(),

@@ -40,6 +40,8 @@ class EpubReaderActivity final : public Activity {
   bool skipNextButtonCheck = false;  // Skip button processing for one frame after subactivity exit
   bool automaticPageTurnActive = false;
   uint8_t currentPageTurnOption = 0;
+  bool longPressMenuHandled = false;
+  bool longPowerButtonHandled = false;
   int pageLoadRetryCount = 0;
   bool pendingBookmarkFeedback = false;
   bool bookmarkFeedbackIsAdd = false;
@@ -51,6 +53,8 @@ class EpubReaderActivity final : public Activity {
   float completionTriggerSpineProgress = 1.0f;
   bool completionPromptQueued = false;
   bool completionPromptShown = false;
+  bool completionTriggerSeenBelow = false;
+  bool lastAtOrPastCompletionTrigger = false;
   bool pendingReadFolderMove = false;
 
   struct ReadFolderMoveParams {
@@ -80,6 +84,8 @@ class EpubReaderActivity final : public Activity {
   void jumpToPercent(int percent);
   void reindexCurrentSection();
   void executeReaderQuickAction(CrossPointSettings::LONG_PRESS_MENU_ACTION action);
+  bool consumeLongPowerButtonRelease();
+  bool consumeLongPowerButtonHold();
   bool executeShortPowerButtonAction();
   bool executeLongPowerButtonAction();
   void onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction action);
@@ -106,4 +112,9 @@ class EpubReaderActivity final : public Activity {
   void loop() override;
   void render(RenderLock&& lock) override;
   bool isReaderActivity() const override { return true; }
+
+  // Renders the last saved page to the frame buffer without flushing to display.
+  // Used by SleepActivity to prepare the background for the overlay sleep mode.
+  // Returns false if the page cannot be loaded (missing cache / file error).
+  static bool drawCurrentPageToBuffer(const std::string& filePath, GfxRenderer& renderer);
 };

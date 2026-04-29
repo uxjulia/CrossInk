@@ -1,24 +1,139 @@
 """
-PlatformIO post-build script: copy firmware.bin to firmware-<env>.bin
+PlatformIO post-build script: copy firmware.bin to convenient artifact names
 in the same build directory.
 
-Example outputs:
+Default outputs:
   .pio/build/tiny/firmware-tiny.bin
   .pio/build/xlarge/firmware-xlarge.bin
   .pio/build/no_emoji/firmware-no_emoji.bin
+
+Release-candidate outputs when CROSSPOINT_RC_ARTIFACTS=1:
+  .pio/build/tiny/firmware-tiny-<branch>-<hash>-RC.bin
+
+Release outputs when CROSSPOINT_RELEASE_VERSION is set:
+  .pio/build/tiny/firmware-tiny-v<version>.bin
 """
 
+import os
+import re
 import shutil
+import subprocess
 import sys
 
 
-def rename_firmware(source, target, env):
-    import os
-    env_name = env['PIOENV']
-    src = str(target[0])
-    dst = os.path.join(os.path.dirname(src), f'firmware-{env_name}.bin')
+def _copy_artifact(src, dst):
     shutil.copy(src, dst)
     print(f'Firmware copied to: {dst}')
+
+
+def _get_project_option(env, name):
+    try:
+        value = env.GetProjectOption(name)
+    except Exception:
+        return None
+    if isinstance(value, str):
+        value = value.strip()
+    return value or None
+
+
+def _get_git_value(project_dir, *args, fallback):
+    try:
+        return subprocess.check_output(
+            ['git', *args],
+            text=True,
+            stderr=subprocess.PIPE,
+            cwd=project_dir,
+        ).strip()
+    except Exception:
+        return fallback
+
+
+def _get_git_branch(project_dir):
+    branch = _get_git_value(
+        project_dir,
+        'rev-parse',
+        '--abbrev-ref',
+        'HEAD',
+        fallback='unknown',
+    )
+    if branch == 'HEAD':
+        return _get_git_value(
+            project_dir,
+            'rev-parse',
+            '--short',
+            'HEAD',
+            fallback='unknown',
+        )
+    return branch
+
+
+def _sanitize_branch(branch):
+    if branch.startswith('release/'):
+        branch = branch[len('release/'):]
+    branch = branch.strip()
+    branch = re.sub(r'[^A-Za-z0-9._-]+', '-', branch)
+    branch = branch.strip('-.')
+    return branch or 'unknown'
+
+
+def _get_rc_artifact_name(project_dir, env):
+    env_name = _get_project_option(env, 'custom_rc_variant') or env['PIOENV']
+    branch = (
+        _get_project_option(env, 'custom_rc_branch')
+        or os.environ.get('CROSSPOINT_RC_BRANCH')
+        or _get_git_branch(project_dir)
+    )
+    short_hash = (
+        _get_project_option(env, 'custom_rc_hash')
+        or os.environ.get('CROSSPOINT_RC_HASH')
+        or _get_git_value(
+        project_dir,
+        'rev-parse',
+        '--short',
+        'HEAD',
+        fallback='00000',
+    )
+    )
+    branch = _sanitize_branch(branch)
+    short_hash = re.sub(r'[^A-Za-z0-9]+', '', short_hash)[:12] or '00000'
+    return f'firmware-{env_name}-{branch}-{short_hash}-RC.bin'
+
+
+def _is_rc_artifact_build(env):
+    flag = _get_project_option(env, 'custom_rc_artifacts') or os.environ.get('CROSSPOINT_RC_ARTIFACTS')
+    return str(flag).strip().lower() in {'1', 'true', 'yes', 'on'}
+
+
+def _get_release_version(env):
+    version = _get_project_option(env, 'custom_release_version') or os.environ.get('CROSSPOINT_RELEASE_VERSION')
+    if not version:
+        return None
+    version = version.strip()
+    if not version:
+        return None
+    if not version.startswith('v'):
+        version = f'v{version}'
+    return re.sub(r'[^A-Za-z0-9._-]+', '-', version)
+
+
+def rename_firmware(source, target, env):
+    env_name = env['PIOENV']
+    project_dir = env['PROJECT_DIR']
+    src = str(target[0])
+    build_dir = os.path.dirname(src)
+
+    default_dst = os.path.join(build_dir, f'firmware-{env_name}.bin')
+    _copy_artifact(src, default_dst)
+
+    if _is_rc_artifact_build(env):
+        rc_dst = os.path.join(build_dir, _get_rc_artifact_name(project_dir, env))
+        _copy_artifact(src, rc_dst)
+
+    release_version = _get_release_version(env)
+    if release_version:
+        release_env_name = _get_project_option(env, 'custom_rc_variant') or env_name
+        release_dst = os.path.join(build_dir, f'firmware-{release_env_name}-{release_version}.bin')
+        _copy_artifact(src, release_dst)
 
 
 try:

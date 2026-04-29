@@ -37,9 +37,14 @@ jobs:
         run: uv pip install --system -U https://github.com/pioarduino/platformio-core/archive/refs/tags/v6.1.19.zip
 
       - name: Set version from tag
-        run: VERSION="${GITHUB_REF_NAME#v}"; sed -i "s/crossink_version = .*/crossink_version = $VERSION/" platformio.ini
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "RELEASE_VERSION=$VERSION" >> "$GITHUB_ENV"
+          sed -i "s/crossink_version = .*/crossink_version = $VERSION/" platformio.ini
 
       - name: Build CrossPoint
+        env:
+          CROSSPOINT_RELEASE_VERSION: ${{ env.RELEASE_VERSION }}
         run: pio run -e tiny -e xlarge -e no_emoji
 
       - name: Create GitHub Release
@@ -47,6 +52,6 @@ jobs:
         with:
           draft: true
           files: |
-            .pio/build/tiny/firmware-tiny.bin
-            .pio/build/xlarge/firmware-xlarge.bin
-            .pio/build/no_emoji/firmware-no_emoji.bin
+            .pio/build/tiny/firmware-tiny-v${{ env.RELEASE_VERSION }}.bin
+            .pio/build/xlarge/firmware-xlarge-v${{ env.RELEASE_VERSION }}.bin
+            .pio/build/no_emoji/firmware-no_emoji-v${{ env.RELEASE_VERSION }}.bin

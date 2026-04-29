@@ -126,7 +126,8 @@ void ParsedText::addWord(std::string word, const EpdFontFamily::Style fontStyle,
     wordIsGuideDot.push_back(true);
   }
 
-  if (!this->bionicReadingEnabled) {
+  // Already-bold text should stay fully bold; bionic splitting would make its suffix regular later.
+  if (!this->bionicReadingEnabled || (baseStyle & EpdFontFamily::BOLD) != 0) {
     words.push_back(std::move(word));
     wordStyles.push_back(baseStyle);
     wordContinues.push_back(attachToPrevious);
@@ -308,6 +309,10 @@ std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, c
     return {};
   }
 
+  auto nextTokenAttaches = [&](const size_t index, const size_t totalWordCount) {
+    return index + 1 < totalWordCount && (continuesVec[index + 1] || wordIsGuideDot[index + 1]);
+  };
+
   // Calculate first line indent (only for left/justified text).
   // Positive text-indent is normally suppressed when extraParagraphSpacing is on,
   // unless forceParagraphIndents overrides that behavior.
@@ -366,7 +371,7 @@ std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, c
       }
 
       // Cannot break after word j if the next word attaches to it (continuation group)
-      if (j + 1 < totalWordCount && continuesVec[j + 1]) {
+      if (nextTokenAttaches(j, totalWordCount)) {
         continue;
       }
 
@@ -458,6 +463,9 @@ std::vector<size_t> ParsedText::computeHyphenatedLineBreaks(const GfxRenderer& r
   std::vector<size_t> lineBreakIndices;
   size_t currentIndex = 0;
   bool isFirstLine = true;
+  auto currentTokenAttaches = [&](const size_t index) {
+    return index < wordWidths.size() && (continuesVec[index] || wordIsGuideDot[index]);
+  };
 
   while (currentIndex < wordWidths.size()) {
     const size_t lineStart = currentIndex;
@@ -509,7 +517,7 @@ std::vector<size_t> ParsedText::computeHyphenatedLineBreaks(const GfxRenderer& r
 
     // Don't break before a continuation word (e.g., orphaned "?" after "question").
     // Backtrack to the start of the continuation group so the whole group moves to the next line.
-    while (currentIndex > lineStart + 1 && currentIndex < wordWidths.size() && continuesVec[currentIndex]) {
+    while (currentIndex > lineStart + 1 && currentTokenAttaches(currentIndex)) {
       --currentIndex;
     }
 

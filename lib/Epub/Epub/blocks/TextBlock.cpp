@@ -4,6 +4,7 @@
 #include <Logging.h>
 #include <Serialization.h>
 
+#include <algorithm>
 #include <cstring>
 
 void TextBlock::render(const GfxRenderer& renderer, const int fontId, const int x, const int y) const {
@@ -27,8 +28,8 @@ void TextBlock::render(const GfxRenderer& renderer, const int fontId, const int 
       // Bionic split: draw bold prefix (max 9 codepoints = 36 UTF-8 bytes + null).
       // suffixX is pre-computed at cache creation time to avoid font metric lookups at render time.
       const auto boldStyle = static_cast<EpdFontFamily::Style>(currentStyle | EpdFontFamily::BOLD);
-      const size_t boldLen = std::min<size_t>(boundary, words[i].size());
       char boldBuf[40];
+      const size_t boldLen = std::min<size_t>({static_cast<size_t>(boundary), words[i].size(), sizeof(boldBuf) - 1});
       memcpy(boldBuf, words[i].c_str(), boldLen);
       boldBuf[boldLen] = '\0';
       renderer.drawText(fontId, wordX, y, boldBuf, true, boldStyle);
@@ -97,8 +98,9 @@ bool TextBlock::serialize(FsFile& file) const {
       words.size() != wordGuideDotXOffset.size()) {
     LOG_ERR("TXB",
             "Serialization failed: size mismatch (words=%u, xpos=%u, styles=%u, boundary=%u, suffixX=%u, dotX=%u)\n",
-            words.size(), wordXpos.size(), wordStyles.size(), wordBionicBoundary.size(), wordBionicSuffixX.size(),
-            wordGuideDotXOffset.size());
+            static_cast<uint32_t>(words.size()), static_cast<uint32_t>(wordXpos.size()),
+            static_cast<uint32_t>(wordStyles.size()), static_cast<uint32_t>(wordBionicBoundary.size()),
+            static_cast<uint32_t>(wordBionicSuffixX.size()), static_cast<uint32_t>(wordGuideDotXOffset.size()));
     return false;
   }
 

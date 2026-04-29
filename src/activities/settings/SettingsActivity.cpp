@@ -3,6 +3,8 @@
 #include <GfxRenderer.h>
 #include <Logging.h>
 
+#include <algorithm>
+
 #include "AppVersion.h"
 #include "ButtonRemapActivity.h"
 #include "ClearCacheActivity.h"
@@ -32,12 +34,13 @@ void SettingsActivity::onEnter() {
 
   const auto& allSettings = getSettingsList();
   auto addControlSetting = [&](StrId nameId) {
-    for (const auto& s : allSettings) {
-      if (s.nameId == nameId) {
-        controlsSettings.push_back(s);
-        break;
-      }
+    const auto it = std::find_if(allSettings.begin(), allSettings.end(),
+                                 [nameId](const auto& setting) { return setting.nameId == nameId; });
+    if (it != allSettings.end()) {
+      controlsSettings.push_back(*it);
+      return;
     }
+    LOG_ERR("SET", "Missing control setting definition for nameId=%d", static_cast<int>(nameId));
   };
 
   for (const auto& setting : allSettings) {
@@ -62,7 +65,8 @@ void SettingsActivity::onEnter() {
   readerSettings.push_back(SettingInfo::Action(StrId::STR_CUSTOMISE_STATUS_BAR, SettingAction::CustomiseStatusBar));
 
   // Build controls settings with section headers in desired display order
-  controlsSettings.reserve(11);
+  constexpr size_t expectedControlsSettingsCount = 11;
+  controlsSettings.reserve(expectedControlsSettingsCount);
   controlsSettings.push_back(SettingInfo::SectionHeader(StrId::STR_POWER_BUTTON));
   addControlSetting(StrId::STR_SHORT_PWR_BTN);
   addControlSetting(StrId::STR_LONG_PRESS_ACTION);
@@ -75,6 +79,11 @@ void SettingsActivity::onEnter() {
   addControlSetting(StrId::STR_SIDE_BTN_LAYOUT);
   addControlSetting(StrId::STR_LONG_PRESS_SKIP);
   addControlSetting(StrId::STR_SIDE_BTN_LONG_PRESS);
+
+  if (controlsSettings.size() != expectedControlsSettingsCount) {
+    LOG_ERR("SET", "Unexpected controls settings count: %u (expected %u)",
+            static_cast<uint32_t>(controlsSettings.size()), static_cast<uint32_t>(expectedControlsSettingsCount));
+  }
 
   // Reset selection to first category
   selectedCategoryIndex = 0;
@@ -172,7 +181,12 @@ void SettingsActivity::loop() {
     // Advance past any leading section headers
     while (selectedSettingIndex > 0 && selectedSettingIndex <= settingsCount &&
            (*currentSettings)[selectedSettingIndex - 1].type == SettingType::SECTION_HEADER) {
-      selectedSettingIndex++;
+      const int nextIndex = ButtonNavigator::nextIndex(selectedSettingIndex, settingsCount + 1);
+      if (nextIndex <= selectedSettingIndex) {
+        selectedSettingIndex = settingsCount;
+        break;
+      }
+      selectedSettingIndex = nextIndex;
     }
   }
 }
