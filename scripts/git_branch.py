@@ -30,7 +30,7 @@ def get_git_short_hash(project_dir, length=5):
         return '00000'
 
 
-def get_git_branch(project_dir):
+def run_git_value(project_dir, args, label):
     try:
         value = subprocess.check_output(
             ['git', *args],
@@ -155,11 +155,15 @@ def inject_version(env):
 # When run directly with Python (e.g. for validation), a lightweight fake env is used
 # so the git/version logic can be exercised without a full build.
 try:
-    Import('env')           # noqa: F821  # type: ignore[name-defined]
-    inject_version(env)     # noqa: F821  # type: ignore[name-defined]
+    Import('env')  # noqa: F821  # type: ignore[name-defined]
 except NameError:
     class _Env(dict):
         def Append(self, **_): pass
 
-    _project_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if '__file__' in globals():
+        _project_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    else:
+        _project_dir = os.getcwd()
     inject_version(_Env({'PIOENV': 'default', 'PROJECT_DIR': _project_dir}))
+else:
+    inject_version(env)  # noqa: F821  # type: ignore[name-defined]
