@@ -9,13 +9,16 @@
 #include <Txt.h>
 #include <Xtc.h>
 
+#include <functional>
 #include <new>
 
+#include "../reader/BookStatsView.h"
 #include "../reader/EpubReaderActivity.h"
 #include "../reader/TxtReaderActivity.h"
 #include "../reader/XtcReaderActivity.h"
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
+#include "RecentBooksStore.h"
 #include "activities/reader/ReaderUtils.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
@@ -189,6 +192,21 @@ int pngOverlayDraw(PNGDRAW* pDraw) {
   return 1;
 }
 
+std::string filenameFromPath(const std::string& path) {
+  const size_t lastSlash = path.find_last_of('/');
+  return lastSlash == std::string::npos ? path : path.substr(lastSlash + 1);
+}
+
+std::string recentTitleForPath(const std::string& path) {
+  const auto& books = RECENT_BOOKS.getBooks();
+  for (const RecentBook& book : books) {
+    if (book.path == path && !book.title.empty()) {
+      return book.title;
+    }
+  }
+  return {};
+}
+
 }  // namespace
 
 void SleepActivity::onEnter() {
@@ -222,6 +240,8 @@ void SleepActivity::onEnter() {
       }
     case (CrossPointSettings::SLEEP_SCREEN_MODE::OVERLAY):
       return renderOverlaySleepScreen();
+    case (CrossPointSettings::SLEEP_SCREEN_MODE::READING_STATS_SLEEP):
+      return renderReadingStatsSleepScreen();
     default:
       return renderDefaultSleepScreen();
   }
@@ -473,6 +493,26 @@ void SleepActivity::renderCoverSleepScreen() const {
   }
 
   return (this->*renderNoCoverSleepScreen)();
+}
+
+void SleepActivity::renderReadingStatsSleepScreen() const {
+  BookReadingStats bookStats;
+  GlobalReadingStats globalStats = GlobalReadingStats::load();
+  std::string bookTitle = tr(STR_READING_STATS);
+
+  const std::string& path = APP_STATE.openEpubPath;
+  if (!path.empty()) {
+    const std::string recentTitle = recentTitleForPath(path);
+    bookTitle = recentTitle.empty() ? filenameFromPath(path) : recentTitle;
+
+    if (FsHelpers::hasEpubExtension(path)) {
+      const std::string cachePath = "/.crosspoint/epub_" + std::to_string(std::hash<std::string>{}(path));
+      bookStats = BookReadingStats::load(cachePath);
+    }
+  }
+
+  renderBookStatsView(renderer, nullptr, bookTitle, bookStats, globalStats, false);
+  renderer.displayBuffer(HalDisplay::HALF_REFRESH);
 }
 
 void SleepActivity::renderBlankSleepScreen() const {
