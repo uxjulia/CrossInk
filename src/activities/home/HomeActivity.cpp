@@ -35,6 +35,15 @@ constexpr uint8_t TXT_CACHE_VERSION = 2;
 
 float clampProgressPercent(const float progress) { return std::clamp(progress, 0.0f, 100.0f); }
 
+bool hasAnyBookStats(const BookReadingStats& stats) {
+  return stats.sessionCount > 0 || stats.totalReadingSeconds > 0 || stats.totalPagesTurned > 0 || stats.isCompleted;
+}
+
+bool hasAnyGlobalStats(const GlobalReadingStats& stats) {
+  return stats.totalSessions > 0 || stats.totalReadingSeconds > 0 || stats.totalPagesTurned > 0 ||
+         stats.completedBooks > 0;
+}
+
 float loadEpubProgressPercent(const RecentBook& book) {
   Epub epub(book.path, "/.crosspoint");
   if (!epub.load(false, true)) {
@@ -275,9 +284,8 @@ void HomeActivity::onEnter() {
   if (!recentBooks.empty()) {
     currentBookProgressPercent = loadRecentBookProgressPercent(recentBooks[0]);
   }
-  hasReadingStats = currentBookStats.sessionCount > 0;
-
   globalStats = GlobalReadingStats::load();
+  hasReadingStats = hasAnyBookStats(currentBookStats) || hasAnyGlobalStats(globalStats);
 
   // Trigger first update
   requestUpdate();
@@ -418,23 +426,18 @@ void HomeActivity::render(RenderLock&&) {
     menuIcons.insert(menuIcons.begin() + insertPos, BookmarkIcon);
   }
 
-  const int menuStartY = metrics.homeTopPadding + metrics.homeCoverTileHeight + metrics.verticalSpacing;
+  const int menuStartY = metrics.homeTopPadding + metrics.homeCoverTileHeight + metrics.homeMenuTopOffset;
   const int menuEndY = pageHeight - metrics.buttonHintsHeight;
-  const int menuCount = static_cast<int>(menuItems.size());
-  const int menuSelectedIndex = selectorIndex - static_cast<int>(recentBooks.size());
+  const int menuHeight = std::max(0, menuEndY - menuStartY);
 
-  if (metrics.homeContinueReadingInMenu) {
+  if (metrics.homeContinueReadingInMenu && !recentBooks.empty()) {
     // Insert Continue Reading at the top if enabled in theme
     menuItems.insert(menuItems.begin(), tr(STR_CONTINUE_READING));
     menuIcons.insert(menuIcons.begin(), Book);
   }
 
   GUI.drawButtonMenu(
-      renderer,
-      Rect{0, metrics.homeTopPadding + metrics.homeCoverTileHeight + metrics.homeMenuTopOffset, pageWidth,
-           pageHeight - (metrics.headerHeight + metrics.homeTopPadding + metrics.verticalSpacing +
-                         metrics.homeMenuTopOffset + metrics.buttonHintsHeight)},
-      static_cast<int>(menuItems.size()),
+      renderer, Rect{0, menuStartY, pageWidth, menuHeight}, static_cast<int>(menuItems.size()),
       metrics.homeContinueReadingInMenu ? selectorIndex : selectorIndex - recentBooks.size(),
       [&menuItems](int index) { return std::string(menuItems[index]); },
       [&menuIcons](int index) { return menuIcons[index]; });
@@ -466,8 +469,9 @@ void HomeActivity::onFileTransferOpen() { activityManager.goToFileTransfer(); }
 void HomeActivity::onOpdsBrowserOpen() { activityManager.goToBrowser(); }
 
 void HomeActivity::onReadingStatsOpen() {
+  const std::string bookTitle = recentBooks.empty() ? std::string(tr(STR_READING_STATS)) : recentBooks[0].title;
   startActivityForResult(
-      std::make_unique<BookStatsActivity>(renderer, mappedInput, recentBooks[0].title, currentBookStats, globalStats),
+      std::make_unique<BookStatsActivity>(renderer, mappedInput, bookTitle, currentBookStats, globalStats),
       [this](const ActivityResult&) { requestUpdate(); });
 }
 
