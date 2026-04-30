@@ -1166,14 +1166,22 @@ void EpubReaderActivity::render(RenderLock&& lock) {
 
       const auto popupFn = [this]() { GUI.drawPopup(renderer, tr(STR_INDEXING)); };
 
-      if (!section->createSectionFile(SETTINGS.getReaderFontId(), SETTINGS.getReaderLineCompression(),
-                                      SETTINGS.extraParagraphSpacing, SETTINGS.forceParagraphIndents,
-                                      SETTINGS.paragraphAlignment, viewportWidth, viewportHeight,
-                                      SETTINGS.hyphenationEnabled, SETTINGS.embeddedStyle, SETTINGS.imageRendering,
-                                      SETTINGS.bionicReadingEnabled, SETTINGS.guideReadingEnabled, popupFn)) {
+      bool imagesWereSuppressed = false;
+      if (!section->createSectionFile(
+              SETTINGS.getReaderFontId(), SETTINGS.getReaderLineCompression(), SETTINGS.extraParagraphSpacing,
+              SETTINGS.forceParagraphIndents, SETTINGS.paragraphAlignment, viewportWidth, viewportHeight,
+              SETTINGS.hyphenationEnabled, SETTINGS.embeddedStyle, SETTINGS.imageRendering,
+              SETTINGS.bionicReadingEnabled, SETTINGS.guideReadingEnabled, popupFn, &imagesWereSuppressed)) {
         LOG_ERR("ERS", "Failed to persist page data to SD");
         section.reset();
         return;
+      }
+
+      if (imagesWereSuppressed) {
+        snprintf(APP_STATE.pendingAlertTitle, sizeof(APP_STATE.pendingAlertTitle), "%s",
+                 tr(STR_LOW_MEMORY_IMAGES_TITLE));
+        snprintf(APP_STATE.pendingAlertBody, sizeof(APP_STATE.pendingAlertBody), "%s", tr(STR_LOW_MEMORY_IMAGES_BODY));
+        APP_STATE.hasPendingAlert.store(true, std::memory_order_release);
       }
     } else {
       LOG_DBG("ERS", "Cache found, skipping build...");

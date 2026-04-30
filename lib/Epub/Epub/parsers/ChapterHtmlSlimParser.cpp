@@ -1,5 +1,6 @@
 #include "ChapterHtmlSlimParser.h"
 
+#include <Arduino.h>
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
 #include <HalStorage.h>
@@ -7,6 +8,8 @@
 #include <Utf8.h>
 #include <XmlParserUtils.h>
 #include <expat.h>
+
+#include <new>
 
 #include "../../Epub.h"
 #include "../Page.h"
@@ -20,6 +23,9 @@ constexpr int NUM_HEADER_TAGS = sizeof(HEADER_TAGS) / sizeof(HEADER_TAGS[0]);
 // Minimum file size (in bytes) to show indexing popup - smaller chapters don't benefit from it
 constexpr size_t MIN_SIZE_FOR_POPUP = 10 * 1024;  // 10KB
 constexpr size_t PARSE_BUFFER_SIZE = 1024;
+constexpr size_t IMAGE_EXTRACT_CHUNK_SIZE = 1024;
+constexpr size_t MIN_FREE_HEAP_FOR_IMAGE_EXTRACT = 48 * 1024;
+constexpr size_t MIN_MAX_ALLOC_FOR_IMAGE_EXTRACT = 36 * 1024;
 
 const char* BLOCK_TAGS[] = {"p", "li", "div", "br", "blockquote"};
 constexpr int NUM_BLOCK_TAGS = sizeof(BLOCK_TAGS) / sizeof(BLOCK_TAGS[0]);
@@ -340,179 +346,219 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
         LOG_DBG("EHP", "Found image: src=%s", src.c_str());
 
         {
-          // Resolve the image path relative to the HTML file
-          std::string resolvedPath = FsHelpers::normalisePath(self->contentBase + src);
+          const uint32_t freeHeap = ESP.getFreeHeap();
+          const uint32_t maxAllocHeap = ESP.getMaxAllocHeap();
+          if (!self->lowMemoryImageFallback &&
+              (freeHeap < MIN_FREE_HEAP_FOR_IMAGE_EXTRACT || maxAllocHeap < MIN_MAX_ALLOC_FOR_IMAGE_EXTRACT)) {
+            self->lowMemoryImageFallback = true;
+            LOG_ERR("EHP", "Low heap before image extraction (%u free, %u max alloc); suppressing inline images",
+                    freeHeap, maxAllocHeap);
+          }
 
-          if (ImageDecoderFactory::isFormatSupported(resolvedPath)) {
-            // Create a unique filename for the cached image
-            std::string ext;
-            size_t extPos = resolvedPath.rfind('.');
-            if (extPos != std::string::npos) {
-              ext = resolvedPath.substr(extPos);
-            }
-            std::string cachedImagePath = self->imageBasePath + std::to_string(self->imageCounter++) + ext;
+          if (self->lowMemoryImageFallback) {
+            self->skipUntilDepth = self->depth;
+            self->depth += 1;
+            return;
+          } else {
+            // Resolve the image path relative to the HTML file
+            std::string resolvedPath = FsHelpers::normalisePath(self->contentBase + src);
 
-            // Extract image to cache file
-            FsFile cachedImageFile;
-            bool extractSuccess = false;
-            if (Storage.openFileForWrite("EHP", cachedImagePath, cachedImageFile)) {
-              extractSuccess = self->epub->readItemContentsToStream(resolvedPath, cachedImageFile, 4096);
-              cachedImageFile.flush();
-              cachedImageFile.close();
-              delay(50);  // Give SD card time to sync
-            }
+            if (ImageDecoderFactory::isFormatSupported(resolvedPath)) {
+              // Create a unique filename for the cached image
+              std::string ext;
+              size_t extPos = resolvedPath.rfind('.');
+              if (extPos != std::string::npos) {
+                ext = resolvedPath.substr(extPos);
+              }
+              std::string cachedImagePath = self->imageBasePath + std::to_string(self->imageCounter++) + ext;
 
-            if (extractSuccess) {
-              // Get image dimensions
-              ImageDimensions dims = {0, 0};
-              ImageToFramebufferDecoder* decoder = ImageDecoderFactory::getDecoder(cachedImagePath);
-              if (decoder && decoder->getDimensions(cachedImagePath, dims)) {
-                LOG_DBG("EHP", "Image dimensions: %dx%d", dims.width, dims.height);
+              // Extract image to cache file
+              FsFile cachedImageFile;
+              bool extractSuccess = false;
+              if (Storage.openFileForWrite("EHP", cachedImagePath, cachedImageFile)) {
+                extractSuccess =
+                    self->epub->readItemContentsToStream(resolvedPath, cachedImageFile, IMAGE_EXTRACT_CHUNK_SIZE);
+                cachedImageFile.flush();
+                cachedImageFile.close();
+                delay(50);  // Give SD card time to sync
+              }
 
-                int displayWidth = 0;
-                int displayHeight = 0;
-                const float emSize = static_cast<float>(self->renderer.getFontAscenderSize(self->fontId));
-                CssStyle imgStyle = self->cssParser
-                                        ? self->cssParser->resolveStyle("img", classAttr, self->ancestorStack_)
-                                        : CssStyle{};
-                // Merge inline style (e.g. style="height: 2em") so it overrides stylesheet rules
-                if (!styleAttr.empty()) {
-                  imgStyle.applyOver(CssParser::parseInlineStyle(styleAttr));
-                }
-                const bool hasCssHeight = imgStyle.hasImageHeight();
-                const bool hasCssWidth = imgStyle.hasImageWidth();
+              if (extractSuccess) {
+                // Get image dimensions
+                ImageDimensions dims = {0, 0};
+                ImageToFramebufferDecoder* decoder = ImageDecoderFactory::getDecoder(cachedImagePath);
+                if (decoder && decoder->getDimensions(cachedImagePath, dims)) {
+                  LOG_DBG("EHP", "Image dimensions: %dx%d", dims.width, dims.height);
 
-                if (hasCssHeight && hasCssWidth && dims.width > 0 && dims.height > 0) {
-                  // Both CSS height and width set: resolve both, then clamp to viewport preserving requested ratio
-                  displayHeight = static_cast<int>(
-                      imgStyle.imageHeight.toPixels(emSize, static_cast<float>(self->viewportHeight)) + 0.5f);
-                  displayWidth = static_cast<int>(
-                      imgStyle.imageWidth.toPixels(emSize, static_cast<float>(self->viewportWidth)) + 0.5f);
-                  if (displayHeight < 1) displayHeight = 1;
-                  if (displayWidth < 1) displayWidth = 1;
-                  if (displayWidth > self->viewportWidth || displayHeight > self->viewportHeight) {
-                    float scaleX = (displayWidth > self->viewportWidth)
-                                       ? static_cast<float>(self->viewportWidth) / displayWidth
-                                       : 1.0f;
-                    float scaleY = (displayHeight > self->viewportHeight)
-                                       ? static_cast<float>(self->viewportHeight) / displayHeight
-                                       : 1.0f;
-                    float scale = (scaleX < scaleY) ? scaleX : scaleY;
-                    displayWidth = static_cast<int>(displayWidth * scale + 0.5f);
-                    displayHeight = static_cast<int>(displayHeight * scale + 0.5f);
-                    if (displayWidth < 1) displayWidth = 1;
-                    if (displayHeight < 1) displayHeight = 1;
+                  const uint32_t postExtractFreeHeap = ESP.getFreeHeap();
+                  const uint32_t postExtractMaxAllocHeap = ESP.getMaxAllocHeap();
+                  if (postExtractFreeHeap < MIN_FREE_HEAP_FOR_IMAGE_EXTRACT ||
+                      postExtractMaxAllocHeap < MIN_MAX_ALLOC_FOR_IMAGE_EXTRACT) {
+                    self->lowMemoryImageFallback = true;
+                    LOG_ERR("EHP", "Low heap after image extraction (%u free, %u max alloc); suppressing image",
+                            postExtractFreeHeap, postExtractMaxAllocHeap);
+                    Storage.remove(cachedImagePath.c_str());
+                    self->skipUntilDepth = self->depth;
+                    self->depth += 1;
+                    return;
                   }
-                  LOG_DBG("EHP", "Display size from CSS height+width: %dx%d", displayWidth, displayHeight);
-                } else if (hasCssHeight && !hasCssWidth && dims.width > 0 && dims.height > 0) {
-                  // Use CSS height (resolve % against viewport height) and derive width from aspect ratio
-                  displayHeight = static_cast<int>(
-                      imgStyle.imageHeight.toPixels(emSize, static_cast<float>(self->viewportHeight)) + 0.5f);
-                  if (displayHeight < 1) displayHeight = 1;
-                  displayWidth =
-                      static_cast<int>(displayHeight * (static_cast<float>(dims.width) / dims.height) + 0.5f);
-                  if (displayHeight > self->viewportHeight) {
-                    displayHeight = self->viewportHeight;
-                    // Rescale width to preserve aspect ratio when height is clamped
+
+                  int displayWidth = 0;
+                  int displayHeight = 0;
+                  const float emSize = static_cast<float>(self->renderer.getFontAscenderSize(self->fontId));
+                  CssStyle imgStyle = self->cssParser
+                                          ? self->cssParser->resolveStyle("img", classAttr, self->ancestorStack_)
+                                          : CssStyle{};
+                  // Merge inline style (e.g. style="height: 2em") so it overrides stylesheet rules
+                  if (!styleAttr.empty()) {
+                    imgStyle.applyOver(CssParser::parseInlineStyle(styleAttr));
+                  }
+                  const bool hasCssHeight = imgStyle.hasImageHeight();
+                  const bool hasCssWidth = imgStyle.hasImageWidth();
+
+                  if (hasCssHeight && hasCssWidth && dims.width > 0 && dims.height > 0) {
+                    // Both CSS height and width set: resolve both, then clamp to viewport preserving requested ratio
+                    displayHeight = static_cast<int>(
+                        imgStyle.imageHeight.toPixels(emSize, static_cast<float>(self->viewportHeight)) + 0.5f);
+                    displayWidth = static_cast<int>(
+                        imgStyle.imageWidth.toPixels(emSize, static_cast<float>(self->viewportWidth)) + 0.5f);
+                    if (displayHeight < 1) displayHeight = 1;
+                    if (displayWidth < 1) displayWidth = 1;
+                    if (displayWidth > self->viewportWidth || displayHeight > self->viewportHeight) {
+                      float scaleX = (displayWidth > self->viewportWidth)
+                                         ? static_cast<float>(self->viewportWidth) / displayWidth
+                                         : 1.0f;
+                      float scaleY = (displayHeight > self->viewportHeight)
+                                         ? static_cast<float>(self->viewportHeight) / displayHeight
+                                         : 1.0f;
+                      float scale = (scaleX < scaleY) ? scaleX : scaleY;
+                      displayWidth = static_cast<int>(displayWidth * scale + 0.5f);
+                      displayHeight = static_cast<int>(displayHeight * scale + 0.5f);
+                      if (displayWidth < 1) displayWidth = 1;
+                      if (displayHeight < 1) displayHeight = 1;
+                    }
+                    LOG_DBG("EHP", "Display size from CSS height+width: %dx%d", displayWidth, displayHeight);
+                  } else if (hasCssHeight && !hasCssWidth && dims.width > 0 && dims.height > 0) {
+                    // Use CSS height (resolve % against viewport height) and derive width from aspect ratio
+                    displayHeight = static_cast<int>(
+                        imgStyle.imageHeight.toPixels(emSize, static_cast<float>(self->viewportHeight)) + 0.5f);
+                    if (displayHeight < 1) displayHeight = 1;
                     displayWidth =
                         static_cast<int>(displayHeight * (static_cast<float>(dims.width) / dims.height) + 0.5f);
+                    if (displayHeight > self->viewportHeight) {
+                      displayHeight = self->viewportHeight;
+                      // Rescale width to preserve aspect ratio when height is clamped
+                      displayWidth =
+                          static_cast<int>(displayHeight * (static_cast<float>(dims.width) / dims.height) + 0.5f);
+                      if (displayWidth < 1) displayWidth = 1;
+                    }
+                    if (displayWidth > self->viewportWidth) {
+                      displayWidth = self->viewportWidth;
+                      // Rescale height to preserve aspect ratio when width is clamped
+                      displayHeight =
+                          static_cast<int>(displayWidth * (static_cast<float>(dims.height) / dims.width) + 0.5f);
+                      if (displayHeight < 1) displayHeight = 1;
+                    }
                     if (displayWidth < 1) displayWidth = 1;
-                  }
-                  if (displayWidth > self->viewportWidth) {
-                    displayWidth = self->viewportWidth;
-                    // Rescale height to preserve aspect ratio when width is clamped
+                    LOG_DBG("EHP", "Display size from CSS height: %dx%d", displayWidth, displayHeight);
+                  } else if (hasCssWidth && !hasCssHeight && dims.width > 0 && dims.height > 0) {
+                    // Use CSS width (resolve % against viewport width) and derive height from aspect ratio
+                    displayWidth = static_cast<int>(
+                        imgStyle.imageWidth.toPixels(emSize, static_cast<float>(self->viewportWidth)) + 0.5f);
+                    if (displayWidth > self->viewportWidth) displayWidth = self->viewportWidth;
+                    if (displayWidth < 1) displayWidth = 1;
                     displayHeight =
                         static_cast<int>(displayWidth * (static_cast<float>(dims.height) / dims.width) + 0.5f);
+                    if (displayHeight > self->viewportHeight) {
+                      displayHeight = self->viewportHeight;
+                      // Rescale width to preserve aspect ratio when height is clamped
+                      displayWidth =
+                          static_cast<int>(displayHeight * (static_cast<float>(dims.width) / dims.height) + 0.5f);
+                      if (displayWidth < 1) displayWidth = 1;
+                    }
                     if (displayHeight < 1) displayHeight = 1;
+                    LOG_DBG("EHP", "Display size from CSS width: %dx%d", displayWidth, displayHeight);
+                  } else {
+                    // BScale to fit viewport while preserving aspect ratio
+                    int maxWidth = self->viewportWidth;
+                    int maxHeight = self->viewportHeight;
+                    float scaleX = (dims.width > maxWidth) ? (float)maxWidth / dims.width : 1.0f;
+                    float scaleY = (dims.height > maxHeight) ? (float)maxHeight / dims.height : 1.0f;
+                    float scale = (scaleX < scaleY) ? scaleX : scaleY;
+                    if (scale > 1.0f) scale = 1.0f;
+
+                    displayWidth = (int)(dims.width * scale);
+                    displayHeight = (int)(dims.height * scale);
+                    LOG_DBG("EHP", "Display size: %dx%d (scale %.2f)", displayWidth, displayHeight, scale);
                   }
-                  if (displayWidth < 1) displayWidth = 1;
-                  LOG_DBG("EHP", "Display size from CSS height: %dx%d", displayWidth, displayHeight);
-                } else if (hasCssWidth && !hasCssHeight && dims.width > 0 && dims.height > 0) {
-                  // Use CSS width (resolve % against viewport width) and derive height from aspect ratio
-                  displayWidth = static_cast<int>(
-                      imgStyle.imageWidth.toPixels(emSize, static_cast<float>(self->viewportWidth)) + 0.5f);
-                  if (displayWidth > self->viewportWidth) displayWidth = self->viewportWidth;
-                  if (displayWidth < 1) displayWidth = 1;
-                  displayHeight =
-                      static_cast<int>(displayWidth * (static_cast<float>(dims.height) / dims.width) + 0.5f);
-                  if (displayHeight > self->viewportHeight) {
-                    displayHeight = self->viewportHeight;
-                    // Rescale width to preserve aspect ratio when height is clamped
-                    displayWidth =
-                        static_cast<int>(displayHeight * (static_cast<float>(dims.width) / dims.height) + 0.5f);
-                    if (displayWidth < 1) displayWidth = 1;
+
+                  // Flush any pending text block so it appears before the image
+                  if (self->partWordBufferIndex > 0) {
+                    self->flushPartWordBuffer();
                   }
-                  if (displayHeight < 1) displayHeight = 1;
-                  LOG_DBG("EHP", "Display size from CSS width: %dx%d", displayWidth, displayHeight);
+                  if (self->currentTextBlock && !self->currentTextBlock->isEmpty()) {
+                    const BlockStyle parentBlockStyle = self->currentTextBlock->getBlockStyle();
+                    self->startNewTextBlock(parentBlockStyle);
+                  }
+
+                  // Create page for image - only break if image won't fit remaining space
+                  if (self->currentPage && !self->currentPage->elements.empty() &&
+                      (self->currentPageNextY + displayHeight > self->viewportHeight)) {
+                    self->completePageFn(std::move(self->currentPage), self->xpathParagraphIndex);
+                    self->completedPageCount++;
+                    self->currentPage.reset(new (std::nothrow) Page());
+                    if (!self->currentPage) {
+                      LOG_ERR("EHP", "Failed to create new page");
+                      return;
+                    }
+                    self->currentPageNextY = 0;
+                  } else if (!self->currentPage) {
+                    self->currentPage.reset(new (std::nothrow) Page());
+                    if (!self->currentPage) {
+                      LOG_ERR("EHP", "Failed to create initial page");
+                      return;
+                    }
+                    self->currentPageNextY = 0;
+                  }
+
+                  // Create ImageBlock and add to page
+                  auto imageBlock = std::shared_ptr<ImageBlock>(
+                      new (std::nothrow) ImageBlock(cachedImagePath, displayWidth, displayHeight));
+                  if (!imageBlock) {
+                    LOG_ERR("EHP", "Failed to create ImageBlock");
+                    return;
+                  }
+                  int xPos = (self->viewportWidth - displayWidth) / 2;
+                  auto pageImage = std::shared_ptr<PageImage>(new (std::nothrow)
+                                                                  PageImage(imageBlock, xPos, self->currentPageNextY));
+                  if (!pageImage) {
+                    LOG_ERR("EHP", "Failed to create PageImage");
+                    return;
+                  }
+                  self->currentPage->elements.push_back(pageImage);
+                  self->currentPageNextY += displayHeight;
+
+                  self->ancestorStack_.push_back({self->depth, std::string(name), classAttr});
+                  self->depth += 1;
+                  return;
                 } else {
-                  // BScale to fit viewport while preserving aspect ratio
-                  int maxWidth = self->viewportWidth;
-                  int maxHeight = self->viewportHeight;
-                  float scaleX = (dims.width > maxWidth) ? (float)maxWidth / dims.width : 1.0f;
-                  float scaleY = (dims.height > maxHeight) ? (float)maxHeight / dims.height : 1.0f;
-                  float scale = (scaleX < scaleY) ? scaleX : scaleY;
-                  if (scale > 1.0f) scale = 1.0f;
-
-                  displayWidth = (int)(dims.width * scale);
-                  displayHeight = (int)(dims.height * scale);
-                  LOG_DBG("EHP", "Display size: %dx%d (scale %.2f)", displayWidth, displayHeight, scale);
+                  LOG_ERR("EHP", "Failed to get image dimensions");
+                  Storage.remove(cachedImagePath.c_str());
                 }
-
-                // Flush any pending text block so it appears before the image
-                if (self->partWordBufferIndex > 0) {
-                  self->flushPartWordBuffer();
-                }
-                if (self->currentTextBlock && !self->currentTextBlock->isEmpty()) {
-                  const BlockStyle parentBlockStyle = self->currentTextBlock->getBlockStyle();
-                  self->startNewTextBlock(parentBlockStyle);
-                }
-
-                // Create page for image - only break if image won't fit remaining space
-                if (self->currentPage && !self->currentPage->elements.empty() &&
-                    (self->currentPageNextY + displayHeight > self->viewportHeight)) {
-                  self->completePageFn(std::move(self->currentPage), self->xpathParagraphIndex);
-                  self->completedPageCount++;
-                  self->currentPage.reset(new Page());
-                  if (!self->currentPage) {
-                    LOG_ERR("EHP", "Failed to create new page");
-                    return;
-                  }
-                  self->currentPageNextY = 0;
-                } else if (!self->currentPage) {
-                  self->currentPage.reset(new Page());
-                  if (!self->currentPage) {
-                    LOG_ERR("EHP", "Failed to create initial page");
-                    return;
-                  }
-                  self->currentPageNextY = 0;
-                }
-
-                // Create ImageBlock and add to page
-                auto imageBlock = std::make_shared<ImageBlock>(cachedImagePath, displayWidth, displayHeight);
-                if (!imageBlock) {
-                  LOG_ERR("EHP", "Failed to create ImageBlock");
-                  return;
-                }
-                int xPos = (self->viewportWidth - displayWidth) / 2;
-                auto pageImage = std::make_shared<PageImage>(imageBlock, xPos, self->currentPageNextY);
-                if (!pageImage) {
-                  LOG_ERR("EHP", "Failed to create PageImage");
-                  return;
-                }
-                self->currentPage->elements.push_back(pageImage);
-                self->currentPageNextY += displayHeight;
-
-                self->ancestorStack_.push_back({self->depth, std::string(name), classAttr});
-                self->depth += 1;
-                return;
               } else {
-                LOG_ERR("EHP", "Failed to get image dimensions");
                 Storage.remove(cachedImagePath.c_str());
+                const uint32_t postFailureFreeHeap = ESP.getFreeHeap();
+                const uint32_t postFailureMaxAllocHeap = ESP.getMaxAllocHeap();
+                if (!self->lowMemoryImageFallback && (postFailureFreeHeap < MIN_FREE_HEAP_FOR_IMAGE_EXTRACT ||
+                                                      postFailureMaxAllocHeap < MIN_MAX_ALLOC_FOR_IMAGE_EXTRACT)) {
+                  self->lowMemoryImageFallback = true;
+                  LOG_ERR("EHP", "Disabling remaining image extraction after failure (%u free, %u max alloc)",
+                          postFailureFreeHeap, postFailureMaxAllocHeap);
+                }
+                LOG_ERR("EHP", "Failed to extract image");
               }
-            } else {
-              LOG_ERR("EHP", "Failed to extract image");
-            }
-          }  // isFormatSupported
+            }  // isFormatSupported
+          }
         }
       }
 
