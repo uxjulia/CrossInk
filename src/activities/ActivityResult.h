@@ -56,8 +56,13 @@ struct BookmarkResult {
   float progress = 0.0f;
 };
 
-using ResultVariant = std::variant<std::monostate, WifiResult, KeyboardResult, MenuResult, ChapterResult, PercentResult,
-                                   PageResult, SyncResult, NetworkModeResult, FootnoteResult, BookmarkResult>;
+struct FileBrowserActionResult {
+  int action = -1;
+};
+
+using ResultVariant =
+    std::variant<std::monostate, WifiResult, KeyboardResult, MenuResult, ChapterResult, PercentResult, PageResult,
+                 SyncResult, NetworkModeResult, FootnoteResult, BookmarkResult, FileBrowserActionResult>;
 
 struct ActivityResult {
   bool isCancelled = false;
