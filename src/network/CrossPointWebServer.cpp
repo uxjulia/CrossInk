@@ -1250,7 +1250,6 @@ void CrossPointWebServer::handlePostSettings() {
     }
   }
 
-  SETTINGS.normalizeReaderFontSettings();
   SETTINGS.saveToFile();
 
   LOG_DBG("WEB", "Applied %d setting(s)", applied);

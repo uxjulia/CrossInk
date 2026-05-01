@@ -204,15 +204,8 @@ void SettingsActivity::toggleCurrentSetting() {
     const bool currentValue = SETTINGS.*(setting.valuePtr);
     SETTINGS.*(setting.valuePtr) = !currentValue;
   } else if (setting.type == SettingType::ENUM && setting.valuePtr != nullptr) {
-    if (setting.valuePtr == &CrossPointSettings::fontFamily) {
-      SETTINGS.changeReaderFontFamily();
-    } else {
-      const uint8_t currentValue = SETTINGS.*(setting.valuePtr);
-      SETTINGS.*(setting.valuePtr) = (currentValue + 1) % static_cast<uint8_t>(setting.enumValues.size());
-      if (setting.valuePtr == &CrossPointSettings::fontSize) {
-        SETTINGS.normalizeReaderFontSettings();
-      }
-    }
+    const uint8_t currentValue = SETTINGS.*(setting.valuePtr);
+    SETTINGS.*(setting.valuePtr) = (currentValue + 1) % static_cast<uint8_t>(setting.enumValues.size());
   } else if (setting.type == SettingType::VALUE && setting.valuePtr != nullptr) {
     const int8_t currentValue = SETTINGS.*(setting.valuePtr);
     if (currentValue + setting.valueRange.step > setting.valueRange.max) {

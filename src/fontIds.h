@@ -99,11 +99,6 @@
 #else
 #define BITTER_18_FONT_ID (-613950257)
 #endif
-#ifdef OMIT_EMOJI_FONTS
-#define INTER_8_FONT_ID (-1178912614)
-#else
-#define INTER_8_FONT_ID (183511752)
-#endif
 #define UI_10_FONT_ID (22918846)
 #define UI_12_FONT_ID (1635686837)
 #define SMALL_FONT_ID (1002091607)

@@ -9,7 +9,6 @@
 //   OMIT_TINY_FONT   - excludes 10px (Tiny) reading fonts; used by env:xlarge
 //   OMIT_SMALL_FONT  - excludes 12px (Small) reading fonts
 //   OMIT_XLARGE_FONT - excludes 18px (Extra Large) reading fonts; used by env:tiny
-//   OMIT_INTER_READER_FONT - excludes experimental 8px Inter reading font; used by env:no_emoji
 #ifndef OMIT_EMOJI_FONTS
 #ifndef OMIT_TEENSY_FONT
 #include <builtinFonts/bitter_8_bold.h>
@@ -80,12 +79,6 @@
 #include <builtinFonts/lexenddeca_8_bolditalic.h>
 #include <builtinFonts/lexenddeca_8_italic.h>
 #include <builtinFonts/lexenddeca_8_regular.h>
-#ifndef OMIT_INTER_READER_FONT
-#include <builtinFonts/interreader_8_bold.h>
-#include <builtinFonts/interreader_8_bolditalic.h>
-#include <builtinFonts/interreader_8_italic.h>
-#include <builtinFonts/interreader_8_regular.h>
-#endif
 #endif
 #ifndef OMIT_TINY_FONT
 #include <builtinFonts/lexenddeca_10_bold.h>
@@ -184,12 +177,6 @@
 #include <builtinFonts/noemoji/lexenddeca_8_bolditalic.h>
 #include <builtinFonts/noemoji/lexenddeca_8_italic.h>
 #include <builtinFonts/noemoji/lexenddeca_8_regular.h>
-#ifndef OMIT_INTER_READER_FONT
-#include <builtinFonts/noemoji/interreader_8_bold.h>
-#include <builtinFonts/noemoji/interreader_8_bolditalic.h>
-#include <builtinFonts/noemoji/interreader_8_italic.h>
-#include <builtinFonts/noemoji/interreader_8_regular.h>
-#endif
 #endif
 #ifndef OMIT_TINY_FONT
 #include <builtinFonts/noemoji/lexenddeca_10_bold.h>

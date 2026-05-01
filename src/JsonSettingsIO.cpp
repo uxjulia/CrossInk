@@ -222,8 +222,6 @@ bool JsonSettingsIO::loadSettings(CrossPointSettings& s, const char* json, bool*
       s.*(info.valuePtr) = v;
     }
   }
-  s.normalizeReaderFontSettings();
-
   // Front button remap — managed by RemapFrontButtons sub-activity, not in SettingsList.
   using S = CrossPointSettings;
   s.frontButtonBack =

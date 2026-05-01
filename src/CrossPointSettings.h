@@ -102,7 +102,7 @@ class CrossPointSettings {
   };
 
   // Font family options
-  enum FONT_FAMILY { LEXENDDECA = 0, BITTER = 1, CHAREINK = 2, INTER = 3, FONT_FAMILY_COUNT };
+  enum FONT_FAMILY { LEXENDDECA = 0, BITTER = 1, CHAREINK = 2, FONT_FAMILY_COUNT };
   // Font size options
   enum FONT_SIZE { TINY = 0, SMALL = 1, MEDIUM = 2, LARGE = 3, EXTRA_LARGE = 4, TEENSY = 5, FONT_SIZE_COUNT };
   enum LINE_COMPRESSION { TIGHT = 0, NORMAL = 1, WIDE = 2, LINE_COMPRESSION_COUNT };
@@ -285,9 +285,6 @@ class CrossPointSettings {
   static uint8_t getStoredReaderFontSize(FONT_SIZE size);
   FONT_SIZE getEffectiveReaderFontSize() const;
   bool changeReaderFontSize(bool larger);
-  bool isReaderFontFamilyAllowed(FONT_FAMILY family) const;
-  void normalizeReaderFontSettings();
-  bool changeReaderFontFamily();
   int getReaderFontId() const;
 
   // If count_only is true, returns the number of settings items that would be written.

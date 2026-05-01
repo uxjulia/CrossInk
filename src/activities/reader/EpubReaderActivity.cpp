@@ -841,9 +841,8 @@ void EpubReaderActivity::executeReaderQuickAction(CrossPointSettings::LONG_PRESS
       enterDeepSleep();
       break;
     case CrossPointSettings::LONG_MENU_CHANGE_FONT:
-      if (SETTINGS.changeReaderFontFamily()) {
-        reindexCurrentSection();
-      }
+      SETTINGS.fontFamily = (SETTINGS.fontFamily + 1) % CrossPointSettings::FONT_FAMILY_COUNT;
+      reindexCurrentSection();
       break;
     case CrossPointSettings::LONG_MENU_TOGGLE_GUIDE_DOTS:
       SETTINGS.guideReadingEnabled = !SETTINGS.guideReadingEnabled;

@@ -93,14 +93,6 @@ EpdFont lexenddeca8ItalicFont(&lexenddeca_8_italic);
 EpdFont lexenddeca8BoldItalicFont(&lexenddeca_8_bolditalic);
 EpdFontFamily lexenddeca8FontFamily(&lexenddeca8RegularFont, &lexenddeca8BoldFont, &lexenddeca8ItalicFont,
                                     &lexenddeca8BoldItalicFont);
-#ifndef OMIT_INTER_READER_FONT
-EpdFont interReader8RegularFont(&interreader_8_regular);
-EpdFont interReader8BoldFont(&interreader_8_bold);
-EpdFont interReader8ItalicFont(&interreader_8_italic);
-EpdFont interReader8BoldItalicFont(&interreader_8_bolditalic);
-EpdFontFamily interReader8FontFamily(&interReader8RegularFont, &interReader8BoldFont, &interReader8ItalicFont,
-                                     &interReader8BoldItalicFont);
-#endif
 #endif
 #ifndef OMIT_TINY_FONT
 EpdFont lexenddeca10RegularFont(&lexenddeca_10_regular);
@@ -368,10 +360,6 @@ void setupDisplayAndFonts() {
 #ifndef OMIT_XLARGE_FONT
   renderer.insertFont(BITTER_18_FONT_ID, bitter18FontFamily);
 #endif
-#if !defined(OMIT_TEENSY_FONT) && !defined(OMIT_INTER_READER_FONT)
-  renderer.insertFont(INTER_8_FONT_ID, interReader8FontFamily);
-#endif
-
   renderer.insertFont(UI_10_FONT_ID, ui10FontFamily);
   renderer.insertFont(UI_12_FONT_ID, ui12FontFamily);
   renderer.insertFont(SMALL_FONT_ID, smallFontFamily);

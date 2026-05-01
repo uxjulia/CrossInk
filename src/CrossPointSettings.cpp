@@ -234,7 +234,6 @@ bool CrossPointSettings::loadFromBinaryFile() {
   } else {
     applyLegacyFrontButtonLayout(*this);
   }
-  normalizeReaderFontSettings();
 
   LOG_DBG("CPS", "Settings loaded from binary file");
   return true;
@@ -242,7 +241,6 @@ bool CrossPointSettings::loadFromBinaryFile() {
 
 float CrossPointSettings::getReaderLineCompression() const {
   switch (fontFamily) {
-    case INTER:
     case LEXENDDECA:
     default:
       switch (lineSpacing) {
@@ -393,7 +391,6 @@ bool CrossPointSettings::changeReaderFontSize(const bool larger) {
       const uint8_t stored = getStoredReaderFontSize(orderedSizes[i]);
       if (stored != invalidSize) {
         fontSize = stored;
-        normalizeReaderFontSettings();
         return true;
       }
     }
@@ -402,45 +399,8 @@ bool CrossPointSettings::changeReaderFontSize(const bool larger) {
       const uint8_t stored = getStoredReaderFontSize(orderedSizes[i]);
       if (stored != invalidSize) {
         fontSize = stored;
-        normalizeReaderFontSettings();
         return true;
       }
-    }
-  }
-  return false;
-}
-
-bool CrossPointSettings::isReaderFontFamilyAllowed(const FONT_FAMILY family) const {
-  switch (family) {
-    case LEXENDDECA:
-    case BITTER:
-    case CHAREINK:
-      return true;
-    case INTER:
-#if !defined(OMIT_TEENSY_FONT) && !defined(OMIT_INTER_READER_FONT)
-      return getEffectiveReaderFontSize() == TEENSY;
-#else
-      return false;
-#endif
-    default:
-      return false;
-  }
-}
-
-void CrossPointSettings::normalizeReaderFontSettings() {
-  const FONT_FAMILY family = static_cast<FONT_FAMILY>(fontFamily);
-  if (!isReaderFontFamilyAllowed(family)) {
-    fontFamily = LEXENDDECA;
-  }
-}
-
-bool CrossPointSettings::changeReaderFontFamily() {
-  const uint8_t start = fontFamily;
-  for (uint8_t offset = 1; offset <= FONT_FAMILY_COUNT; offset++) {
-    const uint8_t next = (start + offset) % FONT_FAMILY_COUNT;
-    if (isReaderFontFamilyAllowed(static_cast<FONT_FAMILY>(next))) {
-      fontFamily = next;
-      return true;
     }
   }
   return false;
@@ -449,13 +409,6 @@ bool CrossPointSettings::changeReaderFontFamily() {
 int CrossPointSettings::getReaderFontId() const {
   const FONT_SIZE effectiveSize = getEffectiveReaderFontSize();
   switch (fontFamily) {
-    case INTER:
-#if !defined(OMIT_TEENSY_FONT) && !defined(OMIT_INTER_READER_FONT)
-      if (effectiveSize == TEENSY) {
-        return INTER_8_FONT_ID;
-      }
-#endif
-      [[fallthrough]];
     case LEXENDDECA:
     default:
       switch (effectiveSize) {

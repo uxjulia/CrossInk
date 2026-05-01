@@ -135,16 +135,6 @@ for size in ${READING_FONT_SIZES[@]}; do
   done
 done
 
-# INTER (no-emoji, Teensy only)
-
-for style in ${READING_FONT_STYLES[@]}; do
-  font_name="interreader_8_$(echo $style | tr '[:upper:]' '[:lower:]')"
-  font_path="../builtinFonts/source/Inter/Inter-${style}.ttf"
-  output_path="../builtinFonts/noemoji/${font_name}.h"
-  python fontconvert.py $font_name 8 $font_path "${READING_FONT_RENDER_ARGS[@]}" > $output_path
-  echo "Generated $output_path"
-done
-
 echo ""
 echo "No-emoji variants complete."
 echo ""
@@ -190,17 +180,6 @@ for size in ${READING_FONT_SIZES[@]}; do
     python fontconvert.py $font_name $size $font_path $EMOJI_FONT $SYMBOLS_FONT "${EMOJI_INTERVALS[@]}" "${CHAREINK_EMOJI_FALLBACK_INTERVALS[@]}" "${CHAREINK_SYMBOL_FALLBACK_INTERVALS[@]}" "${READING_FONT_RENDER_ARGS[@]}" > $output_path
     echo "Generated $output_path"
   done
-done
-
-# INTER (Teensy only)
-
-for style in ${READING_FONT_STYLES[@]}; do
-  font_name="interreader_8_$(echo $style | tr '[:upper:]' '[:lower:]')"
-  font_path="../builtinFonts/source/Inter/Inter-${style}.ttf"
-  fallback_path="../builtinFonts/source/ChareInk7/ChareInk7-${style}.ttf"
-  output_path="../builtinFonts/${font_name}.h"
-  python fontconvert.py $font_name 8 $font_path $fallback_path $EMOJI_FONT $SYMBOLS_FONT "${EMOJI_INTERVALS[@]}" "${CHAREINK_FALLBACK_INTERVALS[@]}" "${EMOJI_FALLBACK_INTERVALS[@]}" "${SYMBOL_FALLBACK_INTERVALS[@]}" "${READING_FONT_RENDER_ARGS[@]}" > $output_path
-  echo "Generated $output_path"
 done
 
 # UI Font - Inter
