@@ -57,7 +57,7 @@ def main():
 
     version = normalize_version(args.version)
     filename = firmware_path.name
-    supported_devices = args.supported_devices or ['x4']
+    supported_devices = args.supported_devices or ['x4, x3']
     notes = args.notes or f'CrossInk {version} stable firmware.'
 
     catalog = {

@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "releases": [
+    {
+      "id": "stable-1.2.8",
+      "channel": "stable",
+      "name": "1.2.8.1",
+      "version": "1.2.8.1",
+      "released_at": "2026-04-28T23:42:00Z",
+      "notes": "CrossInk v1.2.8.1 stable firmware",
+      "firmware_url": "https://github.com/uxjulia/CrossInk/releases/latest/download/firmware-tiny-v1.2.8.1.bin",
+      "firmware_sha256": "5580653b665bdc489d7adce154cd16a137af4d70b2c2998f5f8600565396cd88",
+      "size": 5760992,
+      "supported_devices": [
+        "x4, x3"
+      ]
+    }
+  ]
+}
