@@ -156,6 +156,10 @@ bool JsonSettingsIO::saveSettings(const CrossPointSettings& s, const char* path)
   doc["readerFrontButtonLeft"] = s.readerFrontButtonLeft;
   doc["readerFrontButtonRight"] = s.readerFrontButtonRight;
 
+  // Language -- managed by LanguageSelectActivity, not in SettingsList.
+  // Stored as ISO code string ("EN", "DE", ...) for stability across enum reorders.
+  doc["language"] = (s.language < getLanguageCount()) ? LANGUAGE_CODES[s.language] : "EN";
+
   String json;
   serializeJson(doc, json);
   return Storage.writeFile(path, json);
@@ -222,7 +226,6 @@ bool JsonSettingsIO::loadSettings(CrossPointSettings& s, const char* json, bool*
       s.*(info.valuePtr) = v;
     }
   }
-
   // Front button remap — managed by RemapFrontButtons sub-activity, not in SettingsList.
   using S = CrossPointSettings;
   s.frontButtonBack =
@@ -245,6 +248,11 @@ bool JsonSettingsIO::loadSettings(CrossPointSettings& s, const char* json, bool*
   s.readerFrontButtonRight = clamp(doc["readerFrontButtonRight"] | (uint8_t)S::FRONT_HW_RIGHT,
                                    S::FRONT_BUTTON_HARDWARE_COUNT, S::FRONT_HW_RIGHT);
   CrossPointSettings::validateReaderFrontButtonMapping(s);
+
+  // Language -- stored as code string for stability across enum reorders.
+  if (doc["language"].is<const char*>()) {
+    s.language = static_cast<uint8_t>(I18n::languageFromCode(doc["language"].as<const char*>()));
+  }
 
   LOG_DBG("CPS", "Settings loaded from file");
 

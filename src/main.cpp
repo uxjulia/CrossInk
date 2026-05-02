@@ -8,6 +8,7 @@
 #include <HalPowerManager.h>
 #include <HalStorage.h>
 #include <HalSystem.h>
+#include <HalTiltSensor.h>
 #include <I18n.h>
 #include <Logging.h>
 #include <SPI.h>
@@ -43,6 +44,13 @@ EpdFont lexenddeca14ItalicFont(&lexenddeca_14_italic);
 EpdFont lexenddeca14BoldItalicFont(&lexenddeca_14_bolditalic);
 EpdFontFamily lexenddeca14FontFamily(&lexenddeca14RegularFont, &lexenddeca14BoldFont, &lexenddeca14ItalicFont,
                                      &lexenddeca14BoldItalicFont);
+#ifndef OMIT_TEENSY_FONT
+EpdFont charein8RegularFont(&charein_8_regular);
+EpdFont charein8BoldFont(&charein_8_bold);
+EpdFont charein8ItalicFont(&charein_8_italic);
+EpdFont charein8BoldItalicFont(&charein_8_bolditalic);
+EpdFontFamily charein8FontFamily(&charein8RegularFont, &charein8BoldFont, &charein8ItalicFont, &charein8BoldItalicFont);
+#endif
 #ifndef OMIT_TINY_FONT
 EpdFont charein10RegularFont(&charein_10_regular);
 EpdFont charein10BoldFont(&charein_10_bold);
@@ -79,6 +87,22 @@ EpdFont charein18BoldItalicFont(&charein_18_bolditalic);
 EpdFontFamily charein18FontFamily(&charein18RegularFont, &charein18BoldFont, &charein18ItalicFont,
                                   &charein18BoldItalicFont);
 #endif
+#ifndef OMIT_HUGE_FONT
+EpdFont charein20RegularFont(&charein_20_regular);
+EpdFont charein20BoldFont(&charein_20_bold);
+EpdFont charein20ItalicFont(&charein_20_italic);
+EpdFont charein20BoldItalicFont(&charein_20_bolditalic);
+EpdFontFamily charein20FontFamily(&charein20RegularFont, &charein20BoldFont, &charein20ItalicFont,
+                                  &charein20BoldItalicFont);
+#endif
+#ifndef OMIT_TEENSY_FONT
+EpdFont lexenddeca8RegularFont(&lexenddeca_8_regular);
+EpdFont lexenddeca8BoldFont(&lexenddeca_8_bold);
+EpdFont lexenddeca8ItalicFont(&lexenddeca_8_italic);
+EpdFont lexenddeca8BoldItalicFont(&lexenddeca_8_bolditalic);
+EpdFontFamily lexenddeca8FontFamily(&lexenddeca8RegularFont, &lexenddeca8BoldFont, &lexenddeca8ItalicFont,
+                                    &lexenddeca8BoldItalicFont);
+#endif
 #ifndef OMIT_TINY_FONT
 EpdFont lexenddeca10RegularFont(&lexenddeca_10_regular);
 EpdFont lexenddeca10BoldFont(&lexenddeca_10_bold);
@@ -109,7 +133,22 @@ EpdFont lexenddeca18BoldItalicFont(&lexenddeca_18_bolditalic);
 EpdFontFamily lexenddeca18FontFamily(&lexenddeca18RegularFont, &lexenddeca18BoldFont, &lexenddeca18ItalicFont,
                                      &lexenddeca18BoldItalicFont);
 #endif
+#ifndef OMIT_HUGE_FONT
+EpdFont lexenddeca20RegularFont(&lexenddeca_20_regular);
+EpdFont lexenddeca20BoldFont(&lexenddeca_20_bold);
+EpdFont lexenddeca20ItalicFont(&lexenddeca_20_italic);
+EpdFont lexenddeca20BoldItalicFont(&lexenddeca_20_bolditalic);
+EpdFontFamily lexenddeca20FontFamily(&lexenddeca20RegularFont, &lexenddeca20BoldFont, &lexenddeca20ItalicFont,
+                                     &lexenddeca20BoldItalicFont);
+#endif
 
+#ifndef OMIT_TEENSY_FONT
+EpdFont bitter8RegularFont(&bitter_8_regular);
+EpdFont bitter8BoldFont(&bitter_8_bold);
+EpdFont bitter8ItalicFont(&bitter_8_italic);
+EpdFont bitter8BoldItalicFont(&bitter_8_bolditalic);
+EpdFontFamily bitter8FontFamily(&bitter8RegularFont, &bitter8BoldFont, &bitter8ItalicFont, &bitter8BoldItalicFont);
+#endif
 #ifndef OMIT_TINY_FONT
 EpdFont bitter10RegularFont(&bitter_10_regular);
 EpdFont bitter10BoldFont(&bitter_10_bold);
@@ -140,6 +179,13 @@ EpdFont bitter18BoldFont(&bitter_18_bold);
 EpdFont bitter18ItalicFont(&bitter_18_italic);
 EpdFont bitter18BoldItalicFont(&bitter_18_bolditalic);
 EpdFontFamily bitter18FontFamily(&bitter18RegularFont, &bitter18BoldFont, &bitter18ItalicFont, &bitter18BoldItalicFont);
+#endif
+#ifndef OMIT_HUGE_FONT
+EpdFont bitter20RegularFont(&bitter_20_regular);
+EpdFont bitter20BoldFont(&bitter_20_bold);
+EpdFont bitter20ItalicFont(&bitter_20_italic);
+EpdFont bitter20BoldItalicFont(&bitter_20_bolditalic);
+EpdFontFamily bitter20FontFamily(&bitter20RegularFont, &bitter20BoldFont, &bitter20ItalicFont, &bitter20BoldItalicFont);
 #endif
 
 EpdFont smallFont(&inter_8_regular);
@@ -275,6 +321,7 @@ void enterDeepSleep() {
 
   activityManager.goToSleep();
 
+  halTiltSensor.deepSleep();
   display.deepSleep();
   LOG_DBG("MAIN", "Entering deep sleep");
 
@@ -294,6 +341,9 @@ void setupDisplayAndFonts() {
   fontCacheManager.setFontDecompressor(&fontDecompressor);
   renderer.setFontCacheManager(&fontCacheManager);
 
+#ifndef OMIT_TEENSY_FONT
+  renderer.insertFont(CHAREINK_8_FONT_ID, charein8FontFamily);
+#endif
 #ifndef OMIT_TINY_FONT
   renderer.insertFont(CHAREINK_10_FONT_ID, charein10FontFamily);
 #endif
@@ -305,7 +355,13 @@ void setupDisplayAndFonts() {
 #ifndef OMIT_XLARGE_FONT
   renderer.insertFont(CHAREINK_18_FONT_ID, charein18FontFamily);
 #endif
+#ifndef OMIT_HUGE_FONT
+  renderer.insertFont(CHAREINK_20_FONT_ID, charein20FontFamily);
+#endif
 
+#ifndef OMIT_TEENSY_FONT
+  renderer.insertFont(LEXENDDECA_8_FONT_ID, lexenddeca8FontFamily);
+#endif
 #ifndef OMIT_TINY_FONT
   renderer.insertFont(LEXENDDECA_10_FONT_ID, lexenddeca10FontFamily);
 #endif
@@ -317,7 +373,13 @@ void setupDisplayAndFonts() {
 #ifndef OMIT_XLARGE_FONT
   renderer.insertFont(LEXENDDECA_18_FONT_ID, lexenddeca18FontFamily);
 #endif
+#ifndef OMIT_HUGE_FONT
+  renderer.insertFont(LEXENDDECA_20_FONT_ID, lexenddeca20FontFamily);
+#endif
 
+#ifndef OMIT_TEENSY_FONT
+  renderer.insertFont(BITTER_8_FONT_ID, bitter8FontFamily);
+#endif
 #ifndef OMIT_TINY_FONT
   renderer.insertFont(BITTER_10_FONT_ID, bitter10FontFamily);
 #endif
@@ -329,7 +391,9 @@ void setupDisplayAndFonts() {
 #ifndef OMIT_XLARGE_FONT
   renderer.insertFont(BITTER_18_FONT_ID, bitter18FontFamily);
 #endif
-
+#ifndef OMIT_HUGE_FONT
+  renderer.insertFont(BITTER_20_FONT_ID, bitter20FontFamily);
+#endif
   renderer.insertFont(UI_10_FONT_ID, ui10FontFamily);
   renderer.insertFont(UI_12_FONT_ID, ui12FontFamily);
   renderer.insertFont(SMALL_FONT_ID, smallFontFamily);
@@ -342,6 +406,7 @@ void setup() {
   HalSystem::begin();
   gpio.begin();
   powerManager.begin();
+  halTiltSensor.begin();
 
 #ifdef ENABLE_SERIAL_LOG
   if (gpio.isUsbConnected()) {
@@ -367,7 +432,7 @@ void setup() {
   HalSystem::checkPanic();
 
   SETTINGS.loadFromFile();
-  I18N.loadSettings();
+  I18N.setLanguage(static_cast<Language>(SETTINGS.language));
   KOREADER_STORE.loadFromFile();
   OPDS_STORE.loadFromFile();
   UITheme::getInstance().reload();
@@ -429,6 +494,7 @@ void loop() {
   static unsigned long lastMemPrint = 0;
 
   gpio.update();
+  halTiltSensor.update(SETTINGS.tiltPageTurn, SETTINGS.orientation, activityManager.isReaderActivity());
 
   renderer.setFadingFix(SETTINGS.fadingFix);
 
@@ -457,7 +523,8 @@ void loop() {
 
   // Check for any user activity (button press or release) or active background work
   static unsigned long lastActivityTime = millis();
-  if (gpio.wasAnyPressed() || gpio.wasAnyReleased() || activityManager.preventAutoSleep()) {
+  if (gpio.wasAnyPressed() || gpio.wasAnyReleased() || halTiltSensor.hadActivity() ||
+      activityManager.preventAutoSleep()) {
     lastActivityTime = millis();         // Reset inactivity timer
     powerManager.setPowerSaving(false);  // Restore normal CPU frequency on user activity
   }

@@ -21,19 +21,20 @@ My goal with this fork was to maintain the core Crosspoint firmware while integr
 
 - New reader fonts: ChareInk, Lexend Deca, and Bitter
 - Unicode emoji and miscellaneous symbols support
-- Adjusted font sizes: Tiny (10pt), Small (12pt), Medium (14pt), Large (16pt), Extra Large (18pt). See [Font Sizes](#font-sizes) for more details.
+- Adjusted font sizes: Teensy (8pt), Tiny (10pt), Small (12pt), Medium (14pt), Large (16pt), Extra Large (18pt), Huge (20pt). See [Font Sizes](#font-sizes) for more details.
 - Added ~~strikethrough~~ support
 - Made <u>underlines</u> thicker for better visibility
 - Added ability to add bookmarks
 - Added ability to remap front buttons that only applies in the reader
 - Added Bionic Reading and Guide Dots as optional reader modes
 - Added Force Paragraph Indents for books that render as one giant wall of text
+- Added ability to pin a sleep image as a favorite. The favorited image will always be displayed when your sleep settings are set to `Custom` or `Cover + Custom` (when no cover is available). Do this from the file browser and long-press the menu button to access the option.
 - Added more in-reader control remapping options for side buttons, short power button clicks, and long-press menu actions
 - Added ability to mark a book as finished from the in-book menu. A pop-up will also display once 99% of the book is reached. This status allows tracking of total books read.
 - Added ability to move finished books to "Read" folder
   - To turn this on, go to Settings > System > Move finished books to Read folder. Once a book is marked as finished, the book will be moved to the folder when the book is closed.
 - In-book menu to quickly adjust reader options without having to exit the book
-- Reading stats: total books read, total reading time, number of sessions, pages turned, average session time, pages turned per minute
+- Reading stats: total books read, total reading time, number of sessions, pages turned, average session time, pages turned per minute. You can also set your reading stats as your sleep screen.
 - Changed label for "Auto Turn (Pages Per Minute)" to "Auto Page Turn Interval (seconds)"
   - Added additional page turn intervals (how many seconds pass between page turns). Options are now (in seconds): 60, 45, 30, 20, 15, 10, 5, OFF.
 - Added Vietnamese language support
@@ -53,7 +54,7 @@ The UI now uses [Inter](https://fonts.google.com/specimen/Inter) as the display 
 
 ### Emojis and Misc Glyphs
 
-- Support for Unicode [Emoticons](https://unicode-explorer.com/b/1F600) and [Miscellaneous Symbols](https://unicode-explorer.com/b/2600) using [Noto Emoji](https://fonts.google.com/noto/specimen/Noto+Emoji) and [Noto Sans Symbols](https://fonts.google.com/noto/specimen/Noto+Sans+Symbols) font.
+- Support for a limited set of Unicode [Emoticons](https://unicode-explorer.com/b/1F600) and [Miscellaneous Symbols](https://unicode-explorer.com/b/2600) using [Noto Emoji](https://fonts.google.com/noto/specimen/Noto+Emoji) and [Noto Sans Symbols](https://fonts.google.com/noto/specimen/Noto+Sans+Symbols) font.
 
 ---
 
@@ -63,10 +64,11 @@ There are 3 available build variants to choose from due to build size constraint
 
 **tiny**
 
-> No Extra Large font size. My preferred build.
+> No Extra Large or Huge font size. My preferred build.
 
 - Emoji & Misc. Symbols Support
-- 4 Font sizes:
+- 5 Font sizes:
+  - Teensy (8pt)
   - Tiny (10pt)
   - Small (12pt)
   - Medium (14pt)
@@ -74,20 +76,22 @@ There are 3 available build variants to choose from due to build size constraint
 
 **xlarge**
 
-> Tiny and Small font sizes had to be removed to reduce build size and still support emoji/symbols.
+> Teensy, Tiny, and Small font sizes had to be removed to reduce build size and still support emoji/symbols.
 
 - Emoji & Misc. Symbols Support
-- 3 Font sizes:
+- 4 Font sizes:
   - Medium (14pt)
   - Large (16pt)
   - Extra Large (18pt)
+  - Huge (20pt)
 
 **no_emoji**
 
-> All font sizes available, but no emoji/symbols support.
+> All standard font sizes through Extra Large are available, but no emoji/symbols support.
 
 - **No** Emoji & Misc. Symbols Support
-- 5 Font sizes:
+- 6 Font sizes:
+  - Teensy (8pt)
   - Tiny (10pt)
   - Small (12pt)
   - Medium (14pt)

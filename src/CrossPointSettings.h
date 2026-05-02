@@ -104,7 +104,16 @@ class CrossPointSettings {
   // Font family options
   enum FONT_FAMILY { LEXENDDECA = 0, BITTER = 1, CHAREINK = 2, FONT_FAMILY_COUNT };
   // Font size options
-  enum FONT_SIZE { TINY = 0, SMALL = 1, MEDIUM = 2, LARGE = 3, EXTRA_LARGE = 4, FONT_SIZE_COUNT };
+  enum FONT_SIZE {
+    TINY = 0,
+    SMALL = 1,
+    MEDIUM = 2,
+    LARGE = 3,
+    EXTRA_LARGE = 4,
+    TEENSY = 5,
+    HUGE_SIZE = 6,
+    FONT_SIZE_COUNT
+  };
   enum LINE_COMPRESSION { TIGHT = 0, NORMAL = 1, WIDE = 2, LINE_COMPRESSION_COUNT };
   enum PARAGRAPH_ALIGNMENT {
     JUSTIFIED = 0,
@@ -165,6 +174,8 @@ class CrossPointSettings {
   // EPUB image quality: Normal = differential LUT (legacy bayer thresholds),
   // High = factory LUT (PR #1614 path with soft-shoulder dithering)
   enum EPUB_IMAGE_QUALITY { EIQ_NORMAL = 0, EIQ_HIGH = 1, EPUB_IMAGE_QUALITY_COUNT };
+
+  enum TILT_PAGE_TURN { TILT_OFF = 0, TILT_NORMAL = 1, TILT_INVERTED = 2, TILT_PAGE_TURN_COUNT };
 
   // Long-press Confirm (menu button) quick action in reader
   enum LONG_PRESS_MENU_ACTION {
@@ -273,6 +284,10 @@ class CrossPointSettings {
   uint8_t epubImageQuality = EIQ_NORMAL;
   // Long-press Confirm (menu button) quick action in reader (0 = off)
   uint8_t longPressMenuAction = LONG_MENU_OFF;
+  // Tilt-based page turning (X3 only — requires QMI8658 IMU)
+  uint8_t tiltPageTurn = TILT_OFF;
+  // Language setting (Language enum index, default 0 = EN)
+  uint8_t language = 0;
 
   ~CrossPointSettings() = default;
 
@@ -287,6 +302,10 @@ class CrossPointSettings {
                                                                     : POWER_BUTTON_LONG_PRESS_MS;
   }
   uint16_t getPowerButtonLongPressDuration() const { return POWER_BUTTON_LONG_PRESS_MS; }
+  static uint8_t getActiveReaderFontSizeCount();
+  static uint8_t getStoredReaderFontSize(FONT_SIZE size);
+  FONT_SIZE getEffectiveReaderFontSize() const;
+  bool changeReaderFontSize(bool larger);
   int getReaderFontId() const;
 
   // If count_only is true, returns the number of settings items that would be written.
@@ -300,6 +319,7 @@ class CrossPointSettings {
 
  private:
   bool loadFromBinaryFile();
+  bool migrateLanguageBinaryFile();
 
  public:
   float getReaderLineCompression() const;

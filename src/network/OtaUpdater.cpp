@@ -3,7 +3,7 @@
 bool OtaUpdater::isUpdateNewer() const { return false; }
 const std::string& OtaUpdater::getLatestVersion() const { return latestVersion; }
 OtaUpdater::OtaUpdaterError OtaUpdater::checkForUpdate() { return NO_UPDATE; }
-OtaUpdater::OtaUpdaterError OtaUpdater::installUpdate(std::atomic<bool>*) { return NO_UPDATE; }
+OtaUpdater::OtaUpdaterError OtaUpdater::installUpdate(ProgressCallback, void*, std::atomic<bool>*) { return NO_UPDATE; }
 #else
 #include <ArduinoJson.h>
 #include <Logging.h>
@@ -305,7 +305,8 @@ bool OtaUpdater::isUpdateNewer() const {
 
 const std::string& OtaUpdater::getLatestVersion() const { return latestVersion; }
 
-OtaUpdater::OtaUpdaterError OtaUpdater::installUpdate(std::atomic<bool>* cancelRequested) {
+OtaUpdater::OtaUpdaterError OtaUpdater::installUpdate(ProgressCallback onProgress, void* ctx,
+                                                      std::atomic<bool>* cancelRequested) {
   const auto isCancellationRequested = [cancelRequested]() -> bool {
     return cancelRequested != nullptr && cancelRequested->load(std::memory_order_relaxed);
   };
@@ -320,8 +321,6 @@ OtaUpdater::OtaUpdaterError OtaUpdater::installUpdate(std::atomic<bool>* cancelR
 
   esp_https_ota_handle_t ota_handle = NULL;
   esp_err_t esp_err;
-  /* Signal for OtaUpdateActivity */
-  render = false;
 
   esp_http_client_config_t client_config = {
       .url = otaUrl.c_str(),
@@ -361,8 +360,7 @@ OtaUpdater::OtaUpdaterError OtaUpdater::installUpdate(std::atomic<bool>* cancelR
 
     esp_err = esp_https_ota_perform(ota_handle);
     processedSize = esp_https_ota_get_image_len_read(ota_handle);
-    /* Sent signal to  OtaUpdateActivity */
-    render = true;
+    if (onProgress) onProgress(ctx);
     delay(100);  // TODO: should we replace this with something better?
   } while (esp_err == ESP_ERR_HTTPS_OTA_IN_PROGRESS);
 

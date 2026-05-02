@@ -1,6 +1,10 @@
 #pragma once
 #include <GfxRenderer.h>
 
+#include <cstddef>
+
+#include "ScreenshotInfo.h"
+
 class ScreenshotUtil {
  public:
   static void takeScreenshot(GfxRenderer& renderer);
@@ -16,4 +20,5 @@ class ScreenshotUtil {
                                     void* ctx);
   static bool saveGrayscaleBmp(const char* filename, const uint8_t* lsbPlane, const uint8_t* msbPlane, int physWidth,
                                int physHeight);
+  static void buildFilename(const ScreenshotInfo& info, char* buf, size_t bufSize);
 };

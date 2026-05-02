@@ -10,6 +10,7 @@
 #include <Txt.h>
 #include <Xtc.h>
 
+#include <algorithm>
 #include <functional>
 #include <new>
 
@@ -201,12 +202,10 @@ std::string filenameFromPath(const std::string& path) {
 
 std::string recentTitleForPath(const std::string& path) {
   const auto& books = RECENT_BOOKS.getBooks();
-  for (const RecentBook& book : books) {
-    if (book.path == path && !book.title.empty()) {
-      return book.title;
-    }
-  }
-  return {};
+  const auto book = std::find_if(books.begin(), books.end(), [&path](const RecentBook& candidate) {
+    return candidate.path == path && !candidate.title.empty();
+  });
+  return book == books.end() ? std::string{} : book->title;
 }
 
 enum class OverlayDrawResult : uint8_t { NotFound, Drawn, Failed };

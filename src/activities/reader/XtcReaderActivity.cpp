@@ -10,6 +10,7 @@
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
 #include <HalStorage.h>
+#include <HalTiltSensor.h>
 #include <I18n.h>
 
 #include "CrossPointSettings.h"
@@ -94,6 +95,8 @@ void XtcReaderActivity::loop() {
   // Side buttons fire on press only when long-press action is OFF.
   const bool sideUsePress = SETTINGS.sideButtonLongPress == CrossPointSettings::SIDE_LONG_PRESS::SIDE_LONG_OFF;
 
+  const bool tiltNext = SETTINGS.tiltPageTurn && halTiltSensor.wasTiltedForward();
+  const bool tiltPrev = SETTINGS.tiltPageTurn && halTiltSensor.wasTiltedBack();
   const bool sidePrev = sideUsePress ? mappedInput.wasPressed(MappedInputManager::Button::PageBack)
                                      : mappedInput.wasReleased(MappedInputManager::Button::PageBack);
   const bool sideNext = sideUsePress ? mappedInput.wasPressed(MappedInputManager::Button::PageForward)
@@ -121,8 +124,9 @@ void XtcReaderActivity::loop() {
                                        : (mappedInput.wasReleased(MappedInputManager::Button::Right) || powerPageTurn);
 
   const bool fromSideBtn = (sidePrev || sideNext) && !(frontPrev || frontNext);
-  const bool prevTriggered = sidePrev || frontPrev;
-  const bool nextTriggered = sideNext || frontNext;
+  const bool fromTilt = tiltPrev || tiltNext;
+  const bool prevTriggered = tiltPrev || sidePrev || frontPrev;
+  const bool nextTriggered = tiltNext || sideNext || frontNext;
 
   if (!prevTriggered && !nextTriggered) {
     return;
@@ -140,7 +144,7 @@ void XtcReaderActivity::loop() {
   }
 
   const bool skipPages =
-      !powerPageTurn && mappedInput.getHeldTime() > skipPageMs &&
+      !fromTilt && !powerPageTurn && mappedInput.getHeldTime() > skipPageMs &&
       (fromSideBtn ? SETTINGS.sideButtonLongPress == CrossPointSettings::SIDE_LONG_PRESS::SIDE_LONG_CHAPTER_SKIP
                    : static_cast<bool>(SETTINGS.longPressChapterSkip));
   const int skipAmount = skipPages ? 10 : 1;
@@ -371,4 +375,22 @@ bool XtcReaderActivity::drawCurrentPageToBuffer(const std::string& filePath, Gfx
 
   free(pageBuffer);
   return true;
+}
+
+ScreenshotInfo XtcReaderActivity::getScreenshotInfo() const {
+  ScreenshotInfo info;
+  info.readerType = ScreenshotInfo::ReaderType::Xtc;
+  if (xtc) {
+    const std::string t = xtc->getTitle();
+    snprintf(info.title, sizeof(info.title), "%s", t.c_str());
+    const uint32_t pageCount = xtc->getPageCount();
+    info.totalPages = pageCount;
+    // Clamp to last valid page to avoid sentinel value (currentPage == pageCount)
+    uint32_t clampedPage = (pageCount > 0 && currentPage >= pageCount) ? pageCount - 1 : currentPage;
+    info.progressPercent = pageCount > 0 ? xtc->calculateProgress(clampedPage) : 0;
+    info.currentPage = static_cast<int>(clampedPage) + 1;
+  } else {
+    info.currentPage = currentPage + 1;
+  }
+  return info;
 }
