@@ -52,7 +52,11 @@ struct DirectPixelWriter {
     fbClearBit = false;
     switch (renderer.getRenderMode()) {
       case GfxRenderer::BW:
-        writeFbMask = 0x3;
+        // Match upstream CrossInk semantics: pixelValue < 3 draws as black
+        // (clears bit). Levels 0/1/2 → black, level 3 → white. The
+        // differential grayscale LUT can only refine pixels from a black BW
+        // base; if level 2 stays white here, mid-gray washes out on display.
+        writeFbMask = 0x7;
         fbClearBit = true;
         break;
       case GfxRenderer::GRAYSCALE_MSB:
