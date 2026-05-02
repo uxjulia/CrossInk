@@ -10,6 +10,7 @@ class EpdFont {
   ~EpdFont() = default;
   void getTextDimensions(const char* string, int* w, int* h) const;
 
+  const EpdGlyph* findGlyph(uint32_t cp) const;
   const EpdGlyph* getGlyph(uint32_t cp) const;
 
   /// Returns the kerning adjustment (4.4 fixed-point in pixels) between two codepoints.
