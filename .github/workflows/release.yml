@@ -1,5 +1,11 @@
 name: Compile Release
 on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version, without the leading v. Example: 1.2.9"
+        required: true
+        type: string
   push:
     tags:
       - "*"
@@ -36,9 +42,14 @@ jobs:
       - name: Install PlatformIO Core
         run: uv pip install --system -U https://github.com/pioarduino/platformio-core/archive/refs/tags/v6.1.19.zip
 
-      - name: Set version from tag
+      - name: Resolve release version
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ inputs.version }}"
+          else
+            VERSION="${GITHUB_REF_NAME#v}"
+          fi
+          VERSION="${VERSION#v}"
           echo "RELEASE_VERSION=$VERSION" >> "$GITHUB_ENV"
           sed -i "s/crossink_version = .*/crossink_version = $VERSION/" platformio.ini
 
@@ -50,6 +61,8 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
         with:
+          tag_name: v${{ env.RELEASE_VERSION }}
+          target_commitish: ${{ github.sha }}
           draft: true
           files: |
             .pio/build/tiny/firmware-tiny-v${{ env.RELEASE_VERSION }}.bin
