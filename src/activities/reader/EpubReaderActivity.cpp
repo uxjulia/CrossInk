@@ -1388,6 +1388,10 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   auto* fcm = renderer.getFontCacheManager();
   fcm->resetStats();
 
+  // Tell the renderer which EPUB image-quality cache lane to use during the
+  // BW pass (ImageBlock reads this to decide between .pxc and .high.pxc).
+  renderer.setHighQualityEpubImage(SETTINGS.epubImageQuality == CrossPointSettings::EIQ_HIGH);
+
   // Font prewarm: scan pass accumulates text, then prewarm, then real render
   const uint32_t heapBefore = esp_get_free_heap_size();
   auto scope = fcm->createPrewarmScope();
@@ -1434,7 +1438,7 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   const auto tBwRender = millis();
 
   const bool isImagePage = page->hasImages();
-  const bool useFactoryGray = isImagePage;
+  const bool useFactoryGray = isImagePage && SETTINGS.epubImageQuality == CrossPointSettings::EIQ_HIGH;
   lastPageWasFactoryGray = useFactoryGray;
   if (useFactoryGray) {
     lastFactoryMarginTop = orientedMarginTop;
@@ -1449,7 +1453,7 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   const auto tBwStore = millis();
 
   // grayscale rendering
-  if (SETTINGS.textAntiAliasing || useFactoryGray) {
+  if (SETTINGS.textAntiAliasing || isImagePage) {
     PageRenderCtx grayCtx{page.get(), SETTINGS.getReaderFontId(), orientedMarginLeft, orientedMarginTop, this};
 
     const auto tGrayStart = millis();
@@ -1705,6 +1709,7 @@ bool EpubReaderActivity::drawCurrentPageToBuffer(const std::string& filePath, Gf
   }
 
   renderer.clearScreen();
+  renderer.setHighQualityEpubImage(SETTINGS.epubImageQuality == CrossPointSettings::EIQ_HIGH);
   page->render(renderer, SETTINGS.getReaderFontId(), marginLeft, marginTop);
   // No displayBuffer call — caller (SleepActivity) handles that after compositing the overlay
   return true;

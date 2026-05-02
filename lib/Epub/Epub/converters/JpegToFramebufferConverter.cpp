@@ -124,6 +124,7 @@ int jpegDrawCallback(JPEGDRAW* pDraw) {
   if (stride <= 0 || blockH <= 0 || validW <= 0) return 1;
 
   const bool useDithering = ctx->config->useDithering;
+  const bool highQ = ctx->config->useHighQualityDither;
   const bool caching = ctx->caching;
   const int32_t fineScaleFP = ctx->fineScaleFP;
   const int32_t invScaleFP = ctx->invScaleFP;
@@ -176,7 +177,7 @@ int jpegDrawCallback(JPEGDRAW* pDraw) {
         uint8_t gray = row[dstX - blockX];
         uint8_t dithered;
         if (useDithering) {
-          dithered = applyBayerDither4Level(gray, outX, outY);
+          dithered = applyBayerDither4Level(gray, outX, outY, highQ);
         } else {
           dithered = gray / 85;
           if (dithered > 3) dithered = 3;
@@ -235,7 +236,7 @@ int jpegDrawCallback(JPEGDRAW* pDraw) {
 
         uint8_t dithered;
         if (useDithering) {
-          dithered = applyBayerDither4Level(gray, outX, outY);
+          dithered = applyBayerDither4Level(gray, outX, outY, highQ);
         } else {
           dithered = gray / 85;
           if (dithered > 3) dithered = 3;
@@ -258,7 +259,7 @@ int jpegDrawCallback(JPEGDRAW* pDraw) {
 
         uint8_t dithered;
         if (useDithering) {
-          dithered = applyBayerDither4Level(gray, outX, outY);
+          dithered = applyBayerDither4Level(gray, outX, outY, highQ);
         } else {
           dithered = gray / 85;
           if (dithered > 3) dithered = 3;
@@ -284,7 +285,7 @@ int jpegDrawCallback(JPEGDRAW* pDraw) {
 
         uint8_t dithered;
         if (useDithering) {
-          dithered = applyBayerDither4Level(gray, outX, outY);
+          dithered = applyBayerDither4Level(gray, outX, outY, highQ);
         } else {
           dithered = gray / 85;
           if (dithered > 3) dithered = 3;
@@ -317,7 +318,7 @@ int jpegDrawCallback(JPEGDRAW* pDraw) {
 
       uint8_t dithered;
       if (useDithering) {
-        dithered = applyBayerDither4Level(gray, outX, outY);
+        dithered = applyBayerDither4Level(gray, outX, outY, highQ);
       } else {
         dithered = gray / 85;
         if (dithered > 3) dithered = 3;

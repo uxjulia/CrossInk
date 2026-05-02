@@ -71,6 +71,7 @@ class GfxRenderer {
   std::vector<uint8_t*> bwBufferChunks;
   std::map<int, EpdFontFamily> fontMap;
   mutable DisplayState displayState = DisplayState::BW;
+  bool highQualityEpubImage = false;
   ScreenshotHook screenshotHook = nullptr;
   void* screenshotHookCtx = nullptr;
 
@@ -180,6 +181,13 @@ class GfxRenderer {
   int getTextHeight(int fontId) const;
 
   DisplayState getDisplayState() const { return displayState; }
+
+  // EPUB image quality: when true, ImageBlock decode/cache uses factory-LUT
+  // dither tuning and writes the cache under the .high.pxc suffix. Set by
+  // EpubReaderActivity before each page render.
+  void setHighQualityEpubImage(bool v) { highQualityEpubImage = v; }
+  bool isHighQualityEpubImage() const { return highQualityEpubImage; }
+
   void setScreenshotHook(ScreenshotHook hook, void* ctx);
 
   // Grayscale functions

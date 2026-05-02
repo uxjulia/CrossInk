@@ -192,6 +192,7 @@ int pngDrawCallback(PNGDRAW* pDraw) {
   int outXBase = ctx->config->x;
   int screenWidth = ctx->screenWidth;
   bool useDithering = ctx->config->useDithering;
+  bool highQ = ctx->config->useHighQualityDither;
   bool caching = ctx->caching;
 
   // Pre-compute orientation and render-mode state once per row
@@ -215,7 +216,7 @@ int pngDrawCallback(PNGDRAW* pDraw) {
 
       uint8_t ditheredGray;
       if (useDithering) {
-        ditheredGray = applyBayerDither4Level(gray, outX, outY);
+        ditheredGray = applyBayerDither4Level(gray, outX, outY, highQ);
       } else {
         ditheredGray = gray / 85;
         if (ditheredGray > 3) ditheredGray = 3;
