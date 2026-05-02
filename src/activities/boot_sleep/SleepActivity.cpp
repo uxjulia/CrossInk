@@ -636,18 +636,9 @@ void SleepActivity::renderBitmapSleepScreen(const Bitmap& bitmap) const {
   }
 
   LOG_DBG("SLP", "drawing to %d x %d", x, y);
-  renderer.clearScreen();
 
   const bool hasGreyscale = bitmap.hasGreyscale() &&
                             SETTINGS.sleepScreenCoverFilter == CrossPointSettings::SLEEP_SCREEN_COVER_FILTER::NO_FILTER;
-
-  renderer.drawBitmap(bitmap, x, y, pageWidth, pageHeight, cropX, cropY);
-
-  if (SETTINGS.sleepScreenCoverFilter == CrossPointSettings::SLEEP_SCREEN_COVER_FILTER::INVERTED_BLACK_AND_WHITE) {
-    renderer.invertScreen();
-  }
-
-  renderer.displayBuffer(HalDisplay::HALF_REFRESH);
 
   if (hasGreyscale) {
     struct BitmapGrayCtx {
