@@ -265,6 +265,10 @@ void enterDeepSleep() {
 
   activityManager.goToSleep();
 
+#ifdef SIMULATOR
+  display.presentIfNeeded();
+#endif
+
   display.deepSleep();
   LOG_DBG("MAIN", "Entering deep sleep");
 
