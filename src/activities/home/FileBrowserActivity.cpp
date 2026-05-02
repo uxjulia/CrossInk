@@ -20,10 +20,16 @@
 namespace {
 constexpr unsigned long GO_HOME_MS = 1000;
 
+bool isSupportedFile(std::string_view name) {
+  return FsHelpers::hasEpubExtension(name) || FsHelpers::hasXtcExtension(name) || FsHelpers::hasTxtExtension(name) ||
+         FsHelpers::hasMarkdownExtension(name) || FsHelpers::hasBmpExtension(name) ||
+         FsHelpers::hasPxcExtension(name) || FsHelpers::hasPngExtension(name);
+}
+
 bool isSleepFolderPath(const std::string& path) { return path == "/sleep" || path == "/.sleep"; }
 
 bool isSleepImageFile(const std::string& path) {
-  return FsHelpers::hasBmpExtension(path) || FsHelpers::hasPngExtension(path);
+  return FsHelpers::hasBmpExtension(path) || FsHelpers::hasPngExtension(path) || FsHelpers::hasPxcExtension(path);
 }
 
 std::string buildFullPath(std::string basepath, const std::string& entry) {
@@ -107,9 +113,7 @@ void FileBrowserActivity::loadFiles() {
       files.emplace_back(std::string(name) + "/");
     } else {
       std::string_view filename{name};
-      if (FsHelpers::hasEpubExtension(filename) || FsHelpers::hasXtcExtension(filename) ||
-          FsHelpers::hasTxtExtension(filename) || FsHelpers::hasMarkdownExtension(filename) ||
-          FsHelpers::hasBmpExtension(filename) || FsHelpers::hasPngExtension(filename)) {
+      if (isSupportedFile(filename)) {
         files.emplace_back(filename);
       }
     }

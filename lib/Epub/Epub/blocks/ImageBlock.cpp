@@ -19,13 +19,15 @@ bool ImageBlock::imageExists() const { return Storage.exists(imagePath.c_str());
 
 namespace {
 
-std::string getCachePath(const std::string& imagePath) {
-  // Replace extension with .pxc (pixel cache)
+std::string getCachePath(const std::string& imagePath, bool highQuality) {
+  // Replace extension with .pxc (Normal) or .high.pxc (High). Both can coexist
+  // on the SD card so toggling EPUB Image Quality doesn't force re-decoding.
+  const char* suffix = highQuality ? ".high.pxc" : ".pxc";
   size_t dotPos = imagePath.rfind('.');
   if (dotPos != std::string::npos) {
-    return imagePath.substr(0, dotPos) + ".pxc";
+    return imagePath.substr(0, dotPos) + suffix;
   }
-  return imagePath + ".pxc";
+  return imagePath + suffix;
 }
 
 bool renderFromCache(GfxRenderer& renderer, const std::string& cachePath, int x, int y, int expectedWidth,
@@ -74,13 +76,13 @@ bool renderFromCache(GfxRenderer& renderer, const std::string& cachePath, int x,
     }
 
     const int destY = y + row;
-    pw.beginRow(destY);
+    pw.beginRow(destY, x);
     for (int col = 0; col < cachedWidth; col++) {
       const int byteIdx = col >> 2;            // col / 4
       const int bitShift = 6 - (col & 3) * 2;  // MSB first within byte
       uint8_t pixelValue = (rowBuffer[byteIdx] >> bitShift) & 0x03;
 
-      pw.writePixel(x + col, pixelValue);
+      pw.writePixel(pixelValue);
     }
   }
 
@@ -105,7 +107,8 @@ void ImageBlock::render(GfxRenderer& renderer, const int x, const int y) {
   }
 
   // Try to render from cache first
-  std::string cachePath = getCachePath(imagePath);
+  const bool highQuality = renderer.isHighQualityEpubImage();
+  std::string cachePath = getCachePath(imagePath, highQuality);
   if (renderFromCache(renderer, cachePath, x, y, width, height)) {
     return;  // Successfully rendered from cache
   }
@@ -136,6 +139,7 @@ void ImageBlock::render(GfxRenderer& renderer, const int x, const int y) {
   config.useDithering = true;
   config.performanceMode = false;
   config.useExactDimensions = true;  // Use pre-calculated dimensions to avoid rounding mismatches
+  config.useHighQualityDither = highQuality;
   config.cachePath = cachePath;      // Enable caching during decode
 
   ImageToFramebufferDecoder* decoder = ImageDecoderFactory::getDecoder(imagePath);

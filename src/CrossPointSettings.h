@@ -171,6 +171,10 @@ class CrossPointSettings {
   // Image rendering in EPUB reader
   enum IMAGE_RENDERING { IMAGES_DISPLAY = 0, IMAGES_PLACEHOLDER = 1, IMAGES_SUPPRESS = 2, IMAGE_RENDERING_COUNT };
 
+  // EPUB image quality: Normal = differential LUT (legacy bayer thresholds),
+  // High = factory LUT (PR #1614 path with soft-shoulder dithering)
+  enum EPUB_IMAGE_QUALITY { EIQ_NORMAL = 0, EIQ_HIGH = 1, EPUB_IMAGE_QUALITY_COUNT };
+
   enum TILT_PAGE_TURN { TILT_OFF = 0, TILT_NORMAL = 1, TILT_INVERTED = 2, TILT_PAGE_TURN_COUNT };
 
   // Long-press Confirm (menu button) quick action in reader
@@ -276,6 +280,8 @@ class CrossPointSettings {
   uint8_t moveFinishedToReadFolder = 0;
   // Image rendering mode in EPUB reader
   uint8_t imageRendering = IMAGES_DISPLAY;
+  // EPUB image quality (default Normal = legacy differential LUT)
+  uint8_t epubImageQuality = EIQ_NORMAL;
   // Long-press Confirm (menu button) quick action in reader (0 = off)
   uint8_t longPressMenuAction = LONG_MENU_OFF;
   // Tilt-based page turning (X3 only — requires QMI8658 IMU)

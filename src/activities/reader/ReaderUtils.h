@@ -69,6 +69,7 @@ inline PageTurnResult detectPageTurn(const MappedInputManager& input) {
 inline void displayWithRefreshCycle(const GfxRenderer& renderer, int& pagesUntilFullRefresh) {
   if (pagesUntilFullRefresh <= 1) {
     renderer.displayBuffer(HalDisplay::HALF_REFRESH);
+    renderer.cleanupGrayscaleWithFrameBuffer();
     pagesUntilFullRefresh = SETTINGS.getRefreshFrequency();
   } else {
     renderer.displayBuffer();

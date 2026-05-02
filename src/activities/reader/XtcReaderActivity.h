@@ -15,7 +15,7 @@ class XtcReaderActivity final : public Activity {
   std::shared_ptr<Xtc> xtc;
 
   uint32_t currentPage = 0;
-  int pagesUntilFullRefresh = 0;
+  uint32_t pagesSinceClean = 0;
   bool longPowerPageTurnHandled = false;
 
   void renderPage();
@@ -29,6 +29,7 @@ class XtcReaderActivity final : public Activity {
   void onExit() override;
   void loop() override;
   void render(RenderLock&&) override;
+  void onScreenshotRequest() override;
   bool isReaderActivity() const override { return true; }
 
   // Renders the last saved page to the frame buffer without flushing to display.

@@ -124,6 +124,7 @@ int jpegDrawCallback(JPEGDRAW* pDraw) {
   if (stride <= 0 || blockH <= 0 || validW <= 0) return 1;
 
   const bool useDithering = ctx->config->useDithering;
+  const bool highQ = ctx->config->useHighQualityDither;
   const bool caching = ctx->caching;
   const int32_t fineScaleFP = ctx->fineScaleFP;
   const int32_t invScaleFP = ctx->invScaleFP;
@@ -168,7 +169,7 @@ int jpegDrawCallback(JPEGDRAW* pDraw) {
   if (fineScaleFP == FP_ONE) {
     for (int dstY = dstYStart; dstY < dstYEnd; dstY++) {
       const int outY = cfgY + dstY;
-      pw.beginRow(outY);
+      pw.beginRow(outY, cfgX + dstXStart);
       if (caching) cw.beginRow(outY, ctx->config->y);
       const uint8_t* row = &pixels[(dstY - blockY) * stride];
       for (int dstX = dstXStart; dstX < dstXEnd; dstX++) {
@@ -176,12 +177,12 @@ int jpegDrawCallback(JPEGDRAW* pDraw) {
         uint8_t gray = row[dstX - blockX];
         uint8_t dithered;
         if (useDithering) {
-          dithered = applyBayerDither4Level(gray, outX, outY);
+          dithered = applyBayerDither4Level(gray, outX, outY, highQ);
         } else {
           dithered = gray / 85;
           if (dithered > 3) dithered = 3;
         }
-        pw.writePixel(outX, dithered);
+        pw.writePixel(dithered);
         if (caching) cw.writePixel(outX, dithered);
       }
     }
@@ -202,7 +203,7 @@ int jpegDrawCallback(JPEGDRAW* pDraw) {
 
     for (int dstY = dstYStart; dstY < dstYEnd; dstY++) {
       const int outY = cfgY + dstY;
-      pw.beginRow(outY);
+      pw.beginRow(outY, cfgX + dstXStart);
       if (caching) cw.beginRow(outY, ctx->config->y);
       const int32_t srcFyFP = dstY * invScaleFP;
       const int32_t fy = srcFyFP & FP_MASK;
@@ -235,12 +236,12 @@ int jpegDrawCallback(JPEGDRAW* pDraw) {
 
         uint8_t dithered;
         if (useDithering) {
-          dithered = applyBayerDither4Level(gray, outX, outY);
+          dithered = applyBayerDither4Level(gray, outX, outY, highQ);
         } else {
           dithered = gray / 85;
           if (dithered > 3) dithered = 3;
         }
-        pw.writePixel(outX, dithered);
+        pw.writePixel(dithered);
         if (caching) cw.writePixel(outX, dithered);
       }
 
@@ -258,12 +259,12 @@ int jpegDrawCallback(JPEGDRAW* pDraw) {
 
         uint8_t dithered;
         if (useDithering) {
-          dithered = applyBayerDither4Level(gray, outX, outY);
+          dithered = applyBayerDither4Level(gray, outX, outY, highQ);
         } else {
           dithered = gray / 85;
           if (dithered > 3) dithered = 3;
         }
-        pw.writePixel(outX, dithered);
+        pw.writePixel(dithered);
         if (caching) cw.writePixel(outX, dithered);
       }
 
@@ -284,12 +285,12 @@ int jpegDrawCallback(JPEGDRAW* pDraw) {
 
         uint8_t dithered;
         if (useDithering) {
-          dithered = applyBayerDither4Level(gray, outX, outY);
+          dithered = applyBayerDither4Level(gray, outX, outY, highQ);
         } else {
           dithered = gray / 85;
           if (dithered > 3) dithered = 3;
         }
-        pw.writePixel(outX, dithered);
+        pw.writePixel(dithered);
         if (caching) cw.writePixel(outX, dithered);
       }
     }
@@ -299,7 +300,7 @@ int jpegDrawCallback(JPEGDRAW* pDraw) {
   // === Nearest-neighbor (downscale: fineScale < 1.0) ===
   for (int dstY = dstYStart; dstY < dstYEnd; dstY++) {
     const int outY = cfgY + dstY;
-    pw.beginRow(outY);
+    pw.beginRow(outY, cfgX + dstXStart);
     if (caching) cw.beginRow(outY, ctx->config->y);
     const int32_t srcFyFP = dstY * invScaleFP;
     int ly = (srcFyFP >> FP_SHIFT) - blockY;
@@ -317,12 +318,12 @@ int jpegDrawCallback(JPEGDRAW* pDraw) {
 
       uint8_t dithered;
       if (useDithering) {
-        dithered = applyBayerDither4Level(gray, outX, outY);
+        dithered = applyBayerDither4Level(gray, outX, outY, highQ);
       } else {
         dithered = gray / 85;
         if (dithered > 3) dithered = 3;
       }
-      pw.writePixel(outX, dithered);
+      pw.writePixel(dithered);
       if (caching) cw.writePixel(outX, dithered);
     }
   }
