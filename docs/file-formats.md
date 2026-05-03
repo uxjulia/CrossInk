@@ -109,6 +109,10 @@ if (parsedSize != fileSize) {
 
 ## `section.bin`
 
+### Version 29
+
+Added `PageTableFragment` page elements (tag `3`) for paginated simple-table layout. Table fragments store their fragment width, column count, cell padding, line height, per-row heights/header-divider flags, and per-cell serialized `TextBlock` lines. This invalidates cached section layouts so simple EPUB tables can render as buffered multi-column grids instead of flattened cell paragraphs.
+
 ### Version 27
 
 Invalidates cached Bionic Reading layouts so words that were already bold in the EPUB remain fully bold. No binary layout fields changed from version 26.
@@ -141,7 +145,7 @@ import std.string;
 import std.core;
 
 // === Configuration ===
-#define EXPECTED_VERSION 27
+#define EXPECTED_VERSION 29
 #define MAX_STRING_LENGTH 65535
 
 // === String Structure ===

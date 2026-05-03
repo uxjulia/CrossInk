@@ -13,6 +13,7 @@
 enum PageElementTag : uint8_t {
   TAG_PageLine = 1,
   TAG_PageImage = 2,  // New tag
+  TAG_PageTableFragment = 3,
 };
 
 // represents something that has been added to a page
@@ -53,6 +54,47 @@ class PageImage final : public PageElement {
   PageElementTag getTag() const override { return TAG_PageImage; }
   static std::unique_ptr<PageImage> deserialize(FsFile& file);
   const ImageBlock& getImageBlock() const { return *imageBlock; }
+};
+
+struct TableFragmentCell {
+  bool isHeader = false;
+  std::vector<std::shared_ptr<TextBlock>> lines;
+
+  bool serialize(FsFile& file) const;
+  static bool deserialize(FsFile& file, TableFragmentCell& outCell);
+};
+
+struct TableFragmentRow {
+  uint16_t height = 0;
+  bool headerSeparator = false;
+  std::vector<TableFragmentCell> cells;
+
+  bool serialize(FsFile& file) const;
+  static bool deserialize(FsFile& file, TableFragmentRow& outRow);
+};
+
+class PageTableFragment final : public PageElement {
+  uint16_t width;
+  uint8_t columnCount;
+  uint8_t cellPadding;
+  uint16_t lineHeight;
+  std::vector<TableFragmentRow> rows;
+
+ public:
+  PageTableFragment(uint16_t width, uint8_t columnCount, uint8_t cellPadding, uint16_t lineHeight,
+                    std::vector<TableFragmentRow> rows, int16_t xPos, int16_t yPos)
+      : PageElement(xPos, yPos),
+        width(width),
+        columnCount(columnCount),
+        cellPadding(cellPadding),
+        lineHeight(lineHeight),
+        rows(std::move(rows)) {}
+
+  void render(GfxRenderer& renderer, int fontId, int xOffset, int yOffset) override;
+  bool serialize(FsFile& file) override;
+  PageElementTag getTag() const override { return TAG_PageTableFragment; }
+  static std::unique_ptr<PageTableFragment> deserialize(FsFile& file);
+  uint16_t getHeight() const;
 };
 
 class Page {

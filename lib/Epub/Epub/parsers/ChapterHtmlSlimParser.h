@@ -22,6 +22,11 @@ class Epub;
 #define MAX_WORD_SIZE 200
 
 class ChapterHtmlSlimParser {
+  static constexpr uint8_t MAX_SIMPLE_TABLE_COLUMNS = 8;
+  static constexpr uint16_t MAX_SIMPLE_TABLE_CELLS = 64;
+  static constexpr uint16_t MAX_SIMPLE_TABLE_CELL_WORDS = 160;
+  static constexpr uint8_t TABLE_CELL_PADDING = 6;
+
   std::shared_ptr<Epub> epub;
   const std::string& filepath;
   GfxRenderer& renderer;
@@ -73,9 +78,32 @@ class ChapterHtmlSlimParser {
   bool effectiveItalic = false;
   bool effectiveUnderline = false;
   bool effectiveStrikethrough = false;
+
+  struct BufferedTableCell {
+    std::unique_ptr<ParsedText> text;
+    std::vector<std::pair<int, FootnoteEntry>> footnotes;
+    bool isHeader = false;
+  };
+
+  struct BufferedTableRow {
+    std::vector<BufferedTableCell> cells;
+    bool hasHeaderCell = false;
+    bool hasDataCell = false;
+  };
+
+  struct BufferedTable {
+    BlockStyle blockStyle;
+    std::vector<BufferedTableRow> rows;
+    uint16_t maxCols = 0;
+    uint16_t totalCells = 0;
+    bool unsupported = false;
+  };
+
   int tableDepth = 0;
   int tableRowIndex = 0;
   int tableColIndex = 0;
+  bool currentTableCellIsHeader = false;
+  std::unique_ptr<BufferedTable> currentTableBuffer = nullptr;
   std::vector<CssAncestorEntry> ancestorStack_;
 
   // Anchor-to-page mapping: tracks which page each HTML id attribute lands on
@@ -96,6 +124,10 @@ class ChapterHtmlSlimParser {
   void startNewTextBlock(const BlockStyle& blockStyle);
   void flushPartWordBuffer();
   void makePages();
+  void finalizeCurrentTableCell();
+  void emitBufferedTableAsParagraphs(BufferedTable& table);
+  void emitBufferedTableAsFragments(BufferedTable& table);
+  void emitCurrentTableBuffer();
   // XML callbacks
   static void XMLCALL startElement(void* userData, const XML_Char* name, const XML_Char** atts);
   static void XMLCALL characterData(void* userData, const XML_Char* s, int len);
