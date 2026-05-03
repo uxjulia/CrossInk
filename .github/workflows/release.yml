@@ -1,5 +1,11 @@
 name: Compile Release
 on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version, without the leading v. Example: 1.2.9"
+        required: true
+        type: string
   push:
     tags:
       - "*"
@@ -36,9 +42,14 @@ jobs:
       - name: Install PlatformIO Core
         run: uv pip install --system -U https://github.com/pioarduino/platformio-core/archive/refs/tags/v6.1.19.zip
 
-      - name: Set version from tag
+      - name: Resolve release version
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ inputs.version }}"
+          else
+            VERSION="${GITHUB_REF_NAME#v}"
+          fi
+          VERSION="${VERSION#v}"
           echo "RELEASE_VERSION=$VERSION" >> "$GITHUB_ENV"
           sed -i "s/crossink_version = .*/crossink_version = $VERSION/" platformio.ini
 
@@ -47,11 +58,42 @@ jobs:
           CROSSPOINT_RELEASE_VERSION: ${{ env.RELEASE_VERSION }}
         run: pio run -e tiny -e xlarge -e no_emoji
 
+      - name: Generate release catalog
+        run: |
+          python3 scripts/generate_release_catalog.py \
+            --version "${{ env.RELEASE_VERSION }}" \
+            --repo "${{ github.repository }}" \
+            --firmware ".pio/build/tiny/firmware-tiny-v${{ env.RELEASE_VERSION }}.bin" \
+            --firmware ".pio/build/xlarge/firmware-xlarge-v${{ env.RELEASE_VERSION }}.bin" \
+            --firmware ".pio/build/no_emoji/firmware-no_emoji-v${{ env.RELEASE_VERSION }}.bin" \
+            --output ".pio/build/catalog"
+
+      - name: Publish catalog to GitHub Pages source
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin "$DEFAULT_BRANCH"
+          git worktree add ../crossink-pages "origin/$DEFAULT_BRANCH"
+          cp ".pio/build/catalog" "../crossink-pages/docs/catalog"
+          cd ../crossink-pages
+          if git diff --quiet -- docs/catalog; then
+            echo "docs/catalog is already current"
+            exit 0
+          fi
+          git add docs/catalog
+          git commit -m "Update release catalog for v${RELEASE_VERSION}"
+          git push origin "HEAD:$DEFAULT_BRANCH"
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
         with:
+          tag_name: v${{ env.RELEASE_VERSION }}
+          target_commitish: ${{ github.sha }}
           draft: true
           files: |
+            .pio/build/catalog
             .pio/build/tiny/firmware-tiny-v${{ env.RELEASE_VERSION }}.bin
             .pio/build/xlarge/firmware-xlarge-v${{ env.RELEASE_VERSION }}.bin
             .pio/build/no_emoji/firmware-no_emoji-v${{ env.RELEASE_VERSION }}.bin

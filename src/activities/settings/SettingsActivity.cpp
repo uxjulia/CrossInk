@@ -64,8 +64,12 @@ void SettingsActivity::onEnter() {
   systemSettings.push_back(SettingInfo::Action(StrId::STR_LANGUAGE, SettingAction::Language));
   readerSettings.push_back(SettingInfo::Action(StrId::STR_CUSTOMISE_STATUS_BAR, SettingAction::CustomiseStatusBar));
 
+  const bool hasTiltPageTurnSetting = std::any_of(allSettings.begin(), allSettings.end(), [](const auto& setting) {
+    return setting.nameId == StrId::STR_TILT_PAGE_TURN;
+  });
+
   // Build controls settings with section headers in desired display order
-  constexpr size_t expectedControlsSettingsCount = 11;
+  const size_t expectedControlsSettingsCount = hasTiltPageTurnSetting ? 13 : 11;
   controlsSettings.reserve(expectedControlsSettingsCount);
   controlsSettings.push_back(SettingInfo::SectionHeader(StrId::STR_POWER_BUTTON));
   addControlSetting(StrId::STR_SHORT_PWR_BTN);
@@ -79,6 +83,10 @@ void SettingsActivity::onEnter() {
   addControlSetting(StrId::STR_SIDE_BTN_LAYOUT);
   addControlSetting(StrId::STR_LONG_PRESS_SKIP);
   addControlSetting(StrId::STR_SIDE_BTN_LONG_PRESS);
+  if (hasTiltPageTurnSetting) {
+    controlsSettings.push_back(SettingInfo::SectionHeader(StrId::STR_OTHER));
+    addControlSetting(StrId::STR_TILT_PAGE_TURN);
+  }
 
   if (controlsSettings.size() != expectedControlsSettingsCount) {
     LOG_ERR("SET", "Unexpected controls settings count: %u (expected %u)",
@@ -107,7 +115,7 @@ void SettingsActivity::loop() {
   bool hasChangedCategory = false;
 
   // Handle actions with early return
-  if (mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
+  if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
     if (selectedSettingIndex == 0) {
       selectedCategoryIndex = (selectedCategoryIndex < categoryCount - 1) ? (selectedCategoryIndex + 1) : 0;
       hasChangedCategory = true;

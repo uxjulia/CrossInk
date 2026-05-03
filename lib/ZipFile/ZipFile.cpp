@@ -1,5 +1,6 @@
 #include "ZipFile.h"
 
+#include <Arduino.h>
 #include <HalStorage.h>
 #include <InflateReader.h>
 #include <Logging.h>
@@ -485,31 +486,33 @@ bool ZipFile::readFileToStream(const char* filename, Print& out, const size_t ch
   }
 
   if (fileStat.method == ZIP_METHOD_DEFLATED) {
+    ZipInflateCtx ctx;
+    ctx.file = &file;
+    ctx.fileRemaining = deflatedDataSize;
+
+    if (!ctx.reader.init(true)) {
+      LOG_ERR("ZIP", "Failed to init inflate reader (free=%u, maxAlloc=%u, chunk=%zu)", ESP.getFreeHeap(),
+              ESP.getMaxAllocHeap(), chunkSize);
+      return false;
+    }
+
     auto* fileReadBuffer = static_cast<uint8_t*>(malloc(chunkSize));
     if (!fileReadBuffer) {
-      LOG_ERR("ZIP", "Failed to allocate memory for zip file read buffer");
+      LOG_ERR("ZIP", "Failed to allocate memory for zip file read buffer (free=%u, maxAlloc=%u, chunk=%zu)",
+              ESP.getFreeHeap(), ESP.getMaxAllocHeap(), chunkSize);
       return false;
     }
 
     auto* outputBuffer = static_cast<uint8_t*>(malloc(chunkSize));
     if (!outputBuffer) {
-      LOG_ERR("ZIP", "Failed to allocate memory for output buffer");
+      LOG_ERR("ZIP", "Failed to allocate memory for output buffer (free=%u, maxAlloc=%u, chunk=%zu)", ESP.getFreeHeap(),
+              ESP.getMaxAllocHeap(), chunkSize);
       free(fileReadBuffer);
       return false;
     }
 
-    ZipInflateCtx ctx;
-    ctx.file = &file;
-    ctx.fileRemaining = deflatedDataSize;
     ctx.readBuf = fileReadBuffer;
     ctx.readBufSize = chunkSize;
-
-    if (!ctx.reader.init(true)) {
-      LOG_ERR("ZIP", "Failed to init inflate reader");
-      free(outputBuffer);
-      free(fileReadBuffer);
-      return false;
-    }
     ctx.reader.setReadCallback(zipReadCallback);
 
     bool success = false;

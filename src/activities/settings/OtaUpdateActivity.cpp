@@ -101,7 +101,7 @@ void OtaUpdateActivity::render(RenderLock&&) {
   } else if (state == WAITING_CONFIRMATION) {
     renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_NEW_UPDATE), true, EpdFontFamily::BOLD);
     renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding, top + height + metrics.verticalSpacing,
-                      (std::string(tr(STR_CURRENT_VERSION)) + CROSSPOINT_VERSION).c_str());
+                      (std::string(tr(STR_CURRENT_VERSION)) + CROSSINK_VERSION).c_str());
     renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding, top + height * 2 + metrics.verticalSpacing * 2,
                       (std::string(tr(STR_NEW_VERSION)) + updater.getLatestVersion()).c_str());
 
@@ -140,20 +140,22 @@ void OtaUpdateActivity::render(RenderLock&&) {
 }
 
 void OtaUpdateActivity::loop() {
-  // TODO @ngxson : refactor this logic later
-  if (updater.getRender()) {
-    requestUpdate();
-  }
-
   if (state == WAITING_CONFIRMATION) {
-    if (mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
+    if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
       LOG_DBG("OTA", "New update available, starting download...");
       {
         RenderLock lock(*this);
         state = UPDATE_IN_PROGRESS;
       }
       requestUpdateAndWait();
-      const auto res = updater.installUpdate();
+      const auto res = updater.installUpdate(
+          [](void* ctx) {
+            // immediate=true notifies the render task directly. The default deferred path only
+            // sets a flag consumed at the end of ActivityManager::loop(), which never runs while
+            // installUpdate() blocks this task.
+            static_cast<OtaUpdateActivity*>(ctx)->requestUpdate(true);
+          },
+          this);
 
       if (res != OtaUpdater::OK) {
         LOG_DBG("OTA", "Update failed: %d", res);
@@ -169,7 +171,13 @@ void OtaUpdateActivity::loop() {
         RenderLock lock(*this);
         state = FINISHED;
       }
-      requestUpdate();
+      requestUpdateAndWait();
+      // Hold the completion screen briefly so the user sees it, then restart.
+      delay(3000);
+      {
+        RenderLock lock(*this);
+        state = SHUTTING_DOWN;
+      }
     }
 
     if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {

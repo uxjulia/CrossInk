@@ -57,6 +57,7 @@ class ChapterHtmlSlimParser {
   std::string contentBase;
   std::string imageBasePath;
   int imageCounter = 0;
+  bool lowMemoryImageFallback = false;
 
   // Style tracking (replaces depth-based approach)
   struct StyleStackEntry {
@@ -138,4 +139,5 @@ class ChapterHtmlSlimParser {
   bool parseAndBuildPages();
   void addLineToPage(std::shared_ptr<TextBlock> line);
   const std::vector<std::pair<std::string, uint16_t>>& getAnchors() const { return anchorData; }
+  bool wasLowMemoryFallbackTriggered() const { return lowMemoryImageFallback; }
 };

@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <iterator>
 
+#include "CrossPointSettings.h"
 #include "I18nKeys.h"
 #include "MappedInputManager.h"
 #include "fontIds.h"
@@ -31,7 +32,7 @@ void LanguageSelectActivity::loop() {
     return;
   }
 
-  if (mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
+  if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
     handleSelection();
     return;
   }
@@ -49,10 +50,15 @@ void LanguageSelectActivity::loop() {
 }
 
 void LanguageSelectActivity::handleSelection() {
+  const uint8_t langIndex = SORTED_LANGUAGE_INDICES[selectedIndex];
+
   {
     RenderLock lock(*this);
-    I18N.setLanguage(static_cast<Language>(SORTED_LANGUAGE_INDICES[selectedIndex]));
+    I18N.setLanguage(static_cast<Language>(langIndex));
   }
+
+  SETTINGS.language = langIndex;
+  SETTINGS.saveToFile();
 
   // Return to previous page
   onBack();

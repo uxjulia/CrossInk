@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Files - CrossPoint Reader</title>
+  <title>Files - CrossInk</title>
   <script src="/js/jszip.min.js"></script>
   <style>
     :root {
@@ -37,6 +37,9 @@
       background-color: var(--bg);
       color: var(--font-color);
     }
+    .crossink-header {
+      font-family: Georgia, 'Times New Roman', Times, serif;
+    }
     h1 {
       color: var(--title-color);
       border-bottom: 2px solid var(--accent-color);
@@ -51,7 +54,8 @@
       border-radius: 8px;
       padding: 20px;
       margin: 15px 0;
-      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+      border: 1px solid var(--border-color);
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
     }
     .page-header {
       display: flex;
@@ -89,56 +93,68 @@
     .nav-links {
       margin: 20px 0;
       display: flex;
-      gap: 10px;
+      gap: 0;
+      border-bottom: 1px solid var(--border-color);
     }
     .nav-links a {
-      padding: 10px 20px;
-      color: var(--font-color);
+      padding: 8px 16px;
+      color: var(--label-color);
       text-decoration: none;
-      border-radius: 4px;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -1px;
+      transition: color 0.15s;
     }
     .nav-links a.active {
-      background-color: var(--accent-color);
-      color: white;
+      color: var(--accent-color);
+      border-bottom-color: var(--accent-color);
+      font-weight: 500;
     }
     .nav-links a:not(.active):hover {
-      background-color: var(--accent-hover-color);
-      color: white;
+      color: var(--font-color);
     }
     /* Action buttons */
     .action-buttons {
       display: flex;
-      gap: 10px;
+      gap: 8px;
     }
     .action-btn {
-      color: white;
-      padding: 10px 16px;
-      border: none;
+      padding: 8px 14px;
       border-radius: 4px;
       cursor: pointer;
-      font-size: 0.95em;
-      font-weight: 600;
+      font-size: 0.9em;
+      font-weight: 500;
       display: flex;
       align-items: center;
       gap: 6px;
+      border: 1px solid transparent;
+      transition: color 0.15s, background-color 0.15s, border-color 0.15s;
     }
     .upload-action-btn {
-      background-color: #27ae60;
+      background-color: var(--accent-color);
+      border-color: var(--accent-color);
+      color: white;
     }
     .upload-action-btn:hover {
-      background-color: #219a52;
+      background-color: var(--accent-hover-color);
+      border-color: var(--accent-hover-color);
     }
     .folder-action-btn {
-      background-color: #f39c12;
+      background: transparent;
+      border-color: var(--border-color);
+      color: var(--font-color);
     }
     .folder-action-btn:hover {
-      background-color: #d68910;
+      border-color: var(--label-color);
     }
     .delete-action-btn {
-      background-color: #e74c3c;
+      background: transparent;
+      border-color: var(--border-color);
+      color: var(--label-color);
     }
     .delete-action-btn:hover {
-      background-color: #c0392b;
+      border-color: #e74c3c;
+      color: #e74c3c;
+      background-color: rgba(231, 76, 60, 0.05);
     }
     /* Upload modal */
     .modal-overlay {
@@ -247,7 +263,6 @@
       color: white;
       border-radius: 10px;
       font-size: 0.75em;
-      margin-left: 8px;
     }
     .folder-badge {
       display: inline-block;
@@ -256,7 +271,6 @@
       color: white;
       border-radius: 10px;
       font-size: 0.75em;
-      margin-left: 8px;
     }
     .file-icon {
       margin-right: 8px;
@@ -1236,8 +1250,7 @@
         font-size: 0.95em;
       }
       .nav-links a {
-        padding: 8px 12px;
-        margin-right: 6px;
+        padding: 6px 12px;
         font-size: 0.9em;
       }
       .action-buttons {
@@ -1262,7 +1275,6 @@
       .folder-badge {
         padding: 2px 5px;
         font-size: 0.65em;
-        margin-left: 4px;
       }
       .contents-header {
         margin-bottom: 8px;
@@ -1462,7 +1474,7 @@
   </style>
 </head>
 <body>
-<h1>📚 CrossPoint Reader</h1>
+<h1 class="crossink-header">CrossInk</h1>
 
 <div class="nav-links">
   <a href="/">Home</a>
@@ -1472,7 +1484,7 @@
 
 <div class="page-header">
   <div class="page-header-left">
-    <h2>📁 File Manager</h2>
+    <h2>File Manager</h2>
     <div class="breadcrumb-inline" id="directory-breadcrumbs"></div>
   </div>
 
@@ -1506,11 +1518,7 @@
   </div>
 </div>
 
-<div class="card">
-  <p style="text-align: center; color: #95a5a6; margin: 0;">
-    CrossPoint E-Reader • Open Source
-  </p>
-</div>
+<p style="text-align: center; color: var(--label-color); font-size: 0.85em; padding: 20px 0; margin: 0;">CrossInk &bull; Open Source</p>
 
 <!-- Upload Modal -->
 <div class="modal-overlay" id="uploadModal">
@@ -1738,7 +1746,7 @@
 
   if (currentPath !== '/') {
     const leaf = currentPath.split('/').filter(Boolean).pop();
-    if (leaf) document.title = leaf + ' - Files - CrossPoint Reader';
+    if (leaf) document.title = leaf + ' - Files - CrossInk Reader';
   }
 
   // Network status monitoring
@@ -1826,7 +1834,7 @@
   }
 
   async function hydrate() {
-    // Fetch CrossPoint version
+    // Fetch CrossInk version
     fetchVersion();
 
     // Close modals when clicking overlay - call proper cleanup functions
@@ -1913,8 +1921,8 @@
          // Checkbox cell + folder row
           fileTableContent += `<tr class="folder-row">`;
           fileTableContent += `<td><input type="checkbox" class="select-item" data-path="${encodeURIComponent(folderPath)}" data-name="${escapeHtml(file.name)}" data-type="folder"></td>`;
-          fileTableContent += `<td><span class="file-icon">📁</span><a href="/files?path=${encodeURIComponent(folderPath)}" class="folder-link">${escapeHtml(file.name)}</a><span class="folder-badge">FOLDER</span></td>`;
-          fileTableContent += '<td>Folder</td>';
+          fileTableContent += `<td><span class="file-icon">📁</span><a href="/files?path=${encodeURIComponent(folderPath)}" class="folder-link">${escapeHtml(file.name)}</a></td>`;
+          fileTableContent += '<td><span class="folder-badge">FOLDER</span></td>';
           fileTableContent += '<td>-</td>';
           fileTableContent += `<td class="actions-col"><div class="action-icon-group"><button class="delete-btn" onclick="openDeleteModal('${file.name.replaceAll("'", "\\'")}', '${folderPath.replaceAll("'", "\\'")}', true)" title="Delete folder">🗑️</button></div></td>`;
           fileTableContent += '</tr>';
@@ -1928,9 +1936,8 @@
           fileTableContent += `<td><input type="checkbox" class="select-item" data-path="${encodeURIComponent(filePath)}" data-name="${escapeHtml(file.name)}" data-type="file"></td>`;
           fileTableContent += `<td><span class="file-icon">${file.isEpub ? '📗' : '📄'}</span>`;
           fileTableContent += `<a rel="noopener noreferrer" target="_blank" href="/download?path=${encodeURIComponent(filePath)}" class="file-link">${escapeHtml(file.name)}</a>`;
-          if (file.isEpub) fileTableContent += '<span class="epub-badge">EPUB</span>';
           fileTableContent += '</td>';
-          fileTableContent += `<td>${file.name.split('.').pop().toUpperCase()}</td>`;
+          fileTableContent += file.isEpub ? '<td><span class="epub-badge">EPUB</span></td>' : `<td>${escapeHtml(file.name.split('.').pop().toUpperCase())}</td>`;
           fileTableContent += `<td>${formatFileSize(file.size)}</td>`;
           fileTableContent += `<td class="actions-col"><div class="action-icon-group">`;
           fileTableContent += `<button class="move-btn" onclick="openMoveModal('${file.name.replaceAll("'", "\\'")}', '${filePath.replaceAll("'", "\\'")}' )" title="Move file">📂</button>`;
@@ -1964,7 +1971,7 @@
     // Reset rotation and overlap UI
     setHandedness('right');
     setOverlap(5);
-    
+
     // Hide log section from previous session
     const logSection = document.getElementById('log-section');
     if (logSection) logSection.classList.remove('visible');
@@ -2098,10 +2105,10 @@
     const content = document.getElementById('advancedSettingsContent');
     const arrow = document.getElementById('advancedOptionsArrow');
     const isExpanding = !content.classList.contains('visible');
-    
+
     content.classList.toggle('visible');
     arrow.classList.toggle('expanded');
-    
+
     // When expanding, show image picker if an EPUB is selected
     if (isExpanding) {
       const fileInput = document.getElementById('fileInput');
@@ -2355,11 +2362,11 @@
 
       // Get dimensions
       const dims = await getImageDimensions(data);
-      
+
       // Check if this is the cover image
-      const isCover = (path === coverImagePath) || 
+      const isCover = (path === coverImagePath) ||
                       path.toLowerCase().includes('cover') && images.length === 0;
-      
+
       // Check if this is a separator/ornament (skip cover check)
       const filename = path.split('/').pop();
       let isSeparator = false;
@@ -2370,13 +2377,13 @@
           console.warn('Separator check failed for', filename, e);
         }
       }
-      
+
       // Tiny images (<200x200) are locked like separators
       const isTiny = (dims.width < 200 && dims.height < 200);
-      
+
       // Images that fit screen can only rotate, not split
       const fitsScreen = (dims.width <= 480 && dims.height <= 800);
-      
+
       // Split capability - no upscaling allowed
       // H-Split scales width to 800, so needs width >= 800
       // V-Split scales height to 800, so needs height >= 800
@@ -2426,23 +2433,23 @@
   async function isSeparatorImage(dataUrl, width, height, filename) {
     const MAX_DIMENSION = 150;
     const SYMMETRY_THRESHOLD = 0.85;
-    
+
     // First check: must be small in at least one dimension
     const isSmall = (height < MAX_DIMENSION || width < MAX_DIMENSION);
     if (!isSmall) return false;
-    
+
     // Filename hints (instant match if small + named correctly)
     const separatorNames = ['separator', 'divider', 'ornament', 'break', 'flourish', 'scene', 'divid', 'decor'];
     const lowerName = filename.toLowerCase();
     if (separatorNames.some(n => lowerName.includes(n))) return true;
-    
+
     // Extreme aspect ratio check (>10:1 or <1:10) - these are definitely separators/lines
     const aspectRatio = width / height;
     if (aspectRatio > 10 || aspectRatio < 0.1) return true;
-    
+
     // Symmetry check (skip for very thin images - too few pixels)
     if (width < 10 || height < 10) return true; // Very small = separator
-    
+
     try {
       const isSymmetric = await checkHorizontalSymmetry(dataUrl, width, height, SYMMETRY_THRESHOLD);
       return isSymmetric;
@@ -2463,32 +2470,32 @@
         const scale = Math.min(1, 100 / width);
         const w = Math.max(2, Math.floor(width * scale));  // Minimum 2px
         const h = Math.max(1, Math.floor(height * scale)); // Minimum 1px
-        
+
         const canvas = document.createElement('canvas');
         canvas.width = w;
         canvas.height = h;
         const ctx = canvas.getContext('2d');
-        
+
         // Draw scaled image
         ctx.drawImage(img, 0, 0, w, h);
         const imageData = ctx.getImageData(0, 0, w, h);
         const pixels = imageData.data;
-        
+
         // Compare left half with flipped right half
         const halfW = Math.floor(w / 2);
         let matchingPixels = 0;
         let totalPixels = 0;
-        
+
         for (let y = 0; y < h; y++) {
           for (let x = 0; x < halfW; x++) {
             const leftIdx = (y * w + x) * 4;
             const rightIdx = (y * w + (w - 1 - x)) * 4;
-            
+
             // Compare RGB (ignore alpha)
             const rDiff = Math.abs(pixels[leftIdx] - pixels[rightIdx]);
             const gDiff = Math.abs(pixels[leftIdx + 1] - pixels[rightIdx + 1]);
             const bDiff = Math.abs(pixels[leftIdx + 2] - pixels[rightIdx + 2]);
-            
+
             // Allow some tolerance for JPEG artifacts (threshold of 30)
             if (rDiff < 30 && gDiff < 30 && bDiff < 30) {
               matchingPixels++;
@@ -2496,7 +2503,7 @@
             totalPixels++;
           }
         }
-        
+
         const symmetryScore = matchingPixels / totalPixels;
         resolve(symmetryScore >= threshold);
       };
@@ -2544,7 +2551,7 @@
       const separatorCount = images.filter(img => img.isSeparator).length;
       const lockedCount = coverCount + separatorCount;
       const selectableCount = images.length - lockedCount;
-      
+
       if (lockedCount > 0) {
         const lockedParts = [];
         if (coverCount > 0) lockedParts.push(`${coverCount} cover`);
@@ -2608,12 +2615,12 @@
         `;
       } else {
         // All other images are selectable - all modes allowed
-        
+
         // Determine which overlay to show based on state
         const showRotation = (state === 1 || state === 3); // H-Split or Rotate
         const showSplitLines = (state === 1 || state === 2); // H-Split or V-Split
         const rotateClass = showRotation ? (HANDEDNESS === 'right' ? 'rotate-cw' : 'rotate-ccw') : '';
-        
+
         // Calculate actual number of parts for split preview
         let numParts = 1;
         if (showSplitLines) {
@@ -2633,7 +2640,7 @@
             if (numParts < 2) numParts = 2;
           }
         }
-        
+
         // Generate split line elements (numParts - 1 lines at evenly distributed positions)
         let splitLinesHtml = '';
         if (showSplitLines && numParts > 1) {
@@ -2645,11 +2652,11 @@
           }
           splitLinesHtml = `<div class="split-lines">${lines.join('')}</div>`;
         }
-        
+
         // Build tooltip
         const stateText = stateLabels[state] || 'Normal';
         const partsText = numParts > 1 ? ` (${numParts} parts)` : '';
-        
+
         item.className = `image-item ${stateClasses[state]} ${rotateClass}`.trim();
         item.onclick = () => cycleImageState(img.path);
         item.title = `${img.width}×${img.height} - ${stateText}${partsText}`;
@@ -2688,11 +2695,11 @@
     epubImagesCache.forEach(img => {
       // Skip locked images
       if (img.isCover || img.isSeparator) return;
-      
+
       const canHSplit = img.canHSplit && !img.fitsScreen;
       const canVSplit = img.canVSplit && !img.fitsScreen;
       const isLandscape = img.width > img.height;
-      
+
       if (state === 0) {
         // Normal - applies to all selectable
         imageStates[img.path] = 0;
@@ -2915,7 +2922,7 @@
   (function setupFileInputListener() {
     const fileInput = document.getElementById('fileInput');
     if (!fileInput) return;
-    
+
     fileInput.addEventListener('click', function() {
       // Small delay to allow browser to process click before checking files
       setTimeout(() => {
@@ -3012,7 +3019,7 @@ const logSection = document.getElementById('log-section');
 const logContainer = document.getElementById('log-container');
 const exportLogCheckbox = document.getElementById('export-log-checkbox');
 
-// CrossPoint version (fetched from API)
+// CrossInk version (fetched from API)
 let crosspointVersion = 'Unknown';
 
 // Fetch version from API
@@ -3295,7 +3302,7 @@ function exportLogToFile(filename = null, isBatch = false) {
   }
   // Extract text from log entries
   const entries = logContainer.querySelectorAll('.log-entry');
-  let logText = `CrossPoint Reader ${crosspointVersion} - EPUB Conversion Log\n`;
+  let logText = `CrossInk Reader ${crosspointVersion} - EPUB Conversion Log\n`;
   logText += `Generated: ${new Date().toLocaleString()}\n`;
   logText += `${'='.repeat(60)}\n\n`;
 
@@ -3900,7 +3907,7 @@ async function processImage(data, imageState = 0, imagePath = '') {
           // Split by WIDTH (vertical cuts) - from RIGHT to LEFT for CW, LEFT to RIGHT for CCW
           const parts = [];
           const maxW = MAX_WIDTH;  // 480
-          
+
           // Centered distribution: calculate numParts first, then distribute evenly
           let overlapPx, step, numParts;
           const minOverlapPx = Math.round(maxW * (OVERLAP_PERCENT / 100));  // Configurable overlap
@@ -4001,7 +4008,7 @@ async function processImage(data, imageState = 0, imagePath = '') {
           // Split by WIDTH (vertical cuts) - LEFT to RIGHT (natural reading order)
           const parts = [];
           const maxW = MAX_WIDTH;
-          
+
           // Centered distribution: calculate numParts first, then distribute evenly
           let overlapPx, step, numParts;
           const minOverlapPx = Math.round(maxW * (OVERLAP_PERCENT / 100));  // Configurable overlap
@@ -4083,7 +4090,7 @@ async function processImage(data, imageState = 0, imagePath = '') {
 
         // Step 2: Scale to fit 480x800 (if needed)
         const fitsInScreen = rotW <= MAX_WIDTH && rotH <= MAX_HEIGHT;
-        
+
         if (fitsInScreen) {
           // Already fits after rotation - just apply grayscale
           applyGrayscale(rotCtx, rotW, rotH);
@@ -4331,7 +4338,7 @@ async function convertEpubFile(file, progressCallback) {
         let modified = false;
 
         // Remove width/height attributes from ALL img tags (dimensions may have changed)
-        // This prevents CrossPoint and other readers from using wrong dimensions
+        // This prevents CrossInk and other readers from using wrong dimensions
         const allImgElements = doc.querySelectorAll('img');
         for (const img of allImgElements) {
           if (img.hasAttribute('width')) { img.removeAttribute('width'); modified = true; }

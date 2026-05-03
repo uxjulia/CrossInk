@@ -98,6 +98,10 @@ void ReaderActivity::onGoToTxtReader(std::unique_ptr<Txt> txt) {
 void ReaderActivity::onEnter() {
   Activity::onEnter();
 
+  if (suppressInitialBackRelease) {
+    mappedInput.suppressNextBackRelease();
+  }
+
   if (initialBookPath.empty()) {
     goToLibrary();  // Start from root when entering via Browse
     return;

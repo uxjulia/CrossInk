@@ -102,7 +102,7 @@ void ActivityManager::loop() {
 
         // Request an update to ensure the popped activity gets re-rendered
         if (pendingAction == PendingAction::None) {
-          requestUpdate();
+          requestUpdateAndWait();
         }
 
         // Handler may request another pending action, we will handle it in the next loop iteration
@@ -174,8 +174,8 @@ void ActivityManager::replaceActivity(std::unique_ptr<Activity>&& newActivity) {
   }
 }
 
-void ActivityManager::goToFileTransfer() {
-  replaceActivity(std::make_unique<CrossPointWebServerActivity>(renderer, mappedInput));
+void ActivityManager::goToFileTransfer(std::string returnBookPath) {
+  replaceActivity(std::make_unique<CrossPointWebServerActivity>(renderer, mappedInput, std::move(returnBookPath)));
 }
 
 void ActivityManager::goToSettings() { replaceActivity(std::make_unique<SettingsActivity>(renderer, mappedInput)); }
@@ -198,12 +198,13 @@ void ActivityManager::goToBrowser() {
   }
 }
 
-void ActivityManager::goToReader(std::string path) {
-  replaceActivity(std::make_unique<ReaderActivity>(renderer, mappedInput, std::move(path)));
+void ActivityManager::goToReader(std::string path, const bool suppressBackRelease) {
+  replaceActivity(std::make_unique<ReaderActivity>(renderer, mappedInput, std::move(path), suppressBackRelease));
 }
 
 void ActivityManager::goToSleep() {
-  replaceActivity(std::make_unique<SleepActivity>(renderer, mappedInput));
+  const bool canSnapshotOverlay = currentActivity && currentActivity->canSnapshotForSleepOverlay();
+  replaceActivity(std::make_unique<SleepActivity>(renderer, mappedInput, canSnapshotOverlay));
   loop();  // Important: sleep screen must be rendered immediately, the caller will go to sleep right after this returns
 }
 
@@ -240,7 +241,18 @@ bool ActivityManager::preventAutoSleep() const { return currentActivity && curre
 
 bool ActivityManager::isReaderActivity() const { return currentActivity && currentActivity->isReaderActivity(); }
 
+bool ActivityManager::canSnapshotForSleepOverlay() const {
+  return currentActivity && currentActivity->canSnapshotForSleepOverlay();
+}
+
 bool ActivityManager::skipLoopDelay() const { return currentActivity && currentActivity->skipLoopDelay(); }
+
+ScreenshotInfo ActivityManager::getScreenshotInfo() const {
+  if (currentActivity) {
+    return currentActivity->getScreenshotInfo();
+  }
+  return {};
+}
 
 void ActivityManager::requestUpdate(bool immediate) {
   if (immediate) {

@@ -117,8 +117,7 @@ void ParsedText::addWord(std::string word, const EpdFontFamily::Style fontStyle,
   }
 
   // GUIDE READING: insert middle dot (U+00B7) between non-continuation words.
-  // Skipped for justified alignment where variable gap widths would shift the dot off-center.
-  if (guideReadingEnabled && !attachToPrevious && !words.empty() && blockStyle.alignment != CssTextAlign::Justify) {
+  if (guideReadingEnabled && !attachToPrevious && !words.empty()) {
     words.emplace_back("\xc2\xb7");
     wordStyles.push_back(EpdFontFamily::REGULAR);
     wordContinues.push_back(false);
@@ -126,7 +125,8 @@ void ParsedText::addWord(std::string word, const EpdFontFamily::Style fontStyle,
     wordIsGuideDot.push_back(true);
   }
 
-  if (!this->bionicReadingEnabled) {
+  // Already-bold text should stay fully bold; bionic splitting would make its suffix regular later.
+  if (!this->bionicReadingEnabled || (baseStyle & EpdFontFamily::BOLD) != 0) {
     words.push_back(std::move(word));
     wordStyles.push_back(baseStyle);
     wordContinues.push_back(attachToPrevious);

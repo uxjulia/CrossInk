@@ -21,19 +21,20 @@ My goal with this fork was to maintain the core Crosspoint firmware while integr
 
 - New reader fonts: ChareInk, Lexend Deca, and Bitter
 - Unicode emoji and miscellaneous symbols support
-- Adjusted font sizes: Tiny (10pt), Small (12pt), Medium (14pt), Large (16pt), Extra Large (18pt). See [Font Sizes](#font-sizes) for more details.
+- Adjusted font sizes: Teensy (8pt), Tiny (10pt), Small (12pt), Medium (14pt), Large (16pt), Extra Large (18pt), Huge (20pt). See [Font Sizes](#font-sizes) for more details.
 - Added ~~strikethrough~~ support
 - Made <u>underlines</u> thicker for better visibility
 - Added ability to add bookmarks
 - Added ability to remap front buttons that only applies in the reader
 - Added Bionic Reading and Guide Dots as optional reader modes
 - Added Force Paragraph Indents for books that render as one giant wall of text
+- Added ability to pin a sleep image as a favorite. The favorited image will always be displayed when your sleep settings are set to `Custom` or `Cover + Custom` (when no cover is available). Do this from the file browser and long-press the menu button to access the option.
 - Added more in-reader control remapping options for side buttons, short power button clicks, and long-press menu actions
 - Added ability to mark a book as finished from the in-book menu. A pop-up will also display once 99% of the book is reached. This status allows tracking of total books read.
 - Added ability to move finished books to "Read" folder
   - To turn this on, go to Settings > System > Move finished books to Read folder. Once a book is marked as finished, the book will be moved to the folder when the book is closed.
 - In-book menu to quickly adjust reader options without having to exit the book
-- Reading stats: total books read, total reading time, number of sessions, pages turned, average session time, pages turned per minute
+- Reading stats: total books read, total reading time, number of sessions, pages turned, average session time, pages turned per minute. You can also set your reading stats as your sleep screen.
 - Changed label for "Auto Turn (Pages Per Minute)" to "Auto Page Turn Interval (seconds)"
   - Added additional page turn intervals (how many seconds pass between page turns). Options are now (in seconds): 60, 45, 30, 20, 15, 10, 5, OFF.
 - Added Vietnamese language support
@@ -53,7 +54,7 @@ The UI now uses [Inter](https://fonts.google.com/specimen/Inter) as the display 
 
 ### Emojis and Misc Glyphs
 
-- Support for Unicode [Emoticons](https://unicode-explorer.com/b/1F600) and [Miscellaneous Symbols](https://unicode-explorer.com/b/2600) using [Noto Emoji](https://fonts.google.com/noto/specimen/Noto+Emoji) and [Noto Sans Symbols](https://fonts.google.com/noto/specimen/Noto+Sans+Symbols) font.
+- Support for a limited set of Unicode [Emoticons](https://unicode-explorer.com/b/1F600) and [Miscellaneous Symbols](https://unicode-explorer.com/b/2600) using [Noto Emoji](https://fonts.google.com/noto/specimen/Noto+Emoji) and [Noto Sans Symbols](https://fonts.google.com/noto/specimen/Noto+Sans+Symbols) font.
 
 ---
 
@@ -63,10 +64,11 @@ There are 3 available build variants to choose from due to build size constraint
 
 **tiny**
 
-> No Extra Large font size. My preferred build.
+> No Extra Large or Huge font size. My preferred build.
 
 - Emoji & Misc. Symbols Support
-- 4 Font sizes:
+- 5 Font sizes:
+  - Teensy (8pt)
   - Tiny (10pt)
   - Small (12pt)
   - Medium (14pt)
@@ -74,20 +76,22 @@ There are 3 available build variants to choose from due to build size constraint
 
 **xlarge**
 
-> Tiny and Small font sizes had to be removed to reduce build size and still support emoji/symbols.
+> Teensy, Tiny, and Small font sizes had to be removed to reduce build size and still support emoji/symbols.
 
 - Emoji & Misc. Symbols Support
-- 3 Font sizes:
+- 4 Font sizes:
   - Medium (14pt)
   - Large (16pt)
   - Extra Large (18pt)
+  - Huge (20pt)
 
 **no_emoji**
 
-> All font sizes available, but no emoji/symbols support.
+> All standard font sizes through Extra Large are available, but no emoji/symbols support.
 
 - **No** Emoji & Misc. Symbols Support
-- 5 Font sizes:
+- 6 Font sizes:
+  - Teensy (8pt)
   - Tiny (10pt)
   - Small (12pt)
   - Medium (14pt)
@@ -116,38 +120,46 @@ Have you ever opened a book and the paragraph indents just were not rendering, l
 
 This works when **Reader Paragraph Alignment** is set to **Left**, **Justify**, or **Book's Style**. You can toggle it from **Reader settings**.
 
-### New settings in Controls
+## Custom button actions
 
-#### Side Buttons Long Press
+The Controls menu in Settings has been updated to the following
 
-Previously, **Long-press Chapter Skip** applied to both the front and side buttons. I split this out so the side buttons can do their own thing, which opens up a lot more flexibility.
+<u>**Power Button**</u>
+Short-press Action - **New Options Added**
+Long-press Action - **New**
 
-You can now choose what the side buttons do when you long-press them:
+<u>**Front Buttons**</u>
+Remap Front Buttons
+Remap Front Buttons (reader)
+Long-press Menu Action - **New**
 
-- **Change Font Size**: Up increases the font size, Down decreases it
-- **Chapter Skip**: Previous behavior
-- **Ignore**: Do nothing
+<u>**Side Buttons**</u>
+Layout
+Long-press Chapter Skip
+Long-Press Action - **New**
 
-#### Short Power Button Click
+---
 
-There is now a new short power button action:
+**Side Button Long Press Action** - Use the side buttons to change your font size. Previously, the "Long-press Chapter Skip" applied to both the front and side buttons. I've split this out so now you can change your font size when you long-press them. Press and hold for about 2 seconds: Up to increase font size, Down to decrease font size. Default = Chapter Skip
 
-- **Change Font**: Cycles through the fonts one by one
+**Short-press Power Button Action** - Default = Ignore
+**Long-press Power Button Action** - Default = Sleep
+**Long Press Menu Button Action** (This is the Menu/Confirm button when you are in the reader): Default = Ignore
 
-#### Long Press Menu Action
-
-While you are in the reader, you can now set the Confirm/Menu button to do one of these actions when long-pressed:
-
-- **Change Font**: Cycles through the fonts one by one
-- **Guide Dots**: Turns Guide Dots on or off
-- **Bionic Reading**: Turns Bionic Reading on or off
-- **Toggle Bookmark**: Adds or removes a bookmark from the current page
-- **Refresh Screen**: Forces a screen refresh
-- **Sync Progress**: Syncs KOReader progress
-- **Mark as Finished**: Marks the current book as finished/unfinished
-- **Reading Stats**: Opens the reading stats screen
-- **Take Screenshot**: Takes a screenshot
-- **Cycle Page Turn**: Cycles through the auto page turn intervals: **Off → 5s → 10s → 15s → 20s → 30s → 45s → 60s → Off**
+Map the **Power** or **Menu** button short/long-press action to one of the following options:
+- Ignore
+- Sleep
+- Page Turn
+- Refresh Screen
+- Change Font (cycles through the fonts one by one)
+- Guide Dots (turns guide dots on/off)
+- Bionic Reading (turns bionic reading on/off)
+- Toggle Bookmark (adds or removes a bookmark from the current page)
+- Sync Progress (syncs KoReader progress)
+- Mark as Finished (marks book as finished)
+- Reading Stats (displays reading stats)
+- Take Screenshot (takes a screenshot)
+- Auto Page Turn (cycles through the page turn intervals: **Off → 5s → 10s → 15s → 20s → 30s → 45s → 60s → Off →**)
 
 ### Reading stats
 

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <HalTiltSensor.h>
 #include <I18n.h>
 
 #include <vector>
@@ -12,165 +13,187 @@
 // Each entry has a key (for JSON API) and category (for grouping).
 // ACTION-type entries and entries without a key are device-only.
 inline const std::vector<SettingInfo>& getSettingsList() {
-  static const std::vector<SettingInfo> list = {
-      // --- Display ---
-      SettingInfo::Enum(StrId::STR_SLEEP_SCREEN, &CrossPointSettings::sleepScreen,
-                        {StrId::STR_DARK, StrId::STR_LIGHT, StrId::STR_CUSTOM, StrId::STR_COVER, StrId::STR_NONE_OPT,
-                         StrId::STR_COVER_CUSTOM, StrId::STR_PAGE_OVERLAY},
-                        "sleepScreen", StrId::STR_CAT_DISPLAY),
-      SettingInfo::Enum(StrId::STR_SLEEP_COVER_MODE, &CrossPointSettings::sleepScreenCoverMode,
-                        {StrId::STR_FIT, StrId::STR_CROP}, "sleepScreenCoverMode", StrId::STR_CAT_DISPLAY),
-      SettingInfo::Enum(StrId::STR_SLEEP_COVER_FILTER, &CrossPointSettings::sleepScreenCoverFilter,
-                        {StrId::STR_NONE_OPT, StrId::STR_FILTER_CONTRAST, StrId::STR_INVERTED},
-                        "sleepScreenCoverFilter", StrId::STR_CAT_DISPLAY),
-      SettingInfo::Enum(StrId::STR_HIDE_BATTERY, &CrossPointSettings::hideBatteryPercentage,
-                        {StrId::STR_NEVER, StrId::STR_IN_READER, StrId::STR_ALWAYS}, "hideBatteryPercentage",
-                        StrId::STR_CAT_DISPLAY),
-      SettingInfo::Enum(
-          StrId::STR_REFRESH_FREQ, &CrossPointSettings::refreshFrequency,
-          {StrId::STR_PAGES_1, StrId::STR_PAGES_5, StrId::STR_PAGES_10, StrId::STR_PAGES_15, StrId::STR_PAGES_30},
-          "refreshFrequency", StrId::STR_CAT_DISPLAY),
-      SettingInfo::Enum(StrId::STR_UI_THEME, &CrossPointSettings::uiTheme,
-                        {StrId::STR_THEME_CLASSIC, StrId::STR_THEME_LYRA, StrId::STR_THEME_LYRA_EXTENDED}, "uiTheme",
-                        StrId::STR_CAT_DISPLAY),
-      SettingInfo::Toggle(StrId::STR_SUNLIGHT_FADING_FIX, &CrossPointSettings::fadingFix, "fadingFix",
+  static const std::vector<SettingInfo> list = [] {
+    std::vector<SettingInfo> v = {
+        // --- Display ---
+        SettingInfo::Enum(StrId::STR_SLEEP_SCREEN, &CrossPointSettings::sleepScreen,
+                          {StrId::STR_DARK, StrId::STR_LIGHT, StrId::STR_CUSTOM, StrId::STR_COVER, StrId::STR_NONE_OPT,
+                           StrId::STR_COVER_CUSTOM, StrId::STR_PAGE_OVERLAY, StrId::STR_READING_STATS},
+                          "sleepScreen", StrId::STR_CAT_DISPLAY),
+        SettingInfo::Enum(StrId::STR_SLEEP_COVER_MODE, &CrossPointSettings::sleepScreenCoverMode,
+                          {StrId::STR_FIT, StrId::STR_CROP}, "sleepScreenCoverMode", StrId::STR_CAT_DISPLAY),
+        SettingInfo::Enum(StrId::STR_SLEEP_COVER_FILTER, &CrossPointSettings::sleepScreenCoverFilter,
+                          {StrId::STR_NONE_OPT, StrId::STR_FILTER_CONTRAST, StrId::STR_INVERTED},
+                          "sleepScreenCoverFilter", StrId::STR_CAT_DISPLAY),
+        SettingInfo::Enum(StrId::STR_HIDE_BATTERY, &CrossPointSettings::hideBatteryPercentage,
+                          {StrId::STR_NEVER, StrId::STR_IN_READER, StrId::STR_ALWAYS}, "hideBatteryPercentage",
                           StrId::STR_CAT_DISPLAY),
+        SettingInfo::Enum(
+            StrId::STR_REFRESH_FREQ, &CrossPointSettings::refreshFrequency,
+            {StrId::STR_PAGES_1, StrId::STR_PAGES_5, StrId::STR_PAGES_10, StrId::STR_PAGES_15, StrId::STR_PAGES_30},
+            "refreshFrequency", StrId::STR_CAT_DISPLAY),
+        SettingInfo::Enum(StrId::STR_UI_THEME, &CrossPointSettings::uiTheme,
+                          {StrId::STR_THEME_CLASSIC, StrId::STR_THEME_LYRA, StrId::STR_THEME_LYRA_EXTENDED,
+                           StrId::STR_THEME_ROUNDEDRAFF},
+                          "uiTheme", StrId::STR_CAT_DISPLAY),
+        SettingInfo::Toggle(StrId::STR_SUNLIGHT_FADING_FIX, &CrossPointSettings::fadingFix, "fadingFix",
+                            StrId::STR_CAT_DISPLAY),
 
-      // --- Reader ---
-      SettingInfo::Enum(StrId::STR_FONT_FAMILY, &CrossPointSettings::fontFamily,
-                        {
-                            StrId::STR_LEXEND_DECA,
-                            StrId::STR_BITTER,
-                            StrId::STR_CHAREINK,
-                        },
-                        "fontFamily", StrId::STR_CAT_READER),
-      SettingInfo::Enum(StrId::STR_FONT_SIZE, &CrossPointSettings::fontSize,
-                        {
+        // --- Reader ---
+        SettingInfo::Enum(StrId::STR_FONT_FAMILY, &CrossPointSettings::fontFamily,
+                          {
+                              StrId::STR_LEXEND_DECA,
+                              StrId::STR_BITTER,
+                              StrId::STR_CHAREINK,
+                          },
+                          "fontFamily", StrId::STR_CAT_READER),
+        SettingInfo::Enum(StrId::STR_FONT_SIZE, &CrossPointSettings::fontSize,
+                          {
 #ifndef OMIT_TINY_FONT
-                            StrId::STR_TINY,
+                              StrId::STR_TINY,
 #endif
 #ifndef OMIT_SMALL_FONT
-                            StrId::STR_SMALL,
+                              StrId::STR_SMALL,
 #endif
-                            StrId::STR_MEDIUM,
-                            StrId::STR_LARGE,
+                              StrId::STR_MEDIUM,
+                              StrId::STR_LARGE,
 #ifndef OMIT_XLARGE_FONT
-                            StrId::STR_X_LARGE,
+                              StrId::STR_X_LARGE,
 #endif
-                        },
-                        "fontSize", StrId::STR_CAT_READER),
-      SettingInfo::Enum(StrId::STR_LINE_SPACING, &CrossPointSettings::lineSpacing,
-                        {StrId::STR_TIGHT, StrId::STR_NORMAL, StrId::STR_WIDE}, "lineSpacing", StrId::STR_CAT_READER),
-      SettingInfo::Enum(StrId::STR_ORIENTATION, &CrossPointSettings::orientation,
-                        {StrId::STR_PORTRAIT, StrId::STR_LANDSCAPE_CW, StrId::STR_INVERTED, StrId::STR_LANDSCAPE_CCW},
-                        "orientation", StrId::STR_CAT_READER),
-      SettingInfo::Value(StrId::STR_SCREEN_MARGIN, &CrossPointSettings::screenMargin, {5, 40, 5}, "screenMargin",
-                         StrId::STR_CAT_READER),
-      SettingInfo::Enum(StrId::STR_PARA_ALIGNMENT, &CrossPointSettings::paragraphAlignment,
-                        {StrId::STR_JUSTIFY, StrId::STR_ALIGN_LEFT, StrId::STR_CENTER, StrId::STR_ALIGN_RIGHT,
-                         StrId::STR_BOOK_S_STYLE},
-                        "paragraphAlignment", StrId::STR_CAT_READER),
-      SettingInfo::Toggle(StrId::STR_EMBEDDED_STYLE, &CrossPointSettings::embeddedStyle, "embeddedStyle",
-                          StrId::STR_CAT_READER),
-      SettingInfo::Toggle(StrId::STR_HYPHENATION, &CrossPointSettings::hyphenationEnabled, "hyphenationEnabled",
-                          StrId::STR_CAT_READER),
-      SettingInfo::Toggle(StrId::STR_TEXT_AA, &CrossPointSettings::textAntiAliasing, "textAntiAliasing",
-                          StrId::STR_CAT_READER),
-      SettingInfo::Enum(StrId::STR_IMAGES, &CrossPointSettings::imageRendering,
-                        {StrId::STR_IMAGES_DISPLAY, StrId::STR_IMAGES_PLACEHOLDER, StrId::STR_IMAGES_SUPPRESS},
-                        "imageRendering", StrId::STR_CAT_READER),
-      SettingInfo::Toggle(StrId::STR_EXTRA_SPACING, &CrossPointSettings::extraParagraphSpacing, "extraParagraphSpacing",
-                          StrId::STR_CAT_READER),
-      SettingInfo::Toggle(StrId::STR_FORCE_PARAGRAPH_INDENTS, &CrossPointSettings::forceParagraphIndents,
-                          "forceParagraphIndents", StrId::STR_CAT_READER),
-      SettingInfo::Toggle(StrId::STR_BIONIC_READING, &CrossPointSettings::bionicReadingEnabled, "bionicReadingEnabled",
-                          StrId::STR_CAT_READER),
-      SettingInfo::Toggle(StrId::STR_GUIDE_READING, &CrossPointSettings::guideReadingEnabled, "guideReadingEnabled",
-                          StrId::STR_CAT_READER),
-      // --- Controls ---
-      SettingInfo::Enum(StrId::STR_SIDE_BTN_LAYOUT, &CrossPointSettings::sideButtonLayout,
-                        {StrId::STR_PREV_NEXT, StrId::STR_NEXT_PREV}, "sideButtonLayout", StrId::STR_CAT_CONTROLS),
-      SettingInfo::Enum(StrId::STR_SIDE_BTN_LONG_PRESS, &CrossPointSettings::sideButtonLongPress,
-                        {StrId::STR_CHAPTER_SKIP_OPT, StrId::STR_CHANGE_FONT_SIZE, StrId::STR_IGNORE},
-                        "sideButtonLongPress", StrId::STR_CAT_CONTROLS),
-      SettingInfo::Toggle(StrId::STR_LONG_PRESS_SKIP, &CrossPointSettings::longPressChapterSkip, "longPressChapterSkip",
-                          StrId::STR_CAT_CONTROLS),
-      SettingInfo::Enum(StrId::STR_SHORT_PWR_BTN, &CrossPointSettings::shortPwrBtn,
-                        {StrId::STR_IGNORE, StrId::STR_SLEEP, StrId::STR_PAGE_TURN, StrId::STR_FORCE_REFRESH,
-                         StrId::STR_CHANGE_FONT, StrId::STR_TOGGLE_GUIDE_DOTS, StrId::STR_TOGGLE_BIONIC_READING,
-                         StrId::STR_TOGGLE_BOOKMARK, StrId::STR_SYNC_PROGRESS, StrId::STR_MARK_FINISHED,
-                         StrId::STR_READING_STATS, StrId::STR_SCREENSHOT_BUTTON, StrId::STR_CYCLE_PAGE_TURN,
-                         StrId::STR_SAVE_CLIPPING},
-                        "shortPwrBtn", StrId::STR_CAT_CONTROLS),
-      SettingInfo::Enum(StrId::STR_LONG_PRESS_ACTION, &CrossPointSettings::longPwrBtn,
-                        {StrId::STR_IGNORE, StrId::STR_SLEEP, StrId::STR_PAGE_TURN, StrId::STR_FORCE_REFRESH,
-                         StrId::STR_CHANGE_FONT, StrId::STR_TOGGLE_GUIDE_DOTS, StrId::STR_TOGGLE_BIONIC_READING,
-                         StrId::STR_TOGGLE_BOOKMARK, StrId::STR_SYNC_PROGRESS, StrId::STR_MARK_FINISHED,
-                         StrId::STR_READING_STATS, StrId::STR_SCREENSHOT_BUTTON, StrId::STR_CYCLE_PAGE_TURN,
-                         StrId::STR_SAVE_CLIPPING},
-                        "longPwrBtn", StrId::STR_CAT_CONTROLS),
-      SettingInfo::Enum(StrId::STR_LONG_PRESS_MENU_ACTION, &CrossPointSettings::longPressMenuAction,
-                        {StrId::STR_IGNORE, StrId::STR_SLEEP, StrId::STR_CHANGE_FONT, StrId::STR_TOGGLE_GUIDE_DOTS,
-                         StrId::STR_TOGGLE_BIONIC_READING, StrId::STR_TOGGLE_BOOKMARK, StrId::STR_FORCE_REFRESH,
-                         StrId::STR_SYNC_PROGRESS, StrId::STR_MARK_FINISHED, StrId::STR_READING_STATS,
-                         StrId::STR_SCREENSHOT_BUTTON, StrId::STR_CYCLE_PAGE_TURN, StrId::STR_SAVE_CLIPPING},
-                        "longPressMenuAction", StrId::STR_CAT_CONTROLS),
+#ifndef OMIT_TEENSY_FONT
+                              StrId::STR_TEENSY,
+#endif
+#ifndef OMIT_HUGE_FONT
+                              StrId::STR_HUGE,
+#endif
+                          },
+                          "fontSize", StrId::STR_CAT_READER),
+        SettingInfo::Enum(StrId::STR_LINE_SPACING, &CrossPointSettings::lineSpacing,
+                          {StrId::STR_TIGHT, StrId::STR_NORMAL, StrId::STR_WIDE}, "lineSpacing", StrId::STR_CAT_READER),
+        SettingInfo::Enum(StrId::STR_ORIENTATION, &CrossPointSettings::orientation,
+                          {StrId::STR_PORTRAIT, StrId::STR_LANDSCAPE_CW, StrId::STR_INVERTED, StrId::STR_LANDSCAPE_CCW},
+                          "orientation", StrId::STR_CAT_READER),
+        SettingInfo::Value(StrId::STR_SCREEN_MARGIN, &CrossPointSettings::screenMargin, {5, 40, 5}, "screenMargin",
+                           StrId::STR_CAT_READER),
+        SettingInfo::Enum(StrId::STR_PARA_ALIGNMENT, &CrossPointSettings::paragraphAlignment,
+                          {StrId::STR_JUSTIFY, StrId::STR_ALIGN_LEFT, StrId::STR_CENTER, StrId::STR_ALIGN_RIGHT,
+                           StrId::STR_BOOK_S_STYLE},
+                          "paragraphAlignment", StrId::STR_CAT_READER),
+        SettingInfo::Toggle(StrId::STR_EMBEDDED_STYLE, &CrossPointSettings::embeddedStyle, "embeddedStyle",
+                            StrId::STR_CAT_READER),
+        SettingInfo::Toggle(StrId::STR_HYPHENATION, &CrossPointSettings::hyphenationEnabled, "hyphenationEnabled",
+                            StrId::STR_CAT_READER),
+        SettingInfo::Toggle(StrId::STR_TEXT_AA, &CrossPointSettings::textAntiAliasing, "textAntiAliasing",
+                            StrId::STR_CAT_READER),
+        SettingInfo::Enum(StrId::STR_IMAGES, &CrossPointSettings::imageRendering,
+                          {StrId::STR_IMAGES_DISPLAY, StrId::STR_IMAGES_PLACEHOLDER, StrId::STR_IMAGES_SUPPRESS},
+                          "imageRendering", StrId::STR_CAT_READER),
+        SettingInfo::Toggle(StrId::STR_EXTRA_SPACING, &CrossPointSettings::extraParagraphSpacing,
+                            "extraParagraphSpacing", StrId::STR_CAT_READER),
+        SettingInfo::Toggle(StrId::STR_FORCE_PARAGRAPH_INDENTS, &CrossPointSettings::forceParagraphIndents,
+                            "forceParagraphIndents", StrId::STR_CAT_READER),
+        SettingInfo::Toggle(StrId::STR_BIONIC_READING, &CrossPointSettings::bionicReadingEnabled,
+                            "bionicReadingEnabled", StrId::STR_CAT_READER),
+        SettingInfo::Toggle(StrId::STR_GUIDE_READING, &CrossPointSettings::guideReadingEnabled, "guideReadingEnabled",
+                            StrId::STR_CAT_READER),
+        // --- Controls ---
+        SettingInfo::Enum(StrId::STR_SIDE_BTN_LAYOUT, &CrossPointSettings::sideButtonLayout,
+                          {StrId::STR_PREV_NEXT, StrId::STR_NEXT_PREV}, "sideButtonLayout", StrId::STR_CAT_CONTROLS),
+        SettingInfo::Enum(StrId::STR_SIDE_BTN_LONG_PRESS, &CrossPointSettings::sideButtonLongPress,
+                          {StrId::STR_CHAPTER_SKIP_OPT, StrId::STR_CHANGE_FONT_SIZE, StrId::STR_IGNORE},
+                          "sideButtonLongPress", StrId::STR_CAT_CONTROLS),
+        SettingInfo::Toggle(StrId::STR_LONG_PRESS_SKIP, &CrossPointSettings::longPressChapterSkip,
+                            "longPressChapterSkip", StrId::STR_CAT_CONTROLS),
+        SettingInfo::Enum(StrId::STR_SHORT_PWR_BTN, &CrossPointSettings::shortPwrBtn,
+                          {StrId::STR_IGNORE, StrId::STR_SLEEP, StrId::STR_PAGE_TURN, StrId::STR_FORCE_REFRESH,
+                           StrId::STR_CHANGE_FONT, StrId::STR_TOGGLE_GUIDE_DOTS, StrId::STR_TOGGLE_BIONIC_READING,
+                           StrId::STR_TOGGLE_BOOKMARK, StrId::STR_SYNC_PROGRESS, StrId::STR_MARK_FINISHED,
+                           StrId::STR_READING_STATS, StrId::STR_SCREENSHOT_BUTTON, StrId::STR_CYCLE_PAGE_TURN,
+                           StrId::STR_FILE_TRANSFER, StrId::STR_SAVE_CLIPPING},
+                          "shortPwrBtn", StrId::STR_CAT_CONTROLS),
+        SettingInfo::Enum(StrId::STR_LONG_PRESS_ACTION, &CrossPointSettings::longPwrBtn,
+                          {StrId::STR_IGNORE, StrId::STR_SLEEP, StrId::STR_PAGE_TURN, StrId::STR_FORCE_REFRESH,
+                           StrId::STR_CHANGE_FONT, StrId::STR_TOGGLE_GUIDE_DOTS, StrId::STR_TOGGLE_BIONIC_READING,
+                           StrId::STR_TOGGLE_BOOKMARK, StrId::STR_SYNC_PROGRESS, StrId::STR_MARK_FINISHED,
+                           StrId::STR_READING_STATS, StrId::STR_SCREENSHOT_BUTTON, StrId::STR_CYCLE_PAGE_TURN,
+                           StrId::STR_FILE_TRANSFER, StrId::STR_SAVE_CLIPPING},
+                          "longPwrBtn", StrId::STR_CAT_CONTROLS),
+        SettingInfo::Enum(
+            StrId::STR_LONG_PRESS_MENU_ACTION, &CrossPointSettings::longPressMenuAction,
+            {StrId::STR_IGNORE, StrId::STR_SLEEP, StrId::STR_CHANGE_FONT, StrId::STR_TOGGLE_GUIDE_DOTS,
+             StrId::STR_TOGGLE_BIONIC_READING, StrId::STR_TOGGLE_BOOKMARK, StrId::STR_FORCE_REFRESH,
+             StrId::STR_SYNC_PROGRESS, StrId::STR_MARK_FINISHED, StrId::STR_READING_STATS, StrId::STR_SCREENSHOT_BUTTON,
+             StrId::STR_CYCLE_PAGE_TURN, StrId::STR_FILE_TRANSFER, StrId::STR_SAVE_CLIPPING},
+            "longPressMenuAction", StrId::STR_CAT_CONTROLS),
 
-      // --- System ---
-      SettingInfo::Enum(StrId::STR_TIME_TO_SLEEP, &CrossPointSettings::sleepTimeout,
-                        {StrId::STR_MIN_1, StrId::STR_MIN_5, StrId::STR_MIN_10, StrId::STR_MIN_15, StrId::STR_MIN_30},
-                        "sleepTimeout", StrId::STR_CAT_SYSTEM),
-      SettingInfo::Toggle(StrId::STR_SHOW_HIDDEN_FILES, &CrossPointSettings::showHiddenFiles, "showHiddenFiles",
-                          StrId::STR_CAT_SYSTEM),
-      SettingInfo::Toggle(StrId::STR_MOVE_FINISHED_TO_READ, &CrossPointSettings::moveFinishedToReadFolder,
-                          "moveFinishedToReadFolder", StrId::STR_CAT_SYSTEM),
+        // --- System ---
+        SettingInfo::Enum(StrId::STR_TIME_TO_SLEEP, &CrossPointSettings::sleepTimeout,
+                          {StrId::STR_MIN_1, StrId::STR_MIN_5, StrId::STR_MIN_10, StrId::STR_MIN_15, StrId::STR_MIN_30},
+                          "sleepTimeout", StrId::STR_CAT_SYSTEM),
+        SettingInfo::Toggle(StrId::STR_SHOW_HIDDEN_FILES, &CrossPointSettings::showHiddenFiles, "showHiddenFiles",
+                            StrId::STR_CAT_SYSTEM),
+        SettingInfo::Toggle(StrId::STR_MOVE_FINISHED_TO_READ, &CrossPointSettings::moveFinishedToReadFolder,
+                            "moveFinishedToReadFolder", StrId::STR_CAT_SYSTEM),
 
-      // --- KOReader Sync (web-only, uses KOReaderCredentialStore) ---
-      SettingInfo::DynamicString(
-          StrId::STR_KOREADER_USERNAME, [] { return KOREADER_STORE.getUsername(); },
-          [](const std::string& v) {
-            KOREADER_STORE.setCredentials(v, KOREADER_STORE.getPassword());
-            KOREADER_STORE.saveToFile();
-          },
-          "koUsername", StrId::STR_KOREADER_SYNC),
-      SettingInfo::DynamicString(
-          StrId::STR_KOREADER_PASSWORD, [] { return KOREADER_STORE.getPassword(); },
-          [](const std::string& v) {
-            KOREADER_STORE.setCredentials(KOREADER_STORE.getUsername(), v);
-            KOREADER_STORE.saveToFile();
-          },
-          "koPassword", StrId::STR_KOREADER_SYNC),
-      SettingInfo::DynamicString(
-          StrId::STR_SYNC_SERVER_URL, [] { return KOREADER_STORE.getServerUrl(); },
-          [](const std::string& v) {
-            KOREADER_STORE.setServerUrl(v);
-            KOREADER_STORE.saveToFile();
-          },
-          "koServerUrl", StrId::STR_KOREADER_SYNC),
-      SettingInfo::DynamicEnum(
-          StrId::STR_DOCUMENT_MATCHING, {StrId::STR_FILENAME, StrId::STR_BINARY},
-          [] { return static_cast<uint8_t>(KOREADER_STORE.getMatchMethod()); },
-          [](uint8_t v) {
-            KOREADER_STORE.setMatchMethod(static_cast<DocumentMatchMethod>(v));
-            KOREADER_STORE.saveToFile();
-          },
-          "koMatchMethod", StrId::STR_KOREADER_SYNC),
-      // --- Status Bar Settings (web-only, uses StatusBarSettingsActivity) ---
-      SettingInfo::Toggle(StrId::STR_CHAPTER_PAGE_COUNT, &CrossPointSettings::statusBarChapterPageCount,
-                          "statusBarChapterPageCount", StrId::STR_CUSTOMISE_STATUS_BAR),
-      SettingInfo::Toggle(StrId::STR_BOOK_PROGRESS_PERCENTAGE, &CrossPointSettings::statusBarBookProgressPercentage,
-                          "statusBarBookProgressPercentage", StrId::STR_CUSTOMISE_STATUS_BAR),
-      SettingInfo::Enum(StrId::STR_PROGRESS_BAR, &CrossPointSettings::statusBarProgressBar,
-                        {StrId::STR_BOOK, StrId::STR_CHAPTER, StrId::STR_HIDE}, "statusBarProgressBar",
-                        StrId::STR_CUSTOMISE_STATUS_BAR),
-      SettingInfo::Enum(StrId::STR_PROGRESS_BAR_THICKNESS, &CrossPointSettings::statusBarProgressBarThickness,
-                        {StrId::STR_PROGRESS_BAR_THIN, StrId::STR_PROGRESS_BAR_MEDIUM, StrId::STR_PROGRESS_BAR_THICK},
-                        "statusBarProgressBarThickness", StrId::STR_CUSTOMISE_STATUS_BAR),
-      SettingInfo::Enum(StrId::STR_TITLE, &CrossPointSettings::statusBarTitle,
-                        {StrId::STR_BOOK, StrId::STR_CHAPTER, StrId::STR_HIDE}, "statusBarTitle",
-                        StrId::STR_CUSTOMISE_STATUS_BAR),
-      SettingInfo::Toggle(StrId::STR_BATTERY, &CrossPointSettings::statusBarBattery, "statusBarBattery",
+        // --- KOReader Sync (web-only, uses KOReaderCredentialStore) ---
+        SettingInfo::DynamicString(
+            StrId::STR_KOREADER_USERNAME, [] { return KOREADER_STORE.getUsername(); },
+            [](const std::string& v) {
+              KOREADER_STORE.setCredentials(v, KOREADER_STORE.getPassword());
+              KOREADER_STORE.saveToFile();
+            },
+            "koUsername", StrId::STR_KOREADER_SYNC),
+        SettingInfo::DynamicString(
+            StrId::STR_KOREADER_PASSWORD, [] { return KOREADER_STORE.getPassword(); },
+            [](const std::string& v) {
+              KOREADER_STORE.setCredentials(KOREADER_STORE.getUsername(), v);
+              KOREADER_STORE.saveToFile();
+            },
+            "koPassword", StrId::STR_KOREADER_SYNC),
+        SettingInfo::DynamicString(
+            StrId::STR_SYNC_SERVER_URL, [] { return KOREADER_STORE.getServerUrl(); },
+            [](const std::string& v) {
+              KOREADER_STORE.setServerUrl(v);
+              KOREADER_STORE.saveToFile();
+            },
+            "koServerUrl", StrId::STR_KOREADER_SYNC),
+        SettingInfo::DynamicEnum(
+            StrId::STR_DOCUMENT_MATCHING, {StrId::STR_FILENAME, StrId::STR_BINARY},
+            [] { return static_cast<uint8_t>(KOREADER_STORE.getMatchMethod()); },
+            [](uint8_t v) {
+              KOREADER_STORE.setMatchMethod(static_cast<DocumentMatchMethod>(v));
+              KOREADER_STORE.saveToFile();
+            },
+            "koMatchMethod", StrId::STR_KOREADER_SYNC),
+        // --- Status Bar Settings (web-only, uses StatusBarSettingsActivity) ---
+        SettingInfo::Toggle(StrId::STR_CHAPTER_PAGE_COUNT, &CrossPointSettings::statusBarChapterPageCount,
+                            "statusBarChapterPageCount", StrId::STR_CUSTOMISE_STATUS_BAR),
+        SettingInfo::Toggle(StrId::STR_BOOK_PROGRESS_PERCENTAGE, &CrossPointSettings::statusBarBookProgressPercentage,
+                            "statusBarBookProgressPercentage", StrId::STR_CUSTOMISE_STATUS_BAR),
+        SettingInfo::Enum(StrId::STR_PROGRESS_BAR, &CrossPointSettings::statusBarProgressBar,
+                          {StrId::STR_BOOK, StrId::STR_CHAPTER, StrId::STR_HIDE}, "statusBarProgressBar",
                           StrId::STR_CUSTOMISE_STATUS_BAR),
-  };
+        SettingInfo::Enum(StrId::STR_PROGRESS_BAR_THICKNESS, &CrossPointSettings::statusBarProgressBarThickness,
+                          {StrId::STR_PROGRESS_BAR_THIN, StrId::STR_PROGRESS_BAR_MEDIUM, StrId::STR_PROGRESS_BAR_THICK},
+                          "statusBarProgressBarThickness", StrId::STR_CUSTOMISE_STATUS_BAR),
+        SettingInfo::Enum(StrId::STR_TITLE, &CrossPointSettings::statusBarTitle,
+                          {StrId::STR_BOOK, StrId::STR_CHAPTER, StrId::STR_HIDE}, "statusBarTitle",
+                          StrId::STR_CUSTOMISE_STATUS_BAR),
+        SettingInfo::Toggle(StrId::STR_BATTERY, &CrossPointSettings::statusBarBattery, "statusBarBattery",
+                            StrId::STR_CUSTOMISE_STATUS_BAR),
+    };
+    // Only show tilt page turn setting when the QMI8658 IMU is present (X3).
+    if (halTiltSensor.isAvailable()) {
+      for (auto it = v.begin(); it != v.end(); ++it) {
+        if (it->nameId == StrId::STR_SHORT_PWR_BTN) {
+          v.insert(it + 1, SettingInfo::Enum(StrId::STR_TILT_PAGE_TURN, &CrossPointSettings::tiltPageTurn,
+                                             {StrId::STR_STATE_OFF, StrId::STR_NORMAL, StrId::STR_INVERTED},
+                                             "tiltPageTurn", StrId::STR_CAT_CONTROLS));
+          break;
+        }
+      }
+    }
+    return v;
+  }();
   return list;
 }

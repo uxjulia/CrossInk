@@ -40,10 +40,17 @@ class EpubReaderActivity final : public Activity {
   bool skipNextButtonCheck = false;  // Skip button processing for one frame after subactivity exit
   bool automaticPageTurnActive = false;
   uint8_t currentPageTurnOption = 0;
-  bool longPowerActionHandled = false;
+  bool longPressMenuHandled = false;
+  bool longPowerButtonHandled = false;
+  bool sideButtonLongPressHandled = false;
   int pageLoadRetryCount = 0;
+  enum class BookmarkFeedbackType : uint8_t {
+    Added,
+    Removed,
+    LimitReached,
+  };
   bool pendingBookmarkFeedback = false;
-  bool bookmarkFeedbackIsAdd = false;
+  BookmarkFeedbackType bookmarkFeedbackType = BookmarkFeedbackType::Added;
   unsigned long bookmarkFeedbackShowTime = 0UL;
   bool pendingCompletedFeedback = false;
   bool completedFeedbackIsFinished = false;
@@ -81,10 +88,13 @@ class EpubReaderActivity final : public Activity {
   void renderStatusBar() const;
   void silentIndexNextChapterIfNeeded(uint16_t viewportWidth, uint16_t viewportHeight);
   void saveProgress(int spineIndex, int currentPage, int pageCount);
+  void openFileTransfer();
   // Jump to a percentage of the book (0-100), mapping it to spine and page.
   void jumpToPercent(int percent);
   void reindexCurrentSection();
   void executeReaderQuickAction(CrossPointSettings::LONG_PRESS_MENU_ACTION action);
+  bool consumeLongPowerButtonRelease();
+  bool consumeLongPowerButtonHold();
   bool executeShortPowerButtonAction();
   bool executeLongPowerButtonAction();
   void onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction action);
@@ -111,10 +121,13 @@ class EpubReaderActivity final : public Activity {
   void onExit() override;
   void loop() override;
   void render(RenderLock&& lock) override;
+  bool preventAutoSleep() override { return automaticPageTurnActive; }
   bool isReaderActivity() const override { return true; }
+  bool canSnapshotForSleepOverlay() const override { return true; }
 
   // Renders the last saved page to the frame buffer without flushing to display.
   // Used by SleepActivity to prepare the background for the overlay sleep mode.
   // Returns false if the page cannot be loaded (missing cache / file error).
   static bool drawCurrentPageToBuffer(const std::string& filePath, GfxRenderer& renderer);
+  ScreenshotInfo getScreenshotInfo() const override;
 };

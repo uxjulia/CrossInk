@@ -284,7 +284,7 @@ void BaseTheme::drawList(const GfxRenderer& renderer, Rect rect, int itemCount, 
       if (isHeader && isHeader(j + 1)) selY += sectionHeaderTopPadding;
     }
     if (selY + rowHeight <= rectBottom) {
-      renderer.fillRect(0, selY - 2, rect.width, rowHeight);
+      renderer.fillRect(rect.x, selY - 2, rect.width, rowHeight);
     }
   }
 

@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>CrossPoint Reader</title>
+    <title>CrossInk</title>
     <style>
       :root {
         --font-color: #333;
@@ -35,6 +35,9 @@
         background-color: var(--bg);
         color: var(--font-color);
       }
+     .crossink-header {
+        font-family: Georgia, 'Times New Roman', Times, serif;
+      }
       h1 {
         color: var(--title-color);
         border-bottom: 2px solid var(--accent-color);
@@ -49,7 +52,8 @@
         border-radius: 8px;
         padding: 20px;
         margin: 15px 0;
-        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        border: 1px solid var(--border-color);
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
       }
       .info-row {
         display: flex;
@@ -79,26 +83,29 @@
       .nav-links {
         margin: 20px 0;
         display: flex;
-        gap: 10px;
+        gap: 0;
+        border-bottom: 1px solid var(--border-color);
       }
       .nav-links a {
-        padding: 10px 20px;
-        color: var(--font-color);
+        padding: 8px 16px;
+        color: var(--label-color);
         text-decoration: none;
-        border-radius: 4px;
+        border-bottom: 2px solid transparent;
+        margin-bottom: -1px;
+        transition: color 0.15s;
       }
       .nav-links a.active {
-        background-color: var(--accent-color);
-        color: white;
+        color: var(--accent-color);
+        border-bottom-color: var(--accent-color);
+        font-weight: 500;
       }
       .nav-links a:not(.active):hover {
-        background-color: var(--accent-hover-color);
-        color: white;
+        color: var(--font-color);
       }
     </style>
   </head>
   <body>
-    <h1>📚 CrossPoint Reader</h1>
+    <h1 class="crossink-header">CrossInk</h1>
 
     <div class="nav-links">
       <a href="/" class="active">Home</a>
@@ -126,11 +133,7 @@
       </div>
     </div>
 
-    <div class="card">
-      <p style="text-align: center; color: #95a5a6; margin: 0">
-        CrossPoint E-Reader • Open Source
-      </p>
-    </div>
+    <p style="text-align: center; color: var(--label-color); font-size: 0.85em; padding: 20px 0; margin: 0;">CrossInk &bull; Open Source</p>
   <script>
     async function fetchStatus() {
       try {

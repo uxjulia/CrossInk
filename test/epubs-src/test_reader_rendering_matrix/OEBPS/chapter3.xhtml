@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en">
+<head>
+  <title>Inline Styles and Text Decoration</title>
+  <link rel="stylesheet" type="text/css" href="styles/test.css"/>
+</head>
+<body>
+  <h1>Inline Styles</h1>
+  <p class="note">PASS when styled runs keep their style and do not leak into surrounding text. Already-bold text should remain fully bold when Bionic Reading is enabled.</p>
+
+  <p>Plain text before <strong>bold text</strong> and plain text after.</p>
+  <p>Plain text before <em>italic text</em> and plain text after.</p>
+  <p>Plain text before <strong><em>bold italic text</em></strong> and plain text after.</p>
+  <p>Plain text before <span class="underline">underlined text</span> and plain text after.</p>
+  <p>Plain text before <span class="strike">strikethrough text</span> and plain text after.</p>
+  <p>Plain text before <span class="underline-strike">underlined and struck text</span> and plain text after.</p>
+  <p><strong>Already bold full sentence should stay bold from start to finish, including the final word.</strong></p>
+  <p>This sentence mixes <strong>bold</strong>, <em>italic</em>, <span class="underline">underline</span>, <span class="strike">strike</span>, <strong><em>bold italic</em></strong>, and normal text in one paragraph.</p>
+  <p class="justify">This justified paragraph contains <strong>bold words</strong>, <em>italic words</em>, <span class="underline">underlined words</span>, and <span class="strike">struck words</span>. Guide dots should still appear between the visible word groups when enabled.</p>
+  <p>This paragraph has <span class="small">small inline text</span> and <span class="large">large inline text</span> to check line height, baseline placement, and clipping around mixed font sizes.</p>
+  <p>This paragraph contains nested spans: <span class="underline"><strong>bold underlined text</strong></span>, <span class="strike"><em>italic struck text</em></span>, and <span class="underline-strike"><strong><em>bold italic underlined struck text</em></strong></span>.</p>
+</body>
+</html>

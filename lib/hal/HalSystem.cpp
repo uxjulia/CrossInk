@@ -116,7 +116,8 @@ std::string getPanicInfo(bool full) {
   } else {
     std::string info;
 
-    info += "CrossPoint version: " CROSSPOINT_VERSION;
+    info += "CrossInk version: " CROSSINK_VERSION;
+    info += "\nCrossInk variant: " CROSSINK_FIRMWARE_VARIANT;
     info += "\n\nPanic reason: " + std::string(panicMessage);
     info += "\n\nLast logs:\n" + getLastLogs();
     info += "\n\nStack memory:\n";

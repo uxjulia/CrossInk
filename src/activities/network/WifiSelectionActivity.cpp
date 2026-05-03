@@ -324,7 +324,7 @@ void WifiSelectionActivity::loop() {
         savePromptSelection++;
         requestUpdate();
       }
-    } else if (mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
+    } else if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
       if (savePromptSelection == 0) {
         // User chose "Yes" - save the password
         RenderLock lock(*this);
@@ -353,7 +353,7 @@ void WifiSelectionActivity::loop() {
         forgetPromptSelection++;
         requestUpdate();
       }
-    } else if (mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
+    } else if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
       if (forgetPromptSelection == 1) {
         RenderLock lock(*this);
         // User chose "Forget network" - forget the network
@@ -385,7 +385,7 @@ void WifiSelectionActivity::loop() {
   // Handle connection failed state
   if (state == WifiSelectionState::CONNECTION_FAILED) {
     if (mappedInput.wasPressed(MappedInputManager::Button::Back) ||
-        mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
+        mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
       // If we were auto-connecting or using a saved credential, offer to forget
       // the network
       if (autoConnecting || usedSavedPassword) {
@@ -410,7 +410,7 @@ void WifiSelectionActivity::loop() {
     }
 
     // Check for Confirm button to select network or rescan
-    if (mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
+    if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
       if (!networks.empty()) {
         selectNetwork(selectedNetworkIndex);
       } else {

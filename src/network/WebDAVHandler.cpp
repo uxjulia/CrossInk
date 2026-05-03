@@ -226,13 +226,12 @@ void WebDAVHandler::handlePropfind(WebServer& s) {
     char name[500];
     while (file) {
       file.getName(name, sizeof(name));
-      String fileName(name);
 
       // Skip hidden/protected items
-      bool shouldHide = fileName.startsWith(".");
+      bool shouldHide = (name[0] == '.');
       if (!shouldHide) {
         for (size_t i = 0; i < HIDDEN_ITEMS_COUNT; i++) {
-          if (fileName.equals(HIDDEN_ITEMS[i])) {
+          if (strcmp(name, HIDDEN_ITEMS[i]) == 0) {
             shouldHide = true;
             break;
           }
@@ -242,7 +241,7 @@ void WebDAVHandler::handlePropfind(WebServer& s) {
       if (!shouldHide) {
         String childPath = path;
         if (!childPath.endsWith("/")) childPath += "/";
-        childPath += fileName;
+        childPath += name;
 
         if (file.isDirectory()) {
           sendPropEntry(s, childPath, true, 0, FIXED_DATE);

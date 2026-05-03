@@ -451,9 +451,9 @@ size_t BookMetadataCache::getSpineCumulativeSize(const int index) {
   serialization::readPod(bookFile, hrefLen);
   bookFile.seekCur(hrefLen);
 
-  size_t cumulativeSize = 0;
+  uint32_t cumulativeSize = 0;
   serialization::readPod(bookFile, cumulativeSize);
-  return cumulativeSize;
+  return static_cast<size_t>(cumulativeSize);
 }
 
 BookMetadataCache::TocEntry BookMetadataCache::getTocEntry(const int index) {

@@ -194,7 +194,12 @@ void HalGPIO::begin() {
   inputMgr.begin();
   SPI.begin(EPD_SCLK, SPI_MISO, EPD_MOSI, EPD_CS);
 
+#ifdef FORCE_DEVICE_X3
+  _deviceType = DeviceType::X3;
+  LOG_INF("HW", "Device override active via build flag: X3");
+#else
   _deviceType = detectDeviceTypeWithFingerprint();
+#endif
 
   if (deviceIsX4()) {
     pinMode(BAT_GPIO0, INPUT);

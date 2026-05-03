@@ -21,7 +21,8 @@ Welcome to the **CrossInk** firmware. This guide outlines the hardware controls,
       - [3.6.3 Controls](#363-controls)
       - [3.6.4 System](#364-system)
       - [3.6.5 OPDS Servers (Multiple Libraries)](#365-opds-servers-multiple-libraries)
-      - [3.6.6 KOReader Sync Quick Setup](#366-koreader-sync-quick-setup)
+      - [3.6.6 Web Settings (WiFi + OPDS)](#366-web-settings-wifi--opds)
+      - [3.6.7 KOReader Sync Quick Setup](#367-koreader-sync-quick-setup)
     - [3.7 Sleep Screen](#37-sleep-screen)
   - [4. Reading Mode](#4-reading-mode)
     - [Page Turning](#page-turning)
@@ -159,7 +160,7 @@ The Settings screen allows you to configure the device's behavior. There are a f
   - "Noto Serif" (default) - Google's serif font
   - "Noto Sans" - Google's sans-serif font
   - "Open Dyslexic" - Font designed for readers with dyslexia
-- **Reader Font Size**: Adjust the text size for reading; options are "Small", "Medium" (default), "Large", or "X Large".
+- **Reader Font Size**: Adjust the text size for reading; options include "Teensy", "Tiny", "Small", "Medium" (default), "Large", "X Large", and "Huge", depending on the firmware variant.
 
 - **Reader Line Spacing**: Adjust the spacing between lines; options are "Tight", "Normal" (default), or "Wide".
 - **Reader Screen Margin**: Controls the screen margins in Reading Mode between 5 and 40 pixels in 5-pixel increments.
@@ -223,7 +224,24 @@ You can also manage OPDS servers from the web interface while in File Transfer m
 2. Open `http://<device-ip>/settings`.
 3. Use the **OPDS Servers** card to add, edit, or delete entries.
 
-#### 3.6.6 KOReader Sync Quick Setup
+For web-based WiFi network management, see [Web Settings (WiFi + OPDS)](#366-web-settings-wifi--opds).
+
+#### 3.6.6 Web Settings (WiFi + OPDS)
+
+While in **File Transfer** mode, the web settings page includes management cards for both **WiFi Networks** and **OPDS Servers**.
+
+1. On device: open **File Transfer** and connect to WiFi.
+1. In a browser, open `http://<device-ip>/settings` or `http://crosspoint.local`.
+1. In **WiFi Networks**, add, edit, or delete saved network entries (SSID + optional password).
+1. In **OPDS Servers**, add, edit, or delete OPDS catalogs.
+
+Behavior notes:
+
+- Passwords are never shown back in the web UI after saving.
+- Leaving Password blank while editing keeps the existing saved password unchanged.
+- The web UI can save hidden-network SSIDs, but connecting to hidden networks still depends on device-side WiFi connection flow.
+
+#### 3.6.7 KOReader Sync Quick Setup
 
 CrossInk can sync reading progress with KOReader-compatible sync servers.
 It also interoperates with KOReader apps/devices when they use the same server and credentials.

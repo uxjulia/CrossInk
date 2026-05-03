@@ -1,3 +1,8 @@
+---
+title: Webserver Endpoints
+nav_order: 4
+---
+
 # Webserver Endpoints
 
 This document describes all HTTP and WebSocket endpoints available on the CrossPoint Reader webserver.

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Settings - CrossPoint Reader</title>
+  <title>Settings - CrossInk Reader</title>
   <style>
     :root {
       --font-color: #333;
@@ -37,6 +37,9 @@
       background-color: var(--bg);
       color: var(--font-color);
     }
+    .crossink-header {
+      font-family: Georgia, 'Times New Roman', Times, serif;
+    }
     h1 {
       color: var(--title-color);
       border-bottom: 2px solid var(--accent-color);
@@ -51,26 +54,30 @@
       border-radius: 8px;
       padding: 20px;
       margin: 15px 0;
-      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+      border: 1px solid var(--border-color);
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
     }
     .nav-links {
       margin: 20px 0;
       display: flex;
-      gap: 10px;
+      gap: 0;
+      border-bottom: 1px solid var(--border-color);
     }
     .nav-links a {
-      padding: 10px 20px;
-      color: var(--font-color);
+      padding: 8px 16px;
+      color: var(--label-color);
       text-decoration: none;
-      border-radius: 4px;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -1px;
+      transition: color 0.15s;
     }
     .nav-links a.active {
-      background-color: var(--accent-color);
-      color: white;
+      color: var(--accent-color);
+      border-bottom-color: var(--accent-color);
+      font-weight: 500;
     }
     .nav-links a:not(.active):hover {
-      background-color: var(--accent-hover-color);
-      color: white;
+      color: var(--font-color);
     }
     .setting-row {
       display: flex;
@@ -262,7 +269,7 @@
         font-size: 1.3em;
       }
       .nav-links a {
-        padding: 8px 12px;
+        padding: 6px 12px;
         font-size: 0.9em;
       }
       .setting-row {
@@ -279,7 +286,7 @@
   </style>
 </head>
 <body>
-  <h1>📚 CrossPoint Reader</h1>
+  <h1 class="crossink-header">CrossInk</h1>
 
   <div class="nav-links">
     <a href="/">Home</a>
@@ -299,13 +306,10 @@
     <button class="save-btn" id="saveBtn" onclick="saveSettings()">Save Settings</button>
   </div>
 
+  <div id="wifi-container"></div>
   <div id="opds-container"></div>
 
-  <div class="card">
-    <p style="text-align: center; color: #95a5a6; margin: 0;">
-      CrossPoint E-Reader • Open Source
-    </p>
-  </div>
+  <p style="text-align: center; color: var(--label-color); font-size: 0.85em; padding: 20px 0; margin: 0;">CrossInk &bull; Open Source</p>
 
 <script>
   let allSettings = [];
@@ -480,6 +484,119 @@
 
   loadSettings();
 
+  // --- Wi-Fi Network Management ---
+  // Renders an editable list of saved Wi-Fi networks using /api/wifi endpoints.
+  // Password fields are never pre-filled; when left blank during edit, existing
+  // passwords remain unchanged server-side.
+  let wifiNetworks = [];
+
+  function renderWifiNetwork(net, idx) {
+    const isNew = idx === -1;
+    const id = isNew ? 'new' : idx;
+    const lastConnected = net.isLastConnected
+      ? '<div style="margin-top:8px;color:var(--label-color);font-size:0.9em;">Last connected network</div>'
+      : '';
+
+    return '<div class="opds-server" id="wifi-' + id + '">' +
+      '<div class="setting-row">' +
+        '<span class="setting-name">SSID</span>' +
+        '<span class="setting-control"><input type="text" id="wifi-ssid-' + id + '" value="' + escapeHtml(net.ssid || '') + '"></span>' +
+      '</div>' +
+      '<div class="setting-row">' +
+        '<span class="setting-name">Password</span>' +
+        '<span class="setting-control"><input type="password" id="wifi-pass-' + id + '" placeholder="' + (net.hasPassword ? '(unchanged)' : '') + '"></span>' +
+      '</div>' +
+      lastConnected +
+      '<div class="opds-actions">' +
+        '<button class="btn-small btn-save-server" onclick="saveWifiNetwork(' + idx + ')">Save</button>' +
+        (isNew ? '' : '<button class="btn-small btn-delete" onclick="deleteWifiNetwork(' + idx + ')">Delete</button>') +
+      '</div>' +
+    '</div>';
+  }
+
+  function renderWifiSection() {
+    const container = document.getElementById('wifi-container');
+    let html = '<div class="card"><h2>Wi-Fi Networks</h2>';
+
+    if (wifiNetworks.length === 0) {
+      html += '<p style="color:var(--label-color);text-align:center;">No Wi-Fi networks saved</p>';
+    } else {
+      wifiNetworks.forEach(function(net, idx) {
+        html += renderWifiNetwork(net, idx);
+      });
+    }
+
+    html += '<div style="margin-top:12px;text-align:center;">' +
+      '<button class="btn-small btn-add" onclick="addWifiNetwork()">+ Add Network</button>' +
+    '</div></div>';
+    container.innerHTML = html;
+  }
+
+  async function loadWifiNetworks() {
+    try {
+      const resp = await fetch('/api/wifi');
+      if (!resp.ok) throw new Error('Failed to load');
+      wifiNetworks = await resp.json();
+      renderWifiSection();
+    } catch (e) {
+      console.error('Wi-Fi load error:', e);
+    }
+  }
+
+  function addWifiNetwork() {
+    const container = document.getElementById('wifi-container');
+    const card = container.querySelector('.card');
+    const addBtn = card.querySelector('.btn-add').parentElement;
+    // Prevent multiple unsaved new-network forms at once (idx -1 -> id "new")
+    if (document.getElementById('wifi-new')) return;
+    addBtn.insertAdjacentHTML('beforebegin', renderWifiNetwork({ssid:'',hasPassword:false,isLastConnected:false}, -1));
+  }
+
+  async function saveWifiNetwork(idx) {
+    const id = idx === -1 ? 'new' : idx;
+    const ssid = document.getElementById('wifi-ssid-' + id).value.trim();
+    if (!ssid) {
+      showMessage('SSID is required.', true);
+      return;
+    }
+
+    const data = { ssid: ssid };
+    // Only include password when the user actually typed something; omitting it
+    // tells the server to preserve an existing password.
+    const pass = document.getElementById('wifi-pass-' + id).value;
+    if (pass) data.password = pass;
+    if (idx >= 0) data.index = idx;
+
+    try {
+      const resp = await fetch('/api/wifi', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(data)
+      });
+      if (!resp.ok) throw new Error(await resp.text());
+      showMessage('Wi-Fi network saved!', false);
+      await loadWifiNetworks();
+    } catch (e) {
+      showMessage('Error: ' + e.message, true);
+    }
+  }
+
+  async function deleteWifiNetwork(idx) {
+    if (!confirm('Delete this Wi-Fi network?')) return;
+    try {
+      const resp = await fetch('/api/wifi/delete', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({index: idx})
+      });
+      if (!resp.ok) throw new Error(await resp.text());
+      showMessage('Wi-Fi network deleted', false);
+      await loadWifiNetworks();
+    } catch (e) {
+      showMessage('Error: ' + e.message, true);
+    }
+  }
+
   // --- OPDS Server Management ---
   // Dynamically renders an editable list of OPDS servers, communicating with the
   // /api/opds REST endpoints. Password fields are never pre-filled for security;
@@ -594,6 +711,7 @@
     }
   }
 
+  loadWifiNetworks();
   loadOpdsServers();
 </script>
 </body>

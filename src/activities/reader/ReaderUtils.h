@@ -2,6 +2,7 @@
 
 #include <CrossPointSettings.h>
 #include <GfxRenderer.h>
+#include <HalTiltSensor.h>
 #include <Logging.h>
 
 #include "MappedInputManager.h"
@@ -10,29 +11,30 @@ namespace ReaderUtils {
 
 constexpr unsigned long GO_HOME_MS = 1000;
 
-inline void applyOrientation(GfxRenderer& renderer, const uint8_t orientation) {
+inline GfxRenderer::Orientation toRendererOrientation(const uint8_t orientation) {
   switch (orientation) {
     case CrossPointSettings::ORIENTATION::PORTRAIT:
-      renderer.setOrientation(GfxRenderer::Orientation::Portrait);
-      break;
+      return GfxRenderer::Orientation::Portrait;
     case CrossPointSettings::ORIENTATION::LANDSCAPE_CW:
-      renderer.setOrientation(GfxRenderer::Orientation::LandscapeClockwise);
-      break;
+      return GfxRenderer::Orientation::LandscapeClockwise;
     case CrossPointSettings::ORIENTATION::INVERTED:
-      renderer.setOrientation(GfxRenderer::Orientation::PortraitInverted);
-      break;
+      return GfxRenderer::Orientation::PortraitInverted;
     case CrossPointSettings::ORIENTATION::LANDSCAPE_CCW:
-      renderer.setOrientation(GfxRenderer::Orientation::LandscapeCounterClockwise);
-      break;
+      return GfxRenderer::Orientation::LandscapeCounterClockwise;
     default:
-      break;
+      return GfxRenderer::Orientation::Portrait;
   }
+}
+
+inline void applyOrientation(GfxRenderer& renderer, const uint8_t orientation) {
+  renderer.setOrientation(toRendererOrientation(orientation));
 }
 
 struct PageTurnResult {
   bool prev;
   bool next;
   bool fromSideBtn;
+  bool fromTilt;
 };
 
 inline PageTurnResult detectPageTurn(const MappedInputManager& input) {
@@ -41,6 +43,8 @@ inline PageTurnResult detectPageTurn(const MappedInputManager& input) {
   // Side buttons fire on press only when long-press action is OFF (nothing to detect).
   const bool sideUsePress = SETTINGS.sideButtonLongPress == CrossPointSettings::SIDE_LONG_PRESS::SIDE_LONG_OFF;
 
+  const bool tiltNext = SETTINGS.tiltPageTurn && halTiltSensor.wasTiltedForward();
+  const bool tiltPrev = SETTINGS.tiltPageTurn && halTiltSensor.wasTiltedBack();
   const bool sidePrev = sideUsePress ? input.wasPressed(MappedInputManager::Button::PageBack)
                                      : input.wasReleased(MappedInputManager::Button::PageBack);
   const bool sideNext = sideUsePress ? input.wasPressed(MappedInputManager::Button::PageForward)
@@ -59,7 +63,7 @@ inline PageTurnResult detectPageTurn(const MappedInputManager& input) {
 
   // fromSideBtn is true when only side buttons contributed to this page turn.
   const bool fromSide = (sidePrev || sideNext) && !(frontPrev || frontNext);
-  return {sidePrev || frontPrev, sideNext || frontNext, fromSide};
+  return {tiltPrev || sidePrev || frontPrev, tiltNext || sideNext || frontNext, fromSide, tiltPrev || tiltNext};
 }
 
 inline void displayWithRefreshCycle(const GfxRenderer& renderer, int& pagesUntilFullRefresh) {

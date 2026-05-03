@@ -1,0 +1,110 @@
+body {
+  font-family: serif;
+  line-height: 1.2;
+}
+
+h1, h2 {
+  text-align: center;
+}
+
+.note {
+  font-size: 0.9em;
+  margin-top: 0.5em;
+  margin-bottom: 0.5em;
+}
+
+.left {
+  text-align: left;
+}
+
+.center {
+  text-align: center;
+}
+
+.right {
+  text-align: right;
+}
+
+.justify {
+  text-align: justify;
+}
+
+.book-style-justify {
+  text-align: justify;
+}
+
+.zero-indent {
+  text-indent: 0;
+}
+
+.positive-indent {
+  text-indent: 2em;
+}
+
+.hanging-indent {
+  margin-left: 2em;
+  text-indent: -1em;
+}
+
+.large-margins {
+  margin-left: 2em;
+  margin-right: 2em;
+}
+
+.nested-indent {
+  margin-left: 3em;
+}
+
+.page-before {
+  page-break-before: always;
+}
+
+.page-after {
+  page-break-after: always;
+}
+
+.underline {
+  text-decoration: underline;
+}
+
+.strike {
+  text-decoration: line-through;
+}
+
+.underline-strike {
+  text-decoration: underline line-through;
+}
+
+.small {
+  font-size: 0.8em;
+}
+
+.large {
+  font-size: 1.25em;
+}
+
+.mono {
+  font-family: monospace;
+  white-space: pre-wrap;
+}
+
+.bordered {
+  border: 1px solid #000000;
+  padding: 0.5em;
+}
+
+blockquote {
+  margin-left: 2em;
+  margin-right: 1em;
+  font-style: italic;
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+td, th {
+  border: 1px solid #000000;
+  padding: 0.25em;
+}

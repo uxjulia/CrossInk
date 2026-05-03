@@ -79,9 +79,9 @@ void FontCacheManager::PrewarmScope::endScanAndPrewarm() {
 
   manager_->prewarmCache(manager_->scanFontId_, manager_->scanText_.c_str(), styleMask);
 
-  // Free scan string memory
+  // Keep the grown capacity around so the next page can reuse it without
+  // another allocate-grow-shrink cycle.
   manager_->scanText_.clear();
-  manager_->scanText_.shrink_to_fit();
 }
 
 FontCacheManager::PrewarmScope::~PrewarmScope() {

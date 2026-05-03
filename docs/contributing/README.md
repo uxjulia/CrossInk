@@ -1,3 +1,9 @@
+---
+title: Contributing
+nav_order: 2
+has_children: true
+---
+
 # Contributing Docs
 
 This section is a lightweight contributor guide for CrossPoint Reader.

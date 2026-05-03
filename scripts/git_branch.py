@@ -2,7 +2,7 @@
 PlatformIO pre-build script: inject git info into version defines.
 
   default:       1.1.0-dev+<branch>
-  test:          1.2.6-<branch>+<5-char-hash>
+  test & debug:          1.2.6-<branch>+<5-char-hash>
   gh_release_rc: 1.1.0-rc+<5-char-hash>   (hash from $CROSSPOINT_RC_HASH in
                                              CI, or from git locally)
 
@@ -11,6 +11,7 @@ All other environments set CROSSPOINT_VERSION directly in platformio.ini.
 
 import configparser
 import os
+import re
 import subprocess
 import sys
 
@@ -19,40 +20,42 @@ def warn(msg):
     print(f'WARNING [git_branch.py]: {msg}', file=sys.stderr)
 
 
-def get_git_short_hash(project_dir, length=5):
+def sanitize_version_component(value):
+    value = value.strip()
+    value = re.sub(r'[^A-Za-z0-9._-]+', '-', value)
+    value = re.sub(r'-{2,}', '-', value)
+    value = value.strip('-.')
+    return value or 'unknown'
+
+
+def run_git_value(project_dir, args, label):
     try:
-        return subprocess.check_output(
-            ['git', 'rev-parse', '--short', 'HEAD'],
+        value = subprocess.check_output(
+            ['git', *args],
             text=True, stderr=subprocess.PIPE, cwd=project_dir
-        ).strip()[:length]
+        ).strip()
+        return ''.join(c for c in value if c not in '"\\')
+    except FileNotFoundError:
+        warn(f'git not found on PATH; {label} suffix will be "unknown"')
+        return 'unknown'
+    except subprocess.CalledProcessError as e:
+        warn(f'git command failed (exit {e.returncode}): {e.stderr.strip()}; {label} suffix will be "unknown"')
+        return 'unknown'
     except Exception as e:
-        warn(f'Could not read git hash: {e}; hash will be "00000"')
-        return '00000'
+        warn(f'Unexpected error reading git {label}: {e}; {label} suffix will be "unknown"')
+        return 'unknown'
+
+
+def get_git_short_hash(project_dir, length=5):
+    short_hash = run_git_value(project_dir, ['rev-parse', '--short', 'HEAD'], 'short SHA')
+    return short_hash[:length]
 
 
 def get_git_branch(project_dir):
-    try:
-        branch = subprocess.check_output(
-            ['git', 'rev-parse', '--abbrev-ref', 'HEAD'],
-            text=True, stderr=subprocess.PIPE, cwd=project_dir
-        ).strip()
-        # Detached HEAD — show the short SHA instead
-        if branch == 'HEAD':
-            branch = subprocess.check_output(
-                ['git', 'rev-parse', '--short', 'HEAD'],
-                text=True, stderr=subprocess.PIPE, cwd=project_dir
-            ).strip()
-        # Strip characters that would break a C string literal
-        return ''.join(c for c in branch if c not in '"\\')
-    except FileNotFoundError:
-        warn('git not found on PATH; branch suffix will be "unknown"')
-        return 'unknown'
-    except subprocess.CalledProcessError as e:
-        warn(f'git command failed (exit {e.returncode}): {e.stderr.strip()}; branch suffix will be "unknown"')
-        return 'unknown'
-    except Exception as e:
-        warn(f'Unexpected error reading git branch: {e}; branch suffix will be "unknown"')
-        return 'unknown'
+    branch = run_git_value(project_dir, ['rev-parse', '--abbrev-ref', 'HEAD'], 'branch')
+    if branch == 'HEAD':
+        return 'detached'
+    return sanitize_version_component(branch)
 
 
 def _read_ini(project_dir):
@@ -90,7 +93,19 @@ def inject_version(env):
         branch = get_git_branch(project_dir)
         version_string = f'{base_version}-dev+{branch}'
         env.Append(CPPDEFINES=[('CROSSPOINT_VERSION', f'\\"{version_string}\\"')])
-        print(f'CrossPoint build version: {version_string}')
+        print(f'CrossInk build version: {version_string}')
+
+    elif pioenv == 'debug':
+        branch = get_git_branch(project_dir)
+        short_hash = get_git_short_hash(project_dir)
+        cp_version = get_base_version(project_dir)
+        ci_version = get_crossink_version(project_dir)
+        suffix = f'-{branch}+{short_hash}'
+        env.Append(CPPDEFINES=[
+            ('CROSSPOINT_VERSION', f'\\"{cp_version}{suffix}\\"'),
+            ('CROSSINK_VERSION', f'\\"{ci_version}{suffix}\\"'),
+        ])
+        print(f'CrossInk test build version: {ci_version}{suffix}')
 
     elif pioenv == 'test':
         branch = get_git_branch(project_dir)
@@ -102,7 +117,7 @@ def inject_version(env):
             ('CROSSPOINT_VERSION', f'\\"{cp_version}{suffix}\\"'),
             ('CROSSINK_VERSION', f'\\"{ci_version}{suffix}\\"'),
         ])
-        print(f'CrossPoint test build version: {ci_version}{suffix}')
+        print(f'CrossInk test build version: {ci_version}{suffix}')
 
     elif pioenv == 'gh_release_rc':
         # CI passes CROSSPOINT_RC_HASH as an env var; locally we derive it from git.
@@ -114,18 +129,22 @@ def inject_version(env):
             ('CROSSPOINT_VERSION', f'\\"{cp_version}{rc_suffix}\\"'),
             ('CROSSINK_VERSION', f'\\"{ci_version}{rc_suffix}\\"'),
         ])
-        print(f'CrossPoint RC build version: {cp_version}{rc_suffix}')
+        print(f'CrossInk RC build version: {cp_version}{rc_suffix}')
 
 
 # PlatformIO/SCons entry point — Import and env are SCons builtins injected at runtime.
 # When run directly with Python (e.g. for validation), a lightweight fake env is used
 # so the git/version logic can be exercised without a full build.
 try:
-    Import('env')           # noqa: F821  # type: ignore[name-defined]
-    inject_version(env)     # noqa: F821  # type: ignore[name-defined]
+    Import('env')  # noqa: F821  # type: ignore[name-defined]
 except NameError:
     class _Env(dict):
         def Append(self, **_): pass
 
-    _project_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if '__file__' in globals():
+        _project_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    else:
+        _project_dir = os.getcwd()
     inject_version(_Env({'PIOENV': 'default', 'PROJECT_DIR': _project_dir}))
+else:
+    inject_version(env)  # noqa: F821  # type: ignore[name-defined]

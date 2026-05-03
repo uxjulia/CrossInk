@@ -1,3 +1,8 @@
+---
+title: Translators
+nav_order: 7
+---
+
 # Translators
 
 Below is a list of users and languages CrossPoint may support in the future.

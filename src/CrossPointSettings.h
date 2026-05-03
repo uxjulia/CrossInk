@@ -25,6 +25,7 @@ class CrossPointSettings {
     BLANK = 4,
     COVER_CUSTOM = 5,
     OVERLAY = 6,
+    READING_STATS_SLEEP = 7,
     SLEEP_SCREEN_MODE_COUNT
   };
   enum SLEEP_SCREEN_COVER_MODE { FIT = 0, CROP = 1, SLEEP_SCREEN_COVER_MODE_COUNT };
@@ -103,7 +104,16 @@ class CrossPointSettings {
   // Font family options
   enum FONT_FAMILY { LEXENDDECA = 0, BITTER = 1, CHAREINK = 2, FONT_FAMILY_COUNT };
   // Font size options
-  enum FONT_SIZE { TINY = 0, SMALL = 1, MEDIUM = 2, LARGE = 3, EXTRA_LARGE = 4, FONT_SIZE_COUNT };
+  enum FONT_SIZE {
+    TINY = 0,
+    SMALL = 1,
+    MEDIUM = 2,
+    LARGE = 3,
+    EXTRA_LARGE = 4,
+    TEENSY = 5,
+    HUGE_SIZE = 6,
+    FONT_SIZE_COUNT
+  };
   enum LINE_COMPRESSION { TIGHT = 0, NORMAL = 1, WIDE = 2, LINE_COMPRESSION_COUNT };
   enum PARAGRAPH_ALIGNMENT {
     JUSTIFIED = 0,
@@ -149,7 +159,8 @@ class CrossPointSettings {
     READING_STATS = 10,
     SCREENSHOT = 11,
     CYCLE_PAGE_TURN = 12,
-    SAVE_CLIPPING = 13,
+    FILE_TRANSFER = 13,
+    SAVE_CLIPPING = 14,
     SHORT_PWRBTN_COUNT
   };
 
@@ -157,10 +168,12 @@ class CrossPointSettings {
   enum HIDE_BATTERY_PERCENTAGE { HIDE_NEVER = 0, HIDE_READER = 1, HIDE_ALWAYS = 2, HIDE_BATTERY_PERCENTAGE_COUNT };
 
   // UI Theme
-  enum UI_THEME { CLASSIC = 0, LYRA = 1, LYRA_3_COVERS = 2 };
+  enum UI_THEME { CLASSIC = 0, LYRA = 1, LYRA_3_COVERS = 2, ROUNDEDRAFF = 3 };
 
   // Image rendering in EPUB reader
   enum IMAGE_RENDERING { IMAGES_DISPLAY = 0, IMAGES_PLACEHOLDER = 1, IMAGES_SUPPRESS = 2, IMAGE_RENDERING_COUNT };
+
+  enum TILT_PAGE_TURN { TILT_OFF = 0, TILT_NORMAL = 1, TILT_INVERTED = 2, TILT_PAGE_TURN_COUNT };
 
   // Long-press Confirm (menu button) quick action in reader
   enum LONG_PRESS_MENU_ACTION {
@@ -176,10 +189,17 @@ class CrossPointSettings {
     LONG_MENU_READING_STATS = 9,
     LONG_MENU_SCREENSHOT = 10,
     LONG_MENU_CYCLE_PAGE_TURN = 11,
-    LONG_MENU_SAVE_CLIPPING = 12,
+    LONG_MENU_FILE_TRANSFER = 12,
+    LONG_MENU_SAVE_CLIPPING = 13,
     LONG_PRESS_MENU_ACTION_COUNT
   };
 
+  // Clipping storage mode
+  enum CLIPPING_STORAGE : uint8_t { SINGLE_FILE = 0, PER_BOOK = 1, CLIPPING_STORAGE_COUNT };
+  // Clip selector navigation scheme
+  enum CLIP_NAV_MODE : uint8_t { LINE_AWARE = 0, WORD_BY_WORD = 1, CLIP_NAV_MODE_COUNT };
+  // Annotation underline visibility
+  enum ANNOTATION_VISIBILITY : uint8_t { ANNOT_VISIBLE = 0, ANNOT_HIDDEN = 1, ANNOTATION_VISIBILITY_COUNT };
   // Sleep screen settings
   uint8_t sleepScreen = DARK;
   // Sleep screen cover mode settings
@@ -262,6 +282,10 @@ class CrossPointSettings {
   uint8_t imageRendering = IMAGES_DISPLAY;
   // Long-press Confirm (menu button) quick action in reader (0 = off)
   uint8_t longPressMenuAction = LONG_MENU_OFF;
+  // Tilt-based page turning (X3 only — requires QMI8658 IMU)
+  uint8_t tiltPageTurn = TILT_OFF;
+  // Language setting (Language enum index, default 0 = EN)
+  uint8_t language = 0;
 
   ~CrossPointSettings() = default;
 
@@ -276,6 +300,10 @@ class CrossPointSettings {
                                                                     : POWER_BUTTON_LONG_PRESS_MS;
   }
   uint16_t getPowerButtonLongPressDuration() const { return POWER_BUTTON_LONG_PRESS_MS; }
+  static uint8_t getActiveReaderFontSizeCount();
+  static uint8_t getStoredReaderFontSize(FONT_SIZE size);
+  FONT_SIZE getEffectiveReaderFontSize() const;
+  bool changeReaderFontSize(bool larger);
   int getReaderFontId() const;
 
   // If count_only is true, returns the number of settings items that would be written.
@@ -289,6 +317,7 @@ class CrossPointSettings {
 
  private:
   bool loadFromBinaryFile();
+  bool migrateLanguageBinaryFile();
 
  public:
   float getReaderLineCompression() const;

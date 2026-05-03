@@ -1,0 +1,27 @@
+name: Feature Request
+description: Request a feature to be considered for development
+title: "Short, descriptive title of the feature"
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to request a feature! Please note that not all requests can be considered for development, but all requests will be looked at. Please fill out the details below.
+
+  - type: textarea
+    id: feature-description
+    attributes:
+      label: Describe the Feature
+      description: A clear and concise description of what the proposed feature is and its purpose.
+      placeholder:
+    validations:
+      required: true
+
+  - type: textarea
+    id: value-description
+    attributes:
+      label: Describe how this will improve the reading experience
+      description: How will this improve the reading experience for users?
+      placeholder:
+    validations:
+      required: true

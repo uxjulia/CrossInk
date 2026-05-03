@@ -10,6 +10,7 @@
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
 #include <HalStorage.h>
+#include <HalTiltSensor.h>
 #include <I18n.h>
 
 #include "CrossPointSettings.h"
@@ -90,6 +91,8 @@ void XtcReaderActivity::loop() {
   // Side buttons fire on press only when long-press action is OFF.
   const bool sideUsePress = SETTINGS.sideButtonLongPress == CrossPointSettings::SIDE_LONG_PRESS::SIDE_LONG_OFF;
 
+  const bool tiltNext = SETTINGS.tiltPageTurn && halTiltSensor.wasTiltedForward();
+  const bool tiltPrev = SETTINGS.tiltPageTurn && halTiltSensor.wasTiltedBack();
   const bool sidePrev = sideUsePress ? mappedInput.wasPressed(MappedInputManager::Button::PageBack)
                                      : mappedInput.wasReleased(MappedInputManager::Button::PageBack);
   const bool sideNext = sideUsePress ? mappedInput.wasPressed(MappedInputManager::Button::PageForward)
@@ -97,17 +100,29 @@ void XtcReaderActivity::loop() {
   const bool frontPrev = frontUsePress ? mappedInput.wasPressed(MappedInputManager::Button::Left)
                                        : mappedInput.wasReleased(MappedInputManager::Button::Left);
   const bool powerReleased = mappedInput.wasReleased(MappedInputManager::Button::Power);
+  if (powerReleased && longPowerPageTurnHandled) {
+    longPowerPageTurnHandled = false;
+    return;
+  }
   const bool shortPowerTurn = SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::PAGE_TURN && powerReleased &&
                               mappedInput.getHeldTime() < SETTINGS.getPowerButtonLongPressDuration();
   const bool longPowerTurn = SETTINGS.longPwrBtn == CrossPointSettings::SHORT_PWRBTN::PAGE_TURN && powerReleased &&
                              mappedInput.getHeldTime() >= SETTINGS.getPowerButtonLongPressDuration();
-  const bool powerPageTurn = shortPowerTurn || longPowerTurn;
+  const bool timedLongPowerTurn = SETTINGS.longPwrBtn == CrossPointSettings::SHORT_PWRBTN::PAGE_TURN &&
+                                  !longPowerPageTurnHandled &&
+                                  mappedInput.isPressed(MappedInputManager::Button::Power) &&
+                                  mappedInput.getHeldTime() >= SETTINGS.getPowerButtonLongPressDuration();
+  if (timedLongPowerTurn) {
+    longPowerPageTurnHandled = true;
+  }
+  const bool powerPageTurn = shortPowerTurn || longPowerTurn || timedLongPowerTurn;
   const bool frontNext = frontUsePress ? (mappedInput.wasPressed(MappedInputManager::Button::Right) || powerPageTurn)
                                        : (mappedInput.wasReleased(MappedInputManager::Button::Right) || powerPageTurn);
 
   const bool fromSideBtn = (sidePrev || sideNext) && !(frontPrev || frontNext);
-  const bool prevTriggered = sidePrev || frontPrev;
-  const bool nextTriggered = sideNext || frontNext;
+  const bool fromTilt = tiltPrev || tiltNext;
+  const bool prevTriggered = tiltPrev || sidePrev || frontPrev;
+  const bool nextTriggered = tiltNext || sideNext || frontNext;
 
   if (!prevTriggered && !nextTriggered) {
     return;
@@ -125,7 +140,7 @@ void XtcReaderActivity::loop() {
   }
 
   const bool skipPages =
-      !powerPageTurn && mappedInput.getHeldTime() > skipPageMs &&
+      !fromTilt && !powerPageTurn && mappedInput.getHeldTime() > skipPageMs &&
       (fromSideBtn ? SETTINGS.sideButtonLongPress == CrossPointSettings::SIDE_LONG_PRESS::SIDE_LONG_CHAPTER_SKIP
                    : static_cast<bool>(SETTINGS.longPressChapterSkip));
   const int skipAmount = skipPages ? 10 : 1;
@@ -192,7 +207,9 @@ void XtcReaderActivity::renderPage() {
   // Load page data
   size_t bytesRead = xtc->loadPage(currentPage, pageBuffer, pageBufferSize);
   if (bytesRead == 0) {
-    LOG_ERR("XTR", "Failed to load page %lu", currentPage);
+    // LOG_ERR("XTR", "Failed to load page %lu", currentPage);
+    LOG_ERR("XTR", "Failed to load page %lu: bufferSize=%lu bitDepth=%u error=%s", currentPage, pageBufferSize,
+            bitDepth, xtc::errorToString(xtc->getLastError()));
     free(pageBuffer);
     renderer.clearScreen();
     renderer.drawCenteredText(UI_12_FONT_ID, 300, tr(STR_PAGE_LOAD_ERROR), true, EpdFontFamily::BOLD);
@@ -447,4 +464,22 @@ bool XtcReaderActivity::drawCurrentPageToBuffer(const std::string& filePath, Gfx
 
   free(pageBuffer);
   return true;
+}
+
+ScreenshotInfo XtcReaderActivity::getScreenshotInfo() const {
+  ScreenshotInfo info;
+  info.readerType = ScreenshotInfo::ReaderType::Xtc;
+  if (xtc) {
+    const std::string t = xtc->getTitle();
+    snprintf(info.title, sizeof(info.title), "%s", t.c_str());
+    const uint32_t pageCount = xtc->getPageCount();
+    info.totalPages = pageCount;
+    // Clamp to last valid page to avoid sentinel value (currentPage == pageCount)
+    uint32_t clampedPage = (pageCount > 0 && currentPage >= pageCount) ? pageCount - 1 : currentPage;
+    info.progressPercent = pageCount > 0 ? xtc->calculateProgress(clampedPage) : 0;
+    info.currentPage = static_cast<int>(clampedPage) + 1;
+  } else {
+    info.currentPage = currentPage + 1;
+  }
+  return info;
 }

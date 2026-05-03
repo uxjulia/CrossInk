@@ -1,3 +1,8 @@
+---
+title: Web Server
+nav_order: 3
+---
+
 # Web Server Guide
 
 This guide explains how to connect your CrossPoint Reader to WiFi and use the built-in web server to upload files from your computer or phone.

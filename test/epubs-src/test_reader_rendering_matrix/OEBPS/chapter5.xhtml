@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en">
+<head>
+  <title>Blocks, Lists, Tables, and Edge Cases</title>
+  <link rel="stylesheet" type="text/css" href="styles/test.css"/>
+</head>
+<body>
+  <h1>Blocks and Edge Cases</h1>
+  <p class="note">PASS when block-level spacing is stable and no block overlaps the next one.</p>
+
+  <h2>Lists</h2>
+  <ul>
+    <li>Unordered list item with enough text to wrap to another line and test bullet indentation.</li>
+    <li>Second unordered item with <strong>bold</strong>, <em>italic</em>, and <span class="underline">underline</span>.</li>
+  </ul>
+  <ol>
+    <li>Ordered list item with enough text to wrap and check number alignment.</li>
+    <li>Second ordered item with a soft hyphenated word: respon&#x00AD;sibility.</li>
+  </ol>
+
+  <h2>Blockquote</h2>
+  <blockquote>
+    <p>This blockquote should be indented and italic. It contains enough text to wrap across several lines, which checks whether margin handling and inherited italic style survive layout extraction.</p>
+  </blockquote>
+
+  <h2>Preformatted</h2>
+  <p class="mono">function sample() {
+  return "monospace and preserved spaces";
+}</p>
+
+  <h2>Bordered Block</h2>
+  <p class="bordered">This paragraph has border and padding. If border support is ignored, text should still remain readable and correctly spaced.</p>
+
+  <h2>Table</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Case</th>
+        <th>Expected</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Bold</td>
+        <td><strong>Visible bold text</strong></td>
+      </tr>
+      <tr>
+        <td>Italic</td>
+        <td><em>Visible italic text</em></td>
+      </tr>
+      <tr>
+        <td>Wrapped</td>
+        <td>This cell contains longer text that should wrap inside the table cell without crashing or overflowing badly.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>Entities and Unicode</h2>
+  <p>Named entities: ampersand &amp;, less-than &lt;, greater-than &gt;, nonbreaking space A&#x00A0;B, middle dot &#x00B7;, em dash &#x2014;, curly quotes &#x201C;quoted&#x201D;, and apostrophe &#x2019;.</p>
+  <p>Accented and non-English text: cafe, cafe&#x0301;, naive, jalapeno, facade, Sao Paulo, Krakow, Zurich. These should render or fall back without corrupting the line.</p>
+</body>
+</html>

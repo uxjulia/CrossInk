@@ -136,8 +136,9 @@ void TxtReaderActivity::loop() {
     return;
   }
 
-  auto [prevTriggered, nextTriggered, fromSideBtn] = ReaderUtils::detectPageTurn(mappedInput);
+  auto [prevTriggered, nextTriggered, fromSideBtn, fromTilt] = ReaderUtils::detectPageTurn(mappedInput);
   (void)fromSideBtn;
+  (void)fromTilt;
   if (!prevTriggered && !nextTriggered) {
     return;
   }
@@ -644,7 +645,7 @@ bool TxtReaderActivity::drawCurrentPageToBuffer(const std::string& filePath, Gfx
       cacheFile.close();
     }
 
-    // Step 3: No valid cache at all — render from the start of the file as a last resort.
+    // Step 3: No valid cache at all; render from the start of the file as a last resort.
     // This shows page 1 rather than a blank screen, which is always preferable.
     if (!offsetKnown) {
       LOG_DBG("SLP", "TXT: no valid cache, falling back to start of file");
@@ -697,4 +698,18 @@ bool TxtReaderActivity::drawCurrentPageToBuffer(const std::string& filePath, Gfx
     y += lineHeight;
   }
   return true;
+}
+
+ScreenshotInfo TxtReaderActivity::getScreenshotInfo() const {
+  ScreenshotInfo info;
+  info.readerType = ScreenshotInfo::ReaderType::Txt;
+  if (txt) {
+    const std::string t = txt->getTitle();
+    snprintf(info.title, sizeof(info.title), "%s", t.c_str());
+  }
+  info.currentPage = currentPage + 1;
+  info.totalPages = totalPages;
+  info.progressPercent = totalPages > 0 ? static_cast<int>((currentPage + 1) * 100.0f / totalPages + 0.5f) : 0;
+  if (info.progressPercent > 100) info.progressPercent = 100;
+  return info;
 }

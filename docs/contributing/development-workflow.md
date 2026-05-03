@@ -1,3 +1,9 @@
+---
+title: Development Workflow
+parent: Contributing
+nav_order: 3
+---
+
 # Development Workflow
 
 This page defines the expected local workflow before opening a pull request.
