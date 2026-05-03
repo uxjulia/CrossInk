@@ -504,6 +504,41 @@ void GfxRenderer::fillRectDither(const int x, const int y, const int width, cons
   }
 }
 
+void GfxRenderer::maskRoundedRectOutsideCorners(const int x, const int y, const int width, const int height,
+                                                const int radius, const Color color) const {
+  if (radius <= 0 || color == Color::Clear) {
+    return;
+  }
+
+  const int rr = radius - 1;
+  const int rr2 = rr * rr;
+  for (int dy = 0; dy < radius; dy++) {
+    for (int dx = 0; dx < radius; dx++) {
+      const int tx = rr - dx;
+      const int ty = rr - dy;
+      if (tx * tx + ty * ty > rr2) {
+        if (color == Color::White || color == Color::Black) {
+          bool state = color == Color::Black;
+          drawPixel(x + dx, y + dy, state);                           // top-left
+          drawPixel(x + width - 1 - dx, y + dy, state);               // top-right
+          drawPixel(x + dx, y + height - 1 - dy, state);              // bottom-left
+          drawPixel(x + width - 1 - dx, y + height - 1 - dy, state);  // bottom-right
+        } else if (color == Color::LightGray) {
+          drawPixelDither<Color::LightGray>(x + dx, y + dy);                           // top-left
+          drawPixelDither<Color::LightGray>(x + width - 1 - dx, y + dy);               // top-right
+          drawPixelDither<Color::LightGray>(x + dx, y + height - 1 - dy);              // bottom-left
+          drawPixelDither<Color::LightGray>(x + width - 1 - dx, y + height - 1 - dy);  // bottom-right
+        } else if (color == Color::DarkGray) {
+          drawPixelDither<Color::DarkGray>(x + dx, y + dy);                           // top-left
+          drawPixelDither<Color::DarkGray>(x + width - 1 - dx, y + dy);               // top-right
+          drawPixelDither<Color::DarkGray>(x + dx, y + height - 1 - dy);              // bottom-left
+          drawPixelDither<Color::DarkGray>(x + width - 1 - dx, y + height - 1 - dy);  // bottom-right
+        }
+      }
+    }
+  }
+}
+
 template <Color color>
 void GfxRenderer::fillArc(const int maxRadius, const int cx, const int cy, const int xDir, const int yDir) const {
   if (maxRadius <= 0) return;
@@ -906,6 +941,41 @@ void GfxRenderer::displayBuffer(const HalDisplay::RefreshMode refreshMode) const
   auto elapsed = millis() - start_ms;
   LOG_DBG("GFX", "Time = %lu ms from clearScreen to displayBuffer", elapsed);
   display.displayBuffer(refreshMode, fadingFix);
+}
+
+void GfxRenderer::displayWindow(int x, int y, int width, int height) const {
+  int phyX, phyY, phyW, phyH;
+  switch (orientation) {
+    case Portrait:
+      phyX = x;
+      phyY = panelHeight - y - height;
+      phyW = width;
+      phyH = height;
+      break;
+    case LandscapeClockwise:
+      phyX = panelWidth - x - width;
+      phyY = panelHeight - y - height;
+      phyW = width;
+      phyH = height;
+      break;
+    case PortraitInverted:
+      phyX = panelWidth - x - width;
+      phyY = y;
+      phyW = width;
+      phyH = height;
+      break;
+    case LandscapeCounterClockwise:
+    default:
+      phyX = x;
+      phyY = y;
+      phyW = width;
+      phyH = height;
+      break;
+  }
+  // Align to 8-pixel (byte) boundaries required by e-ink panel DMA
+  const int alignedX = (phyX / 8) * 8;
+  const int alignedW = ((phyX + phyW + 7) / 8) * 8 - alignedX;
+  display.displayWindow(alignedX, phyY, alignedW, phyH);
 }
 
 std::string GfxRenderer::truncatedText(const int fontId, const char* text, const int maxWidth,

@@ -49,6 +49,8 @@ class EpubReaderActivity final : public Activity {
   bool pendingCompletedFeedback = false;
   bool completedFeedbackIsFinished = false;
   unsigned long completedFeedbackShowTime = 0UL;
+  bool pendingClippingSaveFailedFeedback = false;
+  unsigned long clippingSaveFailedFeedbackShowTime = 0UL;
   int completionTriggerSpineIndex = -1;
   float completionTriggerSpineProgress = 1.0f;
   bool completionPromptQueued = false;
@@ -99,6 +101,7 @@ class EpubReaderActivity final : public Activity {
   void queueCompletionPromptIfNeeded();
   void setBookCompleted(bool isCompleted);
   void showCompletedFeedback(bool isCompleted);
+  void showClippingSaveFailedFeedback();
 
   // Footnote navigation
   void navigateToHref(const std::string& href, bool savePosition = false);

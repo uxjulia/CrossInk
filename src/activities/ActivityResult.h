@@ -51,13 +51,19 @@ struct FootnoteResult {
   std::string href;
 };
 
+struct ClippingResult {
+  std::string text;
+  int startPageNumber = 0;
+};
+
 struct BookmarkResult {
   uint16_t spineIndex = 0;
   float progress = 0.0f;
 };
 
 using ResultVariant = std::variant<std::monostate, WifiResult, KeyboardResult, MenuResult, ChapterResult, PercentResult,
-                                   PageResult, SyncResult, NetworkModeResult, FootnoteResult, BookmarkResult>;
+                                   PageResult, SyncResult, NetworkModeResult, FootnoteResult, ClippingResult,
+                                   BookmarkResult>;
 
 struct ActivityResult {
   bool isCancelled = false;
