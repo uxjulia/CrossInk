@@ -1,3 +1,8 @@
+---
+title: Troubleshooting
+nav_order: 5
+---
+
 # Troubleshooting
 
 This document show most common issues and possible solutions while using the device features.

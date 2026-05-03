@@ -101,7 +101,7 @@ void KOReaderAuthActivity::render(RenderLock&&) {
 void KOReaderAuthActivity::loop() {
   if (state == SUCCESS || state == FAILED) {
     if (mappedInput.wasPressed(MappedInputManager::Button::Back) ||
-        mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
+        mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
       finish();
     }
   }

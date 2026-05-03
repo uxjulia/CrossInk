@@ -29,6 +29,8 @@
 
 namespace {
 
+constexpr bool TURN_OFF_SCREEN_AFTER_SLEEP_REFRESH = true;
+
 // Re-draws the "Entering sleep" popup into the cleared framebuffer just before the
 // HALF_REFRESH preflash inside renderGrayscaleSinglePass. Without this, the popup's
 // black pixels are forced to flip to white during the preflash on top of the FAST_REFRESH
@@ -389,6 +391,7 @@ void SleepActivity::onEnter() {
 
   overlayPageBufferStored = SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::OVERLAY &&
                             APP_STATE.lastSleepFromReader && renderer.storeBwBuffer();
+  overlayPageBufferTrusted = overlayPageBufferStored && canSnapshotOverlayBackground;
 
   // Show the popup in the reader's orientation when sleep starts from an open book.
   // Reset to portrait afterwards so the sleep screen renderer keeps its existing layout.
@@ -493,7 +496,7 @@ void SleepActivity::renderDefaultSleepScreen() const {
     renderer.invertScreen();
   }
 
-  renderer.displayBuffer(HalDisplay::HALF_REFRESH);
+  renderer.displayBuffer(HalDisplay::HALF_REFRESH, TURN_OFF_SCREEN_AFTER_SLEEP_REFRESH);
 }
 
 bool SleepActivity::renderPxcSleepScreen(const std::string& path) const {
@@ -558,7 +561,7 @@ bool SleepActivity::renderPxcSleepScreen(const std::string& path) const {
           }
           free(rowBuf);
         },
-        &ctx, &drawEnteringSleepOverlay, nullptr);
+        &ctx, &drawEnteringSleepOverlay, nullptr, TURN_OFF_SCREEN_AFTER_SLEEP_REFRESH);
   } else {
     // BLACK_AND_WHITE / INVERTED_BLACK_AND_WHITE: threshold PXC to 1-bit
     // (pv 0=Black, 1=DarkGrey map to dark; 2=LightGrey, 3=White map to light)
@@ -588,7 +591,7 @@ bool SleepActivity::renderPxcSleepScreen(const std::string& path) const {
     if (filter == CrossPointSettings::SLEEP_SCREEN_COVER_FILTER::INVERTED_BLACK_AND_WHITE) {
       renderer.invertScreen();
     }
-    renderer.displayBuffer(HalDisplay::FULL_REFRESH);
+    renderer.displayBuffer(HalDisplay::FULL_REFRESH, TURN_OFF_SCREEN_AFTER_SLEEP_REFRESH);
   }
 
   file.close();
@@ -653,14 +656,14 @@ void SleepActivity::renderBitmapSleepScreen(const Bitmap& bitmap) const {
           const auto* c = static_cast<const BitmapGrayCtx*>(raw);
           r.drawBitmap(*c->bitmap, c->x, c->y, c->maxWidth, c->maxHeight, c->cropX, c->cropY);
         },
-        &grayCtx, &drawEnteringSleepOverlay, nullptr);
+        &grayCtx, &drawEnteringSleepOverlay, nullptr, TURN_OFF_SCREEN_AFTER_SLEEP_REFRESH);
   } else {
     renderer.clearScreen();
     renderer.drawBitmap(bitmap, x, y, pageWidth, pageHeight, cropX, cropY);
     if (SETTINGS.sleepScreenCoverFilter == CrossPointSettings::SLEEP_SCREEN_COVER_FILTER::INVERTED_BLACK_AND_WHITE) {
       renderer.invertScreen();
     }
-    renderer.displayBuffer(HalDisplay::FULL_REFRESH);
+    renderer.displayBuffer(HalDisplay::FULL_REFRESH, TURN_OFF_SCREEN_AFTER_SLEEP_REFRESH);
   }
 }
 
@@ -827,12 +830,12 @@ void SleepActivity::renderReadingStatsSleepScreen() const {
   }
 
   renderBookStatsView(renderer, nullptr, bookTitle, bookStats, globalStats, false);
-  renderer.displayBuffer(HalDisplay::HALF_REFRESH);
+  renderer.displayBuffer(HalDisplay::HALF_REFRESH, TURN_OFF_SCREEN_AFTER_SLEEP_REFRESH);
 }
 
 void SleepActivity::renderBlankSleepScreen() const {
   renderer.clearScreen();
-  renderer.displayBuffer(HalDisplay::HALF_REFRESH);
+  renderer.displayBuffer(HalDisplay::HALF_REFRESH, TURN_OFF_SCREEN_AFTER_SLEEP_REFRESH);
 }
 
 void SleepActivity::renderOverlaySleepScreen() const {
@@ -841,27 +844,44 @@ void SleepActivity::renderOverlaySleepScreen() const {
   renderer.setOrientation(GfxRenderer::Portrait);
   const auto pageWidth = renderer.getScreenWidth();
   const auto pageHeight = renderer.getScreenHeight();
+  const auto& path = APP_STATE.openEpubPath;
+
+  auto renderSavedReaderPage = [&]() -> bool {
+    if (path.empty()) {
+      return false;
+    }
+
+    if (FsHelpers::checkFileExtension(path, ".xtc") || FsHelpers::checkFileExtension(path, ".xtch")) {
+      return XtcReaderActivity::drawCurrentPageToBuffer(path, renderer);
+    }
+    if (FsHelpers::checkFileExtension(path, ".txt")) {
+      return TxtReaderActivity::drawCurrentPageToBuffer(path, renderer);
+    }
+    if (FsHelpers::checkFileExtension(path, ".epub")) {
+      return EpubReaderActivity::drawCurrentPageToBuffer(path, renderer);
+    }
+    return false;
+  };
+  const bool backgroundSupportsGrayscale =
+      FsHelpers::checkFileExtension(path, ".txt") || FsHelpers::checkFileExtension(path, ".epub");
+  bool backgroundWasRebuilt = false;
 
   // Step 1: Ensure the frame buffer contains only the reader page.
   // When sleeping from the reader, restore the page snapshot taken before the
   // popup was drawn. Otherwise, rebuild from the saved position.
-  if (overlayPageBufferStored) {
+  if (overlayPageBufferTrusted) {
     renderer.restoreBwBuffer();
-  } else if (!APP_STATE.openEpubPath.empty()) {
-    const auto& path = APP_STATE.openEpubPath;
-    bool rendered = false;
+  } else if (!path.empty()) {
+    backgroundWasRebuilt = renderSavedReaderPage();
 
-    if (FsHelpers::checkFileExtension(path, ".xtc") || FsHelpers::checkFileExtension(path, ".xtch")) {
-      rendered = XtcReaderActivity::drawCurrentPageToBuffer(path, renderer);
-    } else if (FsHelpers::checkFileExtension(path, ".txt")) {
-      rendered = TxtReaderActivity::drawCurrentPageToBuffer(path, renderer);
-    } else if (FsHelpers::checkFileExtension(path, ".epub")) {
-      rendered = EpubReaderActivity::drawCurrentPageToBuffer(path, renderer);
-    }
-
-    if (!rendered) {
-      LOG_DBG("SLP", "Page re-render failed, using white background");
-      renderer.clearScreen();
+    if (!backgroundWasRebuilt) {
+      if (overlayPageBufferStored) {
+        LOG_DBG("SLP", "Page re-render failed, using captured screen as overlay fallback");
+        renderer.restoreBwBuffer();
+      } else {
+        LOG_DBG("SLP", "Page re-render failed, using white background");
+        renderer.clearScreen();
+      }
     }
   } else {
     renderer.clearScreen();
@@ -1015,7 +1035,40 @@ void SleepActivity::renderOverlaySleepScreen() const {
   }
 
   renderer.setOrientation(savedOrientation);
-  renderer.displayBuffer(HalDisplay::HALF_REFRESH);
+  const bool shouldRunGrayscalePass =
+      backgroundSupportsGrayscale && (backgroundWasRebuilt || (overlayPageBufferTrusted && !path.empty()));
+  renderer.displayBuffer(HalDisplay::HALF_REFRESH, !shouldRunGrayscalePass && TURN_OFF_SCREEN_AFTER_SLEEP_REFRESH);
+
+  if (!shouldRunGrayscalePass) {
+    return;
+  }
+
+  if (!renderer.storeBwBuffer()) {
+    LOG_ERR("SLP", "Overlay: failed to store BW buffer for grayscale pass");
+    return;
+  }
+
+  renderer.setRenderMode(GfxRenderer::GRAYSCALE_LSB);
+  if (!renderSavedReaderPage()) {
+    LOG_ERR("SLP", "Overlay: failed to rebuild page for grayscale LSB pass");
+    renderer.setRenderMode(GfxRenderer::BW);
+    renderer.restoreBwBuffer();
+    return;
+  }
+  renderer.copyGrayscaleLsbBuffers();
+
+  renderer.setRenderMode(GfxRenderer::GRAYSCALE_MSB);
+  if (!renderSavedReaderPage()) {
+    LOG_ERR("SLP", "Overlay: failed to rebuild page for grayscale MSB pass");
+    renderer.setRenderMode(GfxRenderer::BW);
+    renderer.restoreBwBuffer();
+    return;
+  }
+  renderer.copyGrayscaleMsbBuffers();
+
+  renderer.displayGrayBuffer(TURN_OFF_SCREEN_AFTER_SLEEP_REFRESH);
+  renderer.setRenderMode(GfxRenderer::BW);
+  renderer.restoreBwBuffer();
 }
 
 void SleepActivity::onScreenshotRequest() {

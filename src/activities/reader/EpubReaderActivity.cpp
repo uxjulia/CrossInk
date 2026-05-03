@@ -782,7 +782,7 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
 
       if (BOOKMARKS.hasBookmarkForPage(spine, progress, section->pageCount)) {
         BOOKMARKS.removeBookmarkForPage(spine, progress, section->pageCount);
-        bookmarkFeedbackIsAdd = false;
+        bookmarkFeedbackType = BookmarkFeedbackType::Removed;
       } else {
         const char* chapterTitle = nullptr;
         std::string titleStr;
@@ -791,8 +791,9 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
           titleStr = epub->getTocItem(tocIndex).title;
           chapterTitle = titleStr.c_str();
         }
-        BOOKMARKS.addBookmark(spine, progress, section->pageCount, chapterTitle);
-        bookmarkFeedbackIsAdd = true;
+        const auto addResult = BOOKMARKS.addBookmark(spine, progress, section->pageCount, chapterTitle);
+        bookmarkFeedbackType = (addResult == BookmarkStore::AddResult::Added) ? BookmarkFeedbackType::Added
+                                                                              : BookmarkFeedbackType::LimitReached;
       }
       pendingBookmarkFeedback = true;
       bookmarkFeedbackShowTime = millis();
@@ -840,6 +841,14 @@ void EpubReaderActivity::reindexCurrentSection() {
     section.reset();
   }
   requestUpdate();
+}
+
+void EpubReaderActivity::openFileTransfer() {
+  if (epub && section) {
+    saveProgress(currentSpineIndex, section->currentPage, section->pageCount);
+  }
+
+  activityManager.goToFileTransfer(epub ? epub->getPath() : std::string{});
 }
 
 void EpubReaderActivity::executeReaderQuickAction(CrossPointSettings::LONG_PRESS_MENU_ACTION action) {
@@ -897,6 +906,9 @@ void EpubReaderActivity::executeReaderQuickAction(CrossPointSettings::LONG_PRESS
       toggleAutoPageTurn(currentPageTurnOption);
       requestUpdate();
       break;
+    case CrossPointSettings::LONG_MENU_FILE_TRANSFER:
+      openFileTransfer();
+      break;
     case CrossPointSettings::LONG_MENU_OFF:
     default:
       break;
@@ -936,6 +948,9 @@ bool EpubReaderActivity::executeShortPowerButtonAction() {
       return true;
     case CrossPointSettings::SHORT_PWRBTN::CYCLE_PAGE_TURN:
       executeReaderQuickAction(CrossPointSettings::LONG_MENU_CYCLE_PAGE_TURN);
+      return true;
+    case CrossPointSettings::SHORT_PWRBTN::FILE_TRANSFER:
+      executeReaderQuickAction(CrossPointSettings::LONG_MENU_FILE_TRANSFER);
       return true;
     default:
       return false;
@@ -994,6 +1009,9 @@ bool EpubReaderActivity::executeLongPowerButtonAction() {
     case CrossPointSettings::SHORT_PWRBTN::CYCLE_PAGE_TURN:
       executeReaderQuickAction(CrossPointSettings::LONG_MENU_CYCLE_PAGE_TURN);
       return true;
+    case CrossPointSettings::SHORT_PWRBTN::FILE_TRANSFER:
+      executeReaderQuickAction(CrossPointSettings::LONG_MENU_FILE_TRANSFER);
+      return true;
     default:
       return false;
   }
@@ -1034,29 +1052,38 @@ void EpubReaderActivity::showCompletedFeedback(bool isCompleted) {
 }
 
 void EpubReaderActivity::applyOrientation(const uint8_t orientation) {
-  // No-op if the selected orientation matches current settings.
-  if (SETTINGS.orientation == orientation) {
+  const auto targetOrientation = ReaderUtils::toRendererOrientation(orientation);
+  const bool settingsChanged = SETTINGS.orientation != orientation;
+  const bool rendererChanged = renderer.getOrientation() != targetOrientation;
+
+  // No-op only when both the persisted setting and the live renderer already match.
+  if (!settingsChanged && !rendererChanged) {
     return;
   }
 
-  // Preserve current reading position so we can restore after reflow.
   {
     RenderLock lock(*this);
-    if (section) {
+
+    // Preserve current reading position only when we need a live re-layout.
+    if (rendererChanged && section) {
       cachedSpineIndex = currentSpineIndex;
       cachedChapterTotalPageCount = section->pageCount;
       nextPageNumber = section->currentPage;
     }
 
-    // Persist the selection so the reader keeps the new orientation on next launch.
-    SETTINGS.orientation = orientation;
-    SETTINGS.saveToFile();
+    if (settingsChanged) {
+      // Persist the selection so the reader keeps the new orientation on next launch.
+      SETTINGS.orientation = orientation;
+      SETTINGS.saveToFile();
+    }
 
-    // Update renderer orientation to match the new logical coordinate system.
-    ReaderUtils::applyOrientation(renderer, SETTINGS.orientation);
+    if (rendererChanged) {
+      // Update renderer orientation to match the new logical coordinate system.
+      renderer.setOrientation(targetOrientation);
 
-    // Reset section to force re-layout in the new orientation.
-    section.reset();
+      // Reset section to force re-layout in the new orientation.
+      section.reset();
+    }
   }
 }
 
@@ -1368,8 +1395,8 @@ void EpubReaderActivity::saveProgress(int spineIndex, int currentPage, int pageC
   FsFile f;
   if (Storage.openFileForWrite("ERS", epub->getCachePath() + "/progress.bin", f)) {
     uint8_t data[6];
-    data[0] = currentSpineIndex & 0xFF;
-    data[1] = (currentSpineIndex >> 8) & 0xFF;
+    data[0] = spineIndex & 0xFF;
+    data[1] = (spineIndex >> 8) & 0xFF;
     data[2] = currentPage & 0xFF;
     data[3] = (currentPage >> 8) & 0xFF;
     data[4] = pageCount & 0xFF;
@@ -1408,7 +1435,18 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   page->render(renderer, SETTINGS.getReaderFontId(), orientedMarginLeft, orientedMarginTop);
   renderStatusBar();
   if (pendingBookmarkFeedback) {
-    const char* msg = bookmarkFeedbackIsAdd ? tr(STR_BOOKMARK_ADDED) : tr(STR_BOOKMARK_REMOVED);
+    const char* msg = tr(STR_BOOKMARK_ADDED);
+    switch (bookmarkFeedbackType) {
+      case BookmarkFeedbackType::Added:
+        msg = tr(STR_BOOKMARK_ADDED);
+        break;
+      case BookmarkFeedbackType::Removed:
+        msg = tr(STR_BOOKMARK_REMOVED);
+        break;
+      case BookmarkFeedbackType::LimitReached:
+        msg = tr(STR_BOOKMARK_LIMIT_REACHED);
+        break;
+    }
     constexpr int toastPadX = 20;
     constexpr int toastPadY = 12;
     const int msgW = renderer.getTextWidth(UI_10_FONT_ID, msg);
@@ -1435,8 +1473,15 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   }
   fcm->logStats("bw_render");
   const auto tBwRender = millis();
+  const auto logImagePageProfile = [](const uint32_t imageBlankDisplayMs, const uint32_t imageRestoreRenderMs,
+                                      const uint32_t imageFinalDisplayMs) {
+    LOG_DBG("ERS", "Image page profile: blank_display=%lums restore_render=%lums final_display=%lums",
+            imageBlankDisplayMs, imageRestoreRenderMs, imageFinalDisplayMs);
+  };
 
   const bool isImagePage = page->hasImages();
+  const bool needsTextGrayscale = SETTINGS.textAntiAliasing;
+  const bool needsAnyGrayscale = needsTextGrayscale || isImagePage;
   const bool useFactoryGray = isImagePage && SETTINGS.epubImageQuality == CrossPointSettings::EIQ_HIGH;
   lastPageWasFactoryGray = useFactoryGray;
   if (useFactoryGray) {
@@ -1451,9 +1496,17 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
     int16_t imgX, imgY, imgW, imgH;
     if (page->getImageBoundingBox(imgX, imgY, imgW, imgH)) {
       renderer.fillRect(imgX + orientedMarginLeft, imgY + orientedMarginTop, imgW, imgH, false);
+      const auto tImageBlankDisplay = millis();
       renderer.displayBuffer(HalDisplay::FAST_REFRESH);
+      const uint32_t imageBlankDisplayMs = millis() - tImageBlankDisplay;
+      const auto tImageRestoreRender = millis();
       page->render(renderer, SETTINGS.getReaderFontId(), orientedMarginLeft, orientedMarginTop);
       renderStatusBar();
+      const uint32_t imageRestoreRenderMs = millis() - tImageRestoreRender;
+      const auto tImageFinalDisplay = millis();
+      renderer.displayBuffer(HalDisplay::FAST_REFRESH);
+      const uint32_t imageFinalDisplayMs = millis() - tImageFinalDisplay;
+      logImagePageProfile(imageBlankDisplayMs, imageRestoreRenderMs, imageFinalDisplayMs);
     }
     renderer.displayBuffer(HalDisplay::FAST_REFRESH);
   } else {
@@ -1462,11 +1515,19 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   const auto tDisplay = millis();
 
   // Save bw buffer to reset buffer state after grayscale data sync
-  renderer.storeBwBuffer();
+  const uint32_t bwStoreHeapBefore = esp_get_free_heap_size();
+  const bool storedBwBuffer = renderer.storeBwBuffer();
+  const uint32_t bwStoreHeapAfter = esp_get_free_heap_size();
   const auto tBwStore = millis();
+  (void)bwStoreHeapBefore;
+  (void)bwStoreHeapAfter;
+  const bool canApplyGrayscale = needsAnyGrayscale && storedBwBuffer;
+  if (needsAnyGrayscale && !storedBwBuffer) {
+    LOG_ERR("ERS", "Skipping grayscale enhancement: failed to store BW backup");
+  }
 
   // grayscale rendering
-  if (SETTINGS.textAntiAliasing || isImagePage) {
+  if (canApplyGrayscale) {
     PageRenderCtx grayCtx{page.get(), SETTINGS.getReaderFontId(), orientedMarginLeft, orientedMarginTop, this};
 
     const auto tGrayStart = millis();
@@ -1490,20 +1551,28 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
 
     const auto tEnd = millis();
     LOG_DBG("ERS",
-            "Page render (%s): prewarm=%lums bw_render=%lums display=%lums bw_store=%lums "
+            "Page render (%s): prewarm=%lums bw_render=%lums display=%lums bw_store=%lums bw_store_ok=%d "
+            "bw_store_heap_before=%lu bw_store_heap_after=%lu bw_store_heap_delta=%ld "
             "gray=%lums bw_restore=%lums total=%lums",
             useFactoryGray ? "factory" : "diff", tPrewarm - t0, tBwRender - tPrewarm, tDisplay - tBwRender,
-            tBwStore - tDisplay, tGrayEnd - tGrayStart, tBwRestore - tGrayEnd, tEnd - t0);
+            tBwStore - tDisplay, storedBwBuffer, bwStoreHeapBefore, bwStoreHeapAfter,
+            (int32_t)bwStoreHeapAfter - (int32_t)bwStoreHeapBefore, tGrayEnd - tGrayStart, tBwRestore - tGrayEnd,
+            tEnd - t0);
   } else {
-    // restore the bw data
-    renderer.restoreBwBuffer();
+    if (storedBwBuffer) {
+      // Restore the BW data when we skipped grayscale entirely.
+      renderer.restoreBwBuffer();
+    }
     const auto tBwRestore = millis();
 
     const auto tEnd = millis();
     LOG_DBG("ERS",
-            "Page render: prewarm=%lums bw_render=%lums display=%lums bw_store=%lums bw_restore=%lums total=%lums",
-            tPrewarm - t0, tBwRender - tPrewarm, tDisplay - tBwRender, tBwStore - tDisplay, tBwRestore - tBwStore,
-            tEnd - t0);
+            "Page render: prewarm=%lums bw_render=%lums display=%lums bw_store=%lums bw_store_ok=%d "
+            "bw_store_heap_before=%lu bw_store_heap_after=%lu bw_store_heap_delta=%ld "
+            "bw_restore=%lums total=%lums",
+            tPrewarm - t0, tBwRender - tPrewarm, tDisplay - tBwRender, tBwStore - tDisplay, storedBwBuffer,
+            bwStoreHeapBefore, bwStoreHeapAfter, (int32_t)bwStoreHeapAfter - (int32_t)bwStoreHeapBefore,
+            tBwRestore - tBwStore, tEnd - t0);
   }
 }
 

@@ -7,8 +7,8 @@ class Bitmap;
 
 class SleepActivity final : public Activity {
  public:
-  explicit SleepActivity(GfxRenderer& renderer, MappedInputManager& mappedInput)
-      : Activity("Sleep", renderer, mappedInput) {}
+  explicit SleepActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, bool canSnapshotOverlayBackground)
+      : Activity("Sleep", renderer, mappedInput), canSnapshotOverlayBackground(canSnapshotOverlayBackground) {}
   void onEnter() override;
   void onScreenshotRequest() override;
 
@@ -24,5 +24,7 @@ class SleepActivity final : public Activity {
   // Tracks the last factory-LUT render so onScreenshotRequest() can re-render the same image.
   mutable std::string lastGrayscalePath;
   mutable bool lastGrayscaleIsPxc = false;
+  bool canSnapshotOverlayBackground = false;
   bool overlayPageBufferStored = false;
+  bool overlayPageBufferTrusted = false;
 };

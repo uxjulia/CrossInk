@@ -11,23 +11,23 @@ namespace ReaderUtils {
 
 constexpr unsigned long GO_HOME_MS = 1000;
 
-inline void applyOrientation(GfxRenderer& renderer, const uint8_t orientation) {
+inline GfxRenderer::Orientation toRendererOrientation(const uint8_t orientation) {
   switch (orientation) {
     case CrossPointSettings::ORIENTATION::PORTRAIT:
-      renderer.setOrientation(GfxRenderer::Orientation::Portrait);
-      break;
+      return GfxRenderer::Orientation::Portrait;
     case CrossPointSettings::ORIENTATION::LANDSCAPE_CW:
-      renderer.setOrientation(GfxRenderer::Orientation::LandscapeClockwise);
-      break;
+      return GfxRenderer::Orientation::LandscapeClockwise;
     case CrossPointSettings::ORIENTATION::INVERTED:
-      renderer.setOrientation(GfxRenderer::Orientation::PortraitInverted);
-      break;
+      return GfxRenderer::Orientation::PortraitInverted;
     case CrossPointSettings::ORIENTATION::LANDSCAPE_CCW:
-      renderer.setOrientation(GfxRenderer::Orientation::LandscapeCounterClockwise);
-      break;
+      return GfxRenderer::Orientation::LandscapeCounterClockwise;
     default:
-      break;
+      return GfxRenderer::Orientation::Portrait;
   }
+}
+
+inline void applyOrientation(GfxRenderer& renderer, const uint8_t orientation) {
+  renderer.setOrientation(toRendererOrientation(orientation));
 }
 
 struct PageTurnResult {

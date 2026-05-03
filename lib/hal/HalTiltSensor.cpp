@@ -52,6 +52,15 @@ bool HalTiltSensor::readGyro(float& gx, float& gy, float& gz) const {
 }
 
 void HalTiltSensor::begin() {
+#ifdef FORCE_TILT_SENSOR_AVAILABLE
+  _available = true;
+  _isAwake = false;
+  _initMs = millis();
+  _lastPollMs = millis();
+  LOG_INF("GYR", "Tilt sensor override active via build flag");
+  return;
+#endif
+
   if (!gpio.deviceIsX3()) {
     _available = false;
     return;
@@ -89,6 +98,13 @@ bool HalTiltSensor::wake() {
     return false;
   }
 
+#ifdef FORCE_TILT_SENSOR_AVAILABLE
+  _lastPollMs = millis();
+  _lastTiltMs = millis();
+  _wakeMs = millis();
+  return true;
+#endif
+
   // Wait for init to complete before waking
   if ((millis() - _initMs) < SLEEP_STABILIZE_MS) {
     return false;
@@ -110,6 +126,12 @@ bool HalTiltSensor::deepSleep() {
   if (!_available) {
     return false;
   }
+
+#ifdef FORCE_TILT_SENSOR_AVAILABLE
+  clearPendingEvents();
+  _inTilt = false;
+  return true;
+#endif
 
   if ((millis() - _wakeMs) < SLEEP_STABILIZE_MS) {
     return false;

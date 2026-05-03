@@ -31,7 +31,7 @@ void NetworkModeSelectionActivity::loop() {
   }
 
   // Handle confirm button - select current option
-  if (mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
+  if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
     NetworkMode mode = NetworkMode::JOIN_NETWORK;
     if (selectedIndex == 1) {
       mode = NetworkMode::CONNECT_CALIBRE;

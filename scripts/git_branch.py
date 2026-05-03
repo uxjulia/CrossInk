@@ -11,6 +11,7 @@ All other environments set CROSSPOINT_VERSION directly in platformio.ini.
 
 import configparser
 import os
+import re
 import subprocess
 import sys
 
@@ -68,7 +69,15 @@ def get_git_branch(project_dir):
     # Detached HEAD has no branch name.
     if branch == 'HEAD':
         return 'detached'
-    return branch
+    return sanitize_version_component(branch)
+
+
+def sanitize_version_component(value):
+    value = value.strip()
+    value = re.sub(r'[^A-Za-z0-9._-]+', '-', value)
+    value = re.sub(r'-{2,}', '-', value)
+    value = value.strip('-.')
+    return value or 'unknown'
 
 
 def get_git_short_sha(project_dir):

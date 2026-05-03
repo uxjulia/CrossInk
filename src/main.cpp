@@ -313,6 +313,10 @@ bool handleGlobalPowerButtonAction(const CrossPointSettings::SHORT_PWRBTN action
   }
 }
 
+namespace {
+constexpr uint16_t POST_SLEEP_SCREEN_SETTLE_MS = 500;
+}
+
 // Enter deep sleep mode
 void enterDeepSleep() {
   HalPowerManager::Lock powerLock;  // Ensure we are at normal CPU frequency for sleep preparation
@@ -320,6 +324,7 @@ void enterDeepSleep() {
   APP_STATE.saveToFile();
 
   activityManager.goToSleep();
+  delay(POST_SLEEP_SCREEN_SETTLE_MS);
 
   halTiltSensor.deepSleep();
   display.deepSleep();
@@ -534,6 +539,7 @@ void loop() {
     if (screenshotButtonsReleased) {
       screenshotButtonsReleased = false;
       screenshotComboHandled = true;
+      mappedInputManager.suppressNextPowerConfirmRelease();
       {
         RenderLock lock;
         if (renderer.getDisplayState() == GfxRenderer::DisplayState::FactoryLut) {

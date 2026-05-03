@@ -42,6 +42,11 @@ bool isHttpsUrl(const std::string& url) { return url.rfind("https://", 0) == 0; 
 // Default 16KB buffers cause OOM during TLS handshake.
 constexpr int HTTP_BUF_SIZE = 2048;
 
+void logHeapStats(const char* phase, const char* url = nullptr) {
+  LOG_DBG("KOSync", "%s%s%s heap: free=%u min=%u max_alloc=%u", phase, url ? " " : "", url ? url : "",
+          (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMinFreeHeap(), (unsigned)ESP.getMaxAllocHeap());
+}
+
 // Response buffer for reading HTTP body
 struct ResponseBuffer {
   char* data = nullptr;
@@ -151,12 +156,15 @@ KOReaderSyncClient::Error KOReaderSyncClient::authenticate() {
   return SERVER_ERROR;
 #else
   ResponseBuffer buf;
+  logHeapStats("Before auth client", url.c_str());
   esp_http_client_handle_t client = createClient(url.c_str(), &buf);
   if (!client) return NETWORK_ERROR;
 
+  logHeapStats("Before auth perform");
   esp_err_t err = esp_http_client_perform(client);
   const int httpCode = esp_http_client_get_status_code(client);
   lastHttpCode = httpCode;
+  logHeapStats("After auth perform");
   esp_http_client_cleanup(client);
 
   LOG_DBG("KOSync", "Auth response: %d (err: %d)", httpCode, err);
@@ -228,12 +236,15 @@ KOReaderSyncClient::Error KOReaderSyncClient::getProgress(const std::string& doc
   return SERVER_ERROR;
 #else
   ResponseBuffer buf;
+  logHeapStats("Before get client", url.c_str());
   esp_http_client_handle_t client = createClient(url.c_str(), &buf);
   if (!client) return NETWORK_ERROR;
 
+  logHeapStats("Before get perform");
   esp_err_t err = esp_http_client_perform(client);
   const int httpCode = esp_http_client_get_status_code(client);
   lastHttpCode = httpCode;
+  logHeapStats("After get perform");
   esp_http_client_cleanup(client);
 
   LOG_DBG("KOSync", "Get progress response: %d (err: %d)", httpCode, err);
@@ -316,6 +327,7 @@ KOReaderSyncClient::Error KOReaderSyncClient::updateProgress(const KOReaderProgr
   return SERVER_ERROR;
 #else
   ResponseBuffer buf;
+  logHeapStats("Before put client", url.c_str());
   esp_http_client_handle_t client = createClient(url.c_str(), &buf, HTTP_METHOD_PUT);
   if (!client) return NETWORK_ERROR;
 
@@ -326,9 +338,12 @@ KOReaderSyncClient::Error KOReaderSyncClient::updateProgress(const KOReaderProgr
     return NETWORK_ERROR;
   }
 
+  LOG_DBG("KOSync", "PUT body bytes=%u", static_cast<unsigned>(body.length()));
+  logHeapStats("Before put perform");
   esp_err_t err = esp_http_client_perform(client);
   const int httpCode = esp_http_client_get_status_code(client);
   lastHttpCode = httpCode;
+  logHeapStats("After put perform");
   esp_http_client_cleanup(client);
 
   LOG_DBG("KOSync", "Update progress response: %d (err: %d)", httpCode, err);

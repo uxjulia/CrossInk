@@ -121,7 +121,7 @@ class GfxRenderer {
   // Screen ops
   int getScreenWidth() const;
   int getScreenHeight() const;
-  void displayBuffer(HalDisplay::RefreshMode refreshMode = HalDisplay::FAST_REFRESH) const;
+  void displayBuffer(HalDisplay::RefreshMode refreshMode = HalDisplay::FAST_REFRESH, bool turnOffScreen = false) const;
   // EXPERIMENTAL: Windowed update - display only a rectangular region
   // void displayWindow(int x, int y, int width, int height) const;
   void invertScreen() const;
@@ -195,7 +195,8 @@ class GfxRenderer {
   RenderMode getRenderMode() const { return renderMode; }
   void copyGrayscaleLsbBuffers() const;
   void copyGrayscaleMsbBuffers() const;
-  void displayGrayBuffer(const unsigned char* lut = nullptr, bool factoryMode = false) const;
+  void displayGrayBuffer(bool turnOffScreen = false, const unsigned char* lut = nullptr,
+                         bool factoryMode = false) const;
   bool storeBwBuffer();    // Returns true if buffer was stored successfully
   void restoreBwBuffer();  // Restore and free the stored buffer
   void cleanupGrayscaleWithFrameBuffer() const;
@@ -208,13 +209,13 @@ class GfxRenderer {
   // allowing callers to draw a loading indicator that appears during the pre-flash without an extra refresh.
   void renderGrayscale(GrayscaleMode mode, void (*renderFn)(const GfxRenderer&, const void*), const void* ctx,
                        void (*preFlashOverlayFn)(const GfxRenderer&, const void*) = nullptr,
-                       const void* preFlashCtx = nullptr);
+                       const void* preFlashCtx = nullptr, bool turnOffScreen = false);
   // Single-pass variant: calls renderFn once in GRAY2_LSB mode while simultaneously writing
   // the MSB plane to a secondary buffer. Cuts SD card reads from 2 to 1 for file-backed renders.
   // Falls back to two-pass on secondary buffer allocation failure.
   void renderGrayscaleSinglePass(GrayscaleMode mode, void (*renderFn)(const GfxRenderer&, const void*), const void* ctx,
                                  void (*preFlashOverlayFn)(const GfxRenderer&, const void*) = nullptr,
-                                 const void* preFlashCtx = nullptr);
+                                 const void* preFlashCtx = nullptr, bool turnOffScreen = false);
 
   // Direct 2-bit XTCH plane blit using factory LUT. Caller supplies the two decoded bit planes
   // (plane1 = BW RAM / LSB, plane2 = RED RAM / MSB) in column-major order matching XTCH encoding.

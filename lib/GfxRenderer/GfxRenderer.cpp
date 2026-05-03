@@ -1113,19 +1113,19 @@ void GfxRenderer::invertScreen() const {
   }
 }
 
-void GfxRenderer::displayBuffer(const HalDisplay::RefreshMode refreshMode) const {
+void GfxRenderer::displayBuffer(const HalDisplay::RefreshMode refreshMode, const bool turnOffScreen) const {
   auto elapsed = millis() - start_ms;
   LOG_DBG("GFX", "Time = %lu ms from clearScreen to displayBuffer", elapsed);
   // After a factory LUT render the display already powered down (0xC7 sequence).
   // Requesting turnOffScreen=true here would immediately power on then off again,
   // adding a full power cycle. Skip the power-down for this one transition.
-  const bool turnOff = (displayState == DisplayState::FactoryLut) ? false : fadingFix;
+  const bool turnOff = (displayState == DisplayState::FactoryLut) ? false : (fadingFix || turnOffScreen);
   display.displayBuffer(refreshMode, turnOff);
   displayState = DisplayState::BW;
 }
 
-void GfxRenderer::displayGrayBuffer(const unsigned char* lut, const bool factoryMode) const {
-  display.displayGrayBuffer(fadingFix, lut, factoryMode);
+void GfxRenderer::displayGrayBuffer(const bool turnOffScreen, const unsigned char* lut, const bool factoryMode) const {
+  display.displayGrayBuffer(fadingFix || turnOffScreen, lut, factoryMode);
   if (factoryMode) {
     displayState = DisplayState::FactoryLut;
   } else {
@@ -1421,7 +1421,7 @@ void GfxRenderer::copyGrayscaleMsbBuffers() const { display.copyGrayscaleMsbBuff
 
 void GfxRenderer::renderGrayscale(GrayscaleMode mode, void (*renderFn)(const GfxRenderer&, const void*),
                                   const void* ctx, void (*preFlashOverlayFn)(const GfxRenderer&, const void*),
-                                  const void* preFlashCtx) {
+                                  const void* preFlashCtx, const bool turnOffScreen) {
   if (mode == GrayscaleMode::FactoryFast || mode == GrayscaleMode::FactoryQuality) {
     clearScreen();
     if (preFlashOverlayFn) preFlashOverlayFn(*this, preFlashCtx);
@@ -1472,13 +1472,13 @@ void GfxRenderer::renderGrayscale(GrayscaleMode mode, void (*renderFn)(const Gfx
 
   g_differentialQuantize = false;
 
-  displayGrayBuffer(lut, factoryMode);
+  displayGrayBuffer(turnOffScreen, lut, factoryMode);
   setRenderMode(BW);
 }
 
 void GfxRenderer::renderGrayscaleSinglePass(GrayscaleMode mode, void (*renderFn)(const GfxRenderer&, const void*),
                                             const void* ctx, void (*preFlashOverlayFn)(const GfxRenderer&, const void*),
-                                            const void* preFlashCtx) {
+                                            const void* preFlashCtx, const bool turnOffScreen) {
   if (mode == GrayscaleMode::FactoryFast || mode == GrayscaleMode::FactoryQuality) {
     clearScreen();
     if (preFlashOverlayFn) preFlashOverlayFn(*this, preFlashCtx);
@@ -1508,7 +1508,7 @@ void GfxRenderer::renderGrayscaleSinglePass(GrayscaleMode mode, void (*renderFn)
     renderFn(*this, ctx);
     copyGrayscaleMsbBuffers();
     g_differentialQuantize = false;
-    displayGrayBuffer(lut, factoryMode);
+    displayGrayBuffer(turnOffScreen, lut, factoryMode);
     setRenderMode(BW);
     return;
   }
@@ -1539,7 +1539,7 @@ void GfxRenderer::renderGrayscaleSinglePass(GrayscaleMode mode, void (*renderFn)
   secondaryFrameBuffer = nullptr;
 
   g_differentialQuantize = false;
-  displayGrayBuffer(lut, factoryMode);
+  displayGrayBuffer(turnOffScreen, lut, factoryMode);
   setRenderMode(BW);
 }
 
@@ -1591,7 +1591,7 @@ void GfxRenderer::displayXtchPlanes(const uint8_t* plane1, const uint8_t* plane2
     screenshotHookCtx = nullptr;
   }
 
-  displayGrayBuffer(lut_factory_quality, true);
+  displayGrayBuffer(false, lut_factory_quality, true);
   setRenderMode(BW);
 }
 

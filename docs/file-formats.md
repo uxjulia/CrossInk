@@ -1,3 +1,8 @@
+---
+title: File Formats
+nav_order: 8
+---
+
 # File Formats
 
 ## `book.bin`
