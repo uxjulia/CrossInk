@@ -20,6 +20,7 @@ class MappedInputManager {
   void setReaderMode(bool enabled) { readerMode = enabled; }
 
   void update() const { gpio.update(); }
+  void suppressNextPowerConfirmRelease() { suppressPowerConfirmRelease = true; }
   bool wasPressed(Button button) const;
   bool wasReleased(Button button) const;
   bool isPressed(Button button) const;
@@ -33,6 +34,9 @@ class MappedInputManager {
  private:
   HalGPIO& gpio;
   bool readerMode = false;
+  mutable bool suppressPowerConfirmRelease = false;
 
   bool mapButton(Button button, bool (HalGPIO::*fn)(uint8_t) const) const;
+  bool shouldUsePowerAsConfirmFallback() const;
+  bool shouldMirrorPowerAsConfirmHold() const;
 };

@@ -539,6 +539,7 @@ void loop() {
     if (screenshotButtonsReleased) {
       screenshotButtonsReleased = false;
       screenshotComboHandled = true;
+      mappedInputManager.suppressNextPowerConfirmRelease();
       {
         RenderLock lock;
         ScreenshotUtil::takeScreenshot(renderer);

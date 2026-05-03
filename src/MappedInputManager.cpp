@@ -52,11 +52,54 @@ bool MappedInputManager::mapButton(const Button button, bool (HalGPIO::*fn)(uint
   return false;
 }
 
-bool MappedInputManager::wasPressed(const Button button) const { return mapButton(button, &HalGPIO::wasPressed); }
+bool MappedInputManager::shouldUsePowerAsConfirmFallback() const {
+  return !readerMode && SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::IGNORE;
+}
 
-bool MappedInputManager::wasReleased(const Button button) const { return mapButton(button, &HalGPIO::wasReleased); }
+bool MappedInputManager::shouldMirrorPowerAsConfirmHold() const {
+  return shouldUsePowerAsConfirmFallback() && SETTINGS.longPwrBtn == CrossPointSettings::SHORT_PWRBTN::IGNORE;
+}
 
-bool MappedInputManager::isPressed(const Button button) const { return mapButton(button, &HalGPIO::isPressed); }
+bool MappedInputManager::wasPressed(const Button button) const {
+  if (button == Button::Confirm) {
+    if (mapButton(button, &HalGPIO::wasPressed)) {
+      return true;
+    }
+    return shouldMirrorPowerAsConfirmHold() && gpio.wasPressed(HalGPIO::BTN_POWER);
+  }
+
+  return mapButton(button, &HalGPIO::wasPressed);
+}
+
+bool MappedInputManager::wasReleased(const Button button) const {
+  if (button == Button::Confirm) {
+    if (mapButton(button, &HalGPIO::wasReleased)) {
+      return true;
+    }
+
+    if (!shouldUsePowerAsConfirmFallback() || !gpio.wasReleased(HalGPIO::BTN_POWER)) {
+      return false;
+    }
+
+    if (suppressPowerConfirmRelease) {
+      suppressPowerConfirmRelease = false;
+      return false;
+    }
+
+    return shouldMirrorPowerAsConfirmHold() || gpio.getHeldTime() < SETTINGS.getPowerButtonLongPressDuration();
+  }
+
+  return mapButton(button, &HalGPIO::wasReleased);
+}
+
+bool MappedInputManager::isPressed(const Button button) const {
+  if (button == Button::Confirm) {
+    return mapButton(button, &HalGPIO::isPressed) ||
+           (shouldMirrorPowerAsConfirmHold() && gpio.isPressed(HalGPIO::BTN_POWER));
+  }
+
+  return mapButton(button, &HalGPIO::isPressed);
+}
 
 bool MappedInputManager::wasAnyPressed() const { return gpio.wasAnyPressed(); }
 
