@@ -15,6 +15,10 @@ constexpr SideLayoutMap kSideLayouts[] = {
     {HalGPIO::BTN_UP, HalGPIO::BTN_DOWN},
     {HalGPIO::BTN_DOWN, HalGPIO::BTN_UP},
 };
+
+bool isGlobalPowerButtonAction(const CrossPointSettings::SHORT_PWRBTN action) {
+  return action == CrossPointSettings::SHORT_PWRBTN::SLEEP || action == CrossPointSettings::SHORT_PWRBTN::FORCE_REFRESH;
+}
 }  // namespace
 
 bool MappedInputManager::mapButton(const Button button, bool (HalGPIO::*fn)(uint8_t) const) const {
@@ -52,12 +56,11 @@ bool MappedInputManager::mapButton(const Button button, bool (HalGPIO::*fn)(uint
   return false;
 }
 
-bool MappedInputManager::shouldUsePowerAsConfirmFallback() const {
-  return !readerMode && SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::IGNORE;
-}
+bool MappedInputManager::shouldUsePowerAsConfirmFallback() const { return !readerMode; }
 
 bool MappedInputManager::shouldMirrorPowerAsConfirmHold() const {
-  return shouldUsePowerAsConfirmFallback() && SETTINGS.longPwrBtn == CrossPointSettings::SHORT_PWRBTN::IGNORE;
+  return shouldUsePowerAsConfirmFallback() &&
+         !isGlobalPowerButtonAction(static_cast<CrossPointSettings::SHORT_PWRBTN>(SETTINGS.longPwrBtn));
 }
 
 bool MappedInputManager::wasPressed(const Button button) const {
