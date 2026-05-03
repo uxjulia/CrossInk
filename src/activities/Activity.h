@@ -39,7 +39,7 @@ class Activity {
   virtual void requestUpdate(bool immediate = false);
 
   // Request an immediate render and block until it completes.
-  virtual void requestUpdateAndWait();
+  virtual RequestUpdateResult requestUpdateAndWait();
 
   virtual bool skipLoopDelay() { return false; }
   virtual bool preventAutoSleep() { return false; }
