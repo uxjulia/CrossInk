@@ -6,11 +6,31 @@
 #include <uzlib.h>
 
 #include <algorithm>
+#include <limits>
 
 namespace {
-constexpr uint8_t VERSION = 2;
-constexpr uint8_t MAX_BOOKMARKS = 32;
+constexpr uint8_t LEGACY_VERSION = 2;
+constexpr uint8_t VERSION = 3;
+// Stored count is uint16_t in v3, but we keep an in-memory safety cap for ESP32-C3 RAM.
+constexpr uint16_t MAX_BOOKMARKS = 1024;
+constexpr size_t INITIAL_BOOKMARK_RESERVE = 8;
 constexpr char BOOKMARKS_DIR[] = "/.crosspoint/bookmarks";
+
+bool readBookmarkCount(FsFile& file, const uint8_t version, uint16_t& count) {
+  if (version == LEGACY_VERSION) {
+    uint8_t legacyCount = 0;
+    serialization::readPod(file, legacyCount);
+    count = legacyCount;
+    return true;
+  }
+
+  if (version == VERSION) {
+    serialization::readPod(file, count);
+    return true;
+  }
+
+  return false;
+}
 }  // namespace
 
 BookmarkStore BookmarkStore::instance;
@@ -27,7 +47,9 @@ bool BookmarkStore::loadForBook(const std::string& filePath, const std::string& 
   bookAuthor = author;
   dirty = false;
   bookmarks.clear();
-  bookmarks.reserve(MAX_BOOKMARKS);
+  if (bookmarks.capacity() < INITIAL_BOOKMARK_RESERVE) {
+    bookmarks.reserve(INITIAL_BOOKMARK_RESERVE);
+  }
 
   const uint32_t crc = uzlib_crc32(filePath.data(), static_cast<unsigned int>(filePath.size()), 0);
   storeFilePath = std::string(BOOKMARKS_DIR) + "/" + bookType + "_" + std::to_string(crc) + ".bin";
@@ -50,19 +72,20 @@ void BookmarkStore::unload() {
   dirty = false;
 }
 
-void BookmarkStore::addBookmark(uint16_t spineIndex, float progress, int pageCount, const char* chapterTitle) {
+BookmarkStore::AddResult BookmarkStore::addBookmark(uint16_t spineIndex, float progress, int pageCount,
+                                                    const char* chapterTitle) {
   if (pageCount > 0) {
-    float pageSlice = 1.0f / static_cast<float>(pageCount);
-    float pageStart = progress;
-    float pageEnd = progress + pageSlice;
+    const float pageSlice = 1.0f / static_cast<float>(pageCount);
+    const float pageStart = progress;
+    const float pageEnd = progress + pageSlice;
     std::erase_if(bookmarks, [&](const Bookmark& b) {
       return b.spineIndex == spineIndex && b.progress >= pageStart && b.progress < pageEnd;
     });
   }
 
   if (bookmarks.size() >= MAX_BOOKMARKS) {
-    LOG_ERR("BKS", "Bookmark limit (%d) reached", MAX_BOOKMARKS);
-    return;
+    LOG_ERR("BKS", "Bookmark limit (%u) reached", MAX_BOOKMARKS);
+    return AddResult::LimitReached;
   }
 
   Bookmark bm{};
@@ -74,6 +97,7 @@ void BookmarkStore::addBookmark(uint16_t spineIndex, float progress, int pageCou
   bookmarks.push_back(bm);
   dirty = true;
   saveToFile();
+  return AddResult::Added;
 }
 
 void BookmarkStore::removeBookmarkForPage(uint16_t spineIndex, float pageProgress, int pageCount) {
@@ -134,14 +158,18 @@ bool BookmarkStore::readFromFile() {
 
   uint8_t version;
   serialization::readPod(f, version);
-  if (version != VERSION) {
+  if (version != LEGACY_VERSION && version != VERSION) {
     LOG_ERR("BKS", "Unknown bookmark file version: %u", version);
     f.close();
     return false;
   }
 
-  uint8_t count;
-  serialization::readPod(f, count);
+  uint16_t count = 0;
+  if (!readBookmarkCount(f, version, count)) {
+    LOG_ERR("BKS", "Failed to read bookmark count for version %u", version);
+    f.close();
+    return false;
+  }
   if (count > MAX_BOOKMARKS) {
     LOG_ERR("BKS", "Bookmark count %u exceeds max, file may be corrupt", count);
     f.close();
@@ -161,7 +189,7 @@ bool BookmarkStore::readFromFile() {
 
   bookmarks.clear();
   bookmarks.reserve(count);
-  for (uint8_t i = 0; i < count; i++) {
+  for (uint16_t i = 0; i < count; i++) {
     Bookmark bm{};
     if (f.available() < static_cast<int>(sizeof(bm.spineIndex))) {
       LOG_ERR("BKS", "Bookmark file truncated at spineIndex, record %u", i);
@@ -192,6 +220,11 @@ bool BookmarkStore::readFromFile() {
   }
 
   f.close();
+  if (version == LEGACY_VERSION) {
+    dirty = true;
+    saveToFile();
+    LOG_DBG("BKS", "Migrated bookmark file to version %u", VERSION);
+  }
   LOG_DBG("BKS", "Loaded %u bookmark(s)", count);
   return true;
 }
@@ -205,7 +238,7 @@ bool BookmarkStore::writeToFile() const {
     return false;
   }
 
-  const uint8_t count = static_cast<uint8_t>(bookmarks.size());
+  const uint16_t count = static_cast<uint16_t>(bookmarks.size());
   serialization::writePod(f, VERSION);
   serialization::writePod(f, count);
   serialization::writeString(f, bookTitle);
@@ -256,18 +289,21 @@ bool BookmarkStore::getAllBookmarkedBooks(std::vector<BookmarkedBookEntry>& out)
     }
     uint8_t version;
     serialization::readPod(f, version);
-    if (version != VERSION) {
+    if (version != LEGACY_VERSION && version != VERSION) {
       LOG_DBG("BKS", "Skipping bookmark file with unknown version: %s", name.c_str());
       f.close();
       continue;
     }
 
-    if (f.available() < static_cast<int>(sizeof(uint8_t))) {
+    if (f.available() < static_cast<int>(version == LEGACY_VERSION ? sizeof(uint8_t) : sizeof(uint16_t))) {
       f.close();
       continue;
     }
-    uint8_t count;
-    serialization::readPod(f, count);
+    uint16_t count = 0;
+    if (!readBookmarkCount(f, version, count)) {
+      f.close();
+      continue;
+    }
 
     // Reads a length-prefixed string, returning false if the file is truncated.
     auto readCheckedString = [&f](std::string& s) -> bool {

@@ -776,7 +776,7 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
 
       if (BOOKMARKS.hasBookmarkForPage(spine, progress, section->pageCount)) {
         BOOKMARKS.removeBookmarkForPage(spine, progress, section->pageCount);
-        bookmarkFeedbackIsAdd = false;
+        bookmarkFeedbackType = BookmarkFeedbackType::Removed;
       } else {
         const char* chapterTitle = nullptr;
         std::string titleStr;
@@ -785,8 +785,9 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
           titleStr = epub->getTocItem(tocIndex).title;
           chapterTitle = titleStr.c_str();
         }
-        BOOKMARKS.addBookmark(spine, progress, section->pageCount, chapterTitle);
-        bookmarkFeedbackIsAdd = true;
+        const auto addResult = BOOKMARKS.addBookmark(spine, progress, section->pageCount, chapterTitle);
+        bookmarkFeedbackType = (addResult == BookmarkStore::AddResult::Added) ? BookmarkFeedbackType::Added
+                                                                              : BookmarkFeedbackType::LimitReached;
       }
       pendingBookmarkFeedback = true;
       bookmarkFeedbackShowTime = millis();
@@ -1366,8 +1367,8 @@ void EpubReaderActivity::saveProgress(int spineIndex, int currentPage, int pageC
   FsFile f;
   if (Storage.openFileForWrite("ERS", epub->getCachePath() + "/progress.bin", f)) {
     uint8_t data[6];
-    data[0] = currentSpineIndex & 0xFF;
-    data[1] = (currentSpineIndex >> 8) & 0xFF;
+    data[0] = spineIndex & 0xFF;
+    data[1] = (spineIndex >> 8) & 0xFF;
     data[2] = currentPage & 0xFF;
     data[3] = (currentPage >> 8) & 0xFF;
     data[4] = pageCount & 0xFF;
@@ -1407,7 +1408,18 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   page->render(renderer, SETTINGS.getReaderFontId(), orientedMarginLeft, orientedMarginTop);
   renderStatusBar();
   if (pendingBookmarkFeedback) {
-    const char* msg = bookmarkFeedbackIsAdd ? tr(STR_BOOKMARK_ADDED) : tr(STR_BOOKMARK_REMOVED);
+    const char* msg = tr(STR_BOOKMARK_ADDED);
+    switch (bookmarkFeedbackType) {
+      case BookmarkFeedbackType::Added:
+        msg = tr(STR_BOOKMARK_ADDED);
+        break;
+      case BookmarkFeedbackType::Removed:
+        msg = tr(STR_BOOKMARK_REMOVED);
+        break;
+      case BookmarkFeedbackType::LimitReached:
+        msg = tr(STR_BOOKMARK_LIMIT_REACHED);
+        break;
+    }
     constexpr int toastPadX = 20;
     constexpr int toastPadY = 12;
     const int msgW = renderer.getTextWidth(UI_10_FONT_ID, msg);

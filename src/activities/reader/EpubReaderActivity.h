@@ -44,8 +44,13 @@ class EpubReaderActivity final : public Activity {
   bool longPowerButtonHandled = false;
   bool sideButtonLongPressHandled = false;
   int pageLoadRetryCount = 0;
+  enum class BookmarkFeedbackType : uint8_t {
+    Added,
+    Removed,
+    LimitReached,
+  };
   bool pendingBookmarkFeedback = false;
-  bool bookmarkFeedbackIsAdd = false;
+  BookmarkFeedbackType bookmarkFeedbackType = BookmarkFeedbackType::Added;
   unsigned long bookmarkFeedbackShowTime = 0UL;
   bool pendingCompletedFeedback = false;
   bool completedFeedbackIsFinished = false;
