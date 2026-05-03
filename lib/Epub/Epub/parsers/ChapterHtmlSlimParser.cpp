@@ -602,13 +602,13 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
 
   const float emSize = static_cast<float>(self->renderer.getFontAscenderSize(self->fontId));
 
-  CssTextAlign resolvedAlign = static_cast<CssTextAlign>(self->paragraphAlignment);
-  if (self->embeddedStyle && cssStyle.hasTextAlign()) {
-    resolvedAlign = cssStyle.textAlign;
+  const CssTextAlign requestedAlign = static_cast<CssTextAlign>(self->paragraphAlignment);
+  auto userAlignmentBlockStyle = BlockStyle::fromCssStyle(cssStyle, emSize, requestedAlign, self->viewportWidth);
+
+  if (!self->embeddedStyle || requestedAlign != CssTextAlign::None) {
+    userAlignmentBlockStyle.textAlignDefined = true;
+    userAlignmentBlockStyle.alignment = requestedAlign == CssTextAlign::None ? CssTextAlign::Justify : requestedAlign;
   }
-  auto userAlignmentBlockStyle = BlockStyle::fromCssStyle(cssStyle, emSize, resolvedAlign, self->viewportWidth);
-  userAlignmentBlockStyle.textAlignDefined = true;
-  userAlignmentBlockStyle.alignment = resolvedAlign;
 
   if (!self->embeddedStyle) {
     userAlignmentBlockStyle.marginLeft = 0;

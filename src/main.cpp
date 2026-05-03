@@ -209,14 +209,36 @@ void waitForPowerRelease() {
   }
 }
 
-CrossPointSettings::SHORT_PWRBTN getReleasedPowerButtonAction() {
-  if (!mappedInputManager.wasReleased(MappedInputManager::Button::Power)) {
+bool isGlobalPowerButtonAction(const CrossPointSettings::SHORT_PWRBTN action) {
+  return action == CrossPointSettings::SHORT_PWRBTN::SLEEP || action == CrossPointSettings::SHORT_PWRBTN::FORCE_REFRESH;
+}
+
+CrossPointSettings::SHORT_PWRBTN getPowerButtonAction() {
+  static bool longPowerButtonHandled = false;
+
+  if (mappedInputManager.wasReleased(MappedInputManager::Button::Power)) {
+    if (longPowerButtonHandled) {
+      longPowerButtonHandled = false;
+      return CrossPointSettings::SHORT_PWRBTN::IGNORE;
+    }
+
+    return mappedInputManager.getHeldTime() < SETTINGS.getPowerButtonLongPressDuration()
+               ? static_cast<CrossPointSettings::SHORT_PWRBTN>(SETTINGS.shortPwrBtn)
+               : static_cast<CrossPointSettings::SHORT_PWRBTN>(SETTINGS.longPwrBtn);
+  }
+
+  if (longPowerButtonHandled || !mappedInputManager.isPressed(MappedInputManager::Button::Power) ||
+      mappedInputManager.getHeldTime() < SETTINGS.getPowerButtonLongPressDuration()) {
     return CrossPointSettings::SHORT_PWRBTN::IGNORE;
   }
 
-  return mappedInputManager.getHeldTime() < SETTINGS.getPowerButtonLongPressDuration()
-             ? static_cast<CrossPointSettings::SHORT_PWRBTN>(SETTINGS.shortPwrBtn)
-             : static_cast<CrossPointSettings::SHORT_PWRBTN>(SETTINGS.longPwrBtn);
+  const auto action = static_cast<CrossPointSettings::SHORT_PWRBTN>(SETTINGS.longPwrBtn);
+  if (!isGlobalPowerButtonAction(action)) {
+    return CrossPointSettings::SHORT_PWRBTN::IGNORE;
+  }
+
+  longPowerButtonHandled = true;
+  return action;
 }
 
 bool handleGlobalPowerButtonAction(const CrossPointSettings::SHORT_PWRBTN action) {
@@ -455,7 +477,7 @@ void loop() {
     return;
   }
 
-  if (handleGlobalPowerButtonAction(getReleasedPowerButtonAction())) {
+  if (handleGlobalPowerButtonAction(getPowerButtonAction())) {
     lastActivityTime = millis();
     return;
   }

@@ -1,3 +1,8 @@
+---
+title: Hyphenation Trie Format
+nav_order: 9
+---
+
 # Hypher Binary Tries
 
 CrossPoint embeds the exact binary automata produced by

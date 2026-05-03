@@ -1,0 +1,5 @@
+remote_theme: just-the-docs/just-the-docs
+title: CrossInk
+description: Personal fork of CrossPoint Reader
+mermaid:
+  version: "10.9.0"

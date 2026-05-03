@@ -1,3 +1,8 @@
+---
+title: File Formats
+nav_order: 8
+---
+
 # File Formats
 
 ## `book.bin`
@@ -104,6 +109,10 @@ if (parsedSize != fileSize) {
 
 ## `section.bin`
 
+### Version 27
+
+Invalidates cached Bionic Reading layouts so words that were already bold in the EPUB remain fully bold. No binary layout fields changed from version 26.
+
 ### Version 26
 
 Added `wordGuideDotXOffset` (uint16_t per word, appended after `wordBionicSuffixX` in the per-block data). Guide dot tokens (U+00B7, previously stored as individual TextBlock word entries) are now collapsed into the preceding word as a pixel offset annotation. Zero means no guide dot follows that word; non-zero is the offset from the word's x to where the dot is drawn. This eliminates ~N separate word entries per page when Guide Dots is active (where N is the inter-word gap count), reducing both cache size and deserialization time proportionally.
@@ -132,7 +141,7 @@ import std.string;
 import std.core;
 
 // === Configuration ===
-#define EXPECTED_VERSION 26
+#define EXPECTED_VERSION 27
 #define MAX_STRING_LENGTH 65535
 
 // === String Structure ===

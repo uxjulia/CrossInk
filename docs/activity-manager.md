@@ -1,3 +1,8 @@
+---
+title: Activity Manager
+nav_order: 10
+---
+
 # Activity & ActivityManager Migration Guide
 
 This document explains the refactoring from the original per-activity render task model to the centralized `ActivityManager` introduced in [PR #1016](https://github.com/crosspoint-reader/crosspoint-reader/pull/1016). It covers the architectural differences, what changed for activity authors, and the FreeRTOS task and locking model that underpins the system.

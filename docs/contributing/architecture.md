@@ -1,3 +1,9 @@
+---
+title: Architecture
+parent: Contributing
+nav_order: 2
+---
+
 # Architecture Overview
 
 CrossPoint is firmware for the Xteink X4 (unaffiliated with Xteink), built with PlatformIO targeting the ESP32-C3 microcontroller.

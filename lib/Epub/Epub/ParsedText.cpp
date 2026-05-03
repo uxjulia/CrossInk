@@ -126,7 +126,8 @@ void ParsedText::addWord(std::string word, const EpdFontFamily::Style fontStyle,
     wordIsGuideDot.push_back(true);
   }
 
-  if (!this->bionicReadingEnabled) {
+  // Already-bold text should stay fully bold; bionic splitting would make its suffix regular later.
+  if (!this->bionicReadingEnabled || (baseStyle & EpdFontFamily::BOLD) != 0) {
     words.push_back(std::move(word));
     wordStyles.push_back(baseStyle);
     wordContinues.push_back(attachToPrevious);

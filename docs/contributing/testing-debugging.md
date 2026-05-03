@@ -1,3 +1,9 @@
+---
+title: Testing & Debugging
+parent: Contributing
+nav_order: 4
+---
+
 # Testing and Debugging
 
 CrossPoint runs on real hardware, so debugging usually combines local build checks and on-device logs.
