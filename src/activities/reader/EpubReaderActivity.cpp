@@ -1434,6 +1434,9 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   }
   fcm->logStats("bw_render");
   const auto tBwRender = millis();
+  uint32_t imageBlankDisplayMs = 0;
+  uint32_t imageRestoreRenderMs = 0;
+  uint32_t imageFinalDisplayMs = 0;
 
   if (pageHasImages) {
     // Double FAST_REFRESH with selective image blanking (pablohc's technique):
@@ -1444,12 +1447,18 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
     int16_t imgX, imgY, imgW, imgH;
     if (page->getImageBoundingBox(imgX, imgY, imgW, imgH)) {
       renderer.fillRect(imgX + orientedMarginLeft, imgY + orientedMarginTop, imgW, imgH, false);
+      const auto tImageBlankDisplay = millis();
       renderer.displayBuffer(HalDisplay::FAST_REFRESH);
+      imageBlankDisplayMs = millis() - tImageBlankDisplay;
 
       // Re-render page content to restore images into the blanked area
       // Status bar is not re-rendered here to avoid reading stale dynamic values (e.g. battery %)
+      const auto tImageRestoreRender = millis();
       page->render(renderer, SETTINGS.getReaderFontId(), orientedMarginLeft, orientedMarginTop);
+      imageRestoreRenderMs = millis() - tImageRestoreRender;
+      const auto tImageFinalDisplay = millis();
       renderer.displayBuffer(HalDisplay::FAST_REFRESH);
+      imageFinalDisplayMs = millis() - tImageFinalDisplay;
     } else {
       renderer.displayBuffer(HalDisplay::HALF_REFRESH);
     }
@@ -1460,11 +1469,17 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   const auto tDisplay = millis();
 
   // Save bw buffer to reset buffer state after grayscale data sync
-  renderer.storeBwBuffer();
+  const uint32_t bwStoreHeapBefore = esp_get_free_heap_size();
+  const bool storedBwBuffer = renderer.storeBwBuffer();
+  const uint32_t bwStoreHeapAfter = esp_get_free_heap_size();
   const auto tBwStore = millis();
+  const bool canApplyGrayscale = needsAnyGrayscale && storedBwBuffer;
+  if (needsAnyGrayscale && !storedBwBuffer) {
+    LOG_ERR("ERS", "Skipping grayscale enhancement: failed to store BW backup");
+  }
 
   // grayscale rendering
-  if (needsAnyGrayscale) {
+  if (canApplyGrayscale) {
     renderer.clearScreen(0x00);
     renderer.setRenderMode(GfxRenderer::GRAYSCALE_LSB);
     if (needsTextGrayscale) {
@@ -1497,21 +1512,36 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
     const auto tBwRestore = millis();
 
     const auto tEnd = millis();
+    if (pageHasImages) {
+      LOG_DBG("ERS", "Image page profile: blank_display=%lums restore_render=%lums final_display=%lums",
+              imageBlankDisplayMs, imageRestoreRenderMs, imageFinalDisplayMs);
+    }
     LOG_DBG("ERS",
-            "Page render: prewarm=%lums bw_render=%lums display=%lums bw_store=%lums "
+            "Page render: prewarm=%lums bw_render=%lums display=%lums bw_store=%lums bw_store_ok=%d "
+            "bw_store_heap_before=%lu bw_store_heap_after=%lu bw_store_heap_delta=%ld "
             "gray_lsb=%lums gray_msb=%lums gray_display=%lums bw_restore=%lums total=%lums",
-            tPrewarm - t0, tBwRender - tPrewarm, tDisplay - tBwRender, tBwStore - tDisplay, tGrayLsb - tBwStore,
-            tGrayMsb - tGrayLsb, tGrayDisplay - tGrayMsb, tBwRestore - tGrayDisplay, tEnd - t0);
+            tPrewarm - t0, tBwRender - tPrewarm, tDisplay - tBwRender, tBwStore - tDisplay, storedBwBuffer,
+            bwStoreHeapBefore, bwStoreHeapAfter, (int32_t)bwStoreHeapAfter - (int32_t)bwStoreHeapBefore,
+            tGrayLsb - tBwStore, tGrayMsb - tGrayLsb, tGrayDisplay - tGrayMsb, tBwRestore - tGrayDisplay, tEnd - t0);
   } else {
-    // restore the bw data
-    renderer.restoreBwBuffer();
+    if (storedBwBuffer) {
+      // Restore the BW data when we skipped grayscale entirely.
+      renderer.restoreBwBuffer();
+    }
     const auto tBwRestore = millis();
 
     const auto tEnd = millis();
+    if (pageHasImages) {
+      LOG_DBG("ERS", "Image page profile: blank_display=%lums restore_render=%lums final_display=%lums",
+              imageBlankDisplayMs, imageRestoreRenderMs, imageFinalDisplayMs);
+    }
     LOG_DBG("ERS",
-            "Page render: prewarm=%lums bw_render=%lums display=%lums bw_store=%lums bw_restore=%lums total=%lums",
-            tPrewarm - t0, tBwRender - tPrewarm, tDisplay - tBwRender, tBwStore - tDisplay, tBwRestore - tBwStore,
-            tEnd - t0);
+            "Page render: prewarm=%lums bw_render=%lums display=%lums bw_store=%lums bw_store_ok=%d "
+            "bw_store_heap_before=%lu bw_store_heap_after=%lu bw_store_heap_delta=%ld "
+            "bw_restore=%lums total=%lums",
+            tPrewarm - t0, tBwRender - tPrewarm, tDisplay - tBwRender, tBwStore - tDisplay, storedBwBuffer,
+            bwStoreHeapBefore, bwStoreHeapAfter, (int32_t)bwStoreHeapAfter - (int32_t)bwStoreHeapBefore,
+            tBwRestore - tBwStore, tEnd - t0);
   }
 }
 
