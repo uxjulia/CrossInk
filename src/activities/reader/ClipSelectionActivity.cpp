@@ -14,14 +14,13 @@
 
 ClipSelectionActivity::ClipSelectionActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
                                              std::vector<WordRef> words, std::string bookTitle, std::string author,
-                                             std::string chapterTitle, int pageNumber, int fontId, Section& section,
-                                             int startPageInSection, int marginTop, int marginLeft)
+                                             std::string chapterTitle, int fontId, Section& section, int startPageInSection,
+                                             int marginTop, int marginLeft)
     : Activity("ClipSelection", renderer, mappedInput),
       words(std::move(words)),
       bookTitle(std::move(bookTitle)),
       author(std::move(author)),
       chapterTitle(std::move(chapterTitle)),
-      pageNumber(pageNumber),
       fontId(fontId),
       section(section),
       startPageInSection(startPageInSection),
@@ -120,8 +119,9 @@ void ClipSelectionActivity::loop() {
         if (!text.empty()) text += ' ';
         text += words[i].text;
       }
+      const int startSectionPage = startPageInSection + words[from].pageIdx;
       ActivityResult result;
-      result.data = ClippingResult{std::move(text)};
+      result.data = ClippingResult{std::move(text), startSectionPage + 1};
       setResult(std::move(result));
       finish();
     }

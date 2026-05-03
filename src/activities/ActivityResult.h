@@ -53,6 +53,7 @@ struct FootnoteResult {
 
 struct ClippingResult {
   std::string text;
+  int startPageNumber = 0;
 };
 
 struct BookmarkResult {

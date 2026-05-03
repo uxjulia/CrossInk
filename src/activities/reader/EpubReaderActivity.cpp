@@ -717,60 +717,63 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
 
         const int readerFontId = SETTINGS.getReaderFontId();
         const int lineH = renderer.getLineHeight(readerFontId);
-        const int startPage = section->currentPage;
-        const int pagesToLoad = std::min(3, section->pageCount - startPage);
+        int startPage = 0;
+        std::string chapterTitle;
 
         std::vector<ClipSelectionActivity::WordRef> words;
-        words.reserve(pagesToLoad * 60);
+        {
+          RenderLock lock(*this);
+          startPage = section->currentPage;
+          const int pagesToLoad = std::min(3, section->pageCount - startPage);
+          words.reserve(pagesToLoad * 60);
 
-        for (int pi = 0; pi < pagesToLoad; ++pi) {
-          section->currentPage = startPage + pi;
-          auto page = section->loadPageFromSectionFile();
-          if (!page) {
-            break;
-          }
-
-          for (const auto& el : page->elements) {
-            if (el->getTag() != TAG_PageLine) {
-              continue;
+          for (int pi = 0; pi < pagesToLoad; ++pi) {
+            section->currentPage = startPage + pi;
+            auto page = section->loadPageFromSectionFile();
+            if (!page) {
+              break;
             }
-            const auto& line = static_cast<const PageLine&>(*el);
-            if (!line.getBlock()) {
-              continue;
-            }
-            const auto& block = *line.getBlock();
-            const auto& xpos = block.getWordXpos();
-            const auto& wlist = block.getWords();
 
-            for (int i = 0; i < static_cast<int>(wlist.size()); ++i) {
-              const int wx = mLeft + line.xPos + xpos[i];
-              const int wy = mTop + line.yPos;
-              const int ww = renderer.getTextWidth(readerFontId, wlist[i].c_str());
-              if (ww > 0) {
-                words.push_back({wx, wy, ww, lineH, pi, wlist[i]});
+            for (const auto& el : page->elements) {
+              if (el->getTag() != TAG_PageLine) {
+                continue;
+              }
+              const auto& line = static_cast<const PageLine&>(*el);
+              if (!line.getBlock()) {
+                continue;
+              }
+              const auto& block = *line.getBlock();
+              const auto& xpos = block.getWordXpos();
+              const auto& wlist = block.getWords();
+
+              for (int i = 0; i < static_cast<int>(wlist.size()); ++i) {
+                const int wx = mLeft + line.xPos + xpos[i];
+                const int wy = mTop + line.yPos;
+                const int ww = renderer.getTextWidth(readerFontId, wlist[i].c_str());
+                if (ww > 0) {
+                  words.push_back({wx, wy, ww, lineH, pi, wlist[i]});
+                }
               }
             }
           }
-        }
-        section->currentPage = startPage;
-
-        if (!words.empty()) {
-          std::string chapterTitle;
+          section->currentPage = startPage;
           const int tocIdx = epub->getTocIndexForSpineIndex(currentSpineIndex);
           if (tocIdx >= 0) {
             chapterTitle = epub->getTocItem(tocIdx).title;
           }
+        }
 
+        if (!words.empty()) {
           startActivityForResult(
               std::make_unique<ClipSelectionActivity>(renderer, mappedInput, std::move(words), epub->getTitle(),
-                                                      epub->getAuthor(), chapterTitle, startPage + 1, readerFontId,
-                                                      *section, startPage, mTop, mLeft),
-              [this, chapterTitle, startPage](const ActivityResult& result) {
+                                                      epub->getAuthor(), chapterTitle, readerFontId, *section, startPage,
+                                                      mTop, mLeft),
+              [this, chapterTitle](const ActivityResult& result) {
                 if (!result.isCancelled) {
                   const auto& clip = std::get<ClippingResult>(result.data);
                   if (!clip.text.empty()) {
                     if (!ClippingsManager::saveClipping(epub->getTitle(), epub->getAuthor(), chapterTitle,
-                                                        startPage + 1, clip.text)) {
+                                                        clip.startPageNumber, clip.text)) {
                       showClippingSaveFailedFeedback();
                     }
                   }
