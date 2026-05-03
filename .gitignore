@@ -16,3 +16,6 @@ build
 /.venv
 *.local*
 fs_/
+
+# scratchpad used as release notes for next crossink version
+release.md

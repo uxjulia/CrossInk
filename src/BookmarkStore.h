@@ -19,23 +19,16 @@ struct BookmarkedBookEntry {
   std::string bookAuthor;
   std::string bookPath;
   std::string bookType;
-  uint8_t count;
+  uint16_t count;
 };
 
 class BookmarkStore {
-  static BookmarkStore instance;
-
-  std::vector<Bookmark> bookmarks;
-  std::string bookFilePath;
-  std::string bookTitle;
-  std::string bookAuthor;
-  std::string storeFilePath;
-  bool dirty = false;
-
-  bool readFromFile();
-  bool writeToFile() const;
-
  public:
+  enum class AddResult : uint8_t {
+    Added,
+    LimitReached,
+  };
+
   static BookmarkStore& getInstance() { return instance; }
 
   // Load bookmarks for a book. Returns true even when no file exists yet (empty store).
@@ -44,7 +37,7 @@ class BookmarkStore {
                    const std::string& bookType);
   void unload();
 
-  void addBookmark(uint16_t spineIndex, float progress, int pageCount, const char* chapterTitle);
+  AddResult addBookmark(uint16_t spineIndex, float progress, int pageCount, const char* chapterTitle);
   void removeBookmarkForPage(uint16_t spineIndex, float pageProgress, int pageCount);
   bool hasBookmarkForPage(uint16_t spineIndex, float pageProgress, int pageCount);
   const std::vector<Bookmark>& getBookmarks() const { return bookmarks; }
@@ -66,6 +59,19 @@ class BookmarkStore {
   // Reads only the file header (does not load full bookmark records).
   // Caller should reserve `out` before calling.
   static bool getAllBookmarkedBooks(std::vector<BookmarkedBookEntry>& out);
+
+ private:
+  static BookmarkStore instance;
+
+  std::vector<Bookmark> bookmarks;
+  std::string bookFilePath;
+  std::string bookTitle;
+  std::string bookAuthor;
+  std::string storeFilePath;
+  bool dirty = false;
+
+  bool readFromFile();
+  bool writeToFile() const;
 };
 
 #define BOOKMARKS BookmarkStore::getInstance()
