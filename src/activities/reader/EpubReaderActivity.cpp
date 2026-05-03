@@ -1463,9 +1463,11 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   }
   fcm->logStats("bw_render");
   const auto tBwRender = millis();
-  uint32_t imageBlankDisplayMs = 0;
-  uint32_t imageRestoreRenderMs = 0;
-  uint32_t imageFinalDisplayMs = 0;
+  const auto logImagePageProfile = [](const uint32_t imageBlankDisplayMs, const uint32_t imageRestoreRenderMs,
+                                      const uint32_t imageFinalDisplayMs) {
+    LOG_DBG("ERS", "Image page profile: blank_display=%lums restore_render=%lums final_display=%lums",
+            imageBlankDisplayMs, imageRestoreRenderMs, imageFinalDisplayMs);
+  };
 
   if (pageHasImages) {
     // Double FAST_REFRESH with selective image blanking (pablohc's technique):
@@ -1478,16 +1480,17 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
       renderer.fillRect(imgX + orientedMarginLeft, imgY + orientedMarginTop, imgW, imgH, false);
       const auto tImageBlankDisplay = millis();
       renderer.displayBuffer(HalDisplay::FAST_REFRESH);
-      imageBlankDisplayMs = millis() - tImageBlankDisplay;
+      const uint32_t imageBlankDisplayMs = millis() - tImageBlankDisplay;
 
       // Re-render page content to restore images into the blanked area
       // Status bar is not re-rendered here to avoid reading stale dynamic values (e.g. battery %)
       const auto tImageRestoreRender = millis();
       page->render(renderer, SETTINGS.getReaderFontId(), orientedMarginLeft, orientedMarginTop);
-      imageRestoreRenderMs = millis() - tImageRestoreRender;
+      const uint32_t imageRestoreRenderMs = millis() - tImageRestoreRender;
       const auto tImageFinalDisplay = millis();
       renderer.displayBuffer(HalDisplay::FAST_REFRESH);
-      imageFinalDisplayMs = millis() - tImageFinalDisplay;
+      const uint32_t imageFinalDisplayMs = millis() - tImageFinalDisplay;
+      logImagePageProfile(imageBlankDisplayMs, imageRestoreRenderMs, imageFinalDisplayMs);
     } else {
       renderer.displayBuffer(HalDisplay::HALF_REFRESH);
     }
@@ -1502,6 +1505,8 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   const bool storedBwBuffer = renderer.storeBwBuffer();
   const uint32_t bwStoreHeapAfter = esp_get_free_heap_size();
   const auto tBwStore = millis();
+  (void)bwStoreHeapBefore;
+  (void)bwStoreHeapAfter;
   const bool canApplyGrayscale = needsAnyGrayscale && storedBwBuffer;
   if (needsAnyGrayscale && !storedBwBuffer) {
     LOG_ERR("ERS", "Skipping grayscale enhancement: failed to store BW backup");
@@ -1541,10 +1546,6 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
     const auto tBwRestore = millis();
 
     const auto tEnd = millis();
-    if (pageHasImages) {
-      LOG_DBG("ERS", "Image page profile: blank_display=%lums restore_render=%lums final_display=%lums",
-              imageBlankDisplayMs, imageRestoreRenderMs, imageFinalDisplayMs);
-    }
     LOG_DBG("ERS",
             "Page render: prewarm=%lums bw_render=%lums display=%lums bw_store=%lums bw_store_ok=%d "
             "bw_store_heap_before=%lu bw_store_heap_after=%lu bw_store_heap_delta=%ld "
@@ -1560,10 +1561,6 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
     const auto tBwRestore = millis();
 
     const auto tEnd = millis();
-    if (pageHasImages) {
-      LOG_DBG("ERS", "Image page profile: blank_display=%lums restore_render=%lums final_display=%lums",
-              imageBlankDisplayMs, imageRestoreRenderMs, imageFinalDisplayMs);
-    }
     LOG_DBG("ERS",
             "Page render: prewarm=%lums bw_render=%lums display=%lums bw_store=%lums bw_store_ok=%d "
             "bw_store_heap_before=%lu bw_store_heap_after=%lu bw_store_heap_delta=%ld "
