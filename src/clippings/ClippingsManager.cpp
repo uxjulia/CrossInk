@@ -29,7 +29,7 @@ bool isMeaningfulChapterTitle(const std::string& chapterTitle, const std::string
   return chapterTitle != bookTitle;
 }
 
-}
+}  // namespace
 bool ClippingsManager::saveClipping(const std::string& bookTitle, const std::string& author,
                                     const std::string& chapterTitle, int pageNumber, const std::string& selectedText) {
   if (!Storage.ensureDirectoryExists(CLIPPINGS_DIR)) {

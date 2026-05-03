@@ -155,9 +155,8 @@ void ClipSelectionActivity::render(RenderLock&&) {
   memcpy(renderer.getFrameBuffer(), savedBuffer, savedBufferSize);
   drawHighlights();
 
-  const auto labels =
-      mappedInput.mapLabels(tr(STR_BACK), startMarkIdx == -1 ? tr(STR_SELECT) : tr(STR_DONE), tr(STR_DIR_LEFT),
-                            tr(STR_DIR_RIGHT));
+  const auto labels = mappedInput.mapLabels(tr(STR_BACK), startMarkIdx == -1 ? tr(STR_SELECT) : tr(STR_DONE),
+                                            tr(STR_DIR_LEFT), tr(STR_DIR_RIGHT));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
   renderer.displayBuffer(HalDisplay::FAST_REFRESH);
