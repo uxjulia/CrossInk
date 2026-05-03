@@ -78,7 +78,7 @@ def main():
     args = parse_args()
     version = normalize_version(args.version)
     supported_devices = args.supported_devices or ['x4', 'x3']
-    notes = args.notes or f'CrossInk v{version} {args.channel} firmware'
+    notes = args.notes or f'CrossInk {version} {args.channel} firmware'
 
     releases = []
     seen_variants = set()

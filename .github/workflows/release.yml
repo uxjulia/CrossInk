@@ -72,8 +72,8 @@ jobs:
         env:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.name "uxjulia"
+          git config user.email "julia@uxj.io"
           git fetch origin "$DEFAULT_BRANCH"
           git worktree add ../crossink-pages "origin/$DEFAULT_BRANCH"
           cp ".pio/build/catalog" "../crossink-pages/docs/catalog"
@@ -93,7 +93,6 @@ jobs:
           target_commitish: ${{ github.sha }}
           draft: true
           files: |
-            .pio/build/catalog
             .pio/build/tiny/firmware-tiny-v${{ env.RELEASE_VERSION }}.bin
             .pio/build/xlarge/firmware-xlarge-v${{ env.RELEASE_VERSION }}.bin
             .pio/build/no_emoji/firmware-no_emoji-v${{ env.RELEASE_VERSION }}.bin
