@@ -140,7 +140,7 @@ void ImageBlock::render(GfxRenderer& renderer, const int x, const int y) {
   config.performanceMode = false;
   config.useExactDimensions = true;  // Use pre-calculated dimensions to avoid rounding mismatches
   config.useHighQualityDither = highQuality;
-  config.cachePath = cachePath;      // Enable caching during decode
+  config.cachePath = cachePath;  // Enable caching during decode
 
   ImageToFramebufferDecoder* decoder = ImageDecoderFactory::getDecoder(imagePath);
   if (!decoder) {
