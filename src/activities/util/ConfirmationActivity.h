@@ -28,4 +28,5 @@ class ConfirmationActivity : public Activity {
   void onEnter() override;
   void loop() override;
   void render(RenderLock&& lock) override;
+  bool allowPowerAsConfirmInReaderMode() const override { return true; }
 };

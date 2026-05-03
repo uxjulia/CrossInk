@@ -18,6 +18,7 @@ class MappedInputManager {
   // Enable/disable reader-specific front button mapping.
   // Call with true in reader activity onEnter(), false in onExit().
   void setReaderMode(bool enabled) { readerMode = enabled; }
+  void setPowerAsConfirmInReaderMode(bool enabled) { powerAsConfirmInReaderMode = enabled; }
 
   void update() const { gpio.update(); }
   void suppressNextBackRelease() { suppressBackRelease = true; }
@@ -35,6 +36,7 @@ class MappedInputManager {
  private:
   HalGPIO& gpio;
   bool readerMode = false;
+  bool powerAsConfirmInReaderMode = false;
   mutable bool suppressBackRelease = false;
   mutable bool suppressPowerConfirmRelease = false;
 
