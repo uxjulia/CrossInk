@@ -13,3 +13,4 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Fixed
 - Fix a crash when opening EPUB chapters that continue with normal text after a buffered table
 - Fix a crash when using `Go to %` in EPUBs by serializing the jump calculation with other reader cache access
+- Fix OTA update checks after the streaming release parser merge by keeping variant-aware firmware asset matching
