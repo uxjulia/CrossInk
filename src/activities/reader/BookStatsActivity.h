@@ -17,4 +17,5 @@ class BookStatsActivity final : public Activity {
   void onEnter() override;
   void loop() override;
   void render(RenderLock&&) override;
+  bool allowPowerAsConfirmInReaderMode() const override { return true; }
 };

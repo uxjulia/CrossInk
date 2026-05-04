@@ -20,6 +20,7 @@ class EpubReaderFootnotesActivity final : public Activity {
   void loop() override;
   void render(RenderLock&&) override;
   bool isReaderActivity() const override { return true; }
+  bool allowPowerAsConfirmInReaderMode() const override { return true; }
 
  private:
   const std::vector<FootnoteEntry>& footnotes;

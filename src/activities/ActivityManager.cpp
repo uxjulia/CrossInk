@@ -58,8 +58,11 @@ void ActivityManager::renderTaskLoop() {
 
 void ActivityManager::loop() {
   if (currentActivity) {
+    mappedInput.setPowerAsConfirmInReaderMode(currentActivity->allowPowerAsConfirmInReaderMode());
     // Note: do not hold a lock here, the loop() method must be responsible for acquire one if needed
     currentActivity->loop();
+  } else {
+    mappedInput.setPowerAsConfirmInReaderMode(false);
   }
 
   while (pendingAction != PendingAction::None) {

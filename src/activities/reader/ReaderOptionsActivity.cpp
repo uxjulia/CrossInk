@@ -57,7 +57,7 @@ void ReaderOptionsActivity::loop() {
     requestUpdate();
   });
 
-  if (mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
+  if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
     toggleCurrentSetting();
     requestUpdate();
     return;

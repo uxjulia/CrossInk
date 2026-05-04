@@ -56,7 +56,7 @@ bool MappedInputManager::mapButton(const Button button, bool (HalGPIO::*fn)(uint
   return false;
 }
 
-bool MappedInputManager::shouldUsePowerAsConfirmFallback() const { return !readerMode; }
+bool MappedInputManager::shouldUsePowerAsConfirmFallback() const { return !readerMode || powerAsConfirmInReaderMode; }
 
 bool MappedInputManager::shouldMirrorPowerAsConfirmHold() const {
   return shouldUsePowerAsConfirmFallback() &&
