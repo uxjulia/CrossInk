@@ -542,9 +542,10 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
 
   if (self->tableDepth == 1 &&
       (matches(name, HEADER_TAGS, NUM_HEADER_TAGS) || matches(name, BLOCK_TAGS, NUM_BLOCK_TAGS))) {
-    if (self->currentTableBuffer) {
-      self->currentTableBuffer->unsupported = true;
-    }
+    // Treat block/header tags inside a table cell as transparent wrappers around the
+    // cell's text content instead of forcing the whole table back to paragraph mode.
+    // This covers common EPUB patterns like <td><p>...</p></td> and
+    // <td><h4><em>...</em></h4></td> while still keeping one buffered cell.
     if (strcmp(name, "br") == 0 && self->partWordBufferIndex > 0) {
       self->flushPartWordBuffer();
       self->nextWordContinues = false;
