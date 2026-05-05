@@ -127,7 +127,15 @@ void ClearCacheActivity::loop() {
         RenderLock lock(*this);
         state = CLEARING;
       }
-      requestUpdateAndWait();
+      if (requestUpdateAndWait() != RequestUpdateResult::Rendered) {
+        LOG_ERR("CLEAR_CACHE", "Clearing cache screen could not be rendered synchronously; aborting cache clear");
+        {
+          RenderLock lock(*this);
+          state = FAILED;
+        }
+        requestUpdate(true);
+        return;
+      }
 
       clearCache();
     }

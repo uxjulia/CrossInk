@@ -8,7 +8,7 @@ void Activity::onExit() { LOG_DBG("ACT", "Exiting activity: %s", name.c_str()); 
 
 void Activity::requestUpdate(bool immediate) { activityManager.requestUpdate(immediate); }
 
-void Activity::requestUpdateAndWait() { activityManager.requestUpdateAndWait(); }
+RequestUpdateResult Activity::requestUpdateAndWait() { return activityManager.requestUpdateAndWait(); }
 
 void Activity::onGoHome() { activityManager.goHome(); }
 
