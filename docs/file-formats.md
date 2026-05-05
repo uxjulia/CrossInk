@@ -147,6 +147,9 @@ import std.core;
 // === Configuration ===
 #define EXPECTED_VERSION 29
 #define MAX_STRING_LENGTH 65535
+#define MAX_WORD_STRING_LENGTH 4096
+#define FOOTNOTE_NUMBER_LEN 32
+#define FOOTNOTE_HREF_LEN 96
 
 // === String Structure ===
 
@@ -162,10 +165,24 @@ fn format_string(String s) {
     return s.data;
 };
 
+struct WordString {
+    u32 length [[hidden, comment("Word byte length")]];
+    if (length > MAX_WORD_STRING_LENGTH) {
+        std::warning(std::format("Word length {} exceeds the firmware deserializer guard of {}", length, MAX_WORD_STRING_LENGTH));
+    }
+    char data[length] [[comment("UTF-8 word bytes")]];
+} [[sealed, format("format_word_string"), comment("Length-prefixed UTF-8 word")]];
+
+fn format_word_string(WordString s) {
+    return s.data;
+};
+
 // === Page Structure ===
 
-enum StorageType : u8 {
-    PageLine = 1
+enum PageElementTag : u8 {
+    PageLine = 1,
+    PageImage = 2,
+    PageTableFragment = 3
 };
 
 enum WordStyle : u8 {
@@ -184,20 +201,83 @@ enum BlockStyle : u8 {
     RIGHT_ALIGN = 3,
 };
 
-struct PageLine {
-  s16 xPos;
-  s16 yPos;
+struct TextBlock {
   u16 wordCount;
-  String words[wordCount];
-  u16 wordXPos[wordCount];
+  WordString words[wordCount];
+  s16 wordXPos[wordCount];
   WordStyle wordStyle[wordCount];
+  u8 wordBionicBoundary[wordCount];
+  u16 wordBionicSuffixX[wordCount];
+  u16 wordGuideDotXOffset[wordCount];
   BlockStyle blockStyle;
+  bool textAlignDefined;
+  s16 marginTop;
+  s16 marginBottom;
+  s16 marginLeft;
+  s16 marginRight;
+  s16 paddingTop;
+  s16 paddingBottom;
+  s16 paddingLeft;
+  s16 paddingRight;
+  s16 textIndent;
+  bool textIndentDefined;
+};
+
+struct PageLine {
+    s16 xPos;
+    s16 yPos;
+    TextBlock textBlock [[inline]];
+};
+
+struct ImageBlock {
+    String imagePath [[comment("Original cached image path")]];
+    s16 width;
+    s16 height;
+};
+
+struct PageImage {
+    s16 xPos;
+    s16 yPos;
+    ImageBlock imageBlock [[inline]];
+};
+
+struct TableFragmentCell {
+    bool isHeader;
+    u8 lineCount;
+    TextBlock lines[lineCount] [[inline]];
+};
+
+struct TableFragmentRow {
+    u16 height;
+    bool headerSeparator;
+    u8 cellCount;
+    TableFragmentCell cells[cellCount] [[inline]];
+};
+
+struct PageTableFragment {
+    s16 xPos;
+    s16 yPos;
+    u16 width;
+    u8 columnCount;
+    u8 cellPadding;
+    u16 lineHeight;
+    u8 rowCount;
+    TableFragmentRow rows[rowCount] [[inline]];
+};
+
+struct FootnoteEntry {
+    char number[FOOTNOTE_NUMBER_LEN];
+    char href[FOOTNOTE_HREF_LEN];
 };
 
 struct PageElement {
     u8 pageElementType;
     if (pageElementType == 1) {
         PageLine pageLine [[inline]];
+    } else if (pageElementType == 2) {
+        PageImage pageImage [[inline]];
+    } else if (pageElementType == 3) {
+        PageTableFragment pageTableFragment [[inline]];
     } else {
         std::error(std::format("Unknown page element type: {}", pageElementType));
     }
@@ -206,6 +286,13 @@ struct PageElement {
 struct Page {
     u16 elementCount;
     PageElement elements[elementCount] [[inline]];
+    u16 footnoteCount;
+    FootnoteEntry footnotes[footnoteCount] [[inline]];
+};
+
+struct AnchorEntry {
+    String anchor;
+    u16 pageIndex;
 };
 
 // === Section Bin Structure ===
@@ -224,12 +311,20 @@ struct SectionBin {
     float lineCompression;
     bool extraParagraphSpacing;
     bool forceParagraphIndents;
+    u8 paragraphAlignment;
     u16 viewportWidth;
-    u16 vieportHeight;
+    u16 viewportHeight;
+    bool hyphenationEnabled;
+    bool embeddedStyle;
+    u8 imageRendering;
+    bool bionicReadingEnabled;
+    bool guideReadingEnabled;
     u16 pageCount;
     u32 lutOffset;
-    
-    Page page[pageCount];
+    u32 anchorMapOffset;
+    u32 paragraphLutOffset;
+
+    Page pages[pageCount] [[inline]];
     
     // Validate LUT offset alignment
     u32 currentOffset = $;
@@ -237,8 +332,24 @@ struct SectionBin {
         std::warning(std::format("LUT offset mismatch: expected 0x{:X}, got 0x{:X}", lutOffset, currentOffset));
     }
     
-    // Lookup Tables
-    u32 lut[pageCount];
+    // Per-page file offsets
+    u32 pageLut[pageCount];
+
+    // Anchor -> page lookup
+    u32 anchorOffsetCheck = $;
+    if (anchorOffsetCheck != anchorMapOffset) {
+        std::warning(std::format("Anchor map offset mismatch: expected 0x{:X}, got 0x{:X}", anchorMapOffset, anchorOffsetCheck));
+    }
+    u16 anchorCount;
+    AnchorEntry anchors[anchorCount] [[inline]];
+
+    // Paragraph index -> page lookup
+    u32 paragraphOffsetCheck = $;
+    if (paragraphOffsetCheck != paragraphLutOffset) {
+        std::warning(std::format("Paragraph LUT offset mismatch: expected 0x{:X}, got 0x{:X}", paragraphLutOffset, paragraphOffsetCheck));
+    }
+    u16 paragraphCount;
+    u16 paragraphIndices[paragraphCount];
 };
 
 // === File Parsing ===

@@ -57,6 +57,7 @@ class PageImage final : public PageElement {
 };
 
 struct TableFragmentCell {
+  static constexpr uint8_t MAX_SERIALIZED_LINES = 64;
   bool isHeader = false;
   std::vector<std::shared_ptr<TextBlock>> lines;
 
@@ -65,6 +66,7 @@ struct TableFragmentCell {
 };
 
 struct TableFragmentRow {
+  static constexpr uint8_t MAX_SERIALIZED_CELLS = 8;
   uint16_t height = 0;
   bool headerSeparator = false;
   std::vector<TableFragmentCell> cells;
@@ -74,6 +76,10 @@ struct TableFragmentRow {
 };
 
 class PageTableFragment final : public PageElement {
+ public:
+  static constexpr uint8_t MAX_SERIALIZED_ROWS = 64;
+
+ private:
   uint16_t width;
   uint8_t columnCount;
   uint8_t cellPadding;

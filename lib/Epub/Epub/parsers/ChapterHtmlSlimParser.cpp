@@ -274,13 +274,6 @@ void ChapterHtmlSlimParser::emitBufferedTableAsFragments(BufferedTable& table) {
     currentPageNextY = 0;
   }
 
-  if (table.blockStyle.marginTop > 0) {
-    currentPageNextY += table.blockStyle.marginTop;
-  }
-  if (table.blockStyle.paddingTop > 0) {
-    currentPageNextY += table.blockStyle.paddingTop;
-  }
-
   const int horizontalInset = table.blockStyle.totalHorizontalInset();
   const uint16_t tableWidth =
       (horizontalInset < viewportWidth) ? static_cast<uint16_t>(viewportWidth - horizontalInset) : viewportWidth;
@@ -302,7 +295,14 @@ void ChapterHtmlSlimParser::emitBufferedTableAsFragments(BufferedTable& table) {
     prepared.fragmentRow.cells.resize(table.maxCols);
     prepared.fragmentRow.headerSeparator = row.hasHeaderCell && !row.hasDataCell;
 
-    uint16_t rowHeight = static_cast<uint16_t>(lineHeight + TABLE_CELL_PADDING * 2);
+    uint32_t rowHeight = static_cast<uint32_t>(lineHeight) + TABLE_CELL_PADDING * 2;
+    if (rowHeight > viewportHeight) {
+      LOG_DBG("EHP", "Table layout fallback: row height %lu exceeds viewport %u", static_cast<unsigned long>(rowHeight),
+              viewportHeight);
+      emitBufferedTableAsParagraphs(table);
+      return;
+    }
+
     for (size_t colIndex = 0; colIndex < row.cells.size(); colIndex++) {
       auto& sourceCell = row.cells[colIndex];
       auto& destCell = prepared.fragmentRow.cells[colIndex];
@@ -319,13 +319,34 @@ void ChapterHtmlSlimParser::emitBufferedTableAsFragments(BufferedTable& table) {
         prepared.footnotes.push_back(footnote);
       }
 
-      const uint16_t cellLineCount = std::max<size_t>(1, destCell.lines.size());
-      rowHeight =
-          std::max<uint16_t>(rowHeight, static_cast<uint16_t>(cellLineCount * lineHeight + TABLE_CELL_PADDING * 2));
+      if (destCell.lines.size() > TableFragmentCell::MAX_SERIALIZED_LINES) {
+        LOG_DBG("EHP", "Table layout fallback: cell line count %u exceeds fragment max %u",
+                static_cast<uint32_t>(destCell.lines.size()), TableFragmentCell::MAX_SERIALIZED_LINES);
+        emitBufferedTableAsParagraphs(table);
+        return;
+      }
+
+      const uint32_t cellLineCount = std::max<size_t>(1, destCell.lines.size());
+      const uint32_t cellHeight = cellLineCount * lineHeight + TABLE_CELL_PADDING * 2;
+      if (cellHeight > viewportHeight) {
+        LOG_DBG("EHP", "Table layout fallback: row height %lu exceeds viewport %u",
+                static_cast<unsigned long>(cellHeight), viewportHeight);
+        emitBufferedTableAsParagraphs(table);
+        return;
+      }
+
+      rowHeight = std::max<uint32_t>(rowHeight, cellHeight);
     }
 
-    prepared.fragmentRow.height = rowHeight;
+    prepared.fragmentRow.height = static_cast<uint16_t>(rowHeight);
     preparedRows.push_back(std::move(prepared));
+  }
+
+  if (table.blockStyle.marginTop > 0) {
+    currentPageNextY += table.blockStyle.marginTop;
+  }
+  if (table.blockStyle.paddingTop > 0) {
+    currentPageNextY += table.blockStyle.paddingTop;
   }
 
   size_t nextRowIndex = 0;
