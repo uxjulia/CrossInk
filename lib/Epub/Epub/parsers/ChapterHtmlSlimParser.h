@@ -83,12 +83,14 @@ class ChapterHtmlSlimParser {
     std::unique_ptr<ParsedText> text;
     std::vector<std::pair<int, FootnoteEntry>> footnotes;
     bool isHeader = false;
+    uint8_t colSpan = 1;
   };
 
   struct BufferedTableRow {
     std::vector<BufferedTableCell> cells;
     bool hasHeaderCell = false;
     bool hasDataCell = false;
+    uint16_t effectiveColumnCount = 0;
   };
 
   struct BufferedTable {
@@ -103,6 +105,7 @@ class ChapterHtmlSlimParser {
   int tableRowIndex = 0;
   int tableColIndex = 0;
   bool currentTableCellIsHeader = false;
+  uint8_t currentTableCellColSpan = 1;
   std::unique_ptr<BufferedTable> currentTableBuffer = nullptr;
   std::vector<CssAncestorEntry> ancestorStack_;
 
