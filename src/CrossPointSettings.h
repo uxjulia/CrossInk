@@ -168,6 +168,7 @@ class CrossPointSettings {
 
   // UI Theme
   enum UI_THEME { CLASSIC = 0, LYRA = 1, LYRA_3_COVERS = 2, ROUNDEDRAFF = 3, LYRA_CAROUSEL = 4 };
+  enum RECENT_BOOKS_VIEW { RECENT_BOOKS_LIST = 0, RECENT_BOOKS_GRID = 1, RECENT_BOOKS_VIEW_COUNT };
 
   // Image rendering in EPUB reader
   enum IMAGE_RENDERING { IMAGES_DISPLAY = 0, IMAGES_PLACEHOLDER = 1, IMAGES_SUPPRESS = 2, IMAGE_RENDERING_COUNT };
@@ -264,6 +265,8 @@ class CrossPointSettings {
   uint8_t longPressChapterSkip = 1;
   // UI Theme
   uint8_t uiTheme = LYRA;
+  // Recent Books screen layout
+  uint8_t recentBooksView = RECENT_BOOKS_LIST;
   // Sunlight fading compensation
   uint8_t fadingFix = 0;
   // Use book's embedded CSS styles for EPUB rendering (1 = enabled, 0 = disabled)
