@@ -1,6 +1,9 @@
 # Changelog
 
 ## [Unreleased]
+### Fixed
+- Add missing non-English translations for Lyra Carousel and the Recent Books View list/grid labels
+
 ### Changed
 
 ### Added
