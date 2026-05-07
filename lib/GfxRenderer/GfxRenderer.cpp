@@ -74,6 +74,115 @@ static inline void rotateCoordinates(const GfxRenderer::Orientation orientation,
 
 enum class TextRotation { None, Rotated90CW };
 
+struct SyntheticSolidGlyphMetrics {
+  uint16_t advanceX;
+  int ascender;
+  int left;
+  int top;
+  int width;
+  int height;
+};
+
+static SyntheticSolidGlyphMetrics getSyntheticSolidGlyphMetrics(const EpdFontFamily& font,
+                                                                const EpdFontFamily::Style style, const uint32_t cp) {
+  const EpdFontData* data = font.getData(style);
+  const uint16_t advanceX = syntheticGlyph::solidAdvanceX(data, font.getGlyph('M', style));
+  const int height = syntheticGlyph::solidHeight(data, cp);
+  const int width = syntheticGlyph::solidWidth(cp, advanceX, height);
+  const int ascender = data && data->ascender > 0 ? data->ascender : height;
+  return {
+      advanceX, ascender, syntheticGlyph::solidLeft(cp, advanceX, width), syntheticGlyph::solidTop(data, cp, height),
+      width,    height};
+}
+
+static SyntheticSolidGlyphMetrics getSyntheticGreekGlyphMetrics(const EpdFontFamily& font,
+                                                                const EpdFontFamily::Style style, const uint32_t cp) {
+  const EpdFontData* data = font.getData(style);
+  const uint16_t advanceX = syntheticGlyph::greekAdvanceX(data, font.getGlyph('M', style), cp);
+  const int height = syntheticGlyph::greekHeight(data, cp);
+  const int width = syntheticGlyph::greekWidth(cp, advanceX, height);
+  const int ascender = data && data->ascender > 0 ? data->ascender : height;
+  return {
+      advanceX, ascender, syntheticGlyph::greekLeft(cp, advanceX, width), syntheticGlyph::greekTop(data, cp, height),
+      width,    height};
+}
+
+static void fillSyntheticSolidGlyph(const GfxRenderer& renderer, const SyntheticSolidGlyphMetrics& metrics,
+                                    const int cursorX, const int baselineY, const bool pixelState) {
+  renderer.fillRect(cursorX + metrics.left, baselineY - metrics.top, metrics.width, metrics.height, pixelState);
+}
+
+static void fillSyntheticSolidGlyphRotated90CW(const GfxRenderer& renderer, const SyntheticSolidGlyphMetrics& metrics,
+                                               const int cursorX, const int cursorY, const bool pixelState) {
+  renderer.fillRect(cursorX + metrics.ascender - metrics.top, cursorY - metrics.left - metrics.width + 1,
+                    metrics.height, metrics.width, pixelState);
+}
+
+static int syntheticStroke(const SyntheticSolidGlyphMetrics& metrics) {
+  const int minDim = metrics.width < metrics.height ? metrics.width : metrics.height;
+  return minDim >= 14 ? 2 : 1;
+}
+
+static bool epsilonTemplatePixel(const int srcX, const int srcY) {
+  static constexpr uint8_t EPSILON_7X7[] = {
+      0b0111110, 0b1100000, 0b1000000, 0b1111100, 0b1000000, 0b1100000, 0b0111110,
+  };
+  return (EPSILON_7X7[srcY] & (1 << (6 - srcX))) != 0;
+}
+
+static void drawSyntheticGreekGlyph(const GfxRenderer& renderer, const SyntheticSolidGlyphMetrics& metrics,
+                                    const uint32_t cp, const int cursorX, const int baselineY, const bool pixelState) {
+  const int x = cursorX + metrics.left;
+  const int y = baselineY - metrics.top;
+  const int w = metrics.width;
+  const int h = metrics.height;
+  const int s = syntheticStroke(metrics);
+  if (w <= 0 || h <= 0) return;
+
+  if (cp == syntheticGlyph::GREEK_CAPITAL_GAMMA) {
+    renderer.fillRect(x, y, s, h, pixelState);
+    renderer.fillRect(x, y, w, s, pixelState);
+  } else if (cp == syntheticGlyph::GREEK_SMALL_EPSILON) {
+    for (int gy = 0; gy < h; gy++) {
+      const int srcY = gy * 7 / h;
+      for (int gx = 0; gx < w; gx++) {
+        if (epsilonTemplatePixel(gx * 7 / w, srcY)) renderer.drawPixel(x + gx, y + gy, pixelState);
+      }
+    }
+  } else if (cp == syntheticGlyph::GREEK_SMALL_OMEGA) {
+    const int mid = w / 2;
+    renderer.fillRect(x, y + s, s, h - 2 * s, pixelState);
+    renderer.fillRect(x + w - s, y + s, s, h - 2 * s, pixelState);
+    renderer.fillRect(x + s, y + h - s, mid - s, s, pixelState);
+    renderer.fillRect(x + mid, y + h - s, w - mid - s, s, pixelState);
+    renderer.fillRect(x + mid - s / 2, y + h / 2, s, h / 2, pixelState);
+  }
+}
+
+static void drawSyntheticGreekGlyphRotated90CW(const GfxRenderer& renderer, const SyntheticSolidGlyphMetrics& metrics,
+                                               const uint32_t cp, const int cursorX, const int cursorY,
+                                               const bool pixelState) {
+  const int baseX = cursorX + metrics.ascender - metrics.top;
+  const int baseY = cursorY - metrics.left;
+  const int s = syntheticStroke(metrics);
+  for (int gy = 0; gy < metrics.height; gy++) {
+    for (int gx = 0; gx < metrics.width; gx++) {
+      bool draw = false;
+      if (cp == syntheticGlyph::GREEK_CAPITAL_GAMMA) {
+        draw = gx < s || gy < s;
+      } else if (cp == syntheticGlyph::GREEK_SMALL_EPSILON) {
+        draw = epsilonTemplatePixel(gx * 7 / metrics.width, gy * 7 / metrics.height);
+      } else if (cp == syntheticGlyph::GREEK_SMALL_OMEGA) {
+        draw = (gx < s && gy >= s && gy < metrics.height - s) ||
+               (gx >= metrics.width - s && gy >= s && gy < metrics.height - s) ||
+               (gy >= metrics.height - s && gx >= s && gx < metrics.width - s) ||
+               (gx >= metrics.width / 2 - s / 2 && gx < metrics.width / 2 - s / 2 + s && gy >= metrics.height / 2);
+      }
+      if (draw) renderer.drawPixel(baseX + gy, baseY - gx, pixelState);
+    }
+  }
+}
+
 // Shared glyph rendering logic for normal and rotated text.
 // Coordinate mapping and cursor advance direction are selected at compile time via the template parameter.
 template <TextRotation rotation>
@@ -253,6 +362,8 @@ void GfxRenderer::drawText(const int fontId, const int x, const int y, const cha
     }
 
     cp = font.applyLigatures(cp, text, style);
+    cp = font.getFallbackCodepoint(cp, style);
+    const bool hasRealGlyph = font.findGlyphData(cp, style).glyph != nullptr;
 
     // Differential rounding: snap (previous advance + current kern) as one unit so
     // identical character pairs always produce the same pixel step regardless of
@@ -260,6 +371,28 @@ void GfxRenderer::drawText(const int fontId, const int x, const int y, const cha
     if (prevCp != 0) {
       const auto kernFP = font.getKerning(prevCp, cp, style);  // 4.4 fixed-point kern
       lastBaseX += fp4::toPixel(prevAdvanceFP + kernFP);       // snap 12.4 fixed-point to nearest pixel
+    }
+
+    if (!hasRealGlyph && syntheticGlyph::isSolid(cp)) {
+      const auto metrics = getSyntheticSolidGlyphMetrics(font, style, cp);
+      fillSyntheticSolidGlyph(*this, metrics, lastBaseX, yPos, black);
+      lastBaseLeft = metrics.left;
+      lastBaseWidth = metrics.width;
+      lastBaseTop = metrics.top;
+      prevAdvanceFP = metrics.advanceX;
+      prevCp = cp;
+      continue;
+    }
+
+    if (!hasRealGlyph && syntheticGlyph::isGreekFallback(cp)) {
+      const auto metrics = getSyntheticGreekGlyphMetrics(font, style, cp);
+      drawSyntheticGreekGlyph(*this, metrics, cp, lastBaseX, yPos, black);
+      lastBaseLeft = metrics.left;
+      lastBaseWidth = metrics.width;
+      lastBaseTop = metrics.top;
+      prevAdvanceFP = metrics.advanceX;
+      prevCp = cp;
+      continue;
     }
 
     const EpdGlyph* glyph = font.getGlyph(cp, style);
@@ -1107,12 +1240,26 @@ int GfxRenderer::getTextAdvanceX(const int fontId, const char* text, EpdFontFami
       continue;
     }
     cp = font.applyLigatures(cp, text, style);
+    cp = font.getFallbackCodepoint(cp, style);
+    const bool hasRealGlyph = font.findGlyphData(cp, style).glyph != nullptr;
 
     // Differential rounding: snap (previous advance + current kern) together,
     // matching drawText so measurement and rendering agree exactly.
     if (prevCp != 0) {
       const auto kernFP = font.getKerning(prevCp, cp, style);  // 4.4 fixed-point kern
       widthPx += fp4::toPixel(prevAdvanceFP + kernFP);         // snap 12.4 fixed-point to nearest pixel
+    }
+
+    if (!hasRealGlyph && syntheticGlyph::isSolid(cp)) {
+      prevAdvanceFP = getSyntheticSolidGlyphMetrics(font, style, cp).advanceX;
+      prevCp = cp;
+      continue;
+    }
+
+    if (!hasRealGlyph && syntheticGlyph::isGreekFallback(cp)) {
+      prevAdvanceFP = getSyntheticGreekGlyphMetrics(font, style, cp).advanceX;
+      prevCp = cp;
+      continue;
     }
 
     const EpdGlyph* glyph = font.getGlyph(cp, style);
@@ -1188,12 +1335,36 @@ void GfxRenderer::drawTextRotated90CW(const int fontId, const int x, const int y
     }
 
     cp = font.applyLigatures(cp, text, style);
+    cp = font.getFallbackCodepoint(cp, style);
+    const bool hasRealGlyph = font.findGlyphData(cp, style).glyph != nullptr;
 
     // Differential rounding: snap (previous advance + current kern) as one unit,
     // subtracting for the rotated coordinate direction.
     if (prevCp != 0) {
       const auto kernFP = font.getKerning(prevCp, cp, style);  // 4.4 fixed-point kern
       lastBaseY -= fp4::toPixel(prevAdvanceFP + kernFP);       // snap 12.4 fixed-point to nearest pixel
+    }
+
+    if (!hasRealGlyph && syntheticGlyph::isSolid(cp)) {
+      const auto metrics = getSyntheticSolidGlyphMetrics(font, style, cp);
+      fillSyntheticSolidGlyphRotated90CW(*this, metrics, x, lastBaseY, black);
+      lastBaseLeft = metrics.left;
+      lastBaseWidth = metrics.width;
+      lastBaseTop = metrics.top;
+      prevAdvanceFP = metrics.advanceX;
+      prevCp = cp;
+      continue;
+    }
+
+    if (!hasRealGlyph && syntheticGlyph::isGreekFallback(cp)) {
+      const auto metrics = getSyntheticGreekGlyphMetrics(font, style, cp);
+      drawSyntheticGreekGlyphRotated90CW(*this, metrics, cp, x, lastBaseY, black);
+      lastBaseLeft = metrics.left;
+      lastBaseWidth = metrics.width;
+      lastBaseTop = metrics.top;
+      prevAdvanceFP = metrics.advanceX;
+      prevCp = cp;
+      continue;
     }
 
     const EpdGlyph* glyph = font.getGlyph(cp, style);
