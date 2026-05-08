@@ -28,6 +28,7 @@ class FileBrowserActivity final : public Activity {
   size_t selectorIndex = 0;
 
   bool lockLongPressBack = false;
+  bool longPressBackHandled = false;
   bool longPressConfirmHandled = false;
   // True when this activity was entered while Confirm was already held; we must swallow the next
   // release so we don't immediately auto-open the first entry.
@@ -41,6 +42,7 @@ class FileBrowserActivity final : public Activity {
 
   // Data loading
   void loadFiles();
+  void toggleHiddenFiles();
   size_t findEntry(const std::string& name) const;
 
  public:

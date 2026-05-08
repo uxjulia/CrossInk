@@ -43,6 +43,22 @@ std::string normalizeDirectoryPath(std::string path) {
   return path;
 }
 
+bool containsHiddenPathSegment(const std::string& path) {
+  if (path.empty()) return false;
+  size_t segmentStart = (path.front() == '/') ? 1 : 0;
+  while (segmentStart < path.length()) {
+    const size_t segmentEnd = path.find('/', segmentStart);
+    if (segmentStart < path.length() && path[segmentStart] == '.') {
+      return true;
+    }
+    if (segmentEnd == std::string::npos) {
+      break;
+    }
+    segmentStart = segmentEnd + 1;
+  }
+  return false;
+}
+
 void collectMetadataPathsRecursively(const std::string& dirPath, std::vector<std::string>& paths) {
   auto dir = Storage.open(dirPath.c_str());
   if (!dir || !dir.isDirectory()) {
@@ -298,15 +314,33 @@ void FileBrowserActivity::showFileActionMenu(const std::string& entry, bool igno
       });
 }
 
-void FileBrowserActivity::loop() {
-  // Long press BACK (1s+) goes to root folder (Books mode only).
-  // In firmware-pick mode we keep navigation simple: short Back = up dir / cancel.
-  if (mode == Mode::Books && mappedInput.isPressed(MappedInputManager::Button::Back) &&
-      mappedInput.getHeldTime() >= GO_HOME_MS && basepath != "/" && !lockLongPressBack) {
+void FileBrowserActivity::toggleHiddenFiles() {
+  const std::string currentEntry =
+      (!files.empty() && selectorIndex < files.size()) ? files[selectorIndex] : std::string();
+  SETTINGS.showHiddenFiles = SETTINGS.showHiddenFiles ? 0 : 1;
+  if (!SETTINGS.saveToFile()) {
+    LOG_ERR("FileBrowser", "Failed to save showHiddenFiles=%u", SETTINGS.showHiddenFiles);
+  }
+
+  if (!SETTINGS.showHiddenFiles && containsHiddenPathSegment(basepath)) {
     basepath = "/";
-    loadFiles();
-    selectorIndex = 0;
-    requestUpdate();
+  }
+
+  loadFiles();
+  selectorIndex = currentEntry.empty() ? 0 : findEntry(currentEntry);
+  if (!files.empty() && selectorIndex >= files.size()) {
+    selectorIndex = files.size() - 1;
+  }
+  requestUpdate();
+}
+
+void FileBrowserActivity::loop() {
+  // Long press BACK/HOME (1s+) toggles hidden files (Books mode only).
+  // In firmware-pick mode we keep navigation simple: short Back = up dir / cancel.
+  if (mode == Mode::Books && !longPressBackHandled && mappedInput.isPressed(MappedInputManager::Button::Back) &&
+      mappedInput.getHeldTime() >= GO_HOME_MS && !lockLongPressBack) {
+    longPressBackHandled = true;
+    toggleHiddenFiles();
     return;
   }
 
@@ -378,6 +412,10 @@ void FileBrowserActivity::loop() {
   }
 
   if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+    if (longPressBackHandled) {
+      longPressBackHandled = false;
+      return;
+    }
     // Short press: go up one directory, or go home if at root
     if (mappedInput.getHeldTime() < GO_HOME_MS) {
       if (basepath != "/") {

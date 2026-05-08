@@ -4,6 +4,7 @@
 
 ### Added
 - Add real EPUB `<hr>` rendering so horizontal rules now display as visible separators instead of being ignored
+- Add a file-browser Home long-press shortcut for toggling hidden files
 
 ### Fixed
 - Render missing Unicode block redactions, black-square ornaments, Greek category letters, and turned-comma punctuation in reader fonts
