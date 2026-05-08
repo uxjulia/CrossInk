@@ -710,3 +710,39 @@ void loop() {
     }
   }
 }
+#include <Arduino.h>
+
+#include "CrossPointSettings.h"
+#include "bluetooth/BluetoothManager.h"
+
+CrossPointSettings settings;
+
+void loadSettings(CrossPointSettings& settings);
+
+void setup()
+{
+    Serial.begin(115200);
+
+    Serial.println("CrossInk Booting...");
+
+    // Load saved settings
+    loadSettings(settings);
+
+    // Initialize Bluetooth if enabled
+    if(settings.bluetoothEnabled)
+    {
+        BluetoothManager::begin();
+
+        Serial.println("Bluetooth enabled");
+    }
+    else
+    {
+        Serial.println("Bluetooth disabled");
+    }
+
+    Serial.println("Boot complete");
+}
+
+void loop()
+{
+}
