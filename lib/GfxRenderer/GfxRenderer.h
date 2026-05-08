@@ -2,9 +2,12 @@
 
 #include <EpdFontFamily.h>
 #include <HalDisplay.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
 
 class FontCacheManager;
 
+#include <cassert>
 #include <cstring>
 #include <map>
 #include <string>
@@ -42,12 +45,26 @@ class GfxRenderer {
   uint32_t frameBufferSize = HalDisplay::BUFFER_SIZE;
   std::vector<uint8_t*> bwBufferChunks;
   std::map<int, EpdFontFamily> fontMap;
-  // GfxRenderer is owned by the single render path. These mutable scratch
-  // buffers are intentionally unsynchronized and must not be used concurrently.
+  // Shared bitmap row buffers. Every read/write must be inside BitmapScratchLock;
+  // ensureBitmapScratchBuffers() asserts that contract before exposing them.
+  mutable SemaphoreHandle_t bitmapScratchMutex_ = nullptr;
   mutable uint8_t* bitmapScratchOutputRow_ = nullptr;
   mutable size_t bitmapScratchOutputRowSize_ = 0;
   mutable uint8_t* bitmapScratchRowBytes_ = nullptr;
   mutable size_t bitmapScratchRowBytesSize_ = 0;
+
+  class BitmapScratchLock {
+    const GfxRenderer& renderer_;
+    bool locked_ = false;
+
+   public:
+    explicit BitmapScratchLock(const GfxRenderer& renderer);
+    BitmapScratchLock(const BitmapScratchLock&) = delete;
+    BitmapScratchLock& operator=(const BitmapScratchLock&) = delete;
+    ~BitmapScratchLock();
+
+    bool isLocked() const { return locked_; }
+  };
 
   // Mutable because drawText() is const but needs to delegate scan-mode
   // recording to the (non-const) FontCacheManager. Same pragmatic compromise
@@ -59,6 +76,7 @@ class GfxRenderer {
   void freeBwBufferChunks();
   void freeBitmapScratchBuffers();
   bool ensureBitmapScratchBuffers(size_t outputRowSize, size_t rowBytesSize) const;
+  bool bitmapScratchLockHeldByCurrentTask() const;
   template <Color color>
   void drawPixelDither(int x, int y) const;
   template <Color color>
@@ -66,7 +84,13 @@ class GfxRenderer {
 
  public:
   explicit GfxRenderer(HalDisplay& halDisplay)
-      : display(halDisplay), renderMode(BW), orientation(Portrait), fadingFix(false) {}
+      : display(halDisplay),
+        renderMode(BW),
+        orientation(Portrait),
+        fadingFix(false),
+        bitmapScratchMutex_(xSemaphoreCreateMutex()) {
+    assert(bitmapScratchMutex_ != nullptr && "Failed to create GfxRenderer bitmap scratch mutex");
+  }
   GfxRenderer(const GfxRenderer&) = delete;
   GfxRenderer& operator=(const GfxRenderer&) = delete;
   GfxRenderer(GfxRenderer&&) = delete;

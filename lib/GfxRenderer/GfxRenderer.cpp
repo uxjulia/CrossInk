@@ -4,6 +4,7 @@
 #include <HalGPIO.h>
 #include <Logging.h>
 #include <Utf8.h>
+#include <freertos/task.h>
 
 #include <algorithm>
 
@@ -23,6 +24,28 @@ const uint8_t* GfxRenderer::getGlyphBitmap(const EpdFontData* fontData, const Ep
     return fd->getBitmap(fontData, glyph, glyphIndex);
   }
   return &fontData->bitmap[glyph->dataOffset];
+}
+
+GfxRenderer::BitmapScratchLock::BitmapScratchLock(const GfxRenderer& renderer) : renderer_(renderer) {
+  if (renderer_.bitmapScratchMutex_ == nullptr) {
+    LOG_ERR("GFX", "!! Bitmap scratch mutex is not initialized");
+    assert(false);
+    return;
+  }
+
+  const auto takeResult = xSemaphoreTake(renderer_.bitmapScratchMutex_, portMAX_DELAY);
+  if (takeResult != pdTRUE) {
+    LOG_ERR("GFX", "!! Failed to acquire bitmap scratch mutex");
+    assert(false);
+    return;
+  }
+
+  locked_ = true;
+}
+
+GfxRenderer::BitmapScratchLock::~BitmapScratchLock() {
+  if (!locked_) return;
+  xSemaphoreGive(renderer_.bitmapScratchMutex_);
 }
 
 void GfxRenderer::begin() {
@@ -48,7 +71,18 @@ void GfxRenderer::freeBitmapScratchBuffers() {
   bitmapScratchRowBytesSize_ = 0;
 }
 
+bool GfxRenderer::bitmapScratchLockHeldByCurrentTask() const {
+  if (bitmapScratchMutex_ == nullptr) return false;
+  return xSemaphoreGetMutexHolder(bitmapScratchMutex_) == xTaskGetCurrentTaskHandle();
+}
+
 bool GfxRenderer::ensureBitmapScratchBuffers(const size_t outputRowSize, const size_t rowBytesSize) const {
+  if (!bitmapScratchLockHeldByCurrentTask()) {
+    LOG_ERR("GFX", "!! Bitmap scratch buffers used without holding scratch mutex");
+    assert(false);
+    return false;
+  }
+
   if (outputRowSize > bitmapScratchOutputRowSize_) {
     auto* grownOutput = static_cast<uint8_t*>(realloc(bitmapScratchOutputRow_, outputRowSize));
     if (!grownOutput) {
@@ -960,6 +994,9 @@ void GfxRenderer::drawBitmap(const Bitmap& bitmap, const int x, const int y, con
   }
   LOG_DBG("GFX", "Scaling by %f - %s", scale, isScaled ? "scaled" : "not scaled");
 
+  BitmapScratchLock scratchLock(*this);
+  if (!scratchLock.isLocked()) return;
+
   // Calculate output row size (2 bits per pixel, packed into bytes)
   // IMPORTANT: Use int, not uint8_t, to avoid overflow for images > 1020 pixels wide
   const int outputRowSize = (bitmap.getWidth() + 3) / 4;
@@ -1034,6 +1071,9 @@ void GfxRenderer::drawBitmap1Bit(const Bitmap& bitmap, const int x, const int y,
     isScaled = true;
   }
 
+  BitmapScratchLock scratchLock(*this);
+  if (!scratchLock.isLocked()) return;
+
   // For 1-bit BMP, output is still 2-bit packed (for consistency with readNextRow)
   const int outputRowSize = (bitmap.getWidth() + 3) / 4;
   if (!ensureBitmapScratchBuffers(outputRowSize, bitmap.getRowBytes())) {
@@ -1094,6 +1134,9 @@ void GfxRenderer::drawPerspectiveBitmap(const Bitmap& bitmap, const int x, const
   const int screenW = getScreenWidth();
   const int screenH = getScreenHeight();
   const bool topDown = bitmap.isTopDown();
+
+  BitmapScratchLock scratchLock(*this);
+  if (!scratchLock.isLocked()) return;
 
   const int outputRowSize = (srcW + 3) / 4;
   if (!ensureBitmapScratchBuffers(outputRowSize, bitmap.getRowBytes())) {

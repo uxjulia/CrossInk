@@ -12,6 +12,7 @@
 ### Fixed
 - Keep EPUB list bullets attached to the first paragraph in `<li><p>...</p></li>` list items
 - Keep EPUB/XTC thumbnail cache paths, Recent Books cover updates, and carousel snapshot reads consistent when thumbnail dimensions or cache files change
+- Serialize `GfxRenderer` bitmap scratch-buffer access so concurrent image draws cannot reuse the same temporary rows at the same time
 - Harden JPEG image scaling, EPUB thumbnail caching, and large CSS rule handling against crashes, stale cache files, and long-session allocation failures
 - Serialize SD-card and display access on the shared SPI bus to prevent task-ownership crashes during state saves, sleep transitions, and other concurrent render/storage activity
 - Guard SPI bus lock acquisition so a failed recursive mutex take no longer marks the lock as held and triggers a mismatched release
