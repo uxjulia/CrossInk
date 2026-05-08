@@ -331,3 +331,41 @@ void SettingsActivity::render(RenderLock&&) {
   // Always use standard refresh for settings screen
   renderer.displayBuffer();
 }
+void SettingsActivity::buildMenu()
+{
+    settingsList.clear();
+
+    settingsList.addItem(
+        "WiFi",
+        settings.wifiEnabled ? "ON" : "OFF",
+        []()
+        {
+            settings.wifiEnabled =
+                !settings.wifiEnabled;
+
+            saveSettings(settings);
+        }
+    );
+
+    // Bluetooth item
+    settingsList.addItem(
+        "Bluetooth",
+        settings.bluetoothEnabled ? "ON" : "OFF",
+        []()
+        {
+            settings.bluetoothEnabled =
+                !settings.bluetoothEnabled;
+
+            saveSettings(settings);
+
+            if(settings.bluetoothEnabled)
+            {
+                BluetoothManager::begin();
+            }
+            else
+            {
+                BluetoothManager::stop();
+            }
+        }
+    );
+}
