@@ -1045,12 +1045,11 @@ void HomeActivity::loop() {
       menuItems.insert(menuItems.begin(), {tr(STR_CONTINUE_READING), Book, HomeMenuAction::ContinueReading});
     }
     const int menuSelectedIndex = selectorIndex - static_cast<int>(recentBooks.size());
-    const int adjustedMenuSelectedIndex = metrics.homeContinueReadingInMenu ? selectorIndex : menuSelectedIndex;
-    if (adjustedMenuSelectedIndex < 0 || adjustedMenuSelectedIndex >= static_cast<int>(menuItems.size())) {
+    if (menuSelectedIndex < 0 || menuSelectedIndex >= static_cast<int>(menuItems.size())) {
       return;
     }
 
-    switch (menuItems[adjustedMenuSelectedIndex].action) {
+    switch (menuItems[menuSelectedIndex].action) {
       case HomeMenuAction::BrowseFiles:
         onFileBrowserOpen();
         break;
@@ -1156,7 +1155,7 @@ void HomeActivity::render(RenderLock&&) {
 
   GUI.drawButtonMenu(
       renderer, Rect{0, menuStartY, pageWidth, menuHeight}, static_cast<int>(menuItems.size()),
-      metrics.homeContinueReadingInMenu ? selectorIndex : selectorIndex - recentBooks.size(),
+      selectorIndex - static_cast<int>(recentBooks.size()),
       [&menuItems](int index) { return std::string(menuItems[index].label); },
       [&menuItems](int index) { return menuItems[index].icon; });
 
