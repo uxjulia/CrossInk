@@ -5,6 +5,8 @@
 
 #include "lib/EpdFont/EpdFont.h"
 #include "lib/EpdFont/EpdFontData.h"
+#include "lib/EpdFont/EpdFontFamily.h"
+#include "lib/Utf8/Utf8.h"
 
 static int testsPassed = 0;
 static int testsFailed = 0;
@@ -32,7 +34,7 @@ static int testsFailed = 0;
 // ============================================================================
 // Synthetic test font
 //
-// Glyphs: 'T' (0x54), 'a' (0x61), 'o' (0x6F), 'x' (0x78)
+// Glyphs: space (0x20), 'T' (0x54), 'a' (0x61), 'o' (0x6F), 'x' (0x78)
 //   - 'x' advance is 136 FP (8.5px) -- frac = 8, exactly at the rounding
 //     boundary where absolute vs differential snapping diverges for "oo".
 //   - No U+FFFD replacement glyph, so unknown codepoints trigger the
@@ -46,17 +48,19 @@ static int testsFailed = 0;
 // clang-format off
 static const EpdGlyph kGlyphs[] = {
   // idx  width  height  advanceX  left  top  dataLength  dataOffset
-  /* 0 'T' */ { 8, 12, 137, 0, 12, 0, 0 },
-  /* 1 'a' */ { 7,  8, 130, 0,  8, 0, 0 },
-  /* 2 'o' */ { 8,  8, 145, 0,  8, 0, 0 },
-  /* 3 'x' */ { 7,  8, 136, 0,  8, 0, 0 },
+  /* 0 ' ' */ { 0,  0,  64, 0,  0, 0, 0 },
+  /* 1 'T' */ { 8, 12, 137, 0, 12, 0, 0 },
+  /* 2 'a' */ { 7,  8, 130, 0,  8, 0, 0 },
+  /* 3 'o' */ { 8,  8, 145, 0,  8, 0, 0 },
+  /* 4 'x' */ { 7,  8, 136, 0,  8, 0, 0 },
 };
 
 static const EpdUnicodeInterval kIntervals[] = {
-  { 0x54, 0x54, 0 },  // 'T' -> glyph[0]
-  { 0x61, 0x61, 1 },  // 'a' -> glyph[1]
-  { 0x6F, 0x6F, 2 },  // 'o' -> glyph[2]
-  { 0x78, 0x78, 3 },  // 'x' -> glyph[3]
+  { 0x20, 0x20, 0 },  // ' ' -> glyph[0]
+  { 0x54, 0x54, 1 },  // 'T' -> glyph[1]
+  { 0x61, 0x61, 2 },  // 'a' -> glyph[2]
+  { 0x6F, 0x6F, 3 },  // 'o' -> glyph[3]
+  { 0x78, 0x78, 4 },  // 'x' -> glyph[4]
 };
 
 static const EpdKernClassEntry kKernLeft[] = {
@@ -77,7 +81,7 @@ static const EpdFontData kTestFontData = {
   .bitmap            = nullptr,
   .glyph             = kGlyphs,
   .intervals         = kIntervals,
-  .intervalCount     = 4,
+  .intervalCount     = 5,
   .advanceY          = 16,
   .ascender          = 12,
   .descender         = 0,
@@ -98,6 +102,7 @@ static const EpdFontData kTestFontData = {
 // clang-format on
 
 static EpdFont testFont(&kTestFontData);
+static EpdFontFamily testFontFamily(&testFont);
 
 // Helper: return width from getTextDimensions
 static int textWidth(const char* str) {
@@ -346,6 +351,48 @@ void testNullGlyphAdvancePreserved() {
   PASS();
 }
 
+void testFamilyMissingGlyphUsesReplacementFallback() {
+  printf("testFamilyMissingGlyphUsesReplacementFallback...\n");
+
+  // The low-level EpdFont intentionally has no U+FFFD here, mirroring compact UI
+  // fonts. The family layer should still resolve unknown characters to a visible
+  // synthetic replacement glyph instead of measuring them as blank/null.
+  ASSERT_EQ(testFontFamily.getFallbackCodepoint('Z'), REPLACEMENT_GLYPH);
+
+  int w = 0, h = 0;
+  testFontFamily.getTextDimensions("Z", &w, &h);
+  printf("  family width(\"Z\") = %d, height = %d\n", w, h);
+
+  ASSERT_EQ(w, 9);
+  ASSERT_EQ(h, 12);
+
+  printf("  Missing family glyphs use visible replacement fallback\n");
+  PASS();
+}
+
+void testFamilySpaceGlyphsStayBlank() {
+  printf("testFamilySpaceGlyphsStayBlank...\n");
+
+  // EPUB paragraph indentation uses U+2003 EM SPACE. If the selected reading font
+  // lacks that exact glyph, it should stay blank/null like upstream, not become the
+  // visible missing-glyph marker or an ASCII space with its own extra width.
+  ASSERT_EQ(testFontFamily.getFallbackCodepoint(0x2003), 0x2003);
+
+  int w = 0, h = 0;
+  testFontFamily.getTextDimensions("\xE2\x80\x83", &w, &h);
+  printf("  family dimensions(U+2003) = %d x %d\n", w, h);
+
+  ASSERT_EQ(w, 0);
+  ASSERT_EQ(h, 0);
+
+  testFontFamily.getTextDimensions("o\xE2\x80\x83o", &w, &h);
+  printf("  family width(\"o U+2003 o\") = %d\n", w);
+  ASSERT_EQ(w, textWidth("oo"));
+
+  printf("  Unicode space fallbacks stay blank\n");
+  PASS();
+}
+
 void testHeightCalculation() {
   printf("testHeightCalculation...\n");
 
@@ -374,6 +421,8 @@ int main() {
   testKnownWidths();
   testPairConsistencyViaFont();
   testNullGlyphAdvancePreserved();
+  testFamilyMissingGlyphUsesReplacementFallback();
+  testFamilySpaceGlyphsStayBlank();
   testHeightCalculation();
 
   printf("\n=== Results: %d passed, %d failed ===\n", testsPassed, testsFailed);

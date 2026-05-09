@@ -8,8 +8,12 @@
 #include "HalDisplay.h"
 
 ConfirmationActivity::ConfirmationActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
-                                           const std::string& heading, const std::string& body)
-    : Activity("Confirmation", renderer, mappedInput), heading(heading), body(body) {}
+                                           const std::string& heading, const std::string& body,
+                                           bool ignoreInitialConfirmRelease)
+    : Activity("Confirmation", renderer, mappedInput),
+      heading(heading),
+      body(body),
+      ignoreConfirmRelease(ignoreInitialConfirmRelease) {}
 
 void ConfirmationActivity::onEnter() {
   Activity::onEnter();
@@ -70,6 +74,16 @@ void ConfirmationActivity::render(RenderLock&& lock) {
 }
 
 void ConfirmationActivity::loop() {
+  if (ignoreConfirmRelease) {
+    if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
+      ignoreConfirmRelease = false;
+      return;
+    }
+    if (!mappedInput.isPressed(MappedInputManager::Button::Confirm)) {
+      ignoreConfirmRelease = false;
+    }
+  }
+
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
     ActivityResult res;
     res.isCancelled = false;

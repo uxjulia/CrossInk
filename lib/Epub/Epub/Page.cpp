@@ -7,6 +7,12 @@
 namespace {
 
 constexpr uint16_t MAX_PAGE_ELEMENTS = 1024;
+constexpr uint8_t MAX_TABLE_ROWS_PER_FRAGMENT = 64;
+constexpr uint8_t MAX_TABLE_CELLS_PER_ROW = 8;
+constexpr uint8_t MAX_TABLE_LINES_PER_CELL = 64;
+static_assert(TableFragmentCell::MAX_SERIALIZED_LINES == MAX_TABLE_LINES_PER_CELL);
+static_assert(TableFragmentRow::MAX_SERIALIZED_CELLS == MAX_TABLE_CELLS_PER_ROW);
+static_assert(PageTableFragment::MAX_SERIALIZED_ROWS == MAX_TABLE_ROWS_PER_FRAGMENT);
 
 template <typename Predicate>
 void renderFilteredPageElements(const std::vector<std::shared_ptr<PageElement>>& elements, GfxRenderer& renderer,
@@ -25,8 +31,10 @@ void PageLine::render(GfxRenderer& renderer, const int fontId, const int xOffset
 }
 
 bool PageLine::serialize(FsFile& file) {
-  serialization::writePod(file, xPos);
-  serialization::writePod(file, yPos);
+  if (!serialization::tryWritePod(file, xPos) || !serialization::tryWritePod(file, yPos)) {
+    LOG_ERR("PGE", "Serialization failed: could not write PageLine coordinates");
+    return false;
+  }
 
   // serialize TextBlock pointed to by PageLine
   return block->serialize(file);
@@ -35,8 +43,10 @@ bool PageLine::serialize(FsFile& file) {
 std::unique_ptr<PageLine> PageLine::deserialize(FsFile& file) {
   int16_t xPos;
   int16_t yPos;
-  serialization::readPod(file, xPos);
-  serialization::readPod(file, yPos);
+  if (!serialization::tryReadPod(file, xPos) || !serialization::tryReadPod(file, yPos)) {
+    LOG_ERR("PGE", "Deserialization failed: truncated PageLine coordinates");
+    return nullptr;
+  }
 
   auto tb = TextBlock::deserialize(file);
   if (!tb) {
@@ -58,8 +68,10 @@ void PageImage::render(GfxRenderer& renderer, const int fontId, const int xOffse
 }
 
 bool PageImage::serialize(FsFile& file) {
-  serialization::writePod(file, xPos);
-  serialization::writePod(file, yPos);
+  if (!serialization::tryWritePod(file, xPos) || !serialization::tryWritePod(file, yPos)) {
+    LOG_ERR("PGE", "Serialization failed: could not write PageImage coordinates");
+    return false;
+  }
 
   // serialize ImageBlock
   return imageBlock->serialize(file);
@@ -68,8 +80,10 @@ bool PageImage::serialize(FsFile& file) {
 std::unique_ptr<PageImage> PageImage::deserialize(FsFile& file) {
   int16_t xPos;
   int16_t yPos;
-  serialization::readPod(file, xPos);
-  serialization::readPod(file, yPos);
+  if (!serialization::tryReadPod(file, xPos) || !serialization::tryReadPod(file, yPos)) {
+    LOG_ERR("PGE", "Deserialization failed: truncated PageImage coordinates");
+    return nullptr;
+  }
 
   auto ib = ImageBlock::deserialize(file);
   if (!ib) {
@@ -95,11 +109,8 @@ void PageHorizontalRule::render(GfxRenderer& renderer, const int fontId, const i
 }
 
 bool PageHorizontalRule::serialize(FsFile& file) {
-  serialization::writePod(file, xPos);
-  serialization::writePod(file, yPos);
-  serialization::writePod(file, width);
-  serialization::writePod(file, thickness);
-  return true;
+  return serialization::tryWritePod(file, xPos) && serialization::tryWritePod(file, yPos) &&
+         serialization::tryWritePod(file, width) && serialization::tryWritePod(file, thickness);
 }
 
 std::unique_ptr<PageHorizontalRule> PageHorizontalRule::deserialize(FsFile& file) {
@@ -107,10 +118,11 @@ std::unique_ptr<PageHorizontalRule> PageHorizontalRule::deserialize(FsFile& file
   int16_t yPos = 0;
   uint16_t width = 0;
   uint8_t thickness = 0;
-  serialization::readPod(file, xPos);
-  serialization::readPod(file, yPos);
-  serialization::readPod(file, width);
-  serialization::readPod(file, thickness);
+  if (!serialization::tryReadPod(file, xPos) || !serialization::tryReadPod(file, yPos) ||
+      !serialization::tryReadPod(file, width) || !serialization::tryReadPod(file, thickness)) {
+    LOG_ERR("PGE", "Deserialization failed: truncated PageHorizontalRule metadata");
+    return nullptr;
+  }
 
   if (width == 0 || thickness == 0) {
     LOG_ERR("PGE", "Deserialization failed: invalid horizontal rule metadata (width=%u thickness=%u)", width,
@@ -127,13 +139,16 @@ std::unique_ptr<PageHorizontalRule> PageHorizontalRule::deserialize(FsFile& file
 }
 
 bool TableFragmentCell::serialize(FsFile& file) const {
-  if (lines.size() > MAX_SERIALIZED_LINES) {
+  if (lines.size() > MAX_TABLE_LINES_PER_CELL) {
     LOG_ERR("PTB", "Serialization failed: cell line count %u exceeds maximum", static_cast<uint32_t>(lines.size()));
     return false;
   }
 
-  serialization::writePod(file, isHeader);
-  serialization::writePod(file, static_cast<uint8_t>(lines.size()));
+  if (!serialization::tryWritePod(file, isHeader) ||
+      !serialization::tryWritePod(file, static_cast<uint8_t>(lines.size()))) {
+    LOG_ERR("PTB", "Serialization failed: could not write table cell header");
+    return false;
+  }
   for (const auto& line : lines) {
     if (!line || !line->serialize(file)) {
       LOG_ERR("PTB", "Serialization failed: invalid table cell line");
@@ -145,9 +160,11 @@ bool TableFragmentCell::serialize(FsFile& file) const {
 
 bool TableFragmentCell::deserialize(FsFile& file, TableFragmentCell& outCell) {
   uint8_t lineCount = 0;
-  serialization::readPod(file, outCell.isHeader);
-  serialization::readPod(file, lineCount);
-  if (lineCount > MAX_SERIALIZED_LINES) {
+  if (!serialization::tryReadPod(file, outCell.isHeader) || !serialization::tryReadPod(file, lineCount)) {
+    LOG_ERR("PTB", "Deserialization failed: truncated table cell metadata");
+    return false;
+  }
+  if (lineCount > MAX_TABLE_LINES_PER_CELL) {
     LOG_ERR("PTB", "Deserialization failed: cell line count %u exceeds maximum", lineCount);
     return false;
   }
@@ -166,14 +183,16 @@ bool TableFragmentCell::deserialize(FsFile& file, TableFragmentCell& outCell) {
 }
 
 bool TableFragmentRow::serialize(FsFile& file) const {
-  if (cells.size() > MAX_SERIALIZED_CELLS) {
+  if (cells.size() > MAX_TABLE_CELLS_PER_ROW) {
     LOG_ERR("PTB", "Serialization failed: row cell count %u exceeds maximum", static_cast<uint32_t>(cells.size()));
     return false;
   }
 
-  serialization::writePod(file, height);
-  serialization::writePod(file, headerSeparator);
-  serialization::writePod(file, static_cast<uint8_t>(cells.size()));
+  if (!serialization::tryWritePod(file, height) || !serialization::tryWritePod(file, headerSeparator) ||
+      !serialization::tryWritePod(file, static_cast<uint8_t>(cells.size()))) {
+    LOG_ERR("PTB", "Serialization failed: could not write table row metadata");
+    return false;
+  }
   for (const auto& cell : cells) {
     if (!cell.serialize(file)) {
       return false;
@@ -184,10 +203,12 @@ bool TableFragmentRow::serialize(FsFile& file) const {
 
 bool TableFragmentRow::deserialize(FsFile& file, TableFragmentRow& outRow) {
   uint8_t cellCount = 0;
-  serialization::readPod(file, outRow.height);
-  serialization::readPod(file, outRow.headerSeparator);
-  serialization::readPod(file, cellCount);
-  if (cellCount > MAX_SERIALIZED_CELLS) {
+  if (!serialization::tryReadPod(file, outRow.height) || !serialization::tryReadPod(file, outRow.headerSeparator) ||
+      !serialization::tryReadPod(file, cellCount)) {
+    LOG_ERR("PTB", "Deserialization failed: truncated table row metadata");
+    return false;
+  }
+  if (cellCount > MAX_TABLE_CELLS_PER_ROW) {
     LOG_ERR("PTB", "Deserialization failed: row cell count %u exceeds maximum", cellCount);
     return false;
   }
@@ -257,18 +278,18 @@ void PageTableFragment::render(GfxRenderer& renderer, const int fontId, const in
 }
 
 bool PageTableFragment::serialize(FsFile& file) {
-  if (rows.size() > MAX_SERIALIZED_ROWS) {
+  if (rows.size() > MAX_TABLE_ROWS_PER_FRAGMENT) {
     LOG_ERR("PTB", "Serialization failed: fragment row count %u exceeds maximum", static_cast<uint32_t>(rows.size()));
     return false;
   }
 
-  serialization::writePod(file, xPos);
-  serialization::writePod(file, yPos);
-  serialization::writePod(file, width);
-  serialization::writePod(file, columnCount);
-  serialization::writePod(file, cellPadding);
-  serialization::writePod(file, lineHeight);
-  serialization::writePod(file, static_cast<uint8_t>(rows.size()));
+  if (!serialization::tryWritePod(file, xPos) || !serialization::tryWritePod(file, yPos) ||
+      !serialization::tryWritePod(file, width) || !serialization::tryWritePod(file, columnCount) ||
+      !serialization::tryWritePod(file, cellPadding) || !serialization::tryWritePod(file, lineHeight) ||
+      !serialization::tryWritePod(file, static_cast<uint8_t>(rows.size()))) {
+    LOG_ERR("PTB", "Serialization failed: could not write fragment metadata");
+    return false;
+  }
   for (const auto& row : rows) {
     if (!row.serialize(file)) {
       return false;
@@ -285,16 +306,16 @@ std::unique_ptr<PageTableFragment> PageTableFragment::deserialize(FsFile& file) 
   uint8_t cellPadding = 0;
   uint16_t lineHeight = 0;
   uint8_t rowCount = 0;
-  serialization::readPod(file, xPos);
-  serialization::readPod(file, yPos);
-  serialization::readPod(file, width);
-  serialization::readPod(file, columnCount);
-  serialization::readPod(file, cellPadding);
-  serialization::readPod(file, lineHeight);
-  serialization::readPod(file, rowCount);
+  if (!serialization::tryReadPod(file, xPos) || !serialization::tryReadPod(file, yPos) ||
+      !serialization::tryReadPod(file, width) || !serialization::tryReadPod(file, columnCount) ||
+      !serialization::tryReadPod(file, cellPadding) || !serialization::tryReadPod(file, lineHeight) ||
+      !serialization::tryReadPod(file, rowCount)) {
+    LOG_ERR("PTB", "Deserialization failed: truncated fragment metadata");
+    return nullptr;
+  }
 
-  if (rowCount == 0 || rowCount > MAX_SERIALIZED_ROWS || columnCount == 0 ||
-      columnCount > TableFragmentRow::MAX_SERIALIZED_CELLS || width < 2 || lineHeight == 0) {
+  if (rowCount == 0 || rowCount > MAX_TABLE_ROWS_PER_FRAGMENT || columnCount == 0 ||
+      columnCount > MAX_TABLE_CELLS_PER_ROW || width < 2 || lineHeight == 0) {
     LOG_ERR("PTB", "Deserialization failed: invalid fragment metadata (rows=%u cols=%u width=%u lineHeight=%u)",
             rowCount, columnCount, width, lineHeight);
     return nullptr;
@@ -335,11 +356,21 @@ void Page::renderImages(GfxRenderer& renderer, const int fontId, const int xOffs
 
 bool Page::serialize(FsFile& file) const {
   const uint16_t count = elements.size();
-  serialization::writePod(file, count);
+  if (elements.size() > MAX_PAGE_ELEMENTS) {
+    LOG_ERR("PGE", "Serialization failed: element count %u exceeds maximum", static_cast<uint32_t>(elements.size()));
+    return false;
+  }
+  if (!serialization::tryWritePod(file, count)) {
+    LOG_ERR("PGE", "Serialization failed: could not write element count");
+    return false;
+  }
 
   for (const auto& el : elements) {
     // Use getTag() method to determine type
-    serialization::writePod(file, static_cast<uint8_t>(el->getTag()));
+    if (!serialization::tryWritePod(file, static_cast<uint8_t>(el->getTag()))) {
+      LOG_ERR("PGE", "Serialization failed: could not write element tag");
+      return false;
+    }
 
     if (!el->serialize(file)) {
       return false;
@@ -348,7 +379,10 @@ bool Page::serialize(FsFile& file) const {
 
   // Serialize footnotes (clamp to MAX_FOOTNOTES_PER_PAGE to match addFootnote/deserialize limits)
   const uint16_t fnCount = std::min<uint16_t>(footnotes.size(), MAX_FOOTNOTES_PER_PAGE);
-  serialization::writePod(file, fnCount);
+  if (!serialization::tryWritePod(file, fnCount)) {
+    LOG_ERR("PGE", "Failed to write footnote count");
+    return false;
+  }
   for (uint16_t i = 0; i < fnCount; i++) {
     const auto& fn = footnotes[i];
     if (file.write(fn.number, sizeof(fn.number)) != sizeof(fn.number) ||
@@ -370,7 +404,10 @@ std::unique_ptr<Page> Page::deserialize(FsFile& file) {
   auto page = std::unique_ptr<Page>(rawPage);
 
   uint16_t count;
-  serialization::readPod(file, count);
+  if (!serialization::tryReadPod(file, count)) {
+    LOG_ERR("PGE", "Deserialization failed: could not read element count");
+    return nullptr;
+  }
   if (count > MAX_PAGE_ELEMENTS) {
     LOG_ERR("PGE", "Deserialization failed: element count %u exceeds maximum", count);
     return nullptr;
@@ -379,7 +416,10 @@ std::unique_ptr<Page> Page::deserialize(FsFile& file) {
 
   for (uint16_t i = 0; i < count; i++) {
     uint8_t tag;
-    serialization::readPod(file, tag);
+    if (!serialization::tryReadPod(file, tag)) {
+      LOG_ERR("PGE", "Deserialization failed: truncated element tag");
+      return nullptr;
+    }
 
     if (tag == TAG_PageLine) {
       auto pl = PageLine::deserialize(file);
@@ -413,7 +453,10 @@ std::unique_ptr<Page> Page::deserialize(FsFile& file) {
 
   // Deserialize footnotes
   uint16_t fnCount;
-  serialization::readPod(file, fnCount);
+  if (!serialization::tryReadPod(file, fnCount)) {
+    LOG_ERR("PGE", "Failed to read footnote count");
+    return nullptr;
+  }
   if (fnCount > MAX_FOOTNOTES_PER_PAGE) {
     LOG_ERR("PGE", "Invalid footnote count %u", fnCount);
     return nullptr;

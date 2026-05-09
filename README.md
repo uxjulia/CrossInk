@@ -20,10 +20,12 @@ My goal with this fork was to maintain the core Crosspoint firmware while integr
 ### Highlights
 
 - New reader fonts: ChareInk, Lexend Deca, and Bitter
-- Unicode emoji and miscellaneous symbols support
+- Unicode emoji and miscellaneous symbols support (a limited subset)
 - Adjusted font sizes: Teensy (8pt), Tiny (10pt), Small (12pt), Medium (14pt), Large (16pt), Extra Large (18pt), Huge (20pt). See [Font Sizes](#font-sizes) for more details.
 - Added ~~strikethrough~~ support
 - Made <u>underlines</u> thicker for better visibility
+- Added support for `<hr>` section breaks
+- Added support for "redaction" style rendering
 - Added improved support for tables with simple markup
 - Added ability to add bookmarks
 - Added ability to remap front buttons that only applies in the reader
@@ -36,10 +38,10 @@ My goal with this fork was to maintain the core Crosspoint firmware while integr
   - To turn this on, go to Settings > System > Move finished books to Read folder. Once a book is marked as finished, the book will be moved to the folder when the book is closed.
 - In-book menu to quickly adjust reader options without having to exit the book
 - Reading stats: total books read, total reading time, number of sessions, pages turned, average session time, pages turned per minute. You can also set your reading stats as your sleep screen.
-- Changed label for "Auto Turn (Pages Per Minute)" to "Auto Page Turn Interval (seconds)"
-  - Added additional page turn intervals (how many seconds pass between page turns). Options are now (in seconds): 60, 45, 30, 20, 15, 10, 5, OFF.
-- Added Vietnamese language support
+- Added customizable Auto Page Turn Interval (anything between 5-120 seconds)
+- Added ability to view Recent Books as a 3x3 grid view
 - Device simulator during development
+- To view a more detailed list for each version, visit the [releases](https://github.com/uxjulia/CrossInk/releases) page to read release notes.
 
 ---
 
@@ -88,11 +90,10 @@ There are 3 available build variants to choose from due to build size constraint
 
 **no_emoji**
 
-> All standard font sizes through Extra Large are available, but no emoji/symbols support.
+> All standard font sizes from Tiny through Extra Large are available, but no emoji/symbols support.
 
 - **No** Emoji & Misc. Symbols Support
-- 6 Font sizes:
-  - Teensy (8pt)
+- 5 Font sizes:
   - Tiny (10pt)
   - Small (12pt)
   - Medium (14pt)
@@ -162,6 +163,7 @@ Map the **Power** or **Menu** button short/long-press action to one of the follo
 - Take Screenshot (takes a screenshot)
 - Auto Page Turn (cycles through the page turn intervals: **Off → 5s → 10s → 15s → 20s → 30s → 45s → 60s → Off →**)
 - File Transfer (opens the File Transfer menu)
+- Tilt Page Turn (turns tilt-based page turning on/off on supported devices)
 
 ### Reading stats
 

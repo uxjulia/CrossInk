@@ -129,4 +129,148 @@ typedef struct {
   uint8_t kernRightClassCount;           ///< Number of distinct right classes (matrix cols)
   const EpdLigaturePair* ligaturePairs;  ///< Sorted ligature pair table (nullptr if none)
   uint32_t ligaturePairCount;            ///< Number of entries in ligaturePairs
+
+  /// On-demand glyph loading for fonts that don't keep all glyphs in RAM (e.g. SD card fonts).
+  /// Called by getGlyph() when a codepoint is not found in the interval table.
+  /// Returns a valid EpdGlyph* with correct metadata, or nullptr to fall back to the
+  /// replacement glyph.  The returned pointer is valid until the next glyphMissHandler
+  /// call that causes a ring-buffer eviction — callers must consume it (measure or draw)
+  /// before requesting another missed glyph.
+  const EpdGlyph* (*glyphMissHandler)(void* ctx, uint32_t codepoint);
+
+  /// Context pointer for glyphMissHandler (typically SdCardFont*).  Also used by
+  /// GfxRenderer::getGlyphBitmap() to retrieve overflow bitmaps via SdCardFont.
+  void* glyphMissCtx;
 } EpdFontData;
+
+namespace syntheticGlyph {
+
+constexpr uint32_t FULL_BLOCK = 0x2588;
+constexpr uint32_t BLACK_SQUARE = 0x25A0;
+constexpr uint32_t GREEK_CAPITAL_GAMMA = 0x0393;
+constexpr uint32_t GREEK_SMALL_EPSILON = 0x03B5;
+constexpr uint32_t GREEK_SMALL_OMEGA = 0x03C9;
+constexpr uint32_t MODIFIER_LETTER_TURNED_COMMA = 0x02BB;
+constexpr uint32_t LEFT_SINGLE_QUOTATION_MARK = 0x2018;
+
+constexpr bool isSolid(uint32_t cp) { return cp == FULL_BLOCK || cp == BLACK_SQUARE; }
+constexpr bool isGreekFallback(uint32_t cp) {
+  return cp == GREEK_CAPITAL_GAMMA || cp == GREEK_SMALL_EPSILON || cp == GREEK_SMALL_OMEGA;
+}
+constexpr bool isReplacementFallback(uint32_t cp) { return cp == 0xFFFD; }
+constexpr bool isSpaceFallback(uint32_t cp) {
+  return cp == 0x00A0 || cp == 0x1680 || (cp >= 0x2000 && cp <= 0x200A) || cp == 0x202F || cp == 0x205F || cp == 0x3000;
+}
+constexpr uint32_t aliasCodepoint(uint32_t cp) {
+  return cp == MODIFIER_LETTER_TURNED_COMMA ? LEFT_SINGLE_QUOTATION_MARK : cp;
+}
+
+inline uint16_t solidAdvanceX(const EpdFontData* data, const EpdGlyph* emGlyph) {
+  if (emGlyph && emGlyph->advanceX > 0) {
+    return emGlyph->advanceX;
+  }
+  int px = data && data->ascender > 0 ? (data->ascender * 3 + 3) / 4 : 8;
+  if (px < 1) px = 1;
+  return static_cast<uint16_t>(fp4::fromPixel(px));
+}
+
+inline int solidHeight(const EpdFontData* data, uint32_t cp) {
+  int ascender = data && data->ascender > 0 ? data->ascender : 8;
+  if (cp == BLACK_SQUARE) {
+    int height = (ascender * 2 + 2) / 3;
+    return height > 1 ? height : 1;
+  }
+  return ascender > 1 ? ascender : 1;
+}
+
+inline int solidWidth(uint32_t cp, uint16_t advanceX, int height) {
+  const int advancePx = fp4::toPixel(advanceX);
+  if (cp == BLACK_SQUARE) {
+    return height < advancePx ? height : advancePx;
+  }
+  return advancePx > 1 ? advancePx : 1;
+}
+
+inline int solidLeft(uint32_t cp, uint16_t advanceX, int width) {
+  if (cp != BLACK_SQUARE) return 0;
+  const int advancePx = fp4::toPixel(advanceX);
+  return advancePx > width ? (advancePx - width) / 2 : 0;
+}
+
+inline int solidTop(const EpdFontData* data, uint32_t cp, int height) {
+  const int ascender = data && data->ascender > 0 ? data->ascender : height;
+  if (cp != BLACK_SQUARE || ascender <= height) return height;
+  return height + (ascender - height) / 2;
+}
+
+inline uint16_t replacementAdvanceX(const EpdFontData* data, const EpdGlyph* emGlyph) {
+  if (emGlyph && emGlyph->advanceX > 0) {
+    return emGlyph->advanceX;
+  }
+  int px = data && data->ascender > 0 ? (data->ascender * 3 + 3) / 4 : 8;
+  if (px < 3) px = 3;
+  return static_cast<uint16_t>(fp4::fromPixel(px));
+}
+
+inline int replacementHeight(const EpdFontData* data) {
+  const int ascender = data && data->ascender > 0 ? data->ascender : 8;
+  return ascender > 3 ? ascender : 3;
+}
+
+inline int replacementWidth(uint16_t advanceX, int height) {
+  const int advancePx = fp4::toPixel(advanceX);
+  int width = advancePx < height ? advancePx : height;
+  if (width < 3) width = 3;
+  return width;
+}
+
+inline int replacementLeft(uint16_t advanceX, int width) {
+  const int advancePx = fp4::toPixel(advanceX);
+  return advancePx > width ? (advancePx - width) / 2 : 0;
+}
+
+inline int replacementTop(const EpdFontData* data, int height) {
+  const int ascender = data && data->ascender > 0 ? data->ascender : height;
+  return ascender > height ? height + (ascender - height) / 2 : height;
+}
+
+inline uint16_t greekAdvanceX(const EpdFontData* data, const EpdGlyph* emGlyph, uint32_t cp) {
+  if (cp == GREEK_SMALL_OMEGA && emGlyph && emGlyph->advanceX > 0) {
+    return emGlyph->advanceX;
+  }
+  const int ascender = data && data->ascender > 0 ? data->ascender : 8;
+  int px = cp == GREEK_CAPITAL_GAMMA ? (ascender * 7 + 5) / 10 : (ascender * 3 + 3) / 4;
+  if (px < 1) px = 1;
+  return static_cast<uint16_t>(fp4::fromPixel(px));
+}
+
+inline int greekHeight(const EpdFontData* data, uint32_t cp) {
+  int ascender = data && data->ascender > 0 ? data->ascender : 8;
+  if (cp != GREEK_CAPITAL_GAMMA) {
+    ascender = (ascender * 3 + 3) / 4;
+  }
+  return ascender > 1 ? ascender : 1;
+}
+
+inline int greekWidth(uint32_t cp, uint16_t advanceX, int height) {
+  const int advancePx = fp4::toPixel(advanceX);
+  if (cp == GREEK_CAPITAL_GAMMA) {
+    const int width = height > 2 ? (height * 6 + 5) / 10 : height;
+    return width < advancePx ? width : advancePx;
+  }
+  return advancePx > 1 ? advancePx : 1;
+}
+
+inline int greekLeft(uint32_t cp, uint16_t advanceX, int width) {
+  const int advancePx = fp4::toPixel(advanceX);
+  if (cp == GREEK_CAPITAL_GAMMA) return 0;
+  return advancePx > width ? (advancePx - width) / 2 : 0;
+}
+
+inline int greekTop(const EpdFontData* data, uint32_t cp, int height) {
+  const int ascender = data && data->ascender > 0 ? data->ascender : height;
+  if (cp == GREEK_CAPITAL_GAMMA || ascender <= height) return height;
+  return height + (ascender - height) / 2;
+}
+
+}  // namespace syntheticGlyph

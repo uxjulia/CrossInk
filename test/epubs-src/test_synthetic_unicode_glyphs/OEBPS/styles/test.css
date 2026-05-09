@@ -1,0 +1,19 @@
+body {
+  line-height: 1.35;
+}
+
+p {
+  margin: 0 0 0.75em 0;
+}
+
+.note {
+  font-style: italic;
+}
+
+.sample {
+  margin-bottom: 0.5em;
+}
+
+.big {
+  font-weight: bold;
+}

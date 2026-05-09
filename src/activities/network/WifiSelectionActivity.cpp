@@ -292,6 +292,14 @@ void WifiSelectionActivity::checkConnectionStatus() {
 }
 
 void WifiSelectionActivity::loop() {
+  if ((state == WifiSelectionState::SCANNING || state == WifiSelectionState::CONNECTING ||
+       state == WifiSelectionState::AUTO_CONNECTING) &&
+      mappedInput.wasPressed(MappedInputManager::Button::Back)) {
+    WiFi.disconnect();
+    onComplete(false);
+    return;
+  }
+
   // Check scan progress
   if (state == WifiSelectionState::SCANNING) {
     processWifiScanResults();
@@ -567,6 +575,9 @@ void WifiSelectionActivity::renderConnecting() const {
     }
     renderer.drawCenteredText(UI_10_FONT_ID, top, ssidInfo.c_str());
   }
+
+  const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
+  GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 }
 
 void WifiSelectionActivity::renderConnected() const {

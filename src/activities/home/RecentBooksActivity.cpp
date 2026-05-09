@@ -13,14 +13,18 @@
 
 namespace {
 constexpr unsigned long GO_HOME_MS = 1000;
+constexpr size_t MAX_LIST_RECENT_BOOKS = 10;
 }  // namespace
 
 void RecentBooksActivity::loadRecentBooks() {
   recentBooks.clear();
   const auto& books = RECENT_BOOKS.getBooks();
-  recentBooks.reserve(books.size());
+  recentBooks.reserve(std::min(books.size(), MAX_LIST_RECENT_BOOKS));
 
   for (const auto& book : books) {
+    if (recentBooks.size() >= MAX_LIST_RECENT_BOOKS) {
+      break;
+    }
     // Skip if file no longer exists
     if (!Storage.exists(book.path.c_str())) {
       continue;

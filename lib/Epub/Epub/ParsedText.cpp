@@ -18,6 +18,12 @@ namespace {
 // Soft hyphen byte pattern used throughout EPUBs (UTF-8 for U+00AD).
 constexpr char SOFT_HYPHEN_UTF8[] = "\xC2\xAD";
 constexpr size_t SOFT_HYPHEN_BYTES = 2;
+constexpr size_t PATHOLOGICAL_TOKEN_MIN_BYTES = 128;
+constexpr size_t PATHOLOGICAL_TOKEN_SCAN_BYTES = 256;
+constexpr size_t SD_FONT_PREFLIGHT_JOIN_LIMIT = 4096;
+constexpr size_t SD_FONT_PREFLIGHT_SAMPLE_BYTES = 255;
+constexpr uint32_t SD_FONT_PREFLIGHT_MIN_FREE = 64 * 1024;
+constexpr uint32_t SD_FONT_PREFLIGHT_MIN_MAX_ALLOC = 32 * 1024;
 
 // Returns the first rendered codepoint of a word (skipping leading soft hyphens).
 uint32_t firstCodepoint(const std::string& word) {
@@ -42,6 +48,30 @@ uint32_t lastCodepoint(const std::string& word) {
 }
 
 bool containsSoftHyphen(const std::string& word) { return word.find(SOFT_HYPHEN_UTF8) != std::string::npos; }
+
+bool isBase64LikeChar(const char c) {
+  return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '+' || c == '/' || c == '=';
+}
+
+bool isPathologicalUnbrokenToken(const std::string& word) {
+  if (word.size() < PATHOLOGICAL_TOKEN_MIN_BYTES) {
+    return false;
+  }
+
+  const size_t scanBytes = std::min(word.size(), PATHOLOGICAL_TOKEN_SCAN_BYTES);
+  size_t base64LikeCount = 0;
+  for (size_t i = 0; i < scanBytes; ++i) {
+    const char c = word[i];
+    if (c == ' ' || c == '\t' || c == '\n' || c == '\r') {
+      return false;
+    }
+    if (isBase64LikeChar(c)) {
+      ++base64LikeCount;
+    }
+  }
+
+  return base64LikeCount * 100 >= scanBytes * 95;
+}
 
 // Removes every soft hyphen in-place so rendered glyphs match measured widths.
 void stripSoftHyphensInPlace(std::string& word) {
@@ -108,7 +138,7 @@ bool isWordCharacter(uint32_t cp) {
 }  // namespace
 
 void ParsedText::addWord(std::string word, const EpdFontFamily::Style fontStyle, const bool underline,
-                         const bool attachToPrevious) {
+                         const bool attachToPrevious, const bool backgroundBlack) {
   if (word.empty()) return;
 
   EpdFontFamily::Style baseStyle = fontStyle;
@@ -123,6 +153,7 @@ void ParsedText::addWord(std::string word, const EpdFontFamily::Style fontStyle,
     wordContinues.push_back(false);
     wordIsBionicSuffix.push_back(false);
     wordIsGuideDot.push_back(true);
+    wordBackgroundBlack.push_back(false);
   }
 
   // Already-bold text should stay fully bold; bionic splitting would make its suffix regular later.
@@ -132,6 +163,7 @@ void ParsedText::addWord(std::string word, const EpdFontFamily::Style fontStyle,
     wordContinues.push_back(attachToPrevious);
     wordIsBionicSuffix.push_back(false);
     wordIsGuideDot.push_back(false);
+    wordBackgroundBlack.push_back(backgroundBlack);
     return;
   }
 
@@ -159,6 +191,7 @@ void ParsedText::addWord(std::string word, const EpdFontFamily::Style fontStyle,
     wordContinues.reserve(newCapacity);
     wordIsBionicSuffix.reserve(newCapacity);
     wordIsGuideDot.reserve(newCapacity);
+    wordBackgroundBlack.reserve(newCapacity);
   }
 
   // Lambda helper to process and push individual sub-segments of the string
@@ -171,6 +204,7 @@ void ParsedText::addWord(std::string word, const EpdFontFamily::Style fontStyle,
       wordContinues.push_back(attach);
       wordIsBionicSuffix.push_back(false);
       wordIsGuideDot.push_back(false);
+      wordBackgroundBlack.push_back(backgroundBlack);
     } else {
       size_t charCount = 0;
       const unsigned char* countPtr = reinterpret_cast<const unsigned char*>(segment.data());
@@ -193,6 +227,7 @@ void ParsedText::addWord(std::string word, const EpdFontFamily::Style fontStyle,
         wordContinues.push_back(attach);
         wordIsBionicSuffix.push_back(false);
         wordIsGuideDot.push_back(false);
+        wordBackgroundBlack.push_back(backgroundBlack);
       } else {
         countPtr = reinterpret_cast<const unsigned char*>(segment.data());
         for (size_t i = 0; i < targetBoldChars; ++i) {
@@ -206,6 +241,7 @@ void ParsedText::addWord(std::string word, const EpdFontFamily::Style fontStyle,
         wordContinues.push_back(attach);
         wordIsBionicSuffix.push_back(false);
         wordIsGuideDot.push_back(false);
+        wordBackgroundBlack.push_back(backgroundBlack);
 
         // Regular suffix - marked so extractLine can merge it back into one TextBlock entry
         words.emplace_back(segment.substr(splitByteOffset));
@@ -213,6 +249,7 @@ void ParsedText::addWord(std::string word, const EpdFontFamily::Style fontStyle,
         wordContinues.push_back(true);
         wordIsBionicSuffix.push_back(true);
         wordIsGuideDot.push_back(false);
+        wordBackgroundBlack.push_back(backgroundBlack);
       }
     }
   };
@@ -264,6 +301,59 @@ void ParsedText::layoutAndExtractLines(const GfxRenderer& renderer, const int fo
   // Apply fixed transforms before any per-line layout work.
   applyParagraphIndent();
 
+  // Ensure SD card font glyph metrics are loaded before measuring word widths.
+  // For flash-based fonts isSdCardFont() returns false and this block is skipped
+  // entirely — no heap allocation. For SD card fonts this reads glyph metadata
+  // (advanceX only, no bitmaps) for all unique codepoints in this paragraph so
+  // that calculateWordWidths() can measure text without on-demand SD I/O.
+  if (renderer.isSdCardFont(fontId)) {
+    // Style mask: only ask the SD font to load advances for styles actually
+    // used in this paragraph. Style index is the low two bits (regular/bold/
+    // italic/bold-italic); the underline bit is irrelevant to advance metrics.
+    uint8_t styleMask = 0;
+    for (auto s : wordStyles) {
+      styleMask |= static_cast<uint8_t>(1u << (static_cast<uint8_t>(s) & 0x03));
+    }
+    if (styleMask == 0) styleMask = 0x01;  // defensive: regular only
+
+    // Reserve upfront so the joined text allocates exactly once. Without this,
+    // paragraphs with many words trigger a chain of vector-like reallocations
+    // inside std::string during layout — visible in prewarm timings for SD fonts.
+    size_t totalSize = hyphenationEnabled ? 1 : 0;
+    if (!words.empty()) totalSize += words.size() - 1;  // inter-word spaces
+    for (const auto& w : words) totalSize += w.size();
+
+    if (totalSize <= SD_FONT_PREFLIGHT_JOIN_LIMIT && ESP.getFreeHeap() >= SD_FONT_PREFLIGHT_MIN_FREE &&
+        ESP.getMaxAllocHeap() >= SD_FONT_PREFLIGHT_MIN_MAX_ALLOC) {
+      std::string allText;
+      allText.reserve(totalSize);
+      for (size_t i = 0; i < words.size(); i++) {
+        if (i > 0) allText += ' ';
+        allText += words[i];
+      }
+      if (hyphenationEnabled) allText += '-';
+      renderer.ensureSdCardFontReady(fontId, allText.c_str(), styleMask);
+    } else {
+      char sample[SD_FONT_PREFLIGHT_SAMPLE_BYTES + 1] = {};
+      size_t sampleLen = 0;
+      for (size_t i = 0; i < words.size() && sampleLen < SD_FONT_PREFLIGHT_SAMPLE_BYTES; i++) {
+        if (i > 0) sample[sampleLen++] = ' ';
+        const std::string& word = words[i];
+        for (size_t j = 0; j < word.size() && sampleLen < SD_FONT_PREFLIGHT_SAMPLE_BYTES; j++) {
+          sample[sampleLen++] = word[j];
+        }
+      }
+      if (hyphenationEnabled && sampleLen < SD_FONT_PREFLIGHT_SAMPLE_BYTES) {
+        sample[sampleLen++] = '-';
+      }
+      sample[sampleLen] = '\0';
+      if (sampleLen > 0 && ESP.getFreeHeap() >= SD_FONT_PREFLIGHT_MIN_MAX_ALLOC &&
+          ESP.getMaxAllocHeap() >= SD_FONT_PREFLIGHT_MIN_MAX_ALLOC) {
+        renderer.ensureSdCardFontReady(fontId, sample, styleMask);
+      }
+    }
+  }
+
   const int pageWidth = viewportWidth;
   auto wordWidths = calculateWordWidths(renderer, fontId);
 
@@ -288,6 +378,7 @@ void ParsedText::layoutAndExtractLines(const GfxRenderer& renderer, const int fo
     wordContinues.erase(wordContinues.begin(), wordContinues.begin() + consumed);
     wordIsBionicSuffix.erase(wordIsBionicSuffix.begin(), wordIsBionicSuffix.begin() + consumed);
     wordIsGuideDot.erase(wordIsGuideDot.begin(), wordIsGuideDot.begin() + consumed);
+    wordBackgroundBlack.erase(wordBackgroundBlack.begin(), wordBackgroundBlack.begin() + consumed);
   }
 }
 
@@ -540,6 +631,10 @@ bool ParsedText::hyphenateWordAtIndex(const size_t wordIndex, const int availabl
   const std::string& word = words[wordIndex];
   const auto style = wordStyles[wordIndex];
 
+  if (allowFallbackBreaks && isPathologicalUnbrokenToken(word)) {
+    return splitPathologicalTokenAtIndex(wordIndex, availableWidth, renderer, fontId, wordWidths);
+  }
+
   // Collect candidate breakpoints (byte offsets and hyphen requirements).
   auto breakInfos = Hyphenator::breakOffsets(word, allowFallbackBreaks);
   if (breakInfos.empty()) {
@@ -583,6 +678,7 @@ bool ParsedText::hyphenateWordAtIndex(const size_t wordIndex, const int availabl
   // Insert the remainder word (with matching style and continuation flag) directly after the prefix.
   words.insert(words.begin() + wordIndex + 1, remainder);
   wordStyles.insert(wordStyles.begin() + wordIndex + 1, style);
+  wordBackgroundBlack.insert(wordBackgroundBlack.begin() + wordIndex + 1, wordBackgroundBlack[wordIndex]);
   // The hyphen remainder is neither a bionic suffix nor a guide dot - it starts fresh on the next line.
   wordIsBionicSuffix.insert(wordIsBionicSuffix.begin() + wordIndex + 1, false);
   wordIsGuideDot.insert(wordIsGuideDot.begin() + wordIndex + 1, false);
@@ -612,6 +708,60 @@ bool ParsedText::hyphenateWordAtIndex(const size_t wordIndex, const int availabl
   // Update cached widths to reflect the new prefix/remainder pairing.
   wordWidths[wordIndex] = static_cast<uint16_t>(chosenWidth);
   const uint16_t remainderWidth = measureWordWidth(renderer, fontId, remainder, style);
+  wordWidths.insert(wordWidths.begin() + wordIndex + 1, remainderWidth);
+  return true;
+}
+
+bool ParsedText::splitPathologicalTokenAtIndex(const size_t wordIndex, const int availableWidth,
+                                               const GfxRenderer& renderer, const int fontId,
+                                               std::vector<uint16_t>& wordWidths) {
+  if (availableWidth <= 0 || wordIndex >= words.size() || wordIndex >= wordWidths.size()) {
+    return false;
+  }
+
+  const std::string& word = words[wordIndex];
+  if (word.size() < 2) {
+    return false;
+  }
+
+  const auto style = wordStyles[wordIndex];
+  size_t low = 1;
+  size_t high = std::min(word.size() - 1, PATHOLOGICAL_TOKEN_SCAN_BYTES);
+  size_t chosenOffset = 0;
+  int chosenWidth = -1;
+  std::string prefix;
+  prefix.reserve(high);
+
+  while (low <= high) {
+    const size_t mid = low + (high - low) / 2;
+    prefix.assign(word.data(), mid);
+    const int prefixWidth = measureWordWidth(renderer, fontId, prefix, style);
+    if (prefixWidth <= availableWidth) {
+      chosenOffset = mid;
+      chosenWidth = prefixWidth;
+      low = mid + 1;
+    } else {
+      high = mid - 1;
+    }
+  }
+
+  if (chosenOffset == 0) {
+    return false;
+  }
+
+  std::string remainder = word.substr(chosenOffset);
+  words[wordIndex].resize(chosenOffset);
+  words.insert(words.begin() + wordIndex + 1, remainder);
+  wordStyles.insert(wordStyles.begin() + wordIndex + 1, style);
+  wordBackgroundBlack.insert(wordBackgroundBlack.begin() + wordIndex + 1, wordBackgroundBlack[wordIndex]);
+  wordIsBionicSuffix.insert(wordIsBionicSuffix.begin() + wordIndex + 1, false);
+  wordIsGuideDot.insert(wordIsGuideDot.begin() + wordIndex + 1, false);
+  wordContinues.insert(wordContinues.begin() + wordIndex + 1, false);
+
+  wordWidths[wordIndex] = static_cast<uint16_t>(chosenWidth);
+  const uint16_t remainderWidth = remainder.size() >= PATHOLOGICAL_TOKEN_MIN_BYTES
+                                      ? std::numeric_limits<uint16_t>::max()
+                                      : measureWordWidth(renderer, fontId, remainder, style);
   wordWidths.insert(wordWidths.begin() + wordIndex + 1, remainderWidth);
   return true;
 }
@@ -653,6 +803,9 @@ void ParsedText::extractLine(const size_t breakIndex, const int pageWidth, const
           renderer.getSpaceAdvance(fontId, lastCodepoint(words[lastBreakAt + wordIdx - 1]),
                                    firstCodepoint(words[lastBreakAt + wordIdx]), wordStyles[lastBreakAt + wordIdx - 1]);
     } else if (wordIdx > 0 && continuesVec[lastBreakAt + wordIdx]) {
+      if (words[lastBreakAt + wordIdx] == " ") {
+        actualGapCount++;
+      }
       // Cross-boundary kerning for continuation words (e.g. nonbreaking spaces, attached punctuation)
       totalNaturalGaps +=
           renderer.getKerning(fontId, lastCodepoint(words[lastBreakAt + wordIdx - 1]),
@@ -694,6 +847,10 @@ void ParsedText::extractLine(const size_t breakIndex, const int pageWidth, const
       advance +=
           renderer.getKerning(fontId, lastCodepoint(words[lastBreakAt + wordIdx]),
                               firstCodepoint(words[lastBreakAt + wordIdx + 1]), wordStyles[lastBreakAt + wordIdx]);
+      if (words[lastBreakAt + wordIdx] == " " && continuesVec[lastBreakAt + wordIdx] &&
+          blockStyle.alignment == CssTextAlign::Justify && !isLastLine) {
+        advance += justifyExtra;
+      }
       xpos += advance;
     } else {
       int gap = 0;
@@ -709,65 +866,88 @@ void ParsedText::extractLine(const size_t breakIndex, const int pageWidth, const
     }
   }
 
-  // Build line data by moving from the original vectors using index range
-  std::vector<std::string> lineWords(std::make_move_iterator(words.begin() + lastBreakAt),
-                                     std::make_move_iterator(words.begin() + lineBreak));
-  std::vector<EpdFontFamily::Style> lineWordStyles(wordStyles.begin() + lastBreakAt, wordStyles.begin() + lineBreak);
-
-  for (auto& word : lineWords) {
-    if (containsSoftHyphen(word)) {
-      stripSoftHyphensInPlace(word);
+  bool lineHasBionicSplit = false;
+  bool lineHasGuideDot = false;
+  for (size_t i = 0; i < lineWordCount; i++) {
+    if (wordIsBionicSuffix[lastBreakAt + i]) {
+      lineHasBionicSplit = true;
+    }
+    if (wordIsGuideDot[lastBreakAt + i]) {
+      lineHasGuideDot = true;
+    }
+    if (lineHasBionicSplit && lineHasGuideDot) {
+      break;
     }
   }
 
   // Merge bionic suffix tokens and guide dot tokens back into their preceding word entry so each
   // original word occupies one TextBlock slot. Both splits are recorded as per-word annotations
   // applied at render time, cutting the token count significantly when either feature is active.
+  // Bionic boundary/suffix and guide-dot vectors stay empty when this line has none.
   std::vector<std::string> outWords;
   std::vector<int16_t> outXPos;
   std::vector<EpdFontFamily::Style> outStyles;
   std::vector<uint8_t> outBoundaries;
   std::vector<uint16_t> outSuffixX;
   std::vector<uint16_t> outGuideDotXOffset;
+  std::vector<uint8_t> outBackgroundBlack;
   outWords.reserve(lineWordCount);
   outXPos.reserve(lineWordCount);
   outStyles.reserve(lineWordCount);
-  outBoundaries.reserve(lineWordCount);
-  outSuffixX.reserve(lineWordCount);
-  outGuideDotXOffset.reserve(lineWordCount);
+  if (lineHasBionicSplit) {
+    outBoundaries.reserve(lineWordCount);
+    outSuffixX.reserve(lineWordCount);
+  }
+  if (lineHasGuideDot) {
+    outGuideDotXOffset.reserve(lineWordCount);
+  }
+  outBackgroundBlack.reserve(lineWordCount);
 
   for (size_t i = 0; i < lineWordCount; i++) {
-    if (wordIsBionicSuffix[lastBreakAt + i] && !outWords.empty()) {
+    const size_t sourceIndex = lastBreakAt + i;
+    std::string& sourceWord = words[sourceIndex];
+    if (containsSoftHyphen(sourceWord)) {
+      stripSoftHyphensInPlace(sourceWord);
+    }
+
+    if (wordIsBionicSuffix[sourceIndex] && !outWords.empty()) {
       // Bionic suffix: merge string into the preceding bold-prefix entry.
-      outWords.back() += lineWords[i];
-    } else if (wordIsGuideDot[lastBreakAt + i] && !outWords.empty()) {
+      outWords.back() += sourceWord;
+    } else if (wordIsGuideDot[sourceIndex] && !outWords.empty()) {
       // Guide dot: annotate the preceding word entry with the dot's pixel offset.
       // Offset is relative to that word's x so render can place it without extra data.
-      outGuideDotXOffset.back() = static_cast<uint16_t>(lineXPos[i] - outXPos.back());
+      if (lineHasGuideDot) {
+        outGuideDotXOffset.back() = static_cast<uint16_t>(lineXPos[i] - outXPos.back());
+      }
     } else {
       // Normal word: check for a following bionic suffix to record the byte boundary.
       uint8_t boundary = 0;
       uint16_t suffixX = 0;
-      if (i + 1 < lineWordCount && wordIsBionicSuffix[lastBreakAt + i + 1]) {
-        boundary = static_cast<uint8_t>(std::min(lineWords[i].size(), size_t{255}));
+      if (i + 1 < lineWordCount && wordIsBionicSuffix[sourceIndex + 1]) {
+        boundary = static_cast<uint8_t>(std::min(sourceWord.size(), size_t{255}));
         // Suffix x offset = layout-time advance of the bold prefix, already known from xpos table.
         suffixX = static_cast<uint16_t>(lineXPos[i + 1] - lineXPos[i]);
       }
-      outWords.push_back(std::move(lineWords[i]));
+      outWords.push_back(std::move(sourceWord));
       outXPos.push_back(lineXPos[i]);
       // For bionic entries with a suffix, strip BOLD from the stored style.
       // Render re-applies it to the prefix portion only, via the boundary field.
       const EpdFontFamily::Style storedStyle =
-          boundary > 0 ? static_cast<EpdFontFamily::Style>(lineWordStyles[i] & ~EpdFontFamily::BOLD)
-                       : lineWordStyles[i];
+          boundary > 0 ? static_cast<EpdFontFamily::Style>(wordStyles[sourceIndex] & ~EpdFontFamily::BOLD)
+                       : wordStyles[sourceIndex];
       outStyles.push_back(storedStyle);
-      outBoundaries.push_back(boundary);
-      outSuffixX.push_back(suffixX);
-      outGuideDotXOffset.push_back(0);  // filled in later if a guide dot follows
+      if (lineHasBionicSplit) {
+        outBoundaries.push_back(boundary);
+        outSuffixX.push_back(suffixX);
+      }
+      if (lineHasGuideDot) {
+        outGuideDotXOffset.push_back(0);  // filled in later if a guide dot follows
+      }
+      outBackgroundBlack.push_back(wordBackgroundBlack[sourceIndex]);
     }
   }
 
   processLine(std::make_shared<TextBlock>(std::move(outWords), std::move(outXPos), std::move(outStyles),
                                           std::move(outBoundaries), std::move(outSuffixX),
-                                          std::move(outGuideDotXOffset), blockStyle));
+                                          std::move(outGuideDotXOffset), std::move(outBackgroundBlack), blockStyle));
 }

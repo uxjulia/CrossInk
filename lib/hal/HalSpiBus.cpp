@@ -20,7 +20,11 @@ HalSpiBus::Lock::Lock() {
     LOG_ERR("SPI", "SPI bus mutex not initialized, skipping lock");
     return;
   }
-  xSemaphoreTakeRecursive(bus.mutex, portMAX_DELAY);
+  const BaseType_t takeResult = xSemaphoreTakeRecursive(bus.mutex, portMAX_DELAY);
+  if (takeResult != pdTRUE) {
+    LOG_ERR("SPI", "Failed to acquire SPI bus mutex");
+    return;
+  }
   acquired = true;
 }
 

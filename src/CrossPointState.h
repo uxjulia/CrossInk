@@ -37,6 +37,7 @@ class CrossPointState {
   // Set by background move task on failure; read and cleared by ActivityManager to show AlertActivity.
   // Title/body are written before the flag is set to ensure they are visible when flag is read.
   std::atomic<bool> hasPendingAlert{false};
+  std::atomic<bool> pendingAlertGoHomeOnBack{false};
   char pendingAlertTitle[64] = {};
   char pendingAlertBody[256] = {};
 

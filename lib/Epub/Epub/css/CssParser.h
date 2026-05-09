@@ -3,7 +3,6 @@
 #include <HalStorage.h>
 
 #include <string>
-#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -45,7 +44,8 @@ struct CssAncestorEntry {
 class CssParser {
  public:
   // Bump when CSS cache format or rules change; section caches are invalidated when this changes
-  static constexpr uint8_t CSS_CACHE_VERSION = 5;
+  static constexpr uint32_t CSS_CACHE_MAGIC = 0x435843FF;  // bytes: 0xFF, "CXC"
+  static constexpr uint8_t CSS_CACHE_VERSION = 8;
 
   static constexpr size_t MAX_DESCENDANT_RULES = 100;
 
@@ -97,8 +97,11 @@ class CssParser {
    * Clear all loaded rules
    */
   void clear() {
-    rulesBySelector_.clear();
-    descendantRules_.clear();
+    // These buffers can grow large during chapter indexing. Swap with empty
+    // vectors so the capacity is released back to the heap, matching the old
+    // post-index cleanup behavior callers relied on.
+    decltype(rulesBySelector_){}.swap(rulesBySelector_);
+    decltype(descendantRules_){}.swap(descendantRules_);
   }
 
   /**
@@ -131,14 +134,19 @@ class CssParser {
     CssStyle style;
   };
 
-  // Storage: maps normalized selector -> style properties
-  std::unordered_map<std::string, CssStyle> rulesBySelector_;
+  // Storage: sorted vector of (selector, style) pairs.
+  // Kept sorted on insert so resolveStyle can safely use binary search.
+  std::vector<std::pair<std::string, CssStyle>> rulesBySelector_;
   std::vector<DescendantRule> descendantRules_;
 
   std::string cachePath;
 
+  const CssStyle* findRule(const std::string& key) const;
+  [[nodiscard]] bool ensureRuleCapacity();
+  [[nodiscard]] bool upsertRule(std::string key, const CssStyle& style);
+
   // Internal parsing helpers
-  void processRuleBlockWithStyle(const std::string& selectorGroup, const CssStyle& style);
+  [[nodiscard]] bool processRuleBlockWithStyle(const std::string& selectorGroup, const CssStyle& style);
   static bool selectorMatchesElement(const std::string& selector, const std::string& tag, const std::string& classAttr);
   static CssStyle parseDeclarations(const std::string& declBlock);
   static void parseDeclarationIntoStyle(const std::string& decl, CssStyle& style, std::string& propNameBuf,

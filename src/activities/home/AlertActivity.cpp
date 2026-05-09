@@ -11,6 +11,7 @@ void AlertActivity::onEnter() {
   Activity::onEnter();
   title = APP_STATE.pendingAlertTitle;
   body = APP_STATE.pendingAlertBody;
+  goHomeOnBack = APP_STATE.pendingAlertGoHomeOnBack.exchange(false, std::memory_order_relaxed);
   if (requestUpdateAndWait() != RequestUpdateResult::Rendered) {
     LOG_ERR("ALERT", "Alert screen could not be rendered synchronously");
     requestUpdate();
@@ -19,7 +20,11 @@ void AlertActivity::onEnter() {
 
 void AlertActivity::loop() {
   if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
-    finish();
+    if (goHomeOnBack) {
+      onGoHome();
+    } else {
+      finish();
+    }
   }
 }
 
@@ -42,7 +47,7 @@ void AlertActivity::render(RenderLock&&) {
     y += lineHeight;
   }
 
-  const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
+  const auto labels = mappedInput.mapLabels(goHomeOnBack ? tr(STR_HOME) : tr(STR_BACK), "", "", "");
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
   renderer.displayBuffer();

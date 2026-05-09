@@ -16,7 +16,7 @@ class Section {
   std::string filePath;
   FsFile file;
 
-  void writeSectionFileHeader(int fontId, float lineCompression, bool extraParagraphSpacing, bool forceParagraphIndents,
+  bool writeSectionFileHeader(int fontId, float lineCompression, bool extraParagraphSpacing, bool forceParagraphIndents,
                               uint8_t paragraphAlignment, uint16_t viewportWidth, uint16_t viewportHeight,
                               bool hyphenationEnabled, bool embeddedStyle, uint8_t imageRendering,
                               bool bionicReadingEnabled, bool guideReadingEnabled);
@@ -41,7 +41,7 @@ class Section {
                          uint8_t paragraphAlignment, uint16_t viewportWidth, uint16_t viewportHeight,
                          bool hyphenationEnabled, bool embeddedStyle, uint8_t imageRendering, bool bionicReadingEnabled,
                          bool guideReadingEnabled, const std::function<void()>& popupFn = nullptr,
-                         bool* imagesWereSuppressed = nullptr);
+                         bool* imagesWereSuppressed = nullptr, bool* layoutAbortedForLowMemory = nullptr);
   std::unique_ptr<Page> loadPageFromSectionFile();
 
   // Look up the page number for an anchor id from the section cache file.
@@ -49,6 +49,9 @@ class Section {
 
   // Look up the page number for a synthetic paragraph index from XPath p[N].
   std::optional<uint16_t> getPageForParagraphIndex(uint16_t pIndex) const;
+
+  // Look up the page number for a running list-item index from the li LUT.
+  std::optional<uint16_t> getPageForListItemIndex(uint16_t liIndex) const;
 
   // Look up the synthetic paragraph index for the given rendered page.
   std::optional<uint16_t> getParagraphIndexForPage(uint16_t page) const;

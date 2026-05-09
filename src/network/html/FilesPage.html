@@ -47,7 +47,7 @@
     }
     h2 {
       color: var(--title-color);
-      margin-top: 0;
+      margin: 0;
     }
     .card {
       background: var(--card-bg);
@@ -67,7 +67,7 @@
     }
     .page-header-left {
       display: flex;
-      align-items: baseline;
+      align-items: center;
       gap: 12px;
       flex-wrap: wrap;
     }
@@ -1480,6 +1480,7 @@
   <a href="/">Home</a>
   <a href="/files" class="active">File Manager</a>
   <a href="/settings">Settings</a>
+  <a href="/fonts">Fonts</a>
 </div>
 
 <div class="page-header">
@@ -3459,6 +3460,26 @@ function safeSerialize(doc, originalContent) {
   return result;
 }
 
+function protectWhitespaceOnlyTextNodes(content) {
+  const preserved = [];
+  const tokenPrefix = '__CROSSINK_PRESERVE_WS_';
+  const protectedContent = content.replace(/>([\s\u00a0]+)</g, (_, whitespace) => {
+    const token = `${tokenPrefix}${preserved.length}__`;
+    preserved.push(whitespace);
+    return `>${token}<`;
+  });
+
+  return {
+    content: protectedContent,
+    restore(serialized) {
+      return serialized.replace(new RegExp(`${escapeRegex(tokenPrefix)}(\\d+)__`, 'g'), (match, indexText) => {
+        const index = Number(indexText);
+        return Number.isInteger(index) && index >= 0 && index < preserved.length ? preserved[index] : match;
+      });
+    }
+  };
+}
+
 /**
  * Extract main identifier from OPF for NCX sync. DOMParser with regex fallback.
  */
@@ -3693,8 +3714,9 @@ function fixSvgWrappedImages(content) {
   if (!hasSvg || !content.includes('xlink:href')) return { c: content, fixed: false, count: 0 };
 
   try {
+    const whitespaceGuard = protectWhitespaceOnlyTextNodes(content);
     const parser = new DOMParser();
-    const doc = parser.parseFromString(content, 'application/xhtml+xml');
+    const doc = parser.parseFromString(whitespaceGuard.content, 'application/xhtml+xml');
 
     if (doc.querySelector('parsererror')) {
       // Fallback to regex
@@ -3729,7 +3751,7 @@ function fixSvgWrappedImages(content) {
     }
 
     if (fixedCount === 0) return { c: content, fixed: false, count: 0 };
-    return { c: safeSerialize(doc, content), fixed: true, count: fixedCount };
+    return { c: whitespaceGuard.restore(safeSerialize(doc, whitespaceGuard.content)), fixed: true, count: fixedCount };
 
   } catch (e) {
     // Fallback to regex
@@ -4330,8 +4352,9 @@ async function convertEpubFile(file, progressCallback) {
 
     // Use DOMParser for all img modifications: remove width/height and handle split images
     try {
+      const whitespaceGuard = protectWhitespaceOnlyTextNodes(t);
       const parser = new DOMParser();
-      const doc = parser.parseFromString(t, 'application/xhtml+xml');
+      const doc = parser.parseFromString(whitespaceGuard.content, 'application/xhtml+xml');
       const parseError = doc.querySelector('parsererror');
 
       if (!parseError) {
@@ -4448,7 +4471,7 @@ async function convertEpubFile(file, progressCallback) {
 
         // Only serialize if we made changes
         if (modified) {
-          t = safeSerialize(doc, content);
+          t = whitespaceGuard.restore(safeSerialize(doc, whitespaceGuard.content));
         }
       }
     } catch (e) {

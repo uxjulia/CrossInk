@@ -4,16 +4,21 @@
 #include <Logging.h>
 
 #include <algorithm>
+#include <cstring>
 
 #include "AppVersion.h"
 #include "ButtonRemapActivity.h"
 #include "ClearCacheActivity.h"
 #include "CrossPointSettings.h"
+#include "FontDownloadActivity.h"
+#include "FontSelectionActivity.h"
 #include "KOReaderSettingsActivity.h"
 #include "LanguageSelectActivity.h"
 #include "MappedInputManager.h"
 #include "OpdsServerListActivity.h"
 #include "OtaUpdateActivity.h"
+#include "SdCardFontGlobals.h"
+#include "SdFirmwareUpdateActivity.h"
 #include "SettingsList.h"
 #include "StatusBarSettingsActivity.h"
 #include "activities/network/WifiSelectionActivity.h"
@@ -23,16 +28,17 @@
 const StrId SettingsActivity::categoryNames[categoryCount] = {StrId::STR_CAT_DISPLAY, StrId::STR_CAT_READER,
                                                               StrId::STR_CAT_CONTROLS, StrId::STR_CAT_SYSTEM};
 
-void SettingsActivity::onEnter() {
-  Activity::onEnter();
-
-  // Build per-category vectors from the shared settings list
+void SettingsActivity::rebuildSettingsLists() {
   displaySettings.clear();
   readerSettings.clear();
   controlsSettings.clear();
   systemSettings.clear();
 
-  const auto& allSettings = getSettingsList();
+  // Pick up any fonts uploaded/deleted over the web server since the last
+  // reader activity ran — otherwise the font-family picker shows stale list.
+  sdFontSystem.refreshIfDirty();
+
+  const auto allSettings = getSettingsList(&sdFontSystem.registry());
   auto addControlSetting = [&](StrId nameId) {
     const auto it = std::find_if(allSettings.begin(), allSettings.end(),
                                  [nameId](const auto& setting) { return setting.nameId == nameId; });
@@ -41,6 +47,16 @@ void SettingsActivity::onEnter() {
       return;
     }
     LOG_ERR("SET", "Missing control setting definition for nameId=%d", static_cast<int>(nameId));
+  };
+  auto addControlSettingByKey = [&](const char* key) {
+    const auto it = std::find_if(allSettings.begin(), allSettings.end(), [key](const auto& setting) {
+      return setting.key && std::strcmp(setting.key, key) == 0;
+    });
+    if (it != allSettings.end()) {
+      controlsSettings.push_back(*it);
+      return;
+    }
+    LOG_ERR("SET", "Missing control setting definition for key=%s", key);
   };
 
   for (const auto& setting : allSettings) {
@@ -52,7 +68,6 @@ void SettingsActivity::onEnter() {
     } else if (setting.category == StrId::STR_CAT_SYSTEM) {
       systemSettings.push_back(setting);
     }
-    // Web-only categories (KOReader Sync, OPDS Browser) are skipped for device UI
   }
 
   // Append device-only ACTION items
@@ -61,7 +76,11 @@ void SettingsActivity::onEnter() {
   systemSettings.push_back(SettingInfo::Action(StrId::STR_OPDS_SERVERS, SettingAction::OPDSBrowser));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_CLEAR_READING_CACHE, SettingAction::ClearCache));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_CHECK_UPDATES, SettingAction::CheckForUpdates));
+  systemSettings.push_back(SettingInfo::Action(StrId::STR_SD_FIRMWARE_UPDATE, SettingAction::SdFirmwareUpdate));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_LANGUAGE, SettingAction::Language));
+  // Insert "Manage Fonts" right after the font family setting so users discover it naturally
+  readerSettings.insert(readerSettings.begin() + 1,
+                        SettingInfo::Action(StrId::STR_MANAGE_FONTS, SettingAction::DownloadFonts));
   readerSettings.push_back(SettingInfo::Action(StrId::STR_CUSTOMISE_STATUS_BAR, SettingAction::CustomiseStatusBar));
 
   const bool hasTiltPageTurnSetting = std::any_of(allSettings.begin(), allSettings.end(), [](const auto& setting) {
@@ -69,7 +88,7 @@ void SettingsActivity::onEnter() {
   });
 
   // Build controls settings with section headers in desired display order
-  const size_t expectedControlsSettingsCount = hasTiltPageTurnSetting ? 13 : 11;
+  const size_t expectedControlsSettingsCount = hasTiltPageTurnSetting ? 15 : 13;
   controlsSettings.reserve(expectedControlsSettingsCount);
   controlsSettings.push_back(SettingInfo::SectionHeader(StrId::STR_POWER_BUTTON));
   addControlSetting(StrId::STR_SHORT_PWR_BTN);
@@ -78,10 +97,12 @@ void SettingsActivity::onEnter() {
   controlsSettings.push_back(SettingInfo::Action(StrId::STR_REMAP_FRONT_BUTTONS, SettingAction::RemapFrontButtons));
   controlsSettings.push_back(
       SettingInfo::Action(StrId::STR_REMAP_FRONT_BUTTONS_READER, SettingAction::RemapFrontButtonsReader));
+  addControlSettingByKey("frontButtonOrientationAware");
+  addControlSetting(StrId::STR_LONG_PRESS_BEHAVIOR);
   addControlSetting(StrId::STR_LONG_PRESS_MENU_ACTION);
   controlsSettings.push_back(SettingInfo::SectionHeader(StrId::STR_SIDE_BUTTONS));
   addControlSetting(StrId::STR_SIDE_BTN_LAYOUT);
-  addControlSetting(StrId::STR_LONG_PRESS_SKIP);
+  addControlSettingByKey("sideButtonOrientationAware");
   addControlSetting(StrId::STR_SIDE_BTN_LONG_PRESS);
   if (hasTiltPageTurnSetting) {
     controlsSettings.push_back(SettingInfo::SectionHeader(StrId::STR_OTHER));
@@ -93,13 +114,32 @@ void SettingsActivity::onEnter() {
             static_cast<uint32_t>(controlsSettings.size()), static_cast<uint32_t>(expectedControlsSettingsCount));
   }
 
+  // Update currentSettings pointer and count for the active category
+  switch (selectedCategoryIndex) {
+    case 0:
+      currentSettings = &displaySettings;
+      break;
+    case 1:
+      currentSettings = &readerSettings;
+      break;
+    case 2:
+      currentSettings = &controlsSettings;
+      break;
+    case 3:
+      currentSettings = &systemSettings;
+      break;
+  }
+  settingsCount = static_cast<int>(currentSettings->size());
+}
+
+void SettingsActivity::onEnter() {
+  Activity::onEnter();
+
   // Reset selection to first category
   selectedCategoryIndex = 0;
   selectedSettingIndex = 0;
 
-  // Initialize with first category (Display)
-  currentSettings = &displaySettings;
-  settingsCount = static_cast<int>(displaySettings.size());
+  rebuildSettingsLists();
 
   // Trigger first update
   requestUpdate();
@@ -214,6 +254,21 @@ void SettingsActivity::toggleCurrentSetting() {
   } else if (setting.type == SettingType::ENUM && setting.valuePtr != nullptr) {
     const uint8_t currentValue = SETTINGS.*(setting.valuePtr);
     SETTINGS.*(setting.valuePtr) = (currentValue + 1) % static_cast<uint8_t>(setting.enumValues.size());
+  } else if (setting.type == SettingType::ENUM && setting.valueGetter && setting.valueSetter) {
+    if (setting.nameId == StrId::STR_FONT_FAMILY) {
+      // Launch font selection submenu instead of cycling
+      startActivityForResult(std::make_unique<FontSelectionActivity>(renderer, mappedInput, &sdFontSystem.registry()),
+                             [this](const ActivityResult&) {
+                               SETTINGS.saveToFile();
+                               rebuildSettingsLists();
+                             });
+      return;
+    }
+    const uint8_t totalValues = setting.enumStringValues.empty()
+                                    ? static_cast<uint8_t>(setting.enumValues.size())
+                                    : static_cast<uint8_t>(setting.enumStringValues.size());
+    const uint8_t cur = setting.valueGetter();
+    setting.valueSetter((cur + 1) % totalValues);
   } else if (setting.type == SettingType::VALUE && setting.valuePtr != nullptr) {
     const int8_t currentValue = SETTINGS.*(setting.valuePtr);
     if (currentValue + setting.valueRange.step > setting.valueRange.max) {
@@ -248,6 +303,16 @@ void SettingsActivity::toggleCurrentSetting() {
         break;
       case SettingAction::CheckForUpdates:
         startActivityForResult(std::make_unique<OtaUpdateActivity>(renderer, mappedInput), resultHandler);
+        break;
+      case SettingAction::SdFirmwareUpdate:
+        startActivityForResult(std::make_unique<SdFirmwareUpdateActivity>(renderer, mappedInput), resultHandler);
+        break;
+      case SettingAction::DownloadFonts:
+        startActivityForResult(std::make_unique<FontDownloadActivity>(renderer, mappedInput),
+                               [this](const ActivityResult&) {
+                                 SETTINGS.saveToFile();
+                                 rebuildSettingsLists();
+                               });
         break;
       case SettingAction::Language:
         startActivityForResult(std::make_unique<LanguageSelectActivity>(renderer, mappedInput), resultHandler);
@@ -300,12 +365,19 @@ void SettingsActivity::render(RenderLock&&) {
           const uint8_t value = SETTINGS.*(setting.valuePtr);
           const uint8_t safeValue = value < setting.enumValues.size() ? value : 0;
           valueText = I18N.get(setting.enumValues[safeValue]);
+        } else if (setting.type == SettingType::ENUM && setting.valueGetter) {
+          const uint8_t value = setting.valueGetter();
+          if (!setting.enumStringValues.empty() && value < setting.enumStringValues.size()) {
+            valueText = setting.enumStringValues[value];
+          } else if (value < setting.enumValues.size()) {
+            valueText = I18N.get(setting.enumValues[value]);
+          }
         } else if (setting.type == SettingType::VALUE && setting.valuePtr != nullptr) {
           valueText = std::to_string(SETTINGS.*(setting.valuePtr));
         }
         return valueText;
       },
-      true, [&settings](int i) { return settings[i].type == SettingType::SECTION_HEADER; });
+      true, nullptr, [&settings](int i) { return settings[i].type == SettingType::SECTION_HEADER; });
 
   // Draw CrossInk version label at the bottom of the System tab
   if (selectedCategoryIndex == 3) {

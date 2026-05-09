@@ -7,9 +7,20 @@
 #include <Logging.h>
 #include <esp_task_wdt.h>
 
+#include <algorithm>
+#include <cstring>
+
+#include "CrossPointSettings.h"
+
 namespace {
-const char* HIDDEN_ITEMS[] = {"System Volume Information", "XTCache"};
-constexpr size_t HIDDEN_ITEMS_COUNT = sizeof(HIDDEN_ITEMS) / sizeof(HIDDEN_ITEMS[0]);
+constexpr const char* HIDDEN_ITEMS[] = {"System Volume Information", "XTCache"};
+constexpr size_t HIDDEN_ITEM_COUNT = sizeof(HIDDEN_ITEMS) / sizeof(HIDDEN_ITEMS[0]);
+
+bool isProtectedPathSegment(const char* name) {
+  return (!SETTINGS.showHiddenFiles && name[0] == '.') ||
+         std::any_of(HIDDEN_ITEMS, HIDDEN_ITEMS + HIDDEN_ITEM_COUNT,
+                     [name](const char* item) { return strcmp(name, item) == 0; });
+}
 
 // RFC 1123 date format helper: "Sun, 06 Nov 1994 08:49:37 GMT"
 // ESP32 doesn't have real-time clock set by default, so we use a fixed epoch date
@@ -227,18 +238,7 @@ void WebDAVHandler::handlePropfind(WebServer& s) {
     while (file) {
       file.getName(name, sizeof(name));
 
-      // Skip hidden/protected items
-      bool shouldHide = (name[0] == '.');
-      if (!shouldHide) {
-        for (size_t i = 0; i < HIDDEN_ITEMS_COUNT; i++) {
-          if (strcmp(name, HIDDEN_ITEMS[i]) == 0) {
-            shouldHide = true;
-            break;
-          }
-        }
-      }
-
-      if (!shouldHide) {
+      if (!isProtectedPathSegment(name)) {
         String childPath = path;
         if (!childPath.endsWith("/")) childPath += "/";
         childPath += name;
@@ -772,11 +772,7 @@ bool WebDAVHandler::isProtectedPath(const String& path) const {
 
     String segment = path.substring(start, end);
 
-    if (segment.startsWith(".")) return true;
-
-    for (size_t i = 0; i < HIDDEN_ITEMS_COUNT; i++) {
-      if (segment.equals(HIDDEN_ITEMS[i])) return true;
-    }
+    if (isProtectedPathSegment(segment.c_str())) return true;
 
     start = end + 1;
   }

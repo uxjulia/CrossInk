@@ -54,8 +54,21 @@ class Epub {
   std::string getCoverBmpPath(bool cropped = false) const;
   bool generateCoverBmp(bool cropped = false) const;
   std::string getThumbBmpPath() const;
+  // Deprecated compatibility wrapper; forwards to getThumbBmpPath(0, height).
+  [[deprecated("use getThumbBmpPath(int width, int height)")]]
   std::string getThumbBmpPath(int height) const;
+  // Returns the thumbnail cache path. width <= 0 derives the default 3:5
+  // (width:height) thumbnail width from height; height <= 0 uses the default
+  // thumbnail height.
+  std::string getThumbBmpPath(int width, int height) const;
+  // Deprecated compatibility wrapper; forwards to generateThumbBmp(0, height).
+  [[deprecated("use generateThumbBmp(int width, int height)")]]
   bool generateThumbBmp(int height) const;
+  // Writes a thumbnail BMP to cache. width <= 0 derives the default 3:5
+  // (width:height) thumbnail width from height; height <= 0 uses the default
+  // thumbnail height.
+  // Returns false on missing cache/cover, unsupported image format, or conversion failure.
+  bool generateThumbBmp(int width, int height) const;
   uint8_t* readItemContentsToBytes(const std::string& itemHref, size_t* size = nullptr,
                                    bool trailingNullByte = false) const;
   bool readItemContentsToStream(const std::string& itemHref, Print& out, size_t chunkSize) const;

@@ -84,11 +84,21 @@ Project: Open-source e-reader firmware for Xteink X4 (ESP32-C3).
 
 ## Changelog
 
-When new features are added or issues are fixed, make sure to add an entry to `CHANGELOG.md`. Types of changes should have their own section:
+When new features are added or issues are fixed, make sure to add an entry to `CHANGELOG.md` with the user-facing description of the change. Types of changes should have their own section.
 
-Added - for new features.
-Changed - for changes in existing functionality.
-Deprecated - for soon-to-be removed features.
-Removed - for now removed features.
-Fixed - for any bug fixes.
-Security - in case of vulnerabilities.
+### Changelog Guiding Principles
+
+- Changelogs are _for humans_, not machines.
+- There should be an entry for every single version.
+- The same types of changes should be grouped.
+- Versions and sections should be linkable.
+- The latest version comes first.
+- The release date of each version is displayed.
+
+### Types of Changelog Changes
+- Added - for new features.
+- Changed - for changes in existing functionality.
+- Deprecated - for soon-to-be removed features.
+- Removed - for now removed features.
+- Fixed - for any bug fixes.
+- Security - in case of vulnerabilities.

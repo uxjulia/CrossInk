@@ -19,7 +19,7 @@ namespace {
 constexpr size_t CHUNK_SIZE = 8 * 1024;  // 8KB chunk for reading
 // Cache file magic and version
 constexpr uint32_t CACHE_MAGIC = 0x54585449;  // "TXTI"
-constexpr uint8_t CACHE_VERSION = 2;          // Increment when cache format changes
+constexpr uint8_t CACHE_VERSION = 3;          // Increment when cache format changes
 constexpr uint32_t MAX_CACHE_PAGES = 65535;   // Sanity cap to prevent unbounded reserve()
 
 // Parses and word-wraps lines from a file chunk into outLines.
@@ -39,7 +39,12 @@ size_t parseAndWrapLines(const uint8_t* buffer, size_t chunkSize, size_t fileOff
     std::string line(reinterpret_cast<const char*>(buffer + pos), displayLen);
     size_t lineBytePos = 0;
 
-    while (!line.empty() && static_cast<int>(outLines.size()) < linesPerPage) {
+    do {
+      if (line.empty()) {
+        outLines.emplace_back();
+        break;
+      }
+
       if (renderer.getTextWidth(fontId, line.c_str()) <= vw) {
         outLines.push_back(line);
         lineBytePos = displayLen;
@@ -65,7 +70,7 @@ size_t parseAndWrapLines(const uint8_t* buffer, size_t chunkSize, size_t fileOff
       if (breakPos < line.length() && line[breakPos] == ' ') skipChars++;
       lineBytePos += skipChars;
       line = line.substr(skipChars);
-    }
+    } while (!line.empty() && static_cast<int>(outLines.size()) < linesPerPage);
 
     if (line.empty()) {
       pos = lineEnd + 1;
@@ -100,7 +105,7 @@ void TxtReaderActivity::onEnter() {
   auto fileName = filePath.substr(filePath.rfind('/') + 1);
   APP_STATE.openEpubPath = filePath;
   APP_STATE.saveToFile();
-  RECENT_BOOKS.addBook(filePath, fileName, "", "");
+  RECENT_BOOKS.addOrUpdateBook(filePath, fileName, "", "");
 
   // Trigger first update
   requestUpdate();
@@ -134,6 +139,63 @@ void TxtReaderActivity::loop() {
       mappedInput.getHeldTime() < ReaderUtils::GO_HOME_MS) {
     onGoHome();
     return;
+  }
+
+  if (SETTINGS.sideButtonLongPress == CrossPointSettings::SIDE_LONG_PRESS::SIDE_LONG_ORIENTATION_CHANGE) {
+    const bool topReleased = mappedInput.wasReleased(MappedInputManager::Button::Up);
+    const bool bottomReleased = mappedInput.wasReleased(MappedInputManager::Button::Down);
+    if (sideButtonLongPressHandled && (topReleased || bottomReleased)) {
+      sideButtonLongPressHandled = false;
+      return;
+    }
+
+    const bool longPressReady = mappedInput.getHeldTime() > ReaderUtils::SKIP_HOLD_MS;
+    const bool topLongPressed =
+        longPressReady && (mappedInput.isPressed(MappedInputManager::Button::Up) || topReleased);
+    const bool bottomLongPressed =
+        longPressReady && (mappedInput.isPressed(MappedInputManager::Button::Down) || bottomReleased);
+
+    if (!sideButtonLongPressHandled && (topLongPressed || bottomLongPressed)) {
+      sideButtonLongPressHandled = !(topReleased || bottomReleased);
+      SETTINGS.orientation = ReaderUtils::rotatedOrientation(SETTINGS.orientation, /*clockwise=*/bottomLongPressed);
+      SETTINGS.saveToFile();
+      {
+        RenderLock lock(*this);
+        ReaderUtils::applyOrientation(renderer, SETTINGS.orientation);
+        pageOffsets.clear();
+        currentPageLines.clear();
+        initialized = false;
+      }
+      requestUpdate();
+      return;
+    }
+  }
+
+  if (SETTINGS.longPressButtonBehavior == CrossPointSettings::ORIENTATION_CHANGE) {
+    const bool leftReleased = mappedInput.wasReleased(MappedInputManager::Button::Left);
+    const bool rightReleased = mappedInput.wasReleased(MappedInputManager::Button::Right);
+    if (frontButtonLongPressHandled && (leftReleased || rightReleased)) {
+      frontButtonLongPressHandled = false;
+      return;
+    }
+
+    const bool longPressReady = mappedInput.getHeldTime() > ReaderUtils::SKIP_HOLD_MS;
+    const bool prevLongPressed = longPressReady && mappedInput.isPressed(MappedInputManager::Button::Left);
+    const bool nextLongPressed = longPressReady && mappedInput.isPressed(MappedInputManager::Button::Right);
+    if (!frontButtonLongPressHandled && (prevLongPressed || nextLongPressed)) {
+      frontButtonLongPressHandled = true;
+      SETTINGS.orientation = ReaderUtils::rotatedOrientation(SETTINGS.orientation, /*clockwise=*/prevLongPressed);
+      SETTINGS.saveToFile();
+      {
+        RenderLock lock(*this);
+        ReaderUtils::applyOrientation(renderer, SETTINGS.orientation);
+        pageOffsets.clear();
+        currentPageLines.clear();
+        initialized = false;
+      }
+      requestUpdate();
+      return;
+    }
   }
 
   auto [prevTriggered, nextTriggered, fromSideBtn, fromTilt] = ReaderUtils::detectPageTurn(mappedInput);

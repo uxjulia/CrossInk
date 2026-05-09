@@ -19,3 +19,7 @@ fs_/
 
 # scratchpad used as release notes for next crossink version
 release.md
+*.cpfont
+lib/EpdFont/scripts/downloaded_fonts/
+lib/EpdFont/scripts/instanced_fonts/
+lib/EpdFont/scripts/output/

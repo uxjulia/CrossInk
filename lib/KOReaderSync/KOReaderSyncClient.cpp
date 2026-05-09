@@ -15,6 +15,7 @@
 #include <esp_http_client.h>
 #endif
 
+#include <cstring>
 #include <ctime>
 #include <memory>
 
@@ -26,6 +27,59 @@ namespace {
 // Device identifier for CrossPoint reader
 constexpr char DEVICE_NAME[] = "CrossPoint";
 constexpr char DEVICE_ID[] = "crosspoint-reader";
+
+const char* classifyJsonBody(const char* body) {
+  if (!body || body[0] == '\0') return "empty response";
+
+  const char* cursor = body;
+  while (*cursor == ' ' || *cursor == '\t' || *cursor == '\r' || *cursor == '\n') {
+    cursor++;
+  }
+
+  if (*cursor == '\0') return "blank response";
+  if (*cursor == '<') return "HTML response";
+  if (*cursor != '{' && *cursor != '[') return "non-JSON response";
+  return "malformed JSON";
+}
+
+void logJsonParseFailure(const char* context, DeserializationError error, const char* body) {
+  char preview[97];
+  size_t i = 0;
+  if (body) {
+    for (; i < sizeof(preview) - 1 && body[i] != '\0'; i++) {
+      const char c = body[i];
+      preview[i] = (c == '\r' || c == '\n' || c == '\t') ? ' ' : c;
+    }
+  }
+  preview[i] = '\0';
+
+  LOG_ERR("KOSync", "%s JSON parse failed: %s (%s, preview=\"%s\")", context, error.c_str(), classifyJsonBody(body),
+          preview);
+}
+
+KOReaderSyncClient::Error validateAuthResponse(const char* body) {
+  JsonDocument doc;
+  const DeserializationError error = deserializeJson(doc, body ? body : "");
+  if (error) {
+    logJsonParseFailure("Auth", error, body);
+    return KOReaderSyncClient::JSON_ERROR;
+  }
+
+  const char* authorized = doc["authorized"] | "";
+  if (std::strcmp(authorized, "OK") != 0) {
+    LOG_ERR("KOSync", "Auth response missing authorized=OK");
+    return KOReaderSyncClient::INVALID_AUTH_RESPONSE;
+  }
+
+  return KOReaderSyncClient::OK;
+}
+
+// Cloudflare tunnels send a 3-cert Google Trust Services chain. During the TLS handshake
+// mbedTLS makes many small allocations that collectively consume ~48KB of heap. With only
+// ~50KB free after WiFi connects, the session drove min-free-ever down to 2600 bytes before
+// failing with MBEDTLS_ERR_X509_ALLOC_FAILED (-0x2880). Check total free heap (not max
+// contiguous block) because the failure mode is aggregate exhaustion, not one large alloc.
+constexpr uint32_t MIN_HEAP_FOR_TLS = 55000;
 
 #ifdef SIMULATOR
 void addAuthHeaders(HTTPClient& http) {
@@ -128,7 +182,12 @@ KOReaderSyncClient::Error KOReaderSyncClient::authenticate() {
   }
 
   std::string url = KOREADER_STORE.getBaseUrl() + "/users/auth";
-  LOG_DBG("KOSync", "Authenticating: %s (heap: %u)", url.c_str(), (unsigned)ESP.getFreeHeap());
+  const uint32_t freeHeap = ESP.getFreeHeap();
+  LOG_DBG("KOSync", "Authenticating: %s (heap: %u)", url.c_str(), (unsigned)freeHeap);
+  if (freeHeap < MIN_HEAP_FOR_TLS) {
+    LOG_ERR("KOSync", "Insufficient heap for TLS handshake: %u bytes free (need %u)", freeHeap, MIN_HEAP_FOR_TLS);
+    return LOW_MEMORY;
+  }
 
 #ifdef SIMULATOR
   HTTPClient http;
@@ -146,11 +205,17 @@ KOReaderSyncClient::Error KOReaderSyncClient::authenticate() {
 
   const int httpCode = http.GET();
   lastHttpCode = httpCode;
-  http.end();
 
   LOG_DBG("KOSync", "Auth response: %d", httpCode);
 
-  if (httpCode == 200) return OK;
+  if (httpCode == 200) {
+    String responseBody = http.getString();
+    http.end();
+    return validateAuthResponse(responseBody.c_str());
+  }
+
+  http.end();
+
   if (httpCode == 401) return AUTH_FAILED;
   if (httpCode < 0) return NETWORK_ERROR;
   return SERVER_ERROR;
@@ -170,7 +235,7 @@ KOReaderSyncClient::Error KOReaderSyncClient::authenticate() {
   LOG_DBG("KOSync", "Auth response: %d (err: %d)", httpCode, err);
 
   if (err != ESP_OK) return NETWORK_ERROR;
-  if (httpCode == 200) return OK;
+  if (httpCode == 200) return validateAuthResponse(buf.data);
   if (httpCode == 401) return AUTH_FAILED;
   return SERVER_ERROR;
 #endif
@@ -185,7 +250,12 @@ KOReaderSyncClient::Error KOReaderSyncClient::getProgress(const std::string& doc
   }
 
   std::string url = KOREADER_STORE.getBaseUrl() + "/syncs/progress/" + documentHash;
-  LOG_DBG("KOSync", "Getting progress: %s (heap: %u)", url.c_str(), (unsigned)ESP.getFreeHeap());
+  const uint32_t freeHeap = ESP.getFreeHeap();
+  LOG_DBG("KOSync", "Getting progress: %s (heap: %u)", url.c_str(), (unsigned)freeHeap);
+  if (freeHeap < MIN_HEAP_FOR_TLS) {
+    LOG_ERR("KOSync", "Insufficient heap for TLS handshake: %u bytes free (need %u)", freeHeap, MIN_HEAP_FOR_TLS);
+    return LOW_MEMORY;
+  }
 
 #ifdef SIMULATOR
   HTTPClient http;
@@ -212,7 +282,7 @@ KOReaderSyncClient::Error KOReaderSyncClient::getProgress(const std::string& doc
     const DeserializationError error = deserializeJson(doc, responseBody);
 
     if (error) {
-      LOG_ERR("KOSync", "JSON parse failed: %s", error.c_str());
+      logJsonParseFailure("Get progress", error, responseBody.c_str());
       return JSON_ERROR;
     }
 
@@ -256,7 +326,7 @@ KOReaderSyncClient::Error KOReaderSyncClient::getProgress(const std::string& doc
     const DeserializationError error = deserializeJson(doc, buf.data);
 
     if (error) {
-      LOG_ERR("KOSync", "JSON parse failed: %s", error.c_str());
+      logJsonParseFailure("Get progress", error, buf.data);
       return JSON_ERROR;
     }
 
@@ -285,7 +355,12 @@ KOReaderSyncClient::Error KOReaderSyncClient::updateProgress(const KOReaderProgr
   }
 
   std::string url = KOREADER_STORE.getBaseUrl() + "/syncs/progress";
-  LOG_DBG("KOSync", "Updating progress: %s (heap: %u)", url.c_str(), (unsigned)ESP.getFreeHeap());
+  const uint32_t freeHeap = ESP.getFreeHeap();
+  LOG_DBG("KOSync", "Updating progress: %s (heap: %u)", url.c_str(), (unsigned)freeHeap);
+  if (freeHeap < MIN_HEAP_FOR_TLS) {
+    LOG_ERR("KOSync", "Insufficient heap for TLS handshake: %u bytes free (need %u)", freeHeap, MIN_HEAP_FOR_TLS);
+    return LOW_MEMORY;
+  }
 
   // Build JSON body
   JsonDocument doc;
@@ -371,6 +446,10 @@ const char* KOReaderSyncClient::errorString(Error error) {
       return "JSON parse error";
     case NOT_FOUND:
       return "No progress found";
+    case INVALID_AUTH_RESPONSE:
+      return "Invalid auth response";
+    case LOW_MEMORY:
+      return "Not enough memory for sync - please retry";
     default:
       return "Unknown error";
   }

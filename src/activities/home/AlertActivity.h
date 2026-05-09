@@ -4,6 +4,7 @@
 class AlertActivity final : public Activity {
   std::string title;
   std::string body;
+  bool goHomeOnBack = false;
 
  public:
   explicit AlertActivity(GfxRenderer& renderer, MappedInputManager& mappedInput)

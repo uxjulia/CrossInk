@@ -60,11 +60,8 @@ class EpubReaderMenuActivity final : public Activity {
   ButtonNavigator buttonNavigator;
   std::string title = "Reader Menu";
   uint8_t pendingOrientation = 0;
-  uint8_t selectedPageTurnOption = 0;
   const std::vector<StrId> orientationLabels = {StrId::STR_PORTRAIT, StrId::STR_LANDSCAPE_CW, StrId::STR_INVERTED,
                                                 StrId::STR_LANDSCAPE_CCW};
-  const std::vector<const char*> pageTurnLabels = {
-      I18N.get(StrId::STR_STATE_OFF), "60", "45", "30", "20", "15", "10", "5"};
   int currentPage = 0;
   int totalPages = 0;
   int bookProgressPercent = 0;

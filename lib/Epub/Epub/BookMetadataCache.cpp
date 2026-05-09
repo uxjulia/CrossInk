@@ -10,7 +10,8 @@
 #include "FsHelpers.h"
 
 namespace {
-constexpr uint8_t BOOK_CACHE_VERSION = 5;
+constexpr uint32_t BOOK_CACHE_MAGIC = 0x425843FF;  // bytes: 0xFF, "CXB"
+constexpr uint8_t BOOK_CACHE_VERSION = 6;
 constexpr char bookBinFile[] = "/book.bin";
 constexpr char tmpSpineBinFile[] = "/spine.bin.tmp";
 constexpr char tmpTocBinFile[] = "/toc.bin.tmp";
@@ -119,8 +120,8 @@ bool BookMetadataCache::buildBookBin(const std::string& epubPath, const BookMeta
     return false;
   }
 
-  constexpr uint32_t headerASize =
-      sizeof(BOOK_CACHE_VERSION) + /* LUT Offset */ sizeof(uint32_t) + sizeof(spineCount) + sizeof(tocCount);
+  constexpr uint32_t headerASize = sizeof(BOOK_CACHE_MAGIC) + sizeof(BOOK_CACHE_VERSION) +
+                                   /* LUT Offset */ sizeof(uint32_t) + sizeof(spineCount) + sizeof(tocCount);
   const uint32_t metadataSize = metadata.title.size() + metadata.author.size() + metadata.language.size() +
                                 metadata.coverItemHref.size() + metadata.textReferenceHref.size() +
                                 sizeof(uint32_t) * 5;
@@ -128,6 +129,7 @@ bool BookMetadataCache::buildBookBin(const std::string& epubPath, const BookMeta
   const uint32_t lutOffset = headerASize + metadataSize;
 
   // Header A
+  serialization::writePod(bookFile, BOOK_CACHE_MAGIC);
   serialization::writePod(bookFile, BOOK_CACHE_VERSION);
   serialization::writePod(bookFile, lutOffset);
   serialization::writePod(bookFile, spineCount);
@@ -383,28 +385,51 @@ void BookMetadataCache::createTocEntry(const std::string& title, const std::stri
 /* ============= READING / LOADING FUNCTIONS ================ */
 
 bool BookMetadataCache::load() {
-  if (!Storage.openFileForRead("BMC", cachePath + bookBinFile, bookFile)) {
+  const auto bookBinPath = cachePath + bookBinFile;
+  if (!Storage.openFileForRead("BMC", bookBinPath, bookFile)) {
+    return false;
+  }
+
+  uint32_t magic;
+  if (!serialization::tryReadPod(bookFile, magic)) {
+    LOG_DBG("BMC", "Cache header is truncated");
+    bookFile.close();
+    Storage.remove(bookBinPath.c_str());
+    return false;
+  }
+  if (magic != BOOK_CACHE_MAGIC) {
+    LOG_DBG("BMC", "Cache magic mismatch");
+    bookFile.close();
+    Storage.remove(bookBinPath.c_str());
     return false;
   }
 
   uint8_t version;
-  serialization::readPod(bookFile, version);
+  if (!serialization::tryReadPod(bookFile, version)) {
+    LOG_DBG("BMC", "Cache version is missing");
+    bookFile.close();
+    Storage.remove(bookBinPath.c_str());
+    return false;
+  }
   if (version != BOOK_CACHE_VERSION) {
     LOG_DBG("BMC", "Cache version mismatch: expected %d, got %d", BOOK_CACHE_VERSION, version);
     // Explicit close() required: member variable persists beyond function scope
     bookFile.close();
+    Storage.remove(bookBinPath.c_str());
     return false;
   }
 
-  serialization::readPod(bookFile, lutOffset);
-  serialization::readPod(bookFile, spineCount);
-  serialization::readPod(bookFile, tocCount);
-
-  serialization::readString(bookFile, coreMetadata.title);
-  serialization::readString(bookFile, coreMetadata.author);
-  serialization::readString(bookFile, coreMetadata.language);
-  serialization::readString(bookFile, coreMetadata.coverItemHref);
-  serialization::readString(bookFile, coreMetadata.textReferenceHref);
+  if (!serialization::tryReadPod(bookFile, lutOffset) || !serialization::tryReadPod(bookFile, spineCount) ||
+      !serialization::tryReadPod(bookFile, tocCount) || !serialization::tryReadString(bookFile, coreMetadata.title) ||
+      !serialization::tryReadString(bookFile, coreMetadata.author) ||
+      !serialization::tryReadString(bookFile, coreMetadata.language) ||
+      !serialization::tryReadString(bookFile, coreMetadata.coverItemHref) ||
+      !serialization::tryReadString(bookFile, coreMetadata.textReferenceHref)) {
+    LOG_DBG("BMC", "Cache metadata is truncated");
+    bookFile.close();
+    Storage.remove(bookBinPath.c_str());
+    return false;
+  }
 
   loaded = true;
   LOG_DBG("BMC", "Loaded cache data: %d spine, %d TOC entries", spineCount, tocCount);

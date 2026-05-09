@@ -8,6 +8,59 @@
 #include "components/UITheme.h"
 #include "fontIds.h"
 
+namespace {
+
+struct ReaderLayoutSettingsSnapshot {
+  uint8_t fontFamily;
+  uint8_t fontSize;
+  uint8_t lineSpacing;
+  uint8_t orientation;
+  uint8_t screenMargin;
+  uint8_t paragraphAlignment;
+  uint8_t embeddedStyle;
+  uint8_t hyphenationEnabled;
+  uint8_t imageRendering;
+  uint8_t extraParagraphSpacing;
+  uint8_t forceParagraphIndents;
+  uint8_t bionicReadingEnabled;
+  uint8_t guideReadingEnabled;
+
+  bool operator==(const ReaderLayoutSettingsSnapshot& other) const {
+    return fontFamily == other.fontFamily && fontSize == other.fontSize && lineSpacing == other.lineSpacing &&
+           orientation == other.orientation && screenMargin == other.screenMargin &&
+           paragraphAlignment == other.paragraphAlignment && embeddedStyle == other.embeddedStyle &&
+           hyphenationEnabled == other.hyphenationEnabled && imageRendering == other.imageRendering &&
+           extraParagraphSpacing == other.extraParagraphSpacing &&
+           forceParagraphIndents == other.forceParagraphIndents && bionicReadingEnabled == other.bionicReadingEnabled &&
+           guideReadingEnabled == other.guideReadingEnabled;
+  }
+  bool operator!=(const ReaderLayoutSettingsSnapshot& other) const { return !(*this == other); }
+};
+
+ReaderLayoutSettingsSnapshot captureReaderLayoutSettings() {
+  return {
+      SETTINGS.fontFamily,
+      SETTINGS.fontSize,
+      SETTINGS.lineSpacing,
+      SETTINGS.orientation,
+      SETTINGS.screenMargin,
+      SETTINGS.paragraphAlignment,
+      SETTINGS.embeddedStyle,
+      SETTINGS.hyphenationEnabled,
+      SETTINGS.imageRendering,
+      SETTINGS.extraParagraphSpacing,
+      SETTINGS.forceParagraphIndents,
+      SETTINGS.bionicReadingEnabled,
+      SETTINGS.guideReadingEnabled,
+  };
+}
+
+bool haveReaderLayoutSettingsChanged(const ReaderLayoutSettingsSnapshot& before) {
+  return before != captureReaderLayoutSettings();
+}
+
+}  // namespace
+
 EpubReaderMenuActivity::EpubReaderMenuActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
                                                const std::string& title, const int currentPage, const int totalPages,
                                                const int bookProgressPercent, const uint8_t currentOrientation,
@@ -35,7 +88,7 @@ std::vector<EpubReaderMenuActivity::MenuItem> EpubReaderMenuActivity::buildMenuI
     items.push_back({MenuAction::FOOTNOTES, StrId::STR_FOOTNOTES});
   }
   items.push_back({MenuAction::ROTATE_SCREEN, StrId::STR_ORIENTATION});
-  items.push_back({MenuAction::AUTO_PAGE_TURN, StrId::STR_AUTO_TURN_PAGES_PER_MIN});
+  items.push_back({MenuAction::AUTO_PAGE_TURN, StrId::STR_AUTO_TURN_INTERVAL_SECONDS});
   items.push_back({MenuAction::GO_TO_PERCENT, StrId::STR_GO_TO_PERCENT});
   items.push_back(
       {MenuAction::BOOKMARK_TOGGLE, isCurrentPageBookmarked ? StrId::STR_REMOVE_BOOKMARK : StrId::STR_ADD_BOOKMARK});
@@ -82,30 +135,24 @@ void EpubReaderMenuActivity::loop() {
       return;
     }
 
-    if (selectedAction == MenuAction::AUTO_PAGE_TURN) {
-      selectedPageTurnOption = (selectedPageTurnOption + 1) % pageTurnLabels.size();
-      requestUpdate();
-      return;
-    }
-
     if (selectedAction == MenuAction::READER_OPTIONS) {
+      const auto before = captureReaderLayoutSettings();
       startActivityForResult(std::make_unique<ReaderOptionsActivity>(renderer, mappedInput),
-                             [this](const ActivityResult&) {
-                               settingsChanged = true;
+                             [this, before](const ActivityResult&) {
+                               settingsChanged = settingsChanged || haveReaderLayoutSettingsChanged(before);
                                pendingOrientation = SETTINGS.orientation;  // sync in case orientation changed
                                requestUpdate();
                              });
       return;
     }
 
-    setResult(
-        MenuResult{static_cast<int>(selectedAction), pendingOrientation, selectedPageTurnOption, settingsChanged});
+    setResult(MenuResult{static_cast<int>(selectedAction), pendingOrientation, settingsChanged});
     finish();
     return;
   } else if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
     ActivityResult result;
     result.isCancelled = true;
-    result.data = MenuResult{-1, pendingOrientation, selectedPageTurnOption, settingsChanged};
+    result.data = MenuResult{-1, pendingOrientation, settingsChanged};
     setResult(std::move(result));
     finish();
     return;
@@ -168,18 +215,11 @@ void EpubReaderMenuActivity::render(RenderLock&&) {
       const auto width = renderer.getTextWidth(UI_10_FONT_ID, value);
       renderer.drawText(UI_10_FONT_ID, contentX + contentWidth - 20 - width, displayY, value, !isSelected);
     }
-
-    if (menuItems[i].action == MenuAction::AUTO_PAGE_TURN) {
-      // Render current page turn value on the right edge of the content area.
-      const auto value = pageTurnLabels[selectedPageTurnOption];
-      const auto width = renderer.getTextWidth(UI_10_FONT_ID, value);
-      renderer.drawText(UI_10_FONT_ID, contentX + contentWidth - 20 - width, displayY, value, !isSelected);
-    }
   }
 
   // Footer / Hints
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
-  GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+  GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4, true);
 
   renderer.displayBuffer();
 }

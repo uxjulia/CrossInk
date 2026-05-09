@@ -20,10 +20,11 @@ class ConfirmationActivity : public Activity {
   std::vector<std::string> bodyLines;
   int startY = 0;
   int lineHeight = 0;
+  bool ignoreConfirmRelease = false;
 
  public:
   ConfirmationActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, const std::string& heading,
-                       const std::string& body);
+                       const std::string& body, bool ignoreInitialConfirmRelease = false);
 
   void onEnter() override;
   void loop() override;

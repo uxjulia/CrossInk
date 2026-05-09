@@ -155,6 +155,12 @@ bool JsonSettingsIO::saveSettings(const CrossPointSettings& s, const char* path)
   doc["readerFrontButtonConfirm"] = s.readerFrontButtonConfirm;
   doc["readerFrontButtonLeft"] = s.readerFrontButtonLeft;
   doc["readerFrontButtonRight"] = s.readerFrontButtonRight;
+  // Font family — uses dynamic getter/setter in SettingsList so the generic loop skips it.
+  doc["fontFamily"] = s.fontFamily;
+  // SD card font family name — not in SettingsList, save manually
+  if (s.sdFontFamilyName[0] != '\0') {
+    doc["sdFontFamilyName"] = s.sdFontFamilyName;
+  }
 
   // Language -- managed by LanguageSelectActivity, not in SettingsList.
   // Stored as ISO code string ("EN", "DE", ...) for stability across enum reorders.
@@ -248,6 +254,13 @@ bool JsonSettingsIO::loadSettings(CrossPointSettings& s, const char* json, bool*
   s.readerFrontButtonRight = clamp(doc["readerFrontButtonRight"] | (uint8_t)S::FRONT_HW_RIGHT,
                                    S::FRONT_BUTTON_HARDWARE_COUNT, S::FRONT_HW_RIGHT);
   CrossPointSettings::validateReaderFrontButtonMapping(s);
+
+  // Font family — uses dynamic getter/setter in SettingsList so the generic loop skips it.
+  s.fontFamily = clamp(doc["fontFamily"] | (uint8_t)0, CrossPointSettings::BUILTIN_FONT_COUNT, 0);
+  // SD card font family name — not in SettingsList, load manually
+  const char* sfn = doc["sdFontFamilyName"] | "";
+  strncpy(s.sdFontFamilyName, sfn, sizeof(s.sdFontFamilyName) - 1);
+  s.sdFontFamilyName[sizeof(s.sdFontFamilyName) - 1] = '\0';
 
   // Language -- stored as code string for stability across enum reorders.
   if (doc["language"].is<const char*>()) {

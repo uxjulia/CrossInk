@@ -12,108 +12,143 @@
 #ifdef OMIT_EMOJI_FONTS
 #define LEXENDDECA_8_FONT_ID (-1529542243)
 #else
-#define LEXENDDECA_8_FONT_ID (1874776109)
+#define LEXENDDECA_8_FONT_ID (-2007827299)
 #endif
 #ifdef OMIT_EMOJI_FONTS
 #define LEXENDDECA_10_FONT_ID (-1178760654)
 #else
-#define LEXENDDECA_10_FONT_ID (-1605392266)
+#define LEXENDDECA_10_FONT_ID (-833446840)
 #endif
 #ifdef OMIT_EMOJI_FONTS
 #define LEXENDDECA_12_FONT_ID (576453416)
 #else
-#define LEXENDDECA_12_FONT_ID (-485970719)
+#define LEXENDDECA_12_FONT_ID (-1629698200)
 #endif
 #ifdef OMIT_EMOJI_FONTS
 #define LEXENDDECA_14_FONT_ID (-90104999)
 #else
-#define LEXENDDECA_14_FONT_ID (1443855446)
+#define LEXENDDECA_14_FONT_ID (1797004611)
 #endif
 #ifdef OMIT_EMOJI_FONTS
 #define LEXENDDECA_16_FONT_ID (-1174553084)
 #else
-#define LEXENDDECA_16_FONT_ID (572561126)
+#define LEXENDDECA_16_FONT_ID (-654563150)
 #endif
 #ifdef OMIT_EMOJI_FONTS
 #define LEXENDDECA_18_FONT_ID (-257054697)
 #else
-#define LEXENDDECA_18_FONT_ID (-2114038106)
+#define LEXENDDECA_18_FONT_ID (270578372)
 #endif
 #ifdef OMIT_EMOJI_FONTS
 #define LEXENDDECA_20_FONT_ID (1833613135)
 #else
-#define LEXENDDECA_20_FONT_ID (333993558)
+#define LEXENDDECA_20_FONT_ID (-798807655)
 #endif
 #ifdef OMIT_EMOJI_FONTS
 #define CHAREINK_8_FONT_ID (127130883)
 #else
-#define CHAREINK_8_FONT_ID (1856559554)
+#define CHAREINK_8_FONT_ID (-2129730116)
 #endif
 #ifdef OMIT_EMOJI_FONTS
 #define CHAREINK_10_FONT_ID (2016565087)
 #else
-#define CHAREINK_10_FONT_ID (1529460461)
+#define CHAREINK_10_FONT_ID (-1653202343)
 #endif
 #ifdef OMIT_EMOJI_FONTS
 #define CHAREINK_12_FONT_ID (-1319580286)
 #else
-#define CHAREINK_12_FONT_ID (981077)
+#define CHAREINK_12_FONT_ID (1691845221)
 #endif
 #ifdef OMIT_EMOJI_FONTS
 #define CHAREINK_14_FONT_ID (-1955424964)
 #else
-#define CHAREINK_14_FONT_ID (1046405669)
+#define CHAREINK_14_FONT_ID (-1175923005)
 #endif
 #ifdef OMIT_EMOJI_FONTS
 #define CHAREINK_16_FONT_ID (1683895346)
 #else
-#define CHAREINK_16_FONT_ID (-1309014274)
+#define CHAREINK_16_FONT_ID (-1210801859)
 #endif
 #ifdef OMIT_EMOJI_FONTS
 #define CHAREINK_18_FONT_ID (827115541)
 #else
-#define CHAREINK_18_FONT_ID (1483163501)
+#define CHAREINK_18_FONT_ID (820691502)
 #endif
 #ifdef OMIT_EMOJI_FONTS
 #define CHAREINK_20_FONT_ID (900401448)
 #else
-#define CHAREINK_20_FONT_ID (-1540327512)
+#define CHAREINK_20_FONT_ID (1306792472)
 #endif
 #ifdef OMIT_EMOJI_FONTS
 #define BITTER_8_FONT_ID (396692004)
 #else
-#define BITTER_8_FONT_ID (299295489)
+#define BITTER_8_FONT_ID (954763661)
 #endif
 #ifdef OMIT_EMOJI_FONTS
 #define BITTER_10_FONT_ID (-1655643523)
 #else
-#define BITTER_10_FONT_ID (949475439)
+#define BITTER_10_FONT_ID (-2037991310)
 #endif
 #ifdef OMIT_EMOJI_FONTS
 #define BITTER_12_FONT_ID (-998701579)
 #else
-#define BITTER_12_FONT_ID (945573658)
+#define BITTER_12_FONT_ID (70596465)
 #endif
 #ifdef OMIT_EMOJI_FONTS
 #define BITTER_14_FONT_ID (-969934)
 #else
-#define BITTER_14_FONT_ID (-810572379)
+#define BITTER_14_FONT_ID (1849723397)
 #endif
 #ifdef OMIT_EMOJI_FONTS
 #define BITTER_16_FONT_ID (-263078880)
 #else
-#define BITTER_16_FONT_ID (150358638)
+#define BITTER_16_FONT_ID (1209964980)
 #endif
 #ifdef OMIT_EMOJI_FONTS
 #define BITTER_18_FONT_ID (-2112776323)
 #else
-#define BITTER_18_FONT_ID (-613950257)
+#define BITTER_18_FONT_ID (-1753285491)
 #endif
 #ifdef OMIT_EMOJI_FONTS
 #define BITTER_20_FONT_ID (-1176289379)
 #else
-#define BITTER_20_FONT_ID (1155264103)
+#define BITTER_20_FONT_ID (1701313611)
 #endif
 #define UI_10_FONT_ID (22918846)
 #define UI_12_FONT_ID (1635686837)
 #define SMALL_FONT_ID (1002091607)
+
+// Font ID 0 is reserved as the "not found" sentinel.
+// Guard against any hash accidentally producing 0.
+static_assert(NOTOEMOJI_10_FONT_ID != 0, "Font ID collision with sentinel");
+static_assert(NOTOEMOJI_12_FONT_ID != 0, "Font ID collision with sentinel");
+static_assert(NOTOEMOJI_14_FONT_ID != 0, "Font ID collision with sentinel");
+static_assert(NOTOEMOJI_16_FONT_ID != 0, "Font ID collision with sentinel");
+static_assert(NOTOSYMBOLS_10_FONT_ID != 0, "Font ID collision with sentinel");
+static_assert(NOTOSYMBOLS_12_FONT_ID != 0, "Font ID collision with sentinel");
+static_assert(NOTOSYMBOLS_14_FONT_ID != 0, "Font ID collision with sentinel");
+static_assert(NOTOSYMBOLS_16_FONT_ID != 0, "Font ID collision with sentinel");
+static_assert(LEXENDDECA_8_FONT_ID != 0, "Font ID collision with sentinel");
+static_assert(LEXENDDECA_10_FONT_ID != 0, "Font ID collision with sentinel");
+static_assert(LEXENDDECA_12_FONT_ID != 0, "Font ID collision with sentinel");
+static_assert(LEXENDDECA_14_FONT_ID != 0, "Font ID collision with sentinel");
+static_assert(LEXENDDECA_16_FONT_ID != 0, "Font ID collision with sentinel");
+static_assert(LEXENDDECA_18_FONT_ID != 0, "Font ID collision with sentinel");
+static_assert(LEXENDDECA_20_FONT_ID != 0, "Font ID collision with sentinel");
+static_assert(CHAREINK_8_FONT_ID != 0, "Font ID collision with sentinel");
+static_assert(CHAREINK_10_FONT_ID != 0, "Font ID collision with sentinel");
+static_assert(CHAREINK_12_FONT_ID != 0, "Font ID collision with sentinel");
+static_assert(CHAREINK_14_FONT_ID != 0, "Font ID collision with sentinel");
+static_assert(CHAREINK_16_FONT_ID != 0, "Font ID collision with sentinel");
+static_assert(CHAREINK_18_FONT_ID != 0, "Font ID collision with sentinel");
+static_assert(CHAREINK_20_FONT_ID != 0, "Font ID collision with sentinel");
+static_assert(BITTER_8_FONT_ID != 0, "Font ID collision with sentinel");
+static_assert(BITTER_10_FONT_ID != 0, "Font ID collision with sentinel");
+static_assert(BITTER_12_FONT_ID != 0, "Font ID collision with sentinel");
+static_assert(BITTER_14_FONT_ID != 0, "Font ID collision with sentinel");
+static_assert(BITTER_16_FONT_ID != 0, "Font ID collision with sentinel");
+static_assert(BITTER_18_FONT_ID != 0, "Font ID collision with sentinel");
+static_assert(BITTER_20_FONT_ID != 0, "Font ID collision with sentinel");
+static_assert(UI_10_FONT_ID != 0, "Font ID collision with sentinel");
+static_assert(UI_12_FONT_ID != 0, "Font ID collision with sentinel");
+static_assert(SMALL_FONT_ID != 0, "Font ID collision with sentinel");

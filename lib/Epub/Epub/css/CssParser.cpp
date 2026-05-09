@@ -5,7 +5,9 @@
 
 #include <algorithm>
 #include <array>
+#include <cassert>
 #include <cctype>
+#include <iterator>
 #include <string_view>
 
 namespace {
@@ -52,8 +54,34 @@ constexpr size_t MIN_FREE_HEAP_FOR_CSS = 48 * 1024;
 // Prevents parsing of extremely long or malformed selectors
 constexpr size_t MAX_SELECTOR_LENGTH = 256;
 
+// Grow selector storage in small chunks. Reserving MAX_RULES up front can
+// require one large contiguous heap block and abort on ESP32-C3.
+constexpr size_t RULE_RESERVE_CHUNK = 32;
+constexpr uint32_t MIN_HEAP_AFTER_RULE_GROW = 16 * 1024;
+
 // Check if character is CSS whitespace
 bool isCssWhitespace(const char c) { return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f'; }
+
+size_t mergeDuplicateRules(std::vector<std::pair<std::string, CssStyle>>& rules) {
+  if (rules.empty()) return 0;
+  assert(std::is_sorted(rules.begin(), rules.end(), [](const auto& a, const auto& b) { return a.first < b.first; }));
+
+  const size_t originalSize = rules.size();
+  auto writeIt = rules.begin();
+  for (auto readIt = std::next(rules.begin()); readIt != rules.end(); ++readIt) {
+    if (writeIt->first == readIt->first) {
+      writeIt->second.applyOver(readIt->second);
+      continue;
+    }
+    ++writeIt;
+    if (writeIt != readIt) {
+      *writeIt = std::move(*readIt);
+    }
+  }
+
+  rules.erase(std::next(writeIt), rules.end());
+  return originalSize - rules.size();
+}
 
 std::string_view stripTrailingImportant(std::string_view value) {
   constexpr std::string_view IMPORTANT = "!important";
@@ -76,6 +104,57 @@ std::string_view stripTrailingImportant(std::string_view value) {
     value.remove_suffix(1);
   }
   return value;
+}
+
+bool tryInterpretBackgroundBlack(std::string_view value, bool& out) {
+  value = stripTrailingImportant(value);
+  while (!value.empty() && isCssWhitespace(value.front())) {
+    value.remove_prefix(1);
+  }
+
+  if (value.empty()) {
+    return false;
+  }
+
+  bool sawExplicitNonBlack = false;
+  size_t tokenStart = 0;
+  for (size_t i = 0; i <= value.size(); ++i) {
+    if (i == value.size() || isCssWhitespace(value[i])) {
+      if (i > tokenStart) {
+        const std::string_view token = value.substr(tokenStart, i - tokenStart);
+        if (token == "black" || token == "#000" || token == "#000000") {
+          out = true;
+          return true;
+        }
+        if (token == "white" || token == "#fff" || token == "#ffffff" || token == "transparent" || token == "none") {
+          sawExplicitNonBlack = true;
+        }
+      }
+      tokenStart = i + 1;
+    }
+  }
+
+  std::string compact;
+  compact.reserve(value.size());
+  for (const char c : value) {
+    if (!isCssWhitespace(c)) {
+      compact.push_back(c);
+    }
+  }
+
+  if (compact == "rgb(0,0,0)" || compact == "rgba(0,0,0,1)" || compact == "rgba(0,0,0,1.0)" ||
+      compact.find("rgb(0,0,0)") != std::string::npos || compact.find("rgba(0,0,0,1)") != std::string::npos ||
+      compact.find("rgba(0,0,0,1.0)") != std::string::npos) {
+    out = true;
+    return true;
+  }
+
+  if (sawExplicitNonBlack || compact == "transparent" || compact == "none") {
+    out = false;
+    return true;
+  }
+
+  return false;
 }
 
 }  // anonymous namespace
@@ -350,6 +429,12 @@ void CssParser::parseDeclarationIntoStyle(const std::string& decl, CssStyle& sty
     const std::string_view displayValue = stripTrailingImportant(propValueBuf);
     style.display = (displayValue == "none") ? CssDisplay::None : CssDisplay::Block;
     style.defined.display = 1;
+  } else if (propNameBuf == "background" || propNameBuf == "background-color") {
+    bool backgroundBlack = false;
+    if (tryInterpretBackgroundBlack(propValueBuf, backgroundBlack)) {
+      style.backgroundBlack = backgroundBlack;
+      style.defined.backgroundBlack = 1;
+    }
   }
 }
 
@@ -402,11 +487,67 @@ bool CssParser::selectorMatchesElement(const std::string& selector, const std::s
 
 // Rule processing
 
-void CssParser::processRuleBlockWithStyle(const std::string& selectorGroup, const CssStyle& style) {
+bool CssParser::ensureRuleCapacity() {
+  if (rulesBySelector_.size() < rulesBySelector_.capacity()) {
+    return true;
+  }
+  if (rulesBySelector_.capacity() >= MAX_RULES) {
+    return false;
+  }
+
+  const size_t nextCapacity = std::min(rulesBySelector_.capacity() + RULE_RESERVE_CHUNK, MAX_RULES);
+  size_t existingKeyCapacity = 0;
+  for (const auto& rule : rulesBySelector_) {
+    existingKeyCapacity += rule.first.capacity() + 1;
+  }
+  size_t averageKeyCapacity = MAX_SELECTOR_LENGTH / 2;
+  if (!rulesBySelector_.empty()) {
+    averageKeyCapacity = std::max<size_t>(1, existingKeyCapacity / rulesBySelector_.size());
+  }
+  const size_t extraSlots = nextCapacity - rulesBySelector_.size();
+  const size_t reserveBytes = nextCapacity * sizeof(decltype(rulesBySelector_)::value_type) + existingKeyCapacity +
+                              extraSlots * (averageKeyCapacity + 1);
+  const uint32_t freeHeap = ESP.getFreeHeap();
+  const uint32_t maxAllocHeap = ESP.getMaxAllocHeap();
+  if (freeHeap <= reserveBytes + MIN_HEAP_AFTER_RULE_GROW || maxAllocHeap <= reserveBytes + MIN_HEAP_AFTER_RULE_GROW) {
+    LOG_ERR("CSS", "Skipping remaining CSS rules: heap too low for rule table growth (free=%u, maxAlloc=%u, need=%zu)",
+            freeHeap, maxAllocHeap, reserveBytes);
+    return false;
+  }
+
+  rulesBySelector_.reserve(nextCapacity);
+  return true;
+}
+
+bool CssParser::upsertRule(std::string key, const CssStyle& style) {
+  const auto it = std::lower_bound(rulesBySelector_.begin(), rulesBySelector_.end(), key,
+                                   [](const std::pair<std::string, CssStyle>& entry, const std::string& searchKey) {
+                                     return entry.first < searchKey;
+                                   });
+  if (it != rulesBySelector_.end() && it->first == key) {
+    it->second.applyOver(style);
+    return true;
+  }
+
+  if (rulesBySelector_.size() >= MAX_RULES) {
+    LOG_ERR("CSS", "Reached max rules limit, treating CSS parse as incomplete");
+    return false;
+  }
+
+  const size_t insertIndex = std::distance(rulesBySelector_.begin(), it);
+  if (!ensureRuleCapacity()) {
+    return false;
+  }
+
+  rulesBySelector_.insert(rulesBySelector_.begin() + insertIndex, {std::move(key), style});
+  return true;
+}
+
+bool CssParser::processRuleBlockWithStyle(const std::string& selectorGroup, const CssStyle& style) {
   // Check if we've reached the rule limit before processing
   if (rulesBySelector_.size() >= MAX_RULES) {
-    LOG_DBG("CSS", "Reached max rules limit (%zu), stopping CSS parsing", MAX_RULES);
-    return;
+    LOG_ERR("CSS", "Reached max rules limit (%zu), treating CSS parse as incomplete", MAX_RULES);
+    return false;
   }
 
   // Handle comma-separated selectors
@@ -500,20 +641,9 @@ void CssParser::processRuleBlockWithStyle(const std::string& selectorGroup, cons
       continue;
     }
 
-    // Skip if this would exceed the rule limit
-    if (rulesBySelector_.size() >= MAX_RULES) {
-      LOG_DBG("CSS", "Reached max rules limit, stopping selector processing");
-      return;
-    }
-
-    // Store or merge with existing
-    auto it = rulesBySelector_.find(key);
-    if (it != rulesBySelector_.end()) {
-      it->second.applyOver(style);
-    } else {
-      rulesBySelector_[key] = style;
-    }
+    if (!upsertRule(std::move(key), style)) return false;
   }
+  return true;
 }
 
 // Main parsing entry point
@@ -542,6 +672,7 @@ bool CssParser::loadFromStream(FsFile& source) {
 
   int bodyDepth = 0;
   bool skippingRule = false;
+  bool stopParsing = false;
   CssStyle currentStyle;
 
   auto handleChar = [&](const char c) {
@@ -591,7 +722,7 @@ bool CssParser::loadFromStream(FsFile& source) {
           parseDeclarationIntoStyle(declBuffer.str(), currentStyle, propNameBuf, propValueBuf);
         }
         if (!skippingRule) {
-          processRuleBlockWithStyle(selector.str(), currentStyle);
+          stopParsing = !processRuleBlockWithStyle(selector.str(), currentStyle);
         }
         selector.clear();
         declBuffer.clear();
@@ -616,13 +747,13 @@ bool CssParser::loadFromStream(FsFile& source) {
   };
 
   char buffer[READ_BUFFER_SIZE];
-  while (source.available()) {
+  while (!stopParsing && source.available()) {
     int bytesRead = source.read(buffer, sizeof(buffer));
     if (bytesRead <= 0) break;
 
     totalRead += static_cast<size_t>(bytesRead);
 
-    for (int i = 0; i < bytesRead; ++i) {
+    for (int i = 0; i < bytesRead && !stopParsing; ++i) {
       const char c = buffer[i];
 
       if (inComment) {
@@ -656,8 +787,23 @@ bool CssParser::loadFromStream(FsFile& source) {
     }
   }
 
-  if (maybeSlash) {
+  if (!stopParsing && maybeSlash) {
     handleChar('/');
+  }
+
+  if (stopParsing) {
+    LOG_ERR("CSS", "CSS parse stopped after %zu bytes with %zu selector rules and %zu descendant rules loaded",
+            totalRead, rulesBySelector_.size(), descendantRules_.size());
+    return false;
+  }
+
+  std::sort(rulesBySelector_.begin(), rulesBySelector_.end(),
+            [](const std::pair<std::string, CssStyle>& a, const std::pair<std::string, CssStyle>& b) {
+              return a.first < b.first;
+            });
+  const size_t duplicateCount = mergeDuplicateRules(rulesBySelector_);
+  if (duplicateCount > 0) {
+    LOG_DBG("CSS", "Merged %zu duplicate CSS selector rules after parse", duplicateCount);
   }
 
   LOG_DBG("CSS", "Parsed %zu rules from %zu bytes", rulesBySelector_.size(), totalRead);
@@ -665,6 +811,17 @@ bool CssParser::loadFromStream(FsFile& source) {
 }
 
 // Style resolution
+
+const CssStyle* CssParser::findRule(const std::string& key) const {
+  auto it = std::lower_bound(rulesBySelector_.begin(), rulesBySelector_.end(), key,
+                             [](const std::pair<std::string, CssStyle>& entry, const std::string& searchKey) {
+                               return entry.first < searchKey;
+                             });
+  if (it != rulesBySelector_.end() && it->first == key) {
+    return &it->second;
+  }
+  return nullptr;
+}
 
 CssStyle CssParser::resolveStyle(const std::string& tagName, const std::string& classAttr,
                                  const std::vector<CssAncestorEntry>& ancestors) const {
@@ -681,9 +838,8 @@ CssStyle CssParser::resolveStyle(const std::string& tagName, const std::string& 
   const std::string tag = normalized(tagName);
 
   // 1. Apply element-level style (lowest priority)
-  const auto tagIt = rulesBySelector_.find(tag);
-  if (tagIt != rulesBySelector_.end()) {
-    result.applyOver(tagIt->second);
+  if (const auto* tagStyle = findRule(tag)) {
+    result.applyOver(*tagStyle);
   }
 
   // 2. Apply two-part descendant rules — higher specificity than bare element, lower than class
@@ -704,24 +860,27 @@ CssStyle CssParser::resolveStyle(const std::string& tagName, const std::string& 
   // 4. Apply class styles (medium priority)
   if (!classAttr.empty()) {
     const auto classes = splitWhitespace(classAttr);
+    std::string selectorKey;
+    selectorKey.reserve(tag.size() + MAX_SELECTOR_LENGTH + 2);
 
     for (const auto& cls : classes) {
-      std::string classKey = "." + normalized(cls);
-
-      auto classIt = rulesBySelector_.find(classKey);
-      if (classIt != rulesBySelector_.end()) {
-        result.applyOver(classIt->second);
+      selectorKey.clear();
+      selectorKey.push_back('.');
+      selectorKey.append(normalized(cls));
+      if (const auto* classStyle = findRule(selectorKey)) {
+        result.applyOver(*classStyle);
       }
     }
 
     // TODO: Support combinations of classes (e.g. style on p.class1.class2)
     // 5. Apply element.class styles (highest priority)
     for (const auto& cls : classes) {
-      std::string combinedKey = tag + "." + normalized(cls);
-
-      auto combinedIt = rulesBySelector_.find(combinedKey);
-      if (combinedIt != rulesBySelector_.end()) {
-        result.applyOver(combinedIt->second);
+      selectorKey.clear();
+      selectorKey.append(tag);
+      selectorKey.push_back('.');
+      selectorKey.append(normalized(cls));
+      if (const auto* combinedStyle = findRule(selectorKey)) {
+        result.applyOver(*combinedStyle);
       }
     }
   }
@@ -735,7 +894,7 @@ CssStyle CssParser::parseInlineStyle(const std::string& styleValue) { return par
 
 // Cache serialization
 
-// Cache file name (version is CssParser::CSS_CACHE_VERSION)
+// Cache file name (magic + version identify Crossink-owned CSS rule caches)
 constexpr char rulesCache[] = "/css_rules.cache";
 
 bool CssParser::hasCache() const { return Storage.exists((cachePath + rulesCache).c_str()); }
@@ -754,7 +913,9 @@ bool CssParser::saveToCache() const {
     return false;
   }
 
-  // Write version
+  // Write header
+  const uint32_t magic = CssParser::CSS_CACHE_MAGIC;
+  file.write(reinterpret_cast<const uint8_t*>(&magic), sizeof(magic));
   file.write(CssParser::CSS_CACHE_VERSION);
 
   // Write rule count
@@ -783,7 +944,8 @@ bool CssParser::saveToCache() const {
     writeLength(style.imageHeight);
     writeLength(style.imageWidth);
     file.write(static_cast<uint8_t>(style.display));
-    uint16_t definedBits = 0;
+    file.write(static_cast<uint8_t>(style.backgroundBlack ? 1 : 0));
+    uint32_t definedBits = 0;
     if (style.defined.textAlign) definedBits |= 1 << 0;
     if (style.defined.fontStyle) definedBits |= 1 << 1;
     if (style.defined.fontWeight) definedBits |= 1 << 2;
@@ -800,6 +962,7 @@ bool CssParser::saveToCache() const {
     if (style.defined.imageHeight) definedBits |= 1 << 13;
     if (style.defined.imageWidth) definedBits |= 1 << 14;
     if (style.defined.display) definedBits |= 1 << 15;
+    if (style.defined.backgroundBlack) definedBits |= 1 << 16;
     file.write(reinterpret_cast<const uint8_t*>(&definedBits), sizeof(definedBits));
   };
 
@@ -849,7 +1012,15 @@ bool CssParser::loadFromCache() {
   // Clear existing rules
   clear();
 
-  // Read and verify version
+  // Read and verify header
+  uint32_t magic = 0;
+  if (file.read(&magic, sizeof(magic)) != sizeof(magic) || magic != CssParser::CSS_CACHE_MAGIC) {
+    LOG_DBG("CSS", "Cache magic mismatch, removing stale cache for rebuild");
+    file.close();
+    Storage.remove((cachePath + rulesCache).c_str());
+    return false;
+  }
+
   uint8_t version = 0;
   if (file.read(&version, 1) != 1 || version != CssParser::CSS_CACHE_VERSION) {
     LOG_DBG("CSS", "Cache version mismatch (got %u, expected %u), removing stale cache for rebuild", version,
@@ -879,7 +1050,7 @@ bool CssParser::loadFromCache() {
   constexpr size_t CSS_LENGTH_FIELD_COUNT = 11;
   constexpr size_t CSS_LENGTH_BYTES = sizeof(float) + sizeof(uint8_t);
   constexpr size_t CSS_FIXED_STYLE_BYTES =
-      4 * sizeof(uint8_t) + (CSS_LENGTH_FIELD_COUNT * CSS_LENGTH_BYTES) + sizeof(uint8_t) + sizeof(uint16_t);
+      4 * sizeof(uint8_t) + (CSS_LENGTH_FIELD_COUNT * CSS_LENGTH_BYTES) + 2 * sizeof(uint8_t) + sizeof(uint32_t);
 
   auto readLength = [&file](CssLength& len) -> bool {
     if (file.read(&len.value, sizeof(len.value)) != sizeof(len.value)) return false;
@@ -908,7 +1079,10 @@ bool CssParser::loadFromCache() {
     uint8_t displayVal;
     if (file.read(&displayVal, 1) != 1) return false;
     style.display = static_cast<CssDisplay>(displayVal);
-    uint16_t definedBits = 0;
+    uint8_t backgroundBlackVal = 0;
+    if (file.read(&backgroundBlackVal, 1) != 1) return false;
+    style.backgroundBlack = backgroundBlackVal != 0;
+    uint32_t definedBits = 0;
     if (file.read(&definedBits, sizeof(definedBits)) != sizeof(definedBits)) return false;
     style.defined.textAlign = (definedBits & 1 << 0) != 0;
     style.defined.fontStyle = (definedBits & 1 << 1) != 0;
@@ -926,6 +1100,7 @@ bool CssParser::loadFromCache() {
     style.defined.imageHeight = (definedBits & 1 << 13) != 0;
     style.defined.imageWidth = (definedBits & 1 << 14) != 0;
     style.defined.display = (definedBits & 1 << 15) != 0;
+    style.defined.backgroundBlack = (definedBits & 1 << 16) != 0;
     return true;
   };
 
@@ -958,7 +1133,19 @@ bool CssParser::loadFromCache() {
       rulesBySelector_.clear();
       return false;
     }
-    rulesBySelector_[selector] = style;
+    if (!upsertRule(std::move(selector), style)) {
+      rulesBySelector_.clear();
+      return false;
+    }
+  }
+
+  std::sort(rulesBySelector_.begin(), rulesBySelector_.end(),
+            [](const std::pair<std::string, CssStyle>& a, const std::pair<std::string, CssStyle>& b) {
+              return a.first < b.first;
+            });
+  const size_t duplicateCount = mergeDuplicateRules(rulesBySelector_);
+  if (duplicateCount > 0) {
+    LOG_DBG("CSS", "Merged %zu duplicate CSS selector rules from cache", duplicateCount);
   }
 
   // Read descendant rules
@@ -1000,6 +1187,6 @@ bool CssParser::loadFromCache() {
     }
   }
 
-  LOG_DBG("CSS", "Loaded %u rules + %u descendant rules from cache", ruleCount, descendantCount);
+  LOG_DBG("CSS", "Loaded %zu rules + %u descendant rules from cache", rulesBySelector_.size(), descendantCount);
   return true;
 }

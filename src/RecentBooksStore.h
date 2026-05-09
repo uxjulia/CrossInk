@@ -30,12 +30,21 @@ class RecentBooksStore {
   // Get singleton instance
   static RecentBooksStore& getInstance() { return instance; }
 
-  // Add a book to the recent list (moves to front if already exists)
+  // Deprecated compatibility wrapper. Use addOrUpdateBook so the promote-or-update behavior is explicit.
+  [[deprecated("use addOrUpdateBook")]]
   void addBook(const std::string& path, const std::string& title, const std::string& author,
                const std::string& coverBmpPath);
 
-  void updateBook(const std::string& path, const std::string& title, const std::string& author,
-                  const std::string& coverBmpPath);
+  // Add a new book to the front, or refresh an existing entry and promote it
+  // to the front.
+  void addOrUpdateBook(const std::string& path, const std::string& title, const std::string& author,
+                       const std::string& coverBmpPath);
+
+  // updateBook updates metadata for an existing book only and must not change
+  // recent-books ordering. Use addOrUpdateBook when the touched book should
+  // become most recent. Returns false if the book does not exist.
+  [[nodiscard]] bool updateBook(const std::string& path, const std::string& title, const std::string& author,
+                                const std::string& coverBmpPath);
 
   // Update the stored path for a book (e.g. after moving the file).
   // Also patches coverBmpPath if it was inside oldCachePath, replacing the prefix with newCachePath.

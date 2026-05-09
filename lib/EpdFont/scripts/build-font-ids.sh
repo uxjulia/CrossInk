@@ -100,3 +100,19 @@ reading_font_id BITTER_20_FONT_ID \
 echo "#define UI_10_FONT_ID ($(hash_files ./ubuntu_10_regular.h ./ubuntu_10_bold.h))"
 echo "#define UI_12_FONT_ID ($(hash_files ./ubuntu_12_regular.h ./ubuntu_12_bold.h))"
 echo "#define SMALL_FONT_ID ($(hash_files ./inter_8_regular.h))"
+
+echo ""
+echo "// Font ID 0 is reserved as the \"not found\" sentinel."
+echo "// Guard against any hash accidentally producing 0."
+for id in \
+  NOTOEMOJI_10_FONT_ID NOTOEMOJI_12_FONT_ID NOTOEMOJI_14_FONT_ID NOTOEMOJI_16_FONT_ID \
+  NOTOSYMBOLS_10_FONT_ID NOTOSYMBOLS_12_FONT_ID NOTOSYMBOLS_14_FONT_ID NOTOSYMBOLS_16_FONT_ID \
+  LEXENDDECA_8_FONT_ID LEXENDDECA_10_FONT_ID LEXENDDECA_12_FONT_ID LEXENDDECA_14_FONT_ID \
+  LEXENDDECA_16_FONT_ID LEXENDDECA_18_FONT_ID LEXENDDECA_20_FONT_ID \
+  CHAREINK_8_FONT_ID CHAREINK_10_FONT_ID CHAREINK_12_FONT_ID CHAREINK_14_FONT_ID \
+  CHAREINK_16_FONT_ID CHAREINK_18_FONT_ID CHAREINK_20_FONT_ID \
+  BITTER_8_FONT_ID BITTER_10_FONT_ID BITTER_12_FONT_ID BITTER_14_FONT_ID \
+  BITTER_16_FONT_ID BITTER_18_FONT_ID BITTER_20_FONT_ID \
+  UI_10_FONT_ID UI_12_FONT_ID SMALL_FONT_ID; do
+  echo "static_assert(${id} != 0, \"Font ID collision with sentinel\");"
+done

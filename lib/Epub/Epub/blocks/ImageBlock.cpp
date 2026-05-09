@@ -156,17 +156,26 @@ void ImageBlock::render(GfxRenderer& renderer, const int x, const int y) {
 }
 
 bool ImageBlock::serialize(FsFile& file) {
-  serialization::writeString(file, imagePath);
-  serialization::writePod(file, width);
-  serialization::writePod(file, height);
-  return true;
+  return serialization::tryWriteString(file, imagePath) && serialization::tryWritePod(file, width) &&
+         serialization::tryWritePod(file, height);
 }
 
 std::unique_ptr<ImageBlock> ImageBlock::deserialize(FsFile& file) {
   std::string path;
-  serialization::readString(file, path);
+  if (!serialization::tryReadString(file, path)) {
+    LOG_ERR("IMG", "Deserialization failed: could not read image path");
+    return nullptr;
+  }
   int16_t w, h;
-  serialization::readPod(file, w);
-  serialization::readPod(file, h);
-  return std::unique_ptr<ImageBlock>(new ImageBlock(path, w, h));
+  if (!serialization::tryReadPod(file, w) || !serialization::tryReadPod(file, h)) {
+    LOG_ERR("IMG", "Deserialization failed: truncated image metadata");
+    return nullptr;
+  }
+
+  auto* imageBlock = new (std::nothrow) ImageBlock(path, w, h);
+  if (!imageBlock) {
+    LOG_ERR("IMG", "Deserialization failed: could not allocate ImageBlock");
+    return nullptr;
+  }
+  return std::unique_ptr<ImageBlock>(imageBlock);
 }

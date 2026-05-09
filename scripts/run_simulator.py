@@ -16,7 +16,7 @@ if not getattr(builtins, RUN_SIMULATOR_TARGET_KEY, False):
     setattr(builtins, RUN_SIMULATOR_TARGET_KEY, True)
     env.AddCustomTarget(
         name="run_simulator",
-        dependencies=None,
+        dependencies="$PROGPATH",
         actions=run_simulator,
         title="Run Simulator",
         description="Build and run the desktop simulator",

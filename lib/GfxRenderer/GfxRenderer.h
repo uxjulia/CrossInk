@@ -2,9 +2,13 @@
 
 #include <EpdFontFamily.h>
 #include <HalDisplay.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
 
 class FontCacheManager;
+class SdCardFont;
 
+#include <cassert>
 #include <cstring>
 #include <map>
 #include <string>
@@ -42,6 +46,32 @@ class GfxRenderer {
   uint32_t frameBufferSize = HalDisplay::BUFFER_SIZE;
   std::vector<uint8_t*> bwBufferChunks;
   std::map<int, EpdFontFamily> fontMap;
+  // Shared bitmap row buffers. Every read/write must be inside BitmapScratchLock;
+  // ensureBitmapScratchBuffers() asserts that contract before exposing them.
+  mutable SemaphoreHandle_t bitmapScratchMutex_ = nullptr;
+  mutable uint8_t* bitmapScratchOutputRow_ = nullptr;
+  mutable size_t bitmapScratchOutputRowSize_ = 0;
+  mutable uint8_t* bitmapScratchRowBytes_ = nullptr;
+  mutable size_t bitmapScratchRowBytesSize_ = 0;
+
+  class BitmapScratchLock {
+    const GfxRenderer& renderer_;
+    bool locked_ = false;
+
+   public:
+    explicit BitmapScratchLock(const GfxRenderer& renderer);
+    BitmapScratchLock(const BitmapScratchLock&) = delete;
+    BitmapScratchLock& operator=(const BitmapScratchLock&) = delete;
+    ~BitmapScratchLock();
+
+    bool isLocked() const { return locked_; }
+  };
+
+  // Mutable because ensureSdCardFontReady() is const (called from layout code
+  // that holds a const GfxRenderer&) but triggers SD card reads and heap
+  // allocation inside the SdCardFont objects. Same pragmatic compromise as
+  // fontCacheManager_ below.
+  mutable std::map<int, SdCardFont*> sdCardFonts_;
 
   // Mutable because drawText() is const but needs to delegate scan-mode
   // recording to the (non-const) FontCacheManager. Same pragmatic compromise
@@ -51,6 +81,9 @@ class GfxRenderer {
   void renderChar(const EpdFontFamily& fontFamily, uint32_t cp, int* x, int* y, bool pixelState,
                   EpdFontFamily::Style style) const;
   void freeBwBufferChunks();
+  void freeBitmapScratchBuffers();
+  bool ensureBitmapScratchBuffers(size_t outputRowSize, size_t rowBytesSize) const;
+  bool bitmapScratchLockHeldByCurrentTask() const;
   template <Color color>
   void drawPixelDither(int x, int y) const;
   template <Color color>
@@ -58,8 +91,21 @@ class GfxRenderer {
 
  public:
   explicit GfxRenderer(HalDisplay& halDisplay)
-      : display(halDisplay), renderMode(BW), orientation(Portrait), fadingFix(false) {}
-  ~GfxRenderer() { freeBwBufferChunks(); }
+      : display(halDisplay),
+        renderMode(BW),
+        orientation(Portrait),
+        fadingFix(false),
+        bitmapScratchMutex_(xSemaphoreCreateMutex()) {
+    assert(bitmapScratchMutex_ != nullptr && "Failed to create GfxRenderer bitmap scratch mutex");
+  }
+  GfxRenderer(const GfxRenderer&) = delete;
+  GfxRenderer& operator=(const GfxRenderer&) = delete;
+  GfxRenderer(GfxRenderer&&) = delete;
+  GfxRenderer& operator=(GfxRenderer&&) = delete;
+  ~GfxRenderer() {
+    freeBwBufferChunks();
+    freeBitmapScratchBuffers();
+  }
 
   static constexpr int VIEWABLE_MARGIN_TOP = 9;
   static constexpr int VIEWABLE_MARGIN_RIGHT = 3;
@@ -69,9 +115,26 @@ class GfxRenderer {
   // Setup
   void begin();  // must be called right after display.begin()
   void insertFont(int fontId, EpdFontFamily font);
+  // Clears both the flash-font map and any SD-font registration for fontId.
+  // Coupled to avoid dangling SdCardFont* in sdCardFonts_ when callers free
+  // the underlying SdCardFont and forget the SD-side unregister.
+  void removeFont(int fontId) {
+    fontMap.erase(fontId);
+    sdCardFonts_.erase(fontId);
+  }
   void setFontCacheManager(FontCacheManager* m) { fontCacheManager_ = m; }
   FontCacheManager* getFontCacheManager() const { return fontCacheManager_; }
   const std::map<int, EpdFontFamily>& getFontMap() const { return fontMap; }
+  void registerSdCardFont(int fontId, SdCardFont* font) { sdCardFonts_[fontId] = font; }
+  void unregisterSdCardFont(int fontId) { removeFont(fontId); }
+  void clearSdCardFonts() { sdCardFonts_.clear(); }
+  const std::map<int, SdCardFont*>& getSdCardFonts() const { return sdCardFonts_; }
+  bool isSdCardFont(int fontId) const { return sdCardFonts_.count(fontId) > 0; }
+  // Ensure SD card font glyph data is loaded for the given text. Called from layout code
+  // (which holds a const GfxRenderer&) before measuring word widths. Safe to call on non-SD fonts (no-op).
+  // styleMask: bitmask of styles to prepare (bit 0=regular, 1=bold, 2=italic, 3=bold-italic).
+  void ensureSdCardFontReady(int fontId, const char* utf8Text, uint8_t styleMask = 0x0F) const;
+  bool releaseSdCardFontForLowMemory(int fontId) const;
 
   // Orientation control (affects logical width/height and coordinate transforms)
   void setOrientation(const Orientation o) {
@@ -113,9 +176,13 @@ class GfxRenderer {
                        bool roundBottomLeft, bool roundBottomRight, Color color) const;
   void drawImage(const uint8_t bitmap[], int x, int y, int width, int height) const;
   void drawIcon(const uint8_t bitmap[], int x, int y, int width, int height) const;
+  void drawIconInverted(const uint8_t bitmap[], int x, int y, int width, int height) const;
   void drawBitmap(const Bitmap& bitmap, int x, int y, int maxWidth, int maxHeight, float cropX = 0,
                   float cropY = 0) const;
   void drawBitmap1Bit(const Bitmap& bitmap, int x, int y, int maxWidth, int maxHeight) const;
+  // Trapezoidal blit used by Flow/iPod-style carousels. Fits the bitmap into a
+  // bounding box of width `w` and height `max(hL, hR)` whose top-left is (x, y).
+  void drawPerspectiveBitmap(const Bitmap& bitmap, int x, int y, int w, int hL, int hR) const;
   void fillPolygon(const int* xPoints, const int* yPoints, int numPoints, bool state = true) const;
 
   // Text

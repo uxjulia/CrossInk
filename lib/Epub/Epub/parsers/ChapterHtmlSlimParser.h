@@ -30,7 +30,7 @@ class ChapterHtmlSlimParser {
   std::shared_ptr<Epub> epub;
   const std::string& filepath;
   GfxRenderer& renderer;
-  std::function<void(std::unique_ptr<Page>, uint16_t)> completePageFn;
+  std::function<void(std::unique_ptr<Page>, uint16_t, uint16_t)> completePageFn;
   std::function<void()> popupFn;  // Popup callback
   int depth = 0;
   int skipUntilDepth = INT_MAX;
@@ -63,6 +63,7 @@ class ChapterHtmlSlimParser {
   std::string imageBasePath;
   int imageCounter = 0;
   bool lowMemoryImageFallback = false;
+  bool lowMemoryAbort = false;
 
   // Style tracking (replaces depth-based approach)
   struct StyleStackEntry {
@@ -71,13 +72,16 @@ class ChapterHtmlSlimParser {
     bool hasItalic = false, italic = false;
     bool hasUnderline = false, underline = false;
     bool hasStrikethrough = false, strikethrough = false;
+    bool hasBackgroundBlack = false, backgroundBlack = false;
   };
   std::vector<StyleStackEntry> inlineStyleStack;
+  std::vector<BlockStyle> blockStyleStack;  // accumulated block styles from open ancestor elements
   CssStyle currentCssStyle;
   bool effectiveBold = false;
   bool effectiveItalic = false;
   bool effectiveUnderline = false;
   bool effectiveStrikethrough = false;
+  bool effectiveBackgroundBlack = false;
 
   struct BufferedTableCell {
     std::unique_ptr<ParsedText> text;
@@ -104,6 +108,7 @@ class ChapterHtmlSlimParser {
   int tableDepth = 0;
   int tableRowIndex = 0;
   int tableColIndex = 0;
+  int pendingListMarkerDepth = -1;
   bool currentTableCellIsHeader = false;
   uint8_t currentTableCellColSpan = 1;
   std::unique_ptr<BufferedTable> currentTableBuffer = nullptr;
@@ -114,6 +119,7 @@ class ChapterHtmlSlimParser {
   std::vector<std::pair<std::string, uint16_t>> anchorData;
   std::string pendingAnchorId;  // deferred until after previous text block is flushed
   uint16_t xpathParagraphIndex = 0;
+  uint16_t xpathListItemIndex = 0;
 
   // Footnote link tracking
   bool insideFootnoteLink = false;
@@ -124,6 +130,7 @@ class ChapterHtmlSlimParser {
   int wordsExtractedInBlock = 0;
 
   void updateEffectiveInlineStyle();
+  bool shouldAbortForLowMemory(const char* stage);
   void startNewTextBlock(const BlockStyle& blockStyle);
   void flushPartWordBuffer();
   void makePages();
@@ -145,7 +152,7 @@ class ChapterHtmlSlimParser {
                                  const uint16_t viewportWidth, const uint16_t viewportHeight,
                                  const bool hyphenationEnabled, const bool bionicReadingEnabled,
                                  const bool guideReadingEnabled,
-                                 const std::function<void(std::unique_ptr<Page>, uint16_t)>& completePageFn,
+                                 const std::function<void(std::unique_ptr<Page>, uint16_t, uint16_t)>& completePageFn,
                                  const bool embeddedStyle, const std::string& contentBase,
                                  const std::string& imageBasePath, const uint8_t imageRendering = 0,
                                  const std::function<void()>& popupFn = nullptr, const CssParser* cssParser = nullptr)
@@ -176,4 +183,5 @@ class ChapterHtmlSlimParser {
   void addLineToPage(std::shared_ptr<TextBlock> line);
   const std::vector<std::pair<std::string, uint16_t>>& getAnchors() const { return anchorData; }
   bool wasLowMemoryFallbackTriggered() const { return lowMemoryImageFallback; }
+  bool wasLowMemoryAbortTriggered() const { return lowMemoryAbort; }
 };

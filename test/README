@@ -9,3 +9,20 @@ in the development cycle.
 
 More information about PlatformIO Unit Testing:
 - https://docs.platformio.org/en/latest/advanced/unit-testing/index.html
+
+Simulator smoke test:
+- Run `./scripts/run_simulator_smoke_test.py` from the repo root.
+- The script builds `env:simulator`, creates a temporary `fs_`, copies a test EPUB into it, opens common screens, renders them, drives reader page/menu input, and fails on crashes or missing success output.
+- Use `--book path/to/book.epub` to choose a specific EPUB and `--page-turns 10` to change how far the reader flow navigates.
+- Use `--theme lyra-carousel` to run the flow with a specific UI theme. Supported names include `classic`, `lyra`, `lyra-extended`, `roundedraff`, and `lyra-carousel`.
+- Use `--no-build` to reuse the existing simulator binary or `--window` to show the SDL window instead of running headless.
+
+Expected coverage:
+- This is a fast regression tripwire, similar to a small browser smoke test. It proves the simulator can boot, open common screens, load the selected EPUB, turn pages, open reader menus, and exit without crashing or hanging.
+- It is useful for catching activity entry/render crashes, bad allocations, uncaught exceptions, assertions, segfaults, AddressSanitizer/UndefinedBehaviorSanitizer reports, obvious hangs, and EPUB/theme-specific failures for the exact book and theme under test.
+- It also covers a narrow scripted reader path: page forward, open the reader menu, enter Reader Options, navigate/toggle one option, and back out to the reader.
+
+Limits:
+- It does not replace hardware testing. The desktop simulator has different memory, filesystem, timing, display, sleep, button, battery, USB, Wi-Fi, and OTA behavior than the ESP32-C3 device.
+- It should not be expected to catch exact hardware heap pressure, SD-card locking/timing issues, e-ink ghosting or refresh quality, real deep-sleep wake behavior, electrical button behavior, subtle visual layout problems, or EPUB cases that are not present in the selected test book.
+- After a simulator pass, still verify important changes on hardware with the same EPUB and theme by turning pages, opening the reader menu, entering Reader Options, toggling a setting, backing out, and watching for crashes or memory-related logs.

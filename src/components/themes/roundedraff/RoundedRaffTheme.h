@@ -11,7 +11,7 @@ constexpr ThemeMetrics values = {.batteryWidth = 15,
                                  .batteryBarHeight = 20,
                                  .headerHeight = 45,
                                  .verticalSpacing = 10,
-                                 .contentSidePadding = 20,
+                                 .contentSidePadding = 15,
                                  .listRowHeight = 42,
                                  .listWithSubtitleRowHeight = 69,
                                  .menuRowHeight = 42,
@@ -34,10 +34,16 @@ constexpr ThemeMetrics values = {.batteryWidth = 15,
                                  .statusBarHorizontalMargin = 5,
                                  .statusBarVerticalMargin = 19,
                                  .keyboardKeyWidth = 22,
-                                 .keyboardKeyHeight = 30,
+                                 .keyboardKeyHeight = 38,
                                  .keyboardKeySpacing = 10,
-                                 .keyboardBottomAligned = false,
-                                 .keyboardCenteredText = false};
+                                 .keyboardBottomKeyHeight = 34,
+                                 .keyboardBottomKeySpacing = 5,
+                                 .keyboardBottomAligned = true,
+                                 .keyboardCenteredText = false,
+                                 .keyboardVerticalOffset = 0,
+                                 .keyboardTextFieldWidthPercent = 85,
+                                 .keyboardWidthPercent = 90,
+                                 .keyboardKeyCornerRadius = 0};
 }
 
 class RoundedRaffTheme : public BaseTheme {
@@ -48,18 +54,24 @@ class RoundedRaffTheme : public BaseTheme {
                   bool selected) const override;
   void drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std::vector<RecentBook>& recentBooks,
                            int selectorIndex, bool& coverRendered, bool& coverBufferStored, bool& bufferRestored,
-                           std::function<bool()> storeCoverBuffer, const BookReadingStats* stats = nullptr,
+                           const std::function<bool()>& storeCoverBuffer, const BookReadingStats* stats = nullptr,
                            float progressPercent = -1.0f) const override;
   void drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount, int selectedIndex,
                       const std::function<std::string(int index)>& buttonLabel,
                       const std::function<UIIcon(int index)>& rowIcon) const override;
+  void drawTextField(const GfxRenderer& renderer, Rect rect, int textWidth, bool cursorMode = false,
+                     int contentStartX = 0, int contentWidth = 0) const override;
+  void drawKeyboardKey(const GfxRenderer& renderer, Rect rect, const char* label, bool isSelected,
+                       const char* secondaryLabel = nullptr, KeyboardKeyType keyType = KeyboardKeyType::Normal,
+                       bool inactiveSelection = false) const override;
   void drawList(const GfxRenderer& renderer, Rect rect, int itemCount, int selectedIndex,
                 const std::function<std::string(int index)>& rowTitle,
                 const std::function<std::string(int index)>& rowSubtitle = nullptr,
                 const std::function<UIIcon(int index)>& rowIcon = nullptr,
                 const std::function<std::string(int index)>& rowValue = nullptr, bool highlightValue = false,
+                const std::function<bool(int index)>& rowDimmed = nullptr,
                 const std::function<bool(int index)>& isHeader = nullptr) const override;
-  void drawButtonHints(GfxRenderer& renderer, const char* btn1, const char* btn2, const char* btn3,
-                       const char* btn4) const override;
+  void drawButtonHints(GfxRenderer& renderer, const char* btn1, const char* btn2, const char* btn3, const char* btn4,
+                       bool allowInvertedText = false) const override;
   bool homeMenuShowsContinueReading() const { return true; }
 };

@@ -10,6 +10,7 @@ mkdir -p "$BUILD_DIR"
 SOURCES=(
   "$ROOT_DIR/test/differential_rounding/DifferentialRoundingTest.cpp"
   "$ROOT_DIR/lib/EpdFont/EpdFont.cpp"
+  "$ROOT_DIR/lib/EpdFont/EpdFontFamily.cpp"
   "$ROOT_DIR/lib/Utf8/Utf8.cpp"
 )
 

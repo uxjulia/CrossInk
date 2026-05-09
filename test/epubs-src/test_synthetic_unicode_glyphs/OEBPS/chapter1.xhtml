@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en">
+<head>
+  <title>Glyph Reference</title>
+  <link rel="stylesheet" type="text/css" href="styles/test.css"/>
+</head>
+<body>
+<h1>Glyph Reference</h1>
+<p class="note">This chapter covers the synthetic Unicode glyphs added in commit c4357d06.</p>
+<p class="note">Each line should show a visible glyph after the label, not an empty box or missing-character mark.</p>
+
+<h2>Solid Shapes</h2>
+<p class="sample">U+2588 FULL BLOCK: █ ███ █████</p>
+<p class="sample">U+25A0 BLACK SQUARE: ■ ■■■ ■■■■■</p>
+<p class="sample">Mixed solid run: A█B C■D █■█■█ end</p>
+<p class="sample big">Bold solid run: A█B C■D █■█■█ end</p>
+
+<h2>Greek Fallbacks</h2>
+<p class="sample">U+0393 GREEK CAPITAL GAMMA: Γ ΓΓΓ Γ test</p>
+<p class="sample">U+03B5 GREEK SMALL EPSILON: ε εεε ε test</p>
+<p class="sample">U+03C9 GREEK SMALL OMEGA: ω ωωω ω test</p>
+<p class="sample">Mixed Greek fallback run: Γ ε ω Γεω</p>
+<p class="sample big">Bold Greek fallback run: Γ ε ω Γεω</p>
+
+<h2>Alias Glyph</h2>
+<p class="sample">U+02BB MODIFIER LETTER TURNED COMMA: ʻokina ʻ single ʻ marks</p>
+<p class="sample">Compare with U+2018 LEFT SINGLE QUOTATION MARK: ‘okina ‘ single ‘ marks</p>
+
+<h2>Inline Context</h2>
+<p>The synthetic glyphs should work inside normal prose: this sentence has a full block █, a black square ■, Greek Γεω, and turned comma ʻ in one paragraph.</p>
+<p>They should also survive punctuation: [█] (■), Γ; ε, ω. The final word ends with a block: done█</p>
+</body>
+</html>

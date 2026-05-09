@@ -271,7 +271,7 @@ bool CrossPointSettings::loadFromBinaryFile() {
     if (++settingsRead >= fileSettingsCount) break;
     readAndValidate(inputFile, hideBatteryPercentage, HIDE_BATTERY_PERCENTAGE_COUNT);
     if (++settingsRead >= fileSettingsCount) break;
-    serialization::readPod(inputFile, longPressChapterSkip);
+    readAndValidate(inputFile, longPressButtonBehavior, LONG_PRESS_BUTTON_BEHAVIOR_COUNT);
     if (++settingsRead >= fileSettingsCount) break;
     serialization::readPod(inputFile, hyphenationEnabled);
     if (++settingsRead >= fileSettingsCount) break;
@@ -291,7 +291,16 @@ bool CrossPointSettings::loadFromBinaryFile() {
     if (++settingsRead >= fileSettingsCount) break;
     readAndValidate(inputFile, sleepScreenCoverFilter, SLEEP_SCREEN_COVER_FILTER_COUNT);
     if (++settingsRead >= fileSettingsCount) break;
-    serialization::readPod(inputFile, uiTheme);
+    {
+      // Older builds wrote uiTheme via raw readPod, so any byte (including
+      // values that were briefly assigned to themes that are not currently
+      // exposed) may be on disk. Map anything outside the active theme count
+      // to LYRA so the migration is deterministic instead of leaning on
+      // readAndValidate's no-op-on-invalid behaviour.
+      uint8_t rawTheme = LYRA;
+      serialization::readPod(inputFile, rawTheme);
+      uiTheme = (rawTheme < UI_THEME_COUNT) ? rawTheme : static_cast<uint8_t>(LYRA);
+    }
     if (++settingsRead >= fileSettingsCount) break;
     readAndValidate(inputFile, frontButtonBack, FRONT_BUTTON_HARDWARE_COUNT);
     if (++settingsRead >= fileSettingsCount) break;
@@ -319,6 +328,19 @@ bool CrossPointSettings::loadFromBinaryFile() {
 }
 
 float CrossPointSettings::getReaderLineCompression() const {
+  // SD card fonts use same compression as Bookerly (the most neutral values)
+  if (sdFontFamilyName[0] != '\0') {
+    switch (lineSpacing) {
+      case TIGHT:
+        return 0.95f;
+      case NORMAL:
+      default:
+        return 1.0f;
+      case WIDE:
+        return 1.1f;
+    }
+  }
+
   switch (fontFamily) {
     case LEXENDDECA:
     default:
@@ -438,6 +460,14 @@ bool CrossPointSettings::changeReaderFontSize(const bool larger) {
 
 int CrossPointSettings::getReaderFontId() const {
   const FONT_SIZE effectiveSize = getEffectiveReaderFontSize();
+
+  // Check SD card font first
+  if (sdFontFamilyName[0] != '\0' && sdFontIdResolver) {
+    int id = sdFontIdResolver(sdFontResolverCtx, sdFontFamilyName, fontSize);
+    if (id != 0) return id;
+    // Fall through to built-in if SD font not found
+  }
+
   switch (fontFamily) {
     case LEXENDDECA:
     default:

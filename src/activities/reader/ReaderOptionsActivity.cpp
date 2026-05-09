@@ -16,7 +16,9 @@ void ReaderOptionsActivity::onEnter() {
   Activity::onEnter();
 
   settings.clear();
-  std::copy_if(getSettingsList().begin(), getSettingsList().end(), std::back_inserter(settings),
+  const auto allSettings = getSettingsList();
+  settings.reserve(allSettings.size());
+  std::copy_if(allSettings.begin(), allSettings.end(), std::back_inserter(settings),
                [](const auto& s) { return s.category == StrId::STR_CAT_READER && s.type != SettingType::ACTION; });
   settingsCount = static_cast<int>(settings.size());
   selectedIndex = 0;
@@ -109,7 +111,7 @@ void ReaderOptionsActivity::render(RenderLock&&) {
       true);
 
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_TOGGLE), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
-  GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+  GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4, true);
 
   renderer.displayBuffer();
 }

@@ -7,7 +7,9 @@ nav_order: 8
 
 ## `book.bin`
 
-### Version 3
+### Version 6
+
+Adds a Crossink-owned cache magic before the version byte so `book.bin` files written by upstream CrossPoint or other forks are rejected and rebuilt instead of being parsed as compatible Crossink metadata caches.
 
 ImHex Pattern:
 
@@ -17,7 +19,8 @@ import std.string;
 import std.core;
 
 // === Configuration ===
-#define EXPECTED_VERSION 3
+#define EXPECTED_MAGIC 0x425843FF
+#define EXPECTED_VERSION 6
 #define MAX_STRING_LENGTH 65535
 
 // === String Structure ===
@@ -39,6 +42,7 @@ fn format_string(String s) {
 struct Metadata {
     String title [[comment("Book title")]];
     String author [[comment("Book author")]];
+    String language [[comment("Book language")]];
     String coverItemHref [[comment("Path to cover image")]];
     String textReferenceHref [[comment("Path to guided first text reference")]];
 } [[comment("Book metadata information")]];
@@ -65,6 +69,11 @@ struct TocEntry {
 
 struct BookBin {
     // Header
+    u32 magic [[comment("Crossink cache magic: 0xFF CXB"), color("B8F7D4")]];
+    if (magic != EXPECTED_MAGIC) {
+        std::error(std::format("Unsupported cache magic: 0x{:08X} (expected 0x{:08X})", magic, EXPECTED_MAGIC));
+    }
+
     u8 version [[comment("Format version"), color("FFD93D")]];
     
     // Version validation
@@ -109,6 +118,34 @@ if (parsedSize != fileSize) {
 
 ## `section.bin`
 
+### Version 36
+
+Adds a per-`TextBlock` Guide Dots metadata flag before the guide-dot offset vector. When no word in the block has a guide dot, the guide-dot offset vector is omitted; background bytes remain per-word.
+
+### Version 35
+
+Adds a per-`TextBlock` Bionic Reading metadata flag before the bionic boundary/suffix vectors. When no word in the block has a bionic split, the boundary and suffix vectors are omitted; guide-dot offsets and background bytes remain per-word.
+
+### Version 34
+
+Adds a Crossink-owned cache magic before the version byte so `sections/*.bin` files written by upstream CrossPoint or other forks are rejected and rebuilt instead of being parsed as compatible Crossink section caches.
+
+### Version 33
+
+Adds one per-word `backgroundBlack` byte to serialized `TextBlock` records so EPUB text runs with simple black CSS backgrounds can repaint correctly from section cache.
+
+### Version 32
+
+Invalidates cached EPUB section files after image rendering and image-cache behavior changes, so old rendered page data is rebuilt instead of reusing stale `ImageBlock` cache references. No binary layout fields changed from version 31.
+
+### Version 31
+
+Invalidates cached EPUB section files after section-cache write hardening and parser/layout compatibility changes from the upstream merge. No binary layout fields changed from version 30.
+
+### Version 30
+
+Added `PageHorizontalRule` page elements (tag `4`) for rendered EPUB `<hr>` separators. Horizontal rules store their x/y position, width, and thickness. This invalidates cached section layouts so horizontal rules are serialized as first-class page elements instead of being ignored.
+
 ### Version 29
 
 Added `PageTableFragment` page elements (tag `3`) for paginated simple-table layout. Table fragments store their fragment width, column count, cell padding, line height, per-row heights/header-divider flags, and per-cell serialized `TextBlock` lines. This invalidates cached section layouts so simple EPUB tables can render as buffered multi-column grids instead of flattened cell paragraphs.
@@ -131,7 +168,7 @@ Bionic Reading words are now stored as a single merged TextBlock entry instead o
 
 ### Version 23
 
-Added `guideReadingEnabled` (bool) to the header after `focusReadingEnabled`. Guide Dots feature flag: when enabled, a middle dot (U+00B7) is inserted between words during layout (skipped for Justify alignment).
+Added `guideReadingEnabled` (bool) to the header after `bionicReadingEnabled`. Guide Dots feature flag: when enabled, a middle dot (U+00B7) is inserted between words during layout (skipped for Justify alignment).
 
 ### Version 22
 
@@ -145,7 +182,8 @@ import std.string;
 import std.core;
 
 // === Configuration ===
-#define EXPECTED_VERSION 29
+#define EXPECTED_MAGIC 0x535843FF
+#define EXPECTED_VERSION 36
 #define MAX_STRING_LENGTH 65535
 #define MAX_WORD_STRING_LENGTH 4096
 #define FOOTNOTE_NUMBER_LEN 32
@@ -207,9 +245,16 @@ struct TextBlock {
   WordString words[wordCount];
   s16 wordXPos[wordCount];
   WordStyle wordStyle[wordCount];
-  u8 wordBionicBoundary[wordCount];
-  u16 wordBionicSuffixX[wordCount];
-  u16 wordGuideDotXOffset[wordCount];
+  u8 hasBionicMetadata;
+  if (hasBionicMetadata != 0) {
+    u8 wordBionicBoundary[wordCount];
+    u16 wordBionicSuffixX[wordCount];
+  }
+  u8 hasGuideDotMetadata;
+  if (hasGuideDotMetadata != 0) {
+    u16 wordGuideDotXOffset[wordCount];
+  }
+  u8 wordBackgroundBlack[wordCount];
   BlockStyle blockStyle;
   bool textAlignDefined;
   s16 marginTop;
@@ -286,6 +331,8 @@ struct PageElement {
         PageImage pageImage [[inline]];
     } else if (pageElementType == 3) {
         PageTableFragment pageTableFragment [[inline]];
+    } else if (pageElementType == 4) {
+        PageHorizontalRule pageHorizontalRule [[inline]];
     } else {
         std::error(std::format("Unknown page element type: {}", pageElementType));
     }
@@ -307,6 +354,11 @@ struct AnchorEntry {
 
 struct SectionBin {
     // Header
+    u32 magic [[comment("Crossink cache magic: 0xFF CXS"), color("B8F7D4")]];
+    if (magic != EXPECTED_MAGIC) {
+        std::error(std::format("Unsupported cache magic: 0x{:08X} (expected 0x{:08X})", magic, EXPECTED_MAGIC));
+    }
+
     u8 version [[comment("Format version"), color("FFD93D")]];
     
     // Version validation
@@ -331,6 +383,7 @@ struct SectionBin {
     u32 lutOffset;
     u32 anchorMapOffset;
     u32 paragraphLutOffset;
+    u32 liLutOffset;
 
     Page pages[pageCount] [[inline]];
     
@@ -358,6 +411,13 @@ struct SectionBin {
     }
     u16 paragraphCount;
     u16 paragraphIndices[paragraphCount];
+
+    // List-item index -> page lookup
+    u32 liOffsetCheck = $;
+    if (liOffsetCheck != liLutOffset) {
+        std::warning(std::format("List-item LUT offset mismatch: expected 0x{:X}, got 0x{:X}", liLutOffset, liOffsetCheck));
+    }
+    u16 listItemIndices[paragraphCount];
 };
 
 // === File Parsing ===
@@ -372,3 +432,9 @@ if (parsedSize != fileSize) {
     std::warning(std::format("Unparsed data detected: {} bytes remaining at offset 0x{:X}", fileSize - parsedSize, parsedSize));
 }
 ```
+
+## `css_rules.cache`
+
+### Version 8
+
+Adds a Crossink-owned cache magic before the version byte so cached EPUB CSS rules written by upstream CrossPoint or other forks are rejected and rebuilt before section caches are regenerated.

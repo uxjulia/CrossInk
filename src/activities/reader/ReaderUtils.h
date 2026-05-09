@@ -9,6 +9,7 @@
 
 namespace ReaderUtils {
 
+constexpr unsigned long SKIP_HOLD_MS = 700;
 constexpr unsigned long GO_HOME_MS = 1000;
 
 inline GfxRenderer::Orientation toRendererOrientation(const uint8_t orientation) {
@@ -30,6 +31,11 @@ inline void applyOrientation(GfxRenderer& renderer, const uint8_t orientation) {
   renderer.setOrientation(toRendererOrientation(orientation));
 }
 
+inline uint8_t rotatedOrientation(const uint8_t orientation, const bool clockwise) {
+  return clockwise ? (orientation + 1) % CrossPointSettings::ORIENTATION_COUNT
+                   : (orientation + CrossPointSettings::ORIENTATION_COUNT - 1) % CrossPointSettings::ORIENTATION_COUNT;
+}
+
 struct PageTurnResult {
   bool prev;
   bool next;
@@ -38,8 +44,6 @@ struct PageTurnResult {
 };
 
 inline PageTurnResult detectPageTurn(const MappedInputManager& input) {
-  // Front buttons fire on press when long-press chapter skip is disabled (faster response).
-  const bool frontUsePress = !SETTINGS.longPressChapterSkip;
   // Side buttons fire on press only when long-press action is OFF (nothing to detect).
   const bool sideUsePress = SETTINGS.sideButtonLongPress == CrossPointSettings::SIDE_LONG_PRESS::SIDE_LONG_OFF;
 
@@ -50,16 +54,14 @@ inline PageTurnResult detectPageTurn(const MappedInputManager& input) {
   const bool sideNext = sideUsePress ? input.wasPressed(MappedInputManager::Button::PageForward)
                                      : input.wasReleased(MappedInputManager::Button::PageForward);
 
-  const bool frontPrev = frontUsePress ? input.wasPressed(MappedInputManager::Button::Left)
-                                       : input.wasReleased(MappedInputManager::Button::Left);
+  const bool frontPrev = input.wasReleased(MappedInputManager::Button::Left);
   const bool powerReleased = input.wasReleased(MappedInputManager::Button::Power);
   const bool shortPowerTurn = SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::PAGE_TURN && powerReleased &&
                               input.getHeldTime() < SETTINGS.getPowerButtonLongPressDuration();
   const bool longPowerTurn = SETTINGS.longPwrBtn == CrossPointSettings::SHORT_PWRBTN::PAGE_TURN && powerReleased &&
                              input.getHeldTime() >= SETTINGS.getPowerButtonLongPressDuration();
   const bool powerTurn = shortPowerTurn || longPowerTurn;
-  const bool frontNext = frontUsePress ? (input.wasPressed(MappedInputManager::Button::Right) || powerTurn)
-                                       : (input.wasReleased(MappedInputManager::Button::Right) || powerTurn);
+  const bool frontNext = input.wasReleased(MappedInputManager::Button::Right) || powerTurn;
 
   // fromSideBtn is true when only side buttons contributed to this page turn.
   const bool fromSide = (sidePrev || sideNext) && !(frontPrev || frontNext);
