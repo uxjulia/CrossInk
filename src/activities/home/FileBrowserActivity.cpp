@@ -200,9 +200,11 @@ void FileBrowserActivity::promptDeleteFile(const std::string& fullPath, const st
   startActivityForResult(std::make_unique<ConfirmationActivity>(renderer, mappedInput, heading, entry), handler);
 }
 
-void FileBrowserActivity::promptDeleteDirectory(const std::string& fullPath, const std::string& entry) {
+void FileBrowserActivity::promptDeleteDirectory(const std::string& fullPath, const std::string& entry,
+                                                const bool ignoreInitialConfirmRelease) {
   const std::string dirPath = normalizeDirectoryPath(fullPath);
   auto handler = [this, dirPath](const ActivityResult& res) {
+    longPressConfirmHandled = false;
     if (res.isCancelled) {
       LOG_DBG("FileBrowser", "Delete cancelled by user");
       return;
@@ -237,7 +239,9 @@ void FileBrowserActivity::promptDeleteDirectory(const std::string& fullPath, con
   };
 
   const std::string heading = tr(STR_DELETE) + std::string("? ");
-  startActivityForResult(std::make_unique<ConfirmationActivity>(renderer, mappedInput, heading, entry), handler);
+  startActivityForResult(
+      std::make_unique<ConfirmationActivity>(renderer, mappedInput, heading, entry, ignoreInitialConfirmRelease),
+      handler);
 }
 
 void FileBrowserActivity::pinSleepFavorite(const std::string& fullPath) {
@@ -356,10 +360,14 @@ void FileBrowserActivity::loop() {
   if (!files.empty()) {
     const std::string& entry = files[selectorIndex];
     const bool isDirectory = (entry.back() == '/');
-    if (mode == Mode::Books && !longPressConfirmHandled && !isDirectory &&
-        mappedInput.isPressed(MappedInputManager::Button::Confirm) && mappedInput.getHeldTime() >= GO_HOME_MS) {
+    if (mode == Mode::Books && !longPressConfirmHandled && mappedInput.isPressed(MappedInputManager::Button::Confirm) &&
+        mappedInput.getHeldTime() >= GO_HOME_MS) {
       longPressConfirmHandled = true;
-      showFileActionMenu(entry, true);
+      if (isDirectory) {
+        promptDeleteDirectory(buildFullPath(basepath, entry), entry, true);
+      } else {
+        showFileActionMenu(entry, true);
+      }
       return;
     }
   }

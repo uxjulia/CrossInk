@@ -84,7 +84,7 @@ Project: Open-source e-reader firmware for Xteink X4 (ESP32-C3).
 
 ## Changelog
 
-When new features are added or issues are fixed, make sure to add an entry to `CHANGELOG.md`. Types of changes should have their own section:
+When new features are added or issues are fixed, make sure to add an entry to `CHANGELOG.md` with the user-facing description of the change. Types of changes should have their own section:
 
 Added - for new features.
 Changed - for changes in existing functionality.
