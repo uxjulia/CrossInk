@@ -26,6 +26,7 @@ import freetype
 import struct
 import sys
 import os
+import re
 import math
 import argparse
 from collections import namedtuple
@@ -75,17 +76,39 @@ INTERVAL_PRESETS = {
                     (0xFB00, 0xFB06)],
 }
 
+# Regex for parsing unnamed hex range intervals: (0xSTART-0xEND)
+_HEX_RANGE_PATTERN = re.compile(r'^\(0x([0-9a-fA-F]+)-0x([0-9a-fA-F]+)\)$')
+
+def parse_hex_range(s: str) -> tuple[int, int] | None:
+    match = _HEX_RANGE_PATTERN.fullmatch(s)
+    if not match:
+        return None
+
+    start_hex, end_hex = match.groups()
+    start, end = int(start_hex, 16), int(end_hex, 16)
+
+    # Validating Unicode range bounds.
+    if start > end or end > 0x10FFFF:
+        return None
+    return start, end
+
 
 def resolve_intervals(preset_str):
     """Resolve comma-separated preset names into a merged, sorted, deduplicated interval list."""
     all_intervals = []
     for name in preset_str.split(","):
         name = name.strip().lower()
-        if name not in INTERVAL_PRESETS:
+        unnamed_interval = parse_hex_range(name)
+        if name not in INTERVAL_PRESETS and unnamed_interval is None:
             print(f"Error: unknown interval preset '{name}'", file=sys.stderr)
             print(f"Available presets: {', '.join(sorted(INTERVAL_PRESETS.keys()))}", file=sys.stderr)
+            print("You can also specify unnamed hex ranges like (0x2100-0x214F)", file=sys.stderr)
             sys.exit(1)
-        all_intervals.extend(INTERVAL_PRESETS[name])
+
+        if unnamed_interval is not None:
+            all_intervals.append(unnamed_interval)
+        else:
+            all_intervals.extend(INTERVAL_PRESETS[name])
 
     # Always add replacement character
     all_intervals.append((0xFFFD, 0xFFFD))
