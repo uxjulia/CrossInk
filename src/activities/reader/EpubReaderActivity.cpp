@@ -36,6 +36,7 @@
 #include "ReaderUtils.h"
 #include "RecentBooksStore.h"
 #include "SdCardFontSystem.h"
+#include "WifiCredentialStore.h"
 #include "activities/boot_sleep/SleepCoverAssets.h"
 #include "activities/util/ConfirmationActivity.h"
 #include "activities/util/IntervalSelectionActivity.h"
@@ -304,6 +305,93 @@ void EpubReaderActivity::onEnter() {
     }
   }
 
+  // Apply remote progress from auto sync-on-open if remote is ahead.
+  // Skip if a bookmark jump is pending (user explicitly navigated; don't override).
+  if (remoteProgressOnOpen && !pendingPercentJump) {
+    // Compute local percentage from persisted spine position (section not loaded yet).
+    // Use epub's cumulative byte sizes as a rough percentage estimate.
+    float localPct = 0.0f;
+    if (epub->getBookSize() > 0 && currentSpineIndex > 0) {
+      float intraSpine = 0.0f;
+      if (cachedChapterTotalPageCount > 1) {
+        intraSpine = static_cast<float>(nextPageNumber) / static_cast<float>(cachedChapterTotalPageCount - 1);
+      }
+      localPct = epub->calculateProgress(currentSpineIndex, intraSpine);
+    }
+
+    const float remotePct = remoteProgressOnOpen->percentage;
+    if (remotePct > localPct + 0.005f) {
+      LOG_DBG("ERS", "Auto sync: applying remote progress %.1f%% (local was %.1f%%)", remotePct * 100,
+              localPct * 100);
+
+      // Use ProgressMapper for sub-page precision (same path as manual sync).
+      // This parses the xpath to find exact spine + intra-spine position,
+      // then refines with section LUTs for paragraph-level accuracy.
+      KOReaderPosition koPos = {remoteProgressOnOpen->progress, remoteProgressOnOpen->percentage};
+      auto remotePos = ProgressMapper::toCrossPoint(epub, koPos, currentSpineIndex, cachedChapterTotalPageCount);
+
+      {
+        char buf[128];
+        snprintf(buf, sizeof(buf), "Apply open: local=%.2f%% remote=%.2f%% spine=%d page=%d",
+                 localPct * 100, remotePct * 100, remotePos.spineIndex, remotePos.pageNumber);
+        AutoKOSync::logToSd(buf);
+      }
+
+      // Refine page using section cache LUTs (mirrors KOReaderSyncActivity logic)
+      if (remotePos.hasLiIndex || remotePos.xpathAnchorId[0] != '\0' || remotePos.hasParagraphIndex) {
+        Section tempSection(epub, remotePos.spineIndex, renderer);
+        bool refined = false;
+        if (remotePos.hasLiIndex) {
+          const auto liPage = tempSection.getPageForListItemIndex(remotePos.liIndex);
+          if (liPage.has_value()) {
+            remotePos.pageNumber = *liPage;
+            refined = true;
+          }
+        }
+        if (!refined && remotePos.xpathAnchorId[0] != '\0') {
+          const auto anchorPage = tempSection.getPageForAnchor(std::string(remotePos.xpathAnchorId));
+          if (anchorPage.has_value()) {
+            remotePos.pageNumber = *anchorPage;
+            refined = true;
+          }
+        }
+        if (!refined && remotePos.hasParagraphIndex) {
+          const auto paragraphPage = tempSection.getPageForParagraphIndex(remotePos.paragraphIndex);
+          const auto nextParagraphPage = tempSection.getPageForParagraphIndex(remotePos.paragraphIndex + 1);
+          if (paragraphPage.has_value()) {
+            int refinedPage = std::max(remotePos.pageNumber, static_cast<int>(*paragraphPage));
+            if (nextParagraphPage.has_value()) {
+              const int lutSpan = static_cast<int>(*nextParagraphPage) - static_cast<int>(*paragraphPage);
+              if (lutSpan > 1 && refinedPage >= static_cast<int>(*nextParagraphPage)) {
+                refinedPage = static_cast<int>(*nextParagraphPage) - 1;
+              }
+            }
+            remotePos.pageNumber = refinedPage;
+          }
+        }
+
+        char buf[80];
+        snprintf(buf, sizeof(buf), "Apply open: refined page=%d", remotePos.pageNumber);
+        AutoKOSync::logToSd(buf);
+      }
+
+      // Navigate to the resolved position
+      currentSpineIndex = remotePos.spineIndex;
+      nextPageNumber = remotePos.pageNumber;
+      section.reset();
+
+      {
+        char buf[80];
+        snprintf(buf, sizeof(buf), "Apply open: final spine=%d page=%d", currentSpineIndex, nextPageNumber);
+        AutoKOSync::logToSd(buf);
+      }
+    } else {
+      LOG_DBG("ERS", "Auto sync: remote not ahead (remote %.1f%%, local %.1f%%), ignoring", remotePct * 100,
+              localPct * 100);
+    }
+  }
+  remoteProgressOnOpen.reset();  // Always clear, even if skipped
+
   // Load reading stats and record session start time.
   // Session count and reading time are committed on exit once thresholds are met.
   stats = BookReadingStats::load(epub->getCachePath());
@@ -351,6 +439,27 @@ void EpubReaderActivity::onExit() {
   stats.save(epub->getCachePath());
   globalStats.save();
 
+  // Prepare auto sync-on-close payload while epub and section are still alive.
+  // The actual sync happens after epub.reset() below (to free heap for TLS).
+  // Skip if manual sync was triggered (user already synced explicitly).
+  if (SETTINGS.autoKOSync >= AutoKOSync::ON_CLOSE && !pendingReadFolderMove && !manualSyncTriggered) {
+    if (elapsedMs >= AutoKOSync::MIN_SESSION_MS) {
+      AutoKOSync::logToSd("onExit: preparing close payload");
+      prepareAutoSyncClosePayload();
+    } else {
+      LOG_DBG("ERS", "Auto sync skip: session too short (%lums)", elapsedMs);
+      char buf[64];
+      snprintf(buf, sizeof(buf), "onExit: SKIP session too short (%lums)", elapsedMs);
+      AutoKOSync::logToSd(buf);
+    }
+  } else if (SETTINGS.autoKOSync >= AutoKOSync::ON_CLOSE) {
+    if (pendingReadFolderMove) {
+      AutoKOSync::logToSd("onExit: SKIP pending read-folder move");
+    } else if (manualSyncTriggered) {
+      AutoKOSync::logToSd("onExit: SKIP manual sync was used");
+    }
+  }
+
   BOOKMARKS.unload();
   section.reset();
 
@@ -364,6 +473,93 @@ void EpubReaderActivity::onExit() {
   } else {
     epub.reset();
   }
+
+  // Execute auto sync-on-close after epub is released (heap freed for TLS).
+  // Payload was prepared above while epub was still alive.
+  // Note: this blocks for up to ~12s (10s WiFi + 5s HTTP). When triggered by
+  // sleep, the sleep screen render is delayed until after this completes.
+  if (autoSyncClosePayload.valid) {
+#ifndef SIMULATOR
+    LOG_DBG("ERS", "Auto sync on close: starting (heap: %u)", (unsigned)ESP.getFreeHeap());
+#else
+    LOG_DBG("ERS", "Auto sync on close: starting");
+#endif
+    // Show "Syncing..." while sync runs
+    GUI.drawPopup(renderer, tr(STR_SYNC_PROGRESS_SYNCING));
+    const auto result = AutoKOSync::syncOnClose(autoSyncClosePayload);
+    autoSyncClosePayload.valid = false;
+
+    // Update popup with result (brief flash before screen transition)
+    if (result == AutoKOSync::SyncStatus::SUCCESS) {
+      GUI.drawPopup(renderer, tr(STR_SYNC_PROGRESS_DONE));
+    } else if (result == AutoKOSync::SyncStatus::WIFI_FAILED) {
+      GUI.drawPopup(renderer, tr(STR_SYNC_PROGRESS_NO_WIFI));
+    } else if (result != AutoKOSync::SyncStatus::SKIPPED) {
+      GUI.drawPopup(renderer, tr(STR_SYNC_PROGRESS_FAILED));
+    }
+  }
+}
+
+void EpubReaderActivity::prepareAutoSyncClosePayload() {
+  if (!epub) return;
+
+  const int currentPage = section ? section->currentPage : nextPageNumber;
+  const int totalPages = section ? section->pageCount : cachedChapterTotalPageCount;
+
+  autoSyncClosePayload.epubPath = epub->getPath();
+
+  // Compute local percentage. Prefer section-based calculation when available;
+  // fall back to spine-level estimate when section is null (e.g. between chapters).
+  if (section && section->pageCount > 0 && epub->getBookSize() > 0) {
+    autoSyncClosePayload.localPercentage = getCurrentBookProgressPercent() / 100.0f;
+  } else if (epub->getBookSize() > 0) {
+    float intraSpine = 0.0f;
+    if (totalPages > 1) {
+      intraSpine = static_cast<float>(currentPage) / static_cast<float>(totalPages - 1);
+    }
+    autoSyncClosePayload.localPercentage = epub->calculateProgress(currentSpineIndex, intraSpine);
+  } else {
+    autoSyncClosePayload.localPercentage = 0.0f;
+  }
+
+  // Compute KOReader position for upload
+  CrossPointPosition localPos = {currentSpineIndex, currentPage, totalPages};
+
+  // Try to get paragraph index for better XPath precision
+  if (section && currentPage >= 0 && currentPage < section->pageCount) {
+    const uint16_t paragraphPage =
+        currentPage > 0 ? static_cast<uint16_t>(currentPage - 1) : static_cast<uint16_t>(currentPage);
+    if (const auto pIdx = section->getParagraphIndexForPage(paragraphPage)) {
+      localPos.paragraphIndex = *pIdx;
+      localPos.hasParagraphIndex = true;
+    }
+  }
+
+  autoSyncClosePayload.localKoPos = ProgressMapper::toKOReader(epub, localPos);
+
+  // Compute document hash
+  if (KOREADER_STORE.getMatchMethod() == DocumentMatchMethod::FILENAME) {
+    autoSyncClosePayload.documentHash = KOReaderDocumentId::calculateFromFilename(epub->getPath());
+  } else {
+    autoSyncClosePayload.documentHash = KOReaderDocumentId::calculate(epub->getPath());
+  }
+
+  autoSyncClosePayload.valid = !autoSyncClosePayload.documentHash.empty();
+
+  // Stash WiFi credentials for use after epub.reset() when src/ headers aren't needed
+  const auto& ssid = WIFI_STORE.getLastConnectedSsid();
+  const auto* cred = WIFI_STORE.findCredential(ssid);
+  if (cred) {
+    autoSyncClosePayload.wifiSsid = cred->ssid;
+    autoSyncClosePayload.wifiPassword = cred->password;
+  } else {
+    autoSyncClosePayload.valid = false;  // Can't sync without WiFi
+    AutoKOSync::logToSd("SKIP close prep: no WiFi credential");
+  }
+
+  LOG_DBG("ERS", "Auto sync close payload prepared: %.1f%% hash=%s",
+          autoSyncClosePayload.localPercentage * 100,
+          autoSyncClosePayload.documentHash.c_str());
 }
 
 void EpubReaderActivity::loop() {
@@ -970,6 +1166,7 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
         }
         LOG_DBG("KOSync", "Section released for sync (heap after: %u)", (unsigned)ESP.getFreeHeap());
 
+        manualSyncTriggered = true;  // Suppress redundant auto-close-sync
         activityManager.replaceActivity(std::make_unique<KOReaderSyncActivity>(
             renderer, mappedInput, savedEpubPath, currentSpineIndex, currentPage, totalPages, std::move(localKoPos),
             std::move(localChapterName), paragraphIndex));

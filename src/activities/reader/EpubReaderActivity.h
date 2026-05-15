@@ -8,10 +8,12 @@
 #include <optional>
 #include <string>
 
+#include "AutoKOSync.h"
 #include "BookReadingStats.h"
 #include "BookmarkStore.h"
 #include "EpubReaderMenuActivity.h"
 #include "GlobalReadingStats.h"
+#include "KOReaderSyncClient.h"
 #include "activities/Activity.h"
 
 class EpubReaderActivity final : public Activity {
@@ -73,6 +75,19 @@ class EpubReaderActivity final : public Activity {
   // Consumed in onExit() to relocate the finished book into /Read/.
   bool pendingReadFolderMove = false;
 
+  // Auto KOSync state
+  std::optional<KOReaderProgress> remoteProgressOnOpen;
+  AutoKOSync::ClosePayload autoSyncClosePayload;
+  bool manualSyncTriggered = false;  // Suppress auto-close-sync after manual sync
+
+  struct ReadFolderMoveParams {
+    std::string epubPath;
+    std::string dstEpubPath;
+    std::string cachePath;
+    std::string title;
+  };
+  static void readFolderMoveTask(void* arg);
+
   // Footnote support
   std::vector<FootnoteEntry> currentPageFootnotes;
   struct SavedPosition {
@@ -109,14 +124,18 @@ class EpubReaderActivity final : public Activity {
   void setBookCompleted(bool isCompleted);
   void showCompletedFeedback(bool isCompleted);
   void showTiltPageTurnFeedback(bool enabled);
+  void prepareAutoSyncClosePayload();
 
   // Footnote navigation
   void navigateToHref(const std::string& href, bool savePosition = false);
   void restoreSavedPosition();
 
  public:
-  explicit EpubReaderActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::unique_ptr<Epub> epub)
-      : Activity("EpubReader", renderer, mappedInput), epub(std::move(epub)) {}
+  explicit EpubReaderActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::unique_ptr<Epub> epub,
+                              std::optional<KOReaderProgress> remoteProgress = std::nullopt)
+      : Activity("EpubReader", renderer, mappedInput),
+        epub(std::move(epub)),
+        remoteProgressOnOpen(std::move(remoteProgress)) {}
   void onEnter() override;
   void onExit() override;
   void loop() override;

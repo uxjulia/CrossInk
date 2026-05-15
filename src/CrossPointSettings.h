@@ -358,6 +358,8 @@ class CrossPointSettings {
   uint8_t tiltPageTurn = TILT_OFF;
   // Language setting (Language enum index, default 0 = EN)
   uint8_t language = 0;
+  // Auto KOReader sync mode (0 = off, 1 = on close, 2 = on open + close)
+  uint8_t autoKOSync = 0;
 
   ~CrossPointSettings() = default;
 
