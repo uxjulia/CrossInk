@@ -238,7 +238,7 @@ XtcReaderActivity::StatusBarInfo XtcReaderActivity::getStatusBarInfo() const {
     return StatusBarInfo{bookPage, bookPageCount, std::move(title)};
   }
 
-  const auto& chapters = xtc->getChapters();
+  const auto chapters = xtc->getChapters();
   const auto chapterIt = std::find_if(chapters.begin(), chapters.end(), [this](const xtc::ChapterInfo& chapter) {
     return currentPage >= chapter.startPage && currentPage <= chapter.endPage;
   });
@@ -248,7 +248,7 @@ XtcReaderActivity::StatusBarInfo XtcReaderActivity::getStatusBarInfo() const {
   }
 
   if (SETTINGS.statusBarTitle == CrossPointSettings::STATUS_BAR_TITLE::CHAPTER_TITLE) {
-    title = chapterIt->name.empty() ? tr(STR_UNNAMED) : chapterIt->name;
+    title = chapterIt->name[0] == '\0' ? tr(STR_UNNAMED) : chapterIt->name;
   }
 
   return StatusBarInfo{static_cast<int>(currentPage - chapterIt->startPage) + 1,

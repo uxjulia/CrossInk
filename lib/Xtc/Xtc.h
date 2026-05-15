@@ -9,7 +9,6 @@
 
 #include <memory>
 #include <string>
-#include <vector>
 
 #include "Xtc/XtcParser.h"
 #include "Xtc/XtcTypes.h"
@@ -58,7 +57,7 @@ class Xtc {
   std::string getTitle() const;
   std::string getAuthor() const;
   bool hasChapters() const;
-  const std::vector<xtc::ChapterInfo>& getChapters();
+  xtc::ChapterListView getChapters();
 
   // Cover image support (for sleep screen)
   std::string getCoverBmpPath() const;

@@ -6,6 +6,8 @@
 
 ### Fixed
 
+- Fixed a crash when opening the XTC chapter selector on memory-constrained builds.
+
 ### Changed
 
 ## [v1.2.11.1] - 2026-05-15

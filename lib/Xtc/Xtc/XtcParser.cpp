@@ -11,7 +11,9 @@
 #include <HalStorage.h>
 #include <Logging.h>
 
+#include <algorithm>
 #include <cstring>
+#include <new>
 
 namespace xtc {
 
@@ -22,6 +24,7 @@ XtcParser::XtcParser()
       m_bitDepth(1),
       m_hasChapters(false),
       m_chaptersLoaded(false),
+      m_chapterCount(0),
       m_lastError(XtcError::OK) {
   memset(&m_header, 0, sizeof(m_header));
 }
@@ -102,7 +105,8 @@ void XtcParser::close() {
   closeFile();
   m_isOpen = false;
   m_chaptersLoaded = false;
-  m_chapters.clear();
+  m_chapters.reset();
+  m_chapterCount = 0;
   m_title.clear();
   m_author.clear();
   m_hasChapters = false;
@@ -264,7 +268,8 @@ bool XtcParser::readPageTableEntry(uint32_t pageIndex, PageInfo& info) {
 }
 
 XtcError XtcParser::readChapters() {
-  m_chapters.clear();
+  m_chapters.reset();
+  m_chapterCount = 0;
 
   if (!ensureFileOpen()) {
     return XtcError::READ_ERROR;
@@ -322,25 +327,33 @@ XtcError XtcParser::readChapters() {
     return XtcError::READ_ERROR;
   }
 
-  m_chapters.reserve(chapterCount);
-  std::vector<uint8_t> chapterBuf(chapterSize);
-  for (size_t i = 0; i < chapterCount; i++) {
-    if (m_file.read(chapterBuf.data(), chapterSize) != chapterSize) {
+  const size_t chaptersToRead = std::min(chapterCount, MAX_XTC_CHAPTERS);
+  std::unique_ptr<ChapterInfo[]> chapters(new (std::nothrow) ChapterInfo[chaptersToRead]);
+  if (!chapters) {
+    LOG_ERR("XTC", "Failed to allocate chapter table (%u entries)", static_cast<unsigned int>(chaptersToRead));
+    m_hasChapters = false;
+    return XtcError::MEMORY_ERROR;
+  }
+
+  uint8_t chapterBuf[chapterSize];
+  size_t loadedCount = 0;
+  for (size_t i = 0; i < chaptersToRead; i++) {
+    if (m_file.read(chapterBuf, chapterSize) != chapterSize) {
       return XtcError::READ_ERROR;
     }
 
-    char nameBuf[81];
-    memcpy(nameBuf, chapterBuf.data(), 80);
-    nameBuf[80] = '\0';
-    const size_t nameLen = strnlen(nameBuf, 80);
-    std::string name(nameBuf, nameLen);
-
     uint16_t startPage = 0;
     uint16_t endPage = 0;
-    memcpy(&startPage, chapterBuf.data() + 0x50, sizeof(startPage));
-    memcpy(&endPage, chapterBuf.data() + 0x52, sizeof(endPage));
+    memcpy(&startPage, chapterBuf + 0x50, sizeof(startPage));
+    memcpy(&endPage, chapterBuf + 0x52, sizeof(endPage));
 
-    if (name.empty() && startPage == 0 && endPage == 0) {
+    ChapterInfo& chapter = chapters[loadedCount];
+    memcpy(chapter.name, chapterBuf, XTC_CHAPTER_NAME_MAX);
+    chapter.name[XTC_CHAPTER_NAME_MAX] = '\0';
+    const size_t nameLen = strnlen(chapter.name, XTC_CHAPTER_NAME_MAX);
+    chapter.name[nameLen] = '\0';
+
+    if (chapter.name[0] == '\0' && startPage == 0 && endPage == 0) {
       break;
     }
 
@@ -363,29 +376,40 @@ XtcError XtcParser::readChapters() {
       continue;
     }
 
-    ChapterInfo chapter{std::move(name), startPage, endPage};
-    m_chapters.push_back(std::move(chapter));
+    chapter.startPage = startPage;
+    chapter.endPage = endPage;
+    loadedCount++;
   }
 
-  m_hasChapters = !m_chapters.empty();
-  LOG_DBG("XTC", "Chapters: %u", static_cast<unsigned int>(m_chapters.size()));
+  if (loadedCount == 0) {
+    chapters.reset();
+  }
+  m_chapters = std::move(chapters);
+  m_chapterCount = loadedCount;
+  m_hasChapters = m_chapterCount > 0;
+  if (chapterCount > MAX_XTC_CHAPTERS) {
+    LOG_DBG("XTC", "Chapter table truncated: %u available, %u loaded", static_cast<unsigned int>(chapterCount),
+            static_cast<unsigned int>(MAX_XTC_CHAPTERS));
+  }
+  LOG_DBG("XTC", "Chapters: %u", static_cast<unsigned int>(m_chapterCount));
   return XtcError::OK;
 }
 
-const std::vector<ChapterInfo>& XtcParser::getChapters() {
+ChapterListView XtcParser::getChapters() {
   // Lazy load chapters on first access
   if (!m_chaptersLoaded && m_hasChapters) {
     const XtcError err = readChapters();
     if (err != XtcError::OK) {
       LOG_ERR("XTC", "Failed to lazy-load chapters: %s", errorToString(err));
       m_hasChapters = false;
-      m_chapters.clear();
+      m_chapters.reset();
+      m_chapterCount = 0;
     }
     m_chaptersLoaded = true;
     // Close file after chapter read to free buffers for rendering
     closeFile();
   }
-  return m_chapters;
+  return ChapterListView{m_chapters.get(), m_chapterCount};
 }
 
 bool XtcParser::getPageInfo(uint32_t pageIndex, PageInfo& info) { return readPageTableEntry(pageIndex, info); }

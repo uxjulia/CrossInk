@@ -120,10 +120,9 @@ bool Xtc::hasChapters() const {
   return parser->hasChapters();
 }
 
-const std::vector<xtc::ChapterInfo>& Xtc::getChapters() {
-  static const std::vector<xtc::ChapterInfo> kEmpty;
+xtc::ChapterListView Xtc::getChapters() {
   if (!loaded || !parser) {
-    return kEmpty;
+    return {};
   }
   return parser->getChapters();
 }

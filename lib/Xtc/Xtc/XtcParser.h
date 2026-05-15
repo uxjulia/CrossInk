@@ -12,7 +12,6 @@
 #include <functional>
 #include <memory>
 #include <string>
-#include <vector>
 
 #include "XtcTypes.h"
 
@@ -75,7 +74,7 @@ class XtcParser {
   std::string getAuthor() const { return m_author; }
 
   bool hasChapters() const { return m_hasChapters; }
-  const std::vector<ChapterInfo>& getChapters();
+  ChapterListView getChapters();
 
   // Validation
   static bool isValidXtcFile(const char* filepath);
@@ -88,7 +87,7 @@ class XtcParser {
   std::string m_filepath;
   bool m_isOpen;
   XtcHeader m_header;
-  std::vector<ChapterInfo> m_chapters;
+  std::unique_ptr<ChapterInfo[]> m_chapters;
   std::string m_title;
   std::string m_author;
   uint16_t m_defaultWidth;
@@ -96,6 +95,7 @@ class XtcParser {
   uint8_t m_bitDepth;  // 1 = XTC/XTG (1-bit), 2 = XTCH/XTH (2-bit)
   bool m_hasChapters;
   bool m_chaptersLoaded;
+  size_t m_chapterCount;
   XtcError m_lastError;
 
   // Internal helper functions

@@ -29,7 +29,7 @@ int XtcReaderChapterSelectionActivity::findChapterIndexForPage(uint32_t page) co
     return 0;
   }
 
-  const auto& chapters = xtc->getChapters();
+  const auto chapters = xtc->getChapters();
   for (size_t i = 0; i < chapters.size(); i++) {
     if (page >= chapters[i].startPage && page <= chapters[i].endPage) {
       return static_cast<int>(i);
@@ -54,10 +54,10 @@ void XtcReaderChapterSelectionActivity::onExit() { Activity::onExit(); }
 
 void XtcReaderChapterSelectionActivity::loop() {
   const int pageItems = getPageItems();
-  const int totalItems = static_cast<int>(xtc->getChapters().size());
+  const auto chapters = xtc->getChapters();
+  const int totalItems = static_cast<int>(chapters.size());
 
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
-    const auto& chapters = xtc->getChapters();
     if (!chapters.empty() && selectorIndex >= 0 && selectorIndex < static_cast<int>(chapters.size())) {
       setResult(PageResult{chapters[selectorIndex].startPage});
       finish();
@@ -112,7 +112,7 @@ void XtcReaderChapterSelectionActivity::render(RenderLock&&) {
       contentX + (contentWidth - renderer.getTextWidth(UI_12_FONT_ID, tr(STR_SELECT_CHAPTER), EpdFontFamily::BOLD)) / 2;
   renderer.drawText(UI_12_FONT_ID, titleX, 15 + contentY, tr(STR_SELECT_CHAPTER), true, EpdFontFamily::BOLD);
 
-  const auto& chapters = xtc->getChapters();
+  const auto chapters = xtc->getChapters();
   if (chapters.empty()) {
     // Center the empty state within the gutter-safe content region.
     const int emptyX = contentX + (contentWidth - renderer.getTextWidth(UI_10_FONT_ID, tr(STR_NO_CHAPTERS))) / 2;
@@ -126,7 +126,7 @@ void XtcReaderChapterSelectionActivity::render(RenderLock&&) {
   renderer.fillRect(contentX, 60 + contentY + (selectorIndex % pageItems) * 30 - 2, contentWidth - 1, 30);
   for (int i = pageStartIndex; i < static_cast<int>(chapters.size()) && i < pageStartIndex + pageItems; i++) {
     const auto& chapter = chapters[i];
-    const char* title = chapter.name.empty() ? tr(STR_UNNAMED) : chapter.name.c_str();
+    const char* title = chapter.name[0] == '\0' ? tr(STR_UNNAMED) : chapter.name;
     renderer.drawText(UI_10_FONT_ID, contentX + 20, 60 + contentY + (i % pageItems) * 30, title, i != selectorIndex);
   }
 
