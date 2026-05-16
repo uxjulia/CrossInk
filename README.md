@@ -286,6 +286,7 @@ To revert to the official firmware, you can flash the latest official firmware u
 - [User Guide](./USER_GUIDE.md)
 - [Web server usage](./docs/webserver.md)
 - [Web server endpoints](./docs/webserver-endpoints.md)
+- [Common issues](./docs/troubleshooting.md)
 - [Project scope](./SCOPE.md)
 - [Contributing docs](./docs/contributing/README.md)
 

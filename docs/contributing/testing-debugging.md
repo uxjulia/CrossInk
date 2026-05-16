@@ -6,7 +6,7 @@ nav_order: 4
 
 # Testing and Debugging
 
-CrossPoint runs on real hardware, so debugging usually combines local build checks and on-device logs.
+CrossInk runs on real hardware, so debugging usually combines local build checks, simulator checks, and on-device logs.
 
 ## Local checks
 
@@ -16,15 +16,18 @@ If needed, see [Getting Started](./getting-started.md).
 ```sh
 ./bin/clang-format-fix
 pio check --fail-on-defect low --fail-on-defect medium --fail-on-defect high
-pio run
+pio run -e simulator
+pio run -e tiny
 ```
+
+`pio run` without `-e` builds the release matrix from `platformio.ini` (`tiny`, `xlarge`, and `no_emoji`). Use it before opening broad firmware PRs, but prefer explicit environments while iterating.
 
 ## Flash and monitor
 
 Flash firmware:
 
 ```sh
-pio run --target upload
+pio run -e tiny --target upload
 ```
 
 Open serial monitor:
@@ -46,9 +49,8 @@ python3 scripts/debugging_monitor.py
 - Exact steps to reproduce
 - Expected vs actual behavior
 - Serial logs from boot through failure
-- Whether issue reproduces after clearing `.crosspoint/` cache on SD card
+- Whether issue reproduces after clearing the affected book cache or using **Clear Reading Cache**
 
 ## Common troubleshooting references
 
-- [User Guide troubleshooting section](../../USER_GUIDE.md#7-troubleshooting-issues--escaping-bootloop)
-- [Webserver troubleshooting](../troubleshooting.md)
+- [Common Issues](../troubleshooting.md)

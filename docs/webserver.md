@@ -5,236 +5,141 @@ nav_order: 3
 
 # Web Server Guide
 
-This guide explains how to connect your CrossPoint Reader to WiFi and use the built-in web server to upload files from your computer or phone.
+This guide explains how to use CrossInk's built-in File Transfer web server to manage files, settings, fonts, OPDS servers, and saved WiFi credentials from a browser.
 
 ## Overview
 
-CrossPoint Reader includes a built-in web server that allows you to:
+CrossInk includes a built-in web server that allows you to:
 
-- Upload files wirelessly from any device on the same WiFi network
-- Browse and manage files on your device's SD card
+- Upload and download files wirelessly
+- Browse, move, rename, and delete files on the SD card
 - Create folders to organize your library
-- Delete files and folders
+- Update supported reader settings from a browser
+- Manage SD-card fonts, saved OPDS servers, and saved WiFi networks
 
 ## Prerequisites
 
-- Your CrossPoint Reader device
-- A WiFi network
-- A computer, phone, or tablet connected to the **same WiFi network**
+- Your CrossInk device
+- A WiFi network, or a computer/phone that can join the device hotspot
+- A browser on a computer, phone, or tablet
 
 ---
 
-## Step 1: Accessing the WiFi Screen
+## Step 1: Open File Transfer
 
-1. From the main menu or file browser, navigate to the **Settings** screen
-2. Select the **WiFi** option
-3. The device will automatically start scanning for available networks
+1. From the main menu, select **File Transfer**.
+2. Choose a network mode:
+   - **Join Network**: connect CrossInk to an existing WiFi network.
+   - **Create Hotspot**: have CrossInk create its own WiFi hotspot.
+   - **Calibre Wireless**: use Calibre's wireless device connection flow.
 
----
-
-## Step 2: Connecting to WiFi
-
-### Viewing Available Networks
-
-Once the scan completes, you'll see a list of available WiFi networks with the following indicators:
-
-- **Signal strength bars** (`||||`, `|||`, `||`, `|`) - Shows connection quality
-- **`*` symbol** - Indicates the network is password-protected (encrypted)
-- **`+` symbol** - Indicates you have previously saved credentials for this network
-
-<img src="./images/wifi/wifi_networks.jpeg" height="500">
-
-### Selecting a Network
-
-1. Use the **Left/Right** (or **Volume Up/Down**) buttons to navigate through the network list
-2. Press **Confirm** to select the highlighted network
-
-### Entering Password (for encrypted networks)
-
-If the network requires a password:
-
-1. An on-screen keyboard will appear
-2. Use the navigation buttons to select characters
-3. Press **Confirm** to enter each character
-4. When complete, select the **Done** option on the keyboard
-
-<img src="./images/wifi/wifi_password.jpeg" height="500">
-
-**Note:** If you've previously connected to this network, the saved password will be used automatically.
-
-### Connection Process
-
-The device will display "Connecting..." while establishing the connection. This typically takes 5-10 seconds.
-
-### Saving Credentials
-
-If this is a new network, you'll be prompted to save the password:
-
-- Select **Yes** to save credentials for automatic connection next time (NOTE: These are stored in plaintext on the device's SD card. Do not use this for sensitive networks.)
-- Select **No** to connect without saving
+For normal browser uploads, use **Join Network** or **Create Hotspot**.
 
 ---
 
-## Step 3: Connection Success
+## Step 2: Connect to WiFi
 
-Once connected, the screen will display:
+### Join Network
 
-- **Network name** (SSID)
-- **IP Address** (e.g., `192.168.1.102`)
-- **Web server URL** (e.g., `http://192.168.1.102/`)
+After selecting **Join Network**, CrossInk scans for available WiFi networks.
 
-<img src="./images/wifi/wifi_connected.jpeg" height="500">
+- Signal strength bars (`||||`, `|||`, `||`, `|`) show connection quality.
+- `*` indicates the network is password-protected.
+- `+` indicates saved credentials already exist for that network.
 
-**Important:** Make note of the IP address - you'll need this to access the web interface from your computer or phone.
+1. Use the navigation buttons to select a network.
+2. Press **Confirm**.
+3. Enter the password if prompted.
+4. Save credentials if you want CrossInk to reconnect automatically later.
 
----
+Saved WiFi passwords are stored on the device SD card. Use this only on networks you trust.
 
-## Step 4: Accessing the Web Interface
+### Create Hotspot
 
-### From a Computer
-
-1. Ensure your computer is connected to the **same WiFi network** as your CrossPoint Reader
-2. Open any web browser (Chrome is recommended)
-3. Type the IP address shown on your device into the browser's address bar
-   - Example: `http://192.168.1.102/`
-4. Press Enter
-
-### From a Phone or Tablet
-
-1. Ensure your phone/tablet is connected to the **same WiFi network** as your CrossPoint Reader
-2. Open your mobile browser (Safari, Chrome, etc.)
-3. Type the IP address into the address bar
-   - Example: `http://192.168.1.102/`
-4. Tap Go
+After selecting **Create Hotspot**, connect your computer or phone to the hotspot shown on the device screen, then open the displayed web address. In hotspot mode, the device IP is usually `192.168.4.1`.
 
 ---
 
-## Step 5: Using the Web Interface
+## Step 3: Open the Web Interface
 
-### Home Page
+When File Transfer is running, the device screen shows the IP address and web server URL.
 
-The home page displays:
+1. Open a browser on your computer, phone, or tablet.
+2. Enter the URL shown on the CrossInk screen.
+3. Keep File Transfer open on the device while using the web interface.
 
-- Device status and version information
-- WiFi connection status
-- Current IP address
-- Available memory
+---
 
-Navigation links:
+## Web Interface
 
-- **Home** - Returns to the status page
-- **File Manager** - Access file management features
+### Home
 
-<img src="./images/wifi/webserver_homepage.png" width="600">
+The home page shows device status, IP address, network mode, signal strength, free heap, and uptime.
 
-### File Manager
+### Files
 
-Click **File Manager** to access file management features.
+The file manager lets you:
 
-#### Browsing Files
+- Browse folders on the SD card.
+- Upload files using HTTP or the faster WebSocket upload path used by the page.
+- Download files from the SD card.
+- Create folders.
+- Move or rename files.
+- Delete files and empty folders.
 
-- The file manager displays all files and folders on your SD card
-- **Folders** are highlighted in yellow and indicated with a 📁 icon
-- **EPUB Files** are highlighted in green and indicated with a 📗 icon
-- **All Other Files** are not highlighted and indicated with a 📄 icon
-- Click on a folder name to navigate into it
-- Use the breadcrumb navigation at the top to go back to parent folders
+Folders must be empty before deletion. File uploads, overwrites, moves, renames, and deletes clear the affected EPUB cache so stale book metadata is not reused.
 
-<img src="./images/wifi/webserver_files.png" width="600">
+### Settings
 
-#### Uploading Files
+The settings page exposes supported device settings through `/api/settings`. Changes are saved to `/.crosspoint/settings.bin`.
 
-1. Click the **📤 Upload** button in the top-right corner
-2. Click **Choose File** and select a file from your device
-3. Click **Upload**
-4. A progress bar will show the upload status
-5. The page will automatically refresh when the upload is complete
+### Fonts
 
-<img src="./images/wifi/webserver_upload.png" width="600">
+The fonts page lists installed SD-card font families and allows `.cpfont` uploads and font family deletion. Uploaded fonts are installed under the SD-card font roots and are picked up by the reader font list.
 
-#### Creating Folders
+### OPDS and WiFi Management
 
-1. Click the **📁 New Folder** button in the top-right corner
-2. Enter a folder name (must not contain characters \" * : < > ? / \\ | and must not be . or ..)
-3. Click **Create Folder**
-
-This is useful for organizing your library by genre, author, series or file type.
-
-#### Deleting Files and Folders
-
-1. Click the **🗑️** (trash) icon next to any file or folder
-2. Confirm the deletion in the popup dialog
-3. Click **Delete** to permanently remove the item
-
-**Warning:** Deletion is permanent and cannot be undone!
-
-**Note:** Folders must be empty before they can be deleted.
-
-#### Moving Files
-
-1. Click the **📂** (folder) icon next to any file
-2. Enter a folder name or select one from the dropdown
-3. Click **Move** to relocate the file
-
-**Note:** Typing in a nonexistent folder name will result in the following error: "Failed to move: Destination not found"
-
-#### Renaming Files
-
-1. Click the **✏️** (pencil) icon next to any file
-2. Enter a file name (must not contain characters \" * : < > ? / \\ | and must not be . or ..)
-3. Click **Rename** to permanently rename the file
+The web interface includes APIs for managing saved OPDS servers and saved WiFi credentials. Passwords are never returned by the API; the API only reports whether a password is set.
 
 ---
 
 ## Command Line File Management
 
-For power users, you can manage files directly from your terminal using `curl` while the device is in File Upload mode. Detailed documentation can be found [here](./webserver-endpoints.md). 
+You can manage files directly from a terminal with `curl` while File Transfer is running. See [Webserver Endpoints](./webserver-endpoints.md).
 
 ## Security Notes
 
-- The web server runs on port 80 (standard HTTP)
-- **No authentication is required** - anyone on the same network can access the interface
-- The web server is only accessible while the WiFi screen shows "Connected"
-- The web server automatically stops when you exit the WiFi screen
-- For security, only use on trusted private networks
+- The web server runs on HTTP port 80.
+- The fast upload WebSocket runs on port 81.
+- No authentication is required.
+- Anyone on the same network, or connected to the CrossInk hotspot, can access the interface while File Transfer is running.
+- The web server stops and WiFi disconnects when you exit File Transfer.
+
+Use File Transfer only on trusted networks.
 
 ---
 
 ## Technical Details
 
-- **Supported WiFi:** 2.4GHz networks (802.11 b/g/n)
-- **Web Server Port:** 80 (HTTP)
-- **Maximum Upload Size:** Limited by available SD card space
-- **Browser Compatibility:** All modern browsers (Chrome, Firefox, Safari, Edge)
+- **Supported WiFi:** 2.4 GHz networks
+- **HTTP port:** 80
+- **WebSocket port:** 81
+- **Upload size:** limited by available SD card space
+- **Browser support:** modern Chrome, Firefox, Safari, and Edge
 
 ---
 
-## Tips and Best Practices
+## Tips
 
-1. **Organize with folders** - Create folders before uploading to keep your library organized
-2. **Check signal strength** - Stronger signals (`|||` or `||||`) provide faster, more reliable uploads
-3. **Upload multiple files** - You can select and upload multiple files at once; the manager will queue them and refresh when the batch is finished
-4. **Use descriptive names** - Name your folders clearly (e.g., "SciFi", "Mystery", "Non-Fiction")
-5. **Keep credentials saved** - Save your WiFi password for quick reconnection in the future
-6. **Exit when done** - Press **Back** to exit the WiFi screen and save battery
-
----
-
-## Exiting WiFi Mode
-
-When you're finished uploading files:
-
-1. Press the **Back** button on your CrossPoint Reader
-2. The web server will automatically stop
-3. WiFi will disconnect to conserve battery
-4. You'll return to the previous screen
-
-Your uploaded files will be immediately available in the file browser!
+1. Create folders before large upload batches to keep the library organized.
+2. Prefer strong WiFi signal when uploading large EPUBs.
+3. Use **Create Hotspot** when you do not want to join an existing WiFi network.
+4. Press **Back** on the device when finished to stop the server and save battery.
 
 ---
 
 ## Related Documentation
 
-- [User Guide](../USER_GUIDE.md) - General device operation
-- [Troubleshooting](./troubleshooting.md) - Troubleshooting
-- [README](../README.md) - Project overview and features
+- [Webserver Endpoints](./webserver-endpoints.md)
+- [Common Issues](./troubleshooting.md)
+- [SD Card Fonts](./sd-card-fonts.md)

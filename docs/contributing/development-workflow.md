@@ -14,7 +14,7 @@ This page defines the expected local workflow before opening a pull request.
 - Clone your fork locally and add the upstream repository if needed
 - Enable repo hooks once per clone: `git config core.hooksPath .githooks && chmod +x .githooks/pre-commit`
 
-- Branch from `master`
+- Branch from the target base branch for the work, usually `main` for release-bound changes or `development` for active development
 - Keep each PR focused on one fix or feature area
 
 ## 2) Implement with scope in mind
@@ -27,12 +27,14 @@ This page defines the expected local workflow before opening a pull request.
 ```sh
 ./bin/clang-format-fix
 pio check --fail-on-defect low --fail-on-defect medium --fail-on-defect high
-pio run
+pio run -e simulator
+pio run -e tiny
 ```
 
-CI enforces formatting, static analysis, and build checks.
+CI enforces formatting, static analysis, and the full release build matrix.
 Use clang-format 21+ locally to match CI.
 If `clang-format` is missing or too old locally, see [Getting Started](./getting-started.md).
+Run plain `pio run` before larger PRs to match CI's firmware build variants (`tiny`, `xlarge`, and `no_emoji`).
 
 ## 4) Open the PR
 

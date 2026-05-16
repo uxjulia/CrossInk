@@ -6,7 +6,7 @@ nav_order: 2
 
 # Architecture Overview
 
-CrossPoint is firmware for the Xteink X4 (unaffiliated with Xteink), built with PlatformIO targeting the ESP32-C3 microcontroller.
+CrossInk (a Crosspoint fork) is firmware for the Xteink X4 and X3 (unaffiliated with Xteink), built with PlatformIO targeting the ESP32-C3 microcontroller.
 
 At a high level, it is firmware that uses an activity-driven application architecture loop with persistent settings/state, SD-card-first caching, and a rendering pipeline optimized for e-ink constraints.
 
@@ -53,10 +53,11 @@ In each loop iteration, the firmware updates input, runs the active activity, ha
 ## Activity model
 
 Activities are screen-level controllers deriving from `src/activities/Activity.h`.
-Some flows use `src/activities/ActivityWithSubactivity.h` to host nested activities.
+`src/activities/ActivityManager.h` owns the active activity stack and the shared render task.
 
 - `onEnter()` and `onExit()` manage setup/teardown
 - `loop()` handles per-frame behavior
+- `startActivityForResult()` pushes nested flows such as keyboard entry or WiFi selection
 - `skipLoopDelay()` and `preventAutoSleep()` are used by long-running flows (for example web server mode)
 
 Top-level activity groups:
@@ -145,8 +146,11 @@ Typical persisted areas on SD:
   epub_<hash>/
     book.bin
     progress.bin
+    stats.bin
     cover.bmp
     sections/*.bin
+  global_stats.bin
+  recent.json
   settings.bin
   state.bin
 ```
@@ -161,12 +165,14 @@ Modes:
 
 - STA: join existing WiFi network
 - AP: create hotspot
+- Calibre wireless: connect to Calibre's wireless device connection flow
 
 Server behavior:
 
 - HTTP server on port 80
 - WebSocket upload server on port 81
 - file operations backed by SD storage
+- web pages for file management, settings, font management, saved OPDS servers, and saved WiFi credentials
 - activity requests faster loop responsiveness while server is running
 
 Endpoint reference: `docs/webserver-endpoints.md`.
@@ -175,7 +181,7 @@ Endpoint reference: `docs/webserver-endpoints.md`.
 
 Some sources are generated and should not be edited manually.
 
-- `scripts/build_html.py` generates `src/network/html/*.generated.h` from HTML files
+- `scripts/build_html.py` generates `src/network/html/*.generated.h` from `src/network/html/*.html`
 - `scripts/generate_hyphenation_trie.py` generates hyphenation headers under `lib/Epub/Epub/hyphenation/generated/`
 
 When editing related source assets, regenerate via normal build steps/scripts.

@@ -1,6 +1,11 @@
+---
+title: SD Card Fonts
+nav_order: 12
+---
+
 # SD Card Fonts
 
-CrossPoint supports loading additional fonts from the SD card, including fonts
+CrossInk supports loading additional fonts from the SD card, including fonts
 with extended Unicode coverage (CJK, Cyrillic, Greek, etc.).
 
 ## Installing Fonts
@@ -9,14 +14,14 @@ There are three ways to install fonts:
 
 ### Option 1: Download from device (recommended)
 
-1. Connect your CrossPoint reader to WiFi
+1. Connect your CrossInk reader to WiFi
 2. Go to **Settings > System > Manage Fonts**
 3. Browse available font families and tap to download
 4. Downloaded fonts appear immediately in **Settings > Reader > Font Family**
 
 ### Option 2: Upload via web browser
 
-1. Connect your CrossPoint reader to WiFi
+1. Open **File Transfer** on your CrossInk reader and choose **Join Network** or **Create Hotspot**
 2. Open the web interface in your browser (shown on the WiFi screen)
 3. Navigate to the **Fonts** tab
 4. Upload `.cpfont` files using the upload form
@@ -50,7 +55,7 @@ There are three ways to install fonts:
                ├── Merriweather_12.cpfont
                └── ...
 
-3. Insert the SD card and power on your CrossPoint reader
+3. Insert the SD card and power on your CrossInk reader
 
 ## Available Pre-Built Fonts
 

@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Added
+- Added a Common Issues guide with user-facing fixes for WiFi, uploads, EPUB cache rebuilds, covers, reading stats, and OTA update problems.
 
 ### Fixed
 - Relaxed KOReader Sync auth response validation so compatible self-hosted servers that return valid JSON on successful login can authenticate.

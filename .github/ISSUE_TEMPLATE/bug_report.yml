@@ -42,6 +42,19 @@ body:
       required: true
 
   - type: dropdown
+    id: epub-state
+    attributes:
+      label: EPUB Optimization
+      description: Is your EPUB optimized?
+      options:
+        - No / Not Applicable
+        - Yes, using the built-in web transfer EPUB optimizer
+        - Yes, using a different EPUB optimizer
+        - What is an EPUB optimizer?
+    validations:
+      required: true
+
+  - type: dropdown
     id: cache-state
     attributes:
       label: Cache State

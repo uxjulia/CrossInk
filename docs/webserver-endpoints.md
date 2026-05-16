@@ -5,77 +5,43 @@ nav_order: 4
 
 # Webserver Endpoints
 
-This document describes all HTTP and WebSocket endpoints available on the CrossPoint Reader webserver.
+This document describes the HTTP and WebSocket endpoints exposed while CrossInk File Transfer is running.
 
-- [Webserver Endpoints](#webserver-endpoints)
-  - [Overview](#overview)
-  - [HTTP Endpoints](#http-endpoints)
-    - [GET `/` - Home Page](#get----home-page)
-    - [GET `/files` - File Browser Page](#get-files---file-browser-page)
-    - [GET `/api/status` - Device Status](#get-apistatus---device-status)
-    - [GET `/api/files` - List Files](#get-apifiles---list-files)
-    - [POST `/upload` - Upload File](#post-upload---upload-file)
-    - [POST `/mkdir` - Create Folder](#post-mkdir---create-folder)
-    - [POST `/delete` - Delete File or Folder](#post-delete---delete-file-or-folder)
-  - [WebSocket Endpoint](#websocket-endpoint)
-    - [Port 81 - Fast Binary Upload](#port-81---fast-binary-upload)
-  - [Network Modes](#network-modes)
-    - [Station Mode (STA)](#station-mode-sta)
-    - [Access Point Mode (AP)](#access-point-mode-ap)
-  - [Notes](#notes)
-
+Examples use `crosspoint.local`. If mDNS does not resolve, use the IP address shown on the device screen, for example `http://192.168.1.102/`.
 
 ## Overview
 
-The CrossPoint Reader exposes a webserver for file management and device monitoring:
+- HTTP server: port 80
+- WebSocket upload server: port 81
+- Hostname: `crosspoint.local` when mDNS is available
+- Network modes: STA (`Join Network`) or AP (`Create Hotspot`)
 
-- **HTTP Server**: Port 80
-- **WebSocket Server**: Port 81 (for fast binary uploads)
+The web UI also initializes a WebDAV handler for WebDAV clients. This page documents the first-party HTTP and WebSocket API surface used by CrossInk's web pages.
 
----
+## Pages and Static Assets
 
-## HTTP Endpoints
+| Method | Path | Description |
+| --- | --- | --- |
+| `GET` | `/` | Home/status page |
+| `GET` | `/files` | File manager page |
+| `GET` | `/settings` | Settings, OPDS, and WiFi management page |
+| `GET` | `/fonts` | SD-card font management page |
+| `GET` | `/js/jszip.min.js` | Bundled JSZip asset used by the file page |
 
-### GET `/` - Home Page
+## Status
 
-Serves the home page HTML interface.
+### `GET /api/status`
 
-**Request:**
-```bash
-curl http://crosspoint.local/
-```
+Returns current device/network status.
 
-**Response:** HTML page (200 OK)
-
----
-
-### GET `/files` - File Browser Page
-
-Serves the file browser HTML interface.
-
-**Request:**
-```bash
-curl http://crosspoint.local/files
-```
-
-**Response:** HTML page (200 OK)
-
----
-
-### GET `/api/status` - Device Status
-
-Returns JSON with device status information.
-
-**Request:**
-```bash
+```sh
 curl http://crosspoint.local/api/status
 ```
 
-**Response (200 OK):**
 ```json
 {
-  "version": "1.0.0",
-  "ip": "192.168.1.100",
+  "version": "1.3.0",
+  "ip": "192.168.1.102",
   "mode": "STA",
   "rssi": -45,
   "freeHeap": 123456,
@@ -83,254 +49,343 @@ curl http://crosspoint.local/api/status
 }
 ```
 
-| Field      | Type   | Description                                               |
-| ---------- | ------ | --------------------------------------------------------- |
-| `version`  | string | CrossPoint firmware version                               |
-| `ip`       | string | Device IP address                                         |
-| `mode`     | string | `"STA"` (connected to WiFi) or `"AP"` (access point mode) |
-| `rssi`     | number | WiFi signal strength in dBm (0 in AP mode)                |
-| `freeHeap` | number | Free heap memory in bytes                                 |
-| `uptime`   | number | Seconds since device boot                                 |
+`mode` is `STA` for joined WiFi and `AP` for hotspot mode. `rssi` is `0` in AP mode.
 
----
+## Files
 
-### GET `/api/files` - List Files
+### `GET /api/files`
 
-Returns a JSON array of files and folders in the specified directory.
+Lists files and folders in a directory.
 
-**Request:**
-```bash
-# List root directory
-curl http://crosspoint.local/api/files
-
-# List specific directory
+```sh
 curl "http://crosspoint.local/api/files?path=/Books"
 ```
 
-**Query Parameters:**
+Query parameters:
 
-| Parameter | Required | Default | Description            |
-| --------- | -------- | ------- | ---------------------- |
-| `path`    | No       | `/`     | Directory path to list |
+| Parameter | Required | Default | Description |
+| --- | --- | --- | --- |
+| `path` | No | `/` | Directory path to list |
 
-**Response (200 OK):**
+Response:
+
 ```json
 [
-  {"name": "MyBook.epub", "size": 1234567, "isDirectory": false, "isEpub": true},
-  {"name": "Notes", "size": 0, "isDirectory": true, "isEpub": false},
-  {"name": "document.pdf", "size": 54321, "isDirectory": false, "isEpub": false}
+  {"name":"MyBook.epub","size":1234567,"isDirectory":false,"isEpub":true},
+  {"name":"Notes","size":0,"isDirectory":true,"isEpub":false}
 ]
 ```
 
-| Field         | Type    | Description                              |
-| ------------- | ------- | ---------------------------------------- |
-| `name`        | string  | File or folder name                      |
-| `size`        | number  | Size in bytes (0 for directories)        |
-| `isDirectory` | boolean | `true` if the item is a folder           |
-| `isEpub`      | boolean | `true` if the file has `.epub` extension |
+Dot-files are hidden unless `showHiddenFiles` is enabled. Protected system items such as `System Volume Information` and `XTCache` are hidden either way.
 
-**Notes:**
-- Hidden files (starting with `.`) are automatically filtered out
-- System folders (`System Volume Information`, `XTCache`) are hidden
+### `GET /download`
 
----
+Downloads one file.
 
-### POST `/upload` - Upload File
+```sh
+curl -OJ "http://crosspoint.local/download?path=/Books/MyBook.epub"
+```
 
-Uploads a file to the SD card via multipart form data.
+Query parameters:
 
-**Request:**
-```bash
-# Upload to root directory
-curl -X POST -F "file=@mybook.epub" http://crosspoint.local/upload
+| Parameter | Required | Description |
+| --- | --- | --- |
+| `path` | Yes | File path to download |
 
-# Upload to specific directory
+Common errors include `Missing path`, `Invalid path`, `Access denied to protected path`, `Item not found`, `Failed to open file`, and `Path is a directory`.
+
+### `POST /upload`
+
+Uploads one file using multipart form data.
+
+```sh
 curl -X POST -F "file=@mybook.epub" "http://crosspoint.local/upload?path=/Books"
 ```
 
-**Query Parameters:**
+Query parameters:
 
-| Parameter | Required | Default | Description                     |
-| --------- | -------- | ------- | ------------------------------- |
-| `path`    | No       | `/`     | Target directory for the upload |
+| Parameter | Required | Default | Description |
+| --- | --- | --- | --- |
+| `path` | No | `/` | Target directory |
 
-**Response (200 OK):**
-```
+Successful response:
+
+```text
 File uploaded successfully: mybook.epub
 ```
 
-**Error Responses:**
+Common errors include `Access denied to protected path`, `Failed to create file on SD card`, `Failed to write to SD card - disk may be full`, `Failed to write final data to SD card`, `Upload aborted`, and `Unknown error during upload`.
 
-| Status | Body                                            | Cause                       |
-| ------ | ----------------------------------------------- | --------------------------- |
-| 400    | `Failed to create file on SD card`              | Cannot create file          |
-| 400    | `Failed to write to SD card - disk may be full` | Write error during upload   |
-| 400    | `Failed to write final data to SD card`         | Error flushing final buffer |
-| 400    | `Upload aborted`                                | Client aborted the upload   |
-| 400    | `Unknown error during upload`                   | Unspecified error           |
+Existing files with the same sanitized filename are overwritten. EPUB uploads clear the affected EPUB cache.
 
-**Notes:**
-- Existing files with the same name will be overwritten
-- Uses a 4KB buffer for efficient SD card writes
+### `POST /mkdir`
 
----
+Creates a folder.
 
-### POST `/mkdir` - Create Folder
-
-Creates a new folder on the SD card.
-
-**Request:**
-```bash
+```sh
 curl -X POST -d "name=NewFolder&path=/" http://crosspoint.local/mkdir
 ```
 
-**Form Parameters:**
+Form parameters:
 
-| Parameter | Required | Default | Description                  |
-| --------- | -------- | ------- | ---------------------------- |
-| `name`    | Yes      | -       | Name of the folder to create |
-| `path`    | No       | `/`     | Parent directory path        |
+| Parameter | Required | Default | Description |
+| --- | --- | --- | --- |
+| `name` | Yes | - | Folder name |
+| `path` | No | `/` | Parent directory |
 
-**Response (200 OK):**
-```
+Successful response:
+
+```text
 Folder created: NewFolder
 ```
 
-**Error Responses:**
+Common errors include `Missing folder name`, `Invalid folder name`, `Access denied to protected path`, `Folder already exists`, and `Failed to create folder`.
 
-| Status | Body                          | Cause                         |
-| ------ | ----------------------------- | ----------------------------- |
-| 400    | `Missing folder name`         | `name` parameter not provided |
-| 400    | `Folder name cannot be empty` | Empty folder name             |
-| 400    | `Folder already exists`       | Folder with same name exists  |
-| 500    | `Failed to create folder`     | SD card error                 |
+### `POST /rename`
 
----
+Renames one file.
 
-### POST `/delete` - Delete File or Folder
-
-Deletes a file or folder from the SD card.
-
-**Request:**
-```bash
-# Delete a file
-curl -X POST -d "path=/Books/mybook.epub&type=file" http://crosspoint.local/delete
-
-# Delete an empty folder
-curl -X POST -d "path=/OldFolder&type=folder" http://crosspoint.local/delete
+```sh
+curl -X POST -d "path=/Books/old.epub&name=new.epub" http://crosspoint.local/rename
 ```
 
-**Form Parameters:**
+Form parameters:
 
-| Parameter | Required | Default | Description                      |
-| --------- | -------- | ------- | -------------------------------- |
-| `path`    | Yes      | -       | Path to the item to delete       |
-| `type`    | No       | `file`  | Type of item: `file` or `folder` |
+| Parameter | Required | Description |
+| --- | --- | --- |
+| `path` | Yes | Existing file path |
+| `name` | Yes | New filename, not a full path |
 
-**Response (200 OK):**
+Only files can be renamed through this endpoint. On success, it returns `Renamed successfully`. Renaming an EPUB clears the old path's EPUB cache.
+
+### `POST /move`
+
+Moves one file into an existing folder.
+
+```sh
+curl -X POST -d "path=/Books/mybook.epub&dest=/Archive" http://crosspoint.local/move
 ```
-Deleted successfully
+
+Form parameters:
+
+| Parameter | Required | Description |
+| --- | --- | --- |
+| `path` | Yes | Existing file path |
+| `dest` | Yes | Existing destination folder |
+
+Only files can be moved through this endpoint. On success, it returns `Moved successfully`. Moving an EPUB clears the old path's EPUB cache.
+
+### `POST /delete`
+
+Deletes one file, one empty folder, or a batch of items.
+
+```sh
+# Single item
+curl -X POST -d "path=/Books/mybook.epub" http://crosspoint.local/delete
+
+# Batch
+curl -X POST --data-urlencode 'paths=["/Books/a.epub","/Books/b.epub"]' http://crosspoint.local/delete
 ```
 
-**Error Responses:**
+Form parameters:
 
-| Status | Body                                          | Cause                         |
-| ------ | --------------------------------------------- | ----------------------------- |
-| 400    | `Missing path`                                | `path` parameter not provided |
-| 400    | `Cannot delete root directory`                | Attempted to delete `/`       |
-| 400    | `Folder is not empty. Delete contents first.` | Non-empty folder              |
-| 403    | `Cannot delete system files`                  | Hidden file (starts with `.`) |
-| 403    | `Cannot delete protected items`               | Protected system folder       |
-| 404    | `Item not found`                              | Path does not exist           |
-| 500    | `Failed to delete item`                       | SD card error                 |
+| Parameter | Required | Description |
+| --- | --- | --- |
+| `path` | Yes, unless `paths` is sent | Single path to delete |
+| `paths` | Yes, unless `path` is sent | JSON array of paths |
 
-**Protected Items:**
-- Files/folders starting with `.`
-- `System Volume Information`
-- `XTCache`
+Send either `path` or `paths`, not both. Folders must be empty before deletion. On full success, it returns `All items deleted successfully`; partial failures return `Failed to delete some items: ...`.
 
----
+## Settings
 
-## WebSocket Endpoint
+### `GET /api/settings`
 
-### Port 81 - Fast Binary Upload
+Returns settings that are editable through the web UI. The response is a JSON array with each setting's `key`, translated `name`, `category`, `type`, current `value`, and any type-specific fields such as `options`, `min`, `max`, or `step`.
 
-A WebSocket endpoint for high-speed binary file uploads. More efficient than HTTP multipart for large files.
-
-**Connection:**
+```sh
+curl http://crosspoint.local/api/settings
 ```
+
+### `POST /api/settings`
+
+Applies settings by key and saves them to SD.
+
+```sh
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"bionicReadingEnabled":1}' \
+  http://crosspoint.local/api/settings
+```
+
+Successful response:
+
+```text
+Applied 1 setting(s)
+```
+
+## Fonts
+
+### `GET /api/fonts`
+
+Lists installed SD-card font families.
+
+```sh
+curl http://crosspoint.local/api/fonts
+```
+
+Response shape:
+
+```json
+{
+  "families": [
+    {
+      "name": "Literata",
+      "sizes": [12, 14, 16, 18],
+      "files": [{"name": "Literata_14.cpfont", "size": 12345}]
+    }
+  ],
+  "maxFamilies": 128
+}
+```
+
+### `POST /api/fonts/upload`
+
+Uploads one `.cpfont` file into a named font family.
+
+```sh
+curl -X POST \
+  -F "file=@Literata_14.cpfont" \
+  "http://crosspoint.local/api/fonts/upload?family=Literata"
+```
+
+The server validates the family name, filename, and `.cpfont` magic bytes. Successful response:
+
+```json
+{"ok":true}
+```
+
+### `POST /api/fonts/delete`
+
+Deletes an installed SD-card font family.
+
+```sh
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"family":"Literata"}' \
+  http://crosspoint.local/api/fonts/delete
+```
+
+Successful response:
+
+```json
+{"ok":true}
+```
+
+## OPDS Servers
+
+### `GET /api/opds`
+
+Lists saved OPDS servers. Passwords are not returned; `hasPassword` indicates whether one is saved.
+
+```sh
+curl http://crosspoint.local/api/opds
+```
+
+### `POST /api/opds`
+
+Adds or updates an OPDS server.
+
+```sh
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Catalog","url":"https://example.com/opds","username":"user","password":"secret"}' \
+  http://crosspoint.local/api/opds
+```
+
+Include `index` to update an existing entry. If updating and `password` is omitted, the existing password is preserved.
+
+### `POST /api/opds/delete`
+
+Deletes a saved OPDS server by index.
+
+```sh
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"index":0}' \
+  http://crosspoint.local/api/opds/delete
+```
+
+## WiFi Credentials
+
+### `GET /api/wifi`
+
+Lists saved WiFi credentials. Passwords are not returned; `hasPassword` indicates whether one is saved.
+
+```sh
+curl http://crosspoint.local/api/wifi
+```
+
+### `POST /api/wifi`
+
+Adds or updates a saved WiFi network.
+
+```sh
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"ssid":"MyNetwork","password":"secret"}' \
+  http://crosspoint.local/api/wifi
+```
+
+Include `index` to update an existing entry. If updating and `password` is omitted, the existing password is preserved.
+
+### `POST /api/wifi/delete`
+
+Deletes a saved WiFi network by index.
+
+```sh
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"index":0}' \
+  http://crosspoint.local/api/wifi/delete
+```
+
+## WebSocket Upload
+
+### Port 81
+
+The file page uses a WebSocket endpoint for fast binary uploads.
+
+Connection:
+
+```text
 ws://crosspoint.local:81/
 ```
 
-**Protocol:**
+Protocol:
 
-1. **Client** sends TEXT message: `START:<filename>:<size>:<path>`
-2. **Server** responds with TEXT: `READY`
-3. **Client** sends BINARY messages with file data chunks
-4. **Server** sends TEXT progress updates: `PROGRESS:<received>:<total>`
-5. **Server** sends TEXT when complete: `DONE` or `ERROR:<message>`
+1. Client sends text: `START:<filename>:<size>:<path>`
+2. Server responds: `READY`
+3. Client sends binary chunks
+4. Server sends progress as `PROGRESS:<received>:<total>`
+5. Server sends `DONE` or `ERROR:<message>`
 
-**Example Session:**
+Error messages include:
 
-```
-Client -> "START:mybook.epub:1234567:/Books"
-Server -> "READY"
-Client -> [binary chunk 1]
-Client -> [binary chunk 2]
-Server -> "PROGRESS:65536:1234567"
-Client -> [binary chunk 3]
-...
-Server -> "PROGRESS:1234567:1234567"
-Server -> "DONE"
-```
+| Message | Cause |
+| --- | --- |
+| `ERROR:Upload already in progress` | Another WebSocket upload is active |
+| `ERROR:Invalid START format` | Malformed `START` message or invalid size |
+| `ERROR:Access denied to protected path` | Target path is protected |
+| `ERROR:Failed to create file` | File could not be opened for writing |
+| `ERROR:No upload in progress` | Binary data arrived without a valid upload |
+| `ERROR:Upload overflow` | Client sent more bytes than declared |
+| `ERROR:Write failed - disk full?` | SD write failed |
 
-**Error Messages:**
+Successful EPUB uploads clear the affected EPUB cache.
 
-| Message                           | Cause                              |
-| --------------------------------- | ---------------------------------- |
-| `ERROR:Failed to create file`     | Cannot create file on SD card      |
-| `ERROR:Invalid START format`      | Malformed START message            |
-| `ERROR:No upload in progress`     | Binary data received without START |
-| `ERROR:Write failed - disk full?` | SD card write error                |
+## Path Rules
 
-**Example with `websocat`:**
-```bash
-# Interactive session
-websocat ws://crosspoint.local:81
-
-# Then type:
-START:mybook.epub:1234567:/Books
-# Wait for READY, then send binary data
-```
-
-**Notes:**
-- Progress updates are sent every 64KB or at completion
-- Disconnection during upload will delete the incomplete file
-- Existing files with the same name will be overwritten
-
----
-
-## Network Modes
-
-The device can operate in two network modes:
-
-### Station Mode (STA)
-- Device connects to an existing WiFi network
-- IP address assigned by router/DHCP
-- `mode` field in `/api/status` returns `"STA"`
-- `rssi` field shows signal strength
-
-### Access Point Mode (AP)
-- Device creates its own WiFi hotspot
-- Default IP is typically `192.168.4.1`
-- `mode` field in `/api/status` returns `"AP"`
-- `rssi` field returns `0`
-
----
-
-## Notes
-
-- These examples use `crosspoint.local`. If your network does not support mDNS or the address does not resolve, replace it with the specific **IP Address** displayed on your device screen (e.g., `http://192.168.1.102/`).
-- All paths on the SD card start with `/`
-- Trailing slashes are automatically stripped (except for root `/`)
-- The webserver uses chunked transfer encoding for file listings
+- Paths are normalized to start with `/`.
+- Trailing slashes are stripped except for root `/`.
+- Protected paths cannot be listed, uploaded into, downloaded, moved, renamed, or deleted.
+- Protected items include dot paths, `System Volume Information`, and `XTCache`.
