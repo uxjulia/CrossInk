@@ -9,6 +9,7 @@
 
 #include <cstring>
 #include <memory>
+#include <new>
 #include <utility>
 
 #include "AppVersion.h"
@@ -56,11 +57,20 @@ bool HttpDownloader::fetchUrl(const std::string& url, Stream& outContent, const 
                               const std::string& password) {
   std::unique_ptr<NetworkClient> client;
   if (UrlUtils::isHttpsUrl(url)) {
-    auto* secureClient = new NetworkClientSecure();
+    auto* secureClient = new (std::nothrow) NetworkClientSecure();
+    if (!secureClient) {
+      LOG_ERR("HTTP", "Failed to allocate secure client");
+      return false;
+    }
     secureClient->setInsecure();
     client.reset(secureClient);
   } else {
-    client.reset(new NetworkClient());
+    auto* plainClient = new (std::nothrow) NetworkClient();
+    if (!plainClient) {
+      LOG_ERR("HTTP", "Failed to allocate client");
+      return false;
+    }
+    client.reset(plainClient);
   }
   HTTPClient http;
 
@@ -83,9 +93,14 @@ bool HttpDownloader::fetchUrl(const std::string& url, Stream& outContent, const 
     return false;
   }
 
-  http.writeToStream(&outContent);
+  const int writeResult = http.writeToStream(&outContent);
 
   http.end();
+
+  if (writeResult < 0) {
+    LOG_ERR("HTTP", "writeToStream error: %d", writeResult);
+    return false;
+  }
 
   LOG_DBG("HTTP", "Fetch success");
   return true;
@@ -106,11 +121,20 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
                                                              const std::string& password) {
   std::unique_ptr<NetworkClient> client;
   if (UrlUtils::isHttpsUrl(url)) {
-    auto* secureClient = new NetworkClientSecure();
+    auto* secureClient = new (std::nothrow) NetworkClientSecure();
+    if (!secureClient) {
+      LOG_ERR("HTTP", "Failed to allocate secure client");
+      return HTTP_ERROR;
+    }
     secureClient->setInsecure();
     client.reset(secureClient);
   } else {
-    client.reset(new NetworkClient());
+    auto* plainClient = new (std::nothrow) NetworkClient();
+    if (!plainClient) {
+      LOG_ERR("HTTP", "Failed to allocate client");
+      return HTTP_ERROR;
+    }
+    client.reset(plainClient);
   }
   HTTPClient http;
 

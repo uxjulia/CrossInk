@@ -4,13 +4,16 @@
 #include <XmlParserUtils.h>
 
 #include <cstring>
+#include <utility>
 
-OpdsParser::OpdsParser() {
-  parser = XML_ParserCreate(nullptr);
-  if (!parser) {
+OpdsParser::OpdsParser(OpdsEntry* entries, const size_t entryCapacity)
+    : entries(entries), entryCapacity(entryCapacity) {
+  if (!entries || entryCapacity == 0) {
     errorOccured = true;
-    LOG_DBG("OPDS", "Couldn't allocate memory for parser");
+    LOG_DBG("OPDS", "No entry buffer supplied");
   }
+
+  resetXmlParser();
 }
 
 OpdsParser::~OpdsParser() { destroyXmlParser(parser); }
@@ -18,11 +21,14 @@ OpdsParser::~OpdsParser() { destroyXmlParser(parser); }
 size_t OpdsParser::write(uint8_t c) { return write(&c, 1); }
 
 size_t OpdsParser::write(const uint8_t* xmlData, const size_t length) {
-  if (errorOccured) return length;
-
-  XML_SetUserData(parser, this);
-  XML_SetElementHandler(parser, startElement, endElement);
-  XML_SetCharacterDataHandler(parser, characterData);
+  if (errorOccured || !parser) {
+    errorOccured = true;
+    return length;
+  }
+  if (!xmlData && length > 0) {
+    errorOccured = true;
+    return length;
+  }
 
   const char* currentPos = reinterpret_cast<const char*>(xmlData);
   size_t remaining = length;
@@ -34,6 +40,7 @@ size_t OpdsParser::write(const uint8_t* xmlData, const size_t length) {
       errorOccured = true;
       LOG_DBG("OPDS", "Couldn't allocate memory for buffer");
       destroyXmlParser(parser);
+      parser = nullptr;
       return length;
     }
 
@@ -45,6 +52,7 @@ size_t OpdsParser::write(const uint8_t* xmlData, const size_t length) {
       LOG_DBG("OPDS", "Parse error at line %lu: %s", XML_GetCurrentLineNumber(parser),
               XML_ErrorString(XML_GetErrorCode(parser)));
       destroyXmlParser(parser);
+      parser = nullptr;
       return length;
     }
     currentPos += toRead;
@@ -54,30 +62,63 @@ size_t OpdsParser::write(const uint8_t* xmlData, const size_t length) {
 }
 
 void OpdsParser::flush() {
+  if (!parser) return;
   if (XML_Parse(parser, nullptr, 0, XML_TRUE) != XML_STATUS_OK) {
     errorOccured = true;
     destroyXmlParser(parser);
+    parser = nullptr;
   }
+}
+
+bool OpdsParser::parse(const uint8_t* xmlData, const size_t length) {
+  clear();
+  if (!xmlData && length > 0) {
+    errorOccured = true;
+    return false;
+  }
+
+  if (length > 0) {
+    write(xmlData, length);
+  }
+  flush();
+  return !error();
 }
 
 bool OpdsParser::error() const { return errorOccured; }
 
 void OpdsParser::clear() {
-  entries.clear();
+  entryCount = 0;
+  truncated = false;
   searchTemplate.clear();
   nextPageUrl.clear();
   prevPageUrl.clear();
   currentEntry = OpdsEntry{};
   currentText.clear();
   inEntry = inTitle = inAuthor = inAuthorName = inId = false;
+  errorOccured = !entries || entryCapacity == 0;
+  resetXmlParser();
 }
 
-std::vector<OpdsEntry> OpdsParser::getBooks() const {
-  std::vector<OpdsEntry> books;
-  for (const auto& entry : entries) {
-    if (entry.type == OpdsEntryType::BOOK) books.push_back(entry);
+bool OpdsParser::resetXmlParser() {
+  if (parser) {
+    if (XML_ParserReset(parser, nullptr) != XML_TRUE) {
+      destroyXmlParser(parser);
+    }
   }
-  return books;
+
+  if (!parser) {
+    parser = XML_ParserCreate(nullptr);
+    if (!parser) {
+      errorOccured = true;
+      LOG_DBG("OPDS", "Couldn't allocate memory for parser");
+      return false;
+    }
+  }
+
+  XML_SetUserData(parser, this);
+  XML_SetElementHandler(parser, startElement, endElement);
+  XML_SetCharacterDataHandler(parser, characterData);
+  return true;
 }
 
 const char* OpdsParser::findAttribute(const XML_Char** atts, const char* name) {
@@ -149,20 +190,24 @@ void XMLCALL OpdsParser::endElement(void* userData, const XML_Char* name) {
 
   if (strcmp(name, "entry") == 0 || strstr(name, ":entry") != nullptr) {
     if (!self->currentEntry.title.empty() && !self->currentEntry.href.empty()) {
-      self->entries.push_back(self->currentEntry);
+      if (self->entryCount < self->entryCapacity) {
+        self->entries[self->entryCount++] = std::move(self->currentEntry);
+      } else {
+        self->truncated = true;
+      }
     }
     self->inEntry = false;
   } else if (self->inEntry) {
     if (strcmp(name, "title") == 0 || strstr(name, ":title") != nullptr) {
-      if (self->inTitle) self->currentEntry.title = self->currentText;
+      if (self->inTitle) self->currentEntry.title = std::move(self->currentText);
       self->inTitle = false;
     } else if (strcmp(name, "author") == 0 || strstr(name, ":author") != nullptr) {
       self->inAuthor = false;
     } else if (self->inAuthorName && (strcmp(name, "name") == 0 || strstr(name, ":name") != nullptr)) {
-      self->currentEntry.author = self->currentText;
+      self->currentEntry.author = std::move(self->currentText);
       self->inAuthorName = false;
     } else if (strcmp(name, "id") == 0 || strstr(name, ":id") != nullptr) {
-      if (self->inId) self->currentEntry.id = self->currentText;
+      if (self->inId) self->currentEntry.id = std::move(self->currentText);
       self->inId = false;
     }
   }

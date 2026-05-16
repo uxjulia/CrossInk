@@ -2,8 +2,10 @@
 #include <Print.h>
 #include <expat.h>
 
+#include <cstddef>
 #include <string>
-#include <vector>
+
+constexpr size_t MAX_OPDS_FEED_ENTRIES = 50;
 
 /**
  * Type of OPDS entry.
@@ -28,11 +30,88 @@ struct OpdsEntry {
 using OpdsBook = OpdsEntry;
 
 /**
+ * Lightweight read-only view over parsed OPDS entries.
+ *
+ * This keeps old range-for call sites working without bringing back a
+ * heap-growing vector inside the parser.
+ */
+class OpdsEntryView {
+ public:
+  OpdsEntryView() = default;
+  OpdsEntryView(const OpdsEntry* entries, size_t count) : entries(entries), count(count) {}
+
+  const OpdsEntry* begin() const { return entries; }
+  const OpdsEntry* end() const { return entries ? entries + count : nullptr; }
+  const OpdsEntry* data() const { return entries; }
+  size_t size() const { return count; }
+  bool empty() const { return count == 0; }
+  const OpdsEntry& operator[](size_t index) const { return entries[index]; }
+
+ private:
+  const OpdsEntry* entries = nullptr;
+  size_t count = 0;
+};
+
+/**
+ * Lightweight read-only view over parsed OPDS book entries.
+ */
+class OpdsBookView {
+ public:
+  class Iterator {
+   public:
+    Iterator(const OpdsEntry* current, const OpdsEntry* end) : current(current), end(end) { skipNonBooks(); }
+
+    const OpdsEntry& operator*() const { return *current; }
+    const OpdsEntry* operator->() const { return current; }
+    Iterator& operator++() {
+      if (current != end) ++current;
+      skipNonBooks();
+      return *this;
+    }
+    bool operator==(const Iterator& other) const { return current == other.current; }
+    bool operator!=(const Iterator& other) const { return !(*this == other); }
+
+   private:
+    void skipNonBooks() {
+      while (current != end && current->type != OpdsEntryType::BOOK) {
+        ++current;
+      }
+    }
+
+    const OpdsEntry* current = nullptr;
+    const OpdsEntry* end = nullptr;
+  };
+
+  OpdsBookView() = default;
+  OpdsBookView(const OpdsEntry* entries, size_t count) : entries(entries), count(count) {}
+
+  Iterator begin() const { return Iterator(entries, entries ? entries + count : nullptr); }
+  Iterator end() const {
+    const OpdsEntry* endEntry = entries ? entries + count : nullptr;
+    return Iterator(endEntry, endEntry);
+  }
+  bool empty() const { return size() == 0; }
+  size_t size() const {
+    size_t books = 0;
+    for (const auto& entry : *this) {
+      (void)entry;
+      ++books;
+    }
+    return books;
+  }
+
+ private:
+  const OpdsEntry* entries = nullptr;
+  size_t count = 0;
+};
+
+/**
  * Parser for OPDS (Open Publication Distribution System) Atom feeds.
  * Uses the Expat XML parser to parse OPDS catalog entries.
  *
  * Usage:
- *   OpdsParser parser;
+ *   OpdsEntry entries[MAX_OPDS_FEED_ENTRIES];
+ *   OpdsParser parser(entries);
  *   if (parser.parse(xmlData, xmlLength)) {
  *     for (const auto& entry : parser.getEntries()) {
  *       if (entry.type == OpdsEntryType::BOOK) {
@@ -45,7 +124,9 @@ using OpdsBook = OpdsEntry;
  */
 class OpdsParser final : public Print {
  public:
-  OpdsParser();
+  OpdsParser(OpdsEntry* entries, size_t entryCapacity);
+  template <size_t N>
+  explicit OpdsParser(OpdsEntry (&entries)[N]) : OpdsParser(entries, N) {}
   ~OpdsParser();
 
   // Disable copy
@@ -59,23 +140,21 @@ class OpdsParser final : public Print {
   size_t write(const uint8_t*, size_t) override;
 
   void flush() override;
+  bool parse(const uint8_t* xmlData, size_t length);
+  bool parse(const char* xmlData, size_t length) { return parse(reinterpret_cast<const uint8_t*>(xmlData), length); }
 
   bool error() const;
 
-  operator bool() { return !error(); }
+  operator bool() const { return !error(); }
 
-  /**
-   * Get the parsed entries (both navigation and book entries).
-   * @return Vector of OpdsEntry entries
-   */
-  const std::vector<OpdsEntry>& getEntries() const& { return entries; }
-  std::vector<OpdsEntry> getEntries() && { return std::move(entries); }
-
-  /**
-   * Get only book entries (legacy compatibility).
-   * @return Vector of book entries
-   */
-  std::vector<OpdsEntry> getBooks() const;
+  size_t getEntryCount() const { return entryCount; }
+  const OpdsEntry* getEntry(size_t index) const {
+    if (!entries || index >= entryCount) return nullptr;
+    return &entries[index];
+  }
+  OpdsEntryView getEntries() const { return OpdsEntryView(entries, entryCount); }
+  OpdsBookView getBooks() const { return OpdsBookView(entries, entryCount); }
+  bool wasTruncated() const { return truncated; }
 
   /**
    * Clear all parsed entries.
@@ -87,6 +166,7 @@ class OpdsParser final : public Print {
   static void XMLCALL startElement(void* userData, const XML_Char* name, const XML_Char** atts);
   static void XMLCALL endElement(void* userData, const XML_Char* name);
   static void XMLCALL characterData(void* userData, const XML_Char* s, int len);
+  bool resetXmlParser();
 
   std::string searchTemplate;
   std::string nextPageUrl;
@@ -95,7 +175,9 @@ class OpdsParser final : public Print {
   static const char* findAttribute(const XML_Char** atts, const char* name);
 
   XML_Parser parser = nullptr;
-  std::vector<OpdsEntry> entries;
+  OpdsEntry* entries = nullptr;
+  size_t entryCapacity = 0;
+  size_t entryCount = 0;
   OpdsEntry currentEntry;
   std::string currentText;
 
@@ -107,4 +189,5 @@ class OpdsParser final : public Print {
   bool inId = false;
 
   bool errorOccured = false;
+  bool truncated = false;
 };

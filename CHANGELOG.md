@@ -6,10 +6,12 @@
 
 ### Fixed
 - Relaxed KOReader Sync auth response validation so compatible self-hosted servers that return valid JSON on successful login can authenticate.
-
+- Fixed OPDS browsing on memory-constrained builds so large catalog feeds fail safely instead of rebooting the device.
 - Fixed a crash when opening the XTC chapter selector on memory-constrained builds.
 
 ### Changed
+- Kept OPDS feed parsing safer on low-memory devices while preserving older parser iteration helpers for future OPDS work.
+- Reduced unnecessary OPDS browser list clearing when moving between catalog feeds.
 
 ## [v1.2.11.1] - 2026-05-15
 
