@@ -103,6 +103,66 @@ CrossPointSettings::FONT_SIZE firstAvailableReaderFontSize() {
   return (it != std::end(READER_FONT_SIZE_STORAGE_ORDER)) ? *it : CrossPointSettings::LARGE;
 }
 
+int getFallbackReaderFontIdForFamily(const CrossPointSettings::FONT_FAMILY family) {
+  switch (family) {
+    case CrossPointSettings::CHAREINK:
+#ifndef OMIT_TINY_FONT
+      return CHAREINK_10_FONT_ID;
+#elif !defined(OMIT_SMALL_FONT)
+      return CHAREINK_12_FONT_ID;
+#elif !defined(OMIT_MEDIUM_FONT)
+      return CHAREINK_14_FONT_ID;
+#elif !defined(OMIT_LARGE_FONT)
+      return CHAREINK_16_FONT_ID;
+#elif !defined(OMIT_XLARGE_FONT)
+      return CHAREINK_18_FONT_ID;
+#elif !defined(OMIT_HUGE_FONT)
+      return CHAREINK_20_FONT_ID;
+#elif !defined(OMIT_TEENSY_FONT)
+      return CHAREINK_8_FONT_ID;
+#else
+      return CHAREINK_9_FONT_ID;
+#endif
+    case CrossPointSettings::BITTER:
+#ifndef OMIT_TINY_FONT
+      return BITTER_10_FONT_ID;
+#elif !defined(OMIT_SMALL_FONT)
+      return BITTER_12_FONT_ID;
+#elif !defined(OMIT_MEDIUM_FONT)
+      return BITTER_14_FONT_ID;
+#elif !defined(OMIT_LARGE_FONT)
+      return BITTER_16_FONT_ID;
+#elif !defined(OMIT_XLARGE_FONT)
+      return BITTER_18_FONT_ID;
+#elif !defined(OMIT_HUGE_FONT)
+      return BITTER_20_FONT_ID;
+#elif !defined(OMIT_TEENSY_FONT)
+      return BITTER_8_FONT_ID;
+#else
+      return BITTER_9_FONT_ID;
+#endif
+    case CrossPointSettings::LEXENDDECA:
+    default:
+#ifndef OMIT_TINY_FONT
+      return LEXENDDECA_10_FONT_ID;
+#elif !defined(OMIT_SMALL_FONT)
+      return LEXENDDECA_12_FONT_ID;
+#elif !defined(OMIT_MEDIUM_FONT)
+      return LEXENDDECA_14_FONT_ID;
+#elif !defined(OMIT_LARGE_FONT)
+      return LEXENDDECA_16_FONT_ID;
+#elif !defined(OMIT_XLARGE_FONT)
+      return LEXENDDECA_18_FONT_ID;
+#elif !defined(OMIT_HUGE_FONT)
+      return LEXENDDECA_20_FONT_ID;
+#elif !defined(OMIT_TEENSY_FONT)
+      return LEXENDDECA_8_FONT_ID;
+#else
+      return LEXENDDECA_9_FONT_ID;
+#endif
+  }
+}
+
 // Convert legacy front button layout into explicit logical->hardware mapping.
 void applyLegacyFrontButtonLayout(CrossPointSettings& settings) {
   switch (static_cast<CrossPointSettings::FRONT_BUTTON_LAYOUT>(settings.frontButtonLayout)) {
@@ -555,6 +615,7 @@ int CrossPointSettings::getReaderFontId() const {
           return LEXENDDECA_20_FONT_ID;
 #endif
       }
+      return getFallbackReaderFontIdForFamily(LEXENDDECA);
     case CHAREINK:
       switch (effectiveSize) {
 #ifndef OMIT_TEENSY_FONT
@@ -594,6 +655,7 @@ int CrossPointSettings::getReaderFontId() const {
           return CHAREINK_20_FONT_ID;
 #endif
       }
+      return getFallbackReaderFontIdForFamily(CHAREINK);
     case BITTER:
       switch (effectiveSize) {
 #ifndef OMIT_TEENSY_FONT
@@ -633,5 +695,7 @@ int CrossPointSettings::getReaderFontId() const {
           return BITTER_20_FONT_ID;
 #endif
       }
+      return getFallbackReaderFontIdForFamily(BITTER);
   }
+  return getFallbackReaderFontIdForFamily(static_cast<FONT_FAMILY>(fontFamily));
 }
