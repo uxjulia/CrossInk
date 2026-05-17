@@ -9,6 +9,8 @@
 
 #include <algorithm>
 #include <cstring>
+#include <memory>
+#include <new>
 
 #include "CrossPointSettings.h"
 
@@ -624,14 +626,22 @@ void WebDAVHandler::handleCopy(WebServer& s) {
     return;
   }
 
-  // Streaming copy with 4KB buffer on stack
-  uint8_t buf[4096];
+  constexpr size_t COPY_BUFFER_SIZE = 4096;
+  auto buf = std::unique_ptr<uint8_t[]>(new (std::nothrow) uint8_t[COPY_BUFFER_SIZE]);
+  if (!buf) {
+    srcFile.close();
+    dstFile.close();
+    Storage.remove(dstPath.c_str());
+    s.send(500, "text/plain", "Copy failed - out of memory");
+    return;
+  }
+
   bool copyOk = true;
   while (srcFile.available()) {
     esp_task_wdt_reset();
-    int bytesRead = srcFile.read(buf, sizeof(buf));
+    int bytesRead = srcFile.read(buf.get(), COPY_BUFFER_SIZE);
     if (bytesRead <= 0) break;
-    size_t written = dstFile.write(buf, bytesRead);
+    size_t written = dstFile.write(buf.get(), bytesRead);
     if (written != (size_t)bytesRead) {
       copyOk = false;
       break;
