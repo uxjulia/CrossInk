@@ -13,7 +13,6 @@
 #include <esp_system.h>
 
 #include <algorithm>
-#include <functional>
 #include <limits>
 #include <memory>
 
@@ -35,6 +34,7 @@
 #include "ReaderUtils.h"
 #include "RecentBooksStore.h"
 #include "SdCardFontSystem.h"
+#include "activities/boot_sleep/SleepCoverAssets.h"
 #include "activities/util/ConfirmationActivity.h"
 #include "activities/util/IntervalSelectionActivity.h"
 #include "components/UITheme.h"
@@ -250,6 +250,7 @@ void EpubReaderActivity::onEnter() {
   APP_STATE.openEpubPath = epub->getPath();
   APP_STATE.saveToFile();
   RECENT_BOOKS.addOrUpdateBook(epub->getPath(), epub->getTitle(), epub->getAuthor(), epub->getThumbBmpPath());
+  SleepCoverAssets::prepareEpub(*epub);
 
   // Trigger first update
   requestUpdate();
@@ -1891,7 +1892,7 @@ void EpubReaderActivity::readFolderMoveTask(void* arg) {
 
   // Rename cache directory to match new epub path hash
   const std::string oldCachePath = params->cachePath;
-  const std::string newCachePath = "/.crosspoint/epub_" + std::to_string(std::hash<std::string>{}(params->dstEpubPath));
+  const std::string newCachePath = Epub::cachePathForFilePath(params->dstEpubPath, "/.crosspoint");
   if (!oldCachePath.empty() && Storage.exists(oldCachePath.c_str())) {
     if (!Storage.rename(oldCachePath.c_str(), newCachePath.c_str())) {
       LOG_ERR("ERS", "Failed to rename cache dir %s -> %s (non-fatal)", oldCachePath.c_str(), newCachePath.c_str());

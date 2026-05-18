@@ -548,6 +548,17 @@ void GfxRenderer::drawPixel(const int x, const int y, const bool state) const {
 }
 
 int GfxRenderer::getTextWidth(const int fontId, const char* text, const EpdFontFamily::Style style) const {
+  // SD-card fonts can measure from their persistent advance table during layout.
+  auto sdIt = sdCardFonts_.find(fontId);
+  if (sdIt != sdCardFonts_.end() && sdIt->second->hasAdvanceTable()) {
+    int32_t widthFP = 0;
+    const uint8_t styleIdx = resolveSdCardStyle(*sdIt->second, style);
+    while (uint32_t cp = utf8NextCodepoint(reinterpret_cast<const uint8_t**>(&text))) {
+      widthFP += sdIt->second->getAdvance(cp, styleIdx);
+    }
+    return fp4::toPixel(widthFP);
+  }
+
   const auto fontIt = fontMap.find(fontId);
   if (fontIt == fontMap.end()) {
     LOG_ERR("GFX", "Font %d not found", fontId);

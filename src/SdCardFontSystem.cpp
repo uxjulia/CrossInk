@@ -5,12 +5,6 @@
 
 #include "CrossPointSettings.h"
 
-static uint8_t fontSizeEnumFromSettings() {
-  uint8_t e = SETTINGS.fontSize;
-  if (e >= CrossPointSettings::FONT_SIZE_COUNT) e = 1;  // default to MEDIUM
-  return e;
-}
-
 void SdCardFontSystem::begin(GfxRenderer& renderer) {
   registry_.discover();
 
@@ -25,7 +19,7 @@ void SdCardFontSystem::begin(GfxRenderer& renderer) {
   if (SETTINGS.sdFontFamilyName[0] != '\0') {
     const auto* family = registry_.findFamily(SETTINGS.sdFontFamilyName);
     if (family) {
-      if (manager_.loadFamily(*family, renderer, fontSizeEnumFromSettings())) {
+      if (manager_.loadFamily(*family, renderer, SETTINGS.getSdFontTargetPointSize(), SETTINGS.fontSize)) {
         LOG_DBG("SDFS", "Loaded SD card font family: %s", SETTINGS.sdFontFamilyName);
       } else {
         LOG_ERR("SDFS", "Failed to load SD font family: %s (clearing)", SETTINGS.sdFontFamilyName);
@@ -53,7 +47,8 @@ void SdCardFontSystem::ensureLoaded(GfxRenderer& renderer) {
 
   const char* wantedFamily = SETTINGS.sdFontFamilyName;
   const std::string& currentFamily = manager_.currentFamilyName();
-  const uint8_t sizeEnum = fontSizeEnumFromSettings();
+  const uint8_t targetPointSize = SETTINGS.getSdFontTargetPointSize();
+  const uint8_t sizeStep = SETTINGS.fontSize;
 
   if (wantedFamily[0] == '\0') {
     if (!currentFamily.empty()) {
@@ -74,13 +69,11 @@ void SdCardFontSystem::ensureLoaded(GfxRenderer& renderer) {
       SETTINGS.sdFontFamilyName[0] = '\0';
       return;
     }
-    auto sizes = family->availableSizes();
-    uint8_t idx = sizeEnum;
-    if (idx >= sizes.size()) idx = sizes.size() - 1;
-    uint8_t wantedPt = sizes.empty() ? 0 : sizes[idx];
+    const auto* wantedFile = family->selectFile(targetPointSize, sizeStep);
+    uint8_t wantedPt = wantedFile ? wantedFile->pointSize : 0;
     if (!registryWasDirty && wantedPt == manager_.currentPointSize()) return;
-    LOG_DBG("SDFS", "Reloading %s: size %u -> %u (enum %u)%s", wantedFamily, manager_.currentPointSize(), wantedPt,
-            sizeEnum, registryWasDirty ? " [registry dirty]" : "");
+    LOG_DBG("SDFS", "Reloading %s: size %u -> %u (target %u step %u)%s", wantedFamily, manager_.currentPointSize(),
+            wantedPt, targetPointSize, sizeStep, registryWasDirty ? " [registry dirty]" : "");
   }
 
   if (!currentFamily.empty()) {
@@ -89,7 +82,7 @@ void SdCardFontSystem::ensureLoaded(GfxRenderer& renderer) {
 
   const auto* family = registry_.findFamily(wantedFamily);
   if (family) {
-    if (manager_.loadFamily(*family, renderer, sizeEnum)) {
+    if (manager_.loadFamily(*family, renderer, targetPointSize, sizeStep)) {
       LOG_DBG("SDFS", "Loaded SD font family: %s", wantedFamily);
     } else {
       LOG_ERR("SDFS", "Failed to load SD font family: %s (clearing)", wantedFamily);

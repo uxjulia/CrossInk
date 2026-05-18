@@ -70,7 +70,7 @@ void applyLegacyStatusBarSettings(CrossPointSettings& settings) {
 
 bool isEnumRawValueAllowed(const SettingInfo& info, uint8_t value) {
   if (info.enumRawValues.empty()) {
-    return value < info.enumValues.size();
+    return value < settingEnumOptionCount(info);
   }
   return std::find(info.enumRawValues.begin(), info.enumRawValues.end(), value) != info.enumRawValues.end();
 }
@@ -84,6 +84,8 @@ uint8_t defaultEnumRawValue(const SettingInfo& info, uint8_t fieldDefault) {
   }
   return 0;
 }
+
+bool isSleepScreenSetting(const SettingInfo& info) { return info.key && strcmp(info.key, "sleepScreen") == 0; }
 
 // ---- CrossPointState ----
 
@@ -157,7 +159,11 @@ bool JsonSettingsIO::saveSettings(const CrossPointSettings& s, const char* path)
         doc[info.key] = strPtr;
       }
     } else {
-      doc[info.key] = s.*(info.valuePtr);
+      uint8_t value = s.*(info.valuePtr);
+      if (isSleepScreenSetting(info)) {
+        value = CrossPointSettings::sleepScreenModeToStorage(value);
+      }
+      doc[info.key] = value;
     }
   }
 
@@ -236,8 +242,23 @@ bool JsonSettingsIO::loadSettings(CrossPointSettings& s, const char* json, bool*
     } else {
       const uint8_t fieldDefault = s.*(info.valuePtr);  // struct-initializer default, read before we overwrite it
       uint8_t v = doc[info.key] | fieldDefault;
+      if (isSleepScreenSetting(info)) {
+        const uint8_t storedDefault = CrossPointSettings::sleepScreenModeToStorage(fieldDefault);
+        const uint8_t storedValue = doc[info.key] | storedDefault;
+        v = CrossPointSettings::sleepScreenStorageToMode(storedValue);
+        if (CrossPointSettings::sleepScreenModeToStorage(v) != storedValue && needsResave) *needsResave = true;
+        s.*(info.valuePtr) = v;
+        continue;
+      }
       if (info.type == SettingType::ENUM) {
-        if (!isEnumRawValueAllowed(info, v)) {
+        const bool isSdFontSize = info.key && strcmp(info.key, "fontSize") == 0 &&
+                                  doc["sdFontFamilyName"].is<const char*>() &&
+                                  doc["sdFontFamilyName"].as<const char*>()[0] != '\0';
+        if (isSdFontSize && v < CrossPointSettings::SD_FONT_MAX_SIZE_STEPS) {
+          // Keep a saved SD-family size index even when this build's built-in
+          // font list has fewer choices; the registry-aware settings list will
+          // clamp it to the selected family once SD fonts are discovered.
+        } else if (!isEnumRawValueAllowed(info, v)) {
           v = defaultEnumRawValue(info, fieldDefault);
           if (needsResave) *needsResave = true;
         }

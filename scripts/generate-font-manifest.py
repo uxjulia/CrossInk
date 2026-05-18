@@ -44,23 +44,32 @@ CPFONT_MAGIC = b"CPFONT\x00\x00"
 
 STYLE_NAMES = {0: "regular", 1: "bold", 2: "italic", 3: "bolditalic"}
 
-# Family descriptions can be loaded from the sd-fonts.yaml config
+# Family metadata can be loaded from the sd-fonts.yaml config
 # (via --descriptions-from) or fall back to the family name.
-FAMILY_DESCRIPTIONS: dict[str, str] = {}
+FAMILY_METADATA: dict[str, dict[str, str]] = {}
 
 
-def load_descriptions_from_yaml(yaml_path: Path) -> dict[str, str]:
-    """Load family descriptions from sd-fonts.yaml config."""
+def load_family_metadata_from_yaml(yaml_path: Path) -> dict[str, dict[str, str]]:
+    """Load family descriptions and supported languages from sd-fonts.yaml config."""
     try:
         import yaml
     except ImportError:
-        print("WARNING: pyyaml not installed, cannot load descriptions from YAML", file=sys.stderr)
+        print("WARNING: pyyaml not installed, cannot load font metadata from YAML", file=sys.stderr)
         return {}
 
     with open(yaml_path) as f:
         config = yaml.safe_load(f)
 
-    return {f["name"]: f["description"] for f in config.get("families", []) if "description" in f}
+    metadata: dict[str, dict[str, str]] = {}
+    for family in config.get("families", []):
+        name = family.get("name")
+        if not name:
+            continue
+        metadata[name] = {
+            "description": family.get("description", name),
+            "languages": family.get("languages", ""),
+        }
+    return metadata
 
 
 def read_cpfont_styles(filepath: Path) -> list[str]:
@@ -160,15 +169,17 @@ def build_manifest(
         # same styles since they're generated from the same source fonts).
         styles = read_cpfont_styles(files[0]) if files else []
 
-        # Get description
-        description = FAMILY_DESCRIPTIONS.get(family_name)
+        # Get display metadata
+        metadata = FAMILY_METADATA.get(family_name, {})
+        description = metadata.get("description")
         if description is None:
             print(
                 f"  WARNING: no description for family '{family_name}', "
-                f"consider adding one to FAMILY_DESCRIPTIONS in {__file__}",
+                f"consider adding one to {__file__}",
                 file=sys.stderr,
             )
             description = family_name
+        languages = metadata.get("languages", "")
 
         file_entries = []
         for filepath in sorted(files, key=lambda p: p.name):
@@ -184,6 +195,7 @@ def build_manifest(
             {
                 "name": family_name,
                 "description": description,
+                "languages": languages,
                 "styles": styles,
                 "files": file_entries,
             }
@@ -218,7 +230,7 @@ def main():
     parser.add_argument(
         "--descriptions-from",
         default=None,
-        help="Path to sd-fonts.yaml to load family descriptions (default: use family name)",
+        help="Path to sd-fonts.yaml to load family display metadata (default: use family name)",
     )
     args = parser.parse_args()
 
@@ -232,13 +244,13 @@ def main():
     if not base_url.endswith("/"):
         base_url += "/"
 
-    # Load descriptions from YAML config if provided
-    global FAMILY_DESCRIPTIONS
+    # Load display metadata from YAML config if provided
+    global FAMILY_METADATA
     if args.descriptions_from:
         desc_path = Path(args.descriptions_from)
         if desc_path.exists():
-            FAMILY_DESCRIPTIONS = load_descriptions_from_yaml(desc_path)
-            print(f"Loaded {len(FAMILY_DESCRIPTIONS)} descriptions from {desc_path}")
+            FAMILY_METADATA = load_family_metadata_from_yaml(desc_path)
+            print(f"Loaded metadata for {len(FAMILY_METADATA)} families from {desc_path}")
         else:
             print(f"WARNING: {desc_path} not found, using family names as descriptions", file=sys.stderr)
 

@@ -258,7 +258,7 @@ def generate_manifest(
     """Generate fonts.json manifest from config + built output.
 
     Uses the standalone generate-font-manifest.py as a subprocess so
-    descriptions come from the YAML config via --descriptions-from.
+    display metadata comes from the YAML config via --descriptions-from.
     """
     manifest_script = SCRIPT_DIR.parent.parent.parent / "scripts" / "generate-font-manifest.py"
 

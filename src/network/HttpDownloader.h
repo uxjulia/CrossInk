@@ -20,6 +20,14 @@ class HttpDownloader {
     ABORTED,
   };
 
+  struct DownloadOptions {
+    constexpr DownloadOptions(bool preservePartial = false, bool resumePartial = false)
+        : preservePartial(preservePartial), resumePartial(resumePartial) {}
+
+    bool preservePartial;
+    bool resumePartial;
+  };
+
   /**
    * Fetch text content from a URL with optional credentials.
    */
@@ -34,5 +42,5 @@ class HttpDownloader {
    */
   static DownloadError downloadToFile(const std::string& url, const std::string& destPath,
                                       ProgressCallback progress = nullptr, const std::string& username = "",
-                                      const std::string& password = "");
+                                      const std::string& password = "", DownloadOptions options = DownloadOptions());
 };

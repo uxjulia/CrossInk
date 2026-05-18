@@ -1,8 +1,14 @@
 #pragma once
 
+#include <cstdint>
+
 #include "components/themes/lyra/LyraTheme.h"
 
 namespace MinimalMetrics {
+constexpr int coverWidthForHeight(const int coverHeight) {
+  return static_cast<int>((static_cast<int64_t>(coverHeight) * 3 + 2) / 5);
+}
+
 constexpr ThemeMetrics makeValues() {
   ThemeMetrics v = LyraMetrics::values;
   v.homeTopPadding = 50;
@@ -15,6 +21,7 @@ constexpr ThemeMetrics makeValues() {
 }
 
 constexpr ThemeMetrics values = makeValues();
+constexpr int homeCoverWidth = coverWidthForHeight(values.homeCoverHeight);
 }  // namespace MinimalMetrics
 
 class MinimalTheme : public LyraTheme {
@@ -37,6 +44,8 @@ class MinimalTheme : public LyraTheme {
                            int selectorIndex, bool& coverRendered, bool& coverBufferStored, bool& bufferRestored,
                            const std::function<bool()>& storeCoverBuffer, const BookReadingStats* stats = nullptr,
                            float progressPercent = -1.0f) const override;
+  void drawSleepScreen(GfxRenderer& renderer, const RecentBook& book, const BookReadingStats* stats = nullptr,
+                       float progressPercent = -1.0f) const;
   void drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount, int selectedIndex,
                       const std::function<std::string(int index)>& buttonLabel,
                       const std::function<UIIcon(int index)>& rowIcon) const override;

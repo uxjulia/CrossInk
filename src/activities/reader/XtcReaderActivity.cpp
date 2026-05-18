@@ -20,6 +20,7 @@
 #include "ReaderUtils.h"
 #include "RecentBooksStore.h"
 #include "XtcReaderChapterSelectionActivity.h"
+#include "activities/boot_sleep/SleepCoverAssets.h"
 #include "components/UITheme.h"
 #include "components/themes/lyra/LyraCarouselTheme.h"
 #include "fontIds.h"
@@ -43,6 +44,7 @@ void XtcReaderActivity::onEnter() {
   APP_STATE.openEpubPath = xtc->getPath();
   APP_STATE.saveToFile();
   RECENT_BOOKS.addOrUpdateBook(xtc->getPath(), xtc->getTitle(), xtc->getAuthor(), xtc->getThumbBmpPath());
+  SleepCoverAssets::prepareXtc(*xtc);
 
   // Trigger first update
   requestUpdate();

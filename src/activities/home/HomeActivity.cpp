@@ -118,7 +118,7 @@ void appendHashedFileStateToKey(std::string& key, const std::string& path) {
 
 std::string getRecentBookCachePath(const RecentBook& book) {
   if (FsHelpers::hasEpubExtension(book.path)) {
-    return "/.crosspoint/epub_" + std::to_string(std::hash<std::string>{}(book.path));
+    return Epub::cachePathForFilePath(book.path, "/.crosspoint");
   }
   if (FsHelpers::hasXtcExtension(book.path)) {
     return "/.crosspoint/xtc_" + std::to_string(std::hash<std::string>{}(book.path));
@@ -225,7 +225,7 @@ bool isAnyFrontButtonPressed(const MappedInputManager& mappedInput) {
 
 int minimalHomeNavCount(const bool hasCurrentBook) { return hasCurrentBook ? 4 : 3; }
 
-int minimalHomeCoverWidth(int coverHeight) { return static_cast<int>((static_cast<int64_t>(coverHeight) * 3 + 2) / 5); }
+int minimalHomeCoverWidth(int coverHeight) { return MinimalMetrics::coverWidthForHeight(coverHeight); }
 
 std::string minimalHomeCoverPath(const RecentBook& book, int coverHeight) {
   return UITheme::getCoverThumbPath(book.coverBmpPath, minimalHomeCoverWidth(coverHeight), coverHeight);
@@ -658,6 +658,11 @@ int HomeActivity::getHighlightedBookIndex() const {
   const int bookCount = static_cast<int>(recentBooks.size());
   const int highlightedBookIdx = (selectorIndex < bookCount) ? selectorIndex : lastCarouselBookIndex;
   return std::clamp(highlightedBookIdx, 0, bookCount - 1);
+}
+
+std::string HomeActivity::getCurrentBookPath() const {
+  const int idx = getHighlightedBookIndex();
+  return idx >= 0 ? recentBooks[idx].path : std::string{};
 }
 
 void HomeActivity::updateHighlightedBookContext() {

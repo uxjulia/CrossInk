@@ -8,6 +8,8 @@
 #include "activities/Activity.h"
 #include "util/ButtonNavigator.h"
 
+struct Rect;
+
 // JSON schema version of the fonts.json manifest. The canonical version for
 // the build tooling lives in lib/EpdFont/scripts/cpfont_version.py. This
 // firmware-side copy must be bumped manually when the firmware is updated to
@@ -16,13 +18,13 @@
 
 #ifndef FONT_MANIFEST_URL
 // Manifest + .cpfont assets are published by .github/workflows/release-fonts.yml
-// to the crosspoint-fonts repo under the "sd-fonts-m<META>-b<BIN>" tag. The tag
+// to the crossink-fonts repo under the "sd-fonts-m<META>-b<BIN>" tag. The tag
 // pattern must stay in sync with the workflow; it derives its version numbers
 // from lib/EpdFont/scripts/cpfont_version.py.
 #define FONT_MANIFEST_URL_STRINGIFY_INNER(x) #x
 #define FONT_MANIFEST_URL_STRINGIFY(x) FONT_MANIFEST_URL_STRINGIFY_INNER(x)
-#define FONT_MANIFEST_URL                                                                                           \
-  "https://github.com/crosspoint-reader/crosspoint-fonts/releases/download/sd-fonts-m" FONT_MANIFEST_URL_STRINGIFY( \
+#define FONT_MANIFEST_URL                                                                               \
+  "https://github.com/uxjulia/crossink-fonts/releases/download/sd-fonts-m" FONT_MANIFEST_URL_STRINGIFY( \
       FONTS_MANIFEST_VERSION) "-b" FONT_MANIFEST_URL_STRINGIFY(CPFONT_VERSION) "/fonts.json"
 #endif
 
@@ -51,11 +53,14 @@ class FontDownloadActivity : public Activity {
     std::string name;
     size_t size = 0;
     uint32_t crc32 = 0;
+    uint8_t pointSize = 0;
   };
 
   struct ManifestFamily {
     std::string name;
+    std::string installName;
     std::string description;
+    std::string languages;
     std::vector<std::string> styles;
     std::vector<ManifestFile> files;
     size_t totalSize = 0;
@@ -77,11 +82,18 @@ class FontDownloadActivity : public Activity {
   size_t currentFileTotal_ = 0;
   size_t fileProgress_ = 0;
   size_t fileTotal_ = 0;
+  int downloadAttempt_ = 0;
+  int downloadAttemptTotal_ = 0;
   int downloadingFamilyIndex_ = 0;
   std::string errorMessage_;
+  std::string errorHint_;
 
   void onWifiSelectionComplete(bool success);
   bool fetchAndParseManifest();
+  const SdCardFontFamilyInfo* findInstalledFamilyCandidate(const char* familyName) const;
+  bool installedFilesMatch(const char* familyName, const std::vector<ManifestFile>& files, bool& hasUpdate,
+                           std::string* resolvedFamilyName = nullptr) const;
+  void resolveInstalledFamilyName(ManifestFamily& family) const;
   void downloadFamily(ManifestFamily& family);
   void downloadAll();
   void updateAll();
@@ -99,4 +111,6 @@ class FontDownloadActivity : public Activity {
   size_t totalDownloadSize() const;
   size_t totalUpdateSize() const;
   static std::string formatSize(size_t bytes);
+  int fontListPageItems() const;
+  void drawFontList(Rect rect);
 };

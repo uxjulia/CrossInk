@@ -7,11 +7,132 @@
 #include <algorithm>
 #include <cstring>
 #include <iterator>
+#include <string>
 #include <vector>
 
 #include "CrossPointSettings.h"
 #include "KOReaderCredentialStore.h"
 #include "activities/settings/SettingsActivity.h"
+
+inline StrId fontSizeLabelForPointSize(const uint8_t pointSize) {
+  switch (pointSize) {
+    case 8:
+      return StrId::STR_TEENSY;
+    case 9:
+      return StrId::STR_ITTY_BITTY;
+    case 10:
+      return StrId::STR_TINY;
+    case 12:
+      return StrId::STR_SMALL;
+    case 14:
+      return StrId::STR_MEDIUM;
+    case 16:
+      return StrId::STR_LARGE;
+    case 18:
+      return StrId::STR_X_LARGE;
+    case 20:
+      return StrId::STR_HUGE;
+    default:
+      return StrId::STR_NONE_OPT;
+  }
+}
+
+inline SettingInfo buildBuiltinFontSizeSetting() {
+  return SettingInfo::Enum(StrId::STR_FONT_SIZE, &CrossPointSettings::fontSize,
+                           {
+#ifndef OMIT_TINY_FONT
+                               StrId::STR_TINY,
+#endif
+#ifndef OMIT_SMALL_FONT
+                               StrId::STR_SMALL,
+#endif
+#ifndef OMIT_MEDIUM_FONT
+                               StrId::STR_MEDIUM,
+#endif
+#ifndef OMIT_LARGE_FONT
+                               StrId::STR_LARGE,
+#endif
+#ifndef OMIT_XLARGE_FONT
+                               StrId::STR_X_LARGE,
+#endif
+#ifndef OMIT_TEENSY_FONT
+                               StrId::STR_TEENSY,
+#endif
+#ifndef OMIT_HUGE_FONT
+                               StrId::STR_HUGE,
+#endif
+#ifndef OMIT_ITTY_BITTY_FONT
+                               StrId::STR_ITTY_BITTY,
+#endif
+                           },
+                           "fontSize", StrId::STR_CAT_READER);
+}
+
+inline SettingInfo buildSdFontSizeSetting(const SdCardFontFamilyInfo& family) {
+  SettingInfo s;
+  s.nameId = StrId::STR_FONT_SIZE;
+  s.type = SettingType::ENUM;
+  s.valuePtr = &CrossPointSettings::fontSize;
+  s.key = "fontSize";
+  s.category = StrId::STR_CAT_READER;
+
+  const std::vector<uint8_t> sizes = family.availableSizes();
+  s.enumStringValues.reserve(sizes.size());
+  s.enumRawValues.reserve(sizes.size());
+  for (size_t i = 0; i < sizes.size(); i++) {
+    const StrId labelId = fontSizeLabelForPointSize(sizes[i]);
+    s.enumStringValues.push_back(labelId != StrId::STR_NONE_OPT ? I18N.get(labelId) : std::to_string(sizes[i]) + " pt");
+    s.enumRawValues.push_back(static_cast<uint8_t>(i));
+  }
+  return s;
+}
+
+inline SettingInfo buildFontSizeSetting(const SdCardFontRegistry* registry) {
+  if (registry && SETTINGS.sdFontFamilyName[0] != '\0') {
+    const SdCardFontFamilyInfo* family = registry->findFamily(SETTINGS.sdFontFamilyName);
+    if (family && !family->files.empty()) {
+      return buildSdFontSizeSetting(*family);
+    }
+  }
+  return buildBuiltinFontSizeSetting();
+}
+
+inline uint8_t closestPointSizeIndex(const std::vector<uint8_t>& sizes, const uint8_t targetPointSize) {
+  if (sizes.empty()) return 0;
+
+  uint8_t bestIndex = 0;
+  uint8_t bestDiff = UINT8_MAX;
+  for (size_t i = 0; i < sizes.size(); i++) {
+    const uint8_t size = sizes[i];
+    const uint8_t diff = size > targetPointSize ? size - targetPointSize : targetPointSize - size;
+    if (diff < bestDiff || (diff == bestDiff && size < sizes[bestIndex])) {
+      bestIndex = static_cast<uint8_t>(i);
+      bestDiff = diff;
+    }
+  }
+  return bestIndex;
+}
+
+inline uint8_t closestBuiltinFontSizeIndex(const uint8_t targetPointSize) {
+  uint8_t bestStored = 0;
+  uint8_t bestPointSize = 0;
+  uint8_t bestDiff = UINT8_MAX;
+
+  for (uint8_t i = 0; i < CrossPointSettings::FONT_SIZE_COUNT; i++) {
+    const auto size = static_cast<CrossPointSettings::FONT_SIZE>(i);
+    const uint8_t stored = CrossPointSettings::getStoredReaderFontSize(size);
+    if (stored == UINT8_MAX) continue;
+
+    const uint8_t pointSize = CrossPointSettings::getReaderFontPointSize(size);
+    const uint8_t diff = pointSize > targetPointSize ? pointSize - targetPointSize : targetPointSize - pointSize;
+    if (diff < bestDiff || (diff == bestDiff && pointSize < bestPointSize)) {
+      bestStored = stored;
+      bestPointSize = pointSize;
+      bestDiff = diff;
+    }
+  }
+  return bestStored;
+}
 
 // Build the font family setting dynamically. When registry is non-null, SD card fonts
 // are appended after the built-in fonts. Otherwise only built-in fonts are listed.
@@ -54,11 +175,15 @@ inline SettingInfo buildFontFamilySetting(const SdCardFontRegistry* registry) {
 
   // Capture registry families by copy for the lambdas
   std::vector<std::string> sdFamilyNames;
+  std::vector<std::vector<uint8_t>> sdFamilySizes;
   if (registry) {
     const auto& families = registry->getFamilies();
     sdFamilyNames.reserve(families.size());
+    sdFamilySizes.reserve(families.size());
     std::transform(families.begin(), families.end(), std::back_inserter(sdFamilyNames),
                    [](const SdCardFontFamilyInfo& f) { return f.name; });
+    std::transform(families.begin(), families.end(), std::back_inserter(sdFamilySizes),
+                   [](const SdCardFontFamilyInfo& f) { return f.availableSizes(); });
   }
 
   s.valueGetter = [sdFamilyNames]() -> uint8_t {
@@ -74,19 +199,51 @@ inline SettingInfo buildFontFamilySetting(const SdCardFontRegistry* registry) {
     return SETTINGS.fontFamily < CrossPointSettings::BUILTIN_FONT_COUNT ? SETTINGS.fontFamily : 0;
   };
 
-  s.valueSetter = [sdFamilyNames](uint8_t v) {
+  s.valueSetter = [sdFamilyNames, sdFamilySizes](uint8_t v) {
+    uint8_t targetPointSize = CrossPointSettings::getReaderFontPointSize(SETTINGS.getEffectiveReaderFontSize());
+    if (SETTINGS.sdFontFamilyName[0] != '\0') {
+      for (size_t i = 0; i < sdFamilyNames.size(); i++) {
+        if (sdFamilyNames[i] == SETTINGS.sdFontFamilyName && SETTINGS.fontSize < sdFamilySizes[i].size()) {
+          targetPointSize = sdFamilySizes[i][SETTINGS.fontSize];
+          break;
+        }
+      }
+    }
+
     if (v < CrossPointSettings::BUILTIN_FONT_COUNT) {
       SETTINGS.fontFamily = v;
       SETTINGS.sdFontFamilyName[0] = '\0';
+      SETTINGS.fontSize = closestBuiltinFontSizeIndex(targetPointSize);
     } else {
       int sdIdx = v - CrossPointSettings::BUILTIN_FONT_COUNT;
       if (sdIdx < static_cast<int>(sdFamilyNames.size())) {
+        SETTINGS.fontSize = closestPointSizeIndex(sdFamilySizes[sdIdx], targetPointSize);
         strncpy(SETTINGS.sdFontFamilyName, sdFamilyNames[sdIdx].c_str(), sizeof(SETTINGS.sdFontFamilyName) - 1);
         SETTINGS.sdFontFamilyName[sizeof(SETTINGS.sdFontFamilyName) - 1] = '\0';
       }
     }
   };
 
+  return s;
+}
+
+inline SettingInfo buildSleepScreenSetting() {
+  SettingInfo s = SettingInfo::Enum(
+      StrId::STR_SLEEP_SCREEN, &CrossPointSettings::sleepScreen,
+      {StrId::STR_DARK, StrId::STR_LIGHT, StrId::STR_CUSTOM, StrId::STR_COVER, StrId::STR_NONE_OPT,
+       StrId::STR_COVER_CUSTOM, StrId::STR_PAGE_OVERLAY, StrId::STR_READING_STATS, StrId::STR_THEME_MINIMAL},
+      "sleepScreen", StrId::STR_CAT_DISPLAY);
+  s.withEnumRawValues({
+      static_cast<uint8_t>(CrossPointSettings::DARK),
+      static_cast<uint8_t>(CrossPointSettings::LIGHT),
+      static_cast<uint8_t>(CrossPointSettings::CUSTOM),
+      static_cast<uint8_t>(CrossPointSettings::COVER),
+      static_cast<uint8_t>(CrossPointSettings::BLANK),
+      static_cast<uint8_t>(CrossPointSettings::COVER_CUSTOM),
+      static_cast<uint8_t>(CrossPointSettings::OVERLAY),
+      static_cast<uint8_t>(CrossPointSettings::READING_STATS_SLEEP),
+      static_cast<uint8_t>(CrossPointSettings::MINIMAL_SLEEP),
+  });
   return s;
 }
 
@@ -103,10 +260,7 @@ inline std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* regist
   static const std::vector<SettingInfo> baseList = [] {
     std::vector<SettingInfo> v = {
         // --- Display ---
-        SettingInfo::Enum(StrId::STR_SLEEP_SCREEN, &CrossPointSettings::sleepScreen,
-                          {StrId::STR_DARK, StrId::STR_LIGHT, StrId::STR_CUSTOM, StrId::STR_COVER, StrId::STR_NONE_OPT,
-                           StrId::STR_COVER_CUSTOM, StrId::STR_PAGE_OVERLAY, StrId::STR_READING_STATS},
-                          "sleepScreen", StrId::STR_CAT_DISPLAY),
+        buildSleepScreenSetting(),
         SettingInfo::Enum(StrId::STR_SLEEP_COVER_MODE, &CrossPointSettings::sleepScreenCoverMode,
                           {StrId::STR_FIT, StrId::STR_CROP}, "sleepScreenCoverMode", StrId::STR_CAT_DISPLAY),
         SettingInfo::Enum(StrId::STR_SLEEP_COVER_FILTER, &CrossPointSettings::sleepScreenCoverFilter,
@@ -141,34 +295,11 @@ inline std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* regist
                               StrId::STR_CHAREINK,
                           },
                           "fontFamily", StrId::STR_CAT_READER),
-        SettingInfo::Enum(StrId::STR_FONT_SIZE, &CrossPointSettings::fontSize,
-                          {
-#ifndef OMIT_TINY_FONT
-                              StrId::STR_TINY,
-#endif
-#ifndef OMIT_SMALL_FONT
-                              StrId::STR_SMALL,
-#endif
-#ifndef OMIT_MEDIUM_FONT
-                              StrId::STR_MEDIUM,
-#endif
-#ifndef OMIT_LARGE_FONT
-                              StrId::STR_LARGE,
-#endif
-#ifndef OMIT_XLARGE_FONT
-                              StrId::STR_X_LARGE,
-#endif
-#ifndef OMIT_TEENSY_FONT
-                              StrId::STR_TEENSY,
-#endif
-#ifndef OMIT_HUGE_FONT
-                              StrId::STR_HUGE,
-#endif
-#ifndef OMIT_ITTY_BITTY_FONT
-                              StrId::STR_ITTY_BITTY,
-#endif
-                          },
-                          "fontSize", StrId::STR_CAT_READER),
+        buildBuiltinFontSizeSetting(),
+        SettingInfo::Enum(StrId::STR_SD_FONT_SIZE_RANGE, &CrossPointSettings::sdFontSizeRange,
+                          {StrId::STR_FONT_RANGE_TEENSY, StrId::STR_FONT_RANGE_TINY, StrId::STR_FONT_RANGE_XLARGE,
+                           StrId::STR_FONT_RANGE_NO_EMOJI, StrId::STR_FONT_RANGE_ALL},
+                          "sdFontSizeRange", StrId::STR_CAT_READER),
         SettingInfo::Enum(StrId::STR_LINE_SPACING, &CrossPointSettings::lineSpacing,
                           {StrId::STR_TIGHT, StrId::STR_NORMAL, StrId::STR_WIDE}, "lineSpacing", StrId::STR_CAT_READER),
         SettingInfo::Enum(StrId::STR_ORIENTATION, &CrossPointSettings::orientation,
@@ -319,6 +450,11 @@ inline std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* regist
     auto it = std::find_if(v.begin(), v.end(), [](const SettingInfo& s) { return s.nameId == StrId::STR_FONT_FAMILY; });
     if (it != v.end()) {
       *it = buildFontFamilySetting(registry);
+    }
+    auto fontSizeIt =
+        std::find_if(v.begin(), v.end(), [](const SettingInfo& s) { return s.nameId == StrId::STR_FONT_SIZE; });
+    if (fontSizeIt != v.end()) {
+      *fontSizeIt = buildFontSizeSetting(registry);
     }
   }
   return v;

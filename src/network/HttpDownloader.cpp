@@ -8,6 +8,7 @@
 #include <StreamString.h>
 #include <base64.h>
 
+#include <algorithm>
 #include <memory>
 #include <new>
 #include <utility>
@@ -19,11 +20,40 @@
 namespace {
 constexpr size_t PROGRESS_UPDATE_BYTES = 64 * 1024;
 constexpr uint32_t PROGRESS_UPDATE_MS = 250;
+constexpr size_t DOWNLOAD_BUFFER_SIZE = 1024;
+constexpr uint16_t HTTP_RESPONSE_TIMEOUT_MS = 15000;
+constexpr int32_t HTTP_CONNECT_TIMEOUT_MS = 10000;
+constexpr uint32_t HTTPS_HANDSHAKE_TIMEOUT_SECONDS = 10;
+constexpr uint32_t DOWNLOAD_IDLE_TIMEOUT_MS = 15000;
+
+class ProgressNotifier {
+ public:
+  ProgressNotifier(size_t total, HttpDownloader::ProgressCallback progress)
+      : total_(total), progress_(std::move(progress)) {}
+
+  void notify(size_t downloaded, bool force) {
+    if (progress_ && total_ > 0) {
+      const uint32_t now = millis();
+      if (force || downloaded == total_ || downloaded - lastProgressBytes_ >= PROGRESS_UPDATE_BYTES ||
+          now - lastProgressMs_ >= PROGRESS_UPDATE_MS) {
+        lastProgressBytes_ = downloaded;
+        lastProgressMs_ = now;
+        progress_(downloaded, total_);
+      }
+    }
+  }
+
+ private:
+  size_t total_;
+  size_t lastProgressBytes_ = 0;
+  uint32_t lastProgressMs_ = 0;
+  HttpDownloader::ProgressCallback progress_;
+};
 
 class FileWriteStream final : public Stream {
  public:
   FileWriteStream(FsFile& file, size_t total, HttpDownloader::ProgressCallback progress)
-      : file_(file), total_(total), progress_(std::move(progress)) {}
+      : file_(file), progress_(total, std::move(progress)) {}
 
   size_t write(uint8_t byte) override { return write(&byte, 1); }
 
@@ -37,7 +67,7 @@ class FileWriteStream final : public Stream {
       writeOk_ = false;
     }
     downloaded_ += accepted;
-    notifyProgress(false);
+    progress_.notify(downloaded_, false);
     return accepted;
   }
 
@@ -48,29 +78,75 @@ class FileWriteStream final : public Stream {
 
   size_t downloaded() const { return downloaded_; }
   bool ok() const { return writeOk_; }
-  void finishProgress() { notifyProgress(true); }
+  void finishProgress() { progress_.notify(downloaded_, true); }
 
  private:
-  void notifyProgress(const bool force) {
-    if (progress_ && total_ > 0) {
-      const uint32_t now = millis();
-      if (force || downloaded_ == total_ || downloaded_ - lastProgressBytes_ >= PROGRESS_UPDATE_BYTES ||
-          now - lastProgressMs_ >= PROGRESS_UPDATE_MS) {
-        lastProgressBytes_ = downloaded_;
-        lastProgressMs_ = now;
-        progress_(downloaded_, total_);
-      }
-    }
+  FsFile& file_;
+  size_t downloaded_ = 0;
+  bool writeOk_ = true;
+  ProgressNotifier progress_;
+};
+
+HttpDownloader::DownloadError downloadKnownLengthBody(HTTPClient& http, FsFile& file, const size_t contentLength,
+                                                      HttpDownloader::ProgressCallback progress, size_t& downloaded) {
+  auto* stream = http.getStreamPtr();
+  if (!stream) {
+    LOG_ERR("HTTP", "Failed to get response stream");
+    return HttpDownloader::HTTP_ERROR;
   }
 
-  FsFile& file_;
-  size_t total_;
-  size_t downloaded_ = 0;
-  size_t lastProgressBytes_ = 0;
-  uint32_t lastProgressMs_ = 0;
-  bool writeOk_ = true;
-  HttpDownloader::ProgressCallback progress_;
-};
+  std::unique_ptr<uint8_t[]> buffer(new (std::nothrow) uint8_t[DOWNLOAD_BUFFER_SIZE]);
+  if (!buffer) {
+    LOG_ERR("HTTP", "Failed to allocate %zu byte download buffer", DOWNLOAD_BUFFER_SIZE);
+    return HttpDownloader::HTTP_ERROR;
+  }
+
+  ProgressNotifier progressNotifier(contentLength, std::move(progress));
+  uint32_t lastProgressMs = millis();
+  while (downloaded < contentLength) {
+    const size_t remaining = contentLength - downloaded;
+
+    int available = stream->available();
+    if (available <= 0) {
+      if (!http.connected()) {
+        LOG_ERR("HTTP", "Connection closed after %zu of %zu bytes", downloaded, contentLength);
+        return HttpDownloader::HTTP_ERROR;
+      }
+      if (millis() - lastProgressMs >= DOWNLOAD_IDLE_TIMEOUT_MS) {
+        LOG_ERR("HTTP", "Read timed out after %zu of %zu bytes", downloaded, contentLength);
+        return HttpDownloader::HTTP_ERROR;
+      }
+      delay(1);
+      continue;
+    }
+
+    const size_t toRead = std::min({DOWNLOAD_BUFFER_SIZE, remaining, static_cast<size_t>(available)});
+    const size_t bytesRead = stream->readBytes(buffer.get(), toRead);
+    if (bytesRead == 0) {
+      if (millis() - lastProgressMs < DOWNLOAD_IDLE_TIMEOUT_MS) {
+        delay(1);
+        continue;
+      }
+      LOG_ERR("HTTP", "Read timed out after %zu of %zu bytes", downloaded, contentLength);
+      return HttpDownloader::HTTP_ERROR;
+    }
+
+    const size_t accepted = file.write(buffer.get(), bytesRead);
+    downloaded += accepted;
+    lastProgressMs = millis();
+    progressNotifier.notify(downloaded, false);
+
+    if (accepted != bytesRead) {
+      LOG_ERR("HTTP", "Write failed after %zu of %zu bytes", downloaded, contentLength);
+      return HttpDownloader::FILE_ERROR;
+    }
+
+    delay(0);
+  }
+
+  progressNotifier.notify(downloaded, true);
+  return HttpDownloader::OK;
+}
 }  // namespace
 
 bool HttpDownloader::fetchUrl(const std::string& url, Stream& outContent, const std::string& username,
@@ -84,6 +160,7 @@ bool HttpDownloader::fetchUrl(const std::string& url, Stream& outContent, const 
       LOG_ERR("HTTP", "Failed to allocate secure client");
       return false;
     }
+    secureClient->setHandshakeTimeout(HTTPS_HANDSHAKE_TIMEOUT_SECONDS);
     secureClient->setInsecure();
     client.reset(secureClient);
   } else {
@@ -100,6 +177,8 @@ bool HttpDownloader::fetchUrl(const std::string& url, Stream& outContent, const 
 
   http.begin(*client, url.c_str());
   http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+  http.setConnectTimeout(HTTP_CONNECT_TIMEOUT_MS);
+  http.setTimeout(HTTP_RESPONSE_TIMEOUT_MS);
   http.addHeader("User-Agent", "CrossInk-ESP32-" CROSSINK_VERSION);
 
   if (!username.empty() && !password.empty()) {
@@ -120,7 +199,7 @@ bool HttpDownloader::fetchUrl(const std::string& url, Stream& outContent, const 
   http.end();
 
   if (writeResult < 0) {
-    LOG_ERR("HTTP", "writeToStream error: %d", writeResult);
+    LOG_ERR("HTTP", "writeToStream error: %d (%s)", writeResult, HTTPClient::errorToString(writeResult).c_str());
     return false;
   }
 
@@ -140,7 +219,7 @@ bool HttpDownloader::fetchUrl(const std::string& url, std::string& outContent, c
 
 HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& url, const std::string& destPath,
                                                              ProgressCallback progress, const std::string& username,
-                                                             const std::string& password) {
+                                                             const std::string& password, DownloadOptions options) {
   WifiPowerSaveGuard wifiPowerSaveGuard;
 
   std::unique_ptr<NetworkClient> client;
@@ -150,6 +229,7 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
       LOG_ERR("HTTP", "Failed to allocate secure client");
       return HTTP_ERROR;
     }
+    secureClient->setHandshakeTimeout(HTTPS_HANDSHAKE_TIMEOUT_SECONDS);
     secureClient->setInsecure();
     client.reset(secureClient);
   } else {
@@ -167,7 +247,24 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
 
   http.begin(*client, url.c_str());
   http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+  http.setConnectTimeout(HTTP_CONNECT_TIMEOUT_MS);
+  http.setTimeout(HTTP_RESPONSE_TIMEOUT_MS);
   http.addHeader("User-Agent", "CrossInk-ESP32-" CROSSINK_VERSION);
+
+  size_t resumeOffset = 0;
+  if (options.resumePartial && Storage.exists(destPath.c_str())) {
+    FsFile existingFile;
+    if (Storage.openFileForRead("HTTP", destPath.c_str(), existingFile)) {
+      resumeOffset = existingFile.fileSize();
+      existingFile.close();
+    }
+  }
+  if (resumeOffset > 0) {
+    char rangeHeader[40];
+    snprintf(rangeHeader, sizeof(rangeHeader), "bytes=%zu-", resumeOffset);
+    http.addHeader("Range", rangeHeader);
+    LOG_DBG("HTTP", "Resuming download at byte %zu", resumeOffset);
+  }
 
   if (!username.empty() && !password.empty()) {
     std::string credentials = username + ":" + password;
@@ -176,68 +273,103 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
   }
 
   const int httpCode = http.GET();
-  if (httpCode != HTTP_CODE_OK) {
-    LOG_ERR("HTTP", "Download failed: %d", httpCode);
+  const bool isResumeResponse = resumeOffset > 0 && httpCode == 206;
+  if (httpCode != HTTP_CODE_OK && !isResumeResponse) {
+    if (httpCode < 0) {
+      LOG_ERR("HTTP", "Download failed: %d (%s)", httpCode, HTTPClient::errorToString(httpCode).c_str());
+    } else {
+      LOG_ERR("HTTP", "Download failed: %d", httpCode);
+    }
     http.end();
     return HTTP_ERROR;
   }
+  if (resumeOffset > 0 && !isResumeResponse) {
+    LOG_DBG("HTTP", "Server ignored range request; restarting download");
+    Storage.remove(destPath.c_str());
+    resumeOffset = 0;
+  }
 
   const int64_t reportedLength = http.getSize();
-  const size_t contentLength = reportedLength > 0 ? static_cast<size_t>(reportedLength) : 0;
+  const size_t responseLength = reportedLength > 0 ? static_cast<size_t>(reportedLength) : 0;
+  const size_t contentLength = responseLength > 0 ? resumeOffset + responseLength : 0;
   if (contentLength > 0) {
     LOG_DBG("HTTP", "Content-Length: %zu", contentLength);
   } else {
     LOG_DBG("HTTP", "Content-Length: unknown");
   }
 
-  // Remove existing file if present
-  if (Storage.exists(destPath.c_str())) {
+  // Remove existing file if present, unless this is a resumable append.
+  if (resumeOffset == 0 && Storage.exists(destPath.c_str())) {
     Storage.remove(destPath.c_str());
   }
 
   // Open file for writing
   FsFile file;
-  if (!Storage.openFileForWrite("HTTP", destPath.c_str(), file)) {
+  if (resumeOffset > 0) {
+    file = Storage.open(destPath.c_str(), O_WRONLY | O_APPEND);
+  } else if (!Storage.openFileForWrite("HTTP", destPath.c_str(), file)) {
+    LOG_ERR("HTTP", "Failed to open file for writing");
+    http.end();
+    return FILE_ERROR;
+  }
+  if (!file) {
     LOG_ERR("HTTP", "Failed to open file for writing");
     http.end();
     return FILE_ERROR;
   }
 
-  // Let HTTPClient handle chunked decoding and stream body bytes into the file.
-  FileWriteStream fileStream(file, contentLength, progress);
-  const int writeResult = http.writeToStream(&fileStream);
-  fileStream.flush();
-  fileStream.finishProgress();
+  size_t downloaded = resumeOffset;
+  DownloadError transferError = OK;
+  int writeResult = 0;
+
+  if (contentLength > 0) {
+    transferError = downloadKnownLengthBody(http, file, contentLength, std::move(progress), downloaded);
+  } else {
+    // Let HTTPClient handle chunked decoding and stream body bytes into the file.
+    FileWriteStream fileStream(file, contentLength, std::move(progress));
+    writeResult = http.writeToStream(&fileStream);
+    fileStream.finishProgress();
+    downloaded = fileStream.downloaded();
+    if (writeResult < 0) {
+      transferError = HTTP_ERROR;
+    } else if (!fileStream.ok()) {
+      LOG_ERR("HTTP", "Write failed during download");
+      transferError = FILE_ERROR;
+    }
+  }
+
+  file.flush();
 
   file.close();
   http.end();
 
-  if (writeResult < 0) {
-    LOG_ERR("HTTP", "writeToStream error: %d", writeResult);
-    Storage.remove(destPath.c_str());
-    return HTTP_ERROR;
+  if (transferError != OK) {
+    if (writeResult < 0) {
+      LOG_ERR("HTTP", "writeToStream error: %d (%s)", writeResult, HTTPClient::errorToString(writeResult).c_str());
+    }
+    if (!options.preservePartial) {
+      Storage.remove(destPath.c_str());
+    }
+    return transferError;
   }
 
-  const size_t downloaded = fileStream.downloaded();
   LOG_DBG("HTTP", "Downloaded %zu bytes", downloaded);
 
   // Guard against partial writes even if HTTPClient completes.
-  if (!fileStream.ok()) {
-    LOG_ERR("HTTP", "Write failed during download");
-    Storage.remove(destPath.c_str());
-    return FILE_ERROR;
-  }
-
   if (contentLength == 0 && downloaded == 0) {
     LOG_ERR("HTTP", "Download failed: no data received");
-    Storage.remove(destPath.c_str());
+    if (!options.preservePartial) {
+      Storage.remove(destPath.c_str());
+    }
     return HTTP_ERROR;
   }
 
   // Verify download size if known
   if (contentLength > 0 && downloaded != contentLength) {
     LOG_ERR("HTTP", "Size mismatch: got %zu, expected %zu", downloaded, contentLength);
-    Storage.remove(destPath.c_str());
+    if (!options.preservePartial) {
+      Storage.remove(destPath.c_str());
+    }
     return HTTP_ERROR;
   }
 

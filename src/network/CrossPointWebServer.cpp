@@ -1806,7 +1806,7 @@ void CrossPointWebServer::handleFontUploadData() {
         break;
       }
 
-      char path[128];
+      char path[192];
       FontInstaller::buildFontPath(family.c_str(), filename.c_str(), path, sizeof(path));
       fontUpload.filePath = path;
 

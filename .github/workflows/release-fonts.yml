@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
 
 env:
-  FONTS_REPO: crosspoint-reader/crosspoint-fonts
+  FONTS_REPO: uxjulia/crossink-fonts
 
 jobs:
   build-fonts:

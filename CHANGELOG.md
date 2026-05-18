@@ -4,11 +4,13 @@
 
 ### Added
 - Added a Common Issues guide with user-facing fixes for WiFi, uploads, EPUB cache rebuilds, covers, reading stats, and OTA update problems.
+- Added a Minimal sleep screen option that shows the current book cover and reading progress on a dark background.
 - Added an in-reader confirmation message when a shortcut turns tilt-to-turn on or off.
 - Added a 9pt `Itty Bitty` reader font size, plus build flags for omitting Itty Bitty and Large reader font assets in size-constrained firmware variants.
 
 ### Fixed
 - Vertically align File Browser icons with filenames icon-based themes.
+- Fixed EPUB cache folder keys so they use a stable path hash across firmware builds, with best-effort migration of older cache folders.
 - Reduced battery drain risk by letting the OPDS browser idle normally after catalog pages load and by putting the X3 tilt sensor back to sleep outside the reader.
 - Disabled WiFi power saving during OPDS browsing, regular file downloads, and OTA update checks so network transfers can run more consistently.
 - Reduced stack usage when copying files over WebDAV.
@@ -18,11 +20,20 @@
 - Fixed a crash when opening the XTC chapter selector on memory-constrained builds.
 - Kept the Minimal theme home navigation button labels in English so all four labels stay consistent and compact.
 - Reduced false EPUB low-memory chapter failures by laying out very long text blocks earlier, streaming table fallback content when heap is tight, and clarifying the warning text.
+- Kept sleep entry lighter by rendering only already-cached cover and thumbnail assets on sleep screens.
+- Fixed SD-card font size selection to choose by actual point size instead of filename order.
+- Fixed SD-card font downloads failing on low-memory devices when the HTTP client could not allocate its larger receive buffer.
+- Let failed downloaded-font installs retry from already completed files and resume the interrupted file when possible.
+- Clarified downloaded-font failure messages so interrupted network transfers explain that retry can continue saved progress.
+- Made downloaded-font transfers tolerate longer stalls and retry individual files before showing a failure.
 
 ### Changed
 - Reduced unnecessary screen refresh work during OPDS book downloads and SD font downloads so transfers spend more time downloading and less time repainting progress.
 - Kept OPDS feed parsing safer on low-memory devices while preserving older parser iteration helpers for future OPDS work.
 - Reduced unnecessary OPDS browser list clearing when moving between catalog feeds.
+- Made the Font Size setting follow the actual sizes installed for the selected SD-card font family.
+- Installed downloaded SD-card fonts with their size range in the family name so multiple ranges can coexist.
+- Added an `all` downloaded-font size range for installing every generated size from Teensy through Huge.
 
 ## [v1.2.11.1] - 2026-05-15
 
@@ -41,12 +52,14 @@
 - Added bookmark cleanup shortcuts: hold Select on a bookmark to delete it, or hold Open on a book in Bookmarks to clear that book's bookmark list.
 - Added a confirmation message after deleting a book's cache from the reader or File Browser.
 - Added a File Browser long-press action for deleting an EPUB or XTC book's cache
+- Added a downloaded-font size range setting so SD-card fonts can use compact, default, or large point-size sets.
 - Added a File Browser long-press action for marking EPUB books as finished or unfinished.
 
 ### Changed
 - Hardened deep sleep entry by shutting WiFi down before waiting for the power button to be released.
 - Raised the web file-transfer filename limit from 100 to 150 bytes so longer uploaded filenames are preserved.
 - Made the in-reader Reader Options menu include the same Reader settings and actions as Settings > Reader.
+- Split SD-card font descriptions and supported languages into separate lines in the font download screen.
 
 ### Fixed
 - Fixed inline EPUB images disappearing in landscape when their bottom edge slightly overlaps the screen margin.
@@ -55,7 +68,7 @@
 - Fixed the SD-card font picker reopening immediately after selecting a font from Settings > Reader > Font Family.
 - Fixed in-reader font-size changes for SD card fonts not working
 - Fixed in-reader SD-card font changes not always rebuilding the current EPUB page layout.
----
+
 ## [v1.2.10] - 2026-05-11
 
 ### Added

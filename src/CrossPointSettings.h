@@ -26,6 +26,7 @@ class CrossPointSettings {
     COVER_CUSTOM = 5,
     OVERLAY = 6,
     READING_STATS_SLEEP = 7,
+    MINIMAL_SLEEP = 8,
     SLEEP_SCREEN_MODE_COUNT
   };
   enum SLEEP_SCREEN_COVER_MODE { FIT = 0, CROP = 1, SLEEP_SCREEN_COVER_MODE_COUNT };
@@ -129,6 +130,14 @@ class CrossPointSettings {
     HUGE_SIZE = 6,
     ITTY_BITTY = 7,
     FONT_SIZE_COUNT
+  };
+  enum SD_FONT_SIZE_RANGE {
+    SD_FONT_RANGE_TEENSY = 0,
+    SD_FONT_RANGE_TINY = 1,
+    SD_FONT_RANGE_XLARGE = 2,
+    SD_FONT_RANGE_NO_EMOJI = 3,
+    SD_FONT_RANGE_ALL = 4,
+    SD_FONT_SIZE_RANGE_COUNT
   };
   enum LINE_COMPRESSION { TIGHT = 0, NORMAL = 1, WIDE = 2, LINE_COMPRESSION_COUNT };
   enum PARAGRAPH_ALIGNMENT {
@@ -282,6 +291,15 @@ class CrossPointSettings {
   // Reader font settings
   uint8_t fontFamily = LEXENDDECA;
   uint8_t fontSize = MEDIUM;
+#if defined(OMIT_EMOJI_FONTS)
+  uint8_t sdFontSizeRange = SD_FONT_RANGE_NO_EMOJI;
+#elif defined(OMIT_TINY_FONT) && defined(OMIT_SMALL_FONT)
+  uint8_t sdFontSizeRange = SD_FONT_RANGE_XLARGE;
+#elif defined(OMIT_MEDIUM_FONT) && defined(OMIT_LARGE_FONT) && defined(OMIT_XLARGE_FONT) && defined(OMIT_HUGE_FONT)
+  uint8_t sdFontSizeRange = SD_FONT_RANGE_TEENSY;
+#else
+  uint8_t sdFontSizeRange = SD_FONT_RANGE_TINY;
+#endif
   uint8_t lineSpacing = NORMAL;
   uint8_t paragraphAlignment = JUSTIFIED;
   // Auto-sleep timeout setting (default 10 minutes). Legacy sleepTimeout enum values are migration-only.
@@ -312,8 +330,8 @@ class CrossPointSettings {
   uint8_t bionicReadingEnabled = 0;
   // Guide Dots - places a middle dot between words to guide the eye
   uint8_t guideReadingEnabled = 0;
-  // SD card font family name (empty = use built-in fontFamily)
-  char sdFontFamilyName[32] = "";
+  // SD card font family name, including optional range suffix (empty = use built-in fontFamily)
+  char sdFontFamilyName[64] = "";
   // Show hidden files/directories (starting with '.') in the file browser (0 = hidden, 1 = show)
   uint8_t showHiddenFiles = 0;
   // Move epub to /Read/ folder on SD card when marked as finished (0 = disabled, 1 = enabled)
@@ -336,6 +354,7 @@ class CrossPointSettings {
   static constexpr uint16_t POWER_BUTTON_LONG_PRESS_MS = 400;
   static constexpr uint8_t MIN_SLEEP_TIMEOUT_MINUTES = 1;
   static constexpr uint8_t MAX_SLEEP_TIMEOUT_MINUTES = 30;
+  static constexpr uint8_t SD_FONT_MAX_SIZE_STEPS = 8;
 
   uint16_t getPowerButtonWakeDuration() const {
     return (shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::SLEEP) ? POWER_BUTTON_WAKE_SHORT_MS
@@ -352,7 +371,11 @@ class CrossPointSettings {
   uint16_t getPowerButtonLongPressDuration() const { return POWER_BUTTON_LONG_PRESS_MS; }
   static uint8_t getActiveReaderFontSizeCount();
   static uint8_t getStoredReaderFontSize(FONT_SIZE size);
+  static uint8_t getReaderFontPointSize(FONT_SIZE size);
+  static uint8_t getSdFontRangePointSize(uint8_t range, uint8_t step);
+  static bool isSdFontPointSizeAllowedForRange(uint8_t pointSize, uint8_t range);
   FONT_SIZE getEffectiveReaderFontSize() const;
+  uint8_t getSdFontTargetPointSize() const;
   bool changeReaderFontSize(bool larger);
   int getReaderFontId() const;
 
@@ -365,8 +388,11 @@ class CrossPointSettings {
   static void validateFrontButtonMapping(CrossPointSettings& settings);
   static void validateReaderFrontButtonMapping(CrossPointSettings& settings);
   static uint8_t sleepTimeoutEnumToMinutes(uint8_t legacyValue);
+  static uint8_t sleepScreenStorageToMode(uint8_t storedValue);
+  static uint8_t sleepScreenModeToStorage(uint8_t mode);
 #ifdef SIMULATOR
   static bool verifySleepTimeoutMigrationContract();
+  static bool verifySleepScreenMigrationContract();
 #endif
 
  private:

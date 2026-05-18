@@ -7,6 +7,9 @@
 #include <PngToBmpConverter.h>
 #include <ZipFile.h>
 
+#include <functional>
+#include <utility>
+
 #include "Epub/parsers/ContainerParser.h"
 #include "Epub/parsers/ContentOpfParser.h"
 #include "Epub/parsers/TocNavParser.h"
@@ -35,7 +38,38 @@ bool nonEmptyFileExists(const std::string& path) {
 std::string getThumbBmpPathForDimensions(const std::string& cachePath, int width, int height) {
   return cachePath + "/thumb_" + std::to_string(width) + "x" + std::to_string(height) + ".bmp";
 }
+
+std::string legacyCachePathForFilePath(const std::string& filepath, const std::string& cacheDir) {
+  return cacheDir + "/epub_" + std::to_string(std::hash<std::string>{}(filepath));
+}
 }  // namespace
+
+Epub::Epub(std::string filepath, const std::string& cacheDir) : filepath(std::move(filepath)) {
+  cachePath = cachePathForFilePath(this->filepath, cacheDir);
+  migrateLegacyCachePath(cacheDir);
+}
+
+std::string Epub::cachePathForFilePath(const std::string& filepath, const std::string& cacheDir) {
+  // Keep on-disk EPUB cache keys stable across standard library/toolchain changes.
+  return cacheDir + "/epub_" + std::to_string(ZipFile::fnvHash64(filepath.c_str(), filepath.size()));
+}
+
+void Epub::migrateLegacyCachePath(const std::string& cacheDir) const {
+  if (Storage.exists(cachePath.c_str())) {
+    return;
+  }
+
+  const std::string legacyCachePath = legacyCachePathForFilePath(filepath, cacheDir);
+  if (legacyCachePath == cachePath || !Storage.exists(legacyCachePath.c_str())) {
+    return;
+  }
+
+  if (Storage.rename(legacyCachePath.c_str(), cachePath.c_str())) {
+    LOG_INF("EBP", "Migrated legacy EPUB cache: %s -> %s", legacyCachePath.c_str(), cachePath.c_str());
+  } else {
+    LOG_ERR("EBP", "Failed to migrate legacy EPUB cache: %s -> %s", legacyCachePath.c_str(), cachePath.c_str());
+  }
+}
 
 bool Epub::findContentOpfFile(std::string* contentOpfFile) const {
   const auto containerPath = "META-INF/container.xml";

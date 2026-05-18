@@ -218,7 +218,7 @@ void ActivityManager::goToReader(std::string path, const bool suppressBackReleas
 
 void ActivityManager::goToSleep() {
   const bool canSnapshotOverlay = currentActivity && currentActivity->canSnapshotForSleepOverlay();
-  replaceActivity(std::make_unique<SleepActivity>(renderer, mappedInput, canSnapshotOverlay));
+  replaceActivity(std::make_unique<SleepActivity>(renderer, mappedInput, canSnapshotOverlay, getCurrentBookPath()));
   loop();  // Important: sleep screen must be rendered immediately, the caller will go to sleep right after this returns
 }
 
@@ -267,6 +267,26 @@ bool ActivityManager::canSnapshotForSleepOverlay() const {
 }
 
 bool ActivityManager::skipLoopDelay() const { return currentActivity && currentActivity->skipLoopDelay(); }
+
+std::string ActivityManager::getCurrentBookPath() const {
+  if (currentActivity) {
+    const std::string path = currentActivity->getCurrentBookPath();
+    if (!path.empty()) {
+      return path;
+    }
+  }
+
+  for (auto it = stackActivities.rbegin(); it != stackActivities.rend(); ++it) {
+    if (*it) {
+      const std::string path = (*it)->getCurrentBookPath();
+      if (!path.empty()) {
+        return path;
+      }
+    }
+  }
+
+  return {};
+}
 
 ScreenshotInfo ActivityManager::getScreenshotInfo() const {
   if (currentActivity) {

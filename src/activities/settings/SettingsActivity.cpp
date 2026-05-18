@@ -288,7 +288,9 @@ void SettingsActivity::toggleCurrentSetting() {
   } else if (setting.type == SettingType::ENUM && setting.valuePtr != nullptr) {
     const uint8_t currentValue = SETTINGS.*(setting.valuePtr);
     const uint8_t currentIndex = enumDisplayIndexForRawValue(setting, currentValue);
-    const uint8_t nextIndex = (currentIndex + 1) % static_cast<uint8_t>(setting.enumValues.size());
+    const size_t optionCount = settingEnumOptionCount(setting);
+    if (optionCount == 0) return;
+    const uint8_t nextIndex = (currentIndex + 1) % static_cast<uint8_t>(optionCount);
     SETTINGS.*(setting.valuePtr) = enumRawValueForDisplayIndex(setting, nextIndex);
   } else if (setting.type == SettingType::ENUM && setting.valueGetter && setting.valueSetter) {
     if (setting.nameId == StrId::STR_FONT_FAMILY) {
@@ -300,9 +302,9 @@ void SettingsActivity::toggleCurrentSetting() {
                              });
       return;
     }
-    const uint8_t totalValues = setting.enumStringValues.empty()
-                                    ? static_cast<uint8_t>(setting.enumValues.size())
-                                    : static_cast<uint8_t>(setting.enumStringValues.size());
+    const size_t optionCount = settingEnumOptionCount(setting);
+    if (optionCount == 0) return;
+    const uint8_t totalValues = static_cast<uint8_t>(optionCount);
     const uint8_t cur = setting.valueGetter();
     setting.valueSetter((cur + 1) % totalValues);
   } else if (setting.type == SettingType::VALUE && setting.valuePtr != nullptr) {
@@ -415,15 +417,12 @@ void SettingsActivity::render(RenderLock&&) {
         } else if (setting.type == SettingType::ENUM && setting.valuePtr != nullptr) {
           const uint8_t value = SETTINGS.*(setting.valuePtr);
           const uint8_t displayValue = enumDisplayIndexForRawValue(setting, value);
-          const uint8_t safeValue = displayValue < setting.enumValues.size() ? displayValue : 0;
-          valueText = I18N.get(setting.enumValues[safeValue]);
+          const size_t optionCount = settingEnumOptionCount(setting);
+          const uint8_t safeValue = displayValue < optionCount ? displayValue : 0;
+          valueText = settingEnumOptionLabel(setting, safeValue);
         } else if (setting.type == SettingType::ENUM && setting.valueGetter) {
           const uint8_t value = setting.valueGetter();
-          if (!setting.enumStringValues.empty() && value < setting.enumStringValues.size()) {
-            valueText = setting.enumStringValues[value];
-          } else if (value < setting.enumValues.size()) {
-            valueText = I18N.get(setting.enumValues[value]);
-          }
+          valueText = settingEnumOptionLabel(setting, value);
         } else if (setting.type == SettingType::VALUE && setting.valuePtr != nullptr) {
           if (setting.nameId == StrId::STR_TIME_TO_SLEEP) {
             char valueBuffer[32];

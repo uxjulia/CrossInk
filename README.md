@@ -84,7 +84,7 @@ There are 3 available build variants to choose from due to build size constraint
 > No Extra Large or Huge font size. My preferred build.
 
 - Emoji & Misc. Symbols Support
-- 5 Font sizes:
+- 4 Font sizes:
   - Tiny (10pt)
   - Small (12pt)
   - Medium (14pt)
@@ -396,6 +396,6 @@ books, reading progress, and reading stats. To clear EPUB/XTC render caches from
 **Settings > System > Clear Reading Cache**; that leaves settings and global stats in place.
 
 Due to the way it's currently implemented, cache data is not automatically cleared when a book is deleted. Moving a book
-file creates a new hash-based cache directory, so the moved copy may start with fresh reading progress.
+file creates a new path-based cache directory, so the moved copy may start with fresh reading progress.
 
 For more details on the internal file structures, see the [file formats document](./docs/file-formats.md).

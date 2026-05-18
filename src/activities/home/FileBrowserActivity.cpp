@@ -369,7 +369,7 @@ void FileBrowserActivity::toggleEpubCompleted(const std::string& fullPath, const
       return;
     }
 
-    const std::string newCachePath = "/.crosspoint/epub_" + std::to_string(std::hash<std::string>{}(dstPath));
+    const std::string newCachePath = Epub::cachePathForFilePath(dstPath, "/.crosspoint");
     if (!oldCachePath.empty() && Storage.exists(oldCachePath.c_str())) {
       if (!Storage.rename(oldCachePath.c_str(), newCachePath.c_str())) {
         LOG_ERR("FileBrowser", "Failed to rename cache dir %s -> %s (non-fatal)", oldCachePath.c_str(),

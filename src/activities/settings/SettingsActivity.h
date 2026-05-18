@@ -156,6 +156,18 @@ struct SettingInfo {
   }
 };
 
+inline size_t settingEnumOptionCount(const SettingInfo& setting) {
+  return setting.enumStringValues.empty() ? setting.enumValues.size() : setting.enumStringValues.size();
+}
+
+inline std::string settingEnumOptionLabel(const SettingInfo& setting, const uint8_t displayIndex) {
+  if (!setting.enumStringValues.empty()) {
+    return displayIndex < setting.enumStringValues.size() ? setting.enumStringValues[displayIndex] : std::string();
+  }
+  return displayIndex < setting.enumValues.size() ? std::string(I18N.get(setting.enumValues[displayIndex]))
+                                                  : std::string();
+}
+
 class SettingsActivity final : public Activity {
   ButtonNavigator buttonNavigator;
 

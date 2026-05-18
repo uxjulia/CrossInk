@@ -1,12 +1,18 @@
 #pragma once
+#include <string>
+#include <utility>
+
 #include "activities/Activity.h"
 
 class Bitmap;
 
 class SleepActivity final : public Activity {
  public:
-  explicit SleepActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, bool canSnapshotOverlayBackground)
-      : Activity("Sleep", renderer, mappedInput), canSnapshotOverlayBackground(canSnapshotOverlayBackground) {}
+  explicit SleepActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, bool canSnapshotOverlayBackground,
+                         std::string currentBookPath = {})
+      : Activity("Sleep", renderer, mappedInput),
+        canSnapshotOverlayBackground(canSnapshotOverlayBackground),
+        currentBookPath(std::move(currentBookPath)) {}
   void onEnter() override;
 
  private:
@@ -14,10 +20,12 @@ class SleepActivity final : public Activity {
   void renderCustomSleepScreen() const;
   void renderCoverSleepScreen() const;
   void renderReadingStatsSleepScreen() const;
+  void renderMinimalSleepScreen() const;
   void renderBitmapSleepScreen(const Bitmap& bitmap) const;
   void renderBlankSleepScreen() const;
   void renderOverlaySleepScreen() const;
   bool canSnapshotOverlayBackground = false;
   bool overlayPageBufferStored = false;
   bool overlayPageBufferTrusted = false;
+  std::string currentBookPath;
 };

@@ -15,6 +15,7 @@ namespace {
 struct ReaderLayoutSettingsSnapshot {
   uint8_t fontFamily;
   uint8_t fontSize;
+  uint8_t sdFontSizeRange;
   uint8_t lineSpacing;
   uint8_t orientation;
   uint8_t screenMargin;
@@ -29,8 +30,8 @@ struct ReaderLayoutSettingsSnapshot {
   char sdFontFamilyName[sizeof(SETTINGS.sdFontFamilyName)] = {};
 
   bool operator==(const ReaderLayoutSettingsSnapshot& other) const {
-    return fontFamily == other.fontFamily && fontSize == other.fontSize && lineSpacing == other.lineSpacing &&
-           orientation == other.orientation && screenMargin == other.screenMargin &&
+    return fontFamily == other.fontFamily && fontSize == other.fontSize && sdFontSizeRange == other.sdFontSizeRange &&
+           lineSpacing == other.lineSpacing && orientation == other.orientation && screenMargin == other.screenMargin &&
            paragraphAlignment == other.paragraphAlignment && embeddedStyle == other.embeddedStyle &&
            hyphenationEnabled == other.hyphenationEnabled && imageRendering == other.imageRendering &&
            extraParagraphSpacing == other.extraParagraphSpacing &&
@@ -45,6 +46,7 @@ ReaderLayoutSettingsSnapshot captureReaderLayoutSettings() {
   ReaderLayoutSettingsSnapshot snapshot{
       SETTINGS.fontFamily,
       SETTINGS.fontSize,
+      SETTINGS.sdFontSizeRange,
       SETTINGS.lineSpacing,
       SETTINGS.orientation,
       SETTINGS.screenMargin,

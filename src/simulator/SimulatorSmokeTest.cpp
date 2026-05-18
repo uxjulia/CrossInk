@@ -137,6 +137,9 @@ class SimulatorSmokeTest {
         if (!CrossPointSettings::verifySleepTimeoutMigrationContract()) {
           fail("Sleep timeout migration contract failed");
         }
+        if (!CrossPointSettings::verifySleepScreenMigrationContract()) {
+          fail("Sleep screen migration contract failed");
+        }
         applyRequestedTheme();
         activityManager.goHome();
         queueStep("Home", SmokeStep::Home);

@@ -10,6 +10,13 @@
 
 FontInstaller::FontInstaller(SdCardFontRegistry& registry) : registry_(registry) {}
 
+namespace {
+bool isSafeFontPathChar(const char c) {
+  return std::isalnum(static_cast<unsigned char>(c)) || c == '-' || c == '_' || c == ' ' || c == '.' || c == '(' ||
+         c == ')';
+}
+}  // namespace
+
 bool FontInstaller::isValidFamilyName(const char* name) {
   if (name == nullptr || name[0] == '\0') return false;
 
@@ -20,7 +27,7 @@ bool FontInstaller::isValidFamilyName(const char* name) {
 
   for (const char* p = name; *p != '\0'; ++p) {
     char c = *p;
-    if (!std::isalnum(static_cast<unsigned char>(c)) && c != '-' && c != '_') {
+    if (!isSafeFontPathChar(c)) {
       return false;
     }
   }
@@ -43,12 +50,13 @@ bool FontInstaller::isValidCpfontFilename(const char* name) {
   if (nameLen <= kExtLen) return false;
   if (strcmp(name + nameLen - kExtLen, kExt) != 0) return false;
 
-  // Basename (before .cpfont) must be alphanumeric + hyphen + underscore only.
-  // No additional dots — keeps stray "Foo.cpfont.tmp"-style names out.
+  // Basename (before .cpfont) must stay within safe single-path-component
+  // characters. Additional dots are allowed because GitHub release assets
+  // expose spaces as dots.
   size_t baseLen = nameLen - kExtLen;
   for (size_t i = 0; i < baseLen; ++i) {
     char c = name[i];
-    if (!std::isalnum(static_cast<unsigned char>(c)) && c != '-' && c != '_') {
+    if (!isSafeFontPathChar(c)) {
       return false;
     }
   }
@@ -68,7 +76,7 @@ bool FontInstaller::ensureFamilyDir(const char* familyName) {
     }
   }
 
-  char dirPath[160];
+  char dirPath[192];
   snprintf(dirPath, sizeof(dirPath), "%s/%s", root, familyName);
 
   if (!Storage.exists(dirPath)) {
@@ -122,7 +130,7 @@ FontInstaller::Error FontInstaller::deleteFamily(const char* familyName) {
   bool removedAny = false;
   bool sawAny = false;
   for (const char* root : roots) {
-    char dirPath[160];
+    char dirPath[192];
     snprintf(dirPath, sizeof(dirPath), "%s/%s", root, familyName);
     if (!Storage.exists(dirPath)) continue;
     sawAny = true;

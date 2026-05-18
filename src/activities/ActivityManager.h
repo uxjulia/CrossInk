@@ -111,6 +111,7 @@ class ActivityManager {
   bool isReaderActivity() const;
   bool canSnapshotForSleepOverlay() const;
   bool skipLoopDelay() const;
+  std::string getCurrentBookPath() const;
   ScreenshotInfo getScreenshotInfo() const;
 
   // If immediate is true, the update will be triggered immediately.

@@ -12,6 +12,7 @@
 #include "MappedInputManager.h"
 #include "ReaderUtils.h"
 #include "RecentBooksStore.h"
+#include "activities/boot_sleep/SleepCoverAssets.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 
@@ -105,7 +106,9 @@ void TxtReaderActivity::onEnter() {
   auto fileName = filePath.substr(filePath.rfind('/') + 1);
   APP_STATE.openEpubPath = filePath;
   APP_STATE.saveToFile();
-  RECENT_BOOKS.addOrUpdateBook(filePath, fileName, "", "");
+  SleepCoverAssets::prepareTxt(*txt);
+  const std::string coverBmpPath = Storage.exists(txt->getCoverBmpPath().c_str()) ? txt->getCoverBmpPath() : "";
+  RECENT_BOOKS.addOrUpdateBook(filePath, fileName, "", coverBmpPath);
 
   // Trigger first update
   requestUpdate();
