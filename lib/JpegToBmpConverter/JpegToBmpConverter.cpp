@@ -7,6 +7,7 @@
 #include <Memory.h>
 
 #include <algorithm>
+#include <cstdint>
 #include <cstdio>
 #include <cstring>
 
@@ -209,6 +210,8 @@ struct BmpConvertCtx {
   bool needsScaling;
   uint32_t scaleX_fp;  // source pixels per output pixel, 16.16 fixed-point
   uint32_t scaleY_fp;
+  uint32_t srcXOffset_fp;
+  uint32_t srcYOffset_fp;
 
   // Accumulates one MCU row (up to MAX_MCU_HEIGHT source rows × srcWidth pixels)
   // Filled column-by-column as JPEGDEC callbacks arrive for the same MCU row
@@ -228,6 +231,77 @@ struct BmpConvertCtx {
 
   bool error;
 };
+
+struct OutputGeometry {
+  int outWidth;
+  int outHeight;
+  uint32_t scaleX_fp;
+  uint32_t scaleY_fp;
+  uint32_t srcXOffset_fp;
+  uint32_t srcYOffset_fp;
+  bool needsScaling;
+};
+
+static uint32_t fpPerOutputPixel(const uint64_t srcSpan_fp, const int outPixels) {
+  if (outPixels <= 0) return 65536;
+  const uint64_t value = srcSpan_fp / static_cast<uint64_t>(outPixels);
+  if (value == 0) return 1;
+  if (value > UINT32_MAX) return UINT32_MAX;
+  return static_cast<uint32_t>(value);
+}
+
+static OutputGeometry calculateOutputGeometry(const int srcWidth, const int srcHeight, const int targetWidth,
+                                              const int targetHeight, const bool crop) {
+  OutputGeometry geometry{srcWidth, srcHeight, 65536, 65536, 0, 0, false};
+  if (targetWidth <= 0 || targetHeight <= 0 || srcWidth <= 0 || srcHeight <= 0) {
+    return geometry;
+  }
+
+  if (crop) {
+    geometry.outWidth = targetWidth;
+    geometry.outHeight = targetHeight;
+
+    const uint64_t srcWidth_fp = static_cast<uint64_t>(srcWidth) << 16;
+    const uint64_t srcHeight_fp = static_cast<uint64_t>(srcHeight) << 16;
+    uint64_t cropWidth_fp = srcWidth_fp;
+    uint64_t cropHeight_fp = srcHeight_fp;
+    const int64_t sourceVsTarget =
+        static_cast<int64_t>(srcWidth) * targetHeight - static_cast<int64_t>(targetWidth) * srcHeight;
+
+    if (sourceVsTarget > 0) {
+      cropWidth_fp = (static_cast<uint64_t>(targetWidth) * static_cast<uint64_t>(srcHeight) << 16) / targetHeight;
+      if (cropWidth_fp > srcWidth_fp) cropWidth_fp = srcWidth_fp;
+      geometry.srcXOffset_fp = static_cast<uint32_t>((srcWidth_fp - cropWidth_fp) / 2);
+    } else if (sourceVsTarget < 0) {
+      cropHeight_fp = (static_cast<uint64_t>(targetHeight) * static_cast<uint64_t>(srcWidth) << 16) / targetWidth;
+      if (cropHeight_fp > srcHeight_fp) cropHeight_fp = srcHeight_fp;
+      geometry.srcYOffset_fp = static_cast<uint32_t>((srcHeight_fp - cropHeight_fp) / 2);
+    }
+
+    geometry.scaleX_fp = fpPerOutputPixel(cropWidth_fp, targetWidth);
+    geometry.scaleY_fp = fpPerOutputPixel(cropHeight_fp, targetHeight);
+    geometry.needsScaling = srcWidth != targetWidth || srcHeight != targetHeight || geometry.srcXOffset_fp != 0 ||
+                            geometry.srcYOffset_fp != 0;
+    return geometry;
+  }
+
+  if (srcWidth != targetWidth || srcHeight != targetHeight) {
+    const float scaleToFitWidth = static_cast<float>(targetWidth) / srcWidth;
+    const float scaleToFitHeight = static_cast<float>(targetHeight) / srcHeight;
+    const float scale = (scaleToFitWidth < scaleToFitHeight) ? scaleToFitWidth : scaleToFitHeight;
+
+    geometry.outWidth = static_cast<int>(srcWidth * scale);
+    geometry.outHeight = static_cast<int>(srcHeight * scale);
+    if (geometry.outWidth < 1) geometry.outWidth = 1;
+    if (geometry.outHeight < 1) geometry.outHeight = 1;
+
+    geometry.scaleX_fp = fpPerOutputPixel(static_cast<uint64_t>(srcWidth) << 16, geometry.outWidth);
+    geometry.scaleY_fp = fpPerOutputPixel(static_cast<uint64_t>(srcHeight) << 16, geometry.outHeight);
+    geometry.needsScaling = true;
+  }
+
+  return geometry;
+}
 
 // Write a fully-assembled output row (grayscale bytes, length outWidth) to BMP
 static void writeOutputRow(BmpConvertCtx* ctx, const uint8_t* srcRow, int outY) {
@@ -342,10 +416,17 @@ int bmpDrawCallback(JPEGDRAW* pDraw) {
       // 1:1 — outWidth == srcWidth, write directly
       writeOutputRow(ctx, srcRow, y);
     } else {
+      const uint64_t srcY_fp = static_cast<uint64_t>(y + 1) << 16;
+      if (srcY_fp <= ctx->srcYOffset_fp) continue;
+
       // Fixed-point area averaging on X axis
       for (int outX = 0; outX < ctx->outWidth; outX++) {
-        const int srcXStart = (static_cast<uint32_t>(outX) * ctx->scaleX_fp) >> 16;
-        const int srcXEnd = (static_cast<uint32_t>(outX + 1) * ctx->scaleX_fp) >> 16;
+        const uint64_t srcXStart_fp =
+            static_cast<uint64_t>(ctx->srcXOffset_fp) + static_cast<uint64_t>(outX) * ctx->scaleX_fp;
+        const uint64_t srcXEnd_fp =
+            static_cast<uint64_t>(ctx->srcXOffset_fp) + static_cast<uint64_t>(outX + 1) * ctx->scaleX_fp;
+        const int srcXStart = std::min(ctx->srcWidth - 1, static_cast<int>(srcXStart_fp >> 16));
+        const int srcXEnd = std::min(ctx->srcWidth, static_cast<int>(srcXEnd_fp >> 16));
         int sum = 0;
         int count = 0;
         for (int srcX = srcXStart; srcX < srcXEnd && srcX < ctx->srcWidth; srcX++) {
@@ -361,10 +442,10 @@ int bmpDrawCallback(JPEGDRAW* pDraw) {
       }
 
       // Flush output row(s) whose Y boundary we've crossed
-      const uint32_t srcY_fp = static_cast<uint32_t>(y + 1) << 16;
       while (srcY_fp >= ctx->nextOutY_srcStart && ctx->currentOutY < ctx->outHeight) {
         flushScaledRow(ctx);
-        ctx->nextOutY_srcStart = static_cast<uint32_t>(ctx->currentOutY + 1) * ctx->scaleY_fp;
+        ctx->nextOutY_srcStart = static_cast<uint32_t>(static_cast<uint64_t>(ctx->srcYOffset_fp) +
+                                                       static_cast<uint64_t>(ctx->currentOutY + 1) * ctx->scaleY_fp);
         if (srcY_fp >= ctx->nextOutY_srcStart) continue;
         memset(ctx->rowAccum.get(), 0, ctx->outWidth * sizeof(uint32_t));
         memset(ctx->rowCount.get(), 0, ctx->outWidth * sizeof(uint32_t));
@@ -462,35 +543,15 @@ bool JpegToBmpConverter::jpegFileToBmpStreamInternal(FsFile& jpegFile, Print& bm
   const int effectiveSrcH = progressive ? (srcHeight + 7) / 8 : srcHeight;
   const int decodeFlags = progressive ? JPEG_SCALE_EIGHTH : 0;
 
-  // Calculate output dimensions (pre-scale to fit display exactly)
-  int outWidth = effectiveSrcW;
-  int outHeight = effectiveSrcH;
-  uint32_t scaleX_fp = 65536;  // 1.0 in 16.16 fixed point
-  uint32_t scaleY_fp = 65536;
-  bool needsScaling = false;
-
-  if (targetWidth > 0 && targetHeight > 0 && (effectiveSrcW != targetWidth || effectiveSrcH != targetHeight)) {
-    const float scaleToFitWidth = static_cast<float>(targetWidth) / effectiveSrcW;
-    const float scaleToFitHeight = static_cast<float>(targetHeight) / effectiveSrcH;
-    float scale = 1.0f;
-    if (crop) {
-      scale = (scaleToFitWidth > scaleToFitHeight) ? scaleToFitWidth : scaleToFitHeight;
-    } else {
-      scale = (scaleToFitWidth < scaleToFitHeight) ? scaleToFitWidth : scaleToFitHeight;
-    }
-
-    outWidth = static_cast<int>(effectiveSrcW * scale);
-    outHeight = static_cast<int>(effectiveSrcH * scale);
-    if (outWidth < 1) outWidth = 1;
-    if (outHeight < 1) outHeight = 1;
-
-    scaleX_fp = (static_cast<uint32_t>(effectiveSrcW) << 16) / outWidth;
-    scaleY_fp = (static_cast<uint32_t>(effectiveSrcH) << 16) / outHeight;
-    needsScaling = true;
-
-    LOG_DBG("JPG", "Scaling %dx%d -> %dx%d (target %dx%d)", effectiveSrcW, effectiveSrcH, outWidth, outHeight,
-            targetWidth, targetHeight);
-  }
+  // Calculate output dimensions. Crop mode behaves like CSS object-fit: cover:
+  // scale to fill the requested box, then sample a centered source crop before dithering.
+  const OutputGeometry geometry =
+      calculateOutputGeometry(effectiveSrcW, effectiveSrcH, targetWidth, targetHeight, crop);
+  const int outWidth = geometry.outWidth;
+  const int outHeight = geometry.outHeight;
+  const bool needsScaling = geometry.needsScaling;
+  LOG_DBG("JPG", "Scaling %dx%d -> %dx%d (target %dx%d, offset %u,%u)", effectiveSrcW, effectiveSrcH, outWidth,
+          outHeight, targetWidth, targetHeight, geometry.srcXOffset_fp >> 16, geometry.srcYOffset_fp >> 16);
 
   // Write BMP header with output dimensions
   int bytesPerRow;
@@ -514,8 +575,10 @@ bool JpegToBmpConverter::jpegFileToBmpStreamInternal(FsFile& jpegFile, Print& bm
   ctx.oneBit = oneBit;
   ctx.bytesPerRow = bytesPerRow;
   ctx.needsScaling = needsScaling;
-  ctx.scaleX_fp = scaleX_fp;
-  ctx.scaleY_fp = scaleY_fp;
+  ctx.scaleX_fp = geometry.scaleX_fp;
+  ctx.scaleY_fp = geometry.scaleY_fp;
+  ctx.srcXOffset_fp = geometry.srcXOffset_fp;
+  ctx.srcYOffset_fp = geometry.srcYOffset_fp;
   ctx.error = false;
 
   // MCU row buffer: MAX_MCU_HEIGHT rows × ctx.srcWidth columns of grayscale.
@@ -539,7 +602,7 @@ bool JpegToBmpConverter::jpegFileToBmpStreamInternal(FsFile& jpegFile, Print& bm
       LOG_ERR("JPG", "OOM: scaling buffers");
       return false;
     }
-    ctx.nextOutY_srcStart = scaleY_fp;
+    ctx.nextOutY_srcStart = geometry.srcYOffset_fp + geometry.scaleY_fp;
   }
 
   if (oneBit) {

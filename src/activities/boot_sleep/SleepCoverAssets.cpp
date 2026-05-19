@@ -14,8 +14,8 @@
 
 namespace {
 
-constexpr int kMinimalSleepCoverHeight = MinimalMetrics::values.homeCoverHeight;
-constexpr int kMinimalSleepCoverWidth = MinimalMetrics::homeCoverWidth;
+constexpr int kMinimalSleepCoverHeight = MinimalMetrics::homeCoverImageHeight;
+constexpr int kMinimalSleepCoverWidth = MinimalMetrics::homeCoverImageWidth;
 
 bool shouldPrepareFullCover() {
   return SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::COVER ||

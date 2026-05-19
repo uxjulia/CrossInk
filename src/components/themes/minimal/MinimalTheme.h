@@ -22,6 +22,8 @@ constexpr ThemeMetrics makeValues() {
 
 constexpr ThemeMetrics values = makeValues();
 constexpr int homeCoverWidth = coverWidthForHeight(values.homeCoverHeight);
+constexpr int homeCoverImageWidth = homeCoverWidth;
+constexpr int homeCoverImageHeight = 525;
 }  // namespace MinimalMetrics
 
 class MinimalTheme : public LyraTheme {

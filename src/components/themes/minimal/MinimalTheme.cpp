@@ -63,6 +63,13 @@ Rect coverRectForScreen(const GfxRenderer& renderer, const Rect& rect) {
   return Rect{coverX, coverY, coverW, coverH};
 }
 
+Rect coverImageRectForFrame(const Rect& coverRect) {
+  const int imageW = std::min(coverRect.width, MinimalMetrics::homeCoverImageWidth);
+  const int imageH = std::min(coverRect.height, MinimalMetrics::homeCoverImageHeight);
+  return Rect{coverRect.x + (coverRect.width - imageW) / 2, coverRect.y + (coverRect.height - imageH) / 2, imageW,
+              imageH};
+}
+
 Rect fittedBitmapRect(const Bitmap& bitmap, const Rect& target) {
   if (bitmap.getWidth() <= 0 || bitmap.getHeight() <= 0 || target.width <= 0 || target.height <= 0) {
     return target;
@@ -193,16 +200,17 @@ void drawMissingBookCover(const GfxRenderer& renderer, const Rect& coverRect, co
 void drawBookCover(GfxRenderer& renderer, const Rect& coverRect, const RecentBook& book, const Color backgroundColor) {
   bool hasCover = false;
   if (!book.coverBmpPath.empty()) {
-    std::string coverBmpPath = UITheme::getCoverThumbPath(book.coverBmpPath, coverRect.width, coverRect.height);
+    const Rect imageRect = coverImageRectForFrame(coverRect);
+    std::string coverBmpPath = UITheme::getCoverThumbPath(book.coverBmpPath, imageRect.width, imageRect.height);
     if (coverBmpPath.empty() || !Storage.exists(coverBmpPath.c_str())) {
-      coverBmpPath = UITheme::getCoverThumbPath(book.coverBmpPath, coverRect.height);
+      coverBmpPath = UITheme::getCoverThumbPath(book.coverBmpPath, imageRect.height);
     }
     if (!coverBmpPath.empty() && Storage.exists(coverBmpPath.c_str())) {
       FsFile file;
       if (Storage.openFileForRead("HOME", coverBmpPath, file)) {
         Bitmap bitmap(file);
         if (bitmap.parseHeaders() == BmpReaderError::Ok) {
-          const Rect bitmapRect = fittedBitmapRect(bitmap, coverRect);
+          const Rect bitmapRect = fittedBitmapRect(bitmap, imageRect);
           renderer.fillRoundedRect(coverRect.x, coverRect.y, coverRect.width, coverRect.height, kCoverCornerRadius,
                                    backgroundColor);
           renderer.fillRoundedRect(bitmapRect.x, bitmapRect.y, bitmapRect.width, bitmapRect.height, kCoverCornerRadius,

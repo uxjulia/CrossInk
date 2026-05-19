@@ -261,10 +261,19 @@ bool isAnyFrontButtonPressed(const MappedInputManager& mappedInput) {
 
 int minimalHomeNavCount(const bool hasCurrentBook) { return hasCurrentBook ? 4 : 3; }
 
-int minimalHomeCoverWidth(int coverHeight) { return MinimalMetrics::coverWidthForHeight(coverHeight); }
+int minimalHomeCoverWidth(int coverHeight) {
+  (void)coverHeight;
+  return MinimalMetrics::homeCoverImageWidth;
+}
+
+int minimalHomeCoverHeight(int coverHeight) {
+  (void)coverHeight;
+  return MinimalMetrics::homeCoverImageHeight;
+}
 
 std::string minimalHomeCoverPath(const RecentBook& book, int coverHeight) {
-  return UITheme::getCoverThumbPath(book.coverBmpPath, minimalHomeCoverWidth(coverHeight), coverHeight);
+  return UITheme::getCoverThumbPath(book.coverBmpPath, minimalHomeCoverWidth(coverHeight),
+                                    minimalHomeCoverHeight(coverHeight));
 }
 
 void appendCarouselCoverStateToKey(std::string& key, const RecentBook& book) {
@@ -539,8 +548,9 @@ void HomeActivity::loadRecentCovers(int coverHeight) {
           }
         }
       } else {
-        // Non-carousel: generate height-keyed thumbnail
-        const bool useMinimalThumb = isMinimal && FsHelpers::hasEpubExtension(book.path);
+        // Non-carousel: generate the active theme's thumbnail size.
+        const bool useMinimalThumb =
+            isMinimal && (FsHelpers::hasEpubExtension(book.path) || FsHelpers::hasXtcExtension(book.path));
         const std::string coverPath = useMinimalThumb ? minimalHomeCoverPath(book, coverHeight)
                                                       : UITheme::getCoverThumbPath(book.coverBmpPath, coverHeight);
         if (coverPath.empty() || !Storage.exists(coverPath.c_str())) {
@@ -560,9 +570,9 @@ void HomeActivity::loadRecentCovers(int coverHeight) {
               progress++;
               continue;
             }
-            const bool success = useMinimalThumb
-                                     ? epub.generateThumbBmp(minimalHomeCoverWidth(coverHeight), coverHeight)
-                                     : epub.generateThumbBmp(0, coverHeight);
+            const bool success = useMinimalThumb ? epub.generateThumbBmp(minimalHomeCoverWidth(coverHeight),
+                                                                         minimalHomeCoverHeight(coverHeight))
+                                                 : epub.generateThumbBmp(0, coverHeight);
             if (!success) {
               updateRecentBookCoverPath(book, "");
               book.coverBmpPath = "";
@@ -579,7 +589,10 @@ void HomeActivity::loadRecentCovers(int coverHeight) {
                 popupRect = GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
               }
               GUI.fillPopupProgress(renderer, popupRect, 10 + progress * progressIncrement);
-              bool success = xtc.generateThumbBmp(coverHeight);
+              const bool success =
+                  useMinimalThumb ? xtc.generateThumbBmp(static_cast<uint16_t>(minimalHomeCoverWidth(coverHeight)),
+                                                         static_cast<uint16_t>(minimalHomeCoverHeight(coverHeight)))
+                                  : xtc.generateThumbBmp(coverHeight);
               if (!success) {
                 updateRecentBookCoverPath(book, "");
                 book.coverBmpPath = "";
@@ -678,6 +691,7 @@ void HomeActivity::onEnter() {
     loadAllBookStats();
   }
   updateHighlightedBookContext();
+  const int highlightedBookIdx = getHighlightedBookIndex();
 
   if (initialMenuItem != HomeMenuItem::NONE) {
     const bool includeContinueReading = metrics.homeContinueReadingInMenu && !recentBooks.empty();
@@ -686,7 +700,10 @@ void HomeActivity::onEnter() {
     const int menuIndex = findMenuActionIndex(menuItems, homeActionForInitialMenuItem(initialMenuItem));
     if (menuIndex >= 0) {
       selectorIndex = getHomeMenuSelectionOffset(recentBooks) + menuIndex;
-      updateHighlightedBookContext();
+      const int newHighlightedBookIdx = getHighlightedBookIndex();
+      if (newHighlightedBookIdx != highlightedBookIdx) {
+        updateHighlightedBookContext();
+      }
     }
   }
 
@@ -730,8 +747,8 @@ void HomeActivity::updateHighlightedBookContext() {
   }
 
   hasReadingStats = hasAnyBookStats(currentBookStats) || hasAnyGlobalStats(globalStats);
-  LOG_DBG("HOME", "carousel: updateHighlightedBookContext idx=%d cached=%s took %lums", idx,
-          useCachedStats ? "yes" : "no", millis() - start);
+  LOG_DBG("HOME", "updateHighlightedBookContext idx=%d cached=%s took %lums", idx, useCachedStats ? "yes" : "no",
+          millis() - start);
 }
 
 void HomeActivity::onExit() {

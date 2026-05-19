@@ -7,6 +7,7 @@
 #include <PngToBmpConverter.h>
 #include <ZipFile.h>
 
+#include <cstdint>
 #include <functional>
 #include <utility>
 
@@ -18,7 +19,12 @@
 namespace {
 constexpr int kDefaultThumbHeight = 180;
 
-bool nonEmptyFileExists(const std::string& path) {
+int32_t readLe32(const uint8_t* data) {
+  return static_cast<int32_t>(static_cast<uint32_t>(data[0]) | (static_cast<uint32_t>(data[1]) << 8) |
+                              (static_cast<uint32_t>(data[2]) << 16) | (static_cast<uint32_t>(data[3]) << 24));
+}
+
+bool cachedBmpMatchesDimensions(const std::string& path, const int width, const int height) {
   if (!Storage.exists(path.c_str())) {
     return false;
   }
@@ -27,12 +33,21 @@ bool nonEmptyFileExists(const std::string& path) {
   if (!Storage.openFileForRead("EBP", path, file)) {
     return false;
   }
-  const bool nonEmpty = file.size() > 0;
+
+  uint8_t header[26] = {};
+  const bool hasHeader = file.size() >= sizeof(header) && file.read(header, sizeof(header)) == sizeof(header);
   file.close();
-  if (!nonEmpty) {
+  const bool isBmp = hasHeader && header[0] == 'B' && header[1] == 'M';
+  const int32_t bmpWidth = isBmp ? readLe32(header + 18) : 0;
+  const int32_t bmpHeight = isBmp ? readLe32(header + 22) : 0;
+  const int32_t absHeight = bmpHeight < 0 ? -bmpHeight : bmpHeight;
+  const bool matches = isBmp && bmpWidth == width && absHeight == height;
+  if (!matches) {
+    LOG_DBG("EBP", "Removing stale thumbnail dimensions: %s (%dx%d expected %dx%d)", path.c_str(), bmpWidth, absHeight,
+            width, height);
     Storage.remove(path.c_str());
   }
-  return nonEmpty;
+  return matches;
 }
 
 std::string getThumbBmpPathForDimensions(const std::string& cachePath, int width, int height) {
@@ -746,8 +761,8 @@ bool Epub::generateThumbBmpInternal(int width, int height) const {
   }
   const std::string thumbPath = getThumbBmpPathForDimensions(cachePath, width, height);
 
-  // Already generated, return true
-  if (nonEmptyFileExists(thumbPath)) {
+  // Already generated with matching dimensions, return true
+  if (cachedBmpMatchesDimensions(thumbPath, width, height)) {
     return true;
   }
 
