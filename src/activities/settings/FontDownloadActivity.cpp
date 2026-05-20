@@ -58,26 +58,6 @@ std::string buildFontDownloadUrl(const std::string& baseUrl, const std::string& 
   return baseUrl + urlEncodePathSegment(assetName);
 }
 
-const char* currentSdFontRangeSlug() {
-  switch (SETTINGS.sdFontSizeRange) {
-    case CrossPointSettings::SD_FONT_RANGE_TEENSY:
-      return "teensy";
-    case CrossPointSettings::SD_FONT_RANGE_XLARGE:
-      return "xlarge";
-    case CrossPointSettings::SD_FONT_RANGE_NO_EMOJI:
-      return "no_emoji";
-    case CrossPointSettings::SD_FONT_RANGE_ALL:
-      return "all";
-    case CrossPointSettings::SD_FONT_RANGE_TINY:
-    default:
-      return "tiny";
-  }
-}
-
-std::string buildRangeScopedFamilyName(const std::string& familyName) {
-  return familyName + " (" + currentSdFontRangeSlug() + ")";
-}
-
 std::string normalizedFontFamilyName(const std::string& familyName) {
   std::string normalized;
   normalized.reserve(familyName.size());
@@ -321,20 +301,8 @@ bool FontDownloadActivity::installedFilesMatch(const char* familyName, const std
 }
 
 void FontDownloadActivity::resolveInstalledFamilyName(ManifestFamily& family) const {
-  const std::string rangeScopedName = buildRangeScopedFamilyName(family.name);
-
   bool hasUpdate = false;
   std::string resolvedName;
-  if (installedFilesMatch(rangeScopedName.c_str(), family.files, hasUpdate, &resolvedName)) {
-    family.installName = resolvedName;
-    family.installed = true;
-    family.hasUpdate = hasUpdate;
-    return;
-  }
-
-  // Backward compatibility for fonts installed before range suffixes existed.
-  // Reuse the old folder if it has any readable .cpfont files for this family;
-  // missing files for the currently selected range are surfaced as an update.
   if (installedFilesMatch(family.name.c_str(), family.files, hasUpdate, &resolvedName)) {
     family.installName = resolvedName;
     family.installed = true;
@@ -342,7 +310,7 @@ void FontDownloadActivity::resolveInstalledFamilyName(ManifestFamily& family) co
     return;
   }
 
-  family.installName = rangeScopedName;
+  family.installName = family.name;
   family.installed = false;
   family.hasUpdate = false;
 }

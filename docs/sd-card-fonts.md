@@ -36,33 +36,27 @@ is `xlarge`, downloading Lexend Deca installs only:
     Lexend Deca_18.cpfont
     Lexend Deca_20.cpfont
 
-Downloaded families include the range in their installed family name, so you
-can keep multiple ranges for the same family. For example, downloading Lexend
-Deca with the `teensy` range installs **Lexend Deca (teensy)**, and downloading
-it again with `xlarge` installs **Lexend Deca (xlarge)**.
-
-Fonts installed before range names were added still work. If you already have
-an older folder such as `/.fonts/Lexend Deca/`, CrossInk will keep showing it
-as an installed download when it contains the files for the currently selected
-range. New downloads use the range-suffixed folder names.
+Downloaded ranges for the same family are saved into the same installed family
+folder. For example, downloading Lexend Deca with the `teensy` range and then
+again with `xlarge` keeps one **Lexend Deca** family and adds the larger files
+to that same folder.
 
 On the SD card, downloaded fonts are stored under `/.fonts/` by default:
 
     SD Card Root/
     └── .fonts/
-        ├── Lexend Deca (teensy)/
-        │   ├── Lexend Deca_8.cpfont
-        │   ├── Lexend Deca_9.cpfont
-        │   ├── Lexend Deca_10.cpfont
-        │   └── Lexend Deca_12.cpfont
-        └── Lexend Deca (xlarge)/
+        └── Lexend Deca/
+            ├── Lexend Deca_8.cpfont
+            ├── Lexend Deca_9.cpfont
+            ├── Lexend Deca_10.cpfont
+            ├── Lexend Deca_12.cpfont
             ├── Lexend Deca_16.cpfont
             ├── Lexend Deca_18.cpfont
             └── Lexend Deca_20.cpfont
 
-Each range-scoped folder appears as a separate option in **Settings > Reader >
-Font Family**. When one of those families is selected, **Font Size** changes to
-match the sizes installed in that folder.
+Each folder appears as one option in **Settings > Reader > Font Family**. When
+that family is selected, **Font Size** changes to match every size installed in
+that folder.
 
 ### Option 2: Upload via web browser
 
@@ -155,4 +149,8 @@ Combine presets with commas: `--intervals latin-ext,greek,cyrillic`
 Install custom fonts via WiFi upload or manual SD card copy.
 
 When a custom font family contains multiple `.cpfont` sizes, the reader maps
-font-size steps onto those files from smallest to largest.
+font-size steps onto those files from smallest to largest. If the point sizes
+do not exactly match CrossInk's built-in sizes, the firmware still uses a
+best-effort match for the visible **Font Size** labels. For example, a custom
+13 pt file may appear near the built-in **Small** / **Medium** choices instead
+of creating a brand-new named size.
