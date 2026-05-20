@@ -19,7 +19,7 @@ There are three ways to install fonts:
 3. Browse available font families and tap to download
 4. Downloaded fonts appear immediately in **Settings > Reader > Font Family**
 
-Before downloading, choose **Settings > Reader > Downloaded Font Size Range**.
+Before downloading, choose **Settings > Reader > Download Font Size Range**.
 That setting controls which `.cpfont` point sizes are downloaded for each
 family:
 
