@@ -98,6 +98,7 @@ void SdCardFontSystem::releaseLoadedFont(GfxRenderer& renderer) {
   if (manager_.currentFamilyName().empty()) return;
 
   const std::string familyName = manager_.currentFamilyName();
+  (void)familyName;
   manager_.unloadAll(renderer);
   LOG_DBG("SDFS", "Released SD card font before low-memory operation: %s", familyName.c_str());
 }

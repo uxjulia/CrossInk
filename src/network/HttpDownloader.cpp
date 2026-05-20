@@ -58,7 +58,7 @@ class ProgressNotifier {
 
 class FileWriteStream final : public Stream {
  public:
-  FileWriteStream(FsFile& file, size_t total, HttpDownloader::ProgressCallback progress, bool* cancelFlag)
+  FileWriteStream(FsFile& file, size_t total, HttpDownloader::ProgressCallback progress, const bool* cancelFlag)
       : file_(file), progress_(total, std::move(progress)), cancelFlag_(cancelFlag) {}
 
   size_t write(uint8_t byte) override { return write(&byte, 1); }
@@ -95,12 +95,12 @@ class FileWriteStream final : public Stream {
   size_t downloaded_ = 0;
   bool writeOk_ = true;
   ProgressNotifier progress_;
-  bool* cancelFlag_;
+  const bool* cancelFlag_;
 };
 
 HttpDownloader::DownloadError downloadKnownLengthBody(HTTPClient& http, FsFile& file, const size_t contentLength,
                                                       HttpDownloader::ProgressCallback progress, size_t& downloaded,
-                                                      bool* cancelFlag) {
+                                                      const bool* cancelFlag) {
   auto* stream = http.getStreamPtr();
   if (!stream) {
     LOG_ERR("HTTP", "Failed to get response stream");
@@ -167,6 +167,7 @@ HttpDownloader::DownloadError downloadKnownLengthBody(HTTPClient& http, FsFile& 
 bool HttpDownloader::fetchUrl(const std::string& url, Stream& outContent, const std::string& username,
                               const std::string& password) {
   WifiPowerSaveGuard wifiPowerSaveGuard;
+  (void)wifiPowerSaveGuard;
 
   std::unique_ptr<NetworkClient> client;
   if (UrlUtils::isHttpsUrl(url)) {
@@ -238,6 +239,7 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
                                                              const std::string& username, const std::string& password,
                                                              DownloadOptions options) {
   WifiPowerSaveGuard wifiPowerSaveGuard;
+  (void)wifiPowerSaveGuard;
 
   std::unique_ptr<NetworkClient> client;
   if (UrlUtils::isHttpsUrl(url)) {

@@ -215,7 +215,8 @@ void drawMissingBookCover(const GfxRenderer& renderer, const Rect& coverRect, co
   }
 }
 
-void drawBookCover(GfxRenderer& renderer, const Rect& coverRect, const RecentBook& book, const Color backgroundColor) {
+void drawBookCover(const GfxRenderer& renderer, const Rect& coverRect, const RecentBook& book,
+                   const Color backgroundColor) {
   bool hasCover = false;
   if (!book.coverBmpPath.empty()) {
     const Rect imageRect = coverImageRectForFrame(coverRect);
@@ -509,7 +510,7 @@ void MinimalTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const s
   drawProgressBlock(renderer, coverRect, stats, progressPercent, false);
 }
 
-void MinimalTheme::drawSleepScreen(GfxRenderer& renderer, const RecentBook& book, const BookReadingStats* stats,
+void MinimalTheme::drawSleepScreen(const GfxRenderer& renderer, const RecentBook& book, const BookReadingStats* stats,
                                    const float progressPercent) const {
   renderer.clearScreen(0x00);
 

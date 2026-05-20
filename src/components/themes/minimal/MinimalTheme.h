@@ -46,7 +46,7 @@ class MinimalTheme : public LyraTheme {
                            int selectorIndex, bool& coverRendered, bool& coverBufferStored, bool& bufferRestored,
                            const std::function<bool()>& storeCoverBuffer, const BookReadingStats* stats = nullptr,
                            float progressPercent = -1.0f) const override;
-  void drawSleepScreen(GfxRenderer& renderer, const RecentBook& book, const BookReadingStats* stats = nullptr,
+  void drawSleepScreen(const GfxRenderer& renderer, const RecentBook& book, const BookReadingStats* stats = nullptr,
                        float progressPercent = -1.0f) const;
   void drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount, int selectedIndex,
                       const std::function<std::string(int index)>& buttonLabel,

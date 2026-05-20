@@ -455,13 +455,12 @@ inline std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* regist
           setting.enumValues.push_back(StrId::STR_TILT_PAGE_TURN);
         }
       }
-      for (auto it = v.begin(); it != v.end(); ++it) {
-        if (it->nameId == StrId::STR_SHORT_PWR_BTN) {
-          v.insert(it + 1, SettingInfo::Enum(StrId::STR_TILT_PAGE_TURN, &CrossPointSettings::tiltPageTurn,
-                                             {StrId::STR_STATE_OFF, StrId::STR_NORMAL, StrId::STR_INVERTED},
-                                             "tiltPageTurn", StrId::STR_CAT_CONTROLS));
-          break;
-        }
+      const auto shortPowerIt = std::find_if(
+          v.begin(), v.end(), [](const SettingInfo& setting) { return setting.nameId == StrId::STR_SHORT_PWR_BTN; });
+      if (shortPowerIt != v.end()) {
+        v.insert(shortPowerIt + 1, SettingInfo::Enum(StrId::STR_TILT_PAGE_TURN, &CrossPointSettings::tiltPageTurn,
+                                                     {StrId::STR_STATE_OFF, StrId::STR_NORMAL, StrId::STR_INVERTED},
+                                                     "tiltPageTurn", StrId::STR_CAT_CONTROLS));
       }
     }
     return v;

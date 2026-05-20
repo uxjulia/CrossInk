@@ -698,21 +698,6 @@ void HomeActivity::onEnter() {
     loadAllBookStats();
   }
   updateHighlightedBookContext();
-  const int highlightedBookIdx = getHighlightedBookIndex();
-
-  if (initialMenuItem != HomeMenuItem::NONE) {
-    const bool includeContinueReading = metrics.homeContinueReadingInMenu && !recentBooks.empty();
-    const auto menuItems =
-        buildSelectableHomeMenuItems(hasOpdsServers, hasReadingStats, hasBookmarks, includeContinueReading);
-    const int menuIndex = findMenuActionIndex(menuItems, homeActionForInitialMenuItem(initialMenuItem));
-    if (menuIndex >= 0) {
-      selectorIndex = getHomeMenuSelectionOffset(recentBooks) + menuIndex;
-      const int newHighlightedBookIdx = getHighlightedBookIndex();
-      if (newHighlightedBookIdx != highlightedBookIdx) {
-        updateHighlightedBookContext();
-      }
-    }
-  }
 
   if (initialMenuItem != HomeMenuItem::NONE) {
     const bool includeContinueReading = metrics.homeContinueReadingInMenu && !recentBooks.empty();

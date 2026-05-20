@@ -347,7 +347,9 @@ void EpubReaderActivity::onExit() {
     stats.totalReadingSeconds += elapsedSecs;
     globalStats.totalReadingSeconds += elapsedSecs;
   }
-  stats.save(epub->getCachePath());
+  if (epub) {
+    stats.save(epub->getCachePath());
+  }
   globalStats.save();
 
   BOOKMARKS.unload();

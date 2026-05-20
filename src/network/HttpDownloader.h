@@ -21,7 +21,7 @@ class HttpDownloader {
   };
 
   struct DownloadOptions {
-    constexpr DownloadOptions(bool preservePartial = false, bool resumePartial = false)
+    explicit constexpr DownloadOptions(bool preservePartial = false, bool resumePartial = false)
         : preservePartial(preservePartial), resumePartial(resumePartial) {}
 
     bool preservePartial;
