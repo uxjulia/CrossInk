@@ -14,6 +14,7 @@ enum class FileBrowserAction : int {
   UnpinFavorite = 2,
   DeleteCache = 3,
   ToggleCompleted = 4,
+  RemoveFromRecents = 5,
 };
 
 class FileBrowserActionActivity final : public Activity {

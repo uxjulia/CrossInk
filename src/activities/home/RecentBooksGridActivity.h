@@ -30,10 +30,15 @@ class RecentBooksGridActivity final : public Activity {
 
   ButtonNavigator buttonNavigator;
   int selectorIndex = 0;
+  bool longPressFired = false;
   std::vector<BookState> recentBooks;
   int loadedPageStart = NO_PAGE_LOADED;
 
   void loadRecentBooks();
   void loadPageCovers(int pageStart);
   void ensureProgressLoaded(int index);
+  void reloadAfterBookAction();
+  void promptDeleteBook(const RecentBook& book);
+  void promptRemoveBook(const std::string& path, const std::string& title);
+  void showBookActionMenu(int bookIndex, bool ignoreInitialConfirmRelease = false);
 };

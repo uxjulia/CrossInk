@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Added
+- Added a Recent Books long-press menu in both List and Grid views with delete, cache delete, completion, and remove-from-recents actions.
 - Added a Common Issues guide with user-facing fixes for WiFi, uploads, EPUB cache rebuilds, covers, reading stats, and OTA update problems.
 - Added a Minimal sleep screen option that shows the current book cover and reading progress on a dark background.
 - Added an in-reader confirmation message when a shortcut turns tilt-to-turn on or off.

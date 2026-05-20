@@ -1,5 +1,6 @@
 #include "RecentBooksGridActivity.h"
 
+#include <Arduino.h>
 #include <Bitmap.h>
 #include <Epub.h>
 #include <FsHelpers.h>
@@ -13,10 +14,13 @@
 #include <cmath>
 #include <cstdio>
 
+#include "BookActions.h"
 #include "CrossPointSettings.h"
+#include "FileBrowserActionActivity.h"
 #include "MappedInputManager.h"
 #include "RecentBookProgress.h"
 #include "RecentBooksStore.h"
+#include "activities/util/ConfirmationActivity.h"
 #include "components/UITheme.h"
 #include "components/icons/book.h"
 #include "components/themes/lyra/LyraTheme.h"
@@ -25,6 +29,7 @@
 namespace {
 constexpr int kCoverCornerRadius = 2;
 constexpr int kGridColumns = 3;
+constexpr unsigned long kLongPressMs = 1000;
 constexpr float kCircleRadians = 6.2831853f;
 constexpr float kCircleRadiansPerPercent = kCircleRadians / 100.0f;
 constexpr int kLyraGridContentTop =
@@ -330,6 +335,20 @@ void RecentBooksGridActivity::onExit() {
 }
 
 void RecentBooksGridActivity::loop() {
+  if (longPressFired) {
+    if (!mappedInput.isPressed(MappedInputManager::Button::Confirm)) {
+      longPressFired = false;
+    }
+    return;
+  }
+
+  if (!recentBooks.empty() && selectorIndex >= 0 && selectorIndex < static_cast<int>(recentBooks.size()) &&
+      mappedInput.isPressed(MappedInputManager::Button::Confirm) && mappedInput.getHeldTime() >= kLongPressMs) {
+    longPressFired = true;
+    showBookActionMenu(selectorIndex, true);
+    return;
+  }
+
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
     if (!recentBooks.empty() && selectorIndex >= 0 && selectorIndex < static_cast<int>(recentBooks.size())) {
       LOG_DBG("RBGA", "Selected recent book: %s", recentBooks[selectorIndex].book.path.c_str());
@@ -373,6 +392,112 @@ void RecentBooksGridActivity::loop() {
   buttonNavigator.onContinuous({MappedInputManager::Button::Left}, [&] { handleNav(NavDirection::Left); });
   buttonNavigator.onContinuous({MappedInputManager::Button::Down}, [&] { handleNav(NavDirection::Down); });
   buttonNavigator.onContinuous({MappedInputManager::Button::Up}, [&] { handleNav(NavDirection::Up); });
+}
+
+void RecentBooksGridActivity::reloadAfterBookAction() {
+  loadRecentBooks();
+  if (recentBooks.empty()) {
+    selectorIndex = 0;
+  } else if (selectorIndex >= static_cast<int>(recentBooks.size())) {
+    selectorIndex = static_cast<int>(recentBooks.size()) - 1;
+  }
+  loadedPageStart = NO_PAGE_LOADED;
+  ensureProgressLoaded(selectorIndex);
+  requestUpdate(true);
+}
+
+void RecentBooksGridActivity::promptDeleteBook(const RecentBook& book) {
+  const std::string path = book.path;
+  auto handler = [this, path](const ActivityResult& res) {
+    if (res.isCancelled) {
+      LOG_DBG("RBGA", "Delete cancelled");
+      return;
+    }
+
+    LOG_DBG("RBGA", "Attempting to delete: %s", path.c_str());
+    BookActions::clearFileMetadata(path);
+    if (!Storage.remove(path.c_str())) {
+      LOG_ERR("RBGA", "Failed to delete file: %s", path.c_str());
+      return;
+    }
+
+    RECENT_BOOKS.removeByPath(path);
+    reloadAfterBookAction();
+  };
+
+  const std::string heading = tr(STR_DELETE) + std::string("? ");
+  startActivityForResult(std::make_unique<ConfirmationActivity>(renderer, mappedInput, heading, book.title),
+                         std::move(handler));
+}
+
+void RecentBooksGridActivity::promptRemoveBook(const std::string& path, const std::string& title) {
+  auto handler = [this, path](const ActivityResult& res) {
+    if (res.isCancelled) {
+      LOG_DBG("RBGA", "Remove from recents cancelled");
+      return;
+    }
+    if (RECENT_BOOKS.removeByPath(path)) {
+      LOG_DBG("RBGA", "Removed from recents: %s", path.c_str());
+      reloadAfterBookAction();
+    }
+  };
+
+  startActivityForResult(
+      std::make_unique<ConfirmationActivity>(renderer, mappedInput, tr(STR_REMOVE_FROM_RECENTS), title),
+      std::move(handler));
+}
+
+void RecentBooksGridActivity::showBookActionMenu(const int bookIndex, const bool ignoreInitialConfirmRelease) {
+  if (bookIndex < 0 || bookIndex >= static_cast<int>(recentBooks.size())) return;
+
+  const RecentBook book = recentBooks[bookIndex].book;
+  std::vector<FileBrowserActionActivity::MenuItem> items =
+      BookActions::buildBookActionItems(book.path, /*includeRemoveFromRecents=*/true);
+
+  startActivityForResult(std::make_unique<FileBrowserActionActivity>(renderer, mappedInput, book.title,
+                                                                     std::move(items), ignoreInitialConfirmRelease),
+                         [this, book](const ActivityResult& result) {
+                           if (result.isCancelled) {
+                             return;
+                           }
+
+                           const auto* actionResult = std::get_if<FileBrowserActionResult>(&result.data);
+                           if (!actionResult) {
+                             LOG_ERR("RBGA", "Book action result missing");
+                             return;
+                           }
+
+                           switch (static_cast<FileBrowserAction>(actionResult->action)) {
+                             case FileBrowserAction::Delete:
+                               promptDeleteBook(book);
+                               return;
+                             case FileBrowserAction::DeleteCache:
+                               if (!BookActions::clearBookCache(book.path)) {
+                                 LOG_ERR("RBGA", "Failed to clear book cache for: %s", book.path.c_str());
+                               } else {
+                                 BookActions::drawToast(renderer, tr(STR_BOOK_CACHE_DELETED));
+                                 delay(1000);
+                               }
+                               reloadAfterBookAction();
+                               return;
+                             case FileBrowserAction::ToggleCompleted: {
+                               bool completed = false;
+                               if (BookActions::toggleEpubCompleted(book.path, book.title, completed)) {
+                                 BookActions::drawToast(
+                                     renderer, completed ? tr(STR_MARKED_FINISHED) : tr(STR_MARKED_UNFINISHED));
+                                 delay(1000);
+                               }
+                               reloadAfterBookAction();
+                               return;
+                             }
+                             case FileBrowserAction::RemoveFromRecents:
+                               promptRemoveBook(book.path, book.title);
+                               return;
+                             case FileBrowserAction::PinFavorite:
+                             case FileBrowserAction::UnpinFavorite:
+                               return;
+                           }
+                         });
 }
 
 void RecentBooksGridActivity::render(RenderLock&&) {
