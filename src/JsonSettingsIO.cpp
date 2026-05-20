@@ -101,6 +101,7 @@ bool JsonSettingsIO::saveState(const CrossPointState& s, const char* path) {
   doc["lastSleepFromReader"] = s.lastSleepFromReader;
   doc["pendingBookmarkSpine"] = s.pendingBookmarkSpine;
   doc["pendingBookmarkProgress"] = s.pendingBookmarkProgress;
+  doc["showBootScreen"] = s.showBootScreen;
 
   String json;
   serializeJson(doc, json);
@@ -138,6 +139,7 @@ bool JsonSettingsIO::loadState(CrossPointState& s, const char* json) {
   s.lastSleepFromReader = doc["lastSleepFromReader"] | false;
   s.pendingBookmarkSpine = doc["pendingBookmarkSpine"] | static_cast<uint16_t>(UINT16_MAX);
   s.pendingBookmarkProgress = doc["pendingBookmarkProgress"] | static_cast<float>(-1.0f);
+  s.showBootScreen = doc["showBootScreen"] | true;
   return true;
 }
 

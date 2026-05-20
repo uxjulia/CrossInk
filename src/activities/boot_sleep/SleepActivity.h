@@ -9,10 +9,11 @@ class Bitmap;
 class SleepActivity final : public Activity {
  public:
   explicit SleepActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, bool canSnapshotOverlayBackground,
-                         std::string currentBookPath = {})
+                         std::string currentBookPath = {}, bool fromTimeout = false)
       : Activity("Sleep", renderer, mappedInput),
         canSnapshotOverlayBackground(canSnapshotOverlayBackground),
-        currentBookPath(std::move(currentBookPath)) {}
+        currentBookPath(std::move(currentBookPath)),
+        fromTimeout(fromTimeout) {}
   void onEnter() override;
 
  private:
@@ -22,10 +23,12 @@ class SleepActivity final : public Activity {
   void renderReadingStatsSleepScreen() const;
   void renderMinimalSleepScreen() const;
   void renderBitmapSleepScreen(const Bitmap& bitmap) const;
+  void renderLastScreenSleepScreen() const;
   void renderBlankSleepScreen() const;
   void renderOverlaySleepScreen() const;
   bool canSnapshotOverlayBackground = false;
   bool overlayPageBufferStored = false;
   bool overlayPageBufferTrusted = false;
   std::string currentBookPath;
+  bool fromTimeout = false;
 };

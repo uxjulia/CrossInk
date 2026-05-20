@@ -243,6 +243,14 @@ class CrossPointSettings {
   enum CLIP_NAV_MODE : uint8_t { LINE_AWARE = 0, WORD_BY_WORD = 1, CLIP_NAV_MODE_COUNT };
   // Annotation underline visibility
   enum ANNOTATION_VISIBILITY : uint8_t { ANNOT_VISIBLE = 0, ANNOT_HIDDEN = 1, ANNOTATION_VISIBILITY_COUNT };
+
+  enum SEAMLESS_SLEEP_SCREEN {
+    SEAMLESS_NEVER = 0,
+    SEAMLESS_AFTER_TIMEOUT = 1,
+    SEAMLESS_ALWAYS = 2,
+    SEAMLESS_SLEEP_SCREEN_COUNT
+  };
+
   // Sleep screen settings
   uint8_t sleepScreen = DARK;
   // Sleep screen cover mode settings
@@ -358,6 +366,8 @@ class CrossPointSettings {
   uint8_t tiltPageTurn = TILT_OFF;
   // Language setting (Language enum index, default 0 = EN)
   uint8_t language = 0;
+  // Seamless sleep: keep current content visible with moon icon instead of showing sleep screen
+  uint8_t seamlessSleepScreen = SEAMLESS_NEVER;
 
   ~CrossPointSettings() = default;
 

@@ -15,8 +15,49 @@
 #include <Logging.h>
 #include <SPI.h>
 #include <builtinFonts/all.h>
+
+#ifdef SIMULATOR
+using esp_reset_reason_t = int;
+using esp_sleep_wakeup_cause_t = int;
+enum : int {
+  ESP_RST_UNKNOWN = 0,
+  ESP_RST_POWERON,
+  ESP_RST_EXT,
+  ESP_RST_SW,
+  ESP_RST_PANIC,
+  ESP_RST_INT_WDT,
+  ESP_RST_TASK_WDT,
+  ESP_RST_WDT,
+  ESP_RST_DEEPSLEEP,
+  ESP_RST_BROWNOUT,
+  ESP_RST_SDIO,
+  ESP_RST_USB,
+  ESP_RST_JTAG,
+  ESP_RST_EFUSE,
+  ESP_RST_PWR_GLITCH,
+  ESP_RST_CPU_LOCKUP
+};
+enum : int {
+  ESP_SLEEP_WAKEUP_UNDEFINED = 0,
+  ESP_SLEEP_WAKEUP_ALL,
+  ESP_SLEEP_WAKEUP_EXT0,
+  ESP_SLEEP_WAKEUP_EXT1,
+  ESP_SLEEP_WAKEUP_TIMER,
+  ESP_SLEEP_WAKEUP_TOUCHPAD,
+  ESP_SLEEP_WAKEUP_ULP,
+  ESP_SLEEP_WAKEUP_GPIO,
+  ESP_SLEEP_WAKEUP_UART,
+  ESP_SLEEP_WAKEUP_WIFI,
+  ESP_SLEEP_WAKEUP_COCPU,
+  ESP_SLEEP_WAKEUP_COCPU_TRAP_TRIG,
+  ESP_SLEEP_WAKEUP_BT
+};
+inline esp_reset_reason_t esp_reset_reason() { return ESP_RST_UNKNOWN; }
+inline esp_sleep_wakeup_cause_t esp_sleep_get_wakeup_cause() { return ESP_SLEEP_WAKEUP_UNDEFINED; }
+#else
 #include <esp_sleep.h>
 #include <esp_system.h>
+#endif
 
 #include <algorithm>
 #include <cstring>
@@ -40,6 +81,7 @@
 #ifdef SIMULATOR
 #include "simulator/SimulatorSmokeTest.h"
 #endif
+#include "images/LoadingIcon.h"
 #include "util/ButtonNavigator.h"
 #include "util/ScreenshotUtil.h"
 
@@ -49,6 +91,7 @@ ActivityManager activityManager(renderer, mappedInputManager);
 FontDecompressor fontDecompressor;
 SdCardFontSystem sdFontSystem;
 FontCacheManager fontCacheManager(renderer.getFontMap(), renderer.getSdCardFonts());
+static unsigned long allowSleepAt = 0;
 
 // Fonts
 #ifndef OMIT_MEDIUM_FONT
@@ -520,14 +563,48 @@ void putTiltSensorToSleepForDeepSleep() {
 }
 }  // namespace
 
+constexpr char SLEEP_FRAME_FILE[] = "/.crosspoint/sleep_frame.bin";
+
+static void saveSleepFrameBuffer() {
+  FsFile file;
+  if (!Storage.openFileForWrite("SLP", SLEEP_FRAME_FILE, file)) return;
+  file.write(renderer.getFrameBuffer(), renderer.getBufferSize());
+  file.close();
+}
+
+static bool loadSleepFrameBuffer() {
+  FsFile file;
+  if (!Storage.openFileForRead("SLP", SLEEP_FRAME_FILE, file)) return false;
+  const size_t bufferSize = display.getBufferSize();
+  const size_t bytesRead = file.read(display.getFrameBuffer(), bufferSize);
+  file.close();
+  if (bytesRead != bufferSize) {
+    Storage.remove(SLEEP_FRAME_FILE);
+    return false;
+  }
+  Storage.remove(SLEEP_FRAME_FILE);
+  return true;
+}
+
 // Enter deep sleep mode
-void enterDeepSleep() {
+void enterDeepSleep(bool fromTimeout) {
   HalPowerManager::Lock powerLock;  // Ensure we are at normal CPU frequency for sleep preparation
   APP_STATE.lastSleepFromReader = activityManager.isReaderActivity();
+
+  const bool isSeamless = SETTINGS.seamlessSleepScreen == CrossPointSettings::SEAMLESS_SLEEP_SCREEN::SEAMLESS_ALWAYS ||
+                          (fromTimeout && SETTINGS.seamlessSleepScreen ==
+                                              CrossPointSettings::SEAMLESS_SLEEP_SCREEN::SEAMLESS_AFTER_TIMEOUT);
+  APP_STATE.showBootScreen = !isSeamless;
+
   APP_STATE.saveToFile();
 
-  activityManager.goToSleep();
-  delay(POST_SLEEP_SCREEN_SETTLE_MS);
+  activityManager.goToSleep(fromTimeout);
+
+  if (isSeamless) {
+    saveSleepFrameBuffer();
+  } else {
+    delay(POST_SLEEP_SCREEN_SETTLE_MS);
+  }
 
   putTiltSensorToSleepForDeepSleep();
   display.deepSleep();
@@ -536,8 +613,13 @@ void enterDeepSleep() {
   powerManager.startDeepSleep(gpio);
 }
 
-void setupDisplayAndFonts() {
+void setupDisplayAndFonts(bool seamless = false) {
+#ifdef SIMULATOR
+  (void)seamless;
   display.begin();
+#else
+  display.begin(seamless);
+#endif
   renderer.begin();
   activityManager.begin();
   LOG_DBG("MAIN", "Display initialized");
@@ -645,14 +727,10 @@ void setup() {
   // enumeration before we touch the CDC state — otherwise cold boot races
   // and the host has to be physically replugged for logs to flow. Warm reboot
   // worked without the delay because USB was already enumerated.
-  //
-  // setTxTimeoutMs(0) makes writes non-blocking — the HWCDC TX FIFO drops
-  // bytes harmlessly if the host isn't actively draining, instead of blocking
-  // for the default 250 ms per write and chaining into a firmware hang.
   delay(250);
   Serial.begin(115200);
 #ifndef SIMULATOR
-  logSerial.setTxTimeoutMs(0);
+  logSerial.setTxTimeoutMs(1);  // This is a load-bearing 1. Do not modify.
 #endif
 #endif
 
@@ -690,6 +768,8 @@ void setup() {
   HalSystem::checkPanic();
 
   SETTINGS.loadFromFile();
+  APP_STATE.loadFromFile();
+  RECENT_BOOKS.loadFromFile();
   I18N.setLanguage(static_cast<Language>(SETTINGS.language));
   KOREADER_STORE.loadFromFile();
   OPDS_STORE.loadFromFile();
@@ -742,16 +822,27 @@ void setup() {
   // First serial output only here to avoid timing inconsistencies for power button press duration verification
   LOG_DBG("MAIN", "Starting CrossPoint version " CROSSPOINT_VERSION);
 
-  setupDisplayAndFonts();
+  setupDisplayAndFonts(/*seamless=*/!APP_STATE.showBootScreen);
 
   // First paint after silent reboot is HALF_REFRESH (SDK forces it after begin()'s
   // panel reset); subsequent paints FAST.
   if (!isSilentReboot) {
-    activityManager.goToBoot();
+    if (APP_STATE.showBootScreen) {
+      activityManager.goToBoot();
+    } else if (loadSleepFrameBuffer()) {
+      // Seamless wake: buffer restored, replace moon icon with loading icon
+      const auto pageHeight = renderer.getScreenHeight();
+      renderer.drawImage(LoadingIcon, 0, pageHeight - LOADINGICON_HEIGHT, LOADINGICON_WIDTH, LOADINGICON_HEIGHT);
+      renderer.displayBuffer(HalDisplay::HALF_REFRESH);
+      APP_STATE.showBootScreen = true;
+      APP_STATE.saveToFile();
+    } else {
+      // Frame buffer file missing — fall back to normal boot screen
+      APP_STATE.showBootScreen = true;
+      APP_STATE.saveToFile();
+      activityManager.goToBoot();
+    }
   }
-
-  APP_STATE.loadFromFile();
-  RECENT_BOOKS.loadFromFile();
 
   if (recoveryFirmwareMode) {
     // Skip normal home/reader routing: jump straight into the SD firmware picker.
@@ -783,6 +874,7 @@ void setup() {
 
   // Ensure we're not still holding the power button before leaving setup
   waitForPowerRelease();
+  allowSleepAt = millis() + 2000;
 }
 
 void loop() {
@@ -863,7 +955,7 @@ void loop() {
   const unsigned long sleepTimeoutMs = SETTINGS.getSleepTimeoutMs();
   if (millis() - lastActivityTime >= sleepTimeoutMs) {
     LOG_DBG("SLP", "Auto-sleep triggered after %lu ms of inactivity", sleepTimeoutMs);
-    enterDeepSleep();
+    enterDeepSleep(true);
     // This should never be hit as `enterDeepSleep` calls esp_deep_sleep_start
     // In the simulator, deep sleep is a no-op and returns — reset the timer so
     // the main loop does not immediately re-trigger auto-sleep.
@@ -871,7 +963,7 @@ void loop() {
     return;
   }
 
-  if (handleGlobalPowerButtonAction(getPowerButtonAction())) {
+  if (millis() >= allowSleepAt && handleGlobalPowerButtonAction(getPowerButtonAction())) {
     lastActivityTime = millis();
     return;
   }

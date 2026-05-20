@@ -196,6 +196,16 @@ Form parameters:
 
 Send either `path` or `paths`, not both. Folders must be empty before deletion. On full success, it returns `All items deleted successfully`; partial failures return `Failed to delete some items: ...`.
 
+Common errors include:
+
+| Status | Body | Cause |
+| --- | --- | --- |
+| 400 | `Missing "path" or "paths" argument` | Neither parameter was provided |
+| 400 | `Provide either 'path' or 'paths', not both` | Both delete parameters were sent |
+| 400 | `Invalid paths format` | `paths` was not valid JSON |
+| 400 | `No paths provided` | `paths` was an empty JSON array |
+| 500 | `Failed to delete some items: ...` | One or more paths could not be deleted |
+
 ## Settings
 
 ### `GET /api/settings`

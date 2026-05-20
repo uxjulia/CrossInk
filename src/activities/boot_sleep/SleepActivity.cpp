@@ -25,6 +25,7 @@
 #include "components/themes/minimal/MinimalTheme.h"
 #include "fontIds.h"
 #include "images/Logo120.h"
+#include "images/MoonIcon.h"
 
 namespace {
 
@@ -368,6 +369,15 @@ bool selectRandomSleepImage(SleepImageMode mode, SleepImageSelection& selection)
 void SleepActivity::onEnter() {
   Activity::onEnter();
 
+  const bool renderSeamless =
+      SETTINGS.seamlessSleepScreen == CrossPointSettings::SEAMLESS_SLEEP_SCREEN::SEAMLESS_ALWAYS ||
+      (fromTimeout &&
+       SETTINGS.seamlessSleepScreen == CrossPointSettings::SEAMLESS_SLEEP_SCREEN::SEAMLESS_AFTER_TIMEOUT);
+
+  if (renderSeamless) {
+    return renderLastScreenSleepScreen();
+  }
+
   overlayPageBufferStored = SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::OVERLAY &&
                             APP_STATE.lastSleepFromReader && renderer.storeBwBuffer();
   overlayPageBufferTrusted = overlayPageBufferStored && canSnapshotOverlayBackground;
@@ -595,6 +605,12 @@ void SleepActivity::renderMinimalSleepScreen() const {
   MinimalTheme theme;
   theme.drawSleepScreen(renderer, book, &bookStats, progressPercent);
   renderer.displayBuffer(HalDisplay::HALF_REFRESH, TURN_OFF_SCREEN_AFTER_SLEEP_REFRESH);
+}
+
+void SleepActivity::renderLastScreenSleepScreen() const {
+  const auto pageHeight = renderer.getScreenHeight();
+  renderer.drawImage(MoonIcon, 0, pageHeight - MOONICON_HEIGHT, MOONICON_WIDTH, MOONICON_HEIGHT);
+  renderer.displayBuffer(HalDisplay::HALF_REFRESH);
 }
 
 void SleepActivity::renderBlankSleepScreen() const {

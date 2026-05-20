@@ -26,4 +26,4 @@ inline bool isPowerButtonActionAvailableOutsideReader(const CrossPointSettings::
   }
 }
 
-void enterDeepSleep();
+void enterDeepSleep(bool fromTimeout = false);

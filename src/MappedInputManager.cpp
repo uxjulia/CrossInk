@@ -25,6 +25,16 @@ bool isReaderLandscapeOrientation() {
          SETTINGS.orientation == CrossPointSettings::LANDSCAPE_CCW;
 }
 
+bool shouldSwapReaderFrontNavButtons(const CrossPointSettings::FRONT_BUTTON_ORIENTATION_AWARE orientationMode) {
+  if (orientationMode == CrossPointSettings::FRONT_ORIENTATION_AWARE_OFF) {
+    return false;
+  }
+  return SETTINGS.orientation == CrossPointSettings::LANDSCAPE_CW ||
+         SETTINGS.orientation == CrossPointSettings::LANDSCAPE_CCW ||
+         (orientationMode == CrossPointSettings::FRONT_ORIENTATION_AWARE_NAV_BUTTONS &&
+          SETTINGS.orientation == CrossPointSettings::INVERTED);
+}
+
 ButtonIndex invertFrontButtonPosition(const ButtonIndex button) {
   switch (button) {
     case HalGPIO::BTN_BACK:
@@ -54,7 +64,7 @@ ButtonIndex mapFrontButtonForReaderOrientation(const ButtonIndex button, const B
     return invertFrontButtonPosition(button);
   }
 
-  if (orientationMode != CrossPointSettings::FRONT_ORIENTATION_AWARE_OFF && isReaderLandscapeOrientation()) {
+  if (shouldSwapReaderFrontNavButtons(orientationMode)) {
     if (button == leftButton) {
       return rightButton;
     }
