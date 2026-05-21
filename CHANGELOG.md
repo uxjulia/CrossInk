@@ -11,7 +11,6 @@
 - Added Back/Cancel support while downloading books from OPDS catalogs.
 
 ### Fixed
-- Fixed OPDS book download cancellation so quick Cancel taps are detected during the transfer.
 - Fixed OPDS feed retry actions so the loading screen is shown before the network request starts.
 - Fixed the in-reader Customise Status Bar screen in landscape so the list no longer extends under the button labels.
 - Fixed manual WiFi connections from Settings returning immediately to the settings list after a saved-password or open-network connection succeeded, so the connected status and IP address are shown first.
