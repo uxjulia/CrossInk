@@ -4,6 +4,7 @@
 
 #include <functional>
 #include <string>
+#include <utility>
 
 /**
  * HTTP client utility for fetching content and downloading files.
@@ -12,6 +13,7 @@
 class HttpDownloader {
  public:
   using ProgressCallback = std::function<void(size_t downloaded, size_t total)>;
+  using CancelCallback = std::function<bool()>;
 
   enum DownloadError {
     OK = 0,
@@ -21,11 +23,13 @@ class HttpDownloader {
   };
 
   struct DownloadOptions {
-    explicit constexpr DownloadOptions(bool preservePartial = false, bool resumePartial = false)
-        : preservePartial(preservePartial), resumePartial(resumePartial) {}
+    explicit DownloadOptions(bool preservePartial = false, bool resumePartial = false,
+                             CancelCallback shouldCancel = nullptr)
+        : preservePartial(preservePartial), resumePartial(resumePartial), shouldCancel(std::move(shouldCancel)) {}
 
     bool preservePartial;
     bool resumePartial;
+    CancelCallback shouldCancel;
   };
 
   /**

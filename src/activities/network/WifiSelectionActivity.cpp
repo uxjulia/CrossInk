@@ -15,8 +15,137 @@
 #include "components/UITheme.h"
 #include "fontIds.h"
 
+namespace {
+
+#ifndef SIMULATOR
+uint8_t sLastStaDisconnectReason = 0;
+bool sConnectionAttemptLoggingActive = false;
+bool sWifiEventLoggingRegistered = false;
+
+void logWifiStationEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
+  if (!sConnectionAttemptLoggingActive) {
+    return;
+  }
+
+  switch (event) {
+    case ARDUINO_EVENT_WIFI_STA_CONNECTED:
+      LOG_INF("WIFI", "STA event: connected to AP");
+      break;
+    case ARDUINO_EVENT_WIFI_STA_GOT_IP: {
+      const uint8_t* ip = reinterpret_cast<const uint8_t*>(&info.got_ip.ip_info.ip.addr);
+      LOG_INF("WIFI", "STA event: got IP %u.%u.%u.%u", ip[0], ip[1], ip[2], ip[3]);
+      break;
+    }
+    case ARDUINO_EVENT_WIFI_STA_DISCONNECTED: {
+      uint8_t reason = info.wifi_sta_disconnected.reason;
+      if (reason == 0) {
+        reason = WIFI_REASON_UNSPECIFIED;
+      }
+      sLastStaDisconnectReason = reason;
+      LOG_INF("WIFI", "STA event: disconnected reason=%u(%s)", reason,
+              WiFi.disconnectReasonName(static_cast<wifi_err_reason_t>(reason)));
+      break;
+    }
+    case ARDUINO_EVENT_WIFI_STA_LOST_IP:
+      LOG_INF("WIFI", "STA event: lost IP");
+      break;
+    default:
+      break;
+  }
+}
+
+void ensureWifiEventLoggingRegistered() {
+  if (sWifiEventLoggingRegistered) {
+    return;
+  }
+  WiFi.onEvent(logWifiStationEvent, ARDUINO_EVENT_WIFI_STA_CONNECTED);
+  WiFi.onEvent(logWifiStationEvent, ARDUINO_EVENT_WIFI_STA_GOT_IP);
+  WiFi.onEvent(logWifiStationEvent, ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
+  WiFi.onEvent(logWifiStationEvent, ARDUINO_EVENT_WIFI_STA_LOST_IP);
+  sWifiEventLoggingRegistered = true;
+}
+#else
+void ensureWifiEventLoggingRegistered() {}
+#endif
+
+const char* wifiStatusName(const wl_status_t status) {
+  switch (status) {
+    case WL_IDLE_STATUS:
+      return "IDLE";
+    case WL_NO_SSID_AVAIL:
+      return "NO_SSID_AVAIL";
+    case WL_CONNECTED:
+      return "CONNECTED";
+    case WL_CONNECT_FAILED:
+      return "CONNECT_FAILED";
+#ifndef SIMULATOR
+    case WL_CONNECTION_LOST:
+      return "CONNECTION_LOST";
+#endif
+    case WL_DISCONNECTED:
+      return "DISCONNECTED";
+#ifndef SIMULATOR
+    case WL_NO_SHIELD:
+      return "NO_SHIELD";
+    case WL_STOPPED:
+      return "STOPPED";
+    case WL_SCAN_COMPLETED:
+      return "SCAN_COMPLETED";
+#endif
+    default:
+      return "UNKNOWN";
+  }
+}
+
+bool wifiStatusIsConnectionFailure(const wl_status_t status) {
+  if (status == WL_CONNECT_FAILED || status == WL_NO_SSID_AVAIL) {
+    return true;
+  }
+#ifndef SIMULATOR
+  return status == WL_CONNECTION_LOST;
+#else
+  return false;
+#endif
+}
+
+const char* wifiAuthName(const int authMode) {
+  switch (authMode) {
+    case WIFI_AUTH_OPEN:
+      return "OPEN";
+#ifndef SIMULATOR
+    case WIFI_AUTH_WEP:
+      return "WEP";
+    case WIFI_AUTH_WPA_PSK:
+      return "WPA_PSK";
+#endif
+    case WIFI_AUTH_WPA2_PSK:
+      return "WPA2_PSK";
+#ifndef SIMULATOR
+    case WIFI_AUTH_WPA_WPA2_PSK:
+      return "WPA_WPA2_PSK";
+    case WIFI_AUTH_WPA2_ENTERPRISE:
+      return "WPA2_ENTERPRISE";
+    case WIFI_AUTH_WPA3_PSK:
+      return "WPA3_PSK";
+    case WIFI_AUTH_WPA2_WPA3_PSK:
+      return "WPA2_WPA3_PSK";
+    case WIFI_AUTH_WAPI_PSK:
+      return "WAPI_PSK";
+    case WIFI_AUTH_OWE:
+      return "OWE";
+    case WIFI_AUTH_WPA3_ENT_192:
+      return "WPA3_ENT_192";
+#endif
+    default:
+      return "UNKNOWN";
+  }
+}
+
+}  // namespace
+
 void WifiSelectionActivity::onEnter() {
   Activity::onEnter();
+  ensureWifiEventLoggingRegistered();
 
   // Load saved WiFi credentials - SD card operations need lock as we use SPI
   // for both
@@ -37,6 +166,8 @@ void WifiSelectionActivity::onEnter() {
   savePromptSelection = 0;
   forgetPromptSelection = 0;
   autoConnecting = false;
+  lastConnectionStatusLogTime = 0;
+  lastLoggedWifiStatus = -1;
 
   // Cache MAC address for display
   uint8_t mac[6];
@@ -55,7 +186,7 @@ void WifiSelectionActivity::onEnter() {
     if (!lastSsid.empty()) {
       const auto* cred = WIFI_STORE.findCredential(lastSsid);
       if (cred) {
-        LOG_DBG("WIFI", "Attempting to auto-connect to %s", lastSsid.c_str());
+        LOG_INF("WIFI", "Auto-connect candidate: ssid=%s saved=1", lastSsid.c_str());
         selectedSSID = cred->ssid;
         enteredPassword = cred->password;
         selectedRequiresPassword = !cred->password.empty();
@@ -96,12 +227,15 @@ void WifiSelectionActivity::startWifiScan() {
   requestUpdate();
 
   // Set WiFi mode to station
+  LOG_INF("WIFI", "Starting WiFi scan (mode=%d status=%d/%s heap=%u maxAlloc=%u)", static_cast<int>(WiFi.getMode()),
+          static_cast<int>(WiFi.status()), wifiStatusName(WiFi.status()), ESP.getFreeHeap(), ESP.getMaxAllocHeap());
   WiFi.mode(WIFI_STA);
   WiFi.disconnect();
   delay(100);
 
   // Start async scan
-  WiFi.scanNetworks(true);  // true = async scan
+  const int scanStartResult = WiFi.scanNetworks(true);  // true = async scan
+  LOG_INF("WIFI", "WiFi scan requested (result=%d)", scanStartResult);
 }
 
 void WifiSelectionActivity::processWifiScanResults() {
@@ -113,35 +247,48 @@ void WifiSelectionActivity::processWifiScanResults() {
   }
 
   if (scanResult == WIFI_SCAN_FAILED) {
+    LOG_INF("WIFI", "WiFi scan failed");
     state = WifiSelectionState::NETWORK_LIST;
     requestUpdate();
     return;
   }
 
+  LOG_INF("WIFI", "WiFi scan complete: rawNetworks=%d", scanResult);
+
   // Scan complete, process results
   // Use a map to deduplicate networks by SSID, keeping the strongest signal
   std::map<std::string, WifiNetworkInfo> uniqueNetworks;
+  int hiddenNetworks = 0;
+  int duplicateNetworks = 0;
 
   for (int i = 0; i < scanResult; i++) {
     std::string ssid = WiFi.SSID(i).c_str();
     const int32_t rssi = WiFi.RSSI(i);
+    const int authMode = WiFi.encryptionType(i);
 
     // Skip hidden networks (empty SSID)
     if (ssid.empty()) {
+      hiddenNetworks++;
       continue;
     }
 
     // Check if we've already seen this SSID
     auto it = uniqueNetworks.find(ssid);
+    if (it != uniqueNetworks.end()) {
+      duplicateNetworks++;
+    }
     if (it == uniqueNetworks.end() || rssi > it->second.rssi) {
       // New network or stronger signal than existing entry
       WifiNetworkInfo network;
       network.ssid = ssid;
       network.rssi = rssi;
-      network.isEncrypted = (WiFi.encryptionType(i) != WIFI_AUTH_OPEN);
+      network.isEncrypted = (authMode != WIFI_AUTH_OPEN);
       network.hasSavedPassword = WIFI_STORE.hasSavedCredential(network.ssid);
       uniqueNetworks[ssid] = network;
     }
+
+    LOG_DBG("WIFI", "Scan result: ssid=%s rssi=%d auth=%s saved=%d", ssid.c_str(), rssi, wifiAuthName(authMode),
+            WIFI_STORE.hasSavedCredential(ssid));
   }
 
   // Convert map to vector
@@ -160,6 +307,8 @@ void WifiSelectionActivity::processWifiScanResults() {
   });
 
   WiFi.scanDelete();
+  LOG_INF("WIFI", "WiFi scan usable networks=%zu hidden=%d duplicates=%d", networks.size(), hiddenNetworks,
+          duplicateNetworks);
   state = WifiSelectionState::NETWORK_LIST;
   selectedNetworkIndex = 0;
   requestUpdate();
@@ -183,6 +332,8 @@ void WifiSelectionActivity::selectNetwork(const int index) {
     // Use saved password - connect directly
     enteredPassword = savedCred->password;
     usedSavedPassword = true;
+    LOG_INF("WIFI", "Selected network: ssid=%s encrypted=%d saved=1 rssi=%d", selectedSSID.c_str(),
+            selectedRequiresPassword, network.rssi);
     LOG_DBG("WiFi", "Using saved password for %s, length: %zu", selectedSSID.c_str(), enteredPassword.size());
     attemptConnection();
     return;
@@ -206,6 +357,7 @@ void WifiSelectionActivity::selectNetwork(const int index) {
                            });
   } else {
     // Connect directly for open networks
+    LOG_INF("WIFI", "Selected open network: ssid=%s rssi=%d", selectedSSID.c_str(), network.rssi);
     attemptConnection();
   }
 }
@@ -215,12 +367,26 @@ void WifiSelectionActivity::attemptConnection() {
   connectionStartTime = millis();
   connectedIP.clear();
   connectionError.clear();
+  lastConnectionStatusLogTime = 0;
+  lastLoggedWifiStatus = -1;
+#ifndef SIMULATOR
+  sLastStaDisconnectReason = 0;
+  sConnectionAttemptLoggingActive = false;
+#endif
   requestUpdate();
+
+  LOG_INF("WIFI", "Connecting to ssid=%s auto=%d saved=%d encrypted=%d passProvided=%d heap=%u maxAlloc=%u",
+          selectedSSID.c_str(), autoConnecting, usedSavedPassword, selectedRequiresPassword, !enteredPassword.empty(),
+          ESP.getFreeHeap(), ESP.getMaxAllocHeap());
 
   WiFi.persistent(false);  // Credentials are managed by WifiCredentialStore; suppress SDK NVS auto-connect
   WiFi.mode(WIFI_STA);
   WiFi.disconnect(true, true);  // Abort any in-progress SDK auto-connect and clear NVS-saved SSID
   delay(100);
+#ifndef SIMULATOR
+  sLastStaDisconnectReason = 0;
+  sConnectionAttemptLoggingActive = true;
+#endif
 
   // Set hostname so routers show "CrossPoint-Reader-AABBCCDDEEFF" instead of "esp32-XXXXXXXXXXXX"
   String mac = WiFi.macAddress();
@@ -228,11 +394,13 @@ void WifiSelectionActivity::attemptConnection() {
   String hostname = "CrossPoint-Reader-" + mac;
   WiFi.setHostname(hostname.c_str());
 
+  wl_status_t beginStatus = WL_IDLE_STATUS;
   if (selectedRequiresPassword && !enteredPassword.empty()) {
-    WiFi.begin(selectedSSID.c_str(), enteredPassword.c_str());
+    beginStatus = WiFi.begin(selectedSSID.c_str(), enteredPassword.c_str());
   } else {
-    WiFi.begin(selectedSSID.c_str());
+    beginStatus = WiFi.begin(selectedSSID.c_str());
   }
+  LOG_INF("WIFI", "WiFi.begin returned status=%d/%s", static_cast<int>(beginStatus), wifiStatusName(beginStatus));
 }
 
 void WifiSelectionActivity::checkConnectionStatus() {
@@ -241,6 +409,15 @@ void WifiSelectionActivity::checkConnectionStatus() {
   }
 
   const wl_status_t status = WiFi.status();
+  const unsigned long now = millis();
+
+  if (lastLoggedWifiStatus != static_cast<int>(status) ||
+      now - lastConnectionStatusLogTime >= CONNECTION_STATUS_LOG_INTERVAL_MS) {
+    LOG_INF("WIFI", "Connection poll: elapsed=%lums status=%d/%s rssi=%d", now - connectionStartTime,
+            static_cast<int>(status), wifiStatusName(status), status == WL_CONNECTED ? WiFi.RSSI() : 0);
+    lastLoggedWifiStatus = static_cast<int>(status);
+    lastConnectionStatusLogTime = now;
+  }
 
   if (status == WL_CONNECTED) {
     // Successfully connected
@@ -249,6 +426,10 @@ void WifiSelectionActivity::checkConnectionStatus() {
     snprintf(ipStr, sizeof(ipStr), "%d.%d.%d.%d", ip[0], ip[1], ip[2], ip[3]);
     connectedIP = ipStr;
     autoConnecting = false;
+#ifndef SIMULATOR
+    sConnectionAttemptLoggingActive = false;
+#endif
+    LOG_INF("WIFI", "Connected to ssid=%s ip=%s rssi=%d", selectedSSID.c_str(), connectedIP.c_str(), WiFi.RSSI());
 
     // Sync RTC from NTP on the first successful WiFi connection only. The DS3231
     // drifts ~2 ppm so one sync is enough; users can force a re-sync from
@@ -289,11 +470,20 @@ void WifiSelectionActivity::checkConnectionStatus() {
     return;
   }
 
-  if (status == WL_CONNECT_FAILED || status == WL_NO_SSID_AVAIL) {
+  if (wifiStatusIsConnectionFailure(status)) {
     connectionError = tr(STR_ERROR_GENERAL_FAILURE);
     if (status == WL_NO_SSID_AVAIL) {
       connectionError = tr(STR_ERROR_NETWORK_NOT_FOUND);
     }
+    LOG_INF("WIFI", "Connection failed: ssid=%s status=%d/%s elapsed=%lums", selectedSSID.c_str(),
+            static_cast<int>(status), wifiStatusName(status), now - connectionStartTime);
+#ifndef SIMULATOR
+    if (sLastStaDisconnectReason != 0) {
+      LOG_INF("WIFI", "Last disconnect reason: %u(%s)", sLastStaDisconnectReason,
+              WiFi.disconnectReasonName(static_cast<wifi_err_reason_t>(sLastStaDisconnectReason)));
+    }
+    sConnectionAttemptLoggingActive = false;
+#endif
     state = WifiSelectionState::CONNECTION_FAILED;
     requestUpdate();
     return;
@@ -303,6 +493,15 @@ void WifiSelectionActivity::checkConnectionStatus() {
   if (millis() - connectionStartTime > CONNECTION_TIMEOUT_MS) {
     WiFi.disconnect();
     connectionError = tr(STR_ERROR_CONNECTION_TIMEOUT);
+    LOG_INF("WIFI", "Connection timed out: ssid=%s elapsed=%lums lastStatus=%d/%s", selectedSSID.c_str(),
+            millis() - connectionStartTime, static_cast<int>(status), wifiStatusName(status));
+#ifndef SIMULATOR
+    if (sLastStaDisconnectReason != 0) {
+      LOG_INF("WIFI", "Last disconnect reason before timeout: %u(%s)", sLastStaDisconnectReason,
+              WiFi.disconnectReasonName(static_cast<wifi_err_reason_t>(sLastStaDisconnectReason)));
+    }
+    sConnectionAttemptLoggingActive = false;
+#endif
     state = WifiSelectionState::CONNECTION_FAILED;
     requestUpdate();
     return;
@@ -313,6 +512,9 @@ void WifiSelectionActivity::loop() {
   if ((state == WifiSelectionState::SCANNING || state == WifiSelectionState::CONNECTING ||
        state == WifiSelectionState::AUTO_CONNECTING) &&
       mappedInput.wasPressed(MappedInputManager::Button::Back)) {
+#ifndef SIMULATOR
+    sConnectionAttemptLoggingActive = false;
+#endif
     WiFi.disconnect();
     onComplete(false);
     return;
