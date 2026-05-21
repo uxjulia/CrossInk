@@ -32,11 +32,17 @@ bool load(KOReaderCredentialStore& store, const char* json, bool* needsResave) {
 
   std::string user = doc["username"] | std::string("");
 
-  bool ok = false;
-  std::string pass = obfuscation::deobfuscateFromBase64(doc["password_obf"] | "", &ok);
-  if (!ok || pass.empty()) {
+  obfuscation::DecodeStatus status = obfuscation::DecodeStatus::INVALID;
+  std::string pass = obfuscation::deobfuscateFromBase64(doc["password_obf"] | "", &status);
+  if (status == obfuscation::DecodeStatus::LEGACY && !pass.empty() && needsResave) {
+    *needsResave = true;
+  }
+  if (status == obfuscation::DecodeStatus::INVALID || status == obfuscation::DecodeStatus::EMPTY || pass.empty()) {
     pass = doc["password"] | std::string("");
     if (!pass.empty() && needsResave) *needsResave = true;
+  }
+  if (status == obfuscation::DecodeStatus::INVALID && pass.empty()) {
+    LOG_ERR("KRS", "Ignoring unreadable KOReader password");
   }
 
   store.setCredentials(user, pass);

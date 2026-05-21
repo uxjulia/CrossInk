@@ -52,7 +52,7 @@ After selecting **Join Network**, CrossInk scans for available WiFi networks.
 3. Enter the password if prompted.
 4. Save credentials if you want CrossInk to reconnect automatically later.
 
-Saved WiFi passwords are stored on the device SD card. Use this only on networks you trust.
+Saved WiFi passwords are stored on the device SD card with device-specific obfuscation. They are validated when read, so credentials copied from another device may need to be re-entered.
 
 ### Create Hotspot
 
@@ -91,7 +91,7 @@ Folders must be empty before deletion. File uploads, overwrites, moves, renames,
 
 ### Settings
 
-The settings page exposes supported device settings through `/api/settings`. Changes are saved to `/.crosspoint/settings.bin`.
+The settings page exposes supported device settings through `/api/settings`. Changes are saved to `/.crosspoint/settings.json`.
 
 ### Fonts
 
@@ -99,7 +99,7 @@ The fonts page lists installed SD-card font families and allows `.cpfont` upload
 
 ### OPDS and WiFi Management
 
-The web interface includes APIs for managing saved OPDS servers and saved WiFi credentials. Passwords are never returned by the API; the API only reports whether a password is set.
+The web interface includes APIs for managing saved OPDS servers and saved WiFi credentials. Passwords are never returned by the API; the API only reports whether a password is set. Saved passwords use device-specific validation, so password fields copied from a different reader are ignored until re-entered.
 
 ---
 
