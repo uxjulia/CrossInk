@@ -11,6 +11,7 @@
 ### Fixed
 - Fixed the in-reader Customise Status Bar screen in landscape so the list no longer extends under the button labels.
 - Fixed manual WiFi connections from Settings returning immediately to the settings list after a saved-password or open-network connection succeeded, so the connected status and IP address are shown first.
+- Fixed copied or corrupted saved password files being treated as valid credentials by validating device-specific password data before using it.
 - Fixed missing Vietnamese labels for the sleep timeout resume settings.
 - Fixed File Browser and Lyra Carousel icon alignment issues in icon-based themes.
 - Reduced grid-like and over-zoomed artifacts on Lyra Carousel and Minimal theme's EPUB cover thumbnails by cropping normal covers before dithering while containing unusual cover ratios.
