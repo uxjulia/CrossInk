@@ -1,37 +1,25 @@
 # Changelog
 
-## [Unreleased]
+## [v1.3.0] - 2026-05-21
 
 ### Added
-- Added more detailed WiFi connection debug logs for scans, selected networks, connection status changes, disconnect reasons, and timeouts.
+- Added Back/Cancel support while downloading books from OPDS catalogs.
 - Added a Recent Books long-press menu in both List and Grid views with delete, cache delete, completion, and remove-from-recents actions.
 - Added a Minimal sleep screen option that shows the current book cover and reading progress on a dark background.
-- Added an in-reader confirmation message when a shortcut turns tilt-to-turn on or off.
+- Added more detailed WiFi connection debug logs for scans, selected networks, status changes, disconnect reasons, and timeouts.
 - Added a 9pt `Itty Bitty` reader font size, plus build flags for omitting Itty Bitty and Large reader font assets in size-constrained firmware variants.
-- Added Back/Cancel support while downloading books from OPDS catalogs.
+- Added an in-reader confirmation message when a shortcut turns tilt-to-turn on or off.
 
 ### Fixed
-- Fixed OPDS feed retry actions so the loading screen is shown before the network request starts.
-- Fixed the in-reader Customise Status Bar screen in landscape so the list no longer extends under the button labels.
-- Fixed manual WiFi connections from Settings returning immediately to the settings list after a saved-password or open-network connection succeeded, so the connected status and IP address are shown first.
-- Fixed copied or corrupted saved password files being treated as valid credentials by validating device-specific password data before using it.
-- Fixed missing Vietnamese labels for the sleep timeout resume settings.
-- Fixed File Browser and Lyra Carousel icon alignment issues in icon-based themes.
-- Reduced grid-like and over-zoomed artifacts on Lyra Carousel and Minimal theme's EPUB cover thumbnails by cropping normal covers before dithering while containing unusual cover ratios.
-- Reduced duplicate Home progress/stat loading when returning from another screen.
-- Fixed EPUB cache folder keys so they use a stable path hash across firmware builds, migrate older cache folders when possible, and rebuild stale section caches for the latest low-memory layout fixes.
-- Improved low-memory EPUB handling by laying out very long text blocks earlier, streaming table fallback content when heap is tight, failing safely on large OPDS feeds instead of rebooting, and clarifying the warning text.
-- Reduced sleep-entry memory and battery risk by reusing cached sleep-screen assets, idling OPDS pages normally after load, and putting the X3 tilt sensor back to sleep outside the reader.
-- Improved network and SD-card font download reliability by disabling WiFi power saving during transfers, reducing WebDAV stack usage, tolerating longer stalls, retrying interrupted font files, and freeing active reader fonts when needed.
-- Fixed a crash when opening the XTC chapter selector on memory-constrained builds.
-- Fixed the Font Size setting to follow the actual sizes installed for the selected SD-card font family.
-- Relaxed KOReader Sync auth response validation so compatible self-hosted servers that return valid JSON on successful login can authenticate.
+- Fixed WiFi and OPDS connection-flow edge cases so manual Settings connections show the connected status first, copied or corrupted saved-password files are rejected before use, OPDS retries show loading before requests, and large OPDS feeds fail safely under low memory instead of rebooting.
+- Fixed reader and Home UI polish issues, including landscape status-bar settings, missing Vietnamese labels, File Browser and Lyra Carousel icon alignment, cover thumbnail artifacts, and duplicate Home progress/stat loading.
+- Fixed EPUB cache and low-memory handling by using stable cache folder keys, migrating older cache folders where possible, rebuilding stale section caches, laying out very long text blocks earlier, streaming table fallback content when heap is tight, and clarifying the warning text.
+- Fixed sleep-entry, network, and SD-card font download reliability issues by reusing cached sleep-screen assets, idling OPDS pages normally after load, putting the X3 tilt sensor back to sleep outside the reader, disabling WiFi power saving during transfers, reducing WebDAV stack usage, tolerating longer stalls, retrying interrupted font files, and freeing active reader fonts when needed.
+- Fixed remaining reader service edge cases, including an XTC chapter selector crash on memory-constrained builds, SD-card font size selection, and KOReader Sync login compatibility with self-hosted servers that return valid JSON on success.
 
 ### Changed
-- Moved the full-time page-as-sleep behavior into a new `Sleep Screen > Quick Resume` option, which also keeps `Quick Resume on Timeout` on, and renamed the timeout-only toggle.
-- Moved the in-reader Footnotes shortcut above Select Chapter when footnotes are available on the current page.
-- Made book titles in the file browser's long-press action menu smaller and allowed them to wrap to two lines so longer book names are easier to read.
-- Reduced unnecessary screen refresh and list-clearing work during OPDS browsing and SD font downloads so transfers spend more time downloading and less time repainting progress.
+- Modified upstream "page-as-sleep" behavior into a new `Sleep Screen > Quick Resume` option, which also keeps `Quick Resume on Timeout` on, and renamed the timeout-only toggle.
+- Improved reader and browser menu behavior by moving the Footnotes shortcut above Select Chapter, wrapping long book titles in action menus, and reducing progress-screen repaint work during OPDS and SD font downloads.
 
 ## [v1.2.11.1] - 2026-05-15
 
