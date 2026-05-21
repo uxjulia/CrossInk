@@ -81,7 +81,10 @@ class WifiSelectionActivity final : public Activity {
 
   // Connection timeout
   static constexpr unsigned long CONNECTION_TIMEOUT_MS = 15000;
+  static constexpr unsigned long CONNECTION_STATUS_LOG_INTERVAL_MS = 2000;
   unsigned long connectionStartTime = 0;
+  unsigned long lastConnectionStatusLogTime = 0;
+  int lastLoggedWifiStatus = -1;
 
   void renderNetworkList(const Rect* screen, const ThemeMetrics* metrics) const;
   void renderPasswordEntry(const Rect* screen, const ThemeMetrics* metrics) const;

@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Added
+- Added more detailed WiFi connection debug logs for scans, selected networks, connection status changes, disconnect reasons, and timeouts.
 - Added a Recent Books long-press menu in both List and Grid views with delete, cache delete, completion, and remove-from-recents actions.
 - Added a Minimal sleep screen option that shows the current book cover and reading progress on a dark background.
 - Added an in-reader confirmation message when a shortcut turns tilt-to-turn on or off.
@@ -10,6 +11,8 @@
 - Added Back/Cancel support while downloading books from OPDS catalogs.
 
 ### Fixed
+- Fixed OPDS book download cancellation so quick Cancel taps are detected during the transfer.
+- Fixed OPDS feed retry actions so the loading screen is shown before the network request starts.
 - Fixed the in-reader Customise Status Bar screen in landscape so the list no longer extends under the button labels.
 - Fixed manual WiFi connections from Settings returning immediately to the settings list after a saved-password or open-network connection succeeded, so the connected status and IP address are shown first.
 - Fixed missing Vietnamese labels for the sleep timeout resume settings.

@@ -47,6 +47,7 @@ class OpdsBookBrowserActivity final : public Activity {
   void checkAndConnectWifi();
   void launchWifiSelection();
   void onWifiSelectionComplete(bool connected);
+  void showLoadingBeforeFetch();
   void fetchFeed(const std::string& path);
   bool ensureEntryBuffer();
   void clearEntries();

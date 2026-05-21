@@ -78,9 +78,7 @@ void OpdsBookBrowserActivity::loop() {
   if (state == BrowserState::ERROR) {
     if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
       if (WiFi.status() == WL_CONNECTED && WiFi.localIP() != IPAddress(0, 0, 0, 0)) {
-        state = BrowserState::LOADING;
-        statusMessage = tr(STR_LOADING);
-        requestUpdate();
+        showLoadingBeforeFetch();
         fetchFeed(currentPath);
       } else {
         launchWifiSelection();
@@ -212,6 +210,15 @@ void OpdsBookBrowserActivity::render(RenderLock&&) {
   renderer.displayBuffer();
 }
 
+void OpdsBookBrowserActivity::showLoadingBeforeFetch() {
+  state = BrowserState::LOADING;
+  statusMessage = tr(STR_LOADING);
+  if (requestUpdateAndWait() != RequestUpdateResult::Rendered) {
+    LOG_ERR("OPDS", "Loading screen could not be rendered before feed fetch");
+    requestUpdate(true);
+  }
+}
+
 void OpdsBookBrowserActivity::fetchFeed(const std::string& path) {
   if (!ensureEntryBuffer()) {
     state = BrowserState::ERROR;
@@ -296,11 +303,9 @@ void OpdsBookBrowserActivity::navigateToEntry(const OpdsEntry& entry) {
   const std::string feedUrl = UrlUtils::buildUrl(server.url, currentPath);
   currentPath = UrlUtils::buildUrl(feedUrl, entry.href);
 
-  state = BrowserState::LOADING;
-  statusMessage = tr(STR_LOADING);
   clearEntries();
   selectorIndex = 0;
-  requestUpdate(true);
+  showLoadingBeforeFetch();
   fetchFeed(currentPath);
 }
 
@@ -310,11 +315,9 @@ void OpdsBookBrowserActivity::navigateBack() {
   } else {
     currentPath = navigationHistory.back();
     navigationHistory.pop_back();
-    state = BrowserState::LOADING;
-    statusMessage = tr(STR_LOADING);
     clearEntries();
     selectorIndex = 0;
-    requestUpdate();
+    showLoadingBeforeFetch();
     fetchFeed(currentPath);
   }
 }
@@ -333,19 +336,29 @@ void OpdsBookBrowserActivity::downloadBook(const OpdsEntry& book) {
   LOG_DBG("OPDS", "Downloading: %s -> %s", downloadUrl.c_str(), filename.c_str());
 
   bool cancelRequested = false;
+  auto pollCancel = [this, &cancelRequested] {
+    if (cancelRequested) {
+      return true;
+    }
+    mappedInput.update();
+    if (mappedInput.isPressed(MappedInputManager::Button::Back) ||
+        mappedInput.wasPressed(MappedInputManager::Button::Back) ||
+        mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+      cancelRequested = true;
+    }
+    return cancelRequested;
+  };
+  HttpDownloader::DownloadOptions downloadOptions;
+  downloadOptions.shouldCancel = pollCancel;
+
   const auto result = HttpDownloader::downloadToFile(
       downloadUrl, filename,
-      [this, &cancelRequested](const size_t downloaded, const size_t total) {
+      [this](const size_t downloaded, const size_t total) {
         downloadProgress = downloaded;
         downloadTotal = total;
-        mappedInput.update();
-        if (mappedInput.isPressed(MappedInputManager::Button::Back) ||
-            mappedInput.wasPressed(MappedInputManager::Button::Back)) {
-          cancelRequested = true;
-        }
         requestUpdate(true);
       },
-      &cancelRequested, server.username, server.password);
+      &cancelRequested, server.username, server.password, downloadOptions);
 
   if (result == HttpDownloader::OK) {
     clearBookCache(filename);
@@ -407,17 +420,13 @@ void OpdsBookBrowserActivity::performSearch(const std::string& query) {
   navigationHistory.push_back(currentPath);  // <-- add this
   currentPath = url;                         // <-- add this
 
-  state = BrowserState::LOADING;
-  statusMessage = tr(STR_LOADING);
-  requestUpdate(true);
+  showLoadingBeforeFetch();
   fetchFeed(url);
 }
 
 void OpdsBookBrowserActivity::checkAndConnectWifi() {
   if (WiFi.status() == WL_CONNECTED && WiFi.localIP() != IPAddress(0, 0, 0, 0)) {
-    state = BrowserState::LOADING;
-    statusMessage = tr(STR_LOADING);
-    requestUpdate();
+    showLoadingBeforeFetch();
     fetchFeed(currentPath);
     return;
   }
@@ -434,9 +443,7 @@ void OpdsBookBrowserActivity::launchWifiSelection() {
 
 void OpdsBookBrowserActivity::onWifiSelectionComplete(const bool connected) {
   if (connected) {
-    state = BrowserState::LOADING;
-    statusMessage = tr(STR_LOADING);
-    requestUpdate(true);
+    showLoadingBeforeFetch();
     fetchFeed(currentPath);
   } else {
     // Leave WiFi up; onExit's silent reboot handles teardown without fragmenting.
