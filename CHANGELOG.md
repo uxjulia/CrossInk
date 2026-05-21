@@ -5,6 +5,7 @@
 ### Added
 - Added a Recent Books long-press menu in both List and Grid views with delete, cache delete, completion, and remove-from-recents actions.
 - Added a Minimal sleep screen option that shows the current book cover and reading progress on a dark background.
+- Added aggregate all-time Reading Stats support from peer-synced per-device stats files.
 - Added an in-reader confirmation message when a shortcut turns tilt-to-turn on or off.
 - Added a 9pt `Itty Bitty` reader font size, plus build flags for omitting Itty Bitty and Large reader font assets in size-constrained firmware variants.
 

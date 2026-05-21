@@ -5,6 +5,38 @@ nav_order: 8
 
 # File Formats
 
+## `global_stats.bin`
+
+`/.crosspoint/global_stats.bin` stores this device's all-time reading counters.
+If `/.crosspoint/synced_stats/` already exists, saves also mirror the same
+counters to `/.crosspoint/synced_stats/device_<mac>.bin`, where `<mac>` is the
+device's hardware MAC address without separators. The reader does not create
+this folder on its own.
+
+The `/.crosspoint/synced_stats/` directory is designed for peer-to-peer folder
+sync: each device owns one contribution file, and display-only Reading Stats
+views add every other device's contribution to this device's local
+`global_stats.bin`. This device's own contribution file is skipped while
+aggregating so mirroring the folder back to the same device does not double
+count its local stats.
+
+### Version 2
+
+Adds `completedBooks` after the original counters.
+
+```text
+[0]      version (= 2)
+[1-4]    totalSessions       uint32 little-endian
+[5-8]    totalReadingSeconds uint32 little-endian
+[9-12]   totalPagesTurned    uint32 little-endian
+[13-16]  completedBooks      uint32 little-endian
+```
+
+### Version 1
+
+Version 1 files are still readable. They are 13 bytes long and do not include
+`completedBooks`, so the reader treats that value as zero.
+
 ## `book.bin`
 
 ### Version 6
