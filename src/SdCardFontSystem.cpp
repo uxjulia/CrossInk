@@ -109,3 +109,26 @@ int SdCardFontSystem::resolveFontId(const char* familyName, uint8_t /*fontSizeEn
   // ensureLoaded() must have been called with the current settings before this.
   return manager_.getFontId(familyName);
 }
+
+bool SdCardFontSystem::changeReaderFontSize(const bool larger) {
+  refreshIfDirty();
+
+  if (SETTINGS.sdFontFamilyName[0] != '\0') {
+    const auto* family = registry_.findFamily(SETTINGS.sdFontFamilyName);
+    if (family) {
+      const auto sizes = family->availableSizes();
+      if (sizes.size() > 1) {
+        uint8_t current = SETTINGS.fontSize < sizes.size() ? SETTINGS.fontSize : static_cast<uint8_t>(sizes.size() - 1);
+        if (larger) {
+          current = static_cast<uint8_t>((current + 1) % sizes.size());
+        } else {
+          current = current == 0 ? static_cast<uint8_t>(sizes.size() - 1) : static_cast<uint8_t>(current - 1);
+        }
+        SETTINGS.fontSize = current;
+        return true;
+      }
+    }
+  }
+
+  return SETTINGS.changeReaderFontSize(larger);
+}
