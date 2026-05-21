@@ -1,6 +1,5 @@
 #include "OpdsBookBrowserActivity.h"
 
-#include <Epub.h>
 #include <GfxRenderer.h>
 #include <I18n.h>
 #include <Logging.h>
@@ -15,6 +14,7 @@
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "network/HttpDownloader.h"
+#include "util/BookCacheUtils.h"
 #include "util/StringUtils.h"
 #include "util/UrlUtils.h"
 
@@ -340,7 +340,7 @@ void OpdsBookBrowserActivity::downloadBook(const OpdsEntry& book) {
       nullptr, server.username, server.password);
 
   if (result == HttpDownloader::OK) {
-    Epub(filename, "/.crosspoint").clearCache();
+    clearBookCache(filename);
     state = BrowserState::BROWSING;
   } else {
     state = BrowserState::ERROR;
