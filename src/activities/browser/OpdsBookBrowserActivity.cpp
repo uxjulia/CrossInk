@@ -182,6 +182,8 @@ void OpdsBookBrowserActivity::render(RenderLock&&) {
       GUI.drawProgressBar(renderer, Rect{50, pageHeight / 2 + 20, pageWidth - 100, 20}, downloadProgress,
                           downloadTotal);
     }
+    const auto labels = mappedInput.mapLabels(tr(STR_CANCEL), "", "", "");
+    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
     renderer.displayBuffer();
     return;
   }
@@ -330,17 +332,27 @@ void OpdsBookBrowserActivity::downloadBook(const OpdsEntry& book) {
       "/" + StringUtils::sanitizeFilename((book.author.empty() ? "" : book.author + " - ") + book.title) + ".epub";
   LOG_DBG("OPDS", "Downloading: %s -> %s", downloadUrl.c_str(), filename.c_str());
 
+  bool cancelRequested = false;
   const auto result = HttpDownloader::downloadToFile(
       downloadUrl, filename,
-      [this](const size_t downloaded, const size_t total) {
+      [this, &cancelRequested](const size_t downloaded, const size_t total) {
         downloadProgress = downloaded;
         downloadTotal = total;
+        mappedInput.update();
+        if (mappedInput.isPressed(MappedInputManager::Button::Back) ||
+            mappedInput.wasPressed(MappedInputManager::Button::Back)) {
+          cancelRequested = true;
+        }
         requestUpdate(true);
       },
-      nullptr, server.username, server.password);
+      &cancelRequested, server.username, server.password);
 
   if (result == HttpDownloader::OK) {
     clearBookCache(filename);
+    state = BrowserState::BROWSING;
+  } else if (result == HttpDownloader::ABORTED) {
+    LOG_DBG("OPDS", "Download cancelled");
+    mappedInput.suppressNextBackRelease();
     state = BrowserState::BROWSING;
   } else {
     state = BrowserState::ERROR;
