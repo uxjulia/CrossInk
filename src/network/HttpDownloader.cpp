@@ -32,6 +32,19 @@ void logNetworkState(const char* phase) {
           static_cast<int>(WiFi.status()), WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0);
 }
 
+bool isCancelRequested(bool* cancelFlag, const HttpDownloader::CancelCallback& shouldCancel) {
+  if (cancelFlag && *cancelFlag) {
+    return true;
+  }
+  if (shouldCancel && shouldCancel()) {
+    if (cancelFlag) {
+      *cancelFlag = true;
+    }
+    return true;
+  }
+  return false;
+}
+
 class ProgressNotifier {
  public:
   ProgressNotifier(size_t total, HttpDownloader::ProgressCallback progress)
@@ -58,8 +71,12 @@ class ProgressNotifier {
 
 class FileWriteStream final : public Stream {
  public:
-  FileWriteStream(FsFile& file, size_t total, HttpDownloader::ProgressCallback progress, const bool* cancelFlag)
-      : file_(file), progress_(total, std::move(progress)), cancelFlag_(cancelFlag) {}
+  FileWriteStream(FsFile& file, size_t total, HttpDownloader::ProgressCallback progress, bool* cancelFlag,
+                  HttpDownloader::CancelCallback shouldCancel)
+      : file_(file),
+        progress_(total, std::move(progress)),
+        cancelFlag_(cancelFlag),
+        shouldCancel_(std::move(shouldCancel)) {}
 
   size_t write(uint8_t byte) override { return write(&byte, 1); }
 
@@ -68,7 +85,7 @@ class FileWriteStream final : public Stream {
       return 0;
     }
 
-    if (cancelFlag_ && *cancelFlag_) {
+    if (isCancelRequested(cancelFlag_, shouldCancel_)) {
       writeOk_ = false;
       return 0;
     }
@@ -95,12 +112,14 @@ class FileWriteStream final : public Stream {
   size_t downloaded_ = 0;
   bool writeOk_ = true;
   ProgressNotifier progress_;
-  const bool* cancelFlag_;
+  bool* cancelFlag_;
+  HttpDownloader::CancelCallback shouldCancel_;
 };
 
 HttpDownloader::DownloadError downloadKnownLengthBody(HTTPClient& http, FsFile& file, const size_t contentLength,
                                                       HttpDownloader::ProgressCallback progress, size_t& downloaded,
-                                                      const bool* cancelFlag) {
+                                                      bool* cancelFlag,
+                                                      const HttpDownloader::CancelCallback& shouldCancel) {
   auto* stream = http.getStreamPtr();
   if (!stream) {
     LOG_ERR("HTTP", "Failed to get response stream");
@@ -116,7 +135,7 @@ HttpDownloader::DownloadError downloadKnownLengthBody(HTTPClient& http, FsFile& 
   ProgressNotifier progressNotifier(contentLength, std::move(progress));
   uint32_t lastProgressMs = millis();
   while (downloaded < contentLength) {
-    if (cancelFlag && *cancelFlag) {
+    if (isCancelRequested(cancelFlag, shouldCancel)) {
       return HttpDownloader::ABORTED;
     }
     const size_t remaining = contentLength - downloaded;
@@ -344,10 +363,11 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
   int writeResult = 0;
 
   if (contentLength > 0) {
-    transferError = downloadKnownLengthBody(http, file, contentLength, std::move(progress), downloaded, cancelFlag);
+    transferError = downloadKnownLengthBody(http, file, contentLength, std::move(progress), downloaded, cancelFlag,
+                                            options.shouldCancel);
   } else {
     // Let HTTPClient handle chunked decoding and stream body bytes into the file.
-    FileWriteStream fileStream(file, contentLength, std::move(progress), cancelFlag);
+    FileWriteStream fileStream(file, contentLength, std::move(progress), cancelFlag, std::move(options.shouldCancel));
     writeResult = http.writeToStream(&fileStream);
     fileStream.finishProgress();
     downloaded = fileStream.downloaded();
