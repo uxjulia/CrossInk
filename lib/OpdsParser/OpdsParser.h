@@ -15,6 +15,8 @@ enum class OpdsEntryType {
   BOOK         // Downloadable book
 };
 
+enum class OpdsParserError { NONE, NO_ENTRY_BUFFER, INVALID_INPUT, PARSER_MEMORY, BUFFER_MEMORY, XML_PARSE };
+
 /**
  * Represents an entry from an OPDS feed (either a navigation link or a book).
  */
@@ -144,6 +146,7 @@ class OpdsParser final : public Print {
   bool parse(const char* xmlData, size_t length) { return parse(reinterpret_cast<const uint8_t*>(xmlData), length); }
 
   bool error() const;
+  OpdsParserError getErrorReason() const { return errorReason; }
 
   operator bool() const { return !error(); }
 
@@ -189,5 +192,6 @@ class OpdsParser final : public Print {
   bool inId = false;
 
   bool errorOccured = false;
+  OpdsParserError errorReason = OpdsParserError::NONE;
   bool truncated = false;
 };

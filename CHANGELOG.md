@@ -5,6 +5,7 @@
 ### Added
 
 ### Fixed
+- Fixed OPDS feed errors so low-memory parser-buffer failures show the specific memory message instead of the generic parse error.
 
 ### Changed
 
