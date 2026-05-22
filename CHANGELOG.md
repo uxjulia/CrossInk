@@ -6,6 +6,7 @@
 
 ### Fixed
 - Fixed OPDS feed errors so low-memory parser-buffer failures show the specific memory message instead of the generic parse error.
+- Free the active SD-card reader font before opening OPDS catalogs so WiFi/feed parsing has more memory available.
 
 ### Changed
 
