@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <cstring>
 #include <string>
+#include <vector>
 
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
