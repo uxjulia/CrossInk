@@ -22,6 +22,7 @@
 namespace {
 constexpr int PAGE_ITEMS = 23;
 constexpr size_t OPDS_BROWSER_ENTRY_CAPACITY = MAX_OPDS_FEED_ENTRIES + 2;
+constexpr size_t OPDS_DOWNLOAD_BUFFER_SIZE = 4096;
 }  // namespace
 
 void OpdsBookBrowserActivity::onEnter() {
@@ -354,6 +355,7 @@ void OpdsBookBrowserActivity::downloadBook(const OpdsEntry& book) {
   };
   HttpDownloader::DownloadOptions downloadOptions;
   downloadOptions.shouldCancel = pollCancel;
+  downloadOptions.bufferSize = OPDS_DOWNLOAD_BUFFER_SIZE;
 
   const auto result = HttpDownloader::downloadToFile(
       downloadUrl, filename,

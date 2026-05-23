@@ -21,7 +21,7 @@
 namespace {
 constexpr size_t PROGRESS_UPDATE_BYTES = 64 * 1024;
 constexpr uint32_t PROGRESS_UPDATE_MS = 250;
-constexpr size_t DOWNLOAD_BUFFER_SIZE = 1024;
+constexpr size_t DEFAULT_DOWNLOAD_BUFFER_SIZE = 1024;
 constexpr uint16_t HTTP_RESPONSE_TIMEOUT_MS = 15000;
 constexpr int32_t HTTP_CONNECT_TIMEOUT_MS = 10000;
 constexpr uint32_t HTTPS_HANDSHAKE_TIMEOUT_SECONDS = 10;
@@ -124,7 +124,7 @@ class FileWriteStream final : public Stream {
 
 HttpDownloader::DownloadError downloadKnownLengthBody(HTTPClient& http, FsFile& file, const size_t contentLength,
                                                       HttpDownloader::ProgressCallback progress, size_t& downloaded,
-                                                      bool* cancelFlag,
+                                                      bool* cancelFlag, const size_t bufferSize,
                                                       const HttpDownloader::CancelCallback& shouldCancel) {
   auto* stream = http.getStreamPtr();
   if (!stream) {
@@ -132,9 +132,9 @@ HttpDownloader::DownloadError downloadKnownLengthBody(HTTPClient& http, FsFile& 
     return HttpDownloader::HTTP_ERROR;
   }
 
-  std::unique_ptr<uint8_t[]> buffer(new (std::nothrow) uint8_t[DOWNLOAD_BUFFER_SIZE]);
+  std::unique_ptr<uint8_t[]> buffer(new (std::nothrow) uint8_t[bufferSize]);
   if (!buffer) {
-    LOG_ERR("HTTP", "Failed to allocate %zu byte download buffer", DOWNLOAD_BUFFER_SIZE);
+    LOG_ERR("HTTP", "Failed to allocate %zu byte download buffer", bufferSize);
     return HttpDownloader::HTTP_ERROR;
   }
 
@@ -160,7 +160,7 @@ HttpDownloader::DownloadError downloadKnownLengthBody(HTTPClient& http, FsFile& 
       continue;
     }
 
-    const size_t toRead = std::min({DOWNLOAD_BUFFER_SIZE, remaining, static_cast<size_t>(available)});
+    const size_t toRead = std::min({bufferSize, remaining, static_cast<size_t>(available)});
     const size_t bytesRead = stream->readBytes(buffer.get(), toRead);
     if (bytesRead == 0) {
       if (millis() - lastProgressMs < DOWNLOAD_IDLE_TIMEOUT_MS) {
@@ -285,12 +285,13 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
     client.reset(plainClient);
   }
   HTTPClient http;
+  const size_t bufferSize = options.bufferSize > 0 ? options.bufferSize : DEFAULT_DOWNLOAD_BUFFER_SIZE;
 
   LOG_DBG("HTTP", "Downloading: %s", url.c_str());
   LOG_DBG("HTTP", "Destination: %s", destPath.c_str());
   LOG_DBG("HTTP", "Timeouts: connect=%ld ms response=%u ms idle=%lu ms buffer=%zu bytes",
           static_cast<long>(HTTP_CONNECT_TIMEOUT_MS), HTTP_RESPONSE_TIMEOUT_MS,
-          static_cast<unsigned long>(DOWNLOAD_IDLE_TIMEOUT_MS), DOWNLOAD_BUFFER_SIZE);
+          static_cast<unsigned long>(DOWNLOAD_IDLE_TIMEOUT_MS), bufferSize);
 
   http.begin(*client, url.c_str());
   http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
@@ -376,7 +377,7 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
 
   if (contentLength > 0) {
     transferError = downloadKnownLengthBody(http, file, contentLength, std::move(progress), downloaded, cancelFlag,
-                                            options.shouldCancel);
+                                            bufferSize, options.shouldCancel);
   } else {
     // Let HTTPClient handle chunked decoding and stream body bytes into the file.
     FileWriteStream fileStream(file, contentLength, std::move(progress), cancelFlag, std::move(options.shouldCancel));
