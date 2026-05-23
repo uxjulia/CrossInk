@@ -108,16 +108,16 @@ void CrossPointWebServerActivity::onNetworkModeSelected(const NetworkMode mode) 
     modeName = "Connect to Calibre";
   } else if (mode == NetworkMode::CREATE_HOTSPOT) {
     modeName = "Create Hotspot";
-  } else if (mode == NetworkMode::BLUETOOTH_TRANSFER) {
-    modeName = "Bluetooth Stats Sync";
+  } else if (mode == NetworkMode::NEARBY_STATS_SYNC) {
+    modeName = "Nearby Stats Sync";
   }
   LOG_DBG("WEBACT", "Network mode selected: %s", modeName);
 
   networkMode = mode;
   isApMode = (mode == NetworkMode::CREATE_HOTSPOT);
 
-  if (mode == NetworkMode::BLUETOOTH_TRANSFER) {
-    activityManager.goToBluetoothTransfer();
+  if (mode == NetworkMode::NEARBY_STATS_SYNC) {
+    activityManager.goToNearbyStatsSync();
     return;
   }
 

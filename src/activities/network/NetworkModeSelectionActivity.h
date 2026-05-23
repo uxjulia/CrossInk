@@ -5,14 +5,14 @@
 #include "activities/Activity.h"
 #include "util/ButtonNavigator.h"
 
-enum class NetworkMode { JOIN_NETWORK, CONNECT_CALIBRE, CREATE_HOTSPOT, BLUETOOTH_TRANSFER };
+enum class NetworkMode { JOIN_NETWORK, CONNECT_CALIBRE, CREATE_HOTSPOT, NEARBY_STATS_SYNC };
 
 /**
  * NetworkModeSelectionActivity presents the user with a choice:
  * - "Join a Network" - Connect to an existing WiFi network (STA mode)
  * - "Connect to Calibre" - Use Calibre wireless device transfers
  * - "Create Hotspot" - Create an Access Point that others can connect to (AP mode)
- * - "Bluetooth Stats Sync" - Sync reading stats with a nearby reader over BLE
+ * - "Nearby Stats Sync" - Sync reading stats directly with a nearby reader
  *
  * The onModeSelected callback is called with the user's choice.
  * The onCancel callback is called if the user presses back.
