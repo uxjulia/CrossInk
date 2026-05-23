@@ -116,6 +116,19 @@ if (parsedSize != fileSize) {
 }
 ```
 
+## `reader_settings.bin`
+
+### Version 1
+
+Stores per-book reader preferences that should survive reopening a book without changing EPUB layout caches.
+
+Binary layout:
+
+```text
+[0]    version (= 1)
+[1-2]  lastAutoPageTurnIntervalSeconds uint16_t LE
+```
+
 ## `section.bin`
 
 ### Version 36

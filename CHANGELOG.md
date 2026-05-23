@@ -6,6 +6,7 @@
 
 ### Fixed
 - Fixed Lyra Carousel popup rendering so loading, indexing, and sleep-entry popups appear in the right place again.
+- Fixed Auto Page Turn so each book remembers the last selected interval when it is turned on again.
 
 ### Changed
 
