@@ -6,6 +6,7 @@
 
 ### Fixed
 - Fixed Lyra Carousel popup rendering so loading, indexing, and sleep-entry popups appear in the right place again.
+- Fixed EPUB progress saves so KOReader Sync writes complete resume data without truncating the existing progress file first.
 
 ### Changed
 
