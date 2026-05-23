@@ -103,6 +103,7 @@ constexpr size_t BIN_SUFFIX_LEN = 4;
 constexpr uint32_t BLE_PEER_SCAN_MS = 6000;
 constexpr uint32_t BLE_PEER_CONNECT_TIMEOUT_MS = 5000;
 constexpr uint32_t BLE_PEER_STATUS_TIMEOUT_MS = 8000;
+constexpr uint32_t BLE_PEER_COMPLETE_TIMEOUT_MS = 2000;
 constexpr uint32_t BLE_PEER_DOWNLOAD_TIMEOUT_MS = 10000;
 
 std::string bytesToHex(const uint8_t* data, const size_t length) {
@@ -390,6 +391,10 @@ bool waitForStatsDownload(NimBLERemoteCharacteristic* control, NimBLERemoteChara
         error = "could not ack stats";
         return false;
       }
+      if (isValidStatsPayload(download.data)) {
+        if (expectedSize == 0) expectedSize = download.data.size();
+        return true;
+      }
     }
 
     JsonDocument doc;
@@ -619,12 +624,21 @@ void BleTransferActivity::processBleEvents() {
 }
 
 void BleTransferActivity::onBleConnected() {
+  initiatedPeerSync_ = false;
   helloAccepted_ = false;
   setState(State::CONNECTED);
 }
 
 void BleTransferActivity::onBleDisconnected() {
   if (state_ == State::SAVED_STATS || state_ == State::SENT_STATS || state_ == State::SYNCED_STATS) {
+    resetTransfer(false);
+    helloAccepted_ = false;
+    setState(State::SYNCED_STATS);
+    if (ble_) ble_->startAdvertising();
+    return;
+  }
+
+  if (downloadOpen_ && expectedSize_ > 0 && sentBytes_ == expectedSize_) {
     resetTransfer(false);
     helloAccepted_ = false;
     setState(State::SYNCED_STATS);
@@ -665,6 +679,13 @@ void BleTransferActivity::onControlWrite(const std::string& value) {
 
   if (!helloAccepted_) {
     setError("peer hello required");
+    return;
+  }
+
+  if (op == "sync_complete") {
+    resetTransfer(false);
+    setState(State::SYNCED_STATS);
+    publishStatus();
     return;
   }
 
@@ -760,6 +781,12 @@ void BleTransferActivity::onControlWrite(const std::string& value) {
       return;
     }
     downloadAwaitingAck_ = false;
+    if (expectedSize_ > 0 && sentBytes_ == expectedSize_) {
+      if (downloadFile_) downloadFile_.close();
+      downloadOpen_ = false;
+      setState(State::SENT_STATS);
+      return;
+    }
     statusDirty_ = true;
     requestUpdate();
     return;
@@ -953,6 +980,7 @@ void BleTransferActivity::pumpDownload() {
 }
 
 void BleTransferActivity::startPeerStatsSync() {
+  initiatedPeerSync_ = true;
   resetTransfer(true);
   setState(State::SYNC_SCANNING);
   publishStatus();
@@ -1100,11 +1128,17 @@ void BleTransferActivity::startPeerStatsSync() {
 
   JsonDocument commit;
   commit["op"] = "commit";
-  if (!writeJsonControl(control, commit) || !waitForRemoteState(status, "saved_stats", error)) {
+  if (!writeJsonControl(control, commit)) {
+    finishClient();
+    setError("stats upload commit failed");
+    return;
+  }
+  if (!waitForRemoteState(status, "saved_stats", error) && error != "peer timed out") {
     finishClient();
     setError(error.empty() ? "stats upload commit failed" : error);
     return;
   }
+  error.clear();
 
   PeerStatsDownload download;
   auto notifyCb = [&download](NimBLERemoteCharacteristic*, uint8_t* data, size_t length, bool) {
@@ -1159,6 +1193,19 @@ void BleTransferActivity::startPeerStatsSync() {
   if (peerStatsPath.empty() || !writeSyncedStatsFile(peerStatsPath, download.data)) {
     finishClient();
     setError("could not save stats");
+    return;
+  }
+
+  JsonDocument complete;
+  complete["op"] = "sync_complete";
+  if (!writeJsonControl(control, complete)) {
+    finishClient();
+    setError("stats sync completion failed");
+    return;
+  }
+  if (!waitForRemoteState(status, "synced_stats", error, BLE_PEER_COMPLETE_TIMEOUT_MS) && error != "peer timed out") {
+    finishClient();
+    setError(error.empty() ? "stats sync completion failed" : error);
     return;
   }
 
@@ -1289,11 +1336,11 @@ void BleTransferActivity::render(RenderLock&&) {
       secondary = fileName_;
       break;
     case State::SAVED_STATS:
-      primary = tr(STR_BLE_STATS_SYNCED);
+      primary = tr(STR_BLE_STATS_RECEIVED);
       secondary = savedPath_.empty() ? fileName_ : savedPath_;
       break;
     case State::SENT_STATS:
-      primary = tr(STR_BLE_STATS_SYNCED);
+      primary = tr(STR_BLE_STATS_SENT);
       secondary = fileName_;
       break;
     case State::SYNC_SCANNING:
@@ -1306,7 +1353,7 @@ void BleTransferActivity::render(RenderLock&&) {
       primary = tr(STR_BLE_STATS_SYNCING);
       break;
     case State::SYNCED_STATS:
-      primary = tr(STR_BLE_STATS_SYNCED);
+      primary = initiatedPeerSync_ ? tr(STR_BLE_STATS_SENT) : tr(STR_BLE_STATS_RECEIVED);
       break;
     case State::ERROR:
       primary = tr(STR_ERROR_MSG);
