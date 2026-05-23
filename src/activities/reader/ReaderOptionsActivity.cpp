@@ -13,6 +13,7 @@
 #include "activities/settings/FontDownloadActivity.h"
 #include "activities/settings/FontSelectionActivity.h"
 #include "activities/settings/StatusBarSettingsActivity.h"
+#include "activities/util/IntervalSelectionActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 
@@ -37,6 +38,13 @@ uint8_t enumRawValueForDisplayIndex(const SettingInfo& setting, uint8_t displayI
     return setting.enumRawValues.front();
   }
   return setting.enumRawValues[displayIndex];
+}
+
+std::string formatSettingValue(const SettingInfo& setting) {
+  if (setting.valuePtr == &CrossPointSettings::lineHeightPercent) {
+    return std::to_string(SETTINGS.*(setting.valuePtr)) + "%";
+  }
+  return std::to_string(SETTINGS.*(setting.valuePtr));
 }
 }  // namespace
 
@@ -98,6 +106,10 @@ void ReaderOptionsActivity::toggleCurrentSetting() {
     const uint8_t cur = setting.valueGetter();
     setting.valueSetter((cur + 1) % totalValues);
   } else if (setting.type == SettingType::VALUE && setting.valuePtr != nullptr) {
+    if (setting.valuePtr == &CrossPointSettings::lineHeightPercent) {
+      openLineHeightPicker();
+      return;
+    }
     const int8_t cur = SETTINGS.*(setting.valuePtr);
     if (cur + setting.valueRange.step > setting.valueRange.max) {
       SETTINGS.*(setting.valuePtr) = setting.valueRange.min;
@@ -121,6 +133,23 @@ void ReaderOptionsActivity::toggleCurrentSetting() {
       return;
     }
   }
+}
+
+void ReaderOptionsActivity::openLineHeightPicker() {
+  startActivityForResult(
+      std::make_unique<IntervalSelectionActivity>(
+          renderer, mappedInput, "ReaderOptionsLineHeightInterval", StrId::STR_LINE_SPACING,
+          StrId::STR_PERCENT_STEP_HINT, SETTINGS.lineHeightPercent, CrossPointSettings::MIN_LINE_HEIGHT_PERCENT,
+          CrossPointSettings::MAX_LINE_HEIGHT_PERCENT, 1, 10, StrId::STR_NONE_OPT, /*readerActivity=*/true,
+          /*allowPowerAsConfirm=*/true, /*ignoreInitialConfirmRelease=*/false, /*showPercentValue=*/true),
+      [this](const ActivityResult& result) {
+        if (!result.isCancelled) {
+          SETTINGS.lineHeightPercent = CrossPointSettings::clampedLineHeightPercent(
+              static_cast<uint8_t>(std::get<IntervalResult>(result.data).value));
+          SETTINGS.saveToFile();
+        }
+        requestUpdate();
+      });
 }
 
 void ReaderOptionsActivity::loop() {
@@ -186,13 +215,16 @@ void ReaderOptionsActivity::render(RenderLock&&) {
           const uint8_t value = setting.valueGetter();
           valueText = settingEnumOptionLabel(setting, value);
         } else if (setting.type == SettingType::VALUE && setting.valuePtr != nullptr) {
-          valueText = std::to_string(SETTINGS.*(setting.valuePtr));
+          valueText = formatSettingValue(setting);
         }
         return valueText;
       },
       true);
 
-  const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_TOGGLE), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
+  const bool selectedLineHeight = selectedIndex >= 0 && selectedIndex < settingsCount &&
+                                  settings[selectedIndex].valuePtr == &CrossPointSettings::lineHeightPercent;
+  const auto labels = mappedInput.mapLabels(tr(STR_BACK), selectedLineHeight ? tr(STR_SELECT) : tr(STR_TOGGLE),
+                                            tr(STR_DIR_UP), tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4, true);
 
   renderer.displayBuffer();

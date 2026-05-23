@@ -14,7 +14,7 @@ class IntervalSelectionActivity final : public Activity {
                                      StrId titleId, StrId stepHintId, int initialValue, int minValue, int maxValue,
                                      int smallStep, int largeStep, StrId valueFormatId = StrId::STR_NONE_OPT,
                                      bool readerActivity = false, bool allowPowerAsConfirm = false,
-                                     bool ignoreInitialConfirmRelease = false)
+                                     bool ignoreInitialConfirmRelease = false, bool showPercentValue = false)
       : Activity(activityName, renderer, mappedInput),
         titleId(titleId),
         stepHintId(stepHintId),
@@ -26,7 +26,8 @@ class IntervalSelectionActivity final : public Activity {
         largeStep(largeStep),
         readerActivity(readerActivity),
         allowPowerAsConfirm(allowPowerAsConfirm),
-        ignoreConfirmRelease(ignoreInitialConfirmRelease) {}
+        ignoreConfirmRelease(ignoreInitialConfirmRelease),
+        showPercentValue(showPercentValue) {}
 
   void onEnter() override;
   void loop() override;
@@ -46,6 +47,7 @@ class IntervalSelectionActivity final : public Activity {
   bool readerActivity;
   bool allowPowerAsConfirm;
   bool ignoreConfirmRelease;
+  bool showPercentValue;
   ButtonNavigator buttonNavigator;
 
   void adjustValue(int delta);

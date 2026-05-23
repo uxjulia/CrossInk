@@ -10,6 +10,7 @@ OpdsParser::OpdsParser(OpdsEntry* entries, const size_t entryCapacity)
     : entries(entries), entryCapacity(entryCapacity) {
   if (!entries || entryCapacity == 0) {
     errorOccured = true;
+    errorReason = OpdsParserError::NO_ENTRY_BUFFER;
     LOG_DBG("OPDS", "No entry buffer supplied");
   }
 
@@ -27,6 +28,7 @@ size_t OpdsParser::write(const uint8_t* xmlData, const size_t length) {
   }
   if (!xmlData && length > 0) {
     errorOccured = true;
+    errorReason = OpdsParserError::INVALID_INPUT;
     return length;
   }
 
@@ -38,6 +40,7 @@ size_t OpdsParser::write(const uint8_t* xmlData, const size_t length) {
     void* const buf = XML_GetBuffer(parser, chunkSize);
     if (!buf) {
       errorOccured = true;
+      errorReason = OpdsParserError::BUFFER_MEMORY;
       LOG_DBG("OPDS", "Couldn't allocate memory for buffer");
       destroyXmlParser(parser);
       parser = nullptr;
@@ -49,6 +52,7 @@ size_t OpdsParser::write(const uint8_t* xmlData, const size_t length) {
 
     if (XML_ParseBuffer(parser, static_cast<int>(toRead), 0) == XML_STATUS_ERROR) {
       errorOccured = true;
+      errorReason = OpdsParserError::XML_PARSE;
       LOG_DBG("OPDS", "Parse error at line %lu: %s", XML_GetCurrentLineNumber(parser),
               XML_ErrorString(XML_GetErrorCode(parser)));
       destroyXmlParser(parser);
@@ -65,6 +69,7 @@ void OpdsParser::flush() {
   if (!parser) return;
   if (XML_Parse(parser, nullptr, 0, XML_TRUE) != XML_STATUS_OK) {
     errorOccured = true;
+    errorReason = OpdsParserError::XML_PARSE;
     destroyXmlParser(parser);
     parser = nullptr;
   }
@@ -74,6 +79,7 @@ bool OpdsParser::parse(const uint8_t* xmlData, const size_t length) {
   clear();
   if (!xmlData && length > 0) {
     errorOccured = true;
+    errorReason = OpdsParserError::INVALID_INPUT;
     return false;
   }
 
@@ -96,6 +102,7 @@ void OpdsParser::clear() {
   currentText.clear();
   inEntry = inTitle = inAuthor = inAuthorName = inId = false;
   errorOccured = !entries || entryCapacity == 0;
+  errorReason = errorOccured ? OpdsParserError::NO_ENTRY_BUFFER : OpdsParserError::NONE;
   resetXmlParser();
 }
 
@@ -110,6 +117,7 @@ bool OpdsParser::resetXmlParser() {
     parser = XML_ParserCreate(nullptr);
     if (!parser) {
       errorOccured = true;
+      errorReason = OpdsParserError::PARSER_MEMORY;
       LOG_DBG("OPDS", "Couldn't allocate memory for parser");
       return false;
     }

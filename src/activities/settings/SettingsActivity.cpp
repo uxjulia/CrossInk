@@ -103,6 +103,19 @@ void drawSystemVersionFooter(const GfxRenderer& renderer, const int pageWidth, c
   drawCenteredTextLine(renderer, pageWidth, bottomLineY - lineHeight, firstLine);
   drawCenteredTextLine(renderer, pageWidth, bottomLineY, secondLine);
 }
+
+std::string formatSettingValue(const SettingInfo& setting) {
+  if (setting.nameId == StrId::STR_TIME_TO_SLEEP) {
+    char valueBuffer[32];
+    snprintf(valueBuffer, sizeof(valueBuffer), tr(STR_SLEEP_TIMER_VALUE_FORMAT),
+             static_cast<unsigned int>(SETTINGS.*(setting.valuePtr)));
+    return valueBuffer;
+  }
+  if (setting.valuePtr == &CrossPointSettings::lineHeightPercent) {
+    return std::to_string(SETTINGS.*(setting.valuePtr)) + "%";
+  }
+  return std::to_string(SETTINGS.*(setting.valuePtr));
+}
 }  // namespace
 
 void SettingsActivity::rebuildSettingsLists() {
@@ -336,6 +349,10 @@ void SettingsActivity::toggleCurrentSetting() {
     openSleepTimeoutPicker();
     return;
   }
+  if (setting.valuePtr == &CrossPointSettings::lineHeightPercent) {
+    openLineHeightPicker();
+    return;
+  }
 
   if (setting.type == SettingType::TOGGLE && setting.valuePtr != nullptr) {
     // Toggle the boolean value using the member pointer
@@ -462,6 +479,23 @@ void SettingsActivity::openSleepTimeoutPicker() {
       });
 }
 
+void SettingsActivity::openLineHeightPicker() {
+  startActivityForResult(
+      std::make_unique<IntervalSelectionActivity>(
+          renderer, mappedInput, "LineHeightInterval", StrId::STR_LINE_SPACING, StrId::STR_PERCENT_STEP_HINT,
+          SETTINGS.lineHeightPercent, CrossPointSettings::MIN_LINE_HEIGHT_PERCENT,
+          CrossPointSettings::MAX_LINE_HEIGHT_PERCENT, 1, 10, StrId::STR_NONE_OPT, /*readerActivity=*/false,
+          /*allowPowerAsConfirm=*/false, /*ignoreInitialConfirmRelease=*/false, /*showPercentValue=*/true),
+      [this](const ActivityResult& result) {
+        if (!result.isCancelled) {
+          SETTINGS.lineHeightPercent = CrossPointSettings::clampedLineHeightPercent(
+              static_cast<uint8_t>(std::get<IntervalResult>(result.data).value));
+          SETTINGS.saveToFile();
+        }
+        requestUpdate();
+      });
+}
+
 void SettingsActivity::render(RenderLock&&) {
   renderer.clearScreen();
 
@@ -504,14 +538,7 @@ void SettingsActivity::render(RenderLock&&) {
           const uint8_t value = setting.valueGetter();
           valueText = settingEnumOptionLabel(setting, value);
         } else if (setting.type == SettingType::VALUE && setting.valuePtr != nullptr) {
-          if (setting.nameId == StrId::STR_TIME_TO_SLEEP) {
-            char valueBuffer[32];
-            snprintf(valueBuffer, sizeof(valueBuffer), tr(STR_SLEEP_TIMER_VALUE_FORMAT),
-                     static_cast<unsigned int>(SETTINGS.*(setting.valuePtr)));
-            valueText = valueBuffer;
-          } else {
-            valueText = std::to_string(SETTINGS.*(setting.valuePtr));
-          }
+          valueText = formatSettingValue(setting);
         }
         return valueText;
       },
@@ -526,7 +553,9 @@ void SettingsActivity::render(RenderLock&&) {
   const auto confirmLabel =
       (selectedSettingIndex == 0)
           ? I18N.get(categoryNames[(selectedCategoryIndex + 1) % categoryCount])
-          : (selectedSettingIndex > 0 && (*currentSettings)[selectedSettingIndex - 1].nameId == StrId::STR_TIME_TO_SLEEP
+          : (selectedSettingIndex > 0 &&
+                     ((*currentSettings)[selectedSettingIndex - 1].nameId == StrId::STR_TIME_TO_SLEEP ||
+                      (*currentSettings)[selectedSettingIndex - 1].valuePtr == &CrossPointSettings::lineHeightPercent)
                  ? tr(STR_SELECT)
                  : tr(STR_TOGGLE));
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), confirmLabel, tr(STR_DIR_UP), tr(STR_DIR_DOWN));

@@ -315,6 +315,15 @@ bool JsonSettingsIO::loadSettings(CrossPointSettings& s, const char* json, bool*
   strncpy(s.sdFontFamilyName, sfn, sizeof(s.sdFontFamilyName) - 1);
   s.sdFontFamilyName[sizeof(s.sdFontFamilyName) - 1] = '\0';
 
+  if (doc["lineHeightPercent"].isNull() && !doc["lineSpacing"].isNull()) {
+    const uint8_t legacyLineSpacing = clamp(doc["lineSpacing"] | static_cast<uint8_t>(CrossPointSettings::NORMAL),
+                                            static_cast<uint8_t>(CrossPointSettings::LINE_COMPRESSION_COUNT),
+                                            static_cast<uint8_t>(CrossPointSettings::NORMAL));
+    s.lineHeightPercent =
+        CrossPointSettings::legacyLineSpacingToPercent(legacyLineSpacing, s.fontFamily, s.sdFontFamilyName[0] != '\0');
+    if (needsResave) *needsResave = true;
+  }
+
   // Language -- stored as code string for stability across enum reorders.
   if (doc["language"].is<const char*>()) {
     s.language = static_cast<uint8_t>(I18n::languageFromCode(doc["language"].as<const char*>()));

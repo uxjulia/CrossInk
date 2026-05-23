@@ -15,6 +15,7 @@ class ReaderOptionsActivity final : public Activity {
 
   void rebuildSettingsList();
   void toggleCurrentSetting();
+  void openLineHeightPicker();
 
  public:
   explicit ReaderOptionsActivity(GfxRenderer& renderer, MappedInputManager& mappedInput)

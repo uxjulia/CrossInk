@@ -16,7 +16,7 @@ struct ReaderLayoutSettingsSnapshot {
   uint8_t fontFamily;
   uint8_t fontSize;
   uint8_t sdFontSizeRange;
-  uint8_t lineSpacing;
+  uint8_t lineHeightPercent;
   uint8_t orientation;
   uint8_t screenMargin;
   uint8_t paragraphAlignment;
@@ -31,10 +31,10 @@ struct ReaderLayoutSettingsSnapshot {
 
   bool operator==(const ReaderLayoutSettingsSnapshot& other) const {
     return fontFamily == other.fontFamily && fontSize == other.fontSize && sdFontSizeRange == other.sdFontSizeRange &&
-           lineSpacing == other.lineSpacing && orientation == other.orientation && screenMargin == other.screenMargin &&
-           paragraphAlignment == other.paragraphAlignment && embeddedStyle == other.embeddedStyle &&
-           hyphenationEnabled == other.hyphenationEnabled && imageRendering == other.imageRendering &&
-           extraParagraphSpacing == other.extraParagraphSpacing &&
+           lineHeightPercent == other.lineHeightPercent && orientation == other.orientation &&
+           screenMargin == other.screenMargin && paragraphAlignment == other.paragraphAlignment &&
+           embeddedStyle == other.embeddedStyle && hyphenationEnabled == other.hyphenationEnabled &&
+           imageRendering == other.imageRendering && extraParagraphSpacing == other.extraParagraphSpacing &&
            forceParagraphIndents == other.forceParagraphIndents && bionicReadingEnabled == other.bionicReadingEnabled &&
            guideReadingEnabled == other.guideReadingEnabled &&
            std::strncmp(sdFontFamilyName, other.sdFontFamilyName, sizeof(sdFontFamilyName)) == 0;
@@ -47,7 +47,7 @@ ReaderLayoutSettingsSnapshot captureReaderLayoutSettings() {
       SETTINGS.fontFamily,
       SETTINGS.fontSize,
       SETTINGS.sdFontSizeRange,
-      SETTINGS.lineSpacing,
+      SETTINGS.lineHeightPercent,
       SETTINGS.orientation,
       SETTINGS.screenMargin,
       SETTINGS.paragraphAlignment,

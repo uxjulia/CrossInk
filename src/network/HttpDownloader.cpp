@@ -21,15 +21,21 @@
 namespace {
 constexpr size_t PROGRESS_UPDATE_BYTES = 64 * 1024;
 constexpr uint32_t PROGRESS_UPDATE_MS = 250;
-constexpr size_t DOWNLOAD_BUFFER_SIZE = 1024;
+constexpr size_t DEFAULT_DOWNLOAD_BUFFER_SIZE = 1024;
 constexpr uint16_t HTTP_RESPONSE_TIMEOUT_MS = 15000;
 constexpr int32_t HTTP_CONNECT_TIMEOUT_MS = 10000;
 constexpr uint32_t HTTPS_HANDSHAKE_TIMEOUT_SECONDS = 10;
-constexpr uint32_t DOWNLOAD_IDLE_TIMEOUT_MS = 15000;
+constexpr uint32_t DOWNLOAD_IDLE_TIMEOUT_MS = 30000;
 
 void logNetworkState(const char* phase) {
   LOG_DBG("HTTP", "%s: heap free=%u maxAlloc=%u wifi=%d rssi=%d", phase, ESP.getFreeHeap(), ESP.getMaxAllocHeap(),
           static_cast<int>(WiFi.status()), WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0);
+}
+
+void logDownloadState(const char* phase, const size_t downloaded, const size_t total, const uint32_t idleMs) {
+  LOG_ERR("HTTP", "%s after %zu/%zu bytes (idle=%lu ms, timeout=%lu ms)", phase, downloaded, total,
+          static_cast<unsigned long>(idleMs), static_cast<unsigned long>(DOWNLOAD_IDLE_TIMEOUT_MS));
+  logNetworkState(phase);
 }
 
 bool isCancelRequested(bool* cancelFlag, const HttpDownloader::CancelCallback& shouldCancel) {
@@ -118,7 +124,7 @@ class FileWriteStream final : public Stream {
 
 HttpDownloader::DownloadError downloadKnownLengthBody(HTTPClient& http, FsFile& file, const size_t contentLength,
                                                       HttpDownloader::ProgressCallback progress, size_t& downloaded,
-                                                      bool* cancelFlag,
+                                                      bool* cancelFlag, const size_t bufferSize,
                                                       const HttpDownloader::CancelCallback& shouldCancel) {
   auto* stream = http.getStreamPtr();
   if (!stream) {
@@ -126,9 +132,9 @@ HttpDownloader::DownloadError downloadKnownLengthBody(HTTPClient& http, FsFile& 
     return HttpDownloader::HTTP_ERROR;
   }
 
-  std::unique_ptr<uint8_t[]> buffer(new (std::nothrow) uint8_t[DOWNLOAD_BUFFER_SIZE]);
+  std::unique_ptr<uint8_t[]> buffer(new (std::nothrow) uint8_t[bufferSize]);
   if (!buffer) {
-    LOG_ERR("HTTP", "Failed to allocate %zu byte download buffer", DOWNLOAD_BUFFER_SIZE);
+    LOG_ERR("HTTP", "Failed to allocate %zu byte download buffer", bufferSize);
     return HttpDownloader::HTTP_ERROR;
   }
 
@@ -143,25 +149,25 @@ HttpDownloader::DownloadError downloadKnownLengthBody(HTTPClient& http, FsFile& 
     int available = stream->available();
     if (available <= 0) {
       if (!http.connected()) {
-        LOG_ERR("HTTP", "Connection closed after %zu of %zu bytes", downloaded, contentLength);
+        logDownloadState("Connection closed", downloaded, contentLength, millis() - lastProgressMs);
         return HttpDownloader::HTTP_ERROR;
       }
       if (millis() - lastProgressMs >= DOWNLOAD_IDLE_TIMEOUT_MS) {
-        LOG_ERR("HTTP", "Read timed out after %zu of %zu bytes", downloaded, contentLength);
+        logDownloadState("Read timed out", downloaded, contentLength, millis() - lastProgressMs);
         return HttpDownloader::HTTP_ERROR;
       }
       delay(1);
       continue;
     }
 
-    const size_t toRead = std::min({DOWNLOAD_BUFFER_SIZE, remaining, static_cast<size_t>(available)});
+    const size_t toRead = std::min({bufferSize, remaining, static_cast<size_t>(available)});
     const size_t bytesRead = stream->readBytes(buffer.get(), toRead);
     if (bytesRead == 0) {
       if (millis() - lastProgressMs < DOWNLOAD_IDLE_TIMEOUT_MS) {
         delay(1);
         continue;
       }
-      LOG_ERR("HTTP", "Read timed out after %zu of %zu bytes", downloaded, contentLength);
+      logDownloadState("Read timed out", downloaded, contentLength, millis() - lastProgressMs);
       return HttpDownloader::HTTP_ERROR;
     }
 
@@ -171,7 +177,7 @@ HttpDownloader::DownloadError downloadKnownLengthBody(HTTPClient& http, FsFile& 
     progressNotifier.notify(downloaded, false);
 
     if (accepted != bytesRead) {
-      LOG_ERR("HTTP", "Write failed after %zu of %zu bytes", downloaded, contentLength);
+      logDownloadState("Write failed", downloaded, contentLength, 0);
       return HttpDownloader::FILE_ERROR;
     }
 
@@ -279,9 +285,13 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
     client.reset(plainClient);
   }
   HTTPClient http;
+  const size_t bufferSize = options.bufferSize > 0 ? options.bufferSize : DEFAULT_DOWNLOAD_BUFFER_SIZE;
 
   LOG_DBG("HTTP", "Downloading: %s", url.c_str());
   LOG_DBG("HTTP", "Destination: %s", destPath.c_str());
+  LOG_DBG("HTTP", "Timeouts: connect=%ld ms response=%u ms idle=%lu ms buffer=%zu bytes",
+          static_cast<long>(HTTP_CONNECT_TIMEOUT_MS), HTTP_RESPONSE_TIMEOUT_MS,
+          static_cast<unsigned long>(DOWNLOAD_IDLE_TIMEOUT_MS), bufferSize);
 
   http.begin(*client, url.c_str());
   http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
@@ -337,6 +347,9 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
   } else {
     LOG_DBG("HTTP", "Content-Length: unknown");
   }
+  if (resumeOffset > 0) {
+    LOG_DBG("HTTP", "Resume offset: %zu bytes", resumeOffset);
+  }
 
   // Remove existing file if present, unless this is a resumable append.
   if (resumeOffset == 0 && Storage.exists(destPath.c_str())) {
@@ -364,7 +377,7 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
 
   if (contentLength > 0) {
     transferError = downloadKnownLengthBody(http, file, contentLength, std::move(progress), downloaded, cancelFlag,
-                                            options.shouldCancel);
+                                            bufferSize, options.shouldCancel);
   } else {
     // Let HTTPClient handle chunked decoding and stream body bytes into the file.
     FileWriteStream fileStream(file, contentLength, std::move(progress), cancelFlag, std::move(options.shouldCancel));
@@ -390,6 +403,8 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
     if (writeResult < 0) {
       LOG_ERR("HTTP", "writeToStream error: %d (%s)", writeResult, HTTPClient::errorToString(writeResult).c_str());
     }
+    LOG_ERR("HTTP", "Transfer failed: error=%d downloaded=%zu expected=%zu preservePartial=%d resumePartial=%d",
+            static_cast<int>(transferError), downloaded, contentLength, options.preservePartial, options.resumePartial);
     if (transferError == ABORTED || !options.preservePartial) {
       Storage.remove(destPath.c_str());
     }

@@ -140,6 +140,7 @@ class CrossPointSettings {
     SD_FONT_RANGE_ALL = 4,
     SD_FONT_SIZE_RANGE_COUNT
   };
+  // Legacy persisted values for the old Tight / Normal / Wide line-spacing setting.
   enum LINE_COMPRESSION { TIGHT = 0, NORMAL = 1, WIDE = 2, LINE_COMPRESSION_COUNT };
   enum PARAGRAPH_ALIGNMENT {
     JUSTIFIED = 0,
@@ -320,7 +321,8 @@ class CrossPointSettings {
 #else
   uint8_t sdFontSizeRange = SD_FONT_RANGE_TINY;
 #endif
-  uint8_t lineSpacing = NORMAL;
+  uint8_t lineSpacing = NORMAL;  // migration only; new saves use lineHeightPercent
+  uint8_t lineHeightPercent = 100;
   uint8_t paragraphAlignment = JUSTIFIED;
   // Auto-sleep timeout setting (default 10 minutes). Legacy sleepTimeout enum values are migration-only.
   uint8_t sleepTimeoutMinutes = 10;
@@ -379,6 +381,9 @@ class CrossPointSettings {
   static constexpr uint8_t MIN_SLEEP_TIMEOUT_MINUTES = 1;
   static constexpr uint8_t MAX_SLEEP_TIMEOUT_MINUTES = 30;
   static constexpr uint8_t SD_FONT_MAX_SIZE_STEPS = 8;
+  static constexpr uint8_t MIN_LINE_HEIGHT_PERCENT = 70;
+  static constexpr uint8_t MAX_LINE_HEIGHT_PERCENT = 200;
+  static constexpr uint8_t LINE_HEIGHT_PERCENT_STEP = 1;
 
   uint16_t getPowerButtonWakeDuration() const {
     return (shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::SLEEP) ? POWER_BUTTON_WAKE_SHORT_MS
@@ -414,6 +419,8 @@ class CrossPointSettings {
   static uint8_t sleepTimeoutEnumToMinutes(uint8_t legacyValue);
   static uint8_t sleepScreenStorageToMode(uint8_t storedValue);
   static uint8_t sleepScreenModeToStorage(uint8_t mode);
+  static uint8_t legacyLineSpacingToPercent(uint8_t legacyValue, uint8_t fontFamily, bool sdFontSelected);
+  static uint8_t clampedLineHeightPercent(uint8_t value);
 #ifdef SIMULATOR
   static bool verifySleepTimeoutMigrationContract();
   static bool verifySleepScreenMigrationContract();

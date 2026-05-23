@@ -297,6 +297,52 @@ uint8_t CrossPointSettings::sleepScreenModeToStorage(const uint8_t mode) {
   return 0;
 }
 
+uint8_t CrossPointSettings::legacyLineSpacingToPercent(const uint8_t legacyValue, const uint8_t fontFamily,
+                                                       const bool sdFontSelected) {
+  if (sdFontSelected) {
+    switch (legacyValue) {
+      case TIGHT:
+        return 95;
+      case WIDE:
+        return 110;
+      case NORMAL:
+      default:
+        return 100;
+    }
+  }
+
+  switch (fontFamily) {
+    case CHAREINK:
+    case BITTER:
+      switch (legacyValue) {
+        case TIGHT:
+          return 95;
+        case WIDE:
+          return 130;
+        case NORMAL:
+        default:
+          return 110;
+      }
+    case LEXENDDECA:
+    default:
+      switch (legacyValue) {
+        case TIGHT:
+          return 90;
+        case WIDE:
+          return 120;
+        case NORMAL:
+        default:
+          return 100;
+      }
+  }
+}
+
+uint8_t CrossPointSettings::clampedLineHeightPercent(const uint8_t value) {
+  if (value < MIN_LINE_HEIGHT_PERCENT) return MIN_LINE_HEIGHT_PERCENT;
+  if (value > MAX_LINE_HEIGHT_PERCENT) return MAX_LINE_HEIGHT_PERCENT;
+  return value;
+}
+
 bool CrossPointSettings::saveToFile() const {
   Storage.mkdir("/.crosspoint");
   return JsonSettingsIO::saveSettings(*this, SETTINGS_FILE_JSON);
@@ -479,57 +525,14 @@ bool CrossPointSettings::loadFromBinaryFile() {
     applyLegacyFrontButtonLayout(*this);
   }
 
+  lineHeightPercent = legacyLineSpacingToPercent(lineSpacing, fontFamily, sdFontFamilyName[0] != '\0');
+
   LOG_DBG("CPS", "Settings loaded from binary file");
   return true;
 }
 
 float CrossPointSettings::getReaderLineCompression() const {
-  // SD card fonts use same compression as Bookerly (the most neutral values)
-  if (sdFontFamilyName[0] != '\0') {
-    switch (lineSpacing) {
-      case TIGHT:
-        return 0.95f;
-      case NORMAL:
-      default:
-        return 1.0f;
-      case WIDE:
-        return 1.1f;
-    }
-  }
-
-  switch (fontFamily) {
-    case LEXENDDECA:
-    default:
-      switch (lineSpacing) {
-        case TIGHT:
-          return 0.90f;
-        case NORMAL:
-        default:
-          return 1.0f;
-        case WIDE:
-          return 1.2f;
-      }
-    case CHAREINK:
-      switch (lineSpacing) {
-        case TIGHT:
-          return 0.95f;
-        case NORMAL:
-        default:
-          return 1.1f;
-        case WIDE:
-          return 1.3f;
-      }
-    case BITTER:
-      switch (lineSpacing) {
-        case TIGHT:
-          return 0.95f;
-        case NORMAL:
-        default:
-          return 1.1f;
-        case WIDE:
-          return 1.3f;
-      }
-  }
+  return static_cast<float>(clampedLineHeightPercent(lineHeightPercent)) / 100.0f;
 }
 
 unsigned long CrossPointSettings::getSleepTimeoutMs() const {

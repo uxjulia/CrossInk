@@ -305,9 +305,10 @@ inline std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* regist
                           {StrId::STR_FONT_RANGE_TEENSY, StrId::STR_FONT_RANGE_TINY, StrId::STR_FONT_RANGE_XLARGE,
                            StrId::STR_FONT_RANGE_NO_EMOJI, StrId::STR_FONT_RANGE_ALL},
                           "sdFontSizeRange", StrId::STR_CAT_READER));
-    add(SettingInfo::Enum(StrId::STR_LINE_SPACING, &CrossPointSettings::lineSpacing,
-                          {StrId::STR_TIGHT, StrId::STR_NORMAL, StrId::STR_WIDE}, "lineSpacing",
-                          StrId::STR_CAT_READER));
+    add(SettingInfo::Value(StrId::STR_LINE_SPACING, &CrossPointSettings::lineHeightPercent,
+                           {CrossPointSettings::MIN_LINE_HEIGHT_PERCENT, CrossPointSettings::MAX_LINE_HEIGHT_PERCENT,
+                            CrossPointSettings::LINE_HEIGHT_PERCENT_STEP},
+                           "lineHeightPercent", StrId::STR_CAT_READER));
     add(SettingInfo::Enum(StrId::STR_ORIENTATION, &CrossPointSettings::orientation,
                           {StrId::STR_PORTRAIT, StrId::STR_LANDSCAPE_CW, StrId::STR_INVERTED, StrId::STR_LANDSCAPE_CCW},
                           "orientation", StrId::STR_CAT_READER));

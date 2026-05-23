@@ -85,6 +85,10 @@ size_t parseAndWrapLines(const uint8_t* buffer, size_t chunkSize, size_t fileOff
   }
   return pos;
 }
+
+int getReaderLineHeight(const GfxRenderer& renderer, const int fontId) {
+  return std::max(1, static_cast<int>(renderer.getLineHeight(fontId) * SETTINGS.getReaderLineCompression() + 0.5f));
+}
 }  // namespace
 
 void TxtReaderActivity::onEnter() {
@@ -242,7 +246,7 @@ void TxtReaderActivity::initializeReader() {
 
   viewportWidth = renderer.getScreenWidth() - cachedOrientedMarginLeft - cachedOrientedMarginRight;
   const int viewportHeight = renderer.getScreenHeight() - cachedOrientedMarginTop - cachedOrientedMarginBottom;
-  const int lineHeight = renderer.getLineHeight(cachedFontId);
+  const int lineHeight = getReaderLineHeight(renderer, cachedFontId);
 
   linesPerPage = viewportHeight / lineHeight;
   if (linesPerPage < 1) linesPerPage = 1;
@@ -378,7 +382,7 @@ void TxtReaderActivity::render(RenderLock&&) {
 }
 
 void TxtReaderActivity::renderPage() {
-  const int lineHeight = renderer.getLineHeight(cachedFontId);
+  const int lineHeight = getReaderLineHeight(renderer, cachedFontId);
   const int contentWidth = viewportWidth;
 
   // Render text lines with alignment
@@ -644,7 +648,7 @@ bool TxtReaderActivity::drawCurrentPageToBuffer(const std::string& filePath, Gfx
 
   const int vw = renderer.getScreenWidth() - marginLeft - marginRight;
   const int vh = renderer.getScreenHeight() - marginTop - marginBottom;
-  const int lineHeight = renderer.getLineHeight(fontId);
+  const int lineHeight = getReaderLineHeight(renderer, fontId);
   const int linesPerPage = std::max(1, vh / lineHeight);
 
   // Step 1: Try to read the saved page and its file offset from progress.bin.
