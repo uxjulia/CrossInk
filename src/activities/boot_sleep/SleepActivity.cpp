@@ -586,7 +586,7 @@ void SleepActivity::renderCoverSleepScreen() const {
 
 void SleepActivity::renderReadingStatsSleepScreen() const {
   BookReadingStats bookStats;
-  GlobalReadingStats globalStats = GlobalReadingStats::load();
+  GlobalReadingStats globalStats = GlobalReadingStats::loadAggregated();
   std::string bookTitle = tr(STR_READING_STATS);
 
   const std::string& path = APP_STATE.openEpubPath;
