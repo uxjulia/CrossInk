@@ -559,6 +559,10 @@ void NearbyStatsSyncActivity::renderReady(const std::string& primary, const std:
   y += lineHeight + metrics.verticalSpacing;
   renderer.drawCenteredText(SMALL_FONT_ID, y, secondary.c_str(), true);
   y += renderer.getLineHeight(SMALL_FONT_ID) + metrics.verticalSpacing;
+  if (state_ == State::READY) {
+    renderer.drawCenteredText(SMALL_FONT_ID, y, tr(STR_NEARBY_STATS_READY_HINT), true);
+    y += renderer.getLineHeight(SMALL_FONT_ID) + metrics.verticalSpacing;
+  }
   renderer.drawCenteredText(SMALL_FONT_ID, y, tr(STR_NEARBY_STATS_SYNC_BUTTON), true);
 }
 
