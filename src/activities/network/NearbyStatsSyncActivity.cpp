@@ -359,6 +359,18 @@ void NearbyStatsSyncActivity::processEvents() {
 void NearbyStatsSyncActivity::handleEvent(const SyncEvent& event) {
   if (state_ == State::ERROR) return;
 
+  const bool startingPassiveSync = state_ != State::DISCOVERING && state_ != State::SYNCING;
+  if (startingPassiveSync) {
+    errorMessage_.clear();
+    peerStatsSaved_ = false;
+    localStatsSent_ = false;
+    localStatsAcked_ = false;
+    localStatsReady_ = false;
+    syncStartedMs_ = millis();
+    lastHelloMs_ = syncStartedMs_;
+    lastStatsSendMs_ = 0;
+  }
+
   peerSeen_ = true;
   peerSourceMac_ = event.sourceMac;
   peerDeviceMac_ = event.deviceMac;
@@ -366,7 +378,7 @@ void NearbyStatsSyncActivity::handleEvent(const SyncEvent& event) {
   addPeer(peerSourceMac_.data());
 
   if (!localStatsReady_ && !prepareLocalStats()) return;
-  if (state_ == State::READY || state_ == State::DISCOVERING) setState(State::SYNCING);
+  if (state_ == State::READY || state_ == State::DISCOVERING || state_ == State::SYNCED) setState(State::SYNCING);
 
   if (event.type == PacketType::HELLO) {
     sendLocalStats();
