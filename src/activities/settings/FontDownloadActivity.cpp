@@ -497,6 +497,8 @@ void FontDownloadActivity::downloadFamily(ManifestFamily& family) {
       if (attempt > 1) {
         LOG_DBG("FONT", "Retrying %s (%d/%d)", file.name.c_str(), attempt, FONT_DOWNLOAD_MAX_ATTEMPTS);
       }
+      LOG_DBG("FONT", "Download attempt %d/%d: %s (%zu bytes)", attempt, FONT_DOWNLOAD_MAX_ATTEMPTS, file.name.c_str(),
+              file.size);
       requestUpdateAndWait();
       if (attempt > 1) delay(FONT_DOWNLOAD_RETRY_DELAY_MS);
 
@@ -514,6 +516,7 @@ void FontDownloadActivity::downloadFamily(ManifestFamily& family) {
           },
           &cancelRequested_, "", "", downloadOptions);
       if (result == HttpDownloader::ABORTED) {
+        LOG_INF("FONT", "Download cancelled: %s", file.name.c_str());
         Storage.remove(tempPath);
         {
           RenderLock lock(*this);
@@ -525,8 +528,12 @@ void FontDownloadActivity::downloadFamily(ManifestFamily& family) {
         return;
       }
       if (result == HttpDownloader::OK) {
+        LOG_DBG("FONT", "Download attempt succeeded: %s (%d/%d)", file.name.c_str(), attempt,
+                FONT_DOWNLOAD_MAX_ATTEMPTS);
         break;
       }
+      LOG_ERR("FONT", "Download attempt failed: %s (%d/%d, error=%d)", file.name.c_str(), attempt,
+              FONT_DOWNLOAD_MAX_ATTEMPTS, result);
     }
 
     if (result != HttpDownloader::OK) {
