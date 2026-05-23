@@ -7,6 +7,7 @@
 
 ### Fixed
 - Fixed Lyra Carousel popup rendering so loading, indexing, and sleep-entry popups appear in the right place again.
+- Fixed OPDS feed errors so low-memory parser-buffer failures show the specific memory message instead of the generic parse error.
 
 ### Changed
 

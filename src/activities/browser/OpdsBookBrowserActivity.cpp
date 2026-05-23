@@ -250,7 +250,8 @@ void OpdsBookBrowserActivity::fetchFeed(const std::string& path) {
 
   if (!parser) {
     state = BrowserState::ERROR;
-    errorMessage = tr(STR_PARSE_FEED_FAILED);
+    errorMessage = parser.getErrorReason() == OpdsParserError::BUFFER_MEMORY ? tr(STR_OPDS_FEED_BUFFER_MEMORY_ERROR)
+                                                                             : tr(STR_PARSE_FEED_FAILED);
     requestUpdate();
     return;
   }
