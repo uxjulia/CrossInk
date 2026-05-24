@@ -8,6 +8,7 @@
 ### Fixed
 - Fixed Lyra Carousel popup rendering so loading, indexing, and sleep-entry popups appear in the right place again.
 - Fixed EPUB progress saves so KOReader Sync writes complete resume data without truncating the existing progress file first.
+- Fixed KOReader Sync remote-progress saves so refined page positions cannot be saved with a too-small page count.
 - Improved OPDS book download throughput by using a larger transfer buffer while keeping SD-card font downloads on the lower-memory path.
 - Fixed OPDS feed errors so low-memory parser-buffer failures show the specific memory message instead of the generic parse error.
 - Free the active SD-card reader font before opening OPDS catalogs so WiFi/feed parsing has more memory available.
