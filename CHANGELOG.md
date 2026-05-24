@@ -4,12 +4,7 @@
 
 ### Added
 - Added an adjustable reader line-height setting with percent-based spacing for EPUB and TXT books.
-- Added a Recent Books long-press menu in both List and Grid views with delete, cache delete, completion, and remove-from-recents actions.
-- Added a Minimal sleep screen option that shows the current book cover and reading progress on a dark background.
-- Added aggregate all-time Reading Stats support from peer-synced per-device stats files.
 - Added nearby Reading Stats sync between CrossInk readers using direct ESP-NOW device-to-device messages.
-- Added an in-reader confirmation message when a shortcut turns tilt-to-turn on or off.
-- Added a 9pt `Itty Bitty` reader font size, plus build flags for omitting Itty Bitty and Large reader font assets in size-constrained firmware variants.
 - Auto Page Turn interval now remembers the last selected interval per book when it is turned on again.
 
 ### Fixed
@@ -18,8 +13,8 @@
 - Fixed OPDS feed errors so low-memory parser-buffer failures show the specific memory message instead of the generic parse error.
 - Free the active SD-card reader font before opening OPDS catalogs so WiFi/feed parsing has more memory available.
 
-
 ### Changed
+
 
 ## [v1.3.0] - 2026-05-21
 
