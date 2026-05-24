@@ -28,6 +28,7 @@ class EpubReaderActivity final : public Activity {
   int cachedChapterTotalPageCount = 0;
   unsigned long lastPageTurnTime = 0UL;
   unsigned long pageTurnDuration = 0UL;
+  uint16_t lastAutoPageTurnIntervalSeconds = 0;
   BookReadingStats stats;
   GlobalReadingStats globalStats;
   unsigned long sessionStartMs = 0UL;
