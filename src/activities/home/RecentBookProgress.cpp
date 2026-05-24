@@ -13,6 +13,7 @@
 #include <string>
 
 #include "RecentBooksStore.h"
+#include "activities/reader/EpubReaderUtils.h"
 
 namespace {
 constexpr uint32_t TXT_CACHE_MAGIC = 0x54585449;  // "TXTI"
@@ -26,27 +27,17 @@ float loadEpubProgressPercent(const RecentBook& book) {
     return -1.0f;
   }
 
-  FsFile file;
-  if (!Storage.openFileForRead("RBPR", epub.getCachePath() + "/progress.bin", file)) {
+  EpubReaderUtils::Progress progress;
+  if (!EpubReaderUtils::loadProgress(epub, progress, "RBPR") || !progress.hasPageCount) {
     return -1.0f;
   }
 
-  uint8_t data[6];
-  const int bytesRead = file.read(data, sizeof(data));
-  file.close();
-  if (bytesRead != 6) {
-    return -1.0f;
-  }
-
-  const int spineIndex = data[0] | (data[1] << 8);
-  const int currentPage = data[2] | (data[3] << 8);
-  const int pageCount = data[4] | (data[5] << 8);
-  if (pageCount <= 0) {
+  if (progress.pageCount <= 0) {
     return 0.0f;
   }
 
-  const float chapterProgress = static_cast<float>(currentPage + 1) / static_cast<float>(pageCount);
-  return clampProgressPercent(epub.calculateProgress(spineIndex, chapterProgress) * 100.0f);
+  const float chapterProgress = static_cast<float>(progress.pageNumber + 1) / static_cast<float>(progress.pageCount);
+  return clampProgressPercent(epub.calculateProgress(progress.spineIndex, chapterProgress) * 100.0f);
 }
 
 float loadXtcProgressPercent(const RecentBook& book) {

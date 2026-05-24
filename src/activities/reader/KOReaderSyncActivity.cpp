@@ -76,11 +76,16 @@ void KOReaderSyncActivity::ensureEpubLoaded() {
   }
 }
 
-void KOReaderSyncActivity::saveProgressAndReturn(int spineIndex, int page) {
+void KOReaderSyncActivity::saveProgressAndReturn(const CrossPointPosition& position) {
   // epub is guaranteed non-null here: ensureEpubLoaded() was called in performSync() before
   // SHOWING_RESULT state is entered, and this method is only called from that state.
   assert(epub);
-  if (!EpubReaderUtils::saveProgress(*epub, spineIndex, page, 0)) {
+  const int pageCount = std::max(position.totalPages, position.pageNumber + 1);
+  if (pageCount != position.totalPages) {
+    LOG_DBG("KOSync", "Adjusted remote page count before save: page=%d count=%d -> %d", position.pageNumber,
+            position.totalPages, pageCount);
+  }
+  if (!EpubReaderUtils::saveProgress(*epub, position.spineIndex, position.pageNumber, pageCount)) {
     {
       RenderLock lock(*this);
       state = SYNC_FAILED;
@@ -494,7 +499,7 @@ void KOReaderSyncActivity::loop() {
 
     if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
       if (selectedOption == 0) {
-        saveProgressAndReturn(remotePosition.spineIndex, remotePosition.pageNumber);
+        saveProgressAndReturn(remotePosition);
       } else if (selectedOption == 1) {
         // Upload local progress
         performUpload();

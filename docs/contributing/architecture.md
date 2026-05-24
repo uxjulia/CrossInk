@@ -146,6 +146,7 @@ Typical persisted areas on SD:
   epub_<hash>/
     book.bin
     progress.bin
+    reader_settings.bin
     stats.bin
     cover.bmp
     sections/*.bin

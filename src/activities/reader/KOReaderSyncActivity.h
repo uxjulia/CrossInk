@@ -90,6 +90,6 @@ class KOReaderSyncActivity final : public Activity {
   void performSync();
   void performUpload();
   void ensureEpubLoaded();
-  void saveProgressAndReturn(int spineIndex, int page);
+  void saveProgressAndReturn(const CrossPointPosition& position);
   void returnToReader();
 };
