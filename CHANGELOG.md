@@ -4,14 +4,18 @@
 
 ### Added
 - Added an adjustable reader line-height setting with percent-based spacing for EPUB and TXT books.
+- Added nearby Reading Stats sync between CrossInk readers using direct ESP-NOW device-to-device messages.
+- Auto Page Turn interval now remembers the last selected interval per book when it is turned on again.
 
 ### Fixed
 - Fixed Lyra Carousel popup rendering so loading, indexing, and sleep-entry popups appear in the right place again.
 - Improved OPDS book download throughput by using a larger transfer buffer while keeping SD-card font downloads on the lower-memory path.
 - Fixed OPDS feed errors so low-memory parser-buffer failures show the specific memory message instead of the generic parse error.
 - Free the active SD-card reader font before opening OPDS catalogs so WiFi/feed parsing has more memory available.
+- Fixed Auto Page Turn so each book remembers the last selected interval when it is turned on again.
 
 ### Changed
+
 
 ## [v1.3.0] - 2026-05-21
 

@@ -49,6 +49,8 @@ constexpr uint16_t DEFAULT_AUTO_PAGE_TURN_INTERVAL_S = 30;
 constexpr uint16_t MIN_AUTO_PAGE_TURN_INTERVAL_S = 5;
 constexpr uint16_t MAX_AUTO_PAGE_TURN_INTERVAL_S = 120;
 constexpr int MAX_PAGE_LOAD_RETRIES = 3;
+constexpr uint8_t READER_SETTINGS_FILE_VERSION = 1;
+constexpr char READER_SETTINGS_FILE_NAME[] = "/reader_settings.bin";
 
 void drawToastBuffer(const GfxRenderer& renderer, const char* msg) {
   constexpr int toastPadX = 20;
@@ -80,6 +82,49 @@ int clampPercent(int percent) {
 
 uint16_t clampAutoPageTurnIntervalSeconds(const uint16_t seconds) {
   return std::clamp(seconds, MIN_AUTO_PAGE_TURN_INTERVAL_S, MAX_AUTO_PAGE_TURN_INTERVAL_S);
+}
+
+uint16_t loadAutoPageTurnIntervalSeconds(const std::string& cachePath) {
+  FsFile f;
+  if (!Storage.openFileForRead("ERS", cachePath + READER_SETTINGS_FILE_NAME, f)) {
+    return DEFAULT_AUTO_PAGE_TURN_INTERVAL_S;
+  }
+
+  uint8_t data[3] = {};
+  const int n = f.read(data, sizeof(data));
+  f.close();
+
+  if (n != static_cast<int>(sizeof(data)) || data[0] != READER_SETTINGS_FILE_VERSION) {
+    LOG_DBG("ERS", "Reader settings missing or version mismatch, using defaults");
+    return DEFAULT_AUTO_PAGE_TURN_INTERVAL_S;
+  }
+
+  const uint16_t seconds = static_cast<uint16_t>(data[1]) | (static_cast<uint16_t>(data[2]) << 8);
+  if (seconds == 0) {
+    return DEFAULT_AUTO_PAGE_TURN_INTERVAL_S;
+  }
+  return clampAutoPageTurnIntervalSeconds(seconds);
+}
+
+bool saveAutoPageTurnIntervalSeconds(const std::string& cachePath, const uint16_t seconds) {
+  FsFile f;
+  if (!Storage.openFileForWrite("ERS", cachePath + READER_SETTINGS_FILE_NAME, f)) {
+    LOG_ERR("ERS", "Could not open reader settings file for write");
+    return false;
+  }
+
+  const uint16_t clampedSeconds = clampAutoPageTurnIntervalSeconds(seconds);
+  uint8_t data[3];
+  data[0] = READER_SETTINGS_FILE_VERSION;
+  data[1] = clampedSeconds & 0xFF;
+  data[2] = (clampedSeconds >> 8) & 0xFF;
+  const size_t written = f.write(data, sizeof(data));
+  f.close();
+  if (written != sizeof(data)) {
+    LOG_ERR("ERS", "Short write saving reader settings: %u/%u bytes", (unsigned)written, (unsigned)sizeof(data));
+    return false;
+  }
+  return true;
 }
 
 // SD card folder finished books are moved into. Single source of truth for the path.
@@ -257,6 +302,7 @@ void EpubReaderActivity::onEnter() {
   mappedInput.setReaderMode(true);
 
   epub->setupCacheDir();
+  lastAutoPageTurnIntervalSeconds = loadAutoPageTurnIntervalSeconds(epub->getCachePath());
   BOOKMARKS.loadForBook(epub->getPath(), epub->getTitle(), epub->getAuthor(), "epub");
 
   if (APP_STATE.pendingBookmarkSpine != UINT16_MAX && APP_STATE.pendingBookmarkProgress >= 0.0f) {
@@ -914,9 +960,10 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
       // Include elapsed time from the current session in the display stats.
       BookReadingStats displayStats = stats;
       displayStats.totalReadingSeconds += static_cast<uint32_t>((millis() - sessionStartMs) / 1000UL);
-      startActivityForResult(
-          std::make_unique<BookStatsActivity>(renderer, mappedInput, epub->getTitle(), displayStats, globalStats),
-          [this](const ActivityResult&) { requestUpdate(); });
+      GlobalReadingStats displayGlobalStats = GlobalReadingStats::loadAggregated(globalStats);
+      startActivityForResult(std::make_unique<BookStatsActivity>(renderer, mappedInput, epub->getTitle(), displayStats,
+                                                                 displayGlobalStats),
+                             [this](const ActivityResult&) { requestUpdate(); });
       break;
     }
     case EpubReaderMenuActivity::MenuAction::TOGGLE_COMPLETED: {
@@ -1324,11 +1371,10 @@ void EpubReaderActivity::applyOrientation(const uint8_t orientation) {
 }
 
 uint16_t EpubReaderActivity::getAutoPageTurnIntervalSeconds() const {
-  const uint16_t seconds = static_cast<uint16_t>(pageTurnDuration / 1000UL);
-  if (seconds == 0) {
+  if (lastAutoPageTurnIntervalSeconds == 0) {
     return DEFAULT_AUTO_PAGE_TURN_INTERVAL_S;
   }
-  return clampAutoPageTurnIntervalSeconds(seconds);
+  return clampAutoPageTurnIntervalSeconds(lastAutoPageTurnIntervalSeconds);
 }
 
 void EpubReaderActivity::setAutoPageTurnIntervalSeconds(uint16_t seconds) {
@@ -1338,6 +1384,10 @@ void EpubReaderActivity::setAutoPageTurnIntervalSeconds(uint16_t seconds) {
   }
 
   seconds = clampAutoPageTurnIntervalSeconds(seconds);
+  lastAutoPageTurnIntervalSeconds = seconds;
+  if (epub) {
+    saveAutoPageTurnIntervalSeconds(epub->getCachePath(), seconds);
+  }
   lastPageTurnTime = millis();
   pageTurnDuration = static_cast<unsigned long>(seconds) * 1000UL;
   automaticPageTurnActive = true;

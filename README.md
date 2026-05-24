@@ -190,6 +190,13 @@ Some simple per-book reading stats are tracked automatically and displayed in tw
 - Average session time
 - All time reading stats including total number of books read
 
+To include all-time totals from other CrossInk devices, create or sync a
+`.crosspoint/synced_stats/` folder between devices. When that folder exists,
+each reader writes its own `device_<mac>.bin` contribution file and ignores that
+file while summing the folder, so any device can display the aggregate total
+without becoming the main device. If the folder is not present, the reader only
+uses its local `global_stats.bin`.
+
 **Home screen book card (Lyra theme only):**
 
 - Total reading time
@@ -372,6 +379,7 @@ The structure is roughly:
 .crosspoint/
 ├── global_stats.bin        # All-time reading stats, including total books read
 ├── global_stats.bin.bak    # Backup used if the main global stats file is corrupt
+├── synced_stats/           # One per-device stats contribution file for aggregate all-time totals
 ├── settings.bin            # Device settings
 ├── state.bin               # Last-opened book and sleep/session state
 ├── recent.bin              # Recent books list

@@ -316,6 +316,37 @@ void appendCarouselCoverStateToKey(std::string& key, const RecentBook& book) {
   }
 }
 
+void appendSyncedStatsStateToKey(std::string& key) {
+  FsFile dir = Storage.open("/.crosspoint/synced_stats");
+  if (!dir) {
+    key += "no-synced-stats";
+    key += '\0';
+    return;
+  }
+
+  if (!dir.isDirectory()) {
+    dir.close();
+    key += "synced-stats-not-dir";
+    key += '\0';
+    return;
+  }
+
+  char name[128];
+  for (FsFile file = dir.openNextFile(); file; file = dir.openNextFile()) {
+    const bool isDirectory = file.isDirectory();
+    const size_t nameLen = file.getName(name, sizeof(name));
+    if (!isDirectory && nameLen > 0) {
+      key += name;
+      key += '\0';
+      file.close();
+      appendHashedFileStateToKey(key, std::string("/.crosspoint/synced_stats/") + name);
+      continue;
+    }
+    file.close();
+  }
+  dir.close();
+}
+
 void buildCarouselCacheKey(const std::vector<RecentBook>& recentBooks, std::string& key, uint64_t& keyHash) {
   key.clear();
   key.reserve(512);
@@ -323,6 +354,7 @@ void buildCarouselCacheKey(const std::vector<RecentBook>& recentBooks, std::stri
     appendCarouselCoverStateToKey(key, book);
   }
   appendHashedFileStateToKey(key, "/.crosspoint/global_stats.bin");
+  appendSyncedStatsStateToKey(key);
   keyHash = fnvHash64(key);
 }
 
@@ -693,7 +725,7 @@ void HomeActivity::onEnter() {
     }
   }
 
-  globalStats = GlobalReadingStats::load();
+  globalStats = GlobalReadingStats::loadAggregated();
   if (isCarouselTheme) {
     loadAllBookStats();
   }

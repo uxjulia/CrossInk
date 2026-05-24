@@ -107,15 +107,24 @@ The web interface includes APIs for managing saved OPDS servers and saved WiFi c
 
 You can manage files directly from a terminal with `curl` while File Transfer is running. See [Webserver Endpoints](./webserver-endpoints.md).
 
+## Bluetooth Reading Stats Sync
+
+CrossPoint Reader supports reader-to-reader stats sync from **File Transfer > Bluetooth Stats Sync**. Bluetooth is
+advertised only while that screen is open. Press **Sync Stats** on one nearby reader; both readers exchange their
+`/.crosspoint/global_stats.bin` contribution and save the peer copy under `/.crosspoint/synced_stats/`.
+
+The `synced_stats` folder is created automatically when the user starts the Bluetooth stats-sync workflow. Peer files
+are named with the durable device MAC fallback, for example `device_aabbccddeeff.bin`.
+
 ## Security Notes
 
-- The web server runs on HTTP port 80.
-- The fast upload WebSocket runs on port 81.
-- No authentication is required.
-- Anyone on the same network, or connected to the CrossInk hotspot, can access the interface while File Transfer is running.
-- The web server stops and WiFi disconnects when you exit File Transfer.
-
-Use File Transfer only on trusted networks.
+- The web server runs on port 80 (standard HTTP)
+- **No authentication is required** - anyone on the same network can access the interface
+- The web server is only accessible while the WiFi screen shows "Connected"
+- The web server automatically stops when you exit the WiFi screen
+- Bluetooth stats sync only accepts stats payloads from nearby CrossPoint readers
+- Bluetooth stats sync is only available while the Bluetooth Stats Sync screen is open
+- For security, only use on trusted private networks
 
 ---
 

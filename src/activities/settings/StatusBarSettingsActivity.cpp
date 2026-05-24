@@ -77,8 +77,6 @@ const StrId titleNames[TITLE_ITEMS] = {StrId::STR_BOOK, StrId::STR_CHAPTER, StrI
 constexpr int XTC_STATUS_BAR_ITEMS = 3;
 const StrId xtcStatusBarNames[XTC_STATUS_BAR_ITEMS] = {StrId::STR_HIDE, StrId::STR_BOTTOM, StrId::STR_TOP};
 
-const int verticalPreviewPadding = 50;
-const int verticalPreviewTextPadding = 40;
 }  // namespace
 
 void StatusBarSettingsActivity::onEnter() {
@@ -202,17 +200,24 @@ void StatusBarSettingsActivity::render(RenderLock&&) {
   const auto pageHeight = renderer.getScreenHeight();
 
   const auto orientation = renderer.getOrientation();
+  const bool isInverted = orientation == GfxRenderer::Orientation::PortraitInverted;
   const bool isLandscapeCw = orientation == GfxRenderer::Orientation::LandscapeClockwise;
   const bool isLandscapeCcw = orientation == GfxRenderer::Orientation::LandscapeCounterClockwise;
   const int hintGutterWidth = (isLandscapeCw || isLandscapeCcw) ? metrics.buttonHintsHeight : 0;
   const int contentX = isLandscapeCw ? hintGutterWidth : 0;
   const int contentWidth = pageWidth - hintGutterWidth;
 
+  const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
+  const int contentHeight = pageHeight - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing * 2;
+
+  const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_TOGGLE), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
+
+  int verticalPreviewPadding = 50;
+  int verticalPreviewTextPadding = 40;
+
   GUI.drawHeader(renderer, Rect{contentX, metrics.topPadding, contentWidth, metrics.headerHeight},
                  tr(STR_CUSTOMISE_STATUS_BAR));
 
-  const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
-  const int contentHeight = pageHeight - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing * 2;
   GUI.drawList(
       renderer, Rect{contentX, contentTop, contentWidth, contentHeight}, visibleItemCount,
       static_cast<int>(selectedIndex), [](int index) { return std::string(I18N.get(menuNames[index])); }, nullptr,
@@ -248,9 +253,7 @@ void StatusBarSettingsActivity::render(RenderLock&&) {
         }
       },
       true);
-
   // Draw button hints
-  const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_TOGGLE), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4, true);
 
   std::string title;
@@ -258,6 +261,10 @@ void StatusBarSettingsActivity::render(RenderLock&&) {
     title = tr(STR_EXAMPLE_BOOK);
   } else if (SETTINGS.statusBarTitle == CrossPointSettings::STATUS_BAR_TITLE::CHAPTER_TITLE) {
     title = tr(STR_EXAMPLE_CHAPTER);
+  }
+
+  if (isLandscapeCw || isLandscapeCcw || isInverted) {
+    verticalPreviewPadding = 0;
   }
 
   GUI.drawStatusBar(renderer, 75, 8, 32, title, verticalPreviewPadding);
