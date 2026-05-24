@@ -550,7 +550,6 @@ void NearbyStatsSyncActivity::render(RenderLock&&) {
 
 void NearbyStatsSyncActivity::renderReady(const std::string& primary, const std::string& secondary) const {
   const auto& metrics = UITheme::getInstance().getMetrics();
-  const int pageWidth = renderer.getScreenWidth();
   const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
   const int lineHeight = renderer.getLineHeight(UI_10_FONT_ID);
   int y = contentTop + 70;
