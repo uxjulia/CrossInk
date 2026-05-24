@@ -12,6 +12,7 @@
 - Improved OPDS book download throughput by using a larger transfer buffer while keeping SD-card font downloads on the lower-memory path.
 - Fixed OPDS feed errors so low-memory parser-buffer failures show the specific memory message instead of the generic parse error.
 - Free the active SD-card reader font before opening OPDS catalogs so WiFi/feed parsing has more memory available.
+- Fixed Auto Page Turn so each book remembers the last selected interval when it is turned on again.
 
 ### Changed
 
