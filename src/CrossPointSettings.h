@@ -415,6 +415,7 @@ class CrossPointSettings {
   uint8_t getSdFontTargetPointSize() const;
   bool changeReaderFontSize(bool larger);
   int getReaderFontId() const;
+  int getBuiltInReaderFontId() const;
 
   // If count_only is true, returns the number of settings items that would be written.
   uint8_t writeSettings(FsFile& file, bool count_only = false) const;

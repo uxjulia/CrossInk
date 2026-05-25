@@ -26,11 +26,13 @@ class Section {
   uint16_t pageCount = 0;
   int currentPage = 0;
 
-  explicit Section(const std::shared_ptr<Epub>& epub, const int spineIndex, GfxRenderer& renderer)
+  explicit Section(const std::shared_ptr<Epub>& epub, const int spineIndex, GfxRenderer& renderer,
+                   const char* cacheSuffix = "")
       : epub(epub),
         spineIndex(spineIndex),
         renderer(renderer),
-        filePath(epub->getCachePath() + "/sections/" + std::to_string(spineIndex) + ".bin") {}
+        filePath(epub->getCachePath() + "/sections/" + std::to_string(spineIndex) + (cacheSuffix ? cacheSuffix : "") +
+                 ".bin") {}
   ~Section() = default;
   bool loadSectionFile(int fontId, float lineCompression, bool extraParagraphSpacing, bool forceParagraphIndents,
                        uint8_t paragraphAlignment, uint16_t viewportWidth, uint16_t viewportHeight,

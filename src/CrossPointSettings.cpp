@@ -680,14 +680,18 @@ bool CrossPointSettings::changeReaderFontSize(const bool larger) {
 }
 
 int CrossPointSettings::getReaderFontId() const {
-  const FONT_SIZE effectiveSize = getEffectiveReaderFontSize();
-
   // Check SD card font first
   if (sdFontFamilyName[0] != '\0' && sdFontIdResolver) {
     int id = sdFontIdResolver(sdFontResolverCtx, sdFontFamilyName, fontSize);
     if (id != 0) return id;
     // Fall through to built-in if SD font not found
   }
+
+  return getBuiltInReaderFontId();
+}
+
+int CrossPointSettings::getBuiltInReaderFontId() const {
+  const FONT_SIZE effectiveSize = getEffectiveReaderFontSize();
 
   switch (fontFamily) {
     case LEXENDDECA:

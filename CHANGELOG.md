@@ -24,6 +24,7 @@
 - Preserve usable partial EPUB CSS rules when low memory stops stylesheet parsing, while retrying a complete CSS cache rebuild on later opens.
 - Fixed EPUB table fallback rendering so temporary table-layout data is released before low-memory text layout aborts.
 - Reduced EPUB memory pressure with SD-card fonts by skipping silent next-chapter indexing and releasing optional font caches after chapter indexing.
+- EPUB chapters that run out of memory with an SD-card font now retry with the selected built-in font instead of failing to open.
 
 ### Changed
 
