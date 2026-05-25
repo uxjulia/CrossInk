@@ -71,6 +71,22 @@ void drawToast(const GfxRenderer& renderer, const char* msg) {
   renderer.displayBuffer();
 }
 
+bool releaseReaderSdFontCachesForLowMemory(GfxRenderer& renderer, const char* tag, const char* reason) {
+  const int fontId = SETTINGS.getReaderFontId();
+  if (!renderer.isSdCardFont(fontId)) {
+    return false;
+  }
+
+  const auto before = MemoryBudget::snapshot();
+  if (!renderer.releaseSdCardFontForLowMemory(fontId)) {
+    return false;
+  }
+  const auto after = MemoryBudget::snapshot();
+  LOG_DBG(tag, "Released SD font caches after %s: free=%u->%u maxAlloc=%u->%u", reason, before.freeHeap, after.freeHeap,
+          before.maxAllocHeap, after.maxAllocHeap);
+  return true;
+}
+
 int clampPercent(int percent) {
   if (percent < 0) {
     return 0;
@@ -1585,6 +1601,7 @@ void EpubReaderActivity::render(RenderLock&& lock) {
         }
         return;
       }
+      releaseReaderSdFontCachesForLowMemory(renderer, "ERS", "section cache build");
       LOG_DBG("ERS", "Cache build complete: pages=%u free=%u maxAlloc=%u", section->pageCount, ESP.getFreeHeap(),
               ESP.getMaxAllocHeap());
 
@@ -1759,6 +1776,12 @@ void EpubReaderActivity::silentIndexNextChapterIfNeeded(const uint16_t viewportW
                                   SETTINGS.paragraphAlignment, viewportWidth, viewportHeight,
                                   SETTINGS.hyphenationEnabled, SETTINGS.embeddedStyle, SETTINGS.imageRendering,
                                   SETTINGS.bionicReadingEnabled, SETTINGS.guideReadingEnabled)) {
+    return;
+  }
+
+  if (renderer.isSdCardFont(SETTINGS.getReaderFontId())) {
+    LOG_DBG("ERS", "Skipping silent next-chapter indexing for SD font: chapter=%d free=%u maxAlloc=%u", nextSpineIndex,
+            ESP.getFreeHeap(), ESP.getMaxAllocHeap());
     return;
   }
 
