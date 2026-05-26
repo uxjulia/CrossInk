@@ -97,9 +97,8 @@ class HalFile : public Print {
   operator bool() const;
 };
 
-// Only do renaming FsFile to HalFile if this header is included by downstream code
-// The renaming is to allow using the thread-safe HalFile instead of the raw FsFile, without needing to change the
-// downstream code
+// Only rename FsFile to HalFile for downstream code. HalStorage.cpp includes
+// SdFat's real FsFile while implementing the wrapper.
 #ifndef HAL_STORAGE_IMPL
 using FsFile = HalFile;
 #endif

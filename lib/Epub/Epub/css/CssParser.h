@@ -62,7 +62,7 @@ class CssParser {
    * @param source Open file handle to read from
    * @return true if parsing completed (even if no rules found)
    */
-  bool loadFromStream(FsFile& source);
+  bool loadFromStream(HalFile& source);
 
   /**
    * Look up the style for an HTML element, considering tag name, class attributes, and ancestors.
