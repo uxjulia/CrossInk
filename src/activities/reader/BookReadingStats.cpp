@@ -17,10 +17,30 @@ namespace {
 //   [3-6]   totalReadingSeconds uint32_t LE
 //   [7-10]  totalPagesTurned    uint32_t LE
 //   [11]    isCompleted         uint8_t
-static constexpr uint8_t STATS_FILE_VERSION = 2;
+//
+// Binary layout v3 (16 bytes):
+//   [0]      version (= 3)
+//   [1-2]    sessionCount              uint16_t LE
+//   [3-6]    totalReadingSeconds       uint32_t LE
+//   [7-10]   totalPagesTurned          uint32_t LE
+//   [11]     isCompleted               uint8_t
+//   [12-13]  avgSecondsPerForwardPage  uint16_t LE
+//   [14-15]  paceSampleCount           uint16_t LE
+static constexpr uint8_t STATS_FILE_VERSION = 3;
+static constexpr uint8_t STATS_FILE_VERSION_V2 = 2;
 static constexpr uint8_t STATS_FILE_VERSION_V1 = 1;
 static constexpr int STATS_FILE_SIZE_V1 = 11;
-static constexpr int STATS_FILE_SIZE = 12;
+static constexpr int STATS_FILE_SIZE_V2 = 12;
+static constexpr int STATS_FILE_SIZE = 16;
+static constexpr uint16_t MAX_PACE_SAMPLE_COUNT = 1000;
+
+void readCommonStats(const uint8_t* data, BookReadingStats& stats) {
+  stats.sessionCount = static_cast<uint16_t>(data[1]) | (static_cast<uint16_t>(data[2]) << 8);
+  stats.totalReadingSeconds = static_cast<uint32_t>(data[3]) | (static_cast<uint32_t>(data[4]) << 8) |
+                              (static_cast<uint32_t>(data[5]) << 16) | (static_cast<uint32_t>(data[6]) << 24);
+  stats.totalPagesTurned = static_cast<uint32_t>(data[7]) | (static_cast<uint32_t>(data[8]) << 8) |
+                           (static_cast<uint32_t>(data[9]) << 16) | (static_cast<uint32_t>(data[10]) << 24);
+}
 }  // namespace
 
 BookReadingStats BookReadingStats::load(const std::string& cachePath) {
@@ -34,11 +54,13 @@ BookReadingStats BookReadingStats::load(const std::string& cachePath) {
   f.close();
 
   if (n == STATS_FILE_SIZE_V1 && data[0] == STATS_FILE_VERSION_V1) {
-    stats.sessionCount = static_cast<uint16_t>(data[1]) | (static_cast<uint16_t>(data[2]) << 8);
-    stats.totalReadingSeconds = static_cast<uint32_t>(data[3]) | (static_cast<uint32_t>(data[4]) << 8) |
-                                (static_cast<uint32_t>(data[5]) << 16) | (static_cast<uint32_t>(data[6]) << 24);
-    stats.totalPagesTurned = static_cast<uint32_t>(data[7]) | (static_cast<uint32_t>(data[8]) << 8) |
-                             (static_cast<uint32_t>(data[9]) << 16) | (static_cast<uint32_t>(data[10]) << 24);
+    readCommonStats(data, stats);
+    return stats;
+  }
+
+  if (n == STATS_FILE_SIZE_V2 && data[0] == STATS_FILE_VERSION_V2) {
+    readCommonStats(data, stats);
+    stats.isCompleted = data[11] != 0;
     return stats;
   }
 
@@ -46,13 +68,35 @@ BookReadingStats BookReadingStats::load(const std::string& cachePath) {
     LOG_DBG("STATS", "Stats missing or version mismatch, starting fresh");
     return stats;
   }
-  stats.sessionCount = static_cast<uint16_t>(data[1]) | (static_cast<uint16_t>(data[2]) << 8);
-  stats.totalReadingSeconds = static_cast<uint32_t>(data[3]) | (static_cast<uint32_t>(data[4]) << 8) |
-                              (static_cast<uint32_t>(data[5]) << 16) | (static_cast<uint32_t>(data[6]) << 24);
-  stats.totalPagesTurned = static_cast<uint32_t>(data[7]) | (static_cast<uint32_t>(data[8]) << 8) |
-                           (static_cast<uint32_t>(data[9]) << 16) | (static_cast<uint32_t>(data[10]) << 24);
+  readCommonStats(data, stats);
   stats.isCompleted = data[11] != 0;
+  stats.avgSecondsPerForwardPage = static_cast<uint16_t>(data[12]) | (static_cast<uint16_t>(data[13]) << 8);
+  stats.paceSampleCount = static_cast<uint16_t>(data[14]) | (static_cast<uint16_t>(data[15]) << 8);
   return stats;
+}
+
+void BookReadingStats::recordForwardPageRead(uint32_t seconds) {
+  if (seconds == 0) {
+    return;
+  }
+  if (seconds > UINT16_MAX) {
+    seconds = UINT16_MAX;
+  }
+
+  const uint16_t sample = static_cast<uint16_t>(seconds);
+  if (paceSampleCount == 0 || avgSecondsPerForwardPage == 0) {
+    avgSecondsPerForwardPage = sample;
+    paceSampleCount = 1;
+    return;
+  }
+
+  const uint16_t weight = paceSampleCount < MAX_PACE_SAMPLE_COUNT ? paceSampleCount : MAX_PACE_SAMPLE_COUNT;
+  const uint32_t nextAverage =
+      (static_cast<uint32_t>(avgSecondsPerForwardPage) * weight + sample) / (static_cast<uint32_t>(weight) + 1U);
+  avgSecondsPerForwardPage = static_cast<uint16_t>(nextAverage);
+  if (paceSampleCount < MAX_PACE_SAMPLE_COUNT) {
+    paceSampleCount++;
+  }
 }
 
 void BookReadingStats::formatDuration(uint32_t seconds, char* buf, size_t len) {
@@ -88,6 +132,10 @@ void BookReadingStats::save(const std::string& cachePath) const {
   data[9] = (totalPagesTurned >> 16) & 0xFF;
   data[10] = (totalPagesTurned >> 24) & 0xFF;
   data[11] = isCompleted ? 1 : 0;
+  data[12] = avgSecondsPerForwardPage & 0xFF;
+  data[13] = (avgSecondsPerForwardPage >> 8) & 0xFF;
+  data[14] = paceSampleCount & 0xFF;
+  data[15] = (paceSampleCount >> 8) & 0xFF;
   f.write(data, STATS_FILE_SIZE);
   f.close();
 }

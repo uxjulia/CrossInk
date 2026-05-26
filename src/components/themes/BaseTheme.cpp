@@ -723,7 +723,7 @@ void BaseTheme::fillPopupProgress(const GfxRenderer& renderer, const Rect& layou
 
 void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, const int currentPage,
                               const int pageCount, std::string title, const int paddingBottom, const int textYOffset,
-                              const bool isPageBookmarked) const {
+                              const bool isPageBookmarked, const char* timeLeftLabel) const {
   auto metrics = UITheme::getInstance().getMetrics();
   int orientedMarginTop, orientedMarginRight, orientedMarginBottom, orientedMarginLeft;
   renderer.getOrientedViewableTRBL(&orientedMarginTop, &orientedMarginRight, &orientedMarginBottom,
@@ -776,10 +776,12 @@ void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, c
   static constexpr int bmIconH = 14;
   static constexpr int bmIconGap = 4;
   static constexpr int bmNotchDepth = 5;
+  static constexpr int statusItemGap = 8;
+  const int leftClusterX = metrics.statusBarHorizontalMargin + orientedMarginLeft + 1;
   const int bmTotalWidth = isPageBookmarked ? (bmIconW + bmIconGap) : 0;
 
   if (isPageBookmarked) {
-    const int bmX = metrics.statusBarHorizontalMargin + orientedMarginLeft + 1;
+    const int bmX = leftClusterX;
     // +5 compensates for the battery nub drawn above the rect origin by drawBatteryLeft,
     // which shifts the battery body's visual center below the mathematical rect center.
     const int bmY = textY + (metrics.batteryHeight - bmIconH) / 2 + 5;
@@ -792,11 +794,28 @@ void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, c
   // Draw Battery
   const bool showBatteryPercentage =
       SETTINGS.hideBatteryPercentage == CrossPointSettings::HIDE_BATTERY_PERCENTAGE::HIDE_NEVER;
+  int leftClusterWidth = bmTotalWidth;
   if (SETTINGS.statusBarBattery) {
-    GUI.drawBatteryLeft(renderer,
-                        Rect{metrics.statusBarHorizontalMargin + orientedMarginLeft + 1 + bmTotalWidth, textY,
-                             metrics.batteryWidth, metrics.batteryHeight},
+    GUI.drawBatteryLeft(renderer, Rect{leftClusterX + bmTotalWidth, textY, metrics.batteryWidth, metrics.batteryHeight},
                         showBatteryPercentage);
+    int batteryWidth = metrics.batteryWidth;
+    if (showBatteryPercentage) {
+      char batteryPercent[8];
+      snprintf(batteryPercent, sizeof(batteryPercent), "%u%%",
+               static_cast<unsigned>(powerManager.getBatteryPercentage()));
+      batteryWidth += batteryPercentSpacing + renderer.getTextWidth(SMALL_FONT_ID, batteryPercent);
+    }
+    leftClusterWidth += batteryWidth;
+  }
+
+  const bool hasTimeLeftLabel = timeLeftLabel != nullptr && timeLeftLabel[0] != '\0';
+  int timeLeftWidth = 0;
+  if (hasTimeLeftLabel) {
+    const bool hasLeftItem = leftClusterWidth > 0;
+    const int timeLeftX = leftClusterX + leftClusterWidth + (hasLeftItem ? statusItemGap : 0);
+    renderer.drawText(SMALL_FONT_ID, timeLeftX, textY, timeLeftLabel);
+    timeLeftWidth = renderer.getTextWidth(SMALL_FONT_ID, timeLeftLabel);
+    leftClusterWidth += (hasLeftItem ? statusItemGap : 0) + timeLeftWidth;
   }
 
   // Draw Clock (X3 only — DS3231 RTC)
@@ -820,8 +839,7 @@ void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, c
     const int rendererableScreenWidth =
         renderer.getScreenWidth() - (metrics.statusBarHorizontalMargin * 2) - orientedMarginLeft - orientedMarginRight;
 
-    const int batterySize = SETTINGS.statusBarBattery ? (showBatteryPercentage ? 50 : 20) : 0;
-    const int titleMarginLeft = batterySize + bmTotalWidth + 30;
+    const int titleMarginLeft = leftClusterWidth + 30;
     const int clockReserve = clockTextWidth > 0 ? (clockTextWidth + 10) : 0;
     const int titleMarginRight = progressTextWidth + clockReserve + 30;
 

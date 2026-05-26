@@ -5,6 +5,41 @@ nav_order: 8
 
 # File Formats
 
+## EPUB `stats.bin`
+
+`/.crosspoint/epub_<hash>/stats.bin` stores per-book reading stats.
+
+### Version 3
+
+Adds the per-book forward-page reading pace used for time-left estimates.
+
+```text
+[0]      version (= 3)
+[1-2]    sessionCount              uint16 little-endian
+[3-6]    totalReadingSeconds       uint32 little-endian
+[7-10]   totalPagesTurned          uint32 little-endian
+[11]     isCompleted               uint8
+[12-13]  avgSecondsPerForwardPage  uint16 little-endian
+[14-15]  paceSampleCount           uint16 little-endian
+```
+
+### Version 2
+
+Adds `isCompleted` after the original counters.
+
+```text
+[0]      version (= 2)
+[1-2]    sessionCount        uint16 little-endian
+[3-6]    totalReadingSeconds uint32 little-endian
+[7-10]   totalPagesTurned    uint32 little-endian
+[11]     isCompleted         uint8
+```
+
+### Version 1
+
+Version 1 files are still readable. They are 11 bytes long and do not include
+`isCompleted` or reading-pace fields, so the reader treats those values as zero.
+
 ## `global_stats.bin`
 
 `/.crosspoint/global_stats.bin` stores this device's all-time reading counters.

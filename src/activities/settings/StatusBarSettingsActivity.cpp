@@ -23,6 +23,7 @@ enum MenuItem {
   ITEM_PROGRESS_BAR,
   ITEM_PROGRESS_BAR_THICKNESS,
   ITEM_TITLE,
+  ITEM_TIME_LEFT,
   ITEM_BATTERY,
   ITEM_XTC_STATUS_BAR,
   ITEM_CLOCK,             // X3 only
@@ -41,6 +42,7 @@ const StrId menuNames[FULL_MENU_ITEMS] = {
     StrId::STR_PROGRESS_BAR,
     StrId::STR_PROGRESS_BAR_THICKNESS,
     StrId::STR_TITLE,
+    StrId::STR_TIME_LEFT,
     StrId::STR_BATTERY,
     StrId::STR_XTC_STATUS_BAR,
     StrId::STR_CLOCK,
@@ -74,6 +76,9 @@ const StrId progressBarThicknessNames[PROGRESS_BAR_THICKNESS_ITEMS] = {
 constexpr int TITLE_ITEMS = 3;
 const StrId titleNames[TITLE_ITEMS] = {StrId::STR_BOOK, StrId::STR_CHAPTER, StrId::STR_HIDE};
 
+constexpr int TIME_LEFT_ITEMS = 3;
+const StrId timeLeftNames[TIME_LEFT_ITEMS] = {StrId::STR_HIDE, StrId::STR_CHAPTER, StrId::STR_BOOK};
+
 constexpr int XTC_STATUS_BAR_ITEMS = 3;
 const StrId xtcStatusBarNames[XTC_STATUS_BAR_ITEMS] = {StrId::STR_HIDE, StrId::STR_BOTTOM, StrId::STR_TOP};
 
@@ -96,6 +101,10 @@ void StatusBarSettingsActivity::onEnter() {
 
   if (SETTINGS.statusBarTitle >= TITLE_ITEMS) {
     SETTINGS.statusBarTitle = CrossPointSettings::STATUS_BAR_TITLE::HIDE_TITLE;
+  }
+
+  if (SETTINGS.statusBarTimeLeft >= TIME_LEFT_ITEMS) {
+    SETTINGS.statusBarTimeLeft = CrossPointSettings::STATUS_BAR_TIME_LEFT::TIME_LEFT_HIDE;
   }
 
   if (SETTINGS.xtcStatusBarMode >= XTC_STATUS_BAR_ITEMS) {
@@ -167,6 +176,9 @@ void StatusBarSettingsActivity::handleSelection() {
     case ITEM_TITLE:
       SETTINGS.statusBarTitle = (SETTINGS.statusBarTitle + 1) % TITLE_ITEMS;
       break;
+    case ITEM_TIME_LEFT:
+      SETTINGS.statusBarTimeLeft = (SETTINGS.statusBarTimeLeft + 1) % TIME_LEFT_ITEMS;
+      break;
     case ITEM_BATTERY:
       SETTINGS.statusBarBattery = (SETTINGS.statusBarBattery + 1) % 2;
       break;
@@ -234,6 +246,8 @@ void StatusBarSettingsActivity::render(RenderLock&&) {
             return I18N.get(progressBarThicknessNames[SETTINGS.statusBarProgressBarThickness]);
           case ITEM_TITLE:
             return I18N.get(titleNames[SETTINGS.statusBarTitle]);
+          case ITEM_TIME_LEFT:
+            return I18N.get(timeLeftNames[SETTINGS.statusBarTimeLeft]);
           case ITEM_BATTERY:
             return SETTINGS.statusBarBattery ? tr(STR_SHOW) : tr(STR_HIDE);
           case ITEM_XTC_STATUS_BAR:
@@ -267,7 +281,9 @@ void StatusBarSettingsActivity::render(RenderLock&&) {
     verticalPreviewPadding = 0;
   }
 
-  GUI.drawStatusBar(renderer, 75, 8, 32, title, verticalPreviewPadding);
+  const char* timeLeftPreview =
+      SETTINGS.statusBarTimeLeft != CrossPointSettings::STATUS_BAR_TIME_LEFT::TIME_LEFT_HIDE ? "1h 20m" : nullptr;
+  GUI.drawStatusBar(renderer, 75, 8, 32, title, verticalPreviewPadding, 0, false, timeLeftPreview);
 
   renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding,
                     renderer.getScreenHeight() - UITheme::getInstance().getStatusBarHeight() - verticalPreviewPadding -

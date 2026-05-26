@@ -30,6 +30,7 @@ class EpubReaderActivity final : public Activity {
   int cachedChapterTotalPageCount = 0;
   unsigned long lastPageTurnTime = 0UL;
   unsigned long pageTurnDuration = 0UL;
+  unsigned long pageShownAtMs = 0UL;
   uint16_t lastAutoPageTurnIntervalSeconds = 0;
   BookReadingStats stats;
   GlobalReadingStats globalStats;
@@ -92,6 +93,12 @@ class EpubReaderActivity final : public Activity {
   void renderStatusBar() const;
   void silentIndexNextChapterIfNeeded(uint16_t viewportWidth, uint16_t viewportHeight);
   bool saveProgress(int spineIndex, int currentPage, int pageCount);
+  void pauseReadingPaceTimer();
+  void resumeReadingPaceTimer();
+  void recordForwardPagePaceSample();
+  bool estimateRemainingTimeLeftPages(bool bookEstimate, float& remainingPages) const;
+  bool estimateTimeLeftSeconds(bool bookEstimate, uint32_t& seconds) const;
+  bool formatTimeLeftLabel(char* buf, size_t len) const;
   void openFileTransfer();
   void openAutoPageTurnIntervalPicker(bool ignoreInitialConfirmRelease = false);
   // Jump to a percentage of the book (0-100), mapping it to spine and page.
