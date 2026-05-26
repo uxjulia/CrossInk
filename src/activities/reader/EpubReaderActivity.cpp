@@ -1721,14 +1721,17 @@ void EpubReaderActivity::render(RenderLock&& lock) {
   int orientedMarginTop, orientedMarginRight, orientedMarginBottom, orientedMarginLeft;
   renderer.getOrientedViewableTRBL(&orientedMarginTop, &orientedMarginRight, &orientedMarginBottom,
                                    &orientedMarginLeft);
-  orientedMarginTop += SETTINGS.screenMargin;
   orientedMarginLeft += SETTINGS.screenMargin;
   orientedMarginRight += SETTINGS.screenMargin;
 
   const uint8_t statusBarHeight = UITheme::getInstance().getStatusBarHeight();
-
-  // Minimum padding between last line of text and the status bar
-  static constexpr uint8_t STATUS_BAR_TEXT_PADDING = 3;
+  const int topStatusBarHeight = ReaderUtils::getTopClockStatusBarHeight();
+  if (topStatusBarHeight > 0) {
+    orientedMarginTop += std::max(SETTINGS.screenMargin,
+                                  static_cast<uint8_t>(topStatusBarHeight + ReaderUtils::STATUS_BAR_TEXT_PADDING));
+  } else {
+    orientedMarginTop += SETTINGS.screenMargin;
+  }
 
   // reserves space for automatic page turn indicator when no status bar or progress bar only
   if (automaticPageTurnActive &&
@@ -1736,10 +1739,10 @@ void EpubReaderActivity::render(RenderLock&& lock) {
     orientedMarginBottom +=
         std::max(SETTINGS.screenMargin,
                  static_cast<uint8_t>(statusBarHeight + UITheme::getInstance().getMetrics().statusBarVerticalMargin +
-                                      STATUS_BAR_TEXT_PADDING));
+                                      ReaderUtils::STATUS_BAR_TEXT_PADDING));
   } else {
     orientedMarginBottom +=
-        std::max(SETTINGS.screenMargin, static_cast<uint8_t>(statusBarHeight + STATUS_BAR_TEXT_PADDING));
+        std::max(SETTINGS.screenMargin, static_cast<uint8_t>(statusBarHeight + ReaderUtils::STATUS_BAR_TEXT_PADDING));
   }
 
   const uint16_t viewportWidth = renderer.getScreenWidth() - orientedMarginLeft - orientedMarginRight;
@@ -2271,6 +2274,7 @@ void EpubReaderActivity::renderStatusBar() const {
   char timeLeftLabel[24] = {};
   const char* timeLeft = formatTimeLeftLabel(timeLeftLabel, sizeof(timeLeftLabel)) ? timeLeftLabel : nullptr;
   GUI.drawStatusBar(renderer, bookProgress, currentPage, pageCount, title, 0, textYOffset, bookmarked, timeLeft);
+  GUI.drawTopStatusBarClock(renderer);
 }
 
 void EpubReaderActivity::navigateToHref(const std::string& hrefStr, const bool savePosition) {

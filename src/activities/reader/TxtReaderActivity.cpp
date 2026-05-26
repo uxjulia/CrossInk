@@ -7,6 +7,8 @@
 #include <Serialization.h>
 #include <Utf8.h>
 
+#include <algorithm>
+
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
 #include "MappedInputManager.h"
@@ -238,11 +240,18 @@ void TxtReaderActivity::initializeReader() {
   // Calculate viewport dimensions
   renderer.getOrientedViewableTRBL(&cachedOrientedMarginTop, &cachedOrientedMarginRight, &cachedOrientedMarginBottom,
                                    &cachedOrientedMarginLeft);
-  cachedOrientedMarginTop += cachedScreenMargin;
   cachedOrientedMarginLeft += cachedScreenMargin;
   cachedOrientedMarginRight += cachedScreenMargin;
-  cachedOrientedMarginBottom +=
-      std::max(cachedScreenMargin, static_cast<uint8_t>(UITheme::getInstance().getStatusBarHeight()));
+  const int topStatusBarHeight = ReaderUtils::getTopClockStatusBarHeight();
+  if (topStatusBarHeight > 0) {
+    cachedOrientedMarginTop +=
+        std::max(cachedScreenMargin, static_cast<uint8_t>(topStatusBarHeight + ReaderUtils::STATUS_BAR_TEXT_PADDING));
+  } else {
+    cachedOrientedMarginTop += cachedScreenMargin;
+  }
+  cachedOrientedMarginBottom += std::max(
+      cachedScreenMargin,
+      static_cast<uint8_t>(UITheme::getInstance().getStatusBarHeight() + ReaderUtils::STATUS_BAR_TEXT_PADDING));
 
   viewportWidth = renderer.getScreenWidth() - cachedOrientedMarginLeft - cachedOrientedMarginRight;
   const int viewportHeight = renderer.getScreenHeight() - cachedOrientedMarginTop - cachedOrientedMarginBottom;
@@ -429,6 +438,7 @@ void TxtReaderActivity::renderPage() {
   // BW rendering
   renderLines();
   renderStatusBar();
+  GUI.drawTopStatusBarClock(renderer);
 
   ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh);
 
@@ -641,10 +651,17 @@ bool TxtReaderActivity::drawCurrentPageToBuffer(const std::string& filePath, Gfx
 
   int marginTop, marginRight, marginBottom, marginLeft;
   renderer.getOrientedViewableTRBL(&marginTop, &marginRight, &marginBottom, &marginLeft);
-  marginTop += screenMargin;
   marginLeft += screenMargin;
   marginRight += screenMargin;
-  marginBottom += std::max(screenMargin, static_cast<uint8_t>(UITheme::getInstance().getStatusBarHeight()));
+  const int topStatusBarHeight = ReaderUtils::getTopClockStatusBarHeight();
+  if (topStatusBarHeight > 0) {
+    marginTop +=
+        std::max(screenMargin, static_cast<uint8_t>(topStatusBarHeight + ReaderUtils::STATUS_BAR_TEXT_PADDING));
+  } else {
+    marginTop += screenMargin;
+  }
+  marginBottom += std::max(screenMargin, static_cast<uint8_t>(UITheme::getInstance().getStatusBarHeight() +
+                                                              ReaderUtils::STATUS_BAR_TEXT_PADDING));
 
   const int vw = renderer.getScreenWidth() - marginLeft - marginRight;
   const int vh = renderer.getScreenHeight() - marginTop - marginBottom;

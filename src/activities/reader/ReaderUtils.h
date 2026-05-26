@@ -2,15 +2,20 @@
 
 #include <CrossPointSettings.h>
 #include <GfxRenderer.h>
+#include <HalClock.h>
 #include <HalTiltSensor.h>
 #include <Logging.h>
 
+#include <algorithm>
+
 #include "MappedInputManager.h"
+#include "components/UITheme.h"
 
 namespace ReaderUtils {
 
 constexpr unsigned long SKIP_HOLD_MS = 700;
 constexpr unsigned long GO_HOME_MS = 1000;
+constexpr uint8_t STATUS_BAR_TEXT_PADDING = 3;
 
 inline GfxRenderer::Orientation toRendererOrientation(const uint8_t orientation) {
   switch (orientation) {
@@ -29,6 +34,17 @@ inline GfxRenderer::Orientation toRendererOrientation(const uint8_t orientation)
 
 inline void applyOrientation(GfxRenderer& renderer, const uint8_t orientation) {
   renderer.setOrientation(toRendererOrientation(orientation));
+}
+
+inline bool shouldShowTopClockStatusBar() { return SETTINGS.statusBarClock && halClock.isAvailable(); }
+
+inline int getTopClockStatusBarHeight() {
+  if (!shouldShowTopClockStatusBar()) {
+    return 0;
+  }
+
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  return std::max(UITheme::getStatusBarHeight(), metrics.statusBarVerticalMargin);
 }
 
 inline uint8_t rotatedOrientation(const uint8_t orientation, const bool clockwise) {

@@ -34,6 +34,7 @@
 - Clarified the low-memory EPUB image warning so it says some or all images may be missing.
 
 ### Changed
+- Moved the X3 reader clock from the bottom status bar into a new top-centered status bar.
 
 
 ## [v1.3.0] - 2026-05-21

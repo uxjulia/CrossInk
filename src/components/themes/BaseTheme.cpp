@@ -818,19 +818,6 @@ void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, c
     leftClusterWidth += (hasLeftItem ? statusItemGap : 0) + timeLeftWidth;
   }
 
-  // Draw Clock (X3 only — DS3231 RTC)
-  int clockTextWidth = 0;
-  if (SETTINGS.statusBarClock && halClock.isAvailable()) {
-    char timeBuf[9];
-    if (halClock.formatTime(timeBuf, sizeof(timeBuf), SETTINGS.clockUtcOffsetQ, SETTINGS.clockFormat == 1)) {
-      clockTextWidth = renderer.getTextWidth(SMALL_FONT_ID, timeBuf);
-      // Position to the left of the progress text (with a small gap)
-      const int clockX = renderer.getScreenWidth() - metrics.statusBarHorizontalMargin - orientedMarginRight -
-                         progressTextWidth - (progressTextWidth > 0 ? 10 : 0) - clockTextWidth;
-      renderer.drawText(SMALL_FONT_ID, clockX, textY, timeBuf);
-    }
-  }
-
   // Draw Title
   if (!title.empty()) {
     textY -= textYOffset;
@@ -840,8 +827,7 @@ void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, c
         renderer.getScreenWidth() - (metrics.statusBarHorizontalMargin * 2) - orientedMarginLeft - orientedMarginRight;
 
     const int titleMarginLeft = leftClusterWidth + 30;
-    const int clockReserve = clockTextWidth > 0 ? (clockTextWidth + 10) : 0;
-    const int titleMarginRight = progressTextWidth + clockReserve + 30;
+    const int titleMarginRight = progressTextWidth + 30;
 
     // Attempt to center title on the screen, but if title is too wide then later we will center it within the
     // available space.
@@ -865,6 +851,36 @@ void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, c
                           (availableTitleSpace - titleWidth) / 2,
                       textY, title.c_str());
   }
+}
+
+void BaseTheme::drawTopStatusBarClock(GfxRenderer& renderer) const {
+  if (!SETTINGS.statusBarClock || !halClock.isAvailable()) {
+    return;
+  }
+
+  char timeBuf[9];
+  if (!halClock.formatTime(timeBuf, sizeof(timeBuf), SETTINGS.clockUtcOffsetQ, SETTINGS.clockFormat == 1)) {
+    return;
+  }
+
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  const int statusBarHeight = std::max(UITheme::getStatusBarHeight(), metrics.statusBarVerticalMargin);
+  if (statusBarHeight <= 0) {
+    return;
+  }
+
+  int orientedMarginTop, orientedMarginRight, orientedMarginBottom, orientedMarginLeft;
+  renderer.getOrientedViewableTRBL(&orientedMarginTop, &orientedMarginRight, &orientedMarginBottom,
+                                   &orientedMarginLeft);
+  (void)orientedMarginRight;
+  (void)orientedMarginBottom;
+  (void)orientedMarginLeft;
+
+  const int textWidth = renderer.getTextWidth(SMALL_FONT_ID, timeBuf);
+  const int lineHeight = renderer.getLineHeight(SMALL_FONT_ID);
+  const int textX = (renderer.getScreenWidth() - textWidth) / 2;
+  const int textY = orientedMarginTop + (statusBarHeight - lineHeight) / 2;
+  renderer.drawText(SMALL_FONT_ID, textX, textY, timeBuf);
 }
 
 void BaseTheme::drawHelpText(const GfxRenderer& renderer, Rect rect, const char* label) const {
