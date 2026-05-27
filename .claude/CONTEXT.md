@@ -22,6 +22,7 @@ Keep this file focused on repo-specific gotchas that are worth reusing in future
 - `lib/Epub/Epub/Page.cpp`: images must render only in `GfxRenderer::BW`; grayscale passes are text anti-aliasing passes only.
 - Kindle EPUBs may contain paired high-res and old-Kindle fallback images. `ChapterHtmlSlimParser` should skip `<img>` nodes with `data-AmznRemoved-M8` to avoid duplicate stacked images.
 - After image/layout pipeline changes that affect cached EPUB output, clear the affected `.crosspoint/epub_<hash>/` cache if behavior looks stale.
+- X3 row-band grayscale rendering was temporarily backed out by pinning `open-x4-sdk` to `ff444b0f` because SDK `d4ac042` switched text AA from `X3_GRAY_MODE=diff_gray` to slower `X3_GRAY_MODE=oem_gc`. When upstream restores a fast X3 AA path, reapply the row-band work from CrossInk commit `4ee40689` / SDK commit `ee4c58dd`.
 
 ## Misc Repo Gotchas
 

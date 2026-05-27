@@ -16,7 +16,6 @@
 #include <iterator>
 #include <limits>
 #include <memory>
-#include <new>
 
 #include "../settings/KOReaderSettingsActivity.h"
 #include "BookStatsActivity.h"
@@ -61,63 +60,6 @@ uint8_t largestBlockPercent(const MemoryBudget::HeapSnapshot& heap) {
     return 0;
   }
   return static_cast<uint8_t>(std::min<uint32_t>(100, (heap.maxAllocHeap * 100U) / heap.freeHeap));
-}
-
-struct TiledGrayscaleTimings {
-  unsigned long grayLsb = 0;
-  unsigned long grayMsb = 0;
-  unsigned long grayDisplay = 0;
-  unsigned long cleanup = 0;
-};
-
-bool runTiledGrayscalePass(GfxRenderer& renderer, const Page& page, const int fontId, const int marginLeft,
-                           const int marginTop, const bool needsTextGrayscale, const bool needsImageGrayscale,
-                           TiledGrayscaleTimings& timings) {
-  if ((!needsTextGrayscale && !needsImageGrayscale) || !renderer.supportsStripGrayscale()) {
-    return false;
-  }
-
-  constexpr int STRIP_ROWS = 80;
-  const int displayHeight = renderer.getDisplayHeight();
-  const int displayWidthBytes = renderer.getDisplayWidthBytes();
-  auto scratch =
-      std::unique_ptr<uint8_t[]>(new (std::nothrow) uint8_t[static_cast<size_t>(displayWidthBytes) * STRIP_ROWS]);
-  if (!scratch) {
-    LOG_ERR("ERS", "OOM: grayscale strip scratch (%d bytes); falling back to BW snapshot",
-            displayWidthBytes * STRIP_ROWS);
-    return false;
-  }
-
-  // Keep the live BW framebuffer intact, stream grayscale planes by row-band,
-  // then re-sync the controller BW state from the framebuffer.
-  const auto renderPlane = [&](const GfxRenderer::RenderMode mode, const bool lsbPlane) {
-    renderer.setRenderMode(mode);
-    for (int y = 0; y < displayHeight; y += STRIP_ROWS) {
-      const int rows = std::min(STRIP_ROWS, displayHeight - y);
-      renderer.beginStripTarget(scratch.get(), y, rows);
-      renderer.clearScreen(0x00);
-      if (needsTextGrayscale) {
-        page.render(renderer, fontId, marginLeft, marginTop);
-      } else {
-        page.renderImages(renderer, fontId, marginLeft, marginTop);
-      }
-      renderer.endStripTarget();
-      renderer.writeGrayscalePlaneStrip(lsbPlane, scratch.get(), y, rows);
-    }
-  };
-
-  renderPlane(GfxRenderer::GRAYSCALE_LSB, true);
-  timings.grayLsb = millis();
-
-  renderPlane(GfxRenderer::GRAYSCALE_MSB, false);
-  timings.grayMsb = millis();
-
-  renderer.setRenderMode(GfxRenderer::BW);
-  renderer.displayGrayBuffer();
-  timings.grayDisplay = millis();
-  renderer.cleanupGrayscaleWithFrameBuffer();
-  timings.cleanup = millis();
-  return true;
 }
 
 void drawToastBuffer(const GfxRenderer& renderer, const char* msg) {
@@ -2227,22 +2169,9 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
   }
   const auto tDisplay = millis();
 
-  TiledGrayscaleTimings tiledTimings;
-  if (runTiledGrayscalePass(renderer, *page, fontId, orientedMarginLeft, orientedMarginTop, needsTextGrayscale,
-                            needsImageGrayscale, tiledTimings)) {
-    const auto tEnd = millis();
-    LOG_DBG("ERS",
-            "Page render (tiled): prewarm=%lums bw_render=%lums display=%lums "
-            "gray_lsb=%lums gray_msb=%lums gray_display=%lums cleanup=%lums total=%lums",
-            tPrewarm - t0, tBwRender - tPrewarm, tDisplay - tBwRender, tiledTimings.grayLsb - tDisplay,
-            tiledTimings.grayMsb - tiledTimings.grayLsb, tiledTimings.grayDisplay - tiledTimings.grayMsb,
-            tiledTimings.cleanup - tiledTimings.grayDisplay, tEnd - t0);
-    return;
-  }
-
   // Save bw buffer to reset buffer state after grayscale data sync
   const auto bwStoreHeapBefore = MemoryBudget::snapshot();
-  const bool storedBwBuffer = needsAnyGrayscale && renderer.storeBwBuffer();
+  const bool storedBwBuffer = renderer.storeBwBuffer();
   const auto bwStoreHeapAfter = MemoryBudget::snapshot();
   const auto tBwStore = millis();
   const bool canApplyGrayscale = needsAnyGrayscale && storedBwBuffer;
