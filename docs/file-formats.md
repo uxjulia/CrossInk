@@ -73,10 +73,6 @@ Version 1 files are still readable. They are 13 bytes long and do not include
 
 ## `book.bin`
 
-### Version 9
-
-Keeps the Crossink-owned cache magic and aligns with the upstream metadata cache invalidation level. No binary layout fields changed from version 6.
-
 ### Version 6
 
 Adds a Crossink-owned cache magic before the version byte so `book.bin` files written by upstream CrossPoint or other forks are rejected and rebuilt instead of being parsed as compatible Crossink metadata caches.
