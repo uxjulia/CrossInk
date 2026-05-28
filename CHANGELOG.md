@@ -22,6 +22,7 @@
 - Changed Display, Reader, Controls, in-reader Reader Options and Controls, and larger System settings groups so related options open as submenus instead of appearing as section headers.
 
 ### Fixed
+- Fixed the WiFi settings screen so the displayed MAC address stays consistent and matches the router-visible WiFi address.
 - Fixed inverted reader menus so front-button hint outlines keep the normal portrait shape while the labels stay readable in the inverted orientation.
 - Fixed web file uploads so replacing a book refreshes render/cache files without wiping that book's saved progress, per-book stats, or reader settings.
 - Fixed Lyra Carousel popup rendering so loading, indexing, and sleep-entry popups appear in the right place again.

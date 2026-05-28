@@ -5,6 +5,9 @@
 #include <I18n.h>
 #include <Logging.h>
 #include <WiFi.h>
+#ifndef SIMULATOR
+#include <esp_mac.h>
+#endif
 
 #include <map>
 
@@ -21,7 +24,26 @@ namespace {
 uint8_t sLastStaDisconnectReason = 0;
 bool sConnectionAttemptLoggingActive = false;
 bool sWifiEventLoggingRegistered = false;
+#endif
 
+std::string getDisplayMacAddress() {
+  uint8_t mac[6] = {};
+
+#ifndef SIMULATOR
+  if (esp_read_mac(mac, ESP_MAC_WIFI_STA) != ESP_OK) {
+    LOG_ERR("WIFI", "Failed to read station MAC address");
+  }
+#else
+  WiFi.macAddress(mac);
+#endif
+
+  char macStr[64];
+  snprintf(macStr, sizeof(macStr), "%s %02x-%02x-%02x-%02x-%02x-%02x", tr(STR_MAC_ADDRESS), mac[0], mac[1], mac[2],
+           mac[3], mac[4], mac[5]);
+  return std::string(macStr);
+}
+
+#ifndef SIMULATOR
 void logWifiStationEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
   if (!sConnectionAttemptLoggingActive) {
     return;
@@ -170,12 +192,7 @@ void WifiSelectionActivity::onEnter() {
   lastLoggedWifiStatus = -1;
 
   // Cache MAC address for display
-  uint8_t mac[6];
-  WiFi.macAddress(mac);
-  char macStr[64];
-  snprintf(macStr, sizeof(macStr), "%s %02x-%02x-%02x-%02x-%02x-%02x", tr(STR_MAC_ADDRESS), mac[0], mac[1], mac[2],
-           mac[3], mac[4], mac[5]);
-  cachedMacAddress = std::string(macStr);
+  cachedMacAddress = getDisplayMacAddress();
 
   // Trigger first update to show scanning message
   requestUpdate();
