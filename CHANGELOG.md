@@ -20,6 +20,7 @@
 - Improved OPDS and font download responsiveness by reducing progress-update overhead and temporarily disabling WiFi power saving during transfers.
 - Book selection now shows a loading popup before EPUB indexing or cache loading begins.
 - Changed Display, Reader, Controls, in-reader Reader Options and Controls, and larger System settings groups so related options open as submenus instead of appearing as section headers.
+- Delayed the automatic finished-book prompt until the reader leaves the chapter where they reach 99%.
 
 ### Fixed
 - Fixed the WiFi settings screen so the displayed MAC address stays consistent and matches the router-visible WiFi address.

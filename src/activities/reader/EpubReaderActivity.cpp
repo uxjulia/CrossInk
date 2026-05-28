@@ -451,6 +451,7 @@ void EpubReaderActivity::initializeCompletionPromptTrigger() {
   completionPromptQueued = false;
   completionPromptShown = stats.isCompleted;
   completionTriggerSeenBelow = false;
+  completionTriggerCrossed = false;
   lastAtOrPastCompletionTrigger = false;
 
   if (!epub) {
@@ -510,6 +511,19 @@ bool EpubReaderActivity::isAtOrPastCompletionTrigger() const {
   return chapterProgress >= completionTriggerSpineProgress;
 }
 
+bool EpubReaderActivity::shouldQueueCompletionPromptOnChapterExit() const {
+  if (completionPromptShown || completionPromptQueued || stats.isCompleted || footnoteDepth > 0 ||
+      !completionTriggerCrossed || !epub || !section || section->pageCount == 0 || completionTriggerSpineIndex < 0) {
+    return false;
+  }
+
+  if (currentSpineIndex != completionTriggerSpineIndex) {
+    return false;
+  }
+
+  return section->currentPage >= section->pageCount - 1;
+}
+
 void EpubReaderActivity::queueCompletionPromptIfNeeded() {
   if (completionPromptShown || completionPromptQueued || stats.isCompleted || footnoteDepth > 0) {
     return;
@@ -522,7 +536,7 @@ void EpubReaderActivity::queueCompletionPromptIfNeeded() {
   }
 
   if (completionTriggerSeenBelow && !lastAtOrPastCompletionTrigger && atOrPastTrigger) {
-    completionPromptQueued = true;
+    completionTriggerCrossed = true;
   }
 
   lastAtOrPastCompletionTrigger = atOrPastTrigger;
@@ -1707,6 +1721,12 @@ void EpubReaderActivity::pageTurn(bool isForwardTurn) {
     if (section->currentPage < section->pageCount - 1) {
       section->currentPage++;
     } else {
+      if (shouldQueueCompletionPromptOnChapterExit()) {
+        completionPromptQueued = true;
+        requestUpdate();
+        return;
+      }
+
       // We don't want to delete the section mid-render, so grab the semaphore
       {
         RenderLock lock(*this);

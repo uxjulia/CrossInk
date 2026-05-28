@@ -69,6 +69,7 @@ class EpubReaderActivity final : public Activity {
   bool completionPromptQueued = false;
   bool completionPromptShown = false;
   bool completionTriggerSeenBelow = false;
+  bool completionTriggerCrossed = false;
   bool lastAtOrPastCompletionTrigger = false;
 
   // Tracks whether this book is currently removed from Recent Books by the
@@ -117,6 +118,7 @@ class EpubReaderActivity final : public Activity {
   float getCurrentBookProgressPercent() const;
   void initializeCompletionPromptTrigger();
   bool isAtOrPastCompletionTrigger() const;
+  bool shouldQueueCompletionPromptOnChapterExit() const;
   void queueCompletionPromptIfNeeded();
   void setBookCompleted(bool isCompleted);
   void showCompletedFeedback(bool isCompleted);
