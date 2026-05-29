@@ -9,6 +9,7 @@
 #include <HalStorage.h>
 #include <I18n.h>
 #include <Logging.h>
+#include <Memory.h>
 #include <MemoryBudget.h>
 
 #include <algorithm>
@@ -1915,7 +1916,12 @@ void EpubReaderActivity::render(RenderLock&& lock) {
     bool loadedSection = false;
     bool usedFallbackFont = false;
     auto loadSectionWithFont = [&](const int fontId, const char* cacheSuffix) {
-      section = std::unique_ptr<Section>(new Section(epub, currentSpineIndex, renderer, cacheSuffix));
+      section = makeUniqueNoThrow<Section>(epub, currentSpineIndex, renderer, cacheSuffix);
+      if (!section) {
+        LOG_ERR("ERS", "Failed to allocate section for spine %d (font=%d, free=%u, maxAlloc=%u)", currentSpineIndex,
+                fontId, ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+        return false;
+      }
       if (!section->loadSectionFile(fontId, SETTINGS.getReaderLineCompression(), SETTINGS.extraParagraphSpacing,
                                     SETTINGS.forceParagraphIndents, SETTINGS.paragraphAlignment, viewportWidth,
                                     viewportHeight, SETTINGS.hyphenationEnabled, SETTINGS.embeddedStyle,
@@ -1948,7 +1954,13 @@ void EpubReaderActivity::render(RenderLock&& lock) {
 
       bool imagesWereSuppressed = false;
       bool layoutAbortedForLowMemory = false;
-      section = std::unique_ptr<Section>(new Section(epub, currentSpineIndex, renderer));
+      section = makeUniqueNoThrow<Section>(epub, currentSpineIndex, renderer);
+      if (!section) {
+        LOG_ERR("ERS", "Failed to allocate section builder for spine %d (free=%u, maxAlloc=%u)", currentSpineIndex,
+                ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+        showLowMemoryLayoutError();
+        return;
+      }
       if (!section->createSectionFile(readerFontId, SETTINGS.getReaderLineCompression(), SETTINGS.extraParagraphSpacing,
                                       SETTINGS.forceParagraphIndents, SETTINGS.paragraphAlignment, viewportWidth,
                                       viewportHeight, SETTINGS.hyphenationEnabled, SETTINGS.embeddedStyle,
@@ -1961,18 +1973,24 @@ void EpubReaderActivity::render(RenderLock&& lock) {
           section.reset();
           releaseReaderSdFontCachesForLowMemory(renderer, "ERS", "fallback font section rebuild");
           GUI.drawPopup(renderer, tr(STR_INDEXING));
-          section = std::unique_ptr<Section>(
-              new Section(epub, currentSpineIndex, renderer, FALLBACK_FONT_SECTION_CACHE_SUFFIX));
+          section = makeUniqueNoThrow<Section>(epub, currentSpineIndex, renderer, FALLBACK_FONT_SECTION_CACHE_SUFFIX);
+          if (!section) {
+            LOG_ERR("ERS", "Failed to allocate fallback section builder for spine %d (free=%u, maxAlloc=%u)",
+                    currentSpineIndex, ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+            layoutAbortedForLowMemory = true;
+          }
           bool fallbackImagesWereSuppressed = false;
           bool fallbackLayoutAbortedForLowMemory = false;
-          fallbackBuildSucceeded = section->createSectionFile(
-              fallbackFontId, SETTINGS.getReaderLineCompression(), SETTINGS.extraParagraphSpacing,
-              SETTINGS.forceParagraphIndents, SETTINGS.paragraphAlignment, viewportWidth, viewportHeight,
-              SETTINGS.hyphenationEnabled, SETTINGS.embeddedStyle, SETTINGS.imageRendering,
-              SETTINGS.bionicReadingEnabled, SETTINGS.guideReadingEnabled, popupFn, &fallbackImagesWereSuppressed,
-              &fallbackLayoutAbortedForLowMemory);
-          imagesWereSuppressed = imagesWereSuppressed || fallbackImagesWereSuppressed;
-          layoutAbortedForLowMemory = fallbackLayoutAbortedForLowMemory;
+          if (section) {
+            fallbackBuildSucceeded = section->createSectionFile(
+                fallbackFontId, SETTINGS.getReaderLineCompression(), SETTINGS.extraParagraphSpacing,
+                SETTINGS.forceParagraphIndents, SETTINGS.paragraphAlignment, viewportWidth, viewportHeight,
+                SETTINGS.hyphenationEnabled, SETTINGS.embeddedStyle, SETTINGS.imageRendering,
+                SETTINGS.bionicReadingEnabled, SETTINGS.guideReadingEnabled, popupFn, &fallbackImagesWereSuppressed,
+                &fallbackLayoutAbortedForLowMemory);
+            imagesWereSuppressed = imagesWereSuppressed || fallbackImagesWereSuppressed;
+            layoutAbortedForLowMemory = fallbackLayoutAbortedForLowMemory;
+          }
           if (fallbackBuildSucceeded) {
             activeSectionFontId = fallbackFontId;
             activeSectionUsesFallbackFont = true;
@@ -2540,13 +2558,21 @@ bool EpubReaderActivity::drawCurrentPageToBuffer(const std::string& filePath, Gf
   const int fallbackFontId = SETTINGS.getBuiltInReaderFontId();
   const bool canUseFallbackFont = renderer.isSdCardFont(readerFontId) && fallbackFontId != readerFontId;
   int renderFontId = readerFontId;
-  auto section = std::make_unique<Section>(epub, spineIndex, renderer);
+  auto section = makeUniqueNoThrow<Section>(epub, spineIndex, renderer);
+  if (!section) {
+    LOG_ERR("SLP", "EPUB: failed to allocate section for spine %d", spineIndex);
+    return false;
+  }
   bool loadedSection = section->loadSectionFile(
       readerFontId, SETTINGS.getReaderLineCompression(), SETTINGS.extraParagraphSpacing, SETTINGS.forceParagraphIndents,
       SETTINGS.paragraphAlignment, viewportWidth, viewportHeight, SETTINGS.hyphenationEnabled, SETTINGS.embeddedStyle,
       SETTINGS.imageRendering, SETTINGS.bionicReadingEnabled, SETTINGS.guideReadingEnabled);
   if (!loadedSection && canUseFallbackFont) {
-    section = std::make_unique<Section>(epub, spineIndex, renderer, FALLBACK_FONT_SECTION_CACHE_SUFFIX);
+    section = makeUniqueNoThrow<Section>(epub, spineIndex, renderer, FALLBACK_FONT_SECTION_CACHE_SUFFIX);
+    if (!section) {
+      LOG_ERR("SLP", "EPUB: failed to allocate fallback section for spine %d", spineIndex);
+      return false;
+    }
     loadedSection =
         section->loadSectionFile(fallbackFontId, SETTINGS.getReaderLineCompression(), SETTINGS.extraParagraphSpacing,
                                  SETTINGS.forceParagraphIndents, SETTINGS.paragraphAlignment, viewportWidth,
@@ -2565,7 +2591,11 @@ bool EpubReaderActivity::drawCurrentPageToBuffer(const std::string& filePath, Gf
 
     LOG_DBG("SLP", "EPUB: section cache not found for spine %d, rebuilding (free=%u, maxAlloc=%u)", spineIndex,
             ESP.getFreeHeap(), ESP.getMaxAllocHeap());
-    section = std::make_unique<Section>(epub, spineIndex, renderer);
+    section = makeUniqueNoThrow<Section>(epub, spineIndex, renderer);
+    if (!section) {
+      LOG_ERR("SLP", "EPUB: failed to allocate section builder for spine %d", spineIndex);
+      return false;
+    }
     bool layoutAbortedForLowMemory = false;
     if (!section->createSectionFile(
             readerFontId, SETTINGS.getReaderLineCompression(), SETTINGS.extraParagraphSpacing,
@@ -2579,7 +2609,11 @@ bool EpubReaderActivity::drawCurrentPageToBuffer(const std::string& filePath, Gf
 
       LOG_DBG("SLP", "EPUB: retrying sleep-page rebuild with fallback built-in font for spine %d", spineIndex);
       releaseReaderSdFontCachesForLowMemory(renderer, "SLP", "sleep-page fallback font rebuild");
-      section = std::make_unique<Section>(epub, spineIndex, renderer, FALLBACK_FONT_SECTION_CACHE_SUFFIX);
+      section = makeUniqueNoThrow<Section>(epub, spineIndex, renderer, FALLBACK_FONT_SECTION_CACHE_SUFFIX);
+      if (!section) {
+        LOG_ERR("SLP", "EPUB: failed to allocate fallback section builder for spine %d", spineIndex);
+        return false;
+      }
       if (!section->createSectionFile(fallbackFontId, SETTINGS.getReaderLineCompression(),
                                       SETTINGS.extraParagraphSpacing, SETTINGS.forceParagraphIndents,
                                       SETTINGS.paragraphAlignment, viewportWidth, viewportHeight,
