@@ -1,9 +1,17 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+### Changed
+
+### Fixed
+- Exposed upstream Crosspoint's functionality to disable side buttons that got lost in the last merge.
+
 ## [v1.3.1] - 2026-05-28
 
 ### Added
-- Added reader display and navigation options for line height, publisher page numbers, superscript/subscript text, tilt direction, and side-button page turns.
 - Added EPUB reading-position improvements, including bookmark anchors, bookmark preview snippets, and optional chapter/book time-left estimates.
 - Added nearby Reading Stats sync with separate totals for this device and all synced CrossInk readers.
 - Added per-server OPDS filename settings so downloaded books can use either Author - Title or Title - Author.
