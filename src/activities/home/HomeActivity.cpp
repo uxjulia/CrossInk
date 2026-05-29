@@ -11,6 +11,7 @@
 #include <Xtc.h>
 
 #include <algorithm>
+#include <array>
 #include <cinttypes>
 #include <cmath>
 #include <cstring>
@@ -38,6 +39,8 @@ constexpr uint32_t CAROUSEL_CACHE_MAGIC = 0x43434152;  // "CCAR"
 constexpr uint16_t CAROUSEL_CACHE_VERSION = 4;
 constexpr char CAROUSEL_CACHE_PATH[] = "/.crosspoint/home_carousel_cache.bin";
 constexpr char CAROUSEL_CACHE_TMP_PATH[] = "/.crosspoint/home_carousel_cache.tmp";
+constexpr uint32_t CAROUSEL_FRAME_MIN_FREE_AFTER_ALLOC = 64U * 1024U;
+constexpr uint32_t CAROUSEL_FRAME_MIN_MAX_ALLOC_AFTER_ALLOC = 24U * 1024U;
 
 enum class HomeMenuAction {
   BrowseFiles,
@@ -54,6 +57,21 @@ struct HomeMenuEntry {
   const char* label;
   UIIcon icon;
   HomeMenuAction action;
+};
+
+struct HomeMenuEntries {
+  static constexpr int kCapacity = 8;
+  std::array<HomeMenuEntry, kCapacity> entries{};
+  int count = 0;
+
+  void push(const HomeMenuEntry& entry) {
+    if (count >= kCapacity) return;
+    entries[count++] = entry;
+  }
+
+  int size() const { return count; }
+
+  const HomeMenuEntry& operator[](int index) const { return entries[index]; }
 };
 
 struct CarouselCacheHeader {
@@ -86,6 +104,11 @@ bool hasAnyBookStats(const BookReadingStats& stats) {
 bool hasAnyGlobalStats(const GlobalReadingStats& stats) {
   return stats.totalSessions > 0 || stats.totalReadingSeconds > 0 || stats.totalPagesTurned > 0 ||
          stats.completedBooks > 0;
+}
+
+bool hasHeapForCarouselFrameCache() {
+  return ESP.getFreeHeap() >= CAROUSEL_FRAME_MIN_FREE_AFTER_ALLOC &&
+         ESP.getMaxAllocHeap() >= CAROUSEL_FRAME_MIN_MAX_ALLOC_AFTER_ALLOC;
 }
 
 void appendHashedFileStateToKey(std::string& key, const std::string& path) {
@@ -173,52 +196,55 @@ bool ensureReusableCoverPath(RecentBook& book) {
   return true;
 }
 
-std::vector<HomeMenuEntry> buildHomeMenuItems(bool hasOpdsServers, bool hasReadingStats, bool hasBookmarks) {
-  std::vector<HomeMenuEntry> items = {
-      {tr(STR_BROWSE_FILES), Folder, HomeMenuAction::BrowseFiles},
-      {tr(STR_MENU_RECENT_BOOKS), Recent, HomeMenuAction::RecentBooks},
-  };
+void appendHomeMenuItems(HomeMenuEntries& items, bool hasOpdsServers, bool hasReadingStats, bool hasBookmarks) {
+  items.push({tr(STR_BROWSE_FILES), Folder, HomeMenuAction::BrowseFiles});
+  items.push({tr(STR_MENU_RECENT_BOOKS), Recent, HomeMenuAction::RecentBooks});
 
   if (hasOpdsServers) {
-    items.push_back({tr(STR_OPDS_BROWSER), Library, HomeMenuAction::OpdsBrowser});
+    items.push({tr(STR_OPDS_BROWSER), Library, HomeMenuAction::OpdsBrowser});
   }
   if (hasReadingStats) {
-    items.push_back({tr(STR_READING_STATS), Chart, HomeMenuAction::ReadingStats});
+    items.push({tr(STR_READING_STATS), Chart, HomeMenuAction::ReadingStats});
   }
   if (hasBookmarks) {
-    items.push_back({tr(STR_BOOKMARKS), BookmarkIcon, HomeMenuAction::Bookmarks});
+    items.push({tr(STR_BOOKMARKS), BookmarkIcon, HomeMenuAction::Bookmarks});
   }
 
-  items.push_back({tr(STR_FILE_TRANSFER), Transfer, HomeMenuAction::FileTransfer});
-  items.push_back({tr(STR_SETTINGS_TITLE), Settings, HomeMenuAction::Settings});
+  items.push({tr(STR_FILE_TRANSFER), Transfer, HomeMenuAction::FileTransfer});
+  items.push({tr(STR_SETTINGS_TITLE), Settings, HomeMenuAction::Settings});
+}
+
+HomeMenuEntries buildHomeMenuItems(bool hasOpdsServers, bool hasReadingStats, bool hasBookmarks) {
+  HomeMenuEntries items;
+  appendHomeMenuItems(items, hasOpdsServers, hasReadingStats, hasBookmarks);
   return items;
 }
 
-std::vector<HomeMenuEntry> buildMinimalMenuItems(bool hasOpdsServers, bool hasReadingStats, bool hasBookmarks) {
-  std::vector<HomeMenuEntry> items = {
-      {tr(STR_MENU_RECENT_BOOKS), Recent, HomeMenuAction::RecentBooks},
-  };
+HomeMenuEntries buildMinimalMenuItems(bool hasOpdsServers, bool hasReadingStats, bool hasBookmarks) {
+  HomeMenuEntries items;
+  items.push({tr(STR_MENU_RECENT_BOOKS), Recent, HomeMenuAction::RecentBooks});
 
   if (hasOpdsServers) {
-    items.push_back({tr(STR_OPDS_BROWSER), Library, HomeMenuAction::OpdsBrowser});
+    items.push({tr(STR_OPDS_BROWSER), Library, HomeMenuAction::OpdsBrowser});
   }
   if (hasBookmarks) {
-    items.push_back({tr(STR_BOOKMARKS), BookmarkIcon, HomeMenuAction::Bookmarks});
+    items.push({tr(STR_BOOKMARKS), BookmarkIcon, HomeMenuAction::Bookmarks});
   }
   if (hasReadingStats) {
-    items.push_back({tr(STR_READING_STATS), Chart, HomeMenuAction::ReadingStats});
+    items.push({tr(STR_READING_STATS), Chart, HomeMenuAction::ReadingStats});
   }
 
-  items.push_back({tr(STR_FILE_TRANSFER), Transfer, HomeMenuAction::FileTransfer});
+  items.push({tr(STR_FILE_TRANSFER), Transfer, HomeMenuAction::FileTransfer});
   return items;
 }
 
-std::vector<HomeMenuEntry> buildSelectableHomeMenuItems(bool hasOpdsServers, bool hasReadingStats, bool hasBookmarks,
-                                                        bool includeContinueReading) {
-  auto items = buildHomeMenuItems(hasOpdsServers, hasReadingStats, hasBookmarks);
+HomeMenuEntries buildSelectableHomeMenuItems(bool hasOpdsServers, bool hasReadingStats, bool hasBookmarks,
+                                             bool includeContinueReading) {
+  HomeMenuEntries items;
   if (includeContinueReading) {
-    items.insert(items.begin(), {tr(STR_CONTINUE_READING), Book, HomeMenuAction::ContinueReading});
+    items.push({tr(STR_CONTINUE_READING), Book, HomeMenuAction::ContinueReading});
   }
+  appendHomeMenuItems(items, hasOpdsServers, hasReadingStats, hasBookmarks);
   return items;
 }
 
@@ -240,8 +266,8 @@ HomeMenuAction homeActionForInitialMenuItem(HomeMenuItem item) {
   }
 }
 
-int findMenuActionIndex(const std::vector<HomeMenuEntry>& items, HomeMenuAction action) {
-  for (int i = 0; i < static_cast<int>(items.size()); ++i) {
+int findMenuActionIndex(const HomeMenuEntries& items, HomeMenuAction action) {
+  for (int i = 0; i < items.size(); ++i) {
     if (items[i].action == action) {
       return i;
     }
@@ -850,6 +876,14 @@ bool HomeActivity::allocateCarouselFrameSlots(int targetFrameCount) {
       if (!gCarouselCache.frames[i]) {
         LOG_ERR("HOME", "preRenderCarouselFrames: malloc failed for frame %d while allocating %d frame(s)", i,
                 attemptFrameCount);
+        allocFailed = true;
+        break;
+      }
+      if (!hasHeapForCarouselFrameCache()) {
+        LOG_INF("HOME", "carousel: low heap after frame cache alloc (%u free, %u maxAlloc); skipping cache",
+                ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+        free(gCarouselCache.frames[i]);
+        gCarouselCache.frames[i] = nullptr;
         allocFailed = true;
         break;
       }
