@@ -1,5 +1,6 @@
 #include "TextBlock.h"
 
+#include <BidiUtils.h>
 #include <GfxRenderer.h>
 #include <Logging.h>
 #include <Serialization.h>
@@ -12,7 +13,7 @@ namespace {
 constexpr uint16_t MAX_WORDS_PER_TEXT_BLOCK = 512;
 constexpr uint32_t MAX_SERIALIZED_WORD_BYTES = 4096;
 constexpr uint32_t SERIALIZED_TEXT_BLOCK_TAIL_BYTES =
-    sizeof(EpdFontFamily::Style) + sizeof(bool) + sizeof(int16_t) * 7 + sizeof(bool);
+    sizeof(EpdFontFamily::Style) + sizeof(bool) + sizeof(int16_t) * 7 + sizeof(bool) + sizeof(bool) + sizeof(bool);
 constexpr uint32_t SERIALIZED_MIN_WORD_METADATA_BYTES =
     sizeof(uint32_t) + sizeof(int16_t) + sizeof(EpdFontFamily::Style) + sizeof(uint8_t);
 constexpr uint32_t SERIALIZED_POST_WORD_MIN_METADATA_BYTES =
@@ -106,6 +107,8 @@ void TextBlock::render(const GfxRenderer& renderer, const int fontId, const int 
     const int wordX = wordXpos[i] + x;
     const EpdFontFamily::Style currentStyle = wordStyles[i];
     const uint8_t boundary = hasBionic ? wordBionicBoundary[i] : 0;
+    const auto baseDir = static_cast<BidiUtils::BidiBaseDir>(
+        BidiUtils::detectParagraphLevel(words[i].c_str(), blockStyle.isRtl ? 1 : 0));
 
     if (wordBackgroundBlack[i] != 0 && isWhitespaceOnlyBackgroundToken(words[i])) {
       const uint16_t backgroundWidth = measureBackgroundWidth(renderer, fontId, words[i], currentStyle);
@@ -131,11 +134,11 @@ void TextBlock::render(const GfxRenderer& renderer, const int fontId, const int 
       const size_t boldLen = std::min<size_t>({static_cast<size_t>(boundary), words[i].size(), sizeof(boldBuf) - 1});
       memcpy(boldBuf, words[i].c_str(), boldLen);
       boldBuf[boldLen] = '\0';
-      renderer.drawText(fontId, wordX, wordY, boldBuf, true, boldStyle);
+      renderer.drawText(fontId, wordX, wordY, boldBuf, true, boldStyle, baseDir);
       const int suffixX = wordX + wordBionicSuffixX[i];
-      renderer.drawText(fontId, suffixX, wordY, words[i].c_str() + boldLen, true, currentStyle);
+      renderer.drawText(fontId, suffixX, wordY, words[i].c_str() + boldLen, true, currentStyle, baseDir);
     } else {
-      renderer.drawText(fontId, wordX, wordY, words[i].c_str(), true, currentStyle);
+      renderer.drawText(fontId, wordX, wordY, words[i].c_str(), true, currentStyle, baseDir);
     }
 
     if (hasGuideDots && wordGuideDotXOffset[i] > 0) {
@@ -144,7 +147,7 @@ void TextBlock::render(const GfxRenderer& renderer, const int fontId, const int 
 
     if ((currentStyle & EpdFontFamily::UNDERLINE) != 0) {
       const std::string& w = words[i];
-      const int fullWordWidth = renderer.getTextWidth(fontId, w.c_str(), currentStyle);
+      const int fullWordWidth = renderer.getTextWidth(fontId, w.c_str(), currentStyle, baseDir);
       // y is the top of the text line; add ascender to reach baseline, then offset 2px below
       const int underlineY = wordY + ascender + 2;
 
@@ -156,7 +159,7 @@ void TextBlock::render(const GfxRenderer& renderer, const int fontId, const int 
           static_cast<uint8_t>(w[2]) == 0x83) {
         const char* visiblePtr = w.c_str() + 3;
         const int prefixWidth = renderer.getTextAdvanceX(fontId, "\xe2\x80\x83", currentStyle);
-        const int visibleWidth = renderer.getTextWidth(fontId, visiblePtr, currentStyle);
+        const int visibleWidth = renderer.getTextWidth(fontId, visiblePtr, currentStyle, baseDir);
         startX = wordX + prefixWidth;
         underlineWidth = visibleWidth;
       }
@@ -166,7 +169,7 @@ void TextBlock::render(const GfxRenderer& renderer, const int fontId, const int 
 
     if ((currentStyle & EpdFontFamily::STRIKETHROUGH) != 0) {
       const std::string& w = words[i];
-      const int fullWordWidth = renderer.getTextWidth(fontId, w.c_str(), currentStyle);
+      const int fullWordWidth = renderer.getTextWidth(fontId, w.c_str(), currentStyle, baseDir);
       // Position at roughly mid-glyph height. Offset down from the half-ascender
       // point to align with the visual centre of lowercase letters.
       // Added a 6 pixel offset after testing on various fonts to improve the visual alignment of the strike-through
@@ -181,7 +184,7 @@ void TextBlock::render(const GfxRenderer& renderer, const int fontId, const int 
           static_cast<uint8_t>(w[2]) == 0x83) {
         const char* visiblePtr = w.c_str() + 3;
         const int prefixWidth = renderer.getTextAdvanceX(fontId, "\xe2\x80\x83", currentStyle);
-        const int visibleWidth = renderer.getTextWidth(fontId, visiblePtr, currentStyle);
+        const int visibleWidth = renderer.getTextWidth(fontId, visiblePtr, currentStyle, baseDir);
         startX = wordX + prefixWidth;
         strikeWidth = visibleWidth;
       }
@@ -260,7 +263,9 @@ bool TextBlock::serialize(FsFile& file) const {
          serialization::tryWritePod(file, blockStyle.paddingLeft) &&
          serialization::tryWritePod(file, blockStyle.paddingRight) &&
          serialization::tryWritePod(file, blockStyle.textIndent) &&
-         serialization::tryWritePod(file, blockStyle.textIndentDefined);
+         serialization::tryWritePod(file, blockStyle.textIndentDefined) &&
+         serialization::tryWritePod(file, blockStyle.isRtl) &&
+         serialization::tryWritePod(file, blockStyle.directionDefined);
 }
 
 std::unique_ptr<TextBlock> TextBlock::deserialize(FsFile& file) {
@@ -364,7 +369,9 @@ std::unique_ptr<TextBlock> TextBlock::deserialize(FsFile& file) {
       !serialization::tryReadPod(file, blockStyle.paddingLeft) ||
       !serialization::tryReadPod(file, blockStyle.paddingRight) ||
       !serialization::tryReadPod(file, blockStyle.textIndent) ||
-      !serialization::tryReadPod(file, blockStyle.textIndentDefined)) {
+      !serialization::tryReadPod(file, blockStyle.textIndentDefined) ||
+      !serialization::tryReadPod(file, blockStyle.isRtl) ||
+      !serialization::tryReadPod(file, blockStyle.directionDefined)) {
     LOG_ERR("TXB", "Deserialization failed: truncated block style metadata");
     return nullptr;
   }

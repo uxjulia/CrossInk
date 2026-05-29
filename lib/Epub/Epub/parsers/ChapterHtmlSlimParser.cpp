@@ -9,6 +9,7 @@
 #include <Utf8.h>
 #include <XmlParserUtils.h>
 #include <expat.h>
+#include <strings.h>
 
 #include <algorithm>
 #include <cstdlib>
@@ -122,6 +123,13 @@ void ChapterHtmlSlimParser::skipDescendantsOfCurrentElement() {
   skipEndElementStateUntilDepth = depth;
 }
 
+void ChapterHtmlSlimParser::applyDirectionToEntry(StyleStackEntry& entry, const CssStyle& css) {
+  if (css.hasDirection()) {
+    entry.hasDirection = true;
+    entry.direction = css.direction;
+  }
+}
+
 // Update effective bold/italic/underline based on block style and inline style stack
 void ChapterHtmlSlimParser::updateEffectiveInlineStyle() {
   // Start with block-level styles
@@ -132,6 +140,8 @@ void ChapterHtmlSlimParser::updateEffectiveInlineStyle() {
   effectiveStrikethrough =
       currentCssStyle.hasTextDecoration() && currentCssStyle.textDecoration == CssTextDecoration::LineThrough;
   effectiveBackgroundBlack = currentCssStyle.hasBackgroundBlack() && currentCssStyle.backgroundBlack;
+  effectiveDirectionDefined = currentCssStyle.hasDirection();
+  effectiveDirection = currentCssStyle.direction;
   effectiveSup = currentCssStyle.hasVerticalAlign() && currentCssStyle.verticalAlign == CssVerticalAlign::Super;
   effectiveSub = currentCssStyle.hasVerticalAlign() && currentCssStyle.verticalAlign == CssVerticalAlign::Sub;
 
@@ -152,6 +162,10 @@ void ChapterHtmlSlimParser::updateEffectiveInlineStyle() {
     if (entry.hasBackgroundBlack) {
       effectiveBackgroundBlack = entry.backgroundBlack;
     }
+    if (entry.hasDirection) {
+      effectiveDirectionDefined = true;
+      effectiveDirection = entry.direction;
+    }
     if (entry.hasSup) {
       effectiveSup = entry.sup;
       if (entry.sup) effectiveSub = false;
@@ -159,6 +173,17 @@ void ChapterHtmlSlimParser::updateEffectiveInlineStyle() {
     if (entry.hasSub) {
       effectiveSub = entry.sub;
       if (entry.sub) effectiveSup = false;
+    }
+  }
+
+  if (currentTextBlock && currentTextBlock->isEmpty()) {
+    auto& style = currentTextBlock->getBlockStyle();
+    if (effectiveDirectionDefined) {
+      style.directionDefined = true;
+      style.isRtl = effectiveDirection == CssTextDirection::Rtl;
+    } else {
+      style.directionDefined = false;
+      style.isRtl = false;
     }
   }
 }
@@ -799,6 +824,7 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
   // Extract class, style, and id attributes
   std::string classAttr;
   std::string styleAttr;
+  std::string dirAttr;
   if (atts != nullptr) {
     for (int i = 0; atts[i]; i += 2) {
       if (strcmp(atts[i], "class") == 0) {
@@ -809,6 +835,8 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
         // Defer both anchor recording and TOC page breaks until startNewTextBlock,
         // after the previous block is flushed to pages via makePages().
         self->pendingAnchorId = atts[i + 1];
+      } else if (strcmp(atts[i], "dir") == 0) {
+        dirAttr = atts[i + 1];
       }
     }
   }
@@ -829,6 +857,21 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
     if (self->shouldAbortForLowMemory("CSS style resolution")) {
       return;
     }
+  }
+
+  if (!dirAttr.empty()) {
+    if (strcasecmp(dirAttr.c_str(), "rtl") == 0) {
+      cssStyle.direction = CssTextDirection::Rtl;
+      cssStyle.defined.direction = 1;
+    } else if (strcasecmp(dirAttr.c_str(), "ltr") == 0) {
+      cssStyle.direction = CssTextDirection::Ltr;
+      cssStyle.defined.direction = 1;
+    }
+  }
+
+  if (!cssStyle.hasDirection() && self->effectiveDirectionDefined) {
+    cssStyle.direction = self->effectiveDirection;
+    cssStyle.defined.direction = 1;
   }
 
   const char* roleAttr = getAttribute(atts, "role");
@@ -926,6 +969,10 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
     // Default table cells to left alignment so narrow columns don't inherit paragraph
     // justification or other reader-wide alignment settings that damage readability.
     tableCellBlockStyle.alignment = cssStyle.hasTextAlign() ? cssStyle.textAlign : CssTextAlign::Left;
+    if (cssStyle.hasDirection()) {
+      tableCellBlockStyle.isRtl = cssStyle.direction == CssTextDirection::Rtl;
+      tableCellBlockStyle.directionDefined = true;
+    }
     self->currentTableCellIsHeader = strcmp(name, "th") == 0;
     if (self->currentTableCellIsHeader) {
       StyleStackEntry headerStyle;
@@ -936,6 +983,7 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
         headerStyle.hasBackgroundBlack = true;
         headerStyle.backgroundBlack = cssStyle.backgroundBlack;
       }
+      ChapterHtmlSlimParser::applyDirectionToEntry(headerStyle, cssStyle);
       self->inlineStyleStack.push_back(headerStyle);
       self->updateEffectiveInlineStyle();
     }
@@ -1337,6 +1385,7 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
         entry.hasBackgroundBlack = true;
         entry.backgroundBlack = cssStyle.backgroundBlack;
       }
+      ChapterHtmlSlimParser::applyDirectionToEntry(entry, cssStyle);
       self->inlineStyleStack.push_back(entry);
       self->updateEffectiveInlineStyle();
 
@@ -1494,6 +1543,7 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
       entry.hasBackgroundBlack = true;
       entry.backgroundBlack = cssStyle.backgroundBlack;
     }
+    ChapterHtmlSlimParser::applyDirectionToEntry(entry, cssStyle);
     self->inlineStyleStack.push_back(entry);
     self->updateEffectiveInlineStyle();
   } else if (matches(name, STRIKETHROUGH_TAGS, std::size(STRIKETHROUGH_TAGS))) {
@@ -1520,6 +1570,7 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
       entry.hasBackgroundBlack = true;
       entry.backgroundBlack = cssStyle.backgroundBlack;
     }
+    ChapterHtmlSlimParser::applyDirectionToEntry(entry, cssStyle);
     self->inlineStyleStack.push_back(entry);
     self->updateEffectiveInlineStyle();
   } else if (matches(name, BOLD_TAGS, std::size(BOLD_TAGS))) {
@@ -1548,6 +1599,7 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
       entry.hasBackgroundBlack = true;
       entry.backgroundBlack = cssStyle.backgroundBlack;
     }
+    ChapterHtmlSlimParser::applyDirectionToEntry(entry, cssStyle);
     self->inlineStyleStack.push_back(entry);
     self->updateEffectiveInlineStyle();
   } else if (matches(name, ITALIC_TAGS, std::size(ITALIC_TAGS))) {
@@ -1576,6 +1628,7 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
       entry.hasBackgroundBlack = true;
       entry.backgroundBlack = cssStyle.backgroundBlack;
     }
+    ChapterHtmlSlimParser::applyDirectionToEntry(entry, cssStyle);
     self->inlineStyleStack.push_back(entry);
     self->updateEffectiveInlineStyle();
   } else if (strcmp(name, "sup") == 0 || strcmp(name, "sub") == 0) {
@@ -1592,12 +1645,13 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
       entry.hasSub = true;
       entry.sub = true;
     }
+    ChapterHtmlSlimParser::applyDirectionToEntry(entry, cssStyle);
     self->inlineStyleStack.push_back(entry);
     self->updateEffectiveInlineStyle();
   } else if (strcmp(name, "span") == 0 || !isHeaderOrBlock(name)) {
     // Handle span and other inline elements for CSS styling
     if (cssStyle.hasFontWeight() || cssStyle.hasFontStyle() || cssStyle.hasTextDecoration() ||
-        cssStyle.hasBackgroundBlack() || cssStyle.hasVerticalAlign()) {
+        cssStyle.hasBackgroundBlack() || cssStyle.hasVerticalAlign() || cssStyle.hasDirection()) {
       // Flush buffer before style change so preceding text gets current style
       if (self->partWordBufferIndex > 0) {
         self->flushPartWordBuffer();
@@ -1632,6 +1686,7 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
           entry.sub = true;
         }
       }
+      ChapterHtmlSlimParser::applyDirectionToEntry(entry, cssStyle);
       self->inlineStyleStack.push_back(entry);
       self->updateEffectiveInlineStyle();
     }

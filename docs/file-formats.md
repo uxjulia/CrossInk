@@ -197,6 +197,10 @@ Binary layout:
 
 ## `section.bin`
 
+### Version 40
+
+Adds `isRtl` and `directionDefined` flags to each serialized `TextBlock` block style so cached EPUB pages preserve resolved right-to-left direction across reloads.
+
 ### Version 39
 
 Adds optional publisher page markers to serialized `Page` records. These markers store the EPUB `pagebreak` label and rendered y-position so print-edition page numbers can be drawn in the reader margin without changing EPUB text layout.
@@ -270,7 +274,7 @@ import std.core;
 
 // === Configuration ===
 #define EXPECTED_MAGIC 0x535843FF
-#define EXPECTED_VERSION 39
+#define EXPECTED_VERSION 40
 #define MAX_STRING_LENGTH 65535
 #define MAX_WORD_STRING_LENGTH 4096
 #define FOOTNOTE_NUMBER_LEN 32
@@ -356,6 +360,8 @@ struct TextBlock {
   s16 paddingRight;
   s16 textIndent;
   bool textIndentDefined;
+  bool isRtl;
+  bool directionDefined;
 };
 
 struct PageLine {
@@ -530,6 +536,10 @@ if (parsedSize != fileSize) {
 ```
 
 ## `css_rules.cache`
+
+### Version 11
+
+Adds cached CSS `direction` support for RTL/LTR rules. Style payloads now store `backgroundBlack`, `verticalAlign`, and `direction` values, with defined flags using bit 16 for `backgroundBlack`, bit 17 for `verticalAlign`, and bit 18 for `direction`.
 
 ### Version 10
 

@@ -25,8 +25,18 @@ class ParsedText {
   bool bionicReadingEnabled;
   bool guideReadingEnabled;
   BlockStyle blockStyle;
+  bool hasRtlWord;
+  std::vector<std::string> reorderedWordsScratch;
+  std::vector<EpdFontFamily::Style> reorderedStylesScratch;
+  std::vector<uint16_t> reorderedWidthsScratch;
+  std::vector<bool> reorderedContinuesScratch;
+  std::vector<bool> reorderedBionicSuffixScratch;
+  std::vector<bool> reorderedGuideDotScratch;
+  std::vector<uint8_t> reorderedBackgroundBlackScratch;
+  std::vector<uint16_t> visualOrderScratch;
 
   void applyParagraphIndent();
+  int resolveFirstLineIndent(bool isFirstLine) const;
   std::vector<size_t> computeLineBreaks(const GfxRenderer& renderer, int fontId, int pageWidth,
                                         std::vector<uint16_t>& wordWidths, std::vector<bool>& continuesVec);
   std::vector<size_t> computeHyphenatedLineBreaks(const GfxRenderer& renderer, int fontId, int pageWidth,
@@ -50,7 +60,8 @@ class ParsedText {
         hyphenationEnabled(hyphenationEnabled),
         bionicReadingEnabled(bionicReadingEnabled),
         guideReadingEnabled(guideReadingEnabled),
-        blockStyle(blockStyle) {}
+        blockStyle(blockStyle),
+        hasRtlWord(false) {}
   ~ParsedText() = default;
 
   void addWord(std::string word, EpdFontFamily::Style fontStyle, bool underline = false, bool attachToPrevious = false,

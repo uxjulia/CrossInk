@@ -5,6 +5,7 @@
 // Matches order of PARAGRAPH_ALIGNMENT in CrossPointSettings
 enum class CssTextAlign : uint8_t { Justify = 0, Left = 1, Center = 2, Right = 3, None = 4 };
 enum class CssUnit : uint8_t { Pixels = 0, Em = 1, Rem = 2, Points = 3, Percent = 4 };
+enum class CssTextDirection : uint8_t { Ltr = 0, Rtl = 1 };
 
 // Represents a CSS length value with its unit, allowing deferred resolution to pixels
 struct CssLength {
@@ -80,6 +81,7 @@ struct CssPropertyFlags {
   uint32_t display : 1;
   uint32_t backgroundBlack : 1;
   uint32_t verticalAlign : 1;
+  uint32_t direction : 1;
 
   CssPropertyFlags()
       : textAlign(0),
@@ -99,21 +101,25 @@ struct CssPropertyFlags {
         imageWidth(0),
         display(0),
         backgroundBlack(0),
-        verticalAlign(0) {}
+        verticalAlign(0),
+        direction(0) {}
 
   [[nodiscard]] bool anySet() const {
     return textAlign || fontStyle || fontWeight || textDecoration || textIndent || marginTop || marginBottom ||
            marginLeft || marginRight || paddingTop || paddingBottom || paddingLeft || paddingRight || imageHeight ||
-           imageWidth || display || backgroundBlack || verticalAlign;
+           imageWidth || display || backgroundBlack || verticalAlign || direction;
   }
 
   void clearAll() {
     textAlign = fontStyle = fontWeight = textDecoration = textIndent = 0;
     marginTop = marginBottom = marginLeft = marginRight = 0;
     paddingTop = paddingBottom = paddingLeft = paddingRight = 0;
-    imageHeight = imageWidth = display = backgroundBlack = verticalAlign = 0;
+    imageHeight = imageWidth = display = backgroundBlack = verticalAlign = direction = 0;
   }
 };
+
+static_assert(sizeof(CssPropertyFlags) <= sizeof(uint32_t),
+              "CssPropertyFlags exceeds 32 bits; update cache read/write in CssParser.cpp");
 
 // Represents a collection of CSS style properties
 // Only stores properties relevant to e-ink text rendering
@@ -123,6 +129,7 @@ struct CssStyle {
   CssFontStyle fontStyle = CssFontStyle::Normal;
   CssFontWeight fontWeight = CssFontWeight::Normal;
   CssTextDecoration textDecoration = CssTextDecoration::None;
+  CssTextDirection direction = CssTextDirection::Ltr;
 
   CssLength textIndent;     // First-line indent (deferred resolution)
   CssLength marginTop;      // Vertical spacing before block
@@ -212,6 +219,10 @@ struct CssStyle {
       backgroundBlack = base.backgroundBlack;
       defined.backgroundBlack = 1;
     }
+    if (base.hasDirection()) {
+      direction = base.direction;
+      defined.direction = 1;
+    }
     if (base.hasVerticalAlign()) {
       verticalAlign = base.verticalAlign;
       defined.verticalAlign = 1;
@@ -236,12 +247,14 @@ struct CssStyle {
   [[nodiscard]] bool hasDisplay() const { return defined.display; }
   [[nodiscard]] bool hasBackgroundBlack() const { return defined.backgroundBlack; }
   [[nodiscard]] bool hasVerticalAlign() const { return defined.verticalAlign; }
+  [[nodiscard]] bool hasDirection() const { return defined.direction; }
 
   void reset() {
     textAlign = CssTextAlign::Left;
     fontStyle = CssFontStyle::Normal;
     fontWeight = CssFontWeight::Normal;
     textDecoration = CssTextDecoration::None;
+    direction = CssTextDirection::Ltr;
     textIndent = CssLength{};
     marginTop = marginBottom = marginLeft = marginRight = CssLength{};
     paddingTop = paddingBottom = paddingLeft = paddingRight = CssLength{};

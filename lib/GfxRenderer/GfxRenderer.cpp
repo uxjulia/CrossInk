@@ -1,5 +1,6 @@
 #include "GfxRenderer.h"
 
+#include <BidiUtils.h>
 #include <FontDecompressor.h>
 #include <HalGPIO.h>
 #include <Logging.h>
@@ -619,13 +620,43 @@ void GfxRenderer::drawPixel(const int x, const int y, const bool state) const {
   }
 }
 
-int GfxRenderer::getTextWidth(const int fontId, const char* text, const EpdFontFamily::Style style) const {
+namespace {
+const char* resolveVisualText(const char* text, std::string& visualBuffer, const BidiUtils::BidiBaseDir baseDir) {
+  if (!text || *text == '\0') return text;
+
+  if (baseDir != BidiUtils::BidiBaseDir::RTL) {
+    bool hasRtlBytes = false;
+    for (const unsigned char* q = reinterpret_cast<const unsigned char*>(text); *q; ++q) {
+      if (*q >= 0xD6 && *q <= 0xDB) {
+        hasRtlBytes = true;
+        break;
+      }
+    }
+    if (!hasRtlBytes) return text;
+  }
+
+  if (BidiUtils::applyBidiVisual(text, visualBuffer, static_cast<int>(baseDir)) && !visualBuffer.empty()) {
+    return visualBuffer.c_str();
+  }
+  return text;
+}
+}  // namespace
+
+int GfxRenderer::getTextWidth(const int fontId, const char* text, const EpdFontFamily::Style style,
+                              const BidiUtils::BidiBaseDir baseDir) const {
+  if (text == nullptr || *text == '\0') {
+    return 0;
+  }
+
+  std::string visualBuffer;
+  const char* textCursor = resolveVisualText(text, visualBuffer, baseDir);
+
   // SD-card fonts can measure from their persistent advance table during layout.
   auto sdIt = sdCardFonts_.find(fontId);
   if (sdIt != sdCardFonts_.end() && sdIt->second->hasAdvanceTable()) {
     int32_t widthFP = 0;
     const uint8_t styleIdx = resolveSdCardStyle(*sdIt->second, style);
-    while (uint32_t cp = utf8NextCodepoint(reinterpret_cast<const uint8_t**>(&text))) {
+    while (uint32_t cp = utf8NextCodepoint(reinterpret_cast<const uint8_t**>(&textCursor))) {
       widthFP += sdIt->second->getAdvance(cp, styleIdx);
     }
     return fp4::toPixel(widthFP);
@@ -638,18 +669,18 @@ int GfxRenderer::getTextWidth(const int fontId, const char* text, const EpdFontF
   }
 
   int w = 0, h = 0;
-  fontIt->second.getTextDimensions(text, &w, &h, style);
+  fontIt->second.getTextDimensions(textCursor, &w, &h, style);
   return w;
 }
 
 void GfxRenderer::drawCenteredText(const int fontId, const int y, const char* text, const bool black,
-                                   const EpdFontFamily::Style style) const {
-  const int x = (getScreenWidth() - getTextWidth(fontId, text, style)) / 2;
-  drawText(fontId, x, y, text, black, style);
+                                   const EpdFontFamily::Style style, const BidiUtils::BidiBaseDir baseDir) const {
+  const int x = (getScreenWidth() - getTextWidth(fontId, text, style, baseDir)) / 2;
+  drawText(fontId, x, y, text, black, style, baseDir);
 }
 
 void GfxRenderer::drawText(const int fontId, const int x, const int y, const char* text, const bool black,
-                           const EpdFontFamily::Style style) const {
+                           const EpdFontFamily::Style style, const BidiUtils::BidiBaseDir baseDir) const {
   const int yPos = y + getFontAscenderSize(fontId);
   int lastBaseX = x;
   int lastBaseLeft = 0;
@@ -667,6 +698,9 @@ void GfxRenderer::drawText(const int fontId, const int x, const int y, const cha
     return;
   }
 
+  std::string visualBuffer;
+  const char* textCursor = resolveVisualText(text, visualBuffer, baseDir);
+
   const auto fontIt = fontMap.find(fontId);
   if (fontIt == fontMap.end()) {
     LOG_ERR("GFX", "Font %d not found", fontId);
@@ -676,7 +710,7 @@ void GfxRenderer::drawText(const int fontId, const int x, const int y, const cha
 
   uint32_t cp;
   uint32_t prevCp = 0;
-  while ((cp = utf8NextCodepoint(reinterpret_cast<const uint8_t**>(&text)))) {
+  while ((cp = utf8NextCodepoint(reinterpret_cast<const uint8_t**>(&textCursor)))) {
     if (utf8IsCombiningMark(cp)) {
       const EpdGlyph* combiningGlyph = font.getGlyph(cp, style);
       if (!combiningGlyph) continue;
@@ -687,7 +721,7 @@ void GfxRenderer::drawText(const int fontId, const int x, const int y, const cha
       continue;
     }
 
-    cp = font.applyLigatures(cp, text, style);
+    cp = font.applyLigatures(cp, textCursor, style);
     cp = font.getFallbackCodepoint(cp, style);
     const bool hasRealGlyph = font.findGlyphData(cp, style).glyph != nullptr;
 

@@ -435,6 +435,15 @@ void CssParser::parseDeclarationIntoStyle(const std::string& decl, CssStyle& sty
       style.backgroundBlack = backgroundBlack;
       style.defined.backgroundBlack = 1;
     }
+  } else if (propNameBuf == "direction") {
+    const std::string_view directionValue = stripTrailingImportant(propValueBuf);
+    if (directionValue == "rtl") {
+      style.direction = CssTextDirection::Rtl;
+      style.defined.direction = 1;
+    } else if (directionValue == "ltr") {
+      style.direction = CssTextDirection::Ltr;
+      style.defined.direction = 1;
+    }
   } else if (propNameBuf == "vertical-align") {
     const std::string v = normalized(propValueBuf);
     if (v == "super") {
@@ -966,7 +975,7 @@ bool CssParser::saveToCache(const bool complete) const {
         !writeLength(style.imageHeight) || !writeLength(style.imageWidth) ||
         !writeByte(static_cast<uint8_t>(style.display)) ||
         !writeByte(static_cast<uint8_t>(style.backgroundBlack ? 1 : 0)) ||
-        !writeByte(static_cast<uint8_t>(style.verticalAlign))) {
+        !writeByte(static_cast<uint8_t>(style.verticalAlign)) || !writeByte(static_cast<uint8_t>(style.direction))) {
       return false;
     }
     uint32_t definedBits = 0;
@@ -988,6 +997,7 @@ bool CssParser::saveToCache(const bool complete) const {
     if (style.defined.display) definedBits |= 1 << 15;
     if (style.defined.backgroundBlack) definedBits |= 1 << 16;
     if (style.defined.verticalAlign) definedBits |= 1 << 17;
+    if (style.defined.direction) definedBits |= 1 << 18;
     return writeBytes(&definedBits, sizeof(definedBits));
   };
 
@@ -1125,7 +1135,7 @@ bool CssParser::loadFromCache() {
   constexpr size_t CSS_LENGTH_FIELD_COUNT = 11;
   constexpr size_t CSS_LENGTH_BYTES = sizeof(float) + sizeof(uint8_t);
   constexpr size_t CSS_FIXED_STYLE_BYTES =
-      4 * sizeof(uint8_t) + (CSS_LENGTH_FIELD_COUNT * CSS_LENGTH_BYTES) + 3 * sizeof(uint8_t) + sizeof(uint32_t);
+      4 * sizeof(uint8_t) + (CSS_LENGTH_FIELD_COUNT * CSS_LENGTH_BYTES) + 4 * sizeof(uint8_t) + sizeof(uint32_t);
 
   auto readLength = [&file](CssLength& len) -> bool {
     if (file.read(&len.value, sizeof(len.value)) != sizeof(len.value)) return false;
@@ -1160,6 +1170,9 @@ bool CssParser::loadFromCache() {
     uint8_t verticalAlignVal = 0;
     if (file.read(&verticalAlignVal, 1) != 1) return false;
     style.verticalAlign = static_cast<CssVerticalAlign>(verticalAlignVal);
+    uint8_t directionVal = 0;
+    if (file.read(&directionVal, 1) != 1) return false;
+    style.direction = static_cast<CssTextDirection>(directionVal);
 
     uint32_t definedBits = 0;
     if (file.read(&definedBits, sizeof(definedBits)) != sizeof(definedBits)) return false;
@@ -1181,6 +1194,7 @@ bool CssParser::loadFromCache() {
     style.defined.display = (definedBits & 1 << 15) != 0;
     style.defined.backgroundBlack = (definedBits & 1 << 16) != 0;
     style.defined.verticalAlign = (definedBits & 1 << 17) != 0;
+    style.defined.direction = (definedBits & 1 << 18) != 0;
     return true;
   };
 
