@@ -1,42 +1,27 @@
 # Changelog
 
-## [Unreleased]
+## [v1.3.1] - 2026-05-28
 
 ### Added
-- Adjustable reader line-height setting with percent-based spacing for EPUB and TXT books.
-- Nearby Reading Stats sync between CrossInk readers using direct ESP-NOW device-to-device messages.
-- Separate Reading Stats totals for this device and all synced devices when nearby sync data is available.
-- EPUB render heap diagnostics that include the largest allocatable block, not just total free heap.
-- EPUB bookmarks now save a paragraph anchor and preview snippet when available, so they reopen closer to the original text after font, margin, or spacing changes and are easier to recognize in the bookmark list.
-- Separate tilt-to-turn direction setting with left-right and forward-back gesture options.
-- Per-server OPDS filename setting so downloaded books can be saved as either Author - Title or Title - Author.
-- Optional EPUB chapter and book time-left estimates using a persisted per-book reading pace.
-- EPUB superscript and subscript rendering for `<sup>`, `<sub>`, and CSS `vertical-align: super/sub`.
-- Side button layout option to make both reader side buttons turn to the next page.
-- Optional EPUB publisher page numbers in the reader margin when the book includes `pagebreak` markers.
+- Added reader display and navigation options for line height, publisher page numbers, superscript/subscript text, tilt direction, and side-button page turns.
+- Added EPUB reading-position improvements, including bookmark anchors, bookmark preview snippets, and optional chapter/book time-left estimates.
+- Added nearby Reading Stats sync with separate totals for this device and all synced CrossInk readers.
+- Added per-server OPDS filename settings so downloaded books can use either Author - Title or Title - Author.
+- Added EPUB render heap diagnostics that include the largest allocatable block, not just total free heap.
 
 ### Changed
-- Moved the X3 reader clock from the bottom status bar into a new top-centered status bar.
-- Moved clock settings from Customise Status Bar into Settings > System > Device.
+- Moved the X3 reader clock into a new top-centered status bar and moved clock settings to Settings > System > Device.
+- Reworked Display, Reader, Controls, in-reader options, and larger System settings groups so related options open as submenus.
 - Improved OPDS and font download responsiveness by reducing progress-update overhead and temporarily disabling WiFi power saving during transfers.
 - Book selection now shows a loading popup before EPUB indexing or cache loading begins.
-- Changed Display, Reader, Controls, in-reader Reader Options and Controls, and larger System settings groups so related options open as submenus instead of appearing as section headers.
 - Delayed the automatic finished-book prompt until the reader leaves the chapter where they reach 99%.
 
 ### Fixed
 - Fixed the WiFi settings screen so the displayed MAC address stays consistent and matches the router-visible WiFi address.
-- Fixed inverted reader menus so front-button hint outlines keep the normal portrait shape while the labels stay readable in the inverted orientation.
-- Fixed web file uploads so replacing a book refreshes render/cache files without wiping that book's saved progress, per-book stats, or reader settings.
-- Fixed Lyra Carousel popup rendering so loading, indexing, and sleep-entry popups appear in the right place again.
-- Fixed KOReader Sync progress saves so complete resume data is written safely, and refined page positions cannot be saved with a too-small page count.
-- Fixed OPDS feed errors so low-memory parser-buffer failures show the specific memory message instead of the generic parse error.
-- Fixed OPDS catalog loading with SD-card fonts by releasing the active reader font before WiFi/feed parsing needs the memory.
-- Fixed Auto Page Turn so each book remembers the last selected interval when it is turned on again.
-- Fixed EPUB first-open CSS caching so clean and migrated caches are less likely to build unstyled section layouts.
-- Fixed low-memory EPUB stylesheet handling by preserving usable partial CSS rules and retrying a complete CSS cache rebuild on later opens.
-- Fixed low-memory EPUB table and SD-card font rendering paths so temporary layout data and optional font caches are released before retrying or aborting.
-- Fixed EPUB chapters that run out of memory with an SD-card font so they retry with the selected built-in font instead of failing to open.
-- Fixed EPUB pagination allocation failures so they stop cleanly instead of risking a reboot.
+- Fixed reader UI issues with inverted menu button hints, Lyra Carousel popups, and Auto Page Turn interval persistence.
+- Fixed web uploads and KOReader Sync progress saves so refreshed book files keep their progress, stats, settings, and valid resume data.
+- Fixed OPDS low-memory handling so parser-buffer failures show a specific memory message and SD-card fonts release memory before catalog loading.
+- Fixed EPUB cache, CSS, table, SD-card font, and allocation failure paths so low-memory chapters recover, retry, or stop cleanly instead of opening unstyled pages, failing unnecessarily, or risking a reboot.
 - Fixed EPUB text with invisible word-joiner characters so missing font glyphs no longer show replacement diamonds.
 - Clarified the low-memory EPUB image warning so it says some or all images may be missing.
 
