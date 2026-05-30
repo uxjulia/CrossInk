@@ -399,6 +399,10 @@ class CrossPointSettings {
   uint8_t language = 0;
   // Quick Resume: keep current content visible with moon icon instead of showing a static sleep screen.
   uint8_t quickResumeSleepScreen = QUICK_RESUME_NEVER;
+#ifdef CROSSINK_ENABLE_READING_STATS_TOGGLE
+  // Debug/test builds can disable stat writes so navigation tests do not affect personal reading stats.
+  uint8_t trackReadingStats = 1;
+#endif
 
   ~CrossPointSettings() = default;
 
@@ -421,6 +425,13 @@ class CrossPointSettings {
 
   bool shouldShowClockInReader() const { return statusBarClock == CLOCK_IN_READER || statusBarClock == CLOCK_ALWAYS; }
   bool shouldShowClockOutsideReader() const { return statusBarClock == CLOCK_ALWAYS; }
+  bool shouldTrackReadingStats() const {
+#ifdef CROSSINK_ENABLE_READING_STATS_TOGGLE
+    return trackReadingStats != 0;
+#else
+    return true;
+#endif
+  }
 
   // Callback to resolve SD card font IDs. Set by SdCardFontSystem::begin().
   // Returns font ID or 0 if not found.

@@ -157,7 +157,7 @@ void SettingsActivity::rebuildSettingsLists() {
   readerSettings = buildReaderSettingsParentList(allSettings);
   readerFontSettings = buildReaderFontSettingsList(allSettings);
   readerPageLayoutSettings = buildReaderPageLayoutSettingsList(allSettings);
-  systemSettings = buildSystemSettingsParentList();
+  systemSettings = buildSystemSettingsParentList(allSettings);
   systemDeviceSettings = buildSystemDeviceSettingsList(allSettings);
   systemFilesCacheSettings = buildSystemFilesCacheSettingsList(allSettings);
   controlsSettings = buildControlsSettingsParentList(allSettings);

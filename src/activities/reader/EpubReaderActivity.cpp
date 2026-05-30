@@ -53,6 +53,7 @@ constexpr int MAX_PAGE_LOAD_RETRIES = 3;
 constexpr uint8_t READER_SETTINGS_FILE_VERSION = 1;
 constexpr char READER_SETTINGS_FILE_NAME[] = "/reader_settings.bin";
 constexpr char FALLBACK_FONT_SECTION_CACHE_SUFFIX[] = "_fallback_font";
+constexpr unsigned long MIN_READING_STATS_PAGE_MS = 2000UL;
 constexpr uint32_t MIN_READING_PACE_SAMPLE_SECONDS = 2;
 constexpr uint32_t MAX_READING_PACE_SAMPLE_SECONDS = 10 * 60;
 constexpr uint32_t MIN_BOOK_PROGRESS_READING_SECONDS = 2 * 60;
@@ -371,12 +372,22 @@ void EpubReaderActivity::resumeReadingPaceTimer() {
   }
 }
 
-void EpubReaderActivity::recordForwardPagePaceSample() {
-  if (pageShownAtMs == 0UL) {
-    return;
+bool EpubReaderActivity::forwardPageReadElapsed(uint32_t& seconds) const {
+  seconds = 0;
+  if (!SETTINGS.shouldTrackReadingStats() || pageShownAtMs == 0UL) {
+    return false;
   }
 
-  const uint32_t seconds = static_cast<uint32_t>((millis() - pageShownAtMs) / 1000UL);
+  const unsigned long elapsedMs = millis() - pageShownAtMs;
+  if (elapsedMs < MIN_READING_STATS_PAGE_MS) {
+    return false;
+  }
+
+  seconds = static_cast<uint32_t>(elapsedMs / 1000UL);
+  return true;
+}
+
+void EpubReaderActivity::recordForwardPagePaceSample(uint32_t seconds) {
   if (seconds < MIN_READING_PACE_SAMPLE_SECONDS || seconds > MAX_READING_PACE_SAMPLE_SECONDS) {
     return;
   }
@@ -701,23 +712,25 @@ void EpubReaderActivity::onExit() {
   APP_STATE.readerActivityLoadCount = 0;
   APP_STATE.saveToFile();
 
-  // Commit session stats based on how long the session lasted.
-  // Sessions under 1 minute don't count toward session count or reading time.
-  // Sessions under 10 seconds don't add to reading time.
-  const unsigned long elapsedMs = millis() - sessionStartMs;
-  if (elapsedMs >= 60000UL) {
-    stats.sessionCount++;
-    globalStats.totalSessions++;
+  if (SETTINGS.shouldTrackReadingStats()) {
+    // Commit session stats based on how long the session lasted.
+    // Sessions under 1 minute don't count toward session count or reading time.
+    // Sessions under 10 seconds don't add to reading time.
+    const unsigned long elapsedMs = millis() - sessionStartMs;
+    if (elapsedMs >= 60000UL) {
+      stats.sessionCount++;
+      globalStats.totalSessions++;
+    }
+    if (elapsedMs >= 10000UL) {
+      const uint32_t elapsedSecs = static_cast<uint32_t>(elapsedMs / 1000UL);
+      stats.totalReadingSeconds += elapsedSecs;
+      globalStats.totalReadingSeconds += elapsedSecs;
+    }
+    if (epub) {
+      stats.save(epub->getCachePath());
+    }
+    globalStats.save();
   }
-  if (elapsedMs >= 10000UL) {
-    const uint32_t elapsedSecs = static_cast<uint32_t>(elapsedMs / 1000UL);
-    stats.totalReadingSeconds += elapsedSecs;
-    globalStats.totalReadingSeconds += elapsedSecs;
-  }
-  if (epub) {
-    stats.save(epub->getCachePath());
-  }
-  globalStats.save();
 
   BOOKMARKS.unload();
   section.reset();
@@ -1303,7 +1316,9 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
     case EpubReaderMenuActivity::MenuAction::READING_STATS: {
       // Include elapsed time from the current session in the display stats.
       BookReadingStats displayStats = stats;
-      displayStats.totalReadingSeconds += static_cast<uint32_t>((millis() - sessionStartMs) / 1000UL);
+      if (SETTINGS.shouldTrackReadingStats()) {
+        displayStats.totalReadingSeconds += static_cast<uint32_t>((millis() - sessionStartMs) / 1000UL);
+      }
       const bool hasSyncedStats = GlobalReadingStats::hasSyncedStats();
       const GlobalReadingStats displayAllDevicesStats =
           hasSyncedStats ? GlobalReadingStats::loadAggregated(globalStats) : GlobalReadingStats{};
@@ -1791,7 +1806,8 @@ void EpubReaderActivity::setAutoPageTurnIntervalSeconds(uint16_t seconds) {
 void EpubReaderActivity::pageTurn(bool isForwardTurn) {
   pageLoadRetryCount = 0;
   if (isForwardTurn) {
-    recordForwardPagePaceSample();
+    uint32_t forwardReadSeconds = 0;
+    const bool shouldRecordForwardRead = forwardPageReadElapsed(forwardReadSeconds);
     if (section->currentPage < section->pageCount - 1) {
       section->currentPage++;
     } else {
@@ -1809,8 +1825,11 @@ void EpubReaderActivity::pageTurn(bool isForwardTurn) {
         section.reset();
       }
     }
-    stats.totalPagesTurned++;
-    globalStats.totalPagesTurned++;
+    if (shouldRecordForwardRead) {
+      recordForwardPagePaceSample(forwardReadSeconds);
+      stats.totalPagesTurned++;
+      globalStats.totalPagesTurned++;
+    }
   } else {
     if (section->currentPage > 0) {
       section->currentPage--;

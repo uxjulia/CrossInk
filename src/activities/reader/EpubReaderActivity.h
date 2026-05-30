@@ -96,7 +96,8 @@ class EpubReaderActivity final : public Activity {
   bool saveProgress(int spineIndex, int currentPage, int pageCount);
   void pauseReadingPaceTimer();
   void resumeReadingPaceTimer();
-  void recordForwardPagePaceSample();
+  bool forwardPageReadElapsed(uint32_t& seconds) const;
+  void recordForwardPagePaceSample(uint32_t seconds);
   bool estimateBookTimeLeftSecondsFromProgress(uint32_t& seconds) const;
   bool estimateRemainingTimeLeftPages(bool bookEstimate, float& remainingPages) const;
   bool estimateTimeLeftSeconds(bool bookEstimate, uint32_t& seconds) const;
