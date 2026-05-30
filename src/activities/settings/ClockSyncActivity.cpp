@@ -10,21 +10,54 @@
 
 #include "CrossPointSettings.h"
 #include "MappedInputManager.h"
+#include "activities/network/WifiSelectionActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 
 void ClockSyncActivity::onEnter() {
   Activity::onEnter();
-  state = SYNCING;
   syncedTime[0] = '\0';
+  state = SYNCING;
+
+  if (WiFi.status() == WL_CONNECTED) {
+    requestUpdate();
+    return;
+  }
+
+  shouldTearDownWifiOnExit = true;
+  launchWifiSelection();
+}
+
+void ClockSyncActivity::onExit() {
+  Activity::onExit();
+
+  if (shouldTearDownWifiOnExit && WiFi.getMode() != WIFI_MODE_NULL) {
+    WiFi.disconnect(false);
+    delay(30);
+    WiFi.mode(WIFI_OFF);
+  }
+}
+
+void ClockSyncActivity::launchWifiSelection() {
+  LOG_INF("CLK", "Manual sync requested without WiFi, launching WiFi selection");
+  startActivityForResult(std::make_unique<WifiSelectionActivity>(renderer, mappedInput),
+                         [this](const ActivityResult& result) { onWifiSelectionComplete(!result.isCancelled); });
+}
+
+void ClockSyncActivity::onWifiSelectionComplete(const bool connected) {
+  if (!connected) {
+    LOG_INF("CLK", "WiFi selection cancelled before manual clock sync");
+    finish();
+    return;
+  }
+
+  state = SYNCING;
   requestUpdate();
 }
 
-void ClockSyncActivity::onExit() { Activity::onExit(); }
-
 void ClockSyncActivity::runSync() {
   if (WiFi.status() != WL_CONNECTED) {
-    LOG_INF("CLK", "Manual sync requested but WiFi is not connected");
+    LOG_INF("CLK", "Manual sync requested but WiFi is not connected after selection");
     state = NO_WIFI;
     requestUpdate();
     return;
@@ -59,8 +92,7 @@ void ClockSyncActivity::loop() {
     return;
   }
 
-  if (mappedInput.wasPressed(MappedInputManager::Button::Back) ||
-      mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
+  if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
     finish();
   }
 }
@@ -100,7 +132,7 @@ void ClockSyncActivity::render(RenderLock&&) {
   }
 
   if (state != SYNCING) {
-    const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_OK_BUTTON), "", "");
+    const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   }
 

@@ -9,6 +9,7 @@
 ### Fixed
 - Exposed upstream Crosspoint's functionality to disable side buttons that got lost in the last merge.
 - Fixed the X3 clock UTC offset picker so editable sign, hour, and minute fields are more clear.
+- Fixed `Sync Clock Now` so it now tries to connect to saved WiFi automatically otherwise opens the normal WiFi picker instead of stopping with a "connect first" message.
 - Reduced Home menu heap churn and skipped Lyra Carousel frame caching when heap is low to avoid crash risk on memory-constrained builds.
 - Fixed Vietnamese settings labels showing replacement diamonds after one over-escaped translation shifted generated string offsets.
 - Fixed KOReader Sync applying chapter-start progress a few pages into the chapter instead of landing at the start.
