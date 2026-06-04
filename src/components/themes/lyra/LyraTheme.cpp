@@ -60,6 +60,8 @@ int mainMenuIconYOffset(const UIIcon icon) {
       return -2;
     case UIIcon::Settings:
       return -2;
+    case UIIcon::Library:
+      return -4;
     default:
       return 0;
   }
