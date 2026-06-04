@@ -25,6 +25,18 @@ bool ReaderActivity::isTxtFile(const std::string& path) {
 
 bool ReaderActivity::isBmpFile(const std::string& path) { return FsHelpers::hasBmpExtension(path); }
 
+bool ReaderActivity::shouldShowLoadingPopup(const std::string& path) {
+  // Only first-open EPUBs are slow enough to need the popup (they build the
+  // spine/TOC cache). A cached EPUB opens in ~ms, so showing the popup would
+  // just add an extra full e-ink refresh (~3s on X3) before the reader paints
+  // its first page; that page's own refresh is the visible "working" feedback.
+  // Other formats, and EPUBs without a metadata cache yet, keep the popup.
+  if (isXtcFile(path) || isTxtFile(path) || isBmpFile(path)) {
+    return true;
+  }
+  return !Epub::hasCache(path, "/.crosspoint");
+}
+
 std::unique_ptr<Epub> ReaderActivity::loadEpub(const std::string& path) {
   if (!Storage.exists(path.c_str())) {
     LOG_ERR("READER", "File does not exist: %s", path.c_str());
@@ -110,7 +122,9 @@ void ReaderActivity::onEnter() {
     return;
   }
 
-  GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
+  if (shouldShowLoadingPopup(initialBookPath)) {
+    GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
+  }
 
   sdFontSystem.ensureLoaded(renderer);
 

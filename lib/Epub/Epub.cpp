@@ -86,6 +86,10 @@ std::string Epub::cachePathForFilePath(const std::string& filepath, const std::s
   return cacheDir + "/epub_" + std::to_string(ZipFile::fnvHash64(filepath.c_str(), filepath.size()));
 }
 
+bool Epub::hasCache(const std::string& filepath, const std::string& cacheDir) {
+  return BookMetadataCache::exists(cachePathForFilePath(filepath, cacheDir));
+}
+
 void Epub::migrateLegacyCachePath(const std::string& cacheDir) const {
   if (Storage.exists(cachePath.c_str())) {
     return;

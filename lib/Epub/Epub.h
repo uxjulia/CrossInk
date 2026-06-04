@@ -48,6 +48,9 @@ class Epub {
   explicit Epub(std::string filepath, const std::string& cacheDir);
   ~Epub() = default;
   static std::string cachePathForFilePath(const std::string& filepath, const std::string& cacheDir);
+  // True when a metadata cache already exists for this book, i.e. load() will
+  // hit the fast path instead of rebuilding. Cheap: no parsing, just a stat.
+  static bool hasCache(const std::string& filepath, const std::string& cacheDir);
   std::string& getBasePath() { return contentBasePath; }
   bool load(bool buildIfMissing = true, bool skipLoadingCss = false);
   bool clearCache() const;

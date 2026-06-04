@@ -7,6 +7,7 @@
 - Added a File Browser folder action to use a selected folder for sleep images instead of only `/.sleep` or `/sleep`.
 
 ### Changed
+- Skipped the book loading popup when opening an already-cached EPUB so the reader paints its first page directly instead of spending an extra full-screen refresh on the popup, noticeably speeding up reopening a book on X3. First-time opens still show the popup while the cache is built.
 - Moved EPUB silent next-chapter indexing to the second-to-last page so short final pages are less likely to expose visible indexing.
 - Added EPUB silent next-chapter indexing diagnostics to show trigger timing, existing caches, and low-memory skips.
 
