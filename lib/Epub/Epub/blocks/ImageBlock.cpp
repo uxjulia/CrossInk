@@ -123,8 +123,9 @@ bool renderFromCache(GfxRenderer& renderer, const std::string& cachePath, int x,
 
     const int destY = y + row;
     pw.beginRow(destY);
-    // Only walk the on-screen columns: writePixel does no bounds check, so the
-    // clip range is what keeps a partially off-screen image inside the framebuffer.
+    // Walk only the on-screen columns: writePixel drops off-band rows but does
+    // not clip X, so this range is what keeps a partially off-screen image
+    // inside the framebuffer.
     for (int col = clipXStart; col < clipXEnd; col++) {
       const int byteIdx = col >> 2;            // col / 4
       const int bitShift = 6 - (col & 3) * 2;  // MSB first within byte

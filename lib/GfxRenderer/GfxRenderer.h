@@ -62,6 +62,14 @@ class GfxRenderer {
   mutable uint8_t* bitmapScratchRowBytes_ = nullptr;
   mutable size_t bitmapScratchRowBytesSize_ = 0;
 
+  // Tiled grayscale strip target. When active, drawPixel()/clearScreen()
+  // operate on a caller-owned scratch holding one horizontal band of physical
+  // rows [_stripY0, _stripY0 + _stripRows) instead of the shared framebuffer.
+  mutable uint8_t* _stripBuf = nullptr;
+  mutable int _stripY0 = 0;
+  mutable int _stripRows = 0;
+  mutable bool _stripActive = false;
+
   class BitmapScratchLock {
     const GfxRenderer& renderer_;
     bool locked_ = false;
@@ -164,6 +172,13 @@ class GfxRenderer {
   void clearScreen(uint8_t color = 0xFF) const;
   void getOrientedViewableTRBL(int* outTop, int* outRight, int* outBottom, int* outLeft) const;
 
+  void beginStripTarget(uint8_t* scratch, int stripY0, int stripRows) const;
+  void endStripTarget() const;
+  bool glyphIntersectsStrip(int x0, int y0, int x1, int y1) const;
+  uint8_t* getWriteTarget() const { return _stripActive ? _stripBuf : frameBuffer; }
+  int getWriteOriginY() const { return _stripActive ? _stripY0 : 0; }
+  int getWriteRows() const { return _stripActive ? _stripRows : panelHeight; }
+
   // Drawing
   void drawPixel(int x, int y, bool state = true) const;
   void drawLine(int x1, int y1, int x2, int y2, bool state = true) const;
@@ -210,7 +225,6 @@ class GfxRenderer {
   int getTextAdvanceX(int fontId, const char* text, EpdFontFamily::Style style) const;
   int getFontAscenderSize(int fontId) const;
   int getLineHeight(int fontId) const;
-  bool glyphIntersectsStrip(int, int, int, int) const { return true; }
   std::string truncatedText(int fontId, const char* text, int maxWidth,
                             EpdFontFamily::Style style = EpdFontFamily::REGULAR) const;
   /// Word-wrap \p text into at most \p maxLines lines, each no wider than
@@ -230,6 +244,8 @@ class GfxRenderer {
   void copyGrayscaleLsbBuffers() const;
   void copyGrayscaleMsbBuffers() const;
   void displayGrayBuffer(bool turnOffScreen = false) const;
+  void writeGrayscalePlaneStrip(bool lsbPlane, const uint8_t* scratch, int yStart, int numRows) const;
+  bool supportsStripGrayscale() const;
   bool storeBwBuffer();    // Returns true if buffer was stored successfully
   void restoreBwBuffer();  // Restore and free the stored buffer
   void cleanupGrayscaleWithFrameBuffer() const;
