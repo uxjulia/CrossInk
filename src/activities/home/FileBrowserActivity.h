@@ -18,9 +18,14 @@ class FileBrowserActivity final : public Activity {
   void promptDeleteFile(const std::string& fullPath, const std::string& entry);
   void promptDeleteDirectory(const std::string& fullPath, const std::string& entry,
                              bool ignoreInitialConfirmRelease = false);
+  void showDirectoryActionMenu(const std::string& entry, bool ignoreInitialConfirmRelease = false);
   void pinSleepFavorite(const std::string& fullPath);
   void unpinSleepFavorite();
   bool isPinnedSleepFavorite(const std::string& fullPath) const;
+  void setPreferredSleepFolder(const std::string& fullPath);
+  void clearPreferredSleepFolder();
+  bool isPreferredSleepFolder(const std::string& fullPath) const;
+  bool isSleepFavoriteFolder(const std::string& fullPath) const;
   void showFileActionMenu(const std::string& entry, bool ignoreInitialConfirmRelease = false);
 
   ButtonNavigator buttonNavigator;

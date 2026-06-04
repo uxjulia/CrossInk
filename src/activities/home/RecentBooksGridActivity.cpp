@@ -495,6 +495,8 @@ void RecentBooksGridActivity::showBookActionMenu(const int bookIndex, const bool
                                return;
                              case FileBrowserAction::PinFavorite:
                              case FileBrowserAction::UnpinFavorite:
+                             case FileBrowserAction::SetSleepFolder:
+                             case FileBrowserAction::ClearSleepFolder:
                                return;
                            }
                          });

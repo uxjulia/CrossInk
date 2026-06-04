@@ -22,7 +22,7 @@ constexpr unsigned long GO_HOME_MS = 1000;
 constexpr unsigned long COMPLETED_FEEDBACK_MS = 1000;
 constexpr int ROOT_HINT_GAP = 20;
 
-bool isSleepFolderPath(const std::string& path) { return path == "/sleep" || path == "/.sleep"; }
+bool isDefaultSleepFolderPath(const std::string& path) { return path == "/sleep" || path == "/.sleep"; }
 
 bool isSleepImageFile(const std::string& path) {
   return FsHelpers::hasBmpExtension(path) || FsHelpers::hasPngExtension(path);
@@ -44,6 +44,8 @@ std::string normalizeDirectoryPath(std::string path) {
   }
   return path;
 }
+
+bool isSleepFolderPreferencePath(const std::string& path) { return !path.empty() && !isDefaultSleepFolderPath(path); }
 
 bool containsHiddenPathSegment(const std::string& path) {
   if (path.empty()) return false;
@@ -217,6 +219,9 @@ void FileBrowserActivity::promptDeleteDirectory(const std::string& fullPath, con
     if (!APP_STATE.favoriteSleepImagePath.empty() && APP_STATE.favoriteSleepImagePath.rfind(favoritePrefix, 0) == 0) {
       unpinSleepFavorite();
     }
+    if (isPreferredSleepFolder(dirPath)) {
+      clearPreferredSleepFolder();
+    }
 
     loadFiles();
     if (files.empty()) {
@@ -231,6 +236,44 @@ void FileBrowserActivity::promptDeleteDirectory(const std::string& fullPath, con
   startActivityForResult(
       std::make_unique<ConfirmationActivity>(renderer, mappedInput, heading, entry, ignoreInitialConfirmRelease),
       handler);
+}
+
+void FileBrowserActivity::showDirectoryActionMenu(const std::string& entry, bool ignoreInitialConfirmRelease) {
+  const std::string fullPath = normalizeDirectoryPath(buildFullPath(basepath, entry));
+  const bool useDefaultFolders = isDefaultSleepFolderPath(fullPath) || isPreferredSleepFolder(fullPath);
+  std::vector<FileBrowserActionActivity::MenuItem> items;
+  items.push_back({useDefaultFolders ? FileBrowserAction::ClearSleepFolder : FileBrowserAction::SetSleepFolder,
+                   useDefaultFolders ? StrId::STR_USE_DEFAULT_SLEEP_FOLDERS : StrId::STR_SET_AS_SLEEP_FOLDER});
+  items.push_back({FileBrowserAction::Delete, StrId::STR_DELETE});
+
+  startActivityForResult(std::make_unique<FileBrowserActionActivity>(renderer, mappedInput, getFileName(entry),
+                                                                     std::move(items), ignoreInitialConfirmRelease),
+                         [this, fullPath, entry](const ActivityResult& result) {
+                           longPressConfirmHandled = false;
+                           if (result.isCancelled) {
+                             return;
+                           }
+
+                           const auto action =
+                               static_cast<FileBrowserAction>(std::get<FileBrowserActionResult>(result.data).action);
+                           switch (action) {
+                             case FileBrowserAction::Delete:
+                               promptDeleteDirectory(fullPath, entry);
+                               return;
+                             case FileBrowserAction::SetSleepFolder:
+                               setPreferredSleepFolder(fullPath);
+                               return;
+                             case FileBrowserAction::ClearSleepFolder:
+                               clearPreferredSleepFolder();
+                               return;
+                             case FileBrowserAction::DeleteCache:
+                             case FileBrowserAction::ToggleCompleted:
+                             case FileBrowserAction::RemoveFromRecents:
+                             case FileBrowserAction::PinFavorite:
+                             case FileBrowserAction::UnpinFavorite:
+                               return;
+                           }
+                         });
 }
 
 void FileBrowserActivity::pinSleepFavorite(const std::string& fullPath) {
@@ -261,11 +304,54 @@ bool FileBrowserActivity::isPinnedSleepFavorite(const std::string& fullPath) con
   return APP_STATE.favoriteSleepImagePath == fullPath;
 }
 
+void FileBrowserActivity::setPreferredSleepFolder(const std::string& fullPath) {
+  const std::string normalizedPath = normalizeDirectoryPath(fullPath);
+  const std::string nextPath = isSleepFolderPreferencePath(normalizedPath) ? normalizedPath : std::string();
+  if (APP_STATE.preferredSleepFolderPath == nextPath) {
+    requestUpdate();
+    return;
+  }
+
+  APP_STATE.preferredSleepFolderPath = nextPath;
+  APP_STATE.clearRecentSleepHistory();
+  if (!APP_STATE.saveToFile()) {
+    LOG_ERR("FileBrowser", "Failed to save preferred sleep folder path: %s", normalizedPath.c_str());
+    return;
+  }
+  LOG_INF("FileBrowser", "Preferred sleep folder set to: %s", nextPath.empty() ? "<default>" : nextPath.c_str());
+  requestUpdate();
+}
+
+void FileBrowserActivity::clearPreferredSleepFolder() {
+  if (APP_STATE.preferredSleepFolderPath.empty()) {
+    requestUpdate();
+    return;
+  }
+
+  APP_STATE.preferredSleepFolderPath.clear();
+  APP_STATE.clearRecentSleepHistory();
+  if (!APP_STATE.saveToFile()) {
+    LOG_ERR("FileBrowser", "Failed to clear preferred sleep folder path");
+    return;
+  }
+  LOG_INF("FileBrowser", "Cleared preferred sleep folder");
+  requestUpdate();
+}
+
+bool FileBrowserActivity::isPreferredSleepFolder(const std::string& fullPath) const {
+  return APP_STATE.preferredSleepFolderPath == normalizeDirectoryPath(fullPath);
+}
+
+bool FileBrowserActivity::isSleepFavoriteFolder(const std::string& fullPath) const {
+  const std::string normalizedPath = normalizeDirectoryPath(fullPath);
+  return isDefaultSleepFolderPath(normalizedPath) || isPreferredSleepFolder(normalizedPath);
+}
+
 void FileBrowserActivity::showFileActionMenu(const std::string& entry, bool ignoreInitialConfirmRelease) {
   const std::string fullPath = buildFullPath(basepath, entry);
   std::vector<FileBrowserActionActivity::MenuItem> items = BookActions::buildBookActionItems(fullPath, false);
 
-  const bool canPinFavorite = isSleepFolderPath(basepath) && isSleepImageFile(entry);
+  const bool canPinFavorite = isSleepFavoriteFolder(basepath) && isSleepImageFile(entry);
   if (canPinFavorite) {
     items.push_back(
         {isPinnedSleepFavorite(fullPath) ? FileBrowserAction::UnpinFavorite : FileBrowserAction::PinFavorite,
@@ -320,6 +406,8 @@ void FileBrowserActivity::showFileActionMenu(const std::string& entry, bool igno
           case FileBrowserAction::UnpinFavorite:
             unpinSleepFavorite();
             return;
+          case FileBrowserAction::SetSleepFolder:
+          case FileBrowserAction::ClearSleepFolder:
           case FileBrowserAction::RemoveFromRecents:
             return;
         }
@@ -391,7 +479,7 @@ void FileBrowserActivity::loop() {
         mappedInput.getHeldTime() >= GO_HOME_MS) {
       longPressConfirmHandled = true;
       if (isDirectory) {
-        promptDeleteDirectory(buildFullPath(basepath, entry), entry, true);
+        showDirectoryActionMenu(entry, true);
       } else {
         showFileActionMenu(entry, true);
       }
@@ -426,7 +514,7 @@ void FileBrowserActivity::loop() {
 
     if (mode == Mode::Books && mappedInput.getHeldTime() >= GO_HOME_MS) {
       if (isDirectory) {
-        promptDeleteDirectory(buildFullPath(basepath, entry), entry);
+        showDirectoryActionMenu(entry);
       } else {
         showFileActionMenu(entry);
       }
@@ -559,8 +647,11 @@ void FileBrowserActivity::render(RenderLock&&) {
         [this](int index) {
           const std::string extension = getFileExtension(files[index]);
           const std::string fullPath = buildFullPath(basepath, files[index]);
+          if (files[index].back() == '/' && isPreferredSleepFolder(fullPath)) {
+            return std::string("*");
+          }
           if (isPinnedSleepFavorite(fullPath)) {
-            return extension.empty() ? "*" : "* " + extension;
+            return extension.empty() ? std::string("*") : "* " + extension;
           }
           return extension;
         },

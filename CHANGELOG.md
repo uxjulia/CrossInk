@@ -4,6 +4,7 @@
 
 ### Added
 - Added the current date to the top-right Settings header on X3 devices with an RTC.
+- Added a File Browser folder action to use a selected folder for sleep images instead of only `/.sleep` or `/sleep`.
 
 ### Changed
 - Moved EPUB silent next-chapter indexing to the second-to-last page so short final pages are less likely to expose visible indexing.

@@ -249,23 +249,39 @@ bool isBmpSleepImagePath(const std::string& path) { return FsHelpers::hasBmpExte
 
 bool isPngSleepImagePath(const std::string& path) { return FsHelpers::hasPngExtension(path); }
 
-bool openPreferredSleepDirectory(FsFile& dir, const char*& sleepDir) {
-  sleepDir = nullptr;
-  dir = Storage.open("/.sleep");
+bool tryOpenSleepDirectory(FsFile& dir, std::string& sleepDir, const std::string& candidate) {
+  if (candidate.empty()) {
+    return false;
+  }
+
+  dir = Storage.open(candidate.c_str());
   if (dir && dir.isDirectory()) {
-    sleepDir = "/.sleep";
+    sleepDir = candidate;
     return true;
   }
 
-  if (dir) dir.close();
-  dir = Storage.open("/sleep");
-  if (dir && dir.isDirectory()) {
-    sleepDir = "/sleep";
-    return true;
+  if (dir) {
+    dir.close();
   }
-
-  if (dir) dir.close();
   return false;
+}
+
+bool openPreferredSleepDirectory(FsFile& dir, std::string& sleepDir) {
+  sleepDir.clear();
+
+  if (tryOpenSleepDirectory(dir, sleepDir, APP_STATE.preferredSleepFolderPath)) {
+    return true;
+  }
+
+  if (!APP_STATE.preferredSleepFolderPath.empty()) {
+    LOG_INF("SLP", "Preferred sleep folder missing, falling back: %s", APP_STATE.preferredSleepFolderPath.c_str());
+  }
+
+  if (tryOpenSleepDirectory(dir, sleepDir, "/.sleep")) {
+    return true;
+  }
+
+  return tryOpenSleepDirectory(dir, sleepDir, "/sleep");
 }
 
 bool selectPinnedSleepImage(SleepImageMode mode, SleepImageSelection& selection) {
@@ -302,7 +318,7 @@ bool selectPinnedSleepImage(SleepImageMode mode, SleepImageSelection& selection)
 
 bool selectRandomSleepImage(SleepImageMode mode, SleepImageSelection& selection) {
   FsFile dir;
-  const char* sleepDir = nullptr;
+  std::string sleepDir;
   if (!openPreferredSleepDirectory(dir, sleepDir)) {
     return false;
   }
@@ -335,7 +351,7 @@ bool selectRandomSleepImage(SleepImageMode mode, SleepImageSelection& selection)
       Bitmap bitmap(file);
       const BmpReaderError parseResult = bitmap.parseHeaders();
       if (parseResult != BmpReaderError::Ok) {
-        LOG_ERR("SLP", "Skipping invalid BMP sleep image %s/%s: %s", sleepDir, filename.c_str(),
+        LOG_ERR("SLP", "Skipping invalid BMP sleep image %s/%s: %s", sleepDir.c_str(), filename.c_str(),
                 Bitmap::errorToString(parseResult));
         file.close();
         continue;
@@ -361,7 +377,7 @@ bool selectRandomSleepImage(SleepImageMode mode, SleepImageSelection& selection)
 
   APP_STATE.pushRecentSleep(randomFileIndex);
   APP_STATE.saveToFile();
-  selection.path = std::string(sleepDir) + "/" + files[randomFileIndex];
+  selection.path = sleepDir + "/" + files[randomFileIndex];
   selection.isPng = FsHelpers::hasPngExtension(selection.path);
   return true;
 }

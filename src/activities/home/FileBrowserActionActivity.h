@@ -12,9 +12,11 @@ enum class FileBrowserAction : int {
   Delete = 0,
   PinFavorite = 1,
   UnpinFavorite = 2,
-  DeleteCache = 3,
-  ToggleCompleted = 4,
-  RemoveFromRecents = 5,
+  SetSleepFolder = 3,
+  ClearSleepFolder = 4,
+  DeleteCache = 5,
+  ToggleCompleted = 6,
+  RemoveFromRecents = 7,
 };
 
 class FileBrowserActionActivity final : public Activity {

@@ -94,6 +94,7 @@ bool JsonSettingsIO::saveState(const CrossPointState& s, const char* path) {
   JsonDocument doc;
   doc["openEpubPath"] = s.openEpubPath;
   doc["favoriteSleepImagePath"] = s.favoriteSleepImagePath;
+  doc["preferredSleepFolderPath"] = s.preferredSleepFolderPath;
   JsonArray recentArr = doc["recentSleepImages"].to<JsonArray>();
   for (int i = 0; i < CrossPointState::SLEEP_RECENT_COUNT; i++) recentArr.add(s.recentSleepImages[i]);
   doc["recentSleepPos"] = s.recentSleepPos;
@@ -120,6 +121,7 @@ bool JsonSettingsIO::loadState(CrossPointState& s, const char* json) {
 
   s.openEpubPath = doc["openEpubPath"] | std::string("");
   s.favoriteSleepImagePath = doc["favoriteSleepImagePath"] | std::string("");
+  s.preferredSleepFolderPath = doc["preferredSleepFolderPath"] | std::string("");
   memset(s.recentSleepImages, 0, sizeof(s.recentSleepImages));
   JsonArrayConst recentArr = doc["recentSleepImages"];
   const int actualCount = recentArr.isNull() ? 0

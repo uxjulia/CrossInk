@@ -12,6 +12,7 @@ class CrossPointState {
 
   std::string openEpubPath;
   std::string favoriteSleepImagePath;
+  std::string preferredSleepFolderPath;
   uint16_t recentSleepImages[SLEEP_RECENT_COUNT] = {};  // circular buffer of recent wallpaper indices
   uint8_t recentSleepPos = 0;                           // next write slot
   uint8_t recentSleepFill = 0;                          // valid entries (0..SLEEP_RECENT_COUNT)
@@ -24,6 +25,7 @@ class CrossPointState {
   bool isRecentSleep(uint16_t idx, uint8_t checkCount) const;
 
   void pushRecentSleep(uint16_t idx);
+  void clearRecentSleepHistory();
   ~CrossPointState() = default;
 
   // Get singleton instance

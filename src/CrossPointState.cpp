@@ -31,6 +31,12 @@ void CrossPointState::pushRecentSleep(uint16_t idx) {
   if (recentSleepFill < SLEEP_RECENT_COUNT) recentSleepFill++;
 }
 
+void CrossPointState::clearRecentSleepHistory() {
+  std::fill_n(recentSleepImages, SLEEP_RECENT_COUNT, static_cast<uint16_t>(0));
+  recentSleepPos = 0;
+  recentSleepFill = 0;
+}
+
 bool CrossPointState::saveToFile() const {
   Storage.mkdir("/.crosspoint");
   return JsonSettingsIO::saveState(*this, STATE_FILE_JSON);
