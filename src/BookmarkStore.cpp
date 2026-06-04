@@ -291,9 +291,7 @@ bool BookmarkStore::loadForBook(const std::string& filePath, const std::string& 
       }
 
       if (canDeleteLegacyFile) {
-        if (!deleteBookmarkStorePath(legacyStoreFilePath, "legacy")) {
-          canDeleteLegacyFile = false;
-        } else {
+        if (deleteBookmarkStorePath(legacyStoreFilePath, "legacy")) {
           LOG_INF("BKS", "Migrated legacy bookmark store: %s -> %s", legacyStoreFilePath.c_str(),
                   storeFilePath.c_str());
         }
