@@ -9,6 +9,7 @@
 #include <string>
 
 #include "activities/Activity.h"
+#include "activities/reader/GlobalReadingStats.h"
 
 class NearbyStatsSyncActivity final : public Activity {
  public:
@@ -33,7 +34,7 @@ class NearbyStatsSyncActivity final : public Activity {
     PacketType type = PacketType::HELLO;
     std::array<uint8_t, 6> sourceMac = {};
     std::array<uint8_t, 6> deviceMac = {};
-    std::array<uint8_t, 17> stats = {};
+    std::array<uint8_t, GlobalReadingStats::CURRENT_FILE_SIZE> stats = {};
     uint8_t statsSize = 0;
   };
   static constexpr size_t MAX_SYNC_EVENTS = 8;
@@ -54,7 +55,7 @@ class NearbyStatsSyncActivity final : public Activity {
   std::array<uint8_t, 6> localDeviceMac_ = {};
   std::array<uint8_t, 6> peerSourceMac_ = {};
   std::array<uint8_t, 6> peerDeviceMac_ = {};
-  std::array<uint8_t, 17> localStats_ = {};
+  std::array<uint8_t, GlobalReadingStats::CURRENT_FILE_SIZE> localStats_ = {};
   uint8_t localStatsSize_ = 0;
 
   uint32_t syncStartedMs_ = 0;

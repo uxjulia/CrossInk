@@ -197,10 +197,20 @@ bool MappedInputManager::wasReleased(const Button button) const {
 
   if (button == Button::Confirm) {
     if (mapButton(button, &HalGPIO::wasReleased)) {
+      if (suppressConfirmRelease) {
+        suppressConfirmRelease = false;
+        return false;
+      }
       return true;
     }
 
     if (!shouldUsePowerAsConfirmFallback() || !gpio.wasReleased(HalGPIO::BTN_POWER)) {
+      return false;
+    }
+
+    if (suppressConfirmRelease) {
+      suppressConfirmRelease = false;
+      suppressPowerConfirmRelease = false;
       return false;
     }
 

@@ -23,7 +23,8 @@ bool shouldPrepareFullCover() {
 }
 
 bool shouldPrepareMinimalCover() {
-  return SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::MINIMAL_SLEEP;
+  return SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::MINIMAL_SLEEP ||
+         SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::MINIMAL_STATS_SLEEP;
 }
 
 bool fileExists(const std::string& path) { return !path.empty() && Storage.exists(path.c_str()); }

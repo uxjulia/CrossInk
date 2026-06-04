@@ -43,6 +43,7 @@ constexpr uint8_t SLEEP_SCREEN_STORAGE_ORDER[] = {
     static_cast<uint8_t>(CrossPointSettings::READING_STATS_SLEEP),
     static_cast<uint8_t>(CrossPointSettings::MINIMAL_SLEEP),
     static_cast<uint8_t>(CrossPointSettings::QUICK_RESUME),
+    static_cast<uint8_t>(CrossPointSettings::MINIMAL_STATS_SLEEP),
 };
 constexpr uint8_t SLEEP_SCREEN_STORAGE_ORDER_COUNT =
     sizeof(SLEEP_SCREEN_STORAGE_ORDER) / sizeof(SLEEP_SCREEN_STORAGE_ORDER[0]);
@@ -565,6 +566,7 @@ bool CrossPointSettings::verifySleepScreenMigrationContract() {
   constexpr uint8_t legacyModeCountBeforeMinimal = 8;
   constexpr uint8_t minimalSleepStorageValue = 8;
   constexpr uint8_t quickResumeStorageValue = 9;
+  constexpr uint8_t minimalStatsStorageValue = 10;
   for (uint8_t storedValue = 0; storedValue < legacyModeCountBeforeMinimal; storedValue++) {
     if (sleepScreenStorageToMode(storedValue) != storedValue) {
       return false;
@@ -575,6 +577,8 @@ bool CrossPointSettings::verifySleepScreenMigrationContract() {
          sleepScreenModeToStorage(MINIMAL_SLEEP) == minimalSleepStorageValue &&
          sleepScreenStorageToMode(quickResumeStorageValue) == QUICK_RESUME &&
          sleepScreenModeToStorage(QUICK_RESUME) == quickResumeStorageValue &&
+         sleepScreenStorageToMode(minimalStatsStorageValue) == MINIMAL_STATS_SLEEP &&
+         sleepScreenModeToStorage(MINIMAL_STATS_SLEEP) == minimalStatsStorageValue &&
          sleepScreenStorageToMode(UINT8_MAX) == DARK;
 }
 #endif

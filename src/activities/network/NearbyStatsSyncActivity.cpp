@@ -76,8 +76,8 @@ constexpr const char* GLOBAL_STATS_PATH = "/.crosspoint/global_stats.bin";
 constexpr const char* SYNCED_STATS_DIR = "/.crosspoint/synced_stats";
 constexpr uint8_t ESPNOW_CHANNEL = 1;
 constexpr uint8_t PROTOCOL_VERSION = 1;
-constexpr uint8_t MIN_STATS_BYTES = 13;
-constexpr uint8_t MAX_STATS_BYTES = 17;
+constexpr uint8_t MIN_STATS_BYTES = static_cast<uint8_t>(GlobalReadingStats::MIN_SUPPORTED_FILE_SIZE);
+constexpr uint8_t MAX_STATS_BYTES = static_cast<uint8_t>(GlobalReadingStats::CURRENT_FILE_SIZE);
 constexpr uint8_t PACKET_HEADER_BYTES = 14;
 constexpr uint32_t HELLO_INTERVAL_MS = 750;
 constexpr uint32_t STATS_RETRY_INTERVAL_MS = 750;
@@ -108,7 +108,8 @@ std::string syncedStatsPathForDeviceMac(const std::array<uint8_t, 6>& mac) {
 }
 
 bool isValidStatsPayload(const uint8_t* data, const uint8_t size) {
-  return (size == MIN_STATS_BYTES && data[0] == 1) || (size == MAX_STATS_BYTES && data[0] == 2);
+  return (size == MIN_STATS_BYTES && data[0] == 1) || (size == 17 && data[0] == 2) ||
+         (size == MAX_STATS_BYTES && data[0] == GlobalReadingStats::CURRENT_FILE_VERSION);
 }
 
 bool ensureSyncedStatsDirectory() {

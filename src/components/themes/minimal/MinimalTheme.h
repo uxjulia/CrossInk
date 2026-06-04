@@ -26,6 +26,8 @@ constexpr int homeCoverImageWidth = homeCoverWidth;
 constexpr int homeCoverImageHeight = 525;
 }  // namespace MinimalMetrics
 
+struct GlobalReadingStats;
+
 class MinimalTheme : public LyraTheme {
  public:
   static void setHomeButtonHintSelection(int selectedIndex);
@@ -48,6 +50,8 @@ class MinimalTheme : public LyraTheme {
                            float progressPercent = -1.0f) const override;
   void drawSleepScreen(const GfxRenderer& renderer, const RecentBook& book, const BookReadingStats* stats = nullptr,
                        float progressPercent = -1.0f) const;
+  void drawStatsSleepScreen(const GfxRenderer& renderer, const RecentBook& book, const BookReadingStats* stats,
+                            const GlobalReadingStats* globalStats, float progressPercent = -1.0f) const;
   void drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount, int selectedIndex,
                       const std::function<std::string(int index)>& buttonLabel,
                       const std::function<UIIcon(int index)>& rowIcon) const override;

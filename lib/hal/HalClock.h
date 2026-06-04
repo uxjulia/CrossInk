@@ -39,6 +39,12 @@ class HalClock {
   // Returns false if RTC is not available.
   bool formatTime(char* buf, size_t bufSize, uint8_t utcOffsetQuarterHoursBiased = 48, bool use12Hour = false) const;
 
+  // Returns the raw RTC date/time before any user-configured timezone offset is applied.
+  // The DS3231 is synced in UTC, so callers that need wall-clock local time should apply SETTINGS.clockUtcOffsetQ.
+  bool getDateTime(uint16_t& year, uint8_t& month, uint8_t& day, uint8_t& hour, uint8_t& minute) const {
+    return getDate(year, month, day, hour, minute);
+  }
+
   // Format date into a caller-provided buffer as "Mon D, YYYY".
   // utcOffsetQuarterHoursBiased matches formatTime so the date rolls over at local midnight.
   // Returns false if RTC is not available or the RTC date is invalid.

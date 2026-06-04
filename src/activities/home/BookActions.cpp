@@ -106,6 +106,12 @@ bool toggleEpubCompleted(const std::string& fullPath, const std::string& display
   BookReadingStats stats = BookReadingStats::load(epub.getCachePath());
   completed = !stats.isCompleted;
   stats.isCompleted = completed;
+  if (completed && !stats.finishedDateManual) {
+    ReadingStatsDateTime now;
+    if (getCurrentLocalReadingStatsDateTime(now)) {
+      stats.finishedDate = now.date;
+    }
+  }
 
   GlobalReadingStats globalStats = GlobalReadingStats::load();
   if (completed) {

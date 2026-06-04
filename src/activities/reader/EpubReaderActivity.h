@@ -38,6 +38,8 @@ class EpubReaderActivity final : public Activity {
   BookReadingStats stats;
   GlobalReadingStats globalStats;
   unsigned long sessionStartMs = 0UL;
+  ReadingStatsDateTime sessionStartLocalDateTime;
+  bool hasSessionStartLocalDateTime = false;
   // Signals that the next render should reposition within the newly loaded section
   // based on a cross-book percentage jump.
   bool pendingPercentJump = false;

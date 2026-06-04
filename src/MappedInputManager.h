@@ -25,6 +25,7 @@ class MappedInputManager {
 
   void update() const { gpio.update(); }
   void suppressNextBackRelease() { suppressBackRelease = true; }
+  void suppressNextConfirmRelease() { suppressConfirmRelease = true; }
   void suppressNextPowerConfirmRelease() { suppressPowerConfirmRelease = true; }
   bool wasPressed(Button button) const;
   bool wasReleased(Button button) const;
@@ -50,6 +51,7 @@ class MappedInputManager {
   bool readerMode = false;
   bool powerAsConfirmInReaderMode = false;
   mutable bool suppressBackRelease = false;
+  mutable bool suppressConfirmRelease = false;
   mutable bool suppressPowerConfirmRelease = false;
 #ifdef SIMULATOR
   std::array<bool, BUTTON_COUNT> simulatorPressed{};

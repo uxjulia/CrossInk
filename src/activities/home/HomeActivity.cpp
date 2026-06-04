@@ -98,12 +98,13 @@ uint64_t fnvHash64(const std::string& s) {
 }
 
 bool hasAnyBookStats(const BookReadingStats& stats) {
-  return stats.sessionCount > 0 || stats.totalReadingSeconds > 0 || stats.totalPagesTurned > 0 || stats.isCompleted;
+  return stats.sessionCount > 0 || stats.totalReadingSeconds > 0 || stats.totalPagesTurned > 0 || stats.isCompleted ||
+         stats.startDate.isValid() || stats.finishedDate.isValid();
 }
 
 bool hasAnyGlobalStats(const GlobalReadingStats& stats) {
   return stats.totalSessions > 0 || stats.totalReadingSeconds > 0 || stats.totalPagesTurned > 0 ||
-         stats.completedBooks > 0;
+         stats.completedBooks > 0 || stats.displayLongestReadingStreak() > 0;
 }
 
 bool hasHeapForCarouselFrameCache() {
@@ -1663,14 +1664,42 @@ void HomeActivity::onReadingStatsOpen() {
   const int highlightedBookIdx = getHighlightedBookIndex();
   const std::string bookTitle =
       highlightedBookIdx >= 0 ? recentBooks[highlightedBookIdx].title : std::string(tr(STR_READING_STATS));
+  const std::string bookPath = getCurrentBookPath();
+  const std::string cachePath =
+      FsHelpers::hasEpubExtension(bookPath) ? Epub::cachePathForFilePath(bookPath, "/.crosspoint") : std::string{};
   if (showAllDevicesStats) {
-    startActivityForResult(std::make_unique<BookStatsActivity>(renderer, mappedInput, bookTitle, currentBookStats,
-                                                               globalStats, allDevicesGlobalStats),
-                           [this](const ActivityResult&) { requestUpdate(); });
+    startActivityForResult(std::make_unique<BookStatsActivity>(renderer, mappedInput, bookTitle, cachePath,
+                                                               currentBookStats, currentBookProgressPercent, false, 0,
+                                                               globalStats, allDevicesGlobalStats, true),
+                           [this](const ActivityResult& result) {
+                             mappedInput.suppressNextConfirmRelease();
+                             const auto* statsResult = std::get_if<ReadingStatsResult>(&result.data);
+                             if (statsResult && statsResult->changed) {
+                               globalStats = GlobalReadingStats::load();
+                               showAllDevicesStats = GlobalReadingStats::hasSyncedStats();
+                               allDevicesGlobalStats =
+                                   showAllDevicesStats ? GlobalReadingStats::loadAggregated(globalStats) : globalStats;
+                               bookStatsCached = false;
+                               updateHighlightedBookContext();
+                             }
+                             requestUpdate();
+                           });
   } else {
     startActivityForResult(
-        std::make_unique<BookStatsActivity>(renderer, mappedInput, bookTitle, currentBookStats, globalStats),
-        [this](const ActivityResult&) { requestUpdate(); });
+        std::make_unique<BookStatsActivity>(renderer, mappedInput, bookTitle, cachePath, currentBookStats,
+                                            currentBookProgressPercent, false, 0, globalStats, true),
+        [this](const ActivityResult& result) {
+          mappedInput.suppressNextConfirmRelease();
+          const auto* statsResult = std::get_if<ReadingStatsResult>(&result.data);
+          if (statsResult && statsResult->changed) {
+            globalStats = GlobalReadingStats::load();
+            showAllDevicesStats = GlobalReadingStats::hasSyncedStats();
+            allDevicesGlobalStats = showAllDevicesStats ? GlobalReadingStats::loadAggregated(globalStats) : globalStats;
+            bookStatsCached = false;
+            updateHighlightedBookContext();
+          }
+          requestUpdate();
+        });
   }
 }
 

@@ -4,6 +4,7 @@
 #include <Logging.h>
 #include <esp_mac.h>
 
+#include <array>
 #include <cstring>
 #include <limits>
 #include <string>
@@ -21,10 +22,24 @@ namespace {
 //   [5-8]    totalReadingSeconds uint32_t LE
 //   [9-12]   totalPagesTurned    uint32_t LE
 //   [13-16]  completedBooks      uint32_t LE
-static constexpr uint8_t GLOBAL_STATS_VERSION = 2;
+//
+// Binary layout v3 (159 bytes):
+//   [0]       version (= 3)
+//   [1-4]     totalSessions             uint32_t LE
+//   [5-8]     totalReadingSeconds       uint32_t LE
+//   [9-12]    totalPagesTurned          uint32_t LE
+//   [13-16]   completedBooks            uint32_t LE
+//   [17-32]   timeOfDaySeconds[4]       uint32_t LE each
+//   [33-60]   dayOfWeekSeconds[7]       uint32_t LE each
+//   [61-64]   readingHistoryAnchorDay   uint32_t LE
+//   [65-156]  readingHistoryBits[92]    uint8_t
+//   [157-158] longestReadingStreak      uint16_t LE
+static constexpr uint8_t GLOBAL_STATS_VERSION = GlobalReadingStats::CURRENT_FILE_VERSION;
 static constexpr uint8_t GLOBAL_STATS_VERSION_V1 = 1;
 static constexpr int GLOBAL_STATS_FILE_SIZE_V1 = 13;
-static constexpr int GLOBAL_STATS_FILE_SIZE = 17;
+static constexpr uint8_t GLOBAL_STATS_VERSION_V2 = 2;
+static constexpr int GLOBAL_STATS_FILE_SIZE_V2 = 17;
+static constexpr int GLOBAL_STATS_FILE_SIZE = static_cast<int>(GlobalReadingStats::CURRENT_FILE_SIZE);
 static constexpr char GLOBAL_STATS_PATH[] = "/.crosspoint/global_stats.bin";
 static constexpr char GLOBAL_STATS_BAK_PATH[] = "/.crosspoint/global_stats.bin.bak";
 static constexpr char SYNCED_STATS_DIR[] = "/.crosspoint/synced_stats";
@@ -40,6 +55,10 @@ void loadCommonFields(const uint8_t* data, GlobalReadingStats& out) {
   out.totalPagesTurned = readLe32(data, 9);
 }
 
+uint16_t readLe16(const uint8_t* data, const int offset) {
+  return static_cast<uint16_t>(data[offset]) | (static_cast<uint16_t>(data[offset + 1]) << 8);
+}
+
 uint32_t addSaturated(const uint32_t a, const uint32_t b) {
   const uint32_t max = std::numeric_limits<uint32_t>::max();
   return max - a < b ? max : a + b;
@@ -50,6 +69,15 @@ void addStats(GlobalReadingStats& target, const GlobalReadingStats& source) {
   target.totalReadingSeconds = addSaturated(target.totalReadingSeconds, source.totalReadingSeconds);
   target.totalPagesTurned = addSaturated(target.totalPagesTurned, source.totalPagesTurned);
   target.completedBooks = addSaturated(target.completedBooks, source.completedBooks);
+  for (size_t i = 0; i < target.timeOfDaySeconds.size(); ++i) {
+    target.timeOfDaySeconds[i] = addSaturated(target.timeOfDaySeconds[i], source.timeOfDaySeconds[i]);
+  }
+  for (size_t i = 0; i < target.dayOfWeekSeconds.size(); ++i) {
+    target.dayOfWeekSeconds[i] = addSaturated(target.dayOfWeekSeconds[i], source.dayOfWeekSeconds[i]);
+  }
+  mergeReadingHistory(target.readingHistoryAnchorDay, target.readingHistoryBits, source.readingHistoryAnchorDay,
+                      source.readingHistoryBits);
+  target.longestReadingStreak = std::max(target.longestReadingStreak, source.longestReadingStreak);
 }
 
 void serializeStats(const GlobalReadingStats& stats, uint8_t* data) {
@@ -70,6 +98,29 @@ void serializeStats(const GlobalReadingStats& stats, uint8_t* data) {
   data[14] = (stats.completedBooks >> 8) & 0xFF;
   data[15] = (stats.completedBooks >> 16) & 0xFF;
   data[16] = (stats.completedBooks >> 24) & 0xFF;
+  for (size_t i = 0; i < stats.timeOfDaySeconds.size(); ++i) {
+    const uint32_t value = stats.timeOfDaySeconds[i];
+    const int offset = 17 + static_cast<int>(i) * 4;
+    data[offset] = value & 0xFF;
+    data[offset + 1] = (value >> 8) & 0xFF;
+    data[offset + 2] = (value >> 16) & 0xFF;
+    data[offset + 3] = (value >> 24) & 0xFF;
+  }
+  for (size_t i = 0; i < stats.dayOfWeekSeconds.size(); ++i) {
+    const uint32_t value = stats.dayOfWeekSeconds[i];
+    const int offset = 33 + static_cast<int>(i) * 4;
+    data[offset] = value & 0xFF;
+    data[offset + 1] = (value >> 8) & 0xFF;
+    data[offset + 2] = (value >> 16) & 0xFF;
+    data[offset + 3] = (value >> 24) & 0xFF;
+  }
+  data[61] = stats.readingHistoryAnchorDay & 0xFF;
+  data[62] = (stats.readingHistoryAnchorDay >> 8) & 0xFF;
+  data[63] = (stats.readingHistoryAnchorDay >> 16) & 0xFF;
+  data[64] = (stats.readingHistoryAnchorDay >> 24) & 0xFF;
+  memcpy(data + 65, stats.readingHistoryBits.data(), stats.readingHistoryBits.size());
+  data[157] = stats.longestReadingStreak & 0xFF;
+  data[158] = (stats.longestReadingStreak >> 8) & 0xFF;
 }
 
 bool loadFromOpenFile(FsFile& f, GlobalReadingStats& out) {
@@ -82,9 +133,24 @@ bool loadFromOpenFile(FsFile& f, GlobalReadingStats& out) {
     return true;
   }
 
+  if (n == GLOBAL_STATS_FILE_SIZE_V2 && data[0] == GLOBAL_STATS_VERSION_V2) {
+    loadCommonFields(data, out);
+    out.completedBooks = readLe32(data, 13);
+    return true;
+  }
+
   if (n != GLOBAL_STATS_FILE_SIZE || data[0] != GLOBAL_STATS_VERSION) return false;
   loadCommonFields(data, out);
   out.completedBooks = readLe32(data, 13);
+  for (size_t i = 0; i < out.timeOfDaySeconds.size(); ++i) {
+    out.timeOfDaySeconds[i] = readLe32(data, 17 + static_cast<int>(i) * 4);
+  }
+  for (size_t i = 0; i < out.dayOfWeekSeconds.size(); ++i) {
+    out.dayOfWeekSeconds[i] = readLe32(data, 33 + static_cast<int>(i) * 4);
+  }
+  out.readingHistoryAnchorDay = readLe32(data, 61);
+  memcpy(out.readingHistoryBits.data(), data + 65, out.readingHistoryBits.size());
+  out.longestReadingStreak = readLe16(data, 157);
   return true;
 }
 
@@ -215,4 +281,23 @@ void GlobalReadingStats::save() const {
   // O_TRUNC, so a power failure mid-write would corrupt the primary file
   // without this fallback.
   saveToFile(*this, GLOBAL_STATS_PATH, GLOBAL_STATS_BAK_PATH);
+}
+
+void GlobalReadingStats::recordReadingSpan(const ReadingStatsDateTime& localStart, const uint32_t seconds) {
+  recordReadingSpanIntoBuckets(timeOfDaySeconds, dayOfWeekSeconds, localStart, seconds);
+  recordReadingSpanIntoHistory(readingHistoryAnchorDay, readingHistoryBits, localStart, seconds);
+
+  const uint16_t historyLongest = computeReadingHistoryLongestStreak(readingHistoryAnchorDay, readingHistoryBits);
+  if (historyLongest > longestReadingStreak) {
+    longestReadingStreak = historyLongest;
+  }
+}
+
+uint16_t GlobalReadingStats::currentReadingStreak(const ReadingStatsDate* today) const {
+  return computeReadingHistoryCurrentStreak(readingHistoryAnchorDay, readingHistoryBits, today);
+}
+
+uint16_t GlobalReadingStats::displayLongestReadingStreak() const {
+  return std::max(longestReadingStreak,
+                  computeReadingHistoryLongestStreak(readingHistoryAnchorDay, readingHistoryBits));
 }

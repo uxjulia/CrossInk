@@ -5,6 +5,7 @@
 #include <Epub.h>
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
+#include <HalGPIO.h>
 #include <HalPowerManager.h>
 #include <HalStorage.h>
 #include <I18n.h>
@@ -12,13 +13,21 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <numeric>
 #include <string>
 #include <vector>
 
 #include "RecentBooksStore.h"
 #include "activities/reader/BookReadingStats.h"
+#include "activities/reader/GlobalReadingStats.h"
+#include "activities/reader/ReadingStatsUtils.h"
 #include "components/UITheme.h"
+#include "components/icons/afternoon.h"
 #include "components/icons/cover.h"
+#include "components/icons/evening.h"
+#include "components/icons/morning.h"
+#include "components/icons/night.h"
+#include "components/icons/streak.h"
 #include "fontIds.h"
 
 namespace {
@@ -55,7 +64,130 @@ constexpr int kCoverTopOffset = 0;
 constexpr int kProgressBlockGap = 8;
 constexpr int kProgressBarGap = 4;
 constexpr int kProgressLabelGap = 5;
+constexpr int kStatsFooterReaderIconSize = 24;
+constexpr int kStatsFooterStreakIconSize = 24;
+constexpr int kStatsFooterBottomInset = 34;
+constexpr int kStatsFooterSideInset = 48;
+constexpr int kStatsFooterColumnGap = 18;
 int homeButtonHintSelection = -1;
+
+const char* dayCountText(const uint16_t days) { return days == 1 ? tr(STR_STATS_DAY) : tr(STR_STATS_DAYS); }
+
+bool dominantReaderTypeBucket(const GlobalReadingStats& globalStats, ReadingTimeBucket& bucketOut) {
+  const auto& values = globalStats.timeOfDaySeconds;
+  const uint32_t totalSeconds = std::accumulate(values.begin(), values.end(), 0u);
+  if (totalSeconds == 0) {
+    return false;
+  }
+
+  const size_t dominantIndex =
+      static_cast<size_t>(std::distance(values.begin(), std::max_element(values.begin(), values.end())));
+  bucketOut = static_cast<ReadingTimeBucket>(dominantIndex);
+  return true;
+}
+
+const char* readerTypeLabel(const GlobalReadingStats& globalStats) {
+  ReadingTimeBucket bucket = ReadingTimeBucket::Night;
+  if (!dominantReaderTypeBucket(globalStats, bucket)) {
+    return tr(STR_STATS_NEW_READER);
+  }
+
+  switch (bucket) {
+    case ReadingTimeBucket::Morning:
+      return tr(STR_STATS_MORNING_READER);
+    case ReadingTimeBucket::Afternoon:
+      return tr(STR_STATS_AFTERNOON_READER);
+    case ReadingTimeBucket::Evening:
+      return tr(STR_STATS_EVENING_READER);
+    case ReadingTimeBucket::Night:
+    default:
+      return tr(STR_STATS_NIGHT_READER);
+  }
+}
+
+void drawReaderTypeIcon(const GfxRenderer& renderer, const GlobalReadingStats& globalStats, const int x, const int y) {
+  ReadingTimeBucket bucket = ReadingTimeBucket::Night;
+  if (!dominantReaderTypeBucket(globalStats, bucket)) {
+    renderer.drawIconInverted(NightReaderIcon, x, y, kStatsFooterReaderIconSize, kStatsFooterReaderIconSize);
+    return;
+  }
+
+  switch (bucket) {
+    case ReadingTimeBucket::Morning:
+      renderer.drawIconInverted(MorningReaderIcon, x, y, kStatsFooterReaderIconSize, kStatsFooterReaderIconSize);
+      return;
+    case ReadingTimeBucket::Afternoon:
+      renderer.drawIconInverted(AfternoonReaderIcon, x, y, kStatsFooterReaderIconSize, kStatsFooterReaderIconSize);
+      return;
+    case ReadingTimeBucket::Evening:
+      renderer.drawIconInverted(EveningReaderIcon, x, y, kStatsFooterReaderIconSize, kStatsFooterReaderIconSize);
+      return;
+    case ReadingTimeBucket::Night:
+    default:
+      renderer.drawIconInverted(NightReaderIcon, x, y, kStatsFooterReaderIconSize, kStatsFooterReaderIconSize);
+      return;
+  }
+}
+
+void formatStreakStat(const GlobalReadingStats& globalStats, char* buf, const size_t len) {
+  if (len == 0) {
+    return;
+  }
+
+  ReadingStatsDateTime today;
+  const uint16_t streak =
+      getCurrentLocalReadingStatsDateTime(today) ? globalStats.currentReadingStreak(&today.date) : 0;
+  if (streak == 0) {
+    snprintf(buf, len, "%s", tr(STR_STATS_NO_STREAK));
+    return;
+  }
+
+  snprintf(buf, len, tr(STR_STATS_DAY_STREAK_FORMAT), static_cast<unsigned>(streak), dayCountText(streak));
+}
+
+void drawStatsFooter(const GfxRenderer& renderer, const GlobalReadingStats& globalStats) {
+  if (!gpio.deviceIsX3()) {
+    return;
+  }
+
+  const int screenWidth = renderer.getScreenWidth();
+  const int screenHeight = renderer.getScreenHeight();
+  const int labelLineHeight = renderer.getLineHeight(UI_10_FONT_ID);
+  const int rowHeight = std::max({labelLineHeight, kStatsFooterStreakIconSize, kStatsFooterReaderIconSize});
+  const int topY = screenHeight - kStatsFooterBottomInset - rowHeight;
+  const int streakIconY = topY + (rowHeight - kStatsFooterStreakIconSize) / 2;
+  const int readerIconY = topY + (rowHeight - kStatsFooterReaderIconSize) / 2;
+  const int textY = topY + (rowHeight - labelLineHeight) / 2;
+  const int availableWidth = screenWidth - kStatsFooterSideInset * 2;
+  const int iconTextGap = 10;
+
+  char streakBuf[48];
+  formatStreakStat(globalStats, streakBuf, sizeof(streakBuf));
+  const char* readerLabel = readerTypeLabel(globalStats);
+
+  const std::string streakText =
+      renderer.truncatedText(UI_10_FONT_ID, streakBuf, availableWidth / 2 - (kStatsFooterStreakIconSize + iconTextGap));
+  const std::string readerText = renderer.truncatedText(
+      UI_10_FONT_ID, readerLabel, availableWidth / 2 - (kStatsFooterReaderIconSize + iconTextGap));
+
+  const int streakBlockWidth =
+      kStatsFooterStreakIconSize + iconTextGap + renderer.getTextWidth(UI_10_FONT_ID, streakText.c_str());
+  const int readerBlockWidth =
+      kStatsFooterReaderIconSize + iconTextGap + renderer.getTextWidth(UI_10_FONT_ID, readerText.c_str());
+  const int contentWidth = availableWidth;
+  const int contentLeft = (screenWidth - contentWidth) / 2;
+  const int leftX = contentLeft;
+  const int rightX =
+      std::max(contentLeft + contentWidth - readerBlockWidth, leftX + streakBlockWidth + kStatsFooterColumnGap);
+  const int streakTextX = leftX + kStatsFooterStreakIconSize + iconTextGap;
+  const int readerTextX = rightX + kStatsFooterReaderIconSize + iconTextGap;
+
+  renderer.drawIconInverted(StreakIcon, leftX, streakIconY, kStatsFooterStreakIconSize, kStatsFooterStreakIconSize);
+  renderer.drawText(UI_10_FONT_ID, streakTextX, textY, streakText.c_str(), false);
+
+  drawReaderTypeIcon(renderer, globalStats, rightX, readerIconY);
+  renderer.drawText(UI_10_FONT_ID, readerTextX, textY, readerText.c_str(), false);
+}
 
 Rect coverRectForScreen(const GfxRenderer& renderer, const Rect& rect) {
   const int coverH = MinimalMetrics::values.homeCoverHeight;
@@ -533,6 +665,15 @@ void MinimalTheme::drawSleepScreen(const GfxRenderer& renderer, const RecentBook
   const Rect coverRect = coverRectForScreen(renderer, contentRect);
   drawBookCover(renderer, coverRect, book, Color::Black);
   drawProgressBlock(renderer, coverRect, stats, progressPercent, true);
+}
+
+void MinimalTheme::drawStatsSleepScreen(const GfxRenderer& renderer, const RecentBook& book,
+                                        const BookReadingStats* stats, const GlobalReadingStats* globalStats,
+                                        const float progressPercent) const {
+  drawSleepScreen(renderer, book, stats, progressPercent);
+  if (globalStats != nullptr) {
+    drawStatsFooter(renderer, *globalStats);
+  }
 }
 
 void MinimalTheme::drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount, int selectedIndex,

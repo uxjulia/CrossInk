@@ -5,6 +5,8 @@
 ### Added
 - Added the current date to the top-right Settings header on X3 devices with an RTC.
 - Added a File Browser folder action to use a selected folder for sleep images instead of only `/.sleep` or `/sleep`.
+- Added X3 Reading Stats pages for per-book, this-device, and all-synced-device views, including reading streaks, time-of-day/day-of-week reading-time charts, and editable start/finished book dates.
+- Added a `Minimal Stats` sleep screen option that reuses the Minimal layout and adds X3-only streak and reader-type footer stats.
 
 ### Changed
 - Moved EPUB silent next-chapter indexing to the second-to-last page so short final pages are less likely to expose visible indexing.
@@ -13,6 +15,7 @@
 ### Fixed
 - Exposed upstream Crosspoint's functionality to disable side buttons that got lost in the last merge.
 - Changed Reading Stats page counts so backward turns and rapid forward navigation no longer increase totals.
+- Changed the Reading Stats sleep screen to use a dark inverted style with white text on a black background.
 - Stabilized EPUB book time-left estimates so rapid forward paging and non-linear jumps fall back to pace-based ETA until a qualified forward read is recorded again.
 - Fixed the X3 clock UTC offset picker so editable sign, hour, and minute fields are more clear.
 - Fixed `Sync Clock Now` so it now tries to connect to saved WiFi automatically otherwise opens the normal WiFi picker instead of stopping with a "connect first" message.

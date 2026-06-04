@@ -9,6 +9,30 @@ nav_order: 8
 
 `/.crosspoint/epub_<hash>/stats.bin` stores per-book reading stats.
 
+### Version 4
+
+Adds X3 date-aware reading stats: permanent start/finished date overrides plus
+time-of-day and day-of-week reading-time buckets.
+
+```text
+[0]      version (= 4)
+[1-2]    sessionCount              uint16 little-endian
+[3-6]    totalReadingSeconds       uint32 little-endian
+[7-10]   totalPagesTurned          uint32 little-endian
+[11]     isCompleted               uint8
+[12-13]  avgSecondsPerForwardPage  uint16 little-endian
+[14-15]  paceSampleCount           uint16 little-endian
+[16]     flags                     bit0=startDateManual bit1=finishedDateManual
+[17-18]  startDate.year            uint16 little-endian
+[19]     startDate.month           uint8
+[20]     startDate.day             uint8
+[21-22]  finishedDate.year         uint16 little-endian
+[23]     finishedDate.month        uint8
+[24]     finishedDate.day          uint8
+[25-40]  timeOfDaySeconds[4]       uint32 little-endian each
+[41-68]  dayOfWeekSeconds[7]       uint32 little-endian each
+```
+
 ### Version 3
 
 Adds the per-book forward-page reading pace used for time-left estimates.
@@ -53,6 +77,24 @@ counted twice.
 
 For user-facing sync behavior, folder layout, and manual cleanup instructions,
 see [Reading Stats Sync](./reading-stats-sync.md).
+
+### Version 3
+
+Adds X3 aggregate reading-time buckets and reading-streak history while keeping
+older synced payloads readable.
+
+```text
+[0]       version (= 3)
+[1-4]     totalSessions             uint32 little-endian
+[5-8]     totalReadingSeconds       uint32 little-endian
+[9-12]    totalPagesTurned          uint32 little-endian
+[13-16]   completedBooks            uint32 little-endian
+[17-32]   timeOfDaySeconds[4]       uint32 little-endian each
+[33-60]   dayOfWeekSeconds[7]       uint32 little-endian each
+[61-64]   readingHistoryAnchorDay   uint32 little-endian
+[65-156]  readingHistoryBits[92]    uint8
+[157-158] longestReadingStreak      uint16 little-endian
+```
 
 ### Version 2
 
