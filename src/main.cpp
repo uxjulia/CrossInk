@@ -75,6 +75,8 @@ inline esp_sleep_wakeup_cause_t esp_sleep_get_wakeup_cause() { return ESP_SLEEP_
 #include "activities/ActivityManager.h"
 #include "activities/reader/EpubReaderUtils.h"
 #include "activities/reader/KOReaderSyncActivity.h"
+#include "activities/reader/ReadingStatsUtils.h"
+#include "activities/reader/StatsBackup.h"
 #include "activities/settings/KOReaderSettingsActivity.h"
 #include "activities/settings/SdFirmwareUpdateActivity.h"
 #include "components/UITheme.h"
@@ -626,6 +628,13 @@ void enterDeepSleep(bool fromTimeout) {
     saveSleepFrameBuffer();
   } else {
     delay(POST_SLEEP_SCREEN_SETTLE_MS);
+  }
+
+  if (gpio.deviceIsX3() && SETTINGS.autoBackupStats != 0) {
+    ReadingStatsDateTime now;
+    if (getCurrentLocalReadingStatsDateTime(now) && !backupGlobalStats(false)) {
+      LOG_ERR("MAIN", "Automatic reading-stats backup failed before deep sleep");
+    }
   }
 
   putTiltSensorToSleepForDeepSleep();

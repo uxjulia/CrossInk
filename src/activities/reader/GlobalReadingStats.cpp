@@ -10,6 +10,14 @@
 #include <string>
 
 namespace {
+enum class StatsLoadResult : uint8_t { Ok, Invalid, NewerFormat };
+
+struct StatsLoadOutcome {
+  StatsLoadResult result = StatsLoadResult::Invalid;
+  uint8_t version = 0;
+  size_t fileSize = 0;
+};
+
 // Binary layout v1 (13 bytes):
 //   [0]     version (= 1)
 //   [1-4]   totalSessions       uint32_t LE
@@ -43,6 +51,7 @@ static constexpr int GLOBAL_STATS_FILE_SIZE = static_cast<int>(GlobalReadingStat
 static constexpr char GLOBAL_STATS_PATH[] = "/.crosspoint/global_stats.bin";
 static constexpr char GLOBAL_STATS_BAK_PATH[] = "/.crosspoint/global_stats.bin.bak";
 static constexpr char SYNCED_STATS_DIR[] = "/.crosspoint/synced_stats";
+static bool s_blockDestructiveSave = false;
 
 uint32_t readLe32(const uint8_t* data, const int offset) {
   return static_cast<uint32_t>(data[offset]) | (static_cast<uint32_t>(data[offset + 1]) << 8) |
@@ -123,23 +132,36 @@ void serializeStats(const GlobalReadingStats& stats, uint8_t* data) {
   data[158] = (stats.longestReadingStreak >> 8) & 0xFF;
 }
 
-bool loadFromOpenFile(FsFile& f, GlobalReadingStats& out) {
+StatsLoadOutcome loadFromOpenFile(FsFile& f, GlobalReadingStats& out) {
+  StatsLoadOutcome outcome;
+  outcome.fileSize = f.fileSize();
+
   uint8_t data[GLOBAL_STATS_FILE_SIZE] = {};
-  const int n = f.read(data, GLOBAL_STATS_FILE_SIZE);
+  const size_t bytesToRead = std::min(outcome.fileSize, static_cast<size_t>(GLOBAL_STATS_FILE_SIZE));
+  const int n = f.read(data, bytesToRead);
+  if (n <= 0 || static_cast<size_t>(n) != bytesToRead) return outcome;
+  outcome.version = data[0];
+
+  if (outcome.fileSize > static_cast<size_t>(GLOBAL_STATS_FILE_SIZE) || outcome.version > GLOBAL_STATS_VERSION) {
+    outcome.result = StatsLoadResult::NewerFormat;
+    return outcome;
+  }
 
   if (n == GLOBAL_STATS_FILE_SIZE_V1 && data[0] == GLOBAL_STATS_VERSION_V1) {
     loadCommonFields(data, out);
     out.completedBooks = 0;
-    return true;
+    outcome.result = StatsLoadResult::Ok;
+    return outcome;
   }
 
   if (n == GLOBAL_STATS_FILE_SIZE_V2 && data[0] == GLOBAL_STATS_VERSION_V2) {
     loadCommonFields(data, out);
     out.completedBooks = readLe32(data, 13);
-    return true;
+    outcome.result = StatsLoadResult::Ok;
+    return outcome;
   }
 
-  if (n != GLOBAL_STATS_FILE_SIZE || data[0] != GLOBAL_STATS_VERSION) return false;
+  if (n != GLOBAL_STATS_FILE_SIZE || data[0] != GLOBAL_STATS_VERSION) return outcome;
   loadCommonFields(data, out);
   out.completedBooks = readLe32(data, 13);
   for (size_t i = 0; i < out.timeOfDaySeconds.size(); ++i) {
@@ -151,7 +173,8 @@ bool loadFromOpenFile(FsFile& f, GlobalReadingStats& out) {
   out.readingHistoryAnchorDay = readLe32(data, 61);
   memcpy(out.readingHistoryBits.data(), data + 65, out.readingHistoryBits.size());
   out.longestReadingStreak = readLe16(data, 157);
-  return true;
+  outcome.result = StatsLoadResult::Ok;
+  return outcome;
 }
 
 std::string localSyncedStatsFileName() {
@@ -163,15 +186,24 @@ std::string localSyncedStatsFileName() {
   return name;
 }
 
+bool verifyFileSize(const char* path, const size_t expectedSize) {
+  FsFile file;
+  if (!Storage.openFileForRead("GSTATS", path, file)) return false;
+  const size_t actualSize = file.fileSize();
+  file.close();
+  return actualSize == expectedSize;
+}
+
 bool saveToFile(const GlobalReadingStats& stats, const char* path, const char* backupPath) {
-  if (backupPath != nullptr && Storage.exists(path)) {
-    Storage.remove(backupPath);
-    Storage.rename(path, backupPath);
+  const std::string tmpPath = std::string(path) + ".tmp";
+  if (Storage.exists(tmpPath.c_str()) && !Storage.remove(tmpPath.c_str())) {
+    LOG_ERR("GSTATS", "Could not remove stale stats temp file: %s", tmpPath.c_str());
+    return false;
   }
 
   FsFile f;
-  if (!Storage.openFileForWrite("GSTATS", path, f)) {
-    LOG_ERR("GSTATS", "Could not write stats file: %s", path);
+  if (!Storage.openFileForWrite("GSTATS", tmpPath.c_str(), f)) {
+    LOG_ERR("GSTATS", "Could not write stats temp file: %s", tmpPath.c_str());
     return false;
   }
 
@@ -179,46 +211,94 @@ bool saveToFile(const GlobalReadingStats& stats, const char* path, const char* b
   serializeStats(stats, data);
   const size_t bytesWritten = f.write(data, GLOBAL_STATS_FILE_SIZE);
   if (bytesWritten != GLOBAL_STATS_FILE_SIZE) {
-    LOG_ERR("GSTATS", "Short write for stats file %s: %u/%u bytes", path, static_cast<unsigned>(bytesWritten),
-            static_cast<unsigned>(GLOBAL_STATS_FILE_SIZE));
+    LOG_ERR("GSTATS", "Short write for stats temp file %s: %u/%u bytes", tmpPath.c_str(),
+            static_cast<unsigned>(bytesWritten), static_cast<unsigned>(GLOBAL_STATS_FILE_SIZE));
     f.close();
-    Storage.remove(path);
+    Storage.remove(tmpPath.c_str());
     return false;
   }
 
   f.flush();
   if (!f.sync()) {
-    LOG_ERR("GSTATS", "Failed to sync stats file: %s", path);
+    LOG_ERR("GSTATS", "Failed to sync stats temp file: %s", tmpPath.c_str());
     f.close();
-    Storage.remove(path);
+    Storage.remove(tmpPath.c_str());
     return false;
   }
 
   if (!f.close()) {
-    LOG_ERR("GSTATS", "Failed to close stats file after save: %s", path);
-    Storage.remove(path);
+    LOG_ERR("GSTATS", "Failed to close stats temp file after save: %s", tmpPath.c_str());
+    Storage.remove(tmpPath.c_str());
     return false;
   }
 
+  if (!verifyFileSize(tmpPath.c_str(), GLOBAL_STATS_FILE_SIZE)) {
+    LOG_ERR("GSTATS", "Stats temp file has unexpected size: %s", tmpPath.c_str());
+    Storage.remove(tmpPath.c_str());
+    return false;
+  }
+
+  if (backupPath != nullptr) {
+    if (Storage.exists(backupPath) && !Storage.remove(backupPath)) {
+      LOG_ERR("GSTATS", "Could not remove old stats backup: %s", backupPath);
+      Storage.remove(tmpPath.c_str());
+      return false;
+    }
+    if (Storage.exists(path) && !Storage.rename(path, backupPath)) {
+      LOG_ERR("GSTATS", "Could not rotate stats backup: %s", path);
+      Storage.remove(tmpPath.c_str());
+      return false;
+    }
+  } else if (Storage.exists(path) && !Storage.remove(path)) {
+    LOG_ERR("GSTATS", "Could not replace stats file: %s", path);
+    Storage.remove(tmpPath.c_str());
+    return false;
+  }
+
+  if (!Storage.rename(tmpPath.c_str(), path)) {
+    LOG_ERR("GSTATS", "Could not replace stats file: %s", path);
+    if (backupPath != nullptr && Storage.exists(backupPath) && !Storage.exists(path)) {
+      Storage.rename(backupPath, path);
+    }
+    Storage.remove(tmpPath.c_str());
+    return false;
+  }
   return true;
 }
 }  // namespace
 
-static bool loadFromFile(const char* path, GlobalReadingStats& out) {
+static StatsLoadOutcome loadFromFile(const char* path, GlobalReadingStats& out) {
+  StatsLoadOutcome outcome;
   FsFile f;
-  if (!Storage.openFileForRead("GSTATS", path, f)) return false;
-  const bool ok = loadFromOpenFile(f, out);
+  if (!Storage.openFileForRead("GSTATS", path, f)) return outcome;
+  outcome = loadFromOpenFile(f, out);
   f.close();
-  return ok;
+  return outcome;
 }
 
 GlobalReadingStats GlobalReadingStats::load() {
   GlobalReadingStats stats;
-  if (loadFromFile(GLOBAL_STATS_PATH, stats)) return stats;
-  if (loadFromFile(GLOBAL_STATS_BAK_PATH, stats)) {
+  const StatsLoadOutcome primary = loadFromFile(GLOBAL_STATS_PATH, stats);
+  if (primary.result == StatsLoadResult::Ok) return stats;
+  if (primary.result == StatsLoadResult::NewerFormat) {
+    s_blockDestructiveSave = true;
+    LOG_ERR("GSTATS", "On-disk stats are from a newer build (v%u, %u bytes); refusing to overwrite", primary.version,
+            static_cast<unsigned>(primary.fileSize));
+    return stats;
+  }
+
+  const StatsLoadOutcome backup = loadFromFile(GLOBAL_STATS_BAK_PATH, stats);
+  if (backup.result == StatsLoadResult::Ok) {
     LOG_DBG("GSTATS", "Recovered global stats from backup");
     return stats;
   }
+  if (backup.result == StatsLoadResult::NewerFormat) {
+    s_blockDestructiveSave = true;
+    LOG_ERR("GSTATS", "Backup stats are from a newer build (v%u, %u bytes); refusing to overwrite", backup.version,
+            static_cast<unsigned>(backup.fileSize));
+    return stats;
+  }
+
   LOG_DBG("GSTATS", "Global stats missing or corrupt, starting fresh");
   return stats;
 }
@@ -256,9 +336,14 @@ GlobalReadingStats GlobalReadingStats::loadAggregated(const GlobalReadingStats& 
     // Skip it because local stats are already included from global_stats.bin.
     if (!isDirectory && nameLen > 0 && (localFileName.empty() || strcmp(name, localFileName.c_str()) != 0)) {
       GlobalReadingStats syncedStats;
-      if (loadFromOpenFile(file, syncedStats)) {
+      const StatsLoadOutcome outcome = loadFromOpenFile(file, syncedStats);
+      if (outcome.result == StatsLoadResult::Ok) {
         addStats(stats, syncedStats);
         loadedCount++;
+      } else if (outcome.result == StatsLoadResult::NewerFormat) {
+        skippedCount++;
+        LOG_DBG("GSTATS", "Skipping newer-format synced stats file: %s (v%u, %u bytes)", name, outcome.version,
+                static_cast<unsigned>(outcome.fileSize));
       } else {
         skippedCount++;
         LOG_DBG("GSTATS", "Skipping invalid synced stats file: %s", name);
@@ -277,9 +362,10 @@ GlobalReadingStats GlobalReadingStats::loadAggregated(const GlobalReadingStats& 
 }
 
 void GlobalReadingStats::save() const {
-  // Preserve previous file as .bak before truncating — openFileForWrite uses
-  // O_TRUNC, so a power failure mid-write would corrupt the primary file
-  // without this fallback.
+  if (s_blockDestructiveSave) {
+    LOG_ERR("GSTATS", "Refusing to overwrite on-disk stats after newer-format file was detected");
+    return;
+  }
   saveToFile(*this, GLOBAL_STATS_PATH, GLOBAL_STATS_BAK_PATH);
 }
 

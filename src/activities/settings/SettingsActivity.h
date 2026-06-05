@@ -27,6 +27,7 @@ enum class SettingAction {
   SystemDevice,
   SystemFilesCache,
   Network,
+  BackupStats,
   ClearCache,
   CheckForUpdates,
   SdFirmwareUpdate,

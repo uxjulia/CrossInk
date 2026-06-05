@@ -7,6 +7,7 @@
 - Added a File Browser folder action to use a selected folder for sleep images instead of only `/.sleep` or `/sleep`.
 - Added additionl X3 reading stats including reading streaks, time-of-day/day-of-week reading-time charts, and editable start/finished book dates.
 - Added a `Minimal Stats` sleep screen option that reuses the Minimal layout and adds X3-only streak and reader-type footer stats.
+- Added `Backup Reading Stats` in Settings > System > Files & Cache, plus X3 automatic daily backups written to `/.crossink-stats-backup/` so cumulative stats survive `/.crosspoint/` cleanup.
 
 ### Changed
 - Skipped the book loading popup when opening an already-cached EPUB so the reader paints its first page directly instead of spending an extra full-screen refresh on the popup, noticeably speeding up reopening a book on X3. First-time opens still show the popup while the cache is built.
@@ -26,6 +27,7 @@
 - Fixed KOReader Sync error popups so connection problems show more specific guidance instead of a generic network error.
 - Fixed EPUB bookmark migration so bookmark files saved under the old unstable path hash are recovered, merged with any newer bookmark file, rewritten to the stable on-disk format, and kept working when finished books move into `/Read`.
 - Restored row-band grayscale rendering on X3 so anti-aliased pages stream in 80-row strips instead of buffering a full plane, lowering peak memory use and crash risk on image-heavy pages.
+- Fixed global Reading Stats saves so an older firmware build no longer overwrites stats files written by a newer format version.
 
 ## [v1.3.1] - 2026-05-28
 
