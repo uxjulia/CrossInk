@@ -136,18 +136,18 @@ This works when **Reader Paragraph Alignment** is set to **Left**, **Justify**, 
 The Controls menu in Settings has been updated to the following
 
 <u>**Power Button**</u>
-Short-press Action - **New Options Added**
-Long-press Action - **New**
+- Short-press Action - **New Options Added**
+- Long-press Action - **New**
 
 <u>**Front Buttons**</u>
-Remap Front Buttons
-Remap Front Buttons (reader)
-Long-press Menu Action - **New**
+- Remap Front Buttons
+- Remap Front Buttons (reader)
+- Long-press Menu Action - **New**
 
 <u>**Side Buttons**</u>
-Layout
-Long-press Chapter Skip
-Long-Press Action - **New**
+- Layout
+- Long-press Chapter Skip
+- Long-Press Action - **New**
 
 ---
 
