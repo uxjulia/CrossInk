@@ -6,9 +6,13 @@
 #include <algorithm>
 #include <cstring>
 #include <memory>
+#include <string>
+#include <variant>
+#include <vector>
 
 #include "CrossPointSettings.h"
 #include "MappedInputManager.h"
+#include "activities/util/OptionSelectionActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 
@@ -37,20 +41,144 @@ const StrId menuNames[ITEM_COUNT] = {
 };
 
 constexpr int PROGRESS_BAR_ITEMS = 3;
-const StrId progressBarNames[PROGRESS_BAR_ITEMS] = {StrId::STR_BOOK, StrId::STR_CHAPTER, StrId::STR_HIDE};
+const StrId progressBarNames[PROGRESS_BAR_ITEMS] = {StrId::STR_HIDE, StrId::STR_BOOK, StrId::STR_CHAPTER};
+const uint8_t progressBarRawValues[PROGRESS_BAR_ITEMS] = {
+    CrossPointSettings::STATUS_BAR_PROGRESS_BAR::HIDE_PROGRESS,
+    CrossPointSettings::STATUS_BAR_PROGRESS_BAR::BOOK_PROGRESS,
+    CrossPointSettings::STATUS_BAR_PROGRESS_BAR::CHAPTER_PROGRESS,
+};
 
 constexpr int PROGRESS_BAR_THICKNESS_ITEMS = 3;
 const StrId progressBarThicknessNames[PROGRESS_BAR_THICKNESS_ITEMS] = {
     StrId::STR_PROGRESS_BAR_THIN, StrId::STR_PROGRESS_BAR_MEDIUM, StrId::STR_PROGRESS_BAR_THICK};
 
 constexpr int TITLE_ITEMS = 3;
-const StrId titleNames[TITLE_ITEMS] = {StrId::STR_BOOK, StrId::STR_CHAPTER, StrId::STR_HIDE};
+const StrId titleNames[TITLE_ITEMS] = {StrId::STR_HIDE, StrId::STR_BOOK, StrId::STR_CHAPTER};
+const uint8_t titleRawValues[TITLE_ITEMS] = {
+    CrossPointSettings::STATUS_BAR_TITLE::HIDE_TITLE,
+    CrossPointSettings::STATUS_BAR_TITLE::BOOK_TITLE,
+    CrossPointSettings::STATUS_BAR_TITLE::CHAPTER_TITLE,
+};
 
 constexpr int TIME_LEFT_ITEMS = 3;
 const StrId timeLeftNames[TIME_LEFT_ITEMS] = {StrId::STR_HIDE, StrId::STR_CHAPTER, StrId::STR_BOOK};
 
 constexpr int XTC_STATUS_BAR_ITEMS = 3;
 const StrId xtcStatusBarNames[XTC_STATUS_BAR_ITEMS] = {StrId::STR_HIDE, StrId::STR_BOTTOM, StrId::STR_TOP};
+
+int optionCountForItem(const int item) {
+  switch (item) {
+    case ITEM_PROGRESS_BAR:
+      return PROGRESS_BAR_ITEMS;
+    case ITEM_PROGRESS_BAR_THICKNESS:
+      return PROGRESS_BAR_THICKNESS_ITEMS;
+    case ITEM_TITLE:
+      return TITLE_ITEMS;
+    case ITEM_TIME_LEFT:
+      return TIME_LEFT_ITEMS;
+    case ITEM_XTC_STATUS_BAR:
+      return XTC_STATUS_BAR_ITEMS;
+    default:
+      return 0;
+  }
+}
+
+StrId optionNameForItem(const int item, const int optionIndex) {
+  switch (item) {
+    case ITEM_PROGRESS_BAR:
+      return progressBarNames[optionIndex];
+    case ITEM_PROGRESS_BAR_THICKNESS:
+      return progressBarThicknessNames[optionIndex];
+    case ITEM_TITLE:
+      return titleNames[optionIndex];
+    case ITEM_TIME_LEFT:
+      return timeLeftNames[optionIndex];
+    case ITEM_XTC_STATUS_BAR:
+      return xtcStatusBarNames[optionIndex];
+    default:
+      return StrId::STR_NONE_OPT;
+  }
+}
+
+uint8_t optionRawValueForItem(const int item, const int optionIndex) {
+  switch (item) {
+    case ITEM_PROGRESS_BAR:
+      return progressBarRawValues[optionIndex];
+    case ITEM_TITLE:
+      return titleRawValues[optionIndex];
+    default:
+      return static_cast<uint8_t>(optionIndex);
+  }
+}
+
+uint8_t currentOptionIndexForItem(const int item) {
+  uint8_t rawValue = 0;
+  switch (item) {
+    case ITEM_PROGRESS_BAR:
+      rawValue = SETTINGS.statusBarProgressBar;
+      break;
+    case ITEM_PROGRESS_BAR_THICKNESS:
+      rawValue = SETTINGS.statusBarProgressBarThickness;
+      break;
+    case ITEM_TITLE:
+      rawValue = SETTINGS.statusBarTitle;
+      break;
+    case ITEM_TIME_LEFT:
+      rawValue = SETTINGS.statusBarTimeLeft;
+      break;
+    case ITEM_XTC_STATUS_BAR:
+      rawValue = SETTINGS.xtcStatusBarMode;
+      break;
+    default:
+      return 0;
+  }
+
+  const int optionCount = optionCountForItem(item);
+  for (int i = 0; i < optionCount; i++) {
+    if (optionRawValueForItem(item, i) == rawValue) return static_cast<uint8_t>(i);
+  }
+  return 0;
+}
+
+void setOptionIndexForItem(const int item, const uint8_t optionIndex) {
+  const uint8_t rawValue = optionRawValueForItem(item, optionIndex);
+  switch (item) {
+    case ITEM_PROGRESS_BAR:
+      SETTINGS.statusBarProgressBar = rawValue;
+      break;
+    case ITEM_PROGRESS_BAR_THICKNESS:
+      SETTINGS.statusBarProgressBarThickness = rawValue;
+      break;
+    case ITEM_TITLE:
+      SETTINGS.statusBarTitle = rawValue;
+      break;
+    case ITEM_TIME_LEFT:
+      SETTINGS.statusBarTimeLeft = rawValue;
+      break;
+    case ITEM_XTC_STATUS_BAR:
+      SETTINGS.xtcStatusBarMode = rawValue;
+      break;
+    default:
+      break;
+  }
+}
+
+std::string valueTextForItem(const int item) {
+  switch (item) {
+    case ITEM_CHAPTER_PAGE_COUNT:
+      return SETTINGS.statusBarChapterPageCount ? tr(STR_SHOW) : tr(STR_HIDE);
+    case ITEM_BOOK_PROGRESS_PERCENTAGE:
+      return SETTINGS.statusBarBookProgressPercentage ? tr(STR_SHOW) : tr(STR_HIDE);
+    case ITEM_BATTERY:
+      return SETTINGS.statusBarBattery ? tr(STR_SHOW) : tr(STR_HIDE);
+    default: {
+      const int optionCount = optionCountForItem(item);
+      const uint8_t optionIndex = currentOptionIndexForItem(item);
+      if (optionCount == 0 || optionIndex >= optionCount) return tr(STR_HIDE);
+      return I18N.get(optionNameForItem(item, optionIndex));
+    }
+  }
+}
 
 }  // namespace
 
@@ -65,8 +193,8 @@ void StatusBarSettingsActivity::onEnter() {
     SETTINGS.statusBarProgressBar = CrossPointSettings::STATUS_BAR_PROGRESS_BAR::HIDE_PROGRESS;
   }
 
-  if (SETTINGS.statusBarTitle >= PROGRESS_BAR_THICKNESS_ITEMS) {
-    SETTINGS.statusBarTitle = CrossPointSettings::STATUS_BAR_PROGRESS_BAR_THICKNESS::PROGRESS_BAR_NORMAL;
+  if (SETTINGS.statusBarProgressBarThickness >= PROGRESS_BAR_THICKNESS_ITEMS) {
+    SETTINGS.statusBarProgressBarThickness = CrossPointSettings::STATUS_BAR_PROGRESS_BAR_THICKNESS::PROGRESS_BAR_NORMAL;
   }
 
   if (SETTINGS.statusBarTitle >= TITLE_ITEMS) {
@@ -120,7 +248,14 @@ void StatusBarSettingsActivity::loop() {
   });
 }
 
+bool StatusBarSettingsActivity::selectedItemUsesOptionMenu() const { return optionCountForItem(selectedIndex) > 2; }
+
 void StatusBarSettingsActivity::handleSelection() {
+  if (selectedItemUsesOptionMenu()) {
+    openOptionPicker();
+    return;
+  }
+
   switch (selectedIndex) {
     case ITEM_CHAPTER_PAGE_COUNT:
       SETTINGS.statusBarChapterPageCount = (SETTINGS.statusBarChapterPageCount + 1) % 2;
@@ -128,29 +263,45 @@ void StatusBarSettingsActivity::handleSelection() {
     case ITEM_BOOK_PROGRESS_PERCENTAGE:
       SETTINGS.statusBarBookProgressPercentage = (SETTINGS.statusBarBookProgressPercentage + 1) % 2;
       break;
-    case ITEM_PROGRESS_BAR:
-      SETTINGS.statusBarProgressBar = (SETTINGS.statusBarProgressBar + 1) % PROGRESS_BAR_ITEMS;
-      break;
-    case ITEM_PROGRESS_BAR_THICKNESS:
-      SETTINGS.statusBarProgressBarThickness =
-          (SETTINGS.statusBarProgressBarThickness + 1) % PROGRESS_BAR_THICKNESS_ITEMS;
-      break;
-    case ITEM_TITLE:
-      SETTINGS.statusBarTitle = (SETTINGS.statusBarTitle + 1) % TITLE_ITEMS;
-      break;
-    case ITEM_TIME_LEFT:
-      SETTINGS.statusBarTimeLeft = (SETTINGS.statusBarTimeLeft + 1) % TIME_LEFT_ITEMS;
-      break;
     case ITEM_BATTERY:
       SETTINGS.statusBarBattery = (SETTINGS.statusBarBattery + 1) % 2;
-      break;
-    case ITEM_XTC_STATUS_BAR:
-      SETTINGS.xtcStatusBarMode = (SETTINGS.xtcStatusBarMode + 1) % XTC_STATUS_BAR_ITEMS;
       break;
     default:
       return;
   }
   SETTINGS.saveToFile();
+}
+
+void StatusBarSettingsActivity::openOptionPicker() {
+  const int item = selectedIndex;
+  const int optionCount = optionCountForItem(item);
+  if (optionCount <= 0) return;
+
+  std::vector<std::string> options;
+  options.reserve(optionCount);
+  for (int i = 0; i < optionCount; i++) {
+    options.push_back(I18N.get(optionNameForItem(item, i)));
+  }
+
+  uint8_t currentIndex = currentOptionIndexForItem(item);
+  if (currentIndex >= optionCount) currentIndex = 0;
+
+  startActivityForResult(
+      std::make_unique<OptionSelectionActivity>(renderer, mappedInput, "StatusBarOptionSelect", menuNames[item],
+                                                std::move(options), currentIndex, readerContext),
+      [this, item](const ActivityResult& result) {
+        if (result.isCancelled) {
+          requestUpdate();
+          return;
+        }
+
+        const auto* selection = std::get_if<OptionSelectionResult>(&result.data);
+        if (selection != nullptr) {
+          setOptionIndexForItem(item, selection->index);
+          SETTINGS.saveToFile();
+        }
+        requestUpdate();
+      });
 }
 
 void StatusBarSettingsActivity::render(RenderLock&&) {
@@ -176,7 +327,8 @@ void StatusBarSettingsActivity::render(RenderLock&&) {
   const int contentHeight =
       pageHeight - contentTop - metrics.buttonHintsHeight - previewSectionHeight - metrics.verticalSpacing * 2;
 
-  const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_TOGGLE), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
+  const auto labels = mappedInput.mapLabels(
+      tr(STR_BACK), selectedItemUsesOptionMenu() ? tr(STR_SELECT) : tr(STR_TOGGLE), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
 
   int bottomPreviewPadding = metrics.buttonHintsHeight + metrics.verticalSpacing;
 
@@ -186,30 +338,7 @@ void StatusBarSettingsActivity::render(RenderLock&&) {
   GUI.drawList(
       renderer, Rect{contentX, contentTop, contentWidth, contentHeight}, visibleItemCount,
       static_cast<int>(selectedIndex), [](int index) { return std::string(I18N.get(menuNames[index])); }, nullptr,
-      nullptr,
-      [](int index) -> std::string {
-        switch (index) {
-          case ITEM_CHAPTER_PAGE_COUNT:
-            return SETTINGS.statusBarChapterPageCount ? tr(STR_SHOW) : tr(STR_HIDE);
-          case ITEM_BOOK_PROGRESS_PERCENTAGE:
-            return SETTINGS.statusBarBookProgressPercentage ? tr(STR_SHOW) : tr(STR_HIDE);
-          case ITEM_PROGRESS_BAR:
-            return I18N.get(progressBarNames[SETTINGS.statusBarProgressBar]);
-          case ITEM_PROGRESS_BAR_THICKNESS:
-            return I18N.get(progressBarThicknessNames[SETTINGS.statusBarProgressBarThickness]);
-          case ITEM_TITLE:
-            return I18N.get(titleNames[SETTINGS.statusBarTitle]);
-          case ITEM_TIME_LEFT:
-            return I18N.get(timeLeftNames[SETTINGS.statusBarTimeLeft]);
-          case ITEM_BATTERY:
-            return SETTINGS.statusBarBattery ? tr(STR_SHOW) : tr(STR_HIDE);
-          case ITEM_XTC_STATUS_BAR:
-            return I18N.get(xtcStatusBarNames[SETTINGS.xtcStatusBarMode]);
-          default:
-            return tr(STR_HIDE);
-        }
-      },
-      true);
+      nullptr, [](int index) -> std::string { return valueTextForItem(index); }, true);
   // Draw button hints
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4, true);
 

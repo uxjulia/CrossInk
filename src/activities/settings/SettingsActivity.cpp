@@ -137,6 +137,26 @@ std::string formatSettingValue(const SettingInfo& setting) {
   }
   return std::to_string(SETTINGS.*(setting.valuePtr));
 }
+
+uint8_t valueDisplayIndexForRawValue(const SettingInfo& setting, const uint8_t rawValue) {
+  const uint8_t min = setting.valueRange.min;
+  const uint8_t max = setting.valueRange.max;
+  const uint8_t step = setting.valueRange.step == 0 ? 1 : setting.valueRange.step;
+  const uint8_t clampedValue = std::clamp(rawValue, min, max);
+  const uint8_t offset = clampedValue > min ? clampedValue - min : 0;
+  return static_cast<uint8_t>((offset + step / 2) / step);
+}
+
+uint8_t rawValueForValueDisplayIndex(const SettingInfo& setting, const uint8_t displayIndex) {
+  const uint8_t step = setting.valueRange.step == 0 ? 1 : setting.valueRange.step;
+  const uint16_t rawValue = static_cast<uint16_t>(setting.valueRange.min) + static_cast<uint16_t>(displayIndex) * step;
+  return static_cast<uint8_t>(std::min<uint16_t>(rawValue, setting.valueRange.max));
+}
+
+uint8_t valueOptionCount(const SettingInfo& setting) {
+  const uint8_t step = setting.valueRange.step == 0 ? 1 : setting.valueRange.step;
+  return static_cast<uint8_t>(((setting.valueRange.max - setting.valueRange.min) / step) + 1);
+}
 }  // namespace
 
 void SettingsActivity::rebuildSettingsLists() {
@@ -279,7 +299,8 @@ void SettingsActivity::closeSubmenu() {
 }
 
 bool SettingsActivity::currentSettingUsesOptionMenu(const SettingInfo& setting) const {
-  return (selectedCategoryIndex == 0 || selectedCategoryIndex == 2) && setting.type == SettingType::ENUM &&
+  return (selectedCategoryIndex == 0 || selectedCategoryIndex == 1 || selectedCategoryIndex == 2) &&
+         setting.nameId != StrId::STR_FONT_FAMILY && setting.type == SettingType::ENUM &&
          settingEnumOptionCount(setting) > 2 &&
          (setting.valuePtr != nullptr || (setting.valueGetter && setting.valueSetter));
 }
@@ -327,6 +348,38 @@ void SettingsActivity::openEnumOptionPicker(const SettingInfo& setting) {
                            SETTINGS.saveToFile();
                            requestUpdate();
                          });
+}
+
+void SettingsActivity::openScreenMarginPicker(const SettingInfo& setting) {
+  const uint8_t optionCount = valueOptionCount(setting);
+  if (optionCount == 0 || setting.valuePtr == nullptr) return;
+
+  std::vector<std::string> options;
+  options.reserve(optionCount);
+  for (uint8_t i = 0; i < optionCount; i++) {
+    options.push_back(std::to_string(rawValueForValueDisplayIndex(setting, i)));
+  }
+
+  uint8_t currentIndex = valueDisplayIndexForRawValue(setting, SETTINGS.*(setting.valuePtr));
+  if (currentIndex >= optionCount) currentIndex = 0;
+
+  const SettingInfo selectedSetting = setting;
+  startActivityForResult(
+      std::make_unique<OptionSelectionActivity>(renderer, mappedInput, "SettingsValueSelect", selectedSetting.nameId,
+                                                std::move(options), currentIndex),
+      [this, selectedSetting](const ActivityResult& result) {
+        if (result.isCancelled) {
+          requestUpdate();
+          return;
+        }
+
+        const auto* selection = std::get_if<OptionSelectionResult>(&result.data);
+        if (selection != nullptr && selectedSetting.valuePtr != nullptr) {
+          SETTINGS.*(selectedSetting.valuePtr) = rawValueForValueDisplayIndex(selectedSetting, selection->index);
+          SETTINGS.saveToFile();
+        }
+        requestUpdate();
+      });
 }
 
 void SettingsActivity::onEnter() {
@@ -450,11 +503,23 @@ void SettingsActivity::toggleCurrentSetting() {
     openLineHeightPicker();
     return;
   }
+  if (setting.valuePtr == &CrossPointSettings::screenMargin) {
+    openScreenMarginPicker(setting);
+    return;
+  }
   if (setting.valuePtr == &CrossPointSettings::clockUtcOffsetQ) {
     startActivityForResult(std::make_unique<ClockOffsetActivity>(renderer, mappedInput), [this](const ActivityResult&) {
       SETTINGS.saveToFile();
       requestUpdate();
     });
+    return;
+  }
+  if (setting.nameId == StrId::STR_FONT_FAMILY && setting.type == SettingType::ENUM) {
+    startActivityForResult(std::make_unique<FontSelectionActivity>(renderer, mappedInput, &sdFontSystem.registry()),
+                           [this](const ActivityResult&) {
+                             SETTINGS.saveToFile();
+                             rebuildSettingsLists();
+                           });
     return;
   }
 
@@ -701,8 +766,10 @@ void SettingsActivity::render(RenderLock&&) {
                      (currentSettingUsesOptionMenu((*currentSettings)[selectedSettingIndex - 1]) ||
                       (*currentSettings)[selectedSettingIndex - 1].type == SettingType::SUBMENU ||
                       (*currentSettings)[selectedSettingIndex - 1].type == SettingType::ACTION ||
+                      (*currentSettings)[selectedSettingIndex - 1].nameId == StrId::STR_FONT_FAMILY ||
                       (*currentSettings)[selectedSettingIndex - 1].nameId == StrId::STR_TIME_TO_SLEEP ||
-                      (*currentSettings)[selectedSettingIndex - 1].valuePtr == &CrossPointSettings::lineHeightPercent)
+                      (*currentSettings)[selectedSettingIndex - 1].valuePtr == &CrossPointSettings::lineHeightPercent ||
+                      (*currentSettings)[selectedSettingIndex - 1].valuePtr == &CrossPointSettings::screenMargin)
                  ? tr(STR_SELECT)
                  : tr(STR_TOGGLE));
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), confirmLabel, tr(STR_DIR_UP), tr(STR_DIR_DOWN));

@@ -250,6 +250,7 @@ class SettingsActivity final : public Activity {
   void closeSubmenu();
   bool currentSettingUsesOptionMenu(const SettingInfo& setting) const;
   void openEnumOptionPicker(const SettingInfo& setting);
+  void openScreenMarginPicker(const SettingInfo& setting);
   void toggleCurrentSetting();
   void openSleepTimeoutPicker();
   void openLineHeightPicker();

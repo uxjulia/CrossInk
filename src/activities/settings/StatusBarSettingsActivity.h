@@ -24,5 +24,7 @@ class StatusBarSettingsActivity final : public Activity {
   int visibleItemCount = 0;
   bool readerContext = false;
 
+  bool selectedItemUsesOptionMenu() const;
   void handleSelection();
+  void openOptionPicker();
 };

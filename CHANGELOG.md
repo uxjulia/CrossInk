@@ -11,7 +11,7 @@
 - Added `Backup Reading Stats` in Settings > System > Files & Cache, plus X3 automatic daily backups written to `/.crossink-stats-backup/` so cumulative stats survive `/.crosspoint/` cleanup.
 
 ### Changed
-- Improved Display and Controls menus to show more choices instead of cycling through options one by one.
+- Improved Display, Reader, and Controls menus to show more choices instead of cycling through options one by one.
 - Rebuilt the web portal pages from shared templates plus a single shared stylesheet and logo, shrinking the on-device page assets and letting browsers cache the shared files across pages.
 - Skipped the book loading popup when opening an already-cached EPUB so the reader paints its first page directly instead of spending an extra full-screen refresh on the popup, noticeably speeding up reopening a book on X3. First-time opens still show the popup while the cache is built.
 - Moved EPUB silent next-chapter indexing to the second-to-last page so short final pages are less likely to expose visible indexing.
