@@ -36,12 +36,16 @@ int headerDateLineBottomY(const GfxRenderer&, const ThemeMetrics& metrics, const
 
 void drawHeaderDate(const GfxRenderer& renderer, const int pageWidth, const ThemeMetrics& metrics,
                     const int headerHeight) {
+  drawHeaderDateAtLineBottom(renderer, pageWidth, headerDateLineBottomY(renderer, metrics, headerHeight));
+}
+
+void drawHeaderDateAtLineBottom(const GfxRenderer& renderer, const int pageWidth, const int lineBottomY) {
   char dateBuf[13];
   if (!formatHeaderDate(dateBuf, sizeof(dateBuf))) return;
 
   constexpr int dateFontId = UI_10_FONT_ID;
   const int textWidth = renderer.getTextWidth(dateFontId, dateBuf);
   const int dateX = pageWidth - kHeaderDateRightInset - textWidth;
-  const int dateY = headerDateLineBottomY(renderer, metrics, headerHeight) - renderer.getLineHeight(dateFontId);
-  renderer.drawText(dateFontId, std::max(0, dateX), std::max(metrics.topPadding, dateY), dateBuf);
+  const int dateY = lineBottomY - renderer.getLineHeight(dateFontId);
+  renderer.drawText(dateFontId, std::max(0, dateX), std::max(0, dateY), dateBuf);
 }
