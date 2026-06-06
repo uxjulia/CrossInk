@@ -3,42 +3,37 @@
 ## [Unreleased]
 
 ### Added
-- Added the current date to the top-right Settings header on X3 devices with an RTC.
-- Added a Dark Reader Mode setting for EPUB and TXT reading screens.
-- Added a File Browser folder action to use a selected folder for sleep images instead of only `/.sleep` or `/sleep`.
-- Added additionl X3 reading stats including reading streaks, time-of-day/day-of-week reading-time charts, and editable start/finished book dates.
-- Added an X3-only `Minimal Stats` sleep screen option that reuses the Minimal layout and adds streak and reader-type footer stats.
-- Added `Backup Reading Stats` in Settings > System > Files & Cache, plus X3 automatic daily backups written to `/.crossink-stats-backup/` so cumulative stats survive `/.crosspoint/` cleanup.
+- Current date in the top-right Settings header on X3 devices.
+- Dark Reader Mode for EPUB and TXT reading screens.
+- File Browser long-press folder action for choosing a custom sleep-image folder instead of only `/.sleep` or `/sleep`.
+- Additional X3 reading stats, including reading streaks, time-of-day and day-of-week charts, and editable started/finished book dates.
+- X3-only `Minimal Stats` sleep screen option that reuses the Minimal layout and adds streak and reader-type stats.
+- `Backup Reading Stats` in Settings > System > Files & Cache, plus automatic X3 daily backups in `/.crossink-stats-backup/` so cumulative stats survive `/.crosspoint/` cleanup.
 
 ### Changed
-- Improved Display, Reader, and Controls menus to show choices as a menu instead of cycling through options one by one.
-- Rebuilt the web portal pages from shared templates plus a single shared stylesheet and logo, shrinking the on-device page assets and letting browsers cache the shared files across pages.
-- Skipped the book loading popup when opening an already-cached EPUB so the reader paints its first page directly instead of spending an extra full-screen refresh on the popup, noticeably speeding up reopening a book on X3. First-time opens still show the popup while the cache is built.
-- Moved EPUB silent next-chapter indexing to the second-to-last page so short final pages are less likely to expose visible indexing.
-- Added EPUB silent next-chapter indexing diagnostics to show trigger timing, existing caches, and low-memory skips.
+- Display, Reader, and Controls settings now open choice menus instead of cycling through options one by one.
+- Web portal pages now use shared templates, stylesheet, and logo assets, reducing on-device page size and improving browser caching.
+- Already-cached EPUBs now open directly to the first page without an extra book-loading popup refresh. First-time opens still show the popup while the cache is built.
+- EPUB silent next-chapter indexing diagnostics now report trigger timing, existing caches, and low-memory skips.
 
 ### Fixed
-- Exposed upstream Crosspoint's functionality to disable side buttons that got lost in the last merge.
-- Changed Reading Stats page counts so backward turns and rapid forward navigation no longer increase totals.
-- Stabilized EPUB book time-left estimates so rapid forward paging, chapter starts, and non-linear jumps avoid optimistic progress-based drops.
-- Fixed the X3 clock UTC offset picker so editable sign, hour, and minute fields are more clear.
-- Fixed `Sync Clock Now` so it now tries to connect to saved WiFi automatically otherwise opens the normal WiFi picker instead of stopping with a "connect first" message.
-- Removed the redundant `Sync` text from Nearby Stats Sync so the screen relies on the existing button hint instead of showing the label twice.
-- Reduced Home menu heap churn and skipped Lyra Carousel frame caching when heap is low to avoid crash risk on memory-constrained builds.
-- Fixed Vietnamese settings labels showing replacement diamonds after one over-escaped translation shifted generated string offsets.
-- Fixed KOReader Sync applying chapter-start progress a few pages into the chapter instead of landing at the start.
-- Fixed KOReader Sync error popups so connection problems show more specific guidance instead of a generic network error.
-- Fixed EPUB bookmark migration so bookmark files saved under the old unstable path hash are recovered, merged with any newer bookmark file, rewritten to the stable on-disk format, and kept working when finished books move into `/Read`.
-- Restored row-band grayscale rendering on X3 so anti-aliased pages stream in 80-row strips instead of buffering a full plane, lowering peak memory use and crash risk on image-heavy pages.
-- Fixed global Reading Stats saves so an older firmware build no longer overwrites stats files written by a newer format version.
+- Restored the missing side-button disable option from upstream CrossPoint.
+- EPUB book time-left estimates no longer drop optimistically after rapid forward paging, chapter starts, or non-linear jumps.
+- X3 clock UTC offset picker now makes the editable sign, hour, and minute fields clearer.
+- `Sync Clock Now` is now `Sync Date/Time` and tries saved WiFi networks automatically if a Wifi network has already been saved instead of stopping with a "connect first" message.
+- Home menu and Lyra Carousel caching now avoid low-memory crash risk on constrained builds.
+- Vietnamese settings labels no longer show replacement diamonds after generated translation offsets shifted.
+- KOReader Sync at chapter starts now land at the proper place instead of a few pages in.
+- KOReader Sync connection problems now show more specific guidance instead of a generic network error.
+- EPUB bookmarks saved under the old unstable path hash now show up again. Also applies to books that were moved to `/Read` folder.
 
 ## [v1.3.1] - 2026-05-28
 
 ### Added
-- Added EPUB reading-position improvements, including bookmark anchors, bookmark preview snippets, and optional chapter/book time-left estimates.
-- Added nearby Reading Stats sync with separate totals for this device and all synced CrossInk readers.
-- Added per-server OPDS filename settings so downloaded books can use either Author - Title or Title - Author.
-- Added EPUB render heap diagnostics that include the largest allocatable block, not just total free heap.
+- EPUB reading-position improvements, including bookmark anchors, bookmark preview snippets, and optional chapter/book time-left estimates.
+- Nearby Reading Stats sync with separate totals for this device and all synced CrossInk readers.
+- Per-server OPDS filename settings so downloaded books can use either Author - Title or Title - Author.
+- EPUB render heap diagnostics that include the largest allocatable block, not just total free heap.
 
 ### Changed
 - Moved the X3 reader clock into a new top-centered status bar and moved clock settings to Settings > System > Device.
@@ -48,30 +43,30 @@
 - Delayed the automatic finished-book prompt until the reader leaves the chapter where they reach 99%.
 
 ### Fixed
-- Fixed the WiFi settings screen so the displayed MAC address stays consistent and matches the router-visible WiFi address.
-- Fixed reader UI issues with inverted menu button hints, Lyra Carousel popups, and Auto Page Turn interval persistence.
-- Fixed web uploads and KOReader Sync progress saves so refreshed book files keep their progress, stats, settings, and valid resume data.
-- Fixed OPDS low-memory handling so parser-buffer failures show a specific memory message and SD-card fonts release memory before catalog loading.
-- Fixed EPUB cache, CSS, table, SD-card font, and allocation failure paths so low-memory chapters recover, retry, or stop cleanly instead of opening unstyled pages, failing unnecessarily, or risking a reboot.
-- Fixed EPUB text with invisible word-joiner characters so missing font glyphs no longer show replacement diamonds.
+- WiFi settings screen now keeps the displayed MAC address consistent with the router-visible WiFi address.
+- Reader UI issues with inverted menu button hints, Lyra Carousel popups, and Auto Page Turn interval persistence.
+- Web uploads and KOReader Sync progress saves now preserve progress, stats, settings, and valid resume data for refreshed book files.
+- OPDS low-memory handling now shows a specific parser-buffer memory message and releases SD-card fonts before catalog loading.
+- EPUB cache, CSS, table, SD-card font, and allocation failure paths now recover, retry, or stop cleanly under low memory instead of opening unstyled pages, failing unnecessarily, or risking a reboot.
+- EPUB text with invisible word-joiner characters no longer shows replacement diamonds for missing font glyphs.
 - Clarified the low-memory EPUB image warning so it says some or all images may be missing.
 
 ## [v1.3.0] - 2026-05-21
 
 ### Added
-- Added Back/Cancel support while downloading books from OPDS catalogs.
-- Added a Recent Books long-press menu in both List and Grid views with delete, cache delete, completion, and remove-from-recents actions.
-- Added a Minimal sleep screen option that shows the current book cover and reading progress on a dark background.
-- Added more detailed WiFi connection debug logs for scans, selected networks, status changes, disconnect reasons, and timeouts.
-- Added a 9pt `Itty Bitty` reader font size, plus build flags for omitting Itty Bitty and Large reader font assets in size-constrained firmware variants.
-- Added an in-reader confirmation message when a shortcut turns tilt-to-turn on or off.
+- Back/Cancel support while downloading books from OPDS catalogs.
+- Recent Books long-press menu in both List and Grid views with delete, cache delete, completion, and remove-from-recents actions.
+- Minimal sleep screen option that shows the current book cover and reading progress on a dark background.
+- More detailed WiFi connection debug logs for scans, selected networks, status changes, disconnect reasons, and timeouts.
+- 9pt `Itty Bitty` reader font size, plus build flags for omitting Itty Bitty and Large reader font assets in size-constrained firmware variants.
+- In-reader confirmation message when a shortcut turns tilt-to-turn on or off.
 
 ### Fixed
-- Fixed WiFi and OPDS connection-flow edge cases so manual Settings connections show the connected status first, copied or corrupted saved-password files are rejected before use, OPDS retries show loading before requests, and large OPDS feeds fail safely under low memory instead of rebooting.
-- Fixed reader and Home UI polish issues, including landscape status-bar settings, missing Vietnamese labels, File Browser and Lyra Carousel icon alignment, cover thumbnail artifacts, and duplicate Home progress/stat loading.
-- Fixed EPUB cache and low-memory handling by using stable cache folder keys, migrating older cache folders where possible, rebuilding stale section caches, laying out very long text blocks earlier, streaming table fallback content when heap is tight, and clarifying the warning text.
-- Fixed sleep-entry, network, and SD-card font download reliability issues by reusing cached sleep-screen assets, idling OPDS pages normally after load, putting the X3 tilt sensor back to sleep outside the reader, disabling WiFi power saving during transfers, reducing WebDAV stack usage, tolerating longer stalls, retrying interrupted font files, and freeing active reader fonts when needed.
-- Fixed remaining reader service edge cases, including an XTC chapter selector crash on memory-constrained builds, SD-card font size selection, SD-card font-size shortcuts skipping manually installed sizes, and KOReader Sync login compatibility with self-hosted servers that return valid JSON on success.
+- WiFi and OPDS connection-flow edge cases: manual Settings connections now show the connected status before continuing, copied or corrupted saved-password files are rejected before use, OPDS retries show loading before requests, and large OPDS feeds fail safely under low memory instead of rebooting.
+- Reader and Home UI polish issues, including landscape status-bar settings, missing Vietnamese labels, File Browser and Lyra Carousel icon alignment, cover thumbnail artifacts, and duplicate Home progress/stat loading.
+- EPUB cache and low-memory handling now use stable cache folder keys, migrate older cache folders where possible, rebuild stale section caches, lay out very long text blocks earlier, stream table fallback content when heap is tight, and clarify the warning text.
+- Sleep-entry, network, and SD-card font download reliability improvements: cached sleep-screen assets are reused, OPDS pages idle normally after load, the X3 tilt sensor sleeps outside the reader, WiFi power saving is disabled during transfers, WebDAV stack usage is lower, longer stalls are tolerated, interrupted font files are retried, and active reader fonts are freed when needed.
+- Remaining reader service edge cases, including an XTC chapter selector crash on memory-constrained builds, SD-card font size selection, SD-card font-size shortcuts skipping manually installed sizes, and KOReader Sync login compatibility with self-hosted servers that return valid JSON on success.
 
 ### Changed
 - Modified upstream "page-as-sleep" behavior into a new `Sleep Screen > Quick Resume` option, which also keeps `Quick Resume on Timeout` on, and renamed the timeout-only toggle.
@@ -83,19 +78,19 @@
 - Removed Medium font size from `xlarge` build to get it below the size limit
 
 ### Fixed
-- Included Lyra Carousel by activating the build flag `DCROSSINK_ENABLE_LYRA_CAROUSEL=1`
+- Lyra Carousel is now included by activating the build flag `DCROSSINK_ENABLE_LYRA_CAROUSEL=1`
 ---
 ## [v1.2.11] - 2026-05-14
 
 ### Added
-- Added new personal theme: "Minimal"
-- Added a custom sleep timer picker so `Time to Sleep` can be set from 1 to 30 minutes instead of cycling fixed presets.
-- Added an in-reader Controls shortcut so you can customize your buttons without leaving the book.
-- Added bookmark cleanup shortcuts: hold Select on a bookmark to delete it, or hold Open on a book in Bookmarks to clear that book's bookmark list.
-- Added a confirmation message after deleting a book's cache from the reader or File Browser.
-- Added a File Browser long-press action for deleting an EPUB or XTC book's cache
-- Added a downloaded-font size range setting so SD-card fonts can use compact, default, or large point-size sets.
-- Added a File Browser long-press action for marking EPUB books as finished or unfinished.
+- New personal theme: "Minimal"
+- Custom sleep timer picker so `Time to Sleep` can be set from 1 to 30 minutes instead of cycling fixed presets.
+- In-reader Controls shortcut for customizing buttons without leaving the book.
+- Bookmark cleanup shortcuts: hold Select on a bookmark to delete it, or hold Open on a book in Bookmarks to clear that book's bookmark list.
+- Confirmation message after deleting a book's cache from the reader or File Browser.
+- File Browser long-press action for deleting an EPUB or XTC book's cache.
+- Downloaded-font size range setting so SD-card fonts can use compact, default, or large point-size sets.
+- File Browser long-press action for marking EPUB books as finished or unfinished.
 
 ### Changed
 - Hardened deep sleep entry by shutting WiFi down before waiting for the power button to be released.
@@ -104,23 +99,23 @@
 - Split SD-card font descriptions and supported languages into separate lines in the font download screen.
 
 ### Fixed
-- Fixed inline EPUB images disappearing in landscape when their bottom edge slightly overlaps the screen margin.
+- Inline EPUB images no longer disappear in landscape when their bottom edge slightly overlaps the screen margin.
 - Reduced unnecessary low-memory image suppression for JPEG-heavy EPUB chapters and added CSS heap diagnostics during chapter rebuilds.
 - Allowed wider inline JPEG images in EPUBs to render when they still fit the total pixel and heap safety limits.
-- Fixed the SD-card font picker reopening immediately after selecting a font from Settings > Reader > Font Family.
-- Fixed in-reader font-size changes for SD card fonts not working
-- Fixed in-reader SD-card font changes not always rebuilding the current EPUB page layout.
+- SD-card font picker no longer reopens immediately after selecting a font from Settings > Reader > Font Family.
+- In-reader font-size changes now work for SD-card fonts.
+- In-reader SD-card font changes now rebuild the current EPUB page layout consistently.
 
 ## [v1.2.10] - 2026-05-11
 
 ### Added
-- Added a `Recent Books View` setting so the dedicated Recent Books screen can switch between the classic list and a 3x3 cover grid.
-- Added more flexible reader controls, including orientation-aware front/side button settings, nav-only or all-button front inversion, tilt page turn shortcuts, and side-button long-press rotation actions.
-- Added a per-session auto page turn interval picker with values from 5 to 120 seconds.
-- Added a file-browser Home/Back long-press action for toggling hidden files and folders.
-- Added EPUB rendering and diagnostics improvements, including visible `<hr>` separators and heap logs around section rebuilds, image extraction, page serialization, and sleep-cache rebuilds.
-- Added reader font coverage for block redactions, black-square ornaments, Greek category letters, and turned-comma punctuation (PR #104).
-- Added simulator tools for testing sleep/wake behavior and smoke-testing common screens and EPUB reader menus.
+- `Recent Books View` setting so the dedicated Recent Books screen can switch between the classic list and a 3x3 cover grid.
+- More flexible reader controls, including orientation-aware front/side button settings, nav-only or all-button front inversion, tilt page turn shortcuts, and side-button long-press rotation actions.
+- Per-session auto page turn interval picker with values from 5 to 120 seconds.
+- File Browser Home/Back long-press action for toggling hidden files and folders.
+- EPUB rendering and diagnostics improvements, including visible `<hr>` separators and heap logs around section rebuilds, image extraction, page serialization, and sleep-cache rebuilds.
+- Reader font coverage for block redactions, black-square ornaments, Greek category letters, and turned-comma punctuation (PR #104).
+- Simulator tools for testing sleep/wake behavior and smoke-testing common screens and EPUB reader menus.
 
 ### Changed
 - Reduced Controls settings section spacing so the grouped controls fit better on X3 screens.
@@ -129,18 +124,18 @@
 - Allowed the web file manager and WebDAV to browse dot-prefixed hidden files when hidden files are enabled, matching the device file browser.
 
 ### Fixed
-- Fixed reader button and shortcut behavior, including X3 power-button wake filtering, folder delete long-press timing, and WiFi scan/connect screens that could not be exited while work was in progress.
-- Fixed RoundedRaff home-menu, keyboard, and button-hint rendering issues so Settings remains reachable and compact labels no longer overlap or disappear.
-- Fixed font and glyph handling by reducing persistent SD-card font advance-cache memory, releasing optional font caches before image extraction only when heap is tight, and showing a visible replacement symbol when compact UI fonts lack `U+FFFD`.
-- Fixed KOReader Sync authentication diagnostics and an in-reader sync crash, including clearer handling when a server or proxy returns non-JSON content.
-- Fixed EPUB text rendering for redactions, whitespace-only XHTML text nodes, simple black CSS span backgrounds, list bullets in `<li><p>...</p></li>` items, and very long base64-like text runs.
-- Fixed EPUB image, thumbnail, and section-rebuild stability so image-heavy chapters use less temporary memory, scale images more reliably, avoid stale dimensions, and suppress optional image work earlier under heap pressure.
-- Fixed EPUB low-memory and cache safety by skipping optional next-chapter indexing and sleep-page cache rebuilds when heap is tight, failing safely with a malformed-book warning and Home exit path, rebuilding incompatible fork-written caches, and handling low-memory CSS parsing, truncated SD writes, invalid serialized strings, and failed temp-cache promotion.
-- Fixed a Home crash after clearing reading cache by skipping optional EPUB thumbnail rebuilds when the source EPUB cache is missing.
-- Fixed reader prewarm behavior by skipping image decoding, keeping mixed-style font glyphs cached together, and avoiding section rebuilds for render-quality-only option changes.
-- Fixed concurrent render/storage crashes by serializing `GfxRenderer` scratch-buffer access, shared SPI bus access, and failed SPI lock cleanup.
-- Fixed Recent Books, EPUB/XTC thumbnail caches, deleted-folder metadata, and XTC cover scaling so cached book data stays in sync and grid covers fill their slots correctly.
-- Fixed simulator build configuration so SDL2 and simulator-provided network/OTA shims compile cleanly.
+- Reader button and shortcut behavior, including X3 power-button wake filtering, folder delete long-press timing, and WiFi scan/connect screens that could not be exited while work was in progress.
+- RoundedRaff home-menu, keyboard, and button-hint rendering issues so Settings remains reachable and compact labels no longer overlap or disappear.
+- Font and glyph handling now reduces persistent SD-card font advance-cache memory, releases optional font caches before image extraction only when heap is tight, and shows a visible replacement symbol when compact UI fonts lack `U+FFFD`.
+- KOReader Sync authentication diagnostics and an in-reader sync crash, including clearer handling when a server or proxy returns non-JSON content.
+- EPUB text rendering for redactions, whitespace-only XHTML text nodes, simple black CSS span backgrounds, list bullets in `<li><p>...</p></li>` items, and very long base64-like text runs.
+- EPUB image, thumbnail, and section-rebuild stability so image-heavy chapters use less temporary memory, scale images more reliably, avoid stale dimensions, and suppress optional image work earlier under heap pressure.
+- EPUB low-memory and cache safety now skips optional next-chapter indexing and sleep-page cache rebuilds when heap is tight, fails safely with a malformed-book warning and Home exit path, rebuilds incompatible fork-written caches, and handles low-memory CSS parsing, truncated SD writes, invalid serialized strings, and failed temp-cache promotion.
+- Home no longer crashes after clearing reading cache when the source EPUB cache is missing.
+- Reader prewarm behavior now skips image decoding, keeps mixed-style font glyphs cached together, and avoids section rebuilds for render-quality-only option changes.
+- Concurrent render/storage crashes are avoided by serializing `GfxRenderer` scratch-buffer access, shared SPI bus access, and failed SPI lock cleanup.
+- Recent Books, EPUB/XTC thumbnail caches, deleted-folder metadata, and XTC cover scaling now keep cached book data in sync and grid covers fill their slots correctly.
+- Simulator build configuration now lets SDL2 and simulator-provided network/OTA shims compile cleanly.
 ---
 ## [v1.2.9.1] - 2026-05-03
 
@@ -149,6 +144,6 @@
 - Allow simple EPUB tables with full-width note rows so a single `colspan` cell spanning the whole table no longer forces the entire table back to paragraph fallback
 
 ### Fixed
-- Fix power-button shortcut conflicts outside the reader so reader-only actions fall back to `Confirm` while Sleep, Refresh, Screenshot, Sync Progress, and File Transfer remain real power actions. Those that had short-press power button to act as sleep saw unstable behavior previously. This should be fixed now
-- Fix a potential crash when using `Go to %` in EPUBs
-- Fix a potential crash when entering sleep with Page Overlay enabled if the cached EPUB page data is invalid
+- Power-button shortcut conflicts outside the reader so reader-only actions fall back to `Confirm` while Sleep, Refresh, Screenshot, Sync Progress, and File Transfer remain real power actions.
+- Potential crash when using `Go to %` in EPUBs.
+- Potential crash when entering sleep with Page Overlay enabled if the cached EPUB page data is invalid.
