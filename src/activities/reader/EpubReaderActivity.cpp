@@ -56,7 +56,7 @@ constexpr char READER_SETTINGS_FILE_NAME[] = "/reader_settings.bin";
 constexpr char FALLBACK_FONT_SECTION_CACHE_SUFFIX[] = "_fallback_font";
 constexpr unsigned long MIN_READING_STATS_PAGE_MS = 2000UL;
 constexpr uint32_t MIN_READING_PACE_SAMPLE_SECONDS = 2;
-constexpr uint32_t MAX_READING_PACE_SAMPLE_SECONDS = 10 * 60;
+constexpr uint32_t MAX_READING_PACE_SAMPLE_AVG_MULTIPLIER = 2;
 constexpr uint32_t MIN_BOOK_PROGRESS_READING_SECONDS = 2 * 60;
 constexpr float MIN_BOOK_PROGRESS_FOR_TIME_LEFT = 0.01f;
 constexpr uint8_t PUBLISHER_PAGE_NUMBER_LEFT_MARGIN_MIN = 15;
@@ -456,7 +456,12 @@ bool EpubReaderActivity::forwardPageReadElapsed(uint32_t& seconds) const {
 }
 
 void EpubReaderActivity::recordForwardPagePaceSample(uint32_t seconds) {
-  if (seconds < MIN_READING_PACE_SAMPLE_SECONDS || seconds > MAX_READING_PACE_SAMPLE_SECONDS) {
+  if (seconds < MIN_READING_PACE_SAMPLE_SECONDS) {
+    return;
+  }
+
+  if (stats.paceSampleCount > 0 && stats.avgSecondsPerForwardPage > 0 &&
+      seconds > static_cast<uint32_t>(stats.avgSecondsPerForwardPage) * MAX_READING_PACE_SAMPLE_AVG_MULTIPLIER) {
     return;
   }
 

@@ -11,7 +11,7 @@ struct BookReadingStats {
   uint32_t totalReadingSeconds = 0;       // Accumulated reading time in seconds
   uint32_t totalPagesTurned = 0;          // Total forward page turns after the dwell threshold
   bool isCompleted = false;               // Whether the user manually marked this book as finished
-  uint16_t avgSecondsPerForwardPage = 0;  // Rolling average pace for time-left estimates
+  uint16_t avgSecondsPerForwardPage = 0;  // Running average pace for time-left estimates
   uint16_t paceSampleCount = 0;           // Number of forward-page pace samples included in the average
   bool startDateManual = false;           // Permanent user override for the reading start date
   bool finishedDateManual = false;        // Permanent user override for the finished date
@@ -27,7 +27,7 @@ struct BookReadingStats {
   // Saves stats to cachePath/stats.bin.
   void save(const std::string& cachePath) const;
 
-  // Updates the rolling reading pace with one forward page dwell sample.
+  // Updates the running reading pace with one forward page dwell sample.
   void recordForwardPageRead(uint32_t seconds);
 
   // Attributes reading time to the X3 local date/time buckets when RTC data exists.
