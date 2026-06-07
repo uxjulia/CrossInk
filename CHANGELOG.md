@@ -10,6 +10,7 @@
 - Additional X3 reading stats, including reading streaks, time-of-day and day-of-week charts, and editable started/finished book dates.
 - X3-only `Minimal Stats` sleep screen option that reuses the Minimal layout and adds streak and reader-type stats.
 - `Backup Global Reading Stats` in Settings > System > Files & Cache, plus automatic X3 daily backups in `/.crossink-stats-backup/` so cumulative stats survive `/.crosspoint/` cleanup.
+- `Reset Reading Pace` in the EPUB reader menu when Time Left is enabled, for clearing only the time-left pace estimate while keeping book reading stats.
 
 ### Changed
 - Display, Reader, and Controls settings now open choice menus instead of cycling through options one by one.
@@ -20,7 +21,8 @@
 ### Fixed
 - Restored the missing side-button disable option from upstream CrossPoint.
 - Inverted reader menus now honor orientation-aware side-button navigation.
-- EPUB book time-left estimates no longer drop optimistically after rapid forward paging, chapter starts, or non-linear jumps.
+- EPUB book time-left estimates now wait for more session pace samples and use a progress-based floor after pace data exists, reducing swings from unusually short or long pages.
+- Deleting an EPUB book cache now preserves that book's reading stats and pace data.
 - X3 clock UTC offset picker now makes the editable sign, hour, and minute fields clearer.
 - `Sync Clock Now` is now `Sync Date/Time` and tries saved WiFi networks automatically if a Wifi network has already been saved instead of stopping with a "connect first" message.
 - Home menu and Lyra Carousel caching now avoid low-memory crash risk on constrained builds.

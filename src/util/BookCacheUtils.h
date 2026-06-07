@@ -7,8 +7,9 @@
 void clearBookCache(const std::string& path);
 
 // Clears derived reading cache files while preserving user-owned state such as
-// progress and per-book stats. Intended for web upload replacement.
-void clearBookCachePreservingUserState(const std::string& path);
+// progress and per-book stats. Returns false if the cache clear or state
+// preservation fails.
+bool clearBookCachePreservingUserState(const std::string& path);
 
 // Returns true if the directory name matches a book cache entry.
 bool isBookCacheDirectoryName(const char* name);

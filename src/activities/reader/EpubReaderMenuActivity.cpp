@@ -73,15 +73,14 @@ bool haveReaderLayoutSettingsChanged(const ReaderLayoutSettingsSnapshot& before)
 
 }  // namespace
 
-EpubReaderMenuActivity::EpubReaderMenuActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
-                                               const std::string& title, const int currentPage, const int totalPages,
-                                               const int bookProgressPercent, const uint8_t currentOrientation,
-                                               const bool hasFootnotes, const bool hasBookmarks,
-                                               const bool isCurrentPageBookmarked, const bool isBookCompleted,
-                                               const bool autoPageTurnActive,
-                                               const uint16_t autoPageTurnIntervalSeconds)
+EpubReaderMenuActivity::EpubReaderMenuActivity(
+    GfxRenderer& renderer, MappedInputManager& mappedInput, const std::string& title, const int currentPage,
+    const int totalPages, const int bookProgressPercent, const uint8_t currentOrientation, const bool hasFootnotes,
+    const bool hasBookmarks, const bool isCurrentPageBookmarked, const bool isBookCompleted,
+    const bool autoPageTurnActive, const uint16_t autoPageTurnIntervalSeconds, const bool showReadingPaceReset)
     : Activity("EpubReaderMenu", renderer, mappedInput),
-      menuItems(buildMenuItems(hasFootnotes, hasBookmarks, isCurrentPageBookmarked, isBookCompleted)),
+      menuItems(
+          buildMenuItems(hasFootnotes, hasBookmarks, isCurrentPageBookmarked, isBookCompleted, showReadingPaceReset)),
       title(title),
       pendingOrientation(currentOrientation),
       currentPage(currentPage),
@@ -93,10 +92,12 @@ EpubReaderMenuActivity::EpubReaderMenuActivity(GfxRenderer& renderer, MappedInpu
 std::vector<EpubReaderMenuActivity::MenuItem> EpubReaderMenuActivity::buildMenuItems(bool hasFootnotes,
                                                                                      bool hasBookmarks,
                                                                                      bool isCurrentPageBookmarked,
-                                                                                     bool isBookCompleted) {
+                                                                                     bool isBookCompleted,
+                                                                                     bool showReadingPaceReset) {
   std::vector<MenuItem> items;
-  constexpr size_t baseItemCount = 14;
-  const size_t totalItemCount = baseItemCount + (hasFootnotes ? 1u : 0u) + (hasBookmarks ? 2u : 0u);
+  constexpr size_t baseItemCount = 13;
+  const size_t totalItemCount =
+      baseItemCount + (showReadingPaceReset ? 1u : 0u) + (hasFootnotes ? 1u : 0u) + (hasBookmarks ? 2u : 0u);
   items.reserve(totalItemCount);
   if (hasFootnotes) {
     items.push_back({MenuAction::FOOTNOTES, StrId::STR_FOOTNOTES});
@@ -116,6 +117,9 @@ std::vector<EpubReaderMenuActivity::MenuItem> EpubReaderMenuActivity::buildMenuI
   items.push_back({MenuAction::SCREENSHOT, StrId::STR_SCREENSHOT_BUTTON});
   items.push_back({MenuAction::DISPLAY_QR, StrId::STR_DISPLAY_QR});
   items.push_back({MenuAction::DELETE_CACHE, StrId::STR_DELETE_CACHE});
+  if (showReadingPaceReset) {
+    items.push_back({MenuAction::RESET_READING_PACE, StrId::STR_RESET_READING_PACE});
+  }
   items.push_back({MenuAction::SYNC, StrId::STR_SYNC_PROGRESS});
   items.push_back({MenuAction::READING_STATS, StrId::STR_READING_STATS});
   items.push_back(

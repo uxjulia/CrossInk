@@ -126,7 +126,7 @@ int globalRtcCardHeightForPerBookRowSpacing(const StatsLayout& layout, const int
   return std::max(layout.globalCardH, layout.topCardTitleH + perBookDataRowH * globalDataRowCount);
 }
 
-const StatsLayout& getStatsLayout(GfxRenderer& renderer, const bool globalPage, const bool showButtonHints,
+const StatsLayout& getStatsLayout(const GfxRenderer& renderer, const bool globalPage, const bool showButtonHints,
                                   const bool showRtcStats) {
   const auto& metrics = UITheme::getInstance().getMetrics();
   const int availableHeight =
@@ -137,7 +137,7 @@ const StatsLayout& getStatsLayout(GfxRenderer& renderer, const bool globalPage, 
   return kCompactLayout;
 }
 
-const StatsLayout& getNoRtcCombinedLayout(GfxRenderer& renderer, const bool showButtonHints,
+const StatsLayout& getNoRtcCombinedLayout(const GfxRenderer& renderer, const bool showButtonHints,
                                           const bool showAllDevicesStats) {
   const auto& metrics = UITheme::getInstance().getMetrics();
   const int availableHeight =
@@ -216,7 +216,7 @@ float pagesPerMinute(const uint32_t totalPagesTurned, const uint32_t totalReadin
   return static_cast<float>(totalPagesTurned) * 60.0f / static_cast<float>(totalReadingSeconds);
 }
 
-void drawHeaderTitle(GfxRenderer& renderer, const char* title, const int headerDrawHeight = 67,
+void drawHeaderTitle(const GfxRenderer& renderer, const char* title, const int headerDrawHeight = 67,
                      const bool showDate = false) {
   const auto& metrics = UITheme::getInstance().getMetrics();
   const int screenWidth = renderer.getScreenWidth();
@@ -240,14 +240,14 @@ void drawHeaderTitle(GfxRenderer& renderer, const char* title, const int headerD
   }
 }
 
-void drawCenteredLabel(GfxRenderer& renderer, const int fontId, const int x, const int w, const int y, const char* text,
-                       const bool bold = false) {
+void drawCenteredLabel(const GfxRenderer& renderer, const int fontId, const int x, const int w, const int y,
+                       const char* text, const bool bold = false) {
   const int textWidth = renderer.getTextWidth(fontId, text, bold ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR);
   renderer.drawText(fontId, x + (w - textWidth) / 2, y, text, true,
                     bold ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR);
 }
 
-void drawStatCell(GfxRenderer& renderer, const int x, const int w, const int y, const int h, const char* value,
+void drawStatCell(const GfxRenderer& renderer, const int x, const int w, const int y, const int h, const char* value,
                   const char* label) {
   const int valueLineH = renderer.getLineHeight(UI_12_FONT_ID);
   const int labelLineH = renderer.getLineHeight(SMALL_FONT_ID);
@@ -257,7 +257,7 @@ void drawStatCell(GfxRenderer& renderer, const int x, const int w, const int y, 
   drawCenteredLabel(renderer, SMALL_FONT_ID, x, w, textY + valueLineH + 4, label);
 }
 
-void drawSectionCard(GfxRenderer& renderer, const int x, const int y, const int w, const int h, const char* title,
+void drawSectionCard(const GfxRenderer& renderer, const int x, const int y, const int w, const int h, const char* title,
                      const StatsLayout& layout) {
   renderer.drawRect(x, y, w, h);
   renderer.drawLine(x, y + layout.sectionTitleH, x + w, y + layout.sectionTitleH);
@@ -444,7 +444,7 @@ void drawGlobalStatsCard(GfxRenderer& renderer, const int x, const int y, const 
                y + layout.topCardTitleH + rowH, rowH, buf, tr(STR_STATS_COMPLETED_LBL));
 }
 
-void drawDateField(GfxRenderer& renderer, const int x, const int y, const int w, const char* text,
+void drawDateField(const GfxRenderer& renderer, const int x, const int y, const int w, const char* text,
                    const bool selected) {
   const int h = renderer.getLineHeight(UI_12_FONT_ID) + 10;
   renderer.fillRectDither(x, y, w, h, selected ? Color::LightGray : Color::White);
@@ -632,7 +632,6 @@ void renderEditBookDatesPage(GfxRenderer& renderer, const MappedInputManager* ma
 
   const auto& metrics = UITheme::getInstance().getMetrics();
   const int pageWidth = renderer.getScreenWidth();
-  const int pageHeight = renderer.getScreenHeight();
   const int cardW = pageWidth - 120;
   const int cardH = 250;
   const int cardX = (pageWidth - cardW) / 2;

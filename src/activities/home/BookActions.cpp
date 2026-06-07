@@ -18,6 +18,7 @@
 #include "activities/reader/GlobalReadingStats.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
+#include "util/BookCacheUtils.h"
 
 namespace {
 
@@ -81,11 +82,8 @@ void clearFileMetadata(const std::string& fullPath) {
 }
 
 bool clearBookCache(const std::string& fullPath) {
-  if (FsHelpers::hasEpubExtension(fullPath)) {
-    return Epub(fullPath, "/.crosspoint").clearCache();
-  }
-  if (FsHelpers::hasXtcExtension(fullPath)) {
-    return Xtc(fullPath, "/.crosspoint").clearCache();
+  if (FsHelpers::hasEpubExtension(fullPath) || FsHelpers::hasXtcExtension(fullPath)) {
+    return clearBookCachePreservingUserState(fullPath);
   }
   return false;
 }

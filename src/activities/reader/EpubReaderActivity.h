@@ -31,6 +31,9 @@ class EpubReaderActivity final : public Activity {
   unsigned long lastPageTurnTime = 0UL;
   unsigned long pageTurnDuration = 0UL;
   unsigned long pageShownAtMs = 0UL;
+  bool paceSampleWarmupPending = true;
+  uint32_t sessionPaceSampleSeconds = 0;
+  uint16_t sessionPaceSampleCount = 0;
   uint16_t lastAutoPageTurnIntervalSeconds = 0;
   BookReadingStats stats;
   GlobalReadingStats globalStats;
@@ -96,15 +99,21 @@ class EpubReaderActivity final : public Activity {
   void renderStatusBar() const;
   void silentIndexNextChapterIfNeeded(uint16_t viewportWidth, uint16_t viewportHeight);
   bool saveProgress(int spineIndex, int currentPage, int pageCount);
-  void pauseReadingPaceTimer();
-  void resumeReadingPaceTimer();
-  bool forwardPageReadElapsed(uint32_t& seconds) const;
-  void recordForwardPagePaceSample(uint32_t seconds);
+  void pauseReadingPaceTimer(const char* reason = "unknown");
+  void resumeReadingPaceTimer(const char* reason = "unknown");
+  void armReadingPaceWarmup(const char* reason = "unknown");
+  bool forwardPageReadElapsed(uint32_t& seconds, const char* source) const;
+  void recordForwardPagePaceSample(uint32_t seconds, const char* source);
+  bool getSessionAveragePaceSeconds(uint16_t& avgSeconds) const;
+  void recoverStoredPaceFromSession(const char* reason = "unknown");
+  bool getTimeLeftPaceSeconds(uint16_t& avgSeconds, const char*& source, uint16_t& sampleCount) const;
   bool estimateRemainingTimeLeftPages(bool bookEstimate, float& remainingPages) const;
+  bool estimateProgressTimeLeftSeconds(uint32_t& seconds) const;
   bool estimateTimeLeftSeconds(bool bookEstimate, uint32_t& seconds) const;
   bool formatTimeLeftLabel(char* buf, size_t len) const;
   void openFileTransfer();
   void openAutoPageTurnIntervalPicker(bool ignoreInitialConfirmRelease = false);
+  void resetReadingPaceData();
   // Jump to a percentage of the book (0-100), mapping it to spine and page.
   void jumpToPercent(int percent);
   void reindexCurrentSection();
@@ -116,7 +125,7 @@ class EpubReaderActivity final : public Activity {
   void onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction action);
   void applyOrientation(uint8_t orientation);
   void executeLongPressMenuAction();
-  void pageTurn(bool isForwardTurn);
+  void pageTurn(bool isForwardTurn, const char* source = "unknown");
   float getCurrentBookProgressPercent() const;
   void initializeCompletionPromptTrigger();
   bool isAtOrPastCompletionTrigger() const;

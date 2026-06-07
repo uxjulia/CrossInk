@@ -26,6 +26,9 @@ constexpr PreservedCacheFile EPUB_USER_STATE_FILES[] = {
 constexpr PreservedCacheFile PAGE_PROGRESS_FILES[] = {
     {"progress.bin", "upload_preserve_progress.bin"},
 };
+constexpr size_t MAX_PRESERVED_CACHE_FILES = std::size(EPUB_USER_STATE_FILES) > std::size(PAGE_PROGRESS_FILES)
+                                                 ? std::size(EPUB_USER_STATE_FILES)
+                                                 : std::size(PAGE_PROGRESS_FILES);
 
 std::string getBookCachePath(const std::string& path) {
   if (FsHelpers::hasEpubExtension(path)) {
@@ -53,7 +56,8 @@ const PreservedCacheFile* preservedFilesForPath(const std::string& path, size_t&
   return nullptr;
 }
 
-bool restorePreservedFiles(const std::string& cachePath, const PreservedCacheFile* files, const size_t count) {
+bool restorePreservedFiles(const std::string& cachePath, const PreservedCacheFile* files, const size_t count,
+                           const bool* movedFiles = nullptr) {
   if (count == 0) {
     return true;
   }
@@ -61,6 +65,9 @@ bool restorePreservedFiles(const std::string& cachePath, const PreservedCacheFil
   bool restoredAny = false;
   bool ok = true;
   for (size_t i = 0; i < count; i++) {
+    if (movedFiles && !movedFiles[i]) {
+      continue;
+    }
     const std::string tmpPath = cachePath + "." + files[i].tmpName;
     if (!Storage.exists(tmpPath.c_str())) {
       continue;
@@ -85,9 +92,13 @@ bool restorePreservedFiles(const std::string& cachePath, const PreservedCacheFil
   return ok;
 }
 
-bool preserveUserStateFiles(const std::string& cachePath, const PreservedCacheFile* files, const size_t count) {
+bool preserveUserStateFiles(const std::string& cachePath, const PreservedCacheFile* files, const size_t count,
+                            bool* movedFiles) {
   bool ok = true;
   for (size_t i = 0; i < count; i++) {
+    if (movedFiles) {
+      movedFiles[i] = false;
+    }
     const std::string sourcePath = cachePath + "/" + files[i].name;
     const std::string tmpPath = cachePath + "." + files[i].tmpName;
 
@@ -102,9 +113,24 @@ bool preserveUserStateFiles(const std::string& cachePath, const PreservedCacheFi
     if (!Storage.rename(sourcePath.c_str(), tmpPath.c_str())) {
       LOG_ERR("BookCache", "Failed to preserve cache state: %s", sourcePath.c_str());
       ok = false;
+    } else if (movedFiles) {
+      movedFiles[i] = true;
     }
   }
   return ok;
+}
+
+bool clearBookCacheForPath(const std::string& path) {
+  if (FsHelpers::hasEpubExtension(path)) {
+    return Epub(path, "/.crosspoint").clearCache();
+  }
+  if (FsHelpers::hasXtcExtension(path)) {
+    return Xtc(path, "/.crosspoint").clearCache();
+  }
+  if (FsHelpers::hasTxtExtension(path)) {
+    return Txt(path, "/.crosspoint").clearCache();
+  }
+  return false;
 }
 
 }  // namespace
@@ -124,32 +150,43 @@ bool isBookCacheDirectoryName(const char* name) {
 }
 
 void clearBookCache(const std::string& path) {
-  if (FsHelpers::hasEpubExtension(path)) {
-    Epub(path, "/.crosspoint").clearCache();
-  } else if (FsHelpers::hasXtcExtension(path)) {
-    Xtc(path, "/.crosspoint").clearCache();
-  } else if (FsHelpers::hasTxtExtension(path)) {
-    Txt(path, "/.crosspoint").clearCache();
-  } else {
+  if (!clearBookCacheForPath(path)) {
     return;
   }
   LOG_DBG("BookCache", "Done checking metadata cache for: %s", path.c_str());
 }
 
-void clearBookCachePreservingUserState(const std::string& path) {
+bool clearBookCachePreservingUserState(const std::string& path) {
   size_t preservedCount = 0;
   const PreservedCacheFile* preservedFiles = preservedFilesForPath(path, preservedCount);
   if (!preservedFiles || preservedCount == 0) {
-    clearBookCache(path);
-    return;
+    return clearBookCacheForPath(path);
   }
 
   const std::string cachePath = getBookCachePath(path);
   if (cachePath.empty()) {
-    return;
+    return false;
   }
 
-  preserveUserStateFiles(cachePath, preservedFiles, preservedCount);
-  clearBookCache(path);
-  restorePreservedFiles(cachePath, preservedFiles, preservedCount);
+  if (preservedCount > MAX_PRESERVED_CACHE_FILES) {
+    LOG_ERR("BookCache", "Too many preserved cache files: count=%u max=%u", static_cast<unsigned>(preservedCount),
+            static_cast<unsigned>(MAX_PRESERVED_CACHE_FILES));
+    return false;
+  }
+
+  bool movedFiles[MAX_PRESERVED_CACHE_FILES] = {};
+  const bool preserveOk = preserveUserStateFiles(cachePath, preservedFiles, preservedCount, movedFiles);
+  if (!preserveOk) {
+    if (!restorePreservedFiles(cachePath, preservedFiles, preservedCount, movedFiles)) {
+      LOG_ERR("BookCache", "Failed to roll back preserved state after aborting cache clear: %s", cachePath.c_str());
+    }
+    LOG_ERR("BookCache", "Aborted cache clear because user state could not be preserved: %s", cachePath.c_str());
+    return false;
+  }
+  const bool clearOk = clearBookCacheForPath(path);
+  const bool restoreOk = restorePreservedFiles(cachePath, preservedFiles, preservedCount, movedFiles);
+  if (clearOk) {
+    LOG_DBG("BookCache", "Done checking metadata cache for: %s", path.c_str());
+  }
+  return preserveOk && clearOk && restoreOk;
 }
