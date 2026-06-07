@@ -82,6 +82,19 @@ std::string formatUtcOffset(uint8_t biasedQ) {
   return buf;
 }
 
+std::string formatCompactDuration(const uint32_t seconds) {
+  char buf[24];
+  if (seconds < 60) {
+    snprintf(buf, sizeof(buf), "%lus", static_cast<unsigned long>(seconds));
+  } else if (seconds % 60 == 0) {
+    snprintf(buf, sizeof(buf), "%lum", static_cast<unsigned long>(seconds / 60));
+  } else {
+    snprintf(buf, sizeof(buf), "%lum %lus", static_cast<unsigned long>(seconds / 60),
+             static_cast<unsigned long>(seconds % 60));
+  }
+  return buf;
+}
+
 void drawSystemVersionFooter(const GfxRenderer& renderer, const int pageWidth, const int pageHeight,
                              const ThemeMetrics& metrics) {
   const std::string label = "CrossInk " CROSSINK_VERSION;
@@ -133,6 +146,9 @@ std::string formatSettingValue(const SettingInfo& setting) {
   }
   if (setting.valuePtr == &CrossPointSettings::lineHeightPercent) {
     return std::to_string(SETTINGS.*(setting.valuePtr)) + "%";
+  }
+  if (setting.valuePtr == &CrossPointSettings::readingIdleTimeThresholdUnits) {
+    return formatCompactDuration(SETTINGS.getReadingIdleTimeThresholdSeconds());
   }
   if (setting.valuePtr == &CrossPointSettings::clockUtcOffsetQ) {
     return formatUtcOffset(SETTINGS.*(setting.valuePtr));
@@ -527,6 +543,10 @@ void SettingsActivity::toggleCurrentSetting() {
     openScreenMarginPicker(setting);
     return;
   }
+  if (setting.valuePtr == &CrossPointSettings::readingIdleTimeThresholdUnits) {
+    openIdleTimeThresholdPicker();
+    return;
+  }
   if (setting.valuePtr == &CrossPointSettings::clockUtcOffsetQ) {
     startActivityForResult(std::make_unique<ClockOffsetActivity>(renderer, mappedInput), [this](const ActivityResult&) {
       SETTINGS.saveToFile();
@@ -722,6 +742,26 @@ void SettingsActivity::openLineHeightPicker() {
       });
 }
 
+void SettingsActivity::openIdleTimeThresholdPicker() {
+  startActivityForResult(
+      std::make_unique<IntervalSelectionActivity>(
+          renderer, mappedInput, "IdleTimeThresholdInterval", StrId::STR_IDLE_TIME_THRESHOLD,
+          StrId::STR_IDLE_TIME_THRESHOLD_STEP_HINT, SETTINGS.getReadingIdleTimeThresholdSeconds(),
+          CrossPointSettings::MIN_READING_IDLE_TIME_THRESHOLD_SECONDS,
+          CrossPointSettings::MAX_READING_IDLE_TIME_THRESHOLD_SECONDS,
+          CrossPointSettings::READING_IDLE_TIME_THRESHOLD_UNIT_SECONDS, 60, StrId::STR_SECONDS_VALUE_FORMAT,
+          /*readerActivity=*/false, /*allowPowerAsConfirm=*/false, /*ignoreInitialConfirmRelease=*/false,
+          /*showPercentValue=*/false),
+      [this](const ActivityResult& result) {
+        if (!result.isCancelled) {
+          SETTINGS.readingIdleTimeThresholdUnits = CrossPointSettings::readingIdleTimeThresholdUnitsForSeconds(
+              static_cast<uint16_t>(std::get<IntervalResult>(result.data).value));
+          SETTINGS.saveToFile();
+        }
+        requestUpdate();
+      });
+}
+
 void SettingsActivity::render(RenderLock&&) {
   renderer.clearScreen();
 
@@ -802,6 +842,8 @@ void SettingsActivity::render(RenderLock&&) {
                       (*currentSettings)[selectedSettingIndex - 1].nameId == StrId::STR_FONT_FAMILY ||
                       (*currentSettings)[selectedSettingIndex - 1].nameId == StrId::STR_TIME_TO_SLEEP ||
                       (*currentSettings)[selectedSettingIndex - 1].valuePtr == &CrossPointSettings::lineHeightPercent ||
+                      (*currentSettings)[selectedSettingIndex - 1].valuePtr ==
+                          &CrossPointSettings::readingIdleTimeThresholdUnits ||
                       (*currentSettings)[selectedSettingIndex - 1].valuePtr == &CrossPointSettings::screenMargin)
                  ? tr(STR_SELECT)
                  : tr(STR_TOGGLE));

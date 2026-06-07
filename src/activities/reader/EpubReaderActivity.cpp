@@ -57,7 +57,6 @@ constexpr char READER_SETTINGS_FILE_NAME[] = "/reader_settings.bin";
 constexpr char FALLBACK_FONT_SECTION_CACHE_SUFFIX[] = "_fallback_font";
 constexpr unsigned long MIN_READING_STATS_PAGE_MS = 2000UL;
 constexpr uint32_t MIN_READING_PACE_SAMPLE_SECONDS = 2;
-constexpr uint32_t MAX_READING_PACE_SAMPLE_SECONDS = 5 * 60;
 constexpr uint16_t MIN_STORED_TIME_LEFT_PACE_SAMPLE_COUNT = 3;
 constexpr uint16_t MIN_SESSION_TIME_LEFT_PACE_SAMPLE_COUNT = 10;
 constexpr uint16_t MIN_STORED_PACE_SLOWER_RECOVERY_SESSION_SAMPLES = 10;
@@ -446,7 +445,8 @@ float EpubReaderActivity::getCurrentBookProgressPercent() const {
   return epub->calculateProgress(currentSpineIndex, chapterProgress) * 100.0f;
 }
 
-void EpubReaderActivity::pauseReadingPaceTimer(const char*) {
+void EpubReaderActivity::pauseReadingPaceTimer(const char* reason) {
+  recordCurrentPageReadingTime(reason);
   pageShownAtMs = 0UL;
   paceSampleWarmupPending = true;
 }
@@ -476,6 +476,38 @@ bool EpubReaderActivity::forwardPageReadElapsed(uint32_t& seconds, const char*) 
   return true;
 }
 
+bool EpubReaderActivity::currentPageReadingSecondsForStats(uint32_t& seconds, const char* source) const {
+  seconds = 0;
+  if (!SETTINGS.shouldTrackReadingStats() || pageShownAtMs == 0UL) {
+    return false;
+  }
+
+  const unsigned long elapsedMs = millis() - pageShownAtMs;
+  const uint32_t elapsedSeconds = static_cast<uint32_t>(elapsedMs / 1000UL);
+  if (elapsedSeconds == 0) {
+    return false;
+  }
+
+  const uint32_t thresholdSeconds = SETTINGS.getReadingIdleTimeThresholdSeconds();
+  if (elapsedSeconds > thresholdSeconds) {
+    LOG_DBG("ERS", "Reading time interval rejected as idle: source=%s seconds=%lu threshold=%lu",
+            source ? source : "unknown", static_cast<unsigned long>(elapsedSeconds),
+            static_cast<unsigned long>(thresholdSeconds));
+    return false;
+  }
+
+  seconds = elapsedSeconds;
+  return true;
+}
+
+void EpubReaderActivity::recordCurrentPageReadingTime(const char* source) {
+  uint32_t seconds = 0;
+  if (currentPageReadingSecondsForStats(seconds, source)) {
+    sessionReadingSeconds = sessionReadingSeconds > UINT32_MAX - seconds ? UINT32_MAX : sessionReadingSeconds + seconds;
+  }
+  pageShownAtMs = 0UL;
+}
+
 void EpubReaderActivity::recordForwardPagePaceSample(uint32_t seconds, const char* source) {
   if (paceSampleWarmupPending) {
     paceSampleWarmupPending = false;
@@ -488,9 +520,10 @@ void EpubReaderActivity::recordForwardPagePaceSample(uint32_t seconds, const cha
     return;
   }
 
-  if (seconds > MAX_READING_PACE_SAMPLE_SECONDS) {
+  const uint32_t maxReadingPaceSampleSeconds = SETTINGS.getReadingIdleTimeThresholdSeconds();
+  if (seconds > maxReadingPaceSampleSeconds) {
     LOG_DBG("ERS", "Time-left pace sample rejected: source=%s seconds=%lu maxSeconds=%lu", source ? source : "unknown",
-            static_cast<unsigned long>(seconds), static_cast<unsigned long>(MAX_READING_PACE_SAMPLE_SECONDS));
+            static_cast<unsigned long>(seconds), static_cast<unsigned long>(maxReadingPaceSampleSeconds));
     return;
   }
 
@@ -614,9 +647,13 @@ bool EpubReaderActivity::estimateRemainingTimeLeftPages(const bool bookEstimate,
 bool EpubReaderActivity::estimateProgressTimeLeftSeconds(uint32_t& seconds) const {
   seconds = 0;
   const float progressPercent = getCurrentBookProgressPercent();
-  const unsigned long sessionMs =
-      (SETTINGS.shouldTrackReadingStats() && sessionStartMs != 0UL) ? millis() - sessionStartMs : 0UL;
-  const uint32_t sessionSeconds = static_cast<uint32_t>(std::min<unsigned long>(sessionMs / 1000UL, UINT32_MAX));
+  uint32_t currentPageSeconds = 0;
+  uint32_t sessionSeconds = sessionReadingSeconds;
+  if (SETTINGS.shouldTrackReadingStats() &&
+      currentPageReadingSecondsForStats(currentPageSeconds, "time_left_preview")) {
+    sessionSeconds =
+        sessionSeconds > UINT32_MAX - currentPageSeconds ? UINT32_MAX : sessionSeconds + currentPageSeconds;
+  }
   const uint32_t elapsedReadingSeconds =
       stats.totalReadingSeconds > UINT32_MAX - sessionSeconds ? UINT32_MAX : stats.totalReadingSeconds + sessionSeconds;
 
@@ -868,7 +905,7 @@ void EpubReaderActivity::onEnter() {
           stats.avgSecondsPerForwardPage, stats.paceSampleCount, static_cast<unsigned long>(cumulativeAvgSeconds));
 #endif
   armReadingPaceWarmup("reader_open");
-  sessionStartMs = millis();
+  sessionReadingSeconds = 0;
   hasSessionStartLocalDateTime = getCurrentLocalReadingStatsDateTime(sessionStartLocalDateTime);
 
   globalStats = GlobalReadingStats::load();
@@ -898,24 +935,25 @@ void EpubReaderActivity::onExit() {
   APP_STATE.saveToFile();
 
   if (SETTINGS.shouldTrackReadingStats()) {
-    // Commit session stats based on how long the session lasted.
+    recordCurrentPageReadingTime("reader_exit");
+
+    // Commit session stats based on active reading time. Page intervals longer
+    // than the idle threshold are rejected before they reach sessionReadingSeconds.
     // Sessions under 1 minute don't count toward session count or reading time.
     // Sessions under 10 seconds don't add to reading time.
-    const unsigned long elapsedMs = millis() - sessionStartMs;
-    if (elapsedMs >= 60000UL) {
+    const uint32_t elapsedSecs = sessionReadingSeconds;
+    if (elapsedSecs >= 60) {
       stats.sessionCount++;
       globalStats.totalSessions++;
     }
-    if (elapsedMs >= 10000UL) {
-      const uint32_t elapsedSecs = static_cast<uint32_t>(elapsedMs / 1000UL);
+    if (elapsedSecs >= 10) {
       stats.totalReadingSeconds += elapsedSecs;
       globalStats.totalReadingSeconds += elapsedSecs;
       if (hasSessionStartLocalDateTime) {
         stats.recordReadingSpan(sessionStartLocalDateTime, elapsedSecs);
         globalStats.recordReadingSpan(sessionStartLocalDateTime, elapsedSecs);
       }
-      if (elapsedMs >= 120000UL && !stats.startDateManual && !stats.startDate.isValid() &&
-          hasSessionStartLocalDateTime) {
+      if (elapsedSecs >= 120 && !stats.startDateManual && !stats.startDate.isValid() && hasSessionStartLocalDateTime) {
         stats.startDate = sessionStartLocalDateTime.date;
       }
     }
@@ -1546,7 +1584,15 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
       // Include elapsed time from the current session in the display stats.
       BookReadingStats displayStats = stats;
       if (SETTINGS.shouldTrackReadingStats()) {
-        displayStats.totalReadingSeconds += static_cast<uint32_t>((millis() - sessionStartMs) / 1000UL);
+        uint32_t currentPageSeconds = 0;
+        displayStats.totalReadingSeconds = displayStats.totalReadingSeconds > UINT32_MAX - sessionReadingSeconds
+                                               ? UINT32_MAX
+                                               : displayStats.totalReadingSeconds + sessionReadingSeconds;
+        if (currentPageReadingSecondsForStats(currentPageSeconds, "book_stats_preview")) {
+          displayStats.totalReadingSeconds = displayStats.totalReadingSeconds > UINT32_MAX - currentPageSeconds
+                                                 ? UINT32_MAX
+                                                 : displayStats.totalReadingSeconds + currentPageSeconds;
+        }
       }
       uint32_t estimatedTimeLeftSeconds = 0;
       const bool hasEstimatedTimeLeft = estimateTimeLeftSeconds(true, estimatedTimeLeftSeconds);
@@ -2102,6 +2148,7 @@ void EpubReaderActivity::pageTurn(bool isForwardTurn, const char* source) {
   if (isForwardTurn) {
     uint32_t forwardReadSeconds = 0;
     const bool shouldRecordForwardRead = forwardPageReadElapsed(forwardReadSeconds, source);
+    recordCurrentPageReadingTime(source);
     const bool exitingChapter = section && section->pageCount > 0 && section->currentPage >= section->pageCount - 1;
     if (section->currentPage < section->pageCount - 1) {
       section->currentPage++;
@@ -2128,6 +2175,7 @@ void EpubReaderActivity::pageTurn(bool isForwardTurn, const char* source) {
       globalStats.totalPagesTurned++;
     }
   } else {
+    recordCurrentPageReadingTime(source);
     armReadingPaceWarmup("back_page");
     if (section->currentPage > 0) {
       section->currentPage--;

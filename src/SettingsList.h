@@ -459,6 +459,10 @@ inline std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* regist
                             "moveFinishedToReadFolder", StrId::STR_CAT_SYSTEM));
     add(SettingInfo::Toggle(StrId::STR_AUTO_BACKUP_STATS, &CrossPointSettings::autoBackupStats, "autoBackupStats",
                             StrId::STR_CAT_SYSTEM));
+    add(SettingInfo::Value(StrId::STR_IDLE_TIME_THRESHOLD, &CrossPointSettings::readingIdleTimeThresholdUnits,
+                           {CrossPointSettings::MIN_READING_IDLE_TIME_THRESHOLD_UNITS,
+                            CrossPointSettings::MAX_READING_IDLE_TIME_THRESHOLD_UNITS, 1},
+                           "readingIdleTimeThresholdUnits", StrId::STR_CAT_SYSTEM));
 #ifdef CROSSINK_ENABLE_READING_STATS_TOGGLE
     add(SettingInfo::Toggle(StrId::STR_TRACK_READING_STATS, &CrossPointSettings::trackReadingStats, "trackReadingStats",
                             StrId::STR_CAT_SYSTEM));
@@ -815,9 +819,10 @@ inline std::vector<SettingInfo> buildSystemFilesCacheSettingsList(const std::vec
 
 inline std::vector<SettingInfo> buildSystemReadingStatsSettingsList(const std::vector<SettingInfo>& allSettings) {
   std::vector<SettingInfo> settings;
-  settings.reserve(2);
+  settings.reserve(3);
   addSettingByName(settings, allSettings, StrId::STR_TRACK_READING_STATS);
   settings.push_back(SettingInfo::Submenu(StrId::STR_ALL_TIME_STATS, SettingAction::SystemGlobalStats));
+  addSettingByName(settings, allSettings, StrId::STR_IDLE_TIME_THRESHOLD);
   return settings;
 }
 

@@ -396,6 +396,8 @@ class CrossPointSettings {
   uint8_t moveFinishedToReadFolder = 0;
   // Automatically write a dated global reading-stats backup on X3 sleep (0 = off, 1 = on).
   uint8_t autoBackupStats = 1;
+  // Idle threshold for reading stats, stored in 10-second units to fit uint8_t.
+  uint8_t readingIdleTimeThresholdUnits = 30;
   // Image rendering mode in EPUB reader
   uint8_t imageRendering = IMAGES_DISPLAY;
   // Long-press Confirm (menu button) quick action in reader (0 = off)
@@ -426,6 +428,14 @@ class CrossPointSettings {
   static constexpr uint8_t MIN_LINE_HEIGHT_PERCENT = 70;
   static constexpr uint8_t MAX_LINE_HEIGHT_PERCENT = 200;
   static constexpr uint8_t LINE_HEIGHT_PERCENT_STEP = 1;
+  static constexpr uint16_t DEFAULT_READING_IDLE_TIME_THRESHOLD_SECONDS = 5 * 60;
+  static constexpr uint16_t MIN_READING_IDLE_TIME_THRESHOLD_SECONDS = 30;
+  static constexpr uint16_t MAX_READING_IDLE_TIME_THRESHOLD_SECONDS = 10 * 60;
+  static constexpr uint8_t READING_IDLE_TIME_THRESHOLD_UNIT_SECONDS = 10;
+  static constexpr uint8_t MIN_READING_IDLE_TIME_THRESHOLD_UNITS =
+      MIN_READING_IDLE_TIME_THRESHOLD_SECONDS / READING_IDLE_TIME_THRESHOLD_UNIT_SECONDS;
+  static constexpr uint8_t MAX_READING_IDLE_TIME_THRESHOLD_UNITS =
+      MAX_READING_IDLE_TIME_THRESHOLD_SECONDS / READING_IDLE_TIME_THRESHOLD_UNIT_SECONDS;
 
   uint16_t getPowerButtonWakeDuration() const {
     return (shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::SLEEP) ? POWER_BUTTON_WAKE_SHORT_MS
@@ -441,6 +451,7 @@ class CrossPointSettings {
     return true;
 #endif
   }
+  uint16_t getReadingIdleTimeThresholdSeconds() const;
 
   // Callback to resolve SD card font IDs. Set by SdCardFontSystem::begin().
   // Returns font ID or 0 if not found.
@@ -474,6 +485,8 @@ class CrossPointSettings {
   static uint8_t sleepScreenModeToStorage(uint8_t mode);
   static uint8_t legacyLineSpacingToPercent(uint8_t legacyValue, uint8_t fontFamily, bool sdFontSelected);
   static uint8_t clampedLineHeightPercent(uint8_t value);
+  static uint8_t readingIdleTimeThresholdUnitsForSeconds(uint16_t seconds);
+  static uint16_t readingIdleTimeThresholdSecondsForUnits(uint8_t units);
 #ifdef SIMULATOR
   static bool verifySleepTimeoutMigrationContract();
   static bool verifySleepScreenMigrationContract();

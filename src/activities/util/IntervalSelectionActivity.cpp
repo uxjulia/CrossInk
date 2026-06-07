@@ -10,6 +10,18 @@
 #include "components/UITheme.h"
 #include "fontIds.h"
 
+namespace {
+void formatCompactSeconds(const int seconds, char* buf, const size_t len) {
+  if (seconds < 60) {
+    snprintf(buf, len, "%ds", seconds);
+  } else if (seconds % 60 == 0) {
+    snprintf(buf, len, "%dm", seconds / 60);
+  } else {
+    snprintf(buf, len, "%dm %ds", seconds / 60, seconds % 60);
+  }
+}
+}  // namespace
+
 int IntervalSelectionActivity::clampedValue(const int candidate) const {
   return std::clamp(candidate, minValue, maxValue);
 }
@@ -70,6 +82,8 @@ void IntervalSelectionActivity::render(RenderLock&&) {
     snprintf(formattedValue, sizeof(formattedValue), "%s", I18N.get(maxBoundaryLabelId));
   } else if (showPercentValue) {
     snprintf(formattedValue, sizeof(formattedValue), "%d%%", value);
+  } else if (valueFormatId == StrId::STR_SECONDS_VALUE_FORMAT) {
+    formatCompactSeconds(value, formattedValue, sizeof(formattedValue));
   } else if (valueFormatId != StrId::STR_NONE_OPT) {
     snprintf(formattedValue, sizeof(formattedValue), I18N.get(valueFormatId), static_cast<unsigned int>(value));
   } else {

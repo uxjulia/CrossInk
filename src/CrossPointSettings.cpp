@@ -342,6 +342,23 @@ uint8_t CrossPointSettings::clampedLineHeightPercent(const uint8_t value) {
   return value;
 }
 
+uint8_t CrossPointSettings::readingIdleTimeThresholdUnitsForSeconds(const uint16_t seconds) {
+  const uint16_t clampedSeconds =
+      std::clamp(seconds, MIN_READING_IDLE_TIME_THRESHOLD_SECONDS, MAX_READING_IDLE_TIME_THRESHOLD_SECONDS);
+  return static_cast<uint8_t>((clampedSeconds + READING_IDLE_TIME_THRESHOLD_UNIT_SECONDS - 1) /
+                              READING_IDLE_TIME_THRESHOLD_UNIT_SECONDS);
+}
+
+uint16_t CrossPointSettings::readingIdleTimeThresholdSecondsForUnits(const uint8_t units) {
+  const uint8_t clampedUnits =
+      std::clamp(units, MIN_READING_IDLE_TIME_THRESHOLD_UNITS, MAX_READING_IDLE_TIME_THRESHOLD_UNITS);
+  return static_cast<uint16_t>(clampedUnits) * READING_IDLE_TIME_THRESHOLD_UNIT_SECONDS;
+}
+
+uint16_t CrossPointSettings::getReadingIdleTimeThresholdSeconds() const {
+  return readingIdleTimeThresholdSecondsForUnits(readingIdleTimeThresholdUnits);
+}
+
 bool CrossPointSettings::saveToFile() const {
   Storage.mkdir("/.crosspoint");
   return JsonSettingsIO::saveSettings(*this, SETTINGS_FILE_JSON);

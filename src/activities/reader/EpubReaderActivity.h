@@ -34,10 +34,10 @@ class EpubReaderActivity final : public Activity {
   bool paceSampleWarmupPending = true;
   uint32_t sessionPaceSampleSeconds = 0;
   uint16_t sessionPaceSampleCount = 0;
+  uint32_t sessionReadingSeconds = 0;
   uint16_t lastAutoPageTurnIntervalSeconds = 0;
   BookReadingStats stats;
   GlobalReadingStats globalStats;
-  unsigned long sessionStartMs = 0UL;
   ReadingStatsDateTime sessionStartLocalDateTime;
   bool hasSessionStartLocalDateTime = false;
   // Signals that the next render should reposition within the newly loaded section
@@ -103,6 +103,8 @@ class EpubReaderActivity final : public Activity {
   void resumeReadingPaceTimer(const char* reason = "unknown");
   void armReadingPaceWarmup(const char* reason = "unknown");
   bool forwardPageReadElapsed(uint32_t& seconds, const char* source) const;
+  bool currentPageReadingSecondsForStats(uint32_t& seconds, const char* source) const;
+  void recordCurrentPageReadingTime(const char* source = "unknown");
   void recordForwardPagePaceSample(uint32_t seconds, const char* source);
   bool getSessionAveragePaceSeconds(uint16_t& avgSeconds) const;
   void recoverStoredPaceFromSession(const char* reason = "unknown");
