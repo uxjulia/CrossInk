@@ -9,7 +9,7 @@
 #include <esp_mac.h>
 #endif
 
-#include <map>
+#include <algorithm>
 
 #include "CrossPointSettings.h"
 #include "MappedInputManager.h"
@@ -272,47 +272,43 @@ void WifiSelectionActivity::processWifiScanResults() {
 
   LOG_INF("WIFI", "WiFi scan complete: rawNetworks=%d", scanResult);
 
-  // Scan complete, process results
-  // Use a map to deduplicate networks by SSID, keeping the strongest signal
-  std::map<std::string, WifiNetworkInfo> uniqueNetworks;
+  // Scan complete, process results: deduplicate in-place, keeping strongest signal
+  networks.clear();
+  networks.reserve(scanResult);
   int hiddenNetworks = 0;
   int duplicateNetworks = 0;
 
   for (int i = 0; i < scanResult; i++) {
-    std::string ssid = WiFi.SSID(i).c_str();
+    char ssid[33];
+    strlcpy(ssid, WiFi.SSID(i).c_str(), sizeof(ssid));
     const int32_t rssi = WiFi.RSSI(i);
     const int authMode = WiFi.encryptionType(i);
 
     // Skip hidden networks (empty SSID)
-    if (ssid.empty()) {
+    if (ssid[0] == '\0') {
       hiddenNetworks++;
       continue;
     }
 
-    // Check if we've already seen this SSID
-    auto it = uniqueNetworks.find(ssid);
-    if (it != uniqueNetworks.end()) {
+    auto it =
+        std::find_if(networks.begin(), networks.end(), [&ssid](const WifiNetworkInfo& n) { return n.ssid == ssid; });
+    if (it != networks.end()) {
       duplicateNetworks++;
     }
-    if (it == uniqueNetworks.end() || rssi > it->second.rssi) {
-      // New network or stronger signal than existing entry
+    if (it == networks.end()) {
       WifiNetworkInfo network;
       network.ssid = ssid;
       network.rssi = rssi;
       network.isEncrypted = (authMode != WIFI_AUTH_OPEN);
       network.hasSavedPassword = WIFI_STORE.hasSavedCredential(network.ssid);
-      uniqueNetworks[ssid] = network;
+      networks.push_back(std::move(network));
+    } else if (rssi > it->rssi) {
+      it->rssi = rssi;
+      it->isEncrypted = (WiFi.encryptionType(i) != WIFI_AUTH_OPEN);
     }
 
-    LOG_DBG("WIFI", "Scan result: ssid=%s rssi=%d auth=%s saved=%d", ssid.c_str(), rssi, wifiAuthName(authMode),
+    LOG_DBG("WIFI", "Scan result: ssid=%s rssi=%d auth=%s saved=%d", ssid, rssi, wifiAuthName(authMode),
             WIFI_STORE.hasSavedCredential(ssid));
-  }
-
-  // Convert map to vector
-  networks.clear();
-  for (const auto& pair : uniqueNetworks) {
-    // cppcheck-suppress useStlAlgorithm
-    networks.push_back(pair.second);
   }
 
   // Sort: saved-password networks first, then by signal strength (strongest first)
@@ -605,8 +601,8 @@ void WifiSelectionActivity::loop() {
         // User chose "Forget network" - forget the network
         WIFI_STORE.removeCredential(selectedSSID);
         // Update the network list to reflect the change
-        const auto network = find_if(networks.begin(), networks.end(),
-                                     [this](const WifiNetworkInfo& net) { return net.ssid == selectedSSID; });
+        const auto network = std::find_if(networks.begin(), networks.end(),
+                                          [this](const WifiNetworkInfo& net) { return net.ssid == selectedSSID; });
         if (network != networks.end()) {
           network->hasSavedPassword = false;
         }
