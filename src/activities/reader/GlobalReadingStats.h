@@ -40,6 +40,10 @@ struct GlobalReadingStats {
   // Saves stats to /.crosspoint/global_stats.bin.
   void save() const;
 
+  // Replaces /.crosspoint/global_stats.bin with a fresh empty file without
+  // rotating or deleting any backup files.
+  static bool resetLocal();
+
   void recordReadingSpan(const ReadingStatsDateTime& localStart, uint32_t seconds);
   uint16_t currentReadingStreak(const ReadingStatsDate* today) const;
   uint16_t displayLongestReadingStreak() const;

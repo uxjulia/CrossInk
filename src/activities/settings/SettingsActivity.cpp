@@ -27,6 +27,8 @@
 #include "SettingsList.h"
 #include "StatusBarSettingsActivity.h"
 #include "activities/network/WifiSelectionActivity.h"
+#include "activities/reader/GlobalReadingStats.h"
+#include "activities/util/ConfirmationActivity.h"
 #include "activities/util/IntervalSelectionActivity.h"
 #include "activities/util/OptionSelectionActivity.h"
 #include "components/HeaderDate.h"
@@ -172,6 +174,8 @@ void SettingsActivity::rebuildSettingsLists() {
   systemSettings.clear();
   systemDeviceSettings.clear();
   systemFilesCacheSettings.clear();
+  systemReadingStatsSettings.clear();
+  systemGlobalStatsSettings.clear();
 
   // Pick up any fonts uploaded/deleted over the web server since the last
   // reader activity ran — otherwise the font-family picker shows stale list.
@@ -186,6 +190,8 @@ void SettingsActivity::rebuildSettingsLists() {
   systemSettings = buildSystemSettingsParentList(allSettings);
   systemDeviceSettings = buildSystemDeviceSettingsList(allSettings);
   systemFilesCacheSettings = buildSystemFilesCacheSettingsList(allSettings);
+  systemReadingStatsSettings = buildSystemReadingStatsSettingsList(allSettings);
+  systemGlobalStatsSettings = buildSystemGlobalStatsSettingsList(allSettings);
   controlsSettings = buildControlsSettingsParentList(allSettings);
   controlsPowerSettings = buildControlsPowerSettingsList(allSettings);
   controlsFrontButtonSettings = buildControlsFrontButtonSettingsList(allSettings);
@@ -244,6 +250,12 @@ void SettingsActivity::setCurrentSettingsForCategory() {
         case SettingAction::SystemFilesCache:
           currentSettings = &systemFilesCacheSettings;
           break;
+        case SettingAction::SystemReadingStats:
+          currentSettings = &systemReadingStatsSettings;
+          break;
+        case SettingAction::SystemGlobalStats:
+          currentSettings = &systemGlobalStatsSettings;
+          break;
         default:
           currentSettings = &systemSettings;
           break;
@@ -256,6 +268,7 @@ void SettingsActivity::setCurrentSettingsForCategory() {
 void SettingsActivity::enterCategory(int categoryIndex) {
   selectedCategoryIndex = categoryIndex;
   activeSubmenu = SettingAction::None;
+  parentSubmenu = SettingAction::None;
   setCurrentSettingsForCategory();
 }
 
@@ -277,12 +290,17 @@ StrId SettingsActivity::activeSubmenuTitleId() const {
       return StrId::STR_SYSTEM_DEVICE;
     case SettingAction::SystemFilesCache:
       return StrId::STR_SYSTEM_FILES_CACHE;
+    case SettingAction::SystemReadingStats:
+      return StrId::STR_READING_STATS;
+    case SettingAction::SystemGlobalStats:
+      return StrId::STR_ALL_TIME_STATS;
     default:
       return StrId::STR_NONE_OPT;
   }
 }
 
 void SettingsActivity::openSubmenu(SettingAction action) {
+  parentSubmenu = activeSubmenu;
   activeSubmenu = action;
   setCurrentSettingsForCategory();
   selectedSettingIndex = 1;
@@ -293,7 +311,8 @@ void SettingsActivity::openSubmenu(SettingAction action) {
 }
 
 void SettingsActivity::closeSubmenu() {
-  activeSubmenu = SettingAction::None;
+  activeSubmenu = parentSubmenu;
+  parentSubmenu = SettingAction::None;
   setCurrentSettingsForCategory();
   selectedSettingIndex = 1;
 }
@@ -389,6 +408,7 @@ void SettingsActivity::onEnter() {
   selectedCategoryIndex = 0;
   selectedSettingIndex = 0;
   activeSubmenu = SettingAction::None;
+  parentSubmenu = SettingAction::None;
   preserveQuickResumeTimeoutOn =
       SETTINGS.quickResumeSleepScreen == CrossPointSettings::QUICK_RESUME_SLEEP_SCREEN::QUICK_RESUME_AFTER_TIMEOUT;
   quickResumeTimeoutAutoEnabled = false;
@@ -586,6 +606,17 @@ void SettingsActivity::toggleCurrentSetting() {
       case SettingAction::BackupStats:
         startActivityForResult(std::make_unique<BackupStatsActivity>(renderer, mappedInput), resultHandler);
         break;
+      case SettingAction::ResetGlobalStats:
+        startActivityForResult(
+            std::make_unique<ConfirmationActivity>(renderer, mappedInput, tr(STR_RESET_ALL_TIME_STATS),
+                                                   tr(STR_RESET_ALL_TIME_STATS_CONFIRM)),
+            [this](const ActivityResult& result) {
+              if (!result.isCancelled && !GlobalReadingStats::resetLocal()) {
+                LOG_ERR("SET", "Failed to reset all-time reading stats");
+              }
+              requestUpdate();
+            });
+        break;
       case SettingAction::ClearCache:
         startActivityForResult(std::make_unique<ClearCacheActivity>(renderer, mappedInput), resultHandler);
         break;
@@ -615,6 +646,8 @@ void SettingsActivity::toggleCurrentSetting() {
       case SettingAction::ControlsSideButtons:
       case SettingAction::SystemDevice:
       case SettingAction::SystemFilesCache:
+      case SettingAction::SystemReadingStats:
+      case SettingAction::SystemGlobalStats:
       case SettingAction::DisplaySleepScreen:
       case SettingAction::None:
         // Do nothing

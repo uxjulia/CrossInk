@@ -9,11 +9,14 @@
 - File Browser long-press folder action for choosing a custom sleep-image folder instead of only `/.sleep` or `/sleep`.
 - Additional X3 reading stats, including reading streaks, time-of-day and day-of-week charts, and editable started/finished book dates.
 - X3-only `Minimal Stats` sleep screen option that reuses the Minimal layout and adds streak and reader-type stats.
-- `Backup Global Reading Stats` in Settings > System > Files & Cache, plus automatic X3 daily backups in `/.crossink-stats-backup/` so cumulative stats survive `/.crosspoint/` cleanup.
+- Reading Stats backup controls, plus automatic X3 daily backups in `/.crossink-stats-backup/` so cumulative stats survive `/.crosspoint/` cleanup.
+- All-time Reading Stats can now be reset from `Settings > System > Reading Stats > All-time Stats > Reset All-time Stats`
 - `Reset Reading Pace` in the EPUB reader menu when Time Left is enabled, for clearing only the time-left pace estimate while keeping book reading stats.
 
 ### Changed
 - Display, Reader, and Controls settings now open choice menus instead of cycling through options one by one.
+- Reading Stats backup controls now live under Settings > System > Reading Stats > All-time Stats, with the manual backup action labeled `Backup Now`.
+
 - Web portal pages now use shared templates, stylesheet, and logo assets, reducing on-device page size and improving browser caching.
 - Already-cached EPUBs now open directly to the first page without an extra book-loading popup refresh. First-time opens still show the popup while the cache is built.
 - EPUB silent next-chapter indexing diagnostics now report trigger timing, existing caches, and low-memory skips.
