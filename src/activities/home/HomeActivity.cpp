@@ -1485,7 +1485,8 @@ void HomeActivity::render(RenderLock&&) {
       minimalHomeNavIndex = homeNavCount - 1;
     }
     MinimalTheme::setHomeButtonHintSelection(minimalHomeNavIndex);
-    GUI.drawButtonHints(renderer, "Menu", "Browse", "Settings", recentBooks.empty() ? "" : "Read");
+    GUI.drawButtonHints(renderer, tr(STR_MENU), tr(STR_BROWSE), tr(STR_SETTINGS_SHORT),
+                        recentBooks.empty() ? "" : tr(STR_READ));
 
     renderer.displayBuffer();
 
