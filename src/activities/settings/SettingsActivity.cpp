@@ -359,30 +359,33 @@ void SettingsActivity::openEnumOptionPicker(const SettingInfo& setting) {
   if (currentIndex >= optionCount) currentIndex = 0;
 
   const SettingInfo selectedSetting = setting;
-  startActivityForResult(std::make_unique<OptionSelectionActivity>(renderer, mappedInput, "SettingsOptionSelect",
-                                                                   setting.nameId, std::move(options), currentIndex),
-                         [this, selectedSetting](const ActivityResult& result) {
-                           if (result.isCancelled) {
-                             requestUpdate();
-                             return;
-                           }
+  startActivityForResult(
+      std::make_unique<OptionSelectionActivity>(renderer, mappedInput, "SettingsOptionSelect", setting.nameId,
+                                                std::move(options), currentIndex),
+      [this, selectedSetting](const ActivityResult& result) {
+        if (result.isCancelled) {
+          requestUpdate();
+          return;
+        }
 
-                           const auto* selection = std::get_if<OptionSelectionResult>(&result.data);
-                           if (selection == nullptr) {
-                             requestUpdate();
-                             return;
-                           }
+        const auto* selection = std::get_if<OptionSelectionResult>(&result.data);
+        if (selection == nullptr) {
+          requestUpdate();
+          return;
+        }
 
-                           if (selectedSetting.valuePtr != nullptr) {
-                             SETTINGS.*(selectedSetting.valuePtr) =
-                                 enumRawValueForDisplayIndex(selectedSetting, selection->index);
-                           } else if (selectedSetting.valueSetter) {
-                             selectedSetting.valueSetter(selection->index);
-                           }
+        if (selectedSetting.valuePtr != nullptr) {
+          SETTINGS.*(selectedSetting.valuePtr) = enumRawValueForDisplayIndex(selectedSetting, selection->index);
+        } else if (selectedSetting.valueSetter) {
+          selectedSetting.valueSetter(selection->index);
+        }
 
-                           SETTINGS.saveToFile();
-                           requestUpdate();
-                         });
+        const bool sleepScreenChanged = selectedSetting.valuePtr == &CrossPointSettings::sleepScreen;
+        const bool quickResumeTimeoutChanged = selectedSetting.valuePtr == &CrossPointSettings::quickResumeSleepScreen;
+        syncQuickResumeTimeoutForSleepScreen(sleepScreenChanged, quickResumeTimeoutChanged);
+        SETTINGS.saveToFile();
+        requestUpdate();
+      });
 }
 
 void SettingsActivity::openScreenMarginPicker(const SettingInfo& setting) {
