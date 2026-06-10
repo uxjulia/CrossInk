@@ -1,41 +1,31 @@
 # Changelog
 
-## [Unreleased]
+## [v1.3.2] - 2026-06-10
 
 ### Added
 - Current date in the top-right Settings header on X3 devices.
-- Dark Reader Mode for EPUB and TXT reading screens.
-- Dark Mode shortcut option for power-button actions and the front-button long-press menu action.
+- Dark Reader Mode for EPUB and TXT reading screens, plus shortcut actions for the power button and front-button long press.
 - File Browser long-press folder action for choosing a custom sleep-image folder instead of only `/.sleep` or `/sleep`.
-- Additional X3 reading stats, including reading streaks, time-of-day and day-of-week charts, and editable started/finished book dates.
-- X3-only `Minimal Stats` sleep screen option that reuses the Minimal layout and adds streak and reader-type stats.
-- Reading Stats settings under Settings > System, including All-time Stats backups, `Backup Now`, `Reset All-time Stats`, and an idle time threshold.
-- Reading Stats backups get added to `/.crossink-stats-backup/` so cumulative stats survive `/.crosspoint/` cleanup.
+- Expanded X3 Reading Stats, including streaks, time charts, editable dates, all-time backups, reset controls, an idle-time threshold, and the `Minimal Stats` sleep screen.
 - `Reset Reading Pace` in the EPUB reader menu when Time Left is enabled, for clearing only the time-left pace estimate while keeping book reading stats.
 
 ### Changed
-- Display, Reader, and Controls settings now open choice menus instead of cycling through options one by one.
-- Reading time and time-left pace tracking now ignore page intervals longer than the configured idle time threshold.
+- Display, Reader, and Controls settings now open list menus instead of cycling through options one by one.
+- Reading time and time-left pace tracking now ignore page intervals longer than the configured idle-time threshold.
 - Web portal pages now use shared templates, stylesheet, and logo assets, reducing on-device page size and improving browser caching.
-- Already-cached EPUBs now open directly to the first page without an extra book-loading popup refresh. First-time opens still show the popup while the cache is built.
-- EPUB silent next-chapter indexing diagnostics now report trigger timing, existing caches, and low-memory skips.
-- Changed Reader font-size choices to show point sizes like `10 pt` instead of names like `Tiny`
+- Already-cached EPUBs now open directly to the first page without an extra book-loading popup refresh.
+- Reader font-size choices now show point sizes like `10 pt` instead of names like `Tiny`.
 
 ### Fixed
-- Restored the missing side-button disable option from upstream CrossPoint.
 - Inverted reader menus now honor orientation-aware side-button navigation.
 - EPUB book time-left estimates now wait for more session pace samples and use a progress-based floor after pace data exists, reducing swings from unusually short or long pages.
 - Deleting an EPUB book cache now preserves that book's reading stats and pace data.
-- X3 clock UTC offset picker now makes the editable sign, hour, and minute fields clearer.
-- `Sync Clock Now` is now `Sync Date/Time` and tries saved WiFi networks automatically if a Wifi network has already been saved instead of stopping with a "connect first" message.
-- Home menu and Lyra Carousel caching now avoid low-memory crash risk on constrained builds.
+- X3 clock settings now have clearer UTC offset editing, and `Sync Date/Time` can use saved WiFi networks automatically.
+- Home, Lyra Carousel, WiFi setup, and SD-card font flows now release memory more aggressively to avoid freezes or crashes on constrained builds.
 - Vietnamese settings labels no longer show replacement diamonds after generated translation offsets shifted.
-- KOReader Sync at chapter starts now land at the proper place instead of a few pages in.
-- KOReader Sync connection problems now show more specific guidance instead of a generic network error.
-- EPUB bookmarks saved under the old unstable path hash now show up again. Also applies to books that were moved to `/Read` folder.
+- KOReader Sync now lands correctly at chapter starts and shows more specific connection guidance.
+- EPUB bookmarks saved under the old unstable path hash now show up again, including for books moved to `/Read`.
 - SD-card font downloads now use versioned direct S3-hosted HTTP endpoints with CRC validation, avoiding GitHub release redirects and ESP32-C3 TLS stalls when loading the font catalog.
-- WiFi activities now release the active SD-card font before starting network services, reducing low-memory freezes when many fonts are installed.
-- Cancelled WiFi selection now turns WiFi fully off after deleting scan results so Settings does not keep network memory allocated.
 - EPUB text blocks now keep the book's alignment style when an inline image appears before the text.
 
 ## [v1.3.1] - 2026-05-28
