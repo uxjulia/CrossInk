@@ -5,6 +5,8 @@ let allSettings = [];
   const SLEEP_SCREEN_MODE = {
     QUICK_RESUME: 6
   };
+  const POWER_BUTTON_FOOTNOTES_DISPLAY_INDEX = 15;
+  const LONG_PRESS_MENU_FOOTNOTES_DISPLAY_INDEX = 14;
 
   function escapeHtml(unsafe) {
     return unsafe
@@ -173,7 +175,9 @@ let allSettings = [];
     const longPressMenuActionVal = getControlValue('longPressMenuAction');
     const pwrBtnFootnoteBackRow = document.getElementById('row-setting-pwrBtnFootnoteBack');
     if (pwrBtnFootnoteBackRow) {
-      if (shortPwrBtnVal === 16 || longPwrBtnVal === 16 || longPressMenuActionVal === 15) {
+      if (shortPwrBtnVal === POWER_BUTTON_FOOTNOTES_DISPLAY_INDEX ||
+          longPwrBtnVal === POWER_BUTTON_FOOTNOTES_DISPLAY_INDEX ||
+          longPressMenuActionVal === LONG_PRESS_MENU_FOOTNOTES_DISPLAY_INDEX) {
         pwrBtnFootnoteBackRow.style.display = '';
       } else {
         pwrBtnFootnoteBackRow.style.display = 'none';
