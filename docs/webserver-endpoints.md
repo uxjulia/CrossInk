@@ -1,7 +1,7 @@
 # Webserver Endpoints
 
 This document describes the HTTP, WebSocket, WebDAV, and discovery endpoints
-available while CrossPoint Reader is in File Transfer or Calibre Wireless mode.
+available while CrossInk is in File Transfer or Calibre Wireless mode.
 
 - HTTP server: port 80
 - WebSocket upload server: port 81
@@ -215,7 +215,7 @@ Example item:
   "category": "Reader",
   "type": "enum",
   "value": 1,
-  "options": ["Small", "Medium", "Large"]
+  "options": ["10 pt", "12 pt", "14 pt", "16 pt"]
 }
 ```
 
@@ -229,6 +229,8 @@ Types:
 | `string` | `value` |
 
 The font-family setting includes SD-card font families when they are installed.
+For enum settings, `value` is the selected option's display index in the
+returned `options` array. It is not necessarily the raw firmware enum value.
 
 ### `POST /api/settings`
 

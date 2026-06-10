@@ -17,17 +17,17 @@ If needed, see [Getting Started](./getting-started.md).
 ./bin/clang-format-fix
 pio check --fail-on-defect low --fail-on-defect medium --fail-on-defect high
 pio run -e simulator
-pio run -e tiny
+pio run -e default
 ```
 
-`pio run` without `-e` builds the release matrix from `platformio.ini` (`tiny`, `xlarge`, and `no_emoji`). Use it before opening broad firmware PRs, but prefer explicit environments while iterating.
+`pio run` without `-e` builds the release matrix from `platformio.ini` (`teensy`, `tiny`, `xlarge`, and `no_emoji`). Use it before opening broad firmware PRs, but prefer explicit environments while iterating.
 
 ## Flash and monitor
 
 Flash firmware:
 
 ```sh
-pio run -e tiny --target upload
+pio run -e default --target upload
 ```
 
 Open serial monitor:

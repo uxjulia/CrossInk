@@ -1,6 +1,6 @@
 # Architecture Overview
 
-CrossPoint is firmware for the Xteink X4 (unaffiliated with Xteink), built with PlatformIO targeting the ESP32-C3 microcontroller.
+CrossInk is firmware for the Xteink X4 and X3, built with PlatformIO targeting the ESP32-C3 microcontroller.
 
 At a high level, it is firmware that uses an activity-driven application architecture loop with persistent settings/state, SD-card-first caching, and a rendering pipeline optimized for e-ink constraints.
 
@@ -48,7 +48,7 @@ In each loop iteration, the firmware updates input, runs the active activity, ha
 ## Activity model
 
 Activities are screen-level controllers deriving from `src/activities/Activity.h`.
-Some flows use `src/activities/ActivityWithSubactivity.h` to host nested activities.
+Nested flows use the `ActivityManager` stack with `startActivityForResult()`, `setResult()`, and `finish()`.
 
 - `onEnter()` and `onExit()` manage setup/teardown
 - `loop()` handles per-frame behavior
@@ -68,18 +68,27 @@ Reader orchestration starts in `src/activities/reader/ReaderActivity.h` and disp
 EPUB processing is implemented in `lib/Epub/`.
 
 ```mermaid
-flowchart LR
+flowchart TD
     A[Select book] --> B[ReaderActivity]
     B --> C{Format}
-    C -->|EPUB| D[lib/Epub/Epub]
-    C -->|XTC| E[lib/Xtc reader]
-    C -->|TXT| F[lib/Txt reader]
-    D --> G[Parse OPF/TOC and collect CSS refs]
-    G --> H[Build/load book.bin and css_rules.cache]
-    H --> I[Layout pages/sections]
-    I --> J[Write section cache]
-    J --> K[Render current page via GfxRenderer]
+    C -->|EPUB| D[EPUB loader]
+    C -->|XTC| X[XTC reader]
+    C -->|TXT| T[TXT reader]
+
+    D --> E[Metadata and TOC]
+    E --> F[CSS rules]
+    F --> G[Section layout]
+    G --> H[Page cache]
+    H --> I[Page model]
+    I --> J[GfxRenderer]
+    J --> K[E-ink display]
+
+    X --> I
+    T --> I
 ```
+
+For EPUBs, the metadata step reads or writes `book.bin`, the CSS step reads or
+writes `css_rules.cache`, and the section layout step writes `sections/*.bin`.
 
 Why caching matters:
 
@@ -127,8 +136,8 @@ Notes:
   streaming ZIP paths under the OPF content base directory; the firmware avoids
   preloading the full ZIP central directory for large books.
 - "section cache exists" depends on cache-busting parameters such as font,
-  viewport size, paragraph alignment, hyphenation, embedded CSS, image rendering,
-  and Focus Reading settings
+  viewport size, paragraph alignment, forced paragraph indents, hyphenation,
+  embedded CSS, image rendering, Bionic Reading, and Guide Dots settings
 - rendering favors reusing precomputed layout data to keep page turns responsive on constrained hardware
 - progress/session state is persisted so the reader can reopen at the last position after reboot/sleep
 
@@ -184,7 +193,7 @@ Endpoint reference: `docs/webserver-endpoints.md`.
 
 Some sources are generated and should not be edited manually.
 
-- `scripts/build_html.py` generates `src/network/html/*.generated.h` from HTML files
+- `scripts/build_web.py` generates `src/network/html/*.generated.h` from the `web/` sources
 - `scripts/gen_i18n.py` generates `lib/I18n/I18nKeys.h`, `I18nStrings.h`, and `I18nStrings.cpp`
 - `scripts/generate_hyphenation_trie.py` generates hyphenation headers under `lib/Epub/Epub/hyphenation/generated/`
 

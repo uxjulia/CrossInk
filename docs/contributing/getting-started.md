@@ -70,15 +70,15 @@ chmod +x .githooks/pre-commit
 
 ```sh
 pio run -e simulator
-pio run -e tiny
+pio run -e default
 ```
 
-`pio run` without an environment builds the release variants listed in `platformio.ini`: `tiny`, `xlarge`, and `no_emoji`.
+`pio run` without an environment builds the release variants listed in `platformio.ini`: `teensy`, `tiny`, `xlarge`, and `no_emoji`.
 
 ## Flash
 
 ```sh
-pio run -e tiny --target upload
+pio run -e default --target upload
 ```
 
 ## First checks before opening a PR

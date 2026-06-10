@@ -28,13 +28,13 @@ This page defines the expected local workflow before opening a pull request.
 ./bin/clang-format-fix
 pio check --fail-on-defect low --fail-on-defect medium --fail-on-defect high
 pio run -e simulator
-pio run -e tiny
+pio run -e default
 ```
 
-CI enforces formatting, static analysis, and the full release build matrix.
+CI enforces formatting, static analysis, and the primary firmware build.
 Use clang-format 21+ locally to match CI.
 If `clang-format` is missing or too old locally, see [Getting Started](./getting-started.md).
-Run plain `pio run` before larger PRs to match CI's firmware build variants (`tiny`, `xlarge`, and `no_emoji`).
+Run plain `pio run` before larger PRs to build the release variants (`teensy`, `tiny`, `xlarge`, and `no_emoji`).
 
 ## 4) Open the PR
 

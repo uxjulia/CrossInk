@@ -1,6 +1,6 @@
 # Web Server Guide
 
-This guide explains how to use CrossPoint Reader's built-in web server for file
+This guide explains how to use CrossInk's built-in web server for file
 transfer, device settings, Wi-Fi/OPDS management, and SD-card font management.
 
 ## Overview

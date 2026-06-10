@@ -90,21 +90,25 @@ if (parsedSize != fileSize) {
 
 ## `section.bin`
 
-### Version 25
+### Version 40
 
 Each file in `sections/*.bin` stores one laid-out spine section. The header is
 also the cache-busting key: if any layout-affecting setting differs from the
 current reader settings, the section is discarded and rebuilt.
 
-Version 25 includes:
+Version 40 includes:
 
-- cache-busting fields for paragraph alignment, hyphenation, embedded CSS,
-  image rendering mode, and Focus Reading
+- cache-busting fields for font, line compression, extra paragraph spacing,
+  forced paragraph indents, paragraph alignment, viewport size, hyphenation,
+  embedded CSS, image rendering mode, Bionic Reading, and Guide Dots
 - page offset LUT
 - anchor-to-page map for fragment and footnote navigation
 - paragraph and list-item LUTs used by KOReader sync page refinement
-- optional per-word Focus Reading split metadata
+- optional per-word Bionic Reading split metadata
+- optional per-word Guide Dot x-offset metadata
+- table fragments
 - per-page footnote entries
+- per-page publisher page markers
 
 ImHex pattern:
 
@@ -113,7 +117,7 @@ import std.mem;
 import std.string;
 import std.core;
 
-#define EXPECTED_VERSION 25
+#define EXPECTED_VERSION 40
 #define MAX_STRING_LENGTH 65535
 #define FOOTNOTE_NUMBER_LEN 32
 #define FOOTNOTE_HREF_LEN 96
@@ -133,7 +137,8 @@ fn format_string(String s) {
 enum PageElementTag : u8 {
     TAG_PageLine = 1,
     TAG_PageImage = 2,
-    TAG_PageHorizontalRule = 3
+    TAG_PageTableFragment = 3,
+    TAG_PageHorizontalRule = 4
 };
 
 enum WordStyle : u8 {
@@ -184,6 +189,11 @@ struct TextBlock {
         u16 wordFocusSuffixX[wordCount] [[comment("Suffix x offset from word start")]];
     }
 
+    u8 hasGuideDots;
+    if (hasGuideDots != 0) {
+        u16 wordGuideDotXOffset[wordCount] [[comment("Guide dot x offset from word start; 0 means no dot")]];
+    }
+
     BlockStyle blockStyle;
 };
 
@@ -212,12 +222,38 @@ struct PageHorizontalRule {
     u8 thickness;
 };
 
+struct TableFragmentCell {
+    bool isHeader;
+    u8 lineCount;
+    TextBlock lines[lineCount];
+};
+
+struct TableFragmentRow {
+    u16 height;
+    bool headerSeparator;
+    u8 cellCount;
+    TableFragmentCell cells[cellCount];
+};
+
+struct PageTableFragment {
+    s16 xPos;
+    s16 yPos;
+    u16 width;
+    u8 columnCount;
+    u8 cellPadding;
+    u16 lineHeight;
+    u8 rowCount;
+    TableFragmentRow rows[rowCount];
+};
+
 struct PageElement {
     PageElementTag pageElementType;
     if (pageElementType == TAG_PageLine) {
         PageLine pageLine [[inline]];
     } else if (pageElementType == TAG_PageImage) {
         PageImage pageImage [[inline]];
+    } else if (pageElementType == TAG_PageTableFragment) {
+        PageTableFragment tableFragment [[inline]];
     } else if (pageElementType == TAG_PageHorizontalRule) {
         PageHorizontalRule horizontalRule [[inline]];
     } else {
@@ -230,12 +266,20 @@ struct FootnoteEntry {
     char href[FOOTNOTE_HREF_LEN];
 };
 
+struct PublisherPageMarker {
+    s16 yPos;
+    char label[16];
+};
+
 struct Page {
     u16 elementCount;
     PageElement elements[elementCount] [[inline]];
 
     u16 footnoteCount;
     FootnoteEntry footnotes[footnoteCount];
+
+    u8 publisherPageMarkerCount;
+    PublisherPageMarker publisherPageMarkers[publisherPageMarkerCount];
 };
 
 struct AnchorEntry {
@@ -262,13 +306,15 @@ struct SectionBin {
     s32 fontId;
     float lineCompression;
     bool extraParagraphSpacing;
+    bool forceParagraphIndents;
     u8 paragraphAlignment;
     u16 viewportWidth;
     u16 viewportHeight;
     bool hyphenationEnabled;
     bool embeddedStyle;
     u8 imageRendering;
-    bool focusReadingEnabled;
+    bool bionicReadingEnabled;
+    bool guideReadingEnabled;
 
     u16 pageCount;
     u32 pageLutOffset;
