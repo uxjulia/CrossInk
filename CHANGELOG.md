@@ -11,6 +11,7 @@
 
 ### Fixed
 - Book settings option lists now return to the submenu they were opened from when pressing Back.
+- Lyra Carousel now refreshes its cached Home icon row after OPDS, Reading Stats, or Bookmarks icons appear or disappear.
 - File Browser now previews PNG images instead of trying to open them as EPUBs, and hides macOS `._*` sidecar files.
 - Sleep Screen > Cover now generates the current book cover on demand instead of falling back to the dark sleep screen when the setting is changed after opening a book.
 - File Browser now previews PNG images instead of trying to open them as EPUBs, and hides common macOS and Windows metadata files.

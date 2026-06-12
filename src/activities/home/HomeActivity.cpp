@@ -376,9 +376,23 @@ void appendSyncedStatsStateToKey(std::string& key) {
   dir.close();
 }
 
-void buildCarouselCacheKey(const std::vector<RecentBook>& recentBooks, std::string& key, uint64_t& keyHash) {
+void appendCarouselMenuStateToKey(std::string& key, const bool hasOpdsServers, const bool hasReadingStats,
+                                  const bool hasBookmarks) {
+  key += hasOpdsServers ? "opds:1" : "opds:0";
+  key += '\0';
+  key += hasReadingStats ? "stats:1" : "stats:0";
+  key += '\0';
+  key += hasBookmarks ? "bookmarks:1" : "bookmarks:0";
+  key += '\0';
+}
+
+void buildCarouselCacheKey(const std::vector<RecentBook>& recentBooks, const bool hasOpdsServers,
+                           const bool hasReadingStats, const bool hasBookmarks, std::string& key, uint64_t& keyHash) {
   key.clear();
   key.reserve(512);
+  // The carousel cache stores the bottom icon row too, so menu visibility must
+  // be part of the key alongside book covers/progress.
+  appendCarouselMenuStateToKey(key, hasOpdsServers, hasReadingStats, hasBookmarks);
   for (const auto& book : recentBooks) {
     appendCarouselCoverStateToKey(key, book);
   }
@@ -406,13 +420,14 @@ bool readCarouselCacheHeader(FsFile& file, CarouselCacheHeader& header) {
   return true;
 }
 
-bool hasValidCarouselDiskCache(const std::vector<RecentBook>& recentBooks, const GfxRenderer& renderer) {
+bool hasValidCarouselDiskCache(const std::vector<RecentBook>& recentBooks, const GfxRenderer& renderer,
+                               const bool hasOpdsServers, const bool hasReadingStats, const bool hasBookmarks) {
   const int bookCount = static_cast<int>(recentBooks.size());
   if (bookCount <= 0) return false;
 
   std::string cacheKey;
   uint64_t cacheKeyHash = 0;
-  buildCarouselCacheKey(recentBooks, cacheKey, cacheKeyHash);
+  buildCarouselCacheKey(recentBooks, hasOpdsServers, hasReadingStats, hasBookmarks, cacheKey, cacheKeyHash);
 
   FsFile cacheFile;
   if (!Storage.openFileForRead("HOME", CAROUSEL_CACHE_PATH, cacheFile)) {
@@ -786,7 +801,8 @@ void HomeActivity::onEnter() {
     }
   }
 
-  if (isCarouselTheme && hasValidCarouselDiskCache(recentBooks, renderer)) {
+  if (isCarouselTheme &&
+      hasValidCarouselDiskCache(recentBooks, renderer, hasOpdsServers, hasReadingStats, hasBookmarks)) {
     preRenderCarouselFrames(false);
   }
 
@@ -1170,7 +1186,7 @@ bool HomeActivity::preRenderCarouselFrames(bool showProgressPopup) {
   // reuse a stale snapshot built before carousel-sized thumbs existed.
   std::string newKey;
   uint64_t newKeyHash = 0;
-  buildCarouselCacheKey(recentBooks, newKey, newKeyHash);
+  buildCarouselCacheKey(recentBooks, hasOpdsServers, hasReadingStats, hasBookmarks, newKey, newKeyHash);
 
   // Cache hit: same books in same order — reuse without any SD reads
   if (newKey == gCarouselCache.key && gCarouselCache.frameCount > 0) {
