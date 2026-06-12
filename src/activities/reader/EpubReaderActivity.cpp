@@ -236,6 +236,46 @@ uint8_t effectiveReaderLeftMargin() {
                                        : SETTINGS.screenMargin;
 }
 
+struct ReaderViewportLayout {
+  int marginTop;
+  int marginRight;
+  int marginBottom;
+  int marginLeft;
+  uint16_t viewportWidth;
+  uint16_t viewportHeight;
+};
+
+ReaderViewportLayout computeReaderViewportLayout(GfxRenderer& renderer, const bool automaticPageTurnActive) {
+  ReaderViewportLayout layout{};
+  renderer.getOrientedViewableTRBL(&layout.marginTop, &layout.marginRight, &layout.marginBottom, &layout.marginLeft);
+  layout.marginLeft += effectiveReaderLeftMargin();
+  layout.marginRight += SETTINGS.screenMargin;
+
+  const uint8_t statusBarHeight = UITheme::getInstance().getStatusBarHeight();
+  const int topStatusBarReservedHeight = ReaderUtils::getTopClockStatusBarReservedHeight();
+  if (topStatusBarReservedHeight > 0) {
+    layout.marginTop += std::max(static_cast<int>(SETTINGS.screenMargin),
+                                 topStatusBarReservedHeight + ReaderUtils::STATUS_BAR_TEXT_PADDING);
+  } else {
+    layout.marginTop += SETTINGS.screenMargin;
+  }
+
+  if (automaticPageTurnActive &&
+      (statusBarHeight == 0 || statusBarHeight == UITheme::getInstance().getProgressBarHeight())) {
+    layout.marginBottom +=
+        std::max(SETTINGS.screenMargin,
+                 static_cast<uint8_t>(statusBarHeight + UITheme::getInstance().getMetrics().statusBarVerticalMargin +
+                                      ReaderUtils::STATUS_BAR_TEXT_PADDING));
+  } else {
+    layout.marginBottom +=
+        std::max(SETTINGS.screenMargin, static_cast<uint8_t>(statusBarHeight + ReaderUtils::STATUS_BAR_TEXT_PADDING));
+  }
+
+  layout.viewportWidth = renderer.getScreenWidth() - layout.marginLeft - layout.marginRight;
+  layout.viewportHeight = renderer.getScreenHeight() - layout.marginTop - layout.marginBottom;
+  return layout;
+}
+
 bool releaseReaderSdFontCachesForLowMemory(const GfxRenderer& renderer, const char* tag, const char* reason) {
   const int fontId = SETTINGS.getReaderFontId();
   if (!renderer.isSdCardFont(fontId)) {
@@ -2326,36 +2366,9 @@ void EpubReaderActivity::render(RenderLock&& lock) {
     return;
   }
 
-  // Apply screen viewable areas and additional padding
-  int orientedMarginTop, orientedMarginRight, orientedMarginBottom, orientedMarginLeft;
-  renderer.getOrientedViewableTRBL(&orientedMarginTop, &orientedMarginRight, &orientedMarginBottom,
-                                   &orientedMarginLeft);
-  orientedMarginLeft += effectiveReaderLeftMargin();
-  orientedMarginRight += SETTINGS.screenMargin;
-
-  const uint8_t statusBarHeight = UITheme::getInstance().getStatusBarHeight();
-  const int topStatusBarReservedHeight = ReaderUtils::getTopClockStatusBarReservedHeight();
-  if (topStatusBarReservedHeight > 0) {
-    orientedMarginTop += std::max(static_cast<int>(SETTINGS.screenMargin),
-                                  topStatusBarReservedHeight + ReaderUtils::STATUS_BAR_TEXT_PADDING);
-  } else {
-    orientedMarginTop += SETTINGS.screenMargin;
-  }
-
-  // reserves space for automatic page turn indicator when no status bar or progress bar only
-  if (automaticPageTurnActive &&
-      (statusBarHeight == 0 || statusBarHeight == UITheme::getInstance().getProgressBarHeight())) {
-    orientedMarginBottom +=
-        std::max(SETTINGS.screenMargin,
-                 static_cast<uint8_t>(statusBarHeight + UITheme::getInstance().getMetrics().statusBarVerticalMargin +
-                                      ReaderUtils::STATUS_BAR_TEXT_PADDING));
-  } else {
-    orientedMarginBottom +=
-        std::max(SETTINGS.screenMargin, static_cast<uint8_t>(statusBarHeight + ReaderUtils::STATUS_BAR_TEXT_PADDING));
-  }
-
-  const uint16_t viewportWidth = renderer.getScreenWidth() - orientedMarginLeft - orientedMarginRight;
-  const uint16_t viewportHeight = renderer.getScreenHeight() - orientedMarginTop - orientedMarginBottom;
+  const ReaderViewportLayout layout = computeReaderViewportLayout(renderer, automaticPageTurnActive);
+  const uint16_t viewportWidth = layout.viewportWidth;
+  const uint16_t viewportHeight = layout.viewportHeight;
 
   if (!section) {
     const auto filepath = epub->getSpineItem(currentSpineIndex).href;
@@ -2623,8 +2636,8 @@ void EpubReaderActivity::render(RenderLock&& lock) {
 
     const auto start = millis();
     const int renderFontId = activeSectionFontId != 0 ? activeSectionFontId : SETTINGS.getReaderFontId();
-    renderContents(std::move(p), renderFontId, orientedMarginTop, orientedMarginRight, orientedMarginBottom,
-                   orientedMarginLeft);
+    renderContents(std::move(p), renderFontId, layout.marginTop, layout.marginRight, layout.marginBottom,
+                   layout.marginLeft);
     pageShownAtMs = millis();
     LOG_DBG("ERS", "Rendered page in %dms", millis() - start);
   }
@@ -3042,17 +3055,9 @@ bool EpubReaderActivity::drawCurrentPageToBuffer(const std::string& filePath, Gf
   // Apply the reader orientation so margins match what the reader would produce
   ReaderUtils::applyOrientation(renderer, SETTINGS.orientation);
 
-  // Compute margins exactly as render() does
-  int marginTop, marginRight, marginBottom, marginLeft;
-  renderer.getOrientedViewableTRBL(&marginTop, &marginRight, &marginBottom, &marginLeft);
-  marginTop += SETTINGS.screenMargin;
-  marginLeft += effectiveReaderLeftMargin();
-  marginRight += SETTINGS.screenMargin;
-  const uint8_t statusBarHeight = UITheme::getInstance().getStatusBarHeight();
-  marginBottom += std::max(SETTINGS.screenMargin, statusBarHeight);
-
-  const uint16_t viewportWidth = renderer.getScreenWidth() - marginLeft - marginRight;
-  const uint16_t viewportHeight = renderer.getScreenHeight() - marginTop - marginBottom;
+  const ReaderViewportLayout layout = computeReaderViewportLayout(renderer, /*automaticPageTurnActive=*/false);
+  const uint16_t viewportWidth = layout.viewportWidth;
+  const uint16_t viewportHeight = layout.viewportHeight;
 
   // Load or rebuild the section cache. Rebuilding is needed when the cache is missing or stale
   // (e.g. after a firmware update). A no-op popup callback avoids any UI during sleep preparation.
@@ -3143,8 +3148,8 @@ bool EpubReaderActivity::drawCurrentPageToBuffer(const std::string& filePath, Gf
   }
 
   renderer.clearScreen(ReaderUtils::readerBackgroundColor());
-  page->render(renderer, renderFontId, marginLeft, marginTop, ReaderUtils::readerForegroundBlack());
-  drawPublisherPageMarkers(renderer, *page, marginTop, renderer.getScreenHeight() - marginBottom,
+  page->render(renderer, renderFontId, layout.marginLeft, layout.marginTop, ReaderUtils::readerForegroundBlack());
+  drawPublisherPageMarkers(renderer, *page, layout.marginTop, renderer.getScreenHeight() - layout.marginBottom,
                            ReaderUtils::readerForegroundBlack());
   // No displayBuffer call; caller (SleepActivity) handles that after compositing the overlay.
   return true;
