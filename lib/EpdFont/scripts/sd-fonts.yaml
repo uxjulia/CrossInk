@@ -219,10 +219,10 @@ families:
     intervals: latin-ext,greek,cyrillic,georgian,armenian,ethiopic
     sizes: [8, 9, 10, 12, 14, 16, 18, 20]
     styles:
-      regular:    {path: "builtinFonts/source/NotoSans/NotoSans-Regular.ttf"}
-      bold:       {path: "builtinFonts/source/NotoSans/NotoSans-Bold.ttf"}
-      italic:     {path: "builtinFonts/source/NotoSans/NotoSans-Italic.ttf"}
-      bolditalic: {path: "builtinFonts/source/NotoSans/NotoSans-BoldItalic.ttf"}
+      regular:    {path: "https://raw.githubusercontent.com/uxjulia/crossink-fonts/main/fonts/NotoSans/NotoSans-Regular.ttf"}
+      bold:       {path: "https://raw.githubusercontent.com/uxjulia/crossink-fonts/main/fonts/NotoSans/NotoSans-Bold.ttf"}
+      italic:     {path: "https://raw.githubusercontent.com/uxjulia/crossink-fonts/main/fonts/NotoSans/NotoSans-Italic.ttf"}
+      bolditalic: {path: "https://raw.githubusercontent.com/uxjulia/crossink-fonts/main/fonts/NotoSans/NotoSans-BoldItalic.ttf"}
 
   - name: SourceSans3
     description: "Adobe humanist sans-serif"
@@ -266,10 +266,10 @@ families:
     intervals: latin-ext
     sizes: [8, 10, 12, 14]
     styles:
-      regular:    {path: "builtinFonts/source/OpenDyslexic/OpenDyslexic-Regular.otf"}
-      bold:       {path: "builtinFonts/source/OpenDyslexic/OpenDyslexic-Bold.otf"}
-      italic:     {path: "builtinFonts/source/OpenDyslexic/OpenDyslexic-Italic.otf"}
-      bolditalic: {path: "builtinFonts/source/OpenDyslexic/OpenDyslexic-BoldItalic.otf"}
+      regular:    {path: "https://raw.githubusercontent.com/uxjulia/crossink-fonts/main/fonts/OpenDyslexic/OpenDyslexic-Regular.otf"}
+      bold:       {path: "https://raw.githubusercontent.com/uxjulia/crossink-fonts/main/fonts/OpenDyslexic/OpenDyslexic-Bold.otf"}
+      italic:     {path: "https://raw.githubusercontent.com/uxjulia/crossink-fonts/main/fonts/OpenDyslexic/OpenDyslexic-Italic.otf"}
+      bolditalic: {path: "https://raw.githubusercontent.com/uxjulia/crossink-fonts/main/fonts/OpenDyslexic/OpenDyslexic-BoldItalic.otf"}
 
   # ── Accessibility ──────────────────────────────────────────────────────
 
