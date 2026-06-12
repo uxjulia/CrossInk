@@ -432,6 +432,7 @@ class CrossPointSettings {
   static CrossPointSettings& getInstance() { return instance; }
 
   static constexpr uint16_t POWER_BUTTON_WAKE_SHORT_MS = 10;
+  static constexpr uint16_t POWER_BUTTON_WAKE_LONG_MS = 200;
   static constexpr uint16_t POWER_BUTTON_LONG_PRESS_MS = 400;
   static constexpr uint8_t MIN_SLEEP_TIMEOUT_MINUTES = 1;
   static constexpr uint8_t SLEEP_TIMEOUT_NEVER_MINUTES = 31;
@@ -453,7 +454,7 @@ class CrossPointSettings {
 
   uint16_t getPowerButtonWakeDuration() const {
     return (shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::SLEEP) ? POWER_BUTTON_WAKE_SHORT_MS
-                                                                    : POWER_BUTTON_LONG_PRESS_MS;
+                                                                    : POWER_BUTTON_WAKE_LONG_MS;
   }
 
   bool shouldShowClockInReader() const { return hideClock == HIDE_CLOCK_NEVER; }
