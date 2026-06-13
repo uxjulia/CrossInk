@@ -753,7 +753,8 @@ void FileBrowserActivity::render(RenderLock&&) {
         [this](int index) { return getFileName(files[index]); }, compactRowMarker,
         [this](int index) { return UITheme::getFileIcon(files[index]); },
         [this](int index) {
-          const std::string extension = getFileExtension(files[index]);
+          const std::string extension =
+              SETTINGS.hideFileExtension != 0 ? std::string() : getFileExtension(files[index]);
           const std::string fullPath = buildFullPath(basepath, files[index]);
           if (files[index].back() == '/' && isPreferredSleepFolder(fullPath)) {
             return std::string("*");
