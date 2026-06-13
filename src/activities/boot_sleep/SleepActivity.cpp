@@ -397,9 +397,8 @@ void SleepActivity::onEnter() {
     return renderLastScreenSleepScreen();
   }
 
-  overlayPageBufferStored = SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::OVERLAY &&
-                            APP_STATE.lastSleepFromReader && renderer.storeBwBuffer();
-  overlayPageBufferTrusted = overlayPageBufferStored && canSnapshotOverlayBackground;
+  overlayBackgroundBufferStored =
+      SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::OVERLAY && renderer.storeBwBuffer();
 
   // Show the popup in the reader's orientation when sleep starts from an open book.
   // Reset to portrait afterwards so the sleep screen renderer keeps its existing layout.
@@ -688,7 +687,10 @@ void SleepActivity::renderOverlaySleepScreen() const {
   renderer.setOrientation(GfxRenderer::Portrait);
   const auto pageWidth = renderer.getScreenWidth();
   const auto pageHeight = renderer.getScreenHeight();
-  const auto& path = APP_STATE.openEpubPath;
+  const bool shouldUseReaderPageBackground = canSnapshotOverlayBackground;
+  const std::string path = shouldUseReaderPageBackground
+                               ? (currentBookPath.empty() ? APP_STATE.openEpubPath : currentBookPath)
+                               : std::string{};
 
   auto renderSavedReaderPage = [&]() -> bool {
     if (path.empty()) {
@@ -709,31 +711,31 @@ void SleepActivity::renderOverlaySleepScreen() const {
   const bool backgroundSupportsGrayscale =
       FsHelpers::checkFileExtension(path, ".txt") || FsHelpers::checkFileExtension(path, ".epub");
   bool backgroundWasRebuilt = false;
+  bool backgroundAvailable = false;
 
-  // Step 1: Ensure the frame buffer contains only the reader page.
-  // When sleeping from the reader, restore the page snapshot taken before the
-  // popup was drawn. Otherwise, rebuild from the saved position.
-  if (overlayPageBufferTrusted) {
+  // Step 1: Restore the screen that was visible before the sleep popup. When
+  // that snapshot is unavailable in the reader, rebuild from the saved position.
+  if (overlayBackgroundBufferStored) {
     renderer.restoreBwBuffer();
-  } else if (!path.empty()) {
+    backgroundAvailable = true;
+  } else if (shouldUseReaderPageBackground && !path.empty()) {
     backgroundWasRebuilt = renderSavedReaderPage();
+    backgroundAvailable = backgroundWasRebuilt;
 
     if (!backgroundWasRebuilt) {
-      if (overlayPageBufferStored) {
-        LOG_DBG("SLP", "Page re-render failed, using captured screen as overlay fallback");
-        renderer.restoreBwBuffer();
-      } else {
-        LOG_DBG("SLP", "Page re-render failed, using white background");
-        renderer.clearScreen();
-      }
+      LOG_DBG("SLP", "Page re-render failed, using white background");
+      renderer.clearScreen();
     }
   } else {
+    LOG_DBG("SLP", "No current screen snapshot available for overlay sleep screen");
     renderer.clearScreen();
   }
 
   // Remove the live battery strip from the preserved/reconstructed reader page so the
   // overlay sleep screen still shows chapter/progress details without the battery glance target.
-  hideOverlayBatteryStrip(renderer);
+  if (shouldUseReaderPageBackground && backgroundAvailable) {
+    hideOverlayBatteryStrip(renderer);
+  }
 
   // Step 2: Load the overlay image using the same selection logic as renderCustomSleepScreen.
   // BMP: white pixels are skipped (transparent via drawBitmap), black pixels composited on top.
@@ -875,12 +877,17 @@ void SleepActivity::renderOverlaySleepScreen() const {
       renderer.setOrientation(savedOrientation);
       return renderDefaultSleepScreen();
     }
-    LOG_DBG("SLP", "No overlay image found, displaying page without overlay");
+    if (!backgroundAvailable) {
+      LOG_DBG("SLP", "No overlay image or current screen snapshot available, falling back to default sleep screen");
+      renderer.setOrientation(savedOrientation);
+      return renderDefaultSleepScreen();
+    }
+    LOG_DBG("SLP", "No overlay image found, displaying background without overlay");
   }
 
   renderer.setOrientation(savedOrientation);
-  const bool shouldRunGrayscalePass =
-      backgroundSupportsGrayscale && (backgroundWasRebuilt || (overlayPageBufferTrusted && !path.empty()));
+  const bool shouldRunGrayscalePass = shouldUseReaderPageBackground && backgroundSupportsGrayscale &&
+                                      (backgroundWasRebuilt || (overlayBackgroundBufferStored && !path.empty()));
   renderer.displayBuffer(HalDisplay::HALF_REFRESH, !shouldRunGrayscalePass && TURN_OFF_SCREEN_AFTER_SLEEP_REFRESH);
 
   if (!shouldRunGrayscalePass) {

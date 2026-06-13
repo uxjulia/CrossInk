@@ -21,6 +21,7 @@
 - File Browser now stops loading oversized folders before low memory can crash the device and shows a memory error instead.
 - SD-card font read failures no longer risk a reboot while cleaning up the failed file read.
 - Page Overlay sleep screens no longer force EPUB chapters to re-index after waking.
+- Page Overlay sleep screens now use the current screen as the overlay background outside the reader instead of trying to rebuild a stale book page.
 
 ## [v1.3.2] - 2026-06-10
 
