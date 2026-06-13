@@ -242,7 +242,7 @@ void applyLegacyFrontButtonLayout(CrossPointSettings& settings) {
 
 const char* CrossPointSettings::getDefaultDeviceName() {
   if (gpio.deviceIsX3()) return "CrossInk X3";
-  if (gpio.deviceIsX4()) return "Crossink X4";
+  if (gpio.deviceIsX4()) return "CrossInk X4";
   return "CrossInk";
 }
 

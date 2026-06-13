@@ -213,6 +213,7 @@ void FileBrowserActivity::onEnter() {
   if (!root) {
     basepath = "/";
     loadFiles();
+    requestUpdate();
     return;
   }
 

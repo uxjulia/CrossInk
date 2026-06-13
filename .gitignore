@@ -27,3 +27,10 @@ lib/EpdFont/scripts/output/
 # (worktrees, scheduled-task locks, settings.local, scout CLEANUP.md) out.
 .claude/*
 !.claude/skills/
+
+/site/node_modules/
+/site/dist/
+/site/.astro/
+/site/public/images/
+/site/public/catalog
+/site/public/CNAME
