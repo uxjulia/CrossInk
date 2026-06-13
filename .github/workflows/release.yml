@@ -77,9 +77,23 @@ jobs:
       - name: Publish catalog to GitHub Pages source
         env:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          CROSSINK_SIGNING_SSH_KEY: ${{ secrets.CROSSINK_SIGNING_SSH_KEY }}
         run: |
+          if [ -z "$CROSSINK_SIGNING_SSH_KEY" ]; then
+            echo "::error::CROSSINK_SIGNING_SSH_KEY is not set"
+            exit 1
+          fi
+
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$CROSSINK_SIGNING_SSH_KEY" > ~/.ssh/crossink_actions_signing
+          chmod 600 ~/.ssh/crossink_actions_signing
+          ssh-keygen -y -f ~/.ssh/crossink_actions_signing > ~/.ssh/crossink_actions_signing.pub
+
           git config user.name "uxjulia"
           git config user.email "julia@uxj.io"
+          git config gpg.format ssh
+          git config user.signingkey "$HOME/.ssh/crossink_actions_signing.pub"
+
           git fetch origin "$DEFAULT_BRANCH"
           git worktree add ../crossink-pages "origin/$DEFAULT_BRANCH"
           cp ".pio/build/catalog" "../crossink-pages/docs/catalog"
@@ -89,7 +103,7 @@ jobs:
             exit 0
           fi
           git add docs/catalog
-          git commit -m "Update release catalog for v${RELEASE_VERSION}"
+          git commit -S -m "Update release catalog for v${RELEASE_VERSION}"
           git push origin "HEAD:$DEFAULT_BRANCH"
 
       - name: Create GitHub Release
