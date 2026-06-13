@@ -23,8 +23,6 @@ bool ReaderActivity::isTxtFile(const std::string& path) {
          FsHelpers::hasMarkdownExtension(path);  // Treat .md as txt files (until we have a markdown reader)
 }
 
-bool ReaderActivity::isBmpFile(const std::string& path) { return FsHelpers::hasBmpExtension(path); }
-
 static bool isImagePreviewFile(const std::string& path) {
   return FsHelpers::hasBmpExtension(path) || FsHelpers::hasPngExtension(path);
 }

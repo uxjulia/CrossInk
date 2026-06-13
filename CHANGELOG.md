@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [v1.3.3] - 2026-06-13
 
 ### Added
 - `File Browser Display` in `Settings > System > Files & Cache` for choosing one-line or two-line file browser rows across all themes, while preserving Minimal users' existing two-line display on upgrade.
@@ -14,6 +14,7 @@
 - The X3 clock visibility setting is now phrased as `Hide Clock`, with existing `Show Clock` preferences migrated to the matching hide behavior.
 
 ### Fixed
+- RoundedRaff's date shown in settings now sits lower on X3 devices instead of overlapping the battery.
 - Clear Bookmark List now asks for confirmation before deleting a book's bookmarks.
 - Clear Reading Cache now preserves per-book reading stats while continuing to leave all-time reading stats untouched.
 - Book settings option lists now return to the submenu they were opened from when pressing Back.

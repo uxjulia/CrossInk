@@ -43,6 +43,7 @@ const StrId SettingsActivity::categoryNames[categoryCount] = {StrId::STR_CAT_DIS
 namespace {
 constexpr int systemVersionFooterSideMargin = 20;
 constexpr int systemVersionFooterBottomInset = 15;
+constexpr int roundedRaffHeaderDateYOffset = 13;
 
 uint8_t enumDisplayIndexForRawValue(const SettingInfo& setting, uint8_t rawValue) {
   if (setting.enumRawValues.empty()) {
@@ -841,7 +842,11 @@ void SettingsActivity::render(RenderLock&&) {
   const auto& metrics = UITheme::getInstance().getMetrics();
 
   GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, tr(STR_SETTINGS_TITLE));
-  drawHeaderDate(renderer, pageWidth, metrics);
+  int headerDateLineBottom = headerDateLineBottomY(renderer, metrics);
+  if (SETTINGS.uiTheme == CrossPointSettings::ROUNDEDRAFF) {
+    headerDateLineBottom += roundedRaffHeaderDateYOffset;
+  }
+  drawHeaderDateAtLineBottom(renderer, pageWidth, headerDateLineBottom);
 
   std::vector<TabInfo> tabs;
   tabs.reserve(categoryCount);

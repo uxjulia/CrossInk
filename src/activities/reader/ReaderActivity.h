@@ -17,7 +17,6 @@ class ReaderActivity final : public Activity {
   static std::unique_ptr<Txt> loadTxt(const std::string& path);
   static bool isXtcFile(const std::string& path);
   static bool isTxtFile(const std::string& path);
-  static bool isBmpFile(const std::string& path);
   // Whether to paint the "Loading" popup on entry. Skipped for already-cached
   // EPUBs, whose open is ~ms and would otherwise cost an extra full e-ink
   // refresh before the reader paints its first page.

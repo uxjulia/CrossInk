@@ -67,6 +67,7 @@ void RoundedRaffTheme::drawHeader(const GfxRenderer& renderer, Rect rect, const 
   const bool showBatteryPercentage =
       SETTINGS.hideBatteryPercentage != CrossPointSettings::HIDE_BATTERY_PERCENTAGE::HIDE_ALWAYS;
   const int batteryIconX = rect.x + rect.width - sidePadding - RoundedRaffMetrics::values.batteryWidth;
+  const int batteryY = rect.y + homeHeaderTopInset;
 
   // Reserve space for the widest possible percentage text to avoid title/battery overlap
   int batteryGroupLeftX = batteryIconX;
@@ -77,16 +78,16 @@ void RoundedRaffTheme::drawHeader(const GfxRenderer& renderer, Rect rect, const 
 
     const int clearW = maxTextWidth + batteryPercentSpacing + RoundedRaffMetrics::values.batteryWidth;
     const int clearH = std::max(renderer.getTextHeight(SMALL_FONT_ID), RoundedRaffMetrics::values.batteryHeight + 8);
-    renderer.fillRect(batteryIconX - maxTextWidth - batteryPercentSpacing, rect.y + 14, clearW, clearH, false);
+    renderer.fillRect(batteryIconX - maxTextWidth - batteryPercentSpacing, batteryY, clearW, clearH, false);
   }
 
   const int maxTitleWidth = std::max(0, batteryGroupLeftX - 20 - titleX);
   auto headerTitle = renderer.truncatedText(kTitleFontId, title, maxTitleWidth, EpdFontFamily::BOLD);
   renderer.drawText(kTitleFontId, titleX, titleY, headerTitle.c_str(), true, EpdFontFamily::BOLD);
-  drawBatteryRight(renderer,
-                   Rect{batteryIconX, rect.y + 14, RoundedRaffMetrics::values.batteryWidth,
-                        RoundedRaffMetrics::values.batteryHeight},
-                   showBatteryPercentage);
+  drawBatteryRight(
+      renderer,
+      Rect{batteryIconX, batteryY, RoundedRaffMetrics::values.batteryWidth, RoundedRaffMetrics::values.batteryHeight},
+      showBatteryPercentage);
   drawTopStatusBarClock(renderer, rect.y, nullptr, readerContext);
 }
 

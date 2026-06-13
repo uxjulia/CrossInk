@@ -21,7 +21,7 @@ bool isViewableImageFile(const std::string& filename) {
 
 bool isMacOSSidecarFile(const std::string& filename) { return filename.rfind("._", 0) == 0; }
 
-void drawImageError(GfxRenderer& renderer, MappedInputManager& mappedInput, const char* message) {
+void drawImageError(GfxRenderer& renderer, const MappedInputManager& mappedInput, const char* message) {
   renderer.clearScreen();
   renderer.drawCenteredText(UI_10_FONT_ID, renderer.getScreenHeight() / 2, message);
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
