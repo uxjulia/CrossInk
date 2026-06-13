@@ -886,7 +886,10 @@ void SleepActivity::renderOverlaySleepScreen() const {
   }
 
   renderer.setOrientation(savedOrientation);
-  const bool shouldRunGrayscalePass = shouldUseReaderPageBackground && backgroundSupportsGrayscale &&
+  // The grayscale re-render has no mask for the overlay image. If an overlay was
+  // drawn, keep the composited BW frame intact instead of painting page glyphs
+  // over the sleep image.
+  const bool shouldRunGrayscalePass = shouldUseReaderPageBackground && backgroundSupportsGrayscale && !overlayDrawn &&
                                       (backgroundWasRebuilt || (overlayBackgroundBufferStored && !path.empty()));
   renderer.displayBuffer(HalDisplay::HALF_REFRESH, !shouldRunGrayscalePass && TURN_OFF_SCREEN_AFTER_SLEEP_REFRESH);
 
