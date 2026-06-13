@@ -315,8 +315,13 @@ bool TxtReaderActivity::executePowerButtonAction() {
     return executeAction(static_cast<CrossPointSettings::SHORT_PWRBTN>(SETTINGS.shortPwrBtn));
   }
 
-  if (consumeLongPowerButtonHold()) {
-    return executeAction(static_cast<CrossPointSettings::SHORT_PWRBTN>(SETTINGS.longPwrBtn));
+  const auto longPowerAction = static_cast<CrossPointSettings::SHORT_PWRBTN>(SETTINGS.longPwrBtn);
+  if (longPowerAction == CrossPointSettings::SHORT_PWRBTN::PAGE_TURN || !consumeLongPowerButtonHold()) {
+    return false;
+  }
+
+  if (executeAction(longPowerAction)) {
+    return true;
   }
 
   return false;
