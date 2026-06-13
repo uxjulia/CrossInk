@@ -427,3 +427,4 @@ STR_XTC_STATUS_BAR: "XTC állapotsor"
 
 STR_NEARBY_STATS_VERSION_MISMATCH: "Verzióeltérés. A statisztikák nem szinkronizálódtak"
 STR_PWR_BTN_FOOTNOTE_BACK: "Gyors vissza a jegyzetből"
+STR_DELETE_BOOKMARKS: "Könyvjelzőlista törlése"

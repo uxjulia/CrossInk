@@ -11,6 +11,7 @@
 - The X3 clock visibility setting is now phrased as `Hide Clock`, with existing `Show Clock` preferences migrated to the matching hide behavior.
 
 ### Fixed
+- Clear Bookmark List now asks for confirmation before deleting a book's bookmarks.
 - Clear Reading Cache now preserves per-book reading stats while continuing to leave all-time reading stats untouched.
 - Book settings option lists now return to the submenu they were opened from when pressing Back.
 - Lyra Carousel now refreshes its cached Home icon row after OPDS, Reading Stats, or Bookmarks icons appear or disappear.

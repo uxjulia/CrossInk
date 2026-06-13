@@ -415,3 +415,4 @@ STR_XTC_STATUS_BAR: "XTC-tilapalkki"
 
 STR_NEARBY_STATS_VERSION_MISMATCH: "Versiot eivät täsmää. Tilastoja ei synkronoitu"
 STR_PWR_BTN_FOOTNOTE_BACK: "Paluu alaviitteistä"
+STR_DELETE_BOOKMARKS: "Tyhjennä kirjanmerkkiluettelo"

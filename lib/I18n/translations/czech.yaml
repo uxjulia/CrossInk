@@ -420,3 +420,4 @@ STR_XTC_STATUS_BAR: "Stavový řádek XTC"
 
 STR_NEARBY_STATS_VERSION_MISMATCH: "Neshoda verzí. Statistiky nebyly synchronizovány"
 STR_PWR_BTN_FOOTNOTE_BACK: "Rychlý návrat z poznámek"
+STR_DELETE_BOOKMARKS: "Vymazat seznam záložek"

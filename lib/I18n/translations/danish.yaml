@@ -427,3 +427,4 @@ STR_XTC_STATUS_BAR: "XTC statuslinje"
 
 STR_NEARBY_STATS_VERSION_MISMATCH: "Versionskonflikt. Statistik blev ikke synkroniseret"
 STR_PWR_BTN_FOOTNOTE_BACK: "Hurtigt tilbage fra noter"
+STR_DELETE_BOOKMARKS: "Ryd bogmærkeliste"

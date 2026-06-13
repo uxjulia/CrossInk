@@ -1857,8 +1857,18 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
       break;
     }
     case EpubReaderMenuActivity::MenuAction::DELETE_BOOKMARKS: {
-      BOOKMARKS.clearAll();
-      requestUpdate();
+      pauseReadingPaceTimer("delete_bookmarks_confirm");
+      startActivityForResult(
+          std::make_unique<ConfirmationActivity>(renderer, mappedInput,
+                                                 confirmationHeading(StrId::STR_DELETE_BOOKMARKS),
+                                                 epub ? epub->getTitle() : std::string{}),
+          [this](const ActivityResult& result) {
+            if (!result.isCancelled) {
+              BOOKMARKS.clearAll();
+            }
+            resumeReadingPaceTimer(result.isCancelled ? "delete_bookmarks_cancel" : "delete_bookmarks_return");
+            requestUpdate();
+          });
       break;
     }
     case EpubReaderMenuActivity::MenuAction::AUTO_PAGE_TURN:
