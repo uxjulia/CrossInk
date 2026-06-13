@@ -219,10 +219,10 @@ families:
     intervals: latin-ext,greek,cyrillic,georgian,armenian,ethiopic
     sizes: [8, 9, 10, 12, 14, 16, 18, 20]
     styles:
-      regular:    {path: "https://raw.githubusercontent.com/uxjulia/crossink-fonts/main/fonts/NotoSans/NotoSans-Regular.ttf"}
-      bold:       {path: "https://raw.githubusercontent.com/uxjulia/crossink-fonts/main/fonts/NotoSans/NotoSans-Bold.ttf"}
-      italic:     {path: "https://raw.githubusercontent.com/uxjulia/crossink-fonts/main/fonts/NotoSans/NotoSans-Italic.ttf"}
-      bolditalic: {path: "https://raw.githubusercontent.com/uxjulia/crossink-fonts/main/fonts/NotoSans/NotoSans-BoldItalic.ttf"}
+      regular:    {url: "https://raw.githubusercontent.com/uxjulia/crossink-fonts/main/fonts/NotoSans/NotoSans-Regular.ttf"}
+      bold:       {url: "https://raw.githubusercontent.com/uxjulia/crossink-fonts/main/fonts/NotoSans/NotoSans-Bold.ttf"}
+      italic:     {url: "https://raw.githubusercontent.com/uxjulia/crossink-fonts/main/fonts/NotoSans/NotoSans-Italic.ttf"}
+      bolditalic: {url: "https://raw.githubusercontent.com/uxjulia/crossink-fonts/main/fonts/NotoSans/NotoSans-BoldItalic.ttf"}
 
   - name: SourceSans3
     description: "Adobe humanist sans-serif"
@@ -264,12 +264,12 @@ families:
   - name: OpenDyslexic
     description: "Dyslexia-friendly font (Latin)"
     intervals: latin-ext
-    sizes: [8, 10, 12, 14]
+    sizes: [8, 9, 10, 12, 14, 16, 18, 20]
     styles:
-      regular:    {path: "https://raw.githubusercontent.com/uxjulia/crossink-fonts/main/fonts/OpenDyslexic/OpenDyslexic-Regular.otf"}
-      bold:       {path: "https://raw.githubusercontent.com/uxjulia/crossink-fonts/main/fonts/OpenDyslexic/OpenDyslexic-Bold.otf"}
-      italic:     {path: "https://raw.githubusercontent.com/uxjulia/crossink-fonts/main/fonts/OpenDyslexic/OpenDyslexic-Italic.otf"}
-      bolditalic: {path: "https://raw.githubusercontent.com/uxjulia/crossink-fonts/main/fonts/OpenDyslexic/OpenDyslexic-BoldItalic.otf"}
+      regular:    {url: "https://raw.githubusercontent.com/uxjulia/crossink-fonts/main/fonts/OpenDyslexic/OpenDyslexic-Regular.otf"}
+      bold:       {url: "https://raw.githubusercontent.com/uxjulia/crossink-fonts/main/fonts/OpenDyslexic/OpenDyslexic-Bold.otf"}
+      italic:     {url: "https://raw.githubusercontent.com/uxjulia/crossink-fonts/main/fonts/OpenDyslexic/OpenDyslexic-Italic.otf"}
+      bolditalic: {url: "https://raw.githubusercontent.com/uxjulia/crossink-fonts/main/fonts/OpenDyslexic/OpenDyslexic-BoldItalic.otf"}
 
   # ── Accessibility ──────────────────────────────────────────────────────
 

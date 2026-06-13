@@ -49,6 +49,32 @@ INSTANCE_DIR = SCRIPT_DIR / "instanced_fonts"
 DEFAULT_FALLBACK_FONT = EPDFONTS_DIR / "builtinFonts/source/NotoSans/NotoSans-Regular.ttf"
 
 
+def is_url(value: str) -> bool:
+    return value.startswith(("http://", "https://"))
+
+
+def validate_config(families: list[dict]) -> list[str]:
+    """Return human-readable config errors."""
+    errors: list[str] = []
+    for family in families:
+        family_name = family.get("name", "<unnamed>")
+        for style_name, style_spec in family.get("styles", {}).items():
+            source_keys = [key for key in ("path", "url") if key in style_spec]
+            if len(source_keys) != 1:
+                errors.append(
+                    f"{family_name}/{style_name}: use exactly one of 'path' or 'url'"
+                )
+                continue
+
+            if "path" in style_spec and is_url(str(style_spec["path"])):
+                errors.append(
+                    f"{family_name}/{style_name}: URL was placed under 'path'; "
+                    "use 'url' for downloadable fonts"
+                )
+
+    return errors
+
+
 def download_font(url: str, dest: Path) -> Path:
     """Download a font file if not already cached. Returns the local path."""
     if dest.exists():
@@ -352,6 +378,13 @@ def main():
         if not families:
             print("ERROR: no matching families after --only filter", file=sys.stderr)
             sys.exit(1)
+
+    config_errors = validate_config(families)
+    if config_errors:
+        print("ERROR: invalid font config:", file=sys.stderr)
+        for error in config_errors:
+            print(f"  - {error}", file=sys.stderr)
+        sys.exit(1)
 
     output_base = Path(args.output_dir)
 
