@@ -797,6 +797,8 @@ void setup() {
 
   gpio.begin();
   powerManager.begin();
+  halTiltSensor.begin();
+  halClock.begin();
 
   LOG_INF("MAIN", "Hardware detect: %s", gpio.deviceIsX3() ? "X3" : "X4");
   LOG_INF("BOOT", "Post-GPIO diagnostic: device=%s usb=%d silentReboot=%d silentTarget=%lu",
@@ -815,6 +817,13 @@ void setup() {
   HalSystem::checkPanic();
 
   SETTINGS.loadFromFile();
+  APP_STATE.loadFromFile();
+  RECENT_BOOKS.loadFromFile();
+  I18N.setLanguage(static_cast<Language>(SETTINGS.language));
+  KOREADER_STORE.loadFromFile();
+  OPDS_STORE.loadFromFile();
+  UITheme::getInstance().reload();
+  ButtonNavigator::setMappedInputManager(mappedInputManager);
 
   // Check wake duration before the remaining file loads so the user does not
   // have to hold the power button across all of the SD reads below.
@@ -841,16 +850,6 @@ void setup() {
       LOG_INF("BOOT", "Other wake route: continuing boot");
       break;
   }
-
-  APP_STATE.loadFromFile();
-  RECENT_BOOKS.loadFromFile();
-  I18N.setLanguage(static_cast<Language>(SETTINGS.language));
-  KOREADER_STORE.loadFromFile();
-  OPDS_STORE.loadFromFile();
-  UITheme::getInstance().reload();
-  ButtonNavigator::setMappedInputManager(mappedInputManager);
-  halTiltSensor.begin();
-  halClock.begin();
 
   // Recovery firmware mode: hold left side button (BTN_UP) together with the power button at
   // boot to skip directly to the SD-card firmware update screen. Useful on devices where USB
