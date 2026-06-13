@@ -7,7 +7,7 @@ nav_order: 13
 
 The Controls menu lets you customize front buttons, side buttons, and reader shortcuts.
 
-## Settings Layout
+## Settings Menu Layout
 
 ### Power Button
 
@@ -18,31 +18,38 @@ The Controls menu lets you customize front buttons, side buttons, and reader sho
 
 - Remap front buttons
 - Remap front buttons while reading
-- Long-press menu action
+- Orientation aware
+- Long-press behavior (in-reader only)
+- Long-press back action (in-reader only)
+- Long-press menu action (in-reader only)
+
+Note: Even though some actions assigned to the front buttons could be used globally, they are restricted to apply within the reader only due to the dynamic nature of the front buttons (they can mean different things based on the screen you're on).
 
 ### Side Buttons
 
 - Layout
-- Long-press chapter skip
+- Orientation aware
 - Long-press action
 
 ## Side Button Long-press Action
 
-The side buttons can change font size while reading. Hold a side button for about 2 seconds:
+When set to `Change Font Size`, hold a side button for about 2 seconds:
 
 - Up increases font size
 - Down decreases font size
 
-The default side-button long-press behavior is chapter skip.
+When set to `Orientation Change`, hold a side button for about 2 seconds:
+- Up cycles through the orientations in the following order: `Landscape CCW` -> `Inverted` -> `Landscape CW` -> `Portrait`
+- Down cycles through the orientations in the following order: `Landscape CW` -> `Inverted` -> `Landscape CCW` -> `Portrait`
 
-## Power And Menu Button Actions
 
-The Power button and reader Menu/Confirm long-press action can be mapped to reader shortcuts.
+## Power, Back, and Menu Button Actions
 
 Defaults:
 
 - Short-press Power Button Action: Ignore
 - Long-press Power Button Action: Sleep
+- Long-press Back Button Action: Browse Files
 - Long Press Menu Button Action: Ignore
 
 Available actions include:
@@ -61,8 +68,13 @@ Available actions include:
 - Take Screenshot
 - Auto Page Turn Interval
 - File Transfer
-- Tilt Page Turn on supported devices
+- Calibre Wireless
+- Join a Network
+- Create Hotspot
+- Tilt Page Turn (X3 only)
 - Footnotes
+- Dark Mode
+- Browse Files
 
 ## Footnote Shortcut
 
