@@ -838,7 +838,6 @@ void FontDownloadActivity::loop() {
     }
   } else if (state_ == ERROR) {
     if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
-      mappedInput.suppressNextBackRelease();
       if (manifestReloadNeeded_) {
         returnToFamilyList();
         requestUpdate();
@@ -851,7 +850,7 @@ void FontDownloadActivity::loop() {
       errorMessage_.clear();
       errorHint_.clear();
       if (families_.empty()) {
-        finish();
+        finishAfterBackPress();
       } else {
         RenderLock lock(*this);
         state_ = FAMILY_LIST;
