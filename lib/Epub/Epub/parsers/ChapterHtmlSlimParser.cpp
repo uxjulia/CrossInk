@@ -108,6 +108,10 @@ bool attributeContainsToken(const char* value, const char* token) {
   return false;
 }
 
+bool classContainsToken(const std::string& value, const char* token) {
+  return attributeContainsToken(value.c_str(), token);
+}
+
 bool isHeaderOrBlock(const char* name) {
   return matches(name, HEADER_TAGS, std::size(HEADER_TAGS)) || matches(name, BLOCK_TAGS, std::size(BLOCK_TAGS));
 }
@@ -899,8 +903,18 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
 
   // Skip elements with display:none before all fast paths (tables, links, etc.).
   if (cssStyle.hasDisplay() && cssStyle.display == CssDisplay::None) {
-    self->skipCurrentElement();
-    return;
+    const bool isHiddenOrnamentalTextFallback = strcmp(name, "p") == 0 && self->unsupportedOrnamentalBreakDepth >= 0 &&
+                                                self->ornamentalBreakDepth == self->unsupportedOrnamentalBreakDepth &&
+                                                classContainsToken(classAttr, "ornamental-break-as-text");
+    if (!isHiddenOrnamentalTextFallback) {
+      self->skipCurrentElement();
+      return;
+    }
+  }
+
+  if (self->ornamentalBreakDepth < 0 && classContainsToken(classAttr, "ornamental-break")) {
+    self->ornamentalBreakDepth = self->depth;
+    self->unsupportedOrnamentalBreakDepth = -1;
   }
 
   // Special handling for tables/cells: buffer simple tables for grid layout, with
@@ -1111,7 +1125,12 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
             // Resolve the image path relative to the HTML file
             std::string resolvedPath = FsHelpers::normalisePath(FsHelpers::decodeUriEscapes(self->contentBase + src));
 
-            if (ImageDecoderFactory::isFormatSupported(resolvedPath)) {
+            const bool supportedFormat = ImageDecoderFactory::isFormatSupported(resolvedPath);
+            if (!supportedFormat && alt.empty() && self->ornamentalBreakDepth >= 0) {
+              self->unsupportedOrnamentalBreakDepth = self->ornamentalBreakDepth;
+            }
+
+            if (supportedFormat) {
               // Create a unique filename for the cached image
               std::string ext;
               size_t extPos = resolvedPath.rfind('.');
@@ -1975,6 +1994,11 @@ void XMLCALL ChapterHtmlSlimParser::endElement(void* userData, const XML_Char* n
   if (self->skipUntilDepth == self->depth) {
     self->skipUntilDepth = INT_MAX;
     self->skipEndElementStateUntilDepth = INT_MAX;
+  }
+
+  if (self->ornamentalBreakDepth == self->depth) {
+    self->ornamentalBreakDepth = -1;
+    self->unsupportedOrnamentalBreakDepth = -1;
   }
 
   if (self->tableDepth == 1 && (strcmp(name, "td") == 0 || strcmp(name, "th") == 0)) {
