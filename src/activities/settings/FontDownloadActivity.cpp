@@ -770,7 +770,7 @@ bool FontDownloadActivity::isSelectedFamilyDeletable() const {
 void FontDownloadActivity::loop() {
   if (state_ == FAMILY_LIST) {
     if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
-      finish();
+      finishAfterBackPress();
       return;
     }
 
@@ -838,6 +838,7 @@ void FontDownloadActivity::loop() {
     }
   } else if (state_ == ERROR) {
     if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
+      mappedInput.suppressNextBackRelease();
       if (manifestReloadNeeded_) {
         returnToFamilyList();
         requestUpdate();

@@ -542,6 +542,7 @@ void WifiSelectionActivity::loop() {
     sConnectionAttemptLoggingActive = false;
 #endif
     WiFi.disconnect();
+    mappedInput.suppressNextBackRelease();
     onComplete(false);
     return;
   }
@@ -588,6 +589,7 @@ void WifiSelectionActivity::loop() {
       onComplete(true);
     } else if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
       // Skip saving, complete anyway
+      mappedInput.suppressNextBackRelease();
       onComplete(true);
     }
     return;
@@ -629,8 +631,13 @@ void WifiSelectionActivity::loop() {
   }
 
   if (state == WifiSelectionState::CONNECTED) {
-    if (mappedInput.wasPressed(MappedInputManager::Button::Back) ||
-        mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
+    if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
+      mappedInput.suppressNextBackRelease();
+      onComplete(true);
+      return;
+    }
+
+    if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
       onComplete(true);
     }
     return;
@@ -659,6 +666,7 @@ void WifiSelectionActivity::loop() {
   if (state == WifiSelectionState::NETWORK_LIST) {
     // Check for Back button to exit (cancel)
     if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
+      mappedInput.suppressNextBackRelease();
       onComplete(false);
       return;
     }

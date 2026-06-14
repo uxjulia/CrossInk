@@ -10,6 +10,7 @@
 - Long-press reader shortcuts that open another screen no longer close or confirm it again when releasing the shortcut button.
 - RoundedRaff's header battery icon and percentage now sit lower to avoid clipping at the top edge.
 - Lyra Carousel now redraws the Home header when restoring cached carousel frames so battery percentage and clock values stay current while navigating between books.
+- Reader-launched settings screens no longer jump back two screens after pressing Back.
 
 ## [v1.3.3] - 2026-06-13
 
