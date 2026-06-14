@@ -14,6 +14,7 @@
 - The X3 clock visibility setting is now phrased as `Hide Clock`, with existing `Show Clock` preferences migrated to the matching hide behavior.
 
 ### Fixed
+- Lyra Carousel now redraws the Home header when restoring cached carousel frames so battery percentage and clock values stay current while navigating between books.
 - RoundedRaff's date shown in settings now sits lower on X3 devices instead of overlapping the battery.
 - Clear Bookmark List now asks for confirmation before deleting a book's bookmarks.
 - Clear Reading Cache now preserves per-book reading stats while continuing to leave all-time reading stats untouched.

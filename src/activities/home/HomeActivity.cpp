@@ -1603,6 +1603,9 @@ void HomeActivity::render(RenderLock&&) {
       memcpy(frameBuffer, carouselFrames[slotIdx], renderer.getBufferSize());
       LyraCarouselTheme::setPreRenderIndex(centerIdx);
 
+      // Cached carousel frames include the header; redraw it so dynamic values
+      // like battery percentage and clock are current for every restored frame.
+      GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.homeTopPadding}, nullptr);
       GUI.drawCarouselBorder(renderer, Rect{0, metrics.homeTopPadding, pageWidth, metrics.homeCoverTileHeight},
                              recentBooks, centerIdx, inCarouselRow);
       if (!inCarouselRow) {
