@@ -11,6 +11,7 @@
 - RoundedRaff's header battery icon and percentage now sit lower to avoid clipping at the top edge.
 - Lyra Carousel now redraws the Home header when restoring cached carousel frames so battery percentage and clock values stay current while navigating between books.
 - Reader-launched settings screens no longer jump back two screens after pressing Back.
+- Web file manager multi-delete now handles larger selections without failing after a small batch.
 
 ## [v1.3.3] - 2026-06-13
 

@@ -1125,7 +1125,7 @@
     document.getElementById('deleteModal').classList.remove('open');
   }
 
-  function confirmDelete() {
+  async function confirmDelete() {
     if (!deleteItemsGlobal || deleteItemsGlobal.length === 0) {
       closeDeleteModal();
       return;
@@ -1138,23 +1138,45 @@
       return p;
     });
 
-    const body = 'paths=' + encodeURIComponent(JSON.stringify(paths));
-    fetch('/delete', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: body
-    }).then(async res => {
-      if (res.ok) {
-        window.location.reload();
-      } else {
-        const text = await res.text();
-        alert('Failed to delete: ' + text);
-        closeDeleteModal();
+    const deleteBtn = document.querySelector('#deleteModal .delete-btn-confirm');
+    if (deleteBtn) {
+      deleteBtn.disabled = true;
+      deleteBtn.textContent = 'Deleting...';
+    }
+
+    const failed = [];
+    try {
+      for (const path of paths) {
+        const res = await fetch('/delete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: 'path=' + encodeURIComponent(path)
+        });
+        if (!res.ok) {
+          const text = await res.text();
+          failed.push(path + ': ' + text);
+        }
       }
-    }).catch(() => {
+
+      if (failed.length === 0) {
+        window.location.reload();
+        return;
+      }
+
+      const shown = failed.slice(0, 3).join('\n');
+      const hiddenCount = failed.length - 3;
+      alert('Failed to delete ' + failed.length + ' item' + (failed.length === 1 ? '' : 's') + ':\n' +
+            shown + (hiddenCount > 0 ? '\n...and ' + hiddenCount + ' more' : ''));
+      closeDeleteModal();
+    } catch (_) {
       alert('Failed to delete - network error');
       closeDeleteModal();
-    });
+    } finally {
+      if (deleteBtn) {
+        deleteBtn.disabled = false;
+        deleteBtn.textContent = 'Delete';
+      }
+    }
   }
 
   // Helper to clear image picker state
