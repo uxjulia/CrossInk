@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Added
+- File Browser now indexes large folders on the SD card so folders with many books can be browsed without loading every filename into RAM.
 
 ### Changed
 
