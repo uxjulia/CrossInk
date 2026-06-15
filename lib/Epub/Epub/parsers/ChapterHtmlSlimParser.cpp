@@ -1831,7 +1831,7 @@ void XMLCALL ChapterHtmlSlimParser::characterData(void* userData, const XML_Char
     }
 
     // If we're about to run out of space, then cut the word off and start a new one.
-    // For CJK text (no spaces), this is the primary word-breaking mechanism.
+    // ParsedText performs CJK-aware tokenization after this flushes a complete UTF-8 chunk.
     // We must avoid splitting multi-byte UTF-8 sequences across word boundaries,
     // otherwise the trailing bytes become orphaned continuation bytes that the
     // decoder can't interpret.

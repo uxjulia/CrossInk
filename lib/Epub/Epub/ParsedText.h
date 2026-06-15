@@ -5,6 +5,7 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "blocks/BlockStyle.h"
@@ -16,6 +17,7 @@ class ParsedText {
   std::vector<std::string> words;
   std::vector<EpdFontFamily::Style> wordStyles;
   std::vector<bool> wordContinues;       // true = word attaches to previous (no space before it)
+  std::vector<bool> wordNoBreakBefore;   // true = line breaker cannot start a line at this token
   std::vector<bool> wordIsBionicSuffix;  // true = token is the regular tail of a bionic bold-prefix split
   std::vector<bool> wordIsGuideDot;      // true = token is a guide dot (U+00B7) inserted between words
   std::vector<uint8_t> wordBackgroundBlack;
@@ -35,6 +37,11 @@ class ParsedText {
   std::vector<uint8_t> reorderedBackgroundBlackScratch;
   std::vector<uint16_t> visualOrderScratch;
 
+  void reserveWordCapacity(size_t requiredSize);
+  void pushToken(std::string_view token, EpdFontFamily::Style style, bool continues, bool noBreakBefore,
+                 bool bionicSuffix, bool guideDot, bool backgroundBlack);
+  bool addCjkAwareWord(std::string_view word, EpdFontFamily::Style baseStyle, bool attachToPrevious,
+                       bool backgroundBlack);
   int resolveFirstLineIndent(bool isFirstLine, const GfxRenderer& renderer, int fontId) const;
   std::vector<size_t> computeLineBreaks(const GfxRenderer& renderer, int fontId, int pageWidth,
                                         std::vector<uint16_t>& wordWidths, std::vector<bool>& continuesVec);

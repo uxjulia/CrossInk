@@ -35,6 +35,69 @@ inline bool utf8IsCjkBreakable(const uint32_t cp) {
          || (cp >= 0x2A700 && cp <= 0x2B73F);  // CJK Extension C
 }
 
+// Punctuation that should not be left hanging at the end of a line.
+inline bool utf8IsCjkOpeningPunctuation(const uint32_t cp) {
+  switch (cp) {
+    case 0x3008:  // left angle bracket
+    case 0x300A:  // left double angle bracket
+    case 0x300C:  // left corner bracket
+    case 0x300E:  // left white corner bracket
+    case 0x3010:  // left black lenticular bracket
+    case 0x3014:  // left tortoise shell bracket
+    case 0x3016:  // left white lenticular bracket
+    case 0x3018:  // left white tortoise shell bracket
+    case 0x301A:  // left white square bracket
+    case 0xFF08:  // fullwidth left parenthesis
+    case 0xFF3B:  // fullwidth left square bracket
+    case 0xFF5B:  // fullwidth left curly bracket
+      return true;
+    default:
+      return false;
+  }
+}
+
+// Punctuation that should not start a line.
+inline bool utf8IsCjkClosingPunctuation(const uint32_t cp) {
+  switch (cp) {
+    case 0x3001:  // ideographic comma
+    case 0x3002:  // ideographic full stop
+    case 0x3009:  // right angle bracket
+    case 0x300B:  // right double angle bracket
+    case 0x300D:  // right corner bracket
+    case 0x300F:  // right white corner bracket
+    case 0x3011:  // right black lenticular bracket
+    case 0x3015:  // right tortoise shell bracket
+    case 0x3017:  // right white lenticular bracket
+    case 0x3019:  // right white tortoise shell bracket
+    case 0x301B:  // right white square bracket
+    case 0xFF01:  // fullwidth exclamation mark
+    case 0xFF09:  // fullwidth right parenthesis
+    case 0xFF0C:  // fullwidth comma
+    case 0xFF0E:  // fullwidth full stop
+    case 0xFF1A:  // fullwidth colon
+    case 0xFF1B:  // fullwidth semicolon
+    case 0xFF1F:  // fullwidth question mark
+    case 0xFF3D:  // fullwidth right square bracket
+    case 0xFF5D:  // fullwidth right curly bracket
+      return true;
+    default:
+      return false;
+  }
+}
+
+inline bool utf8LanguageTagIsCjk(const std::string& languageTag) {
+  if (languageTag.size() < 2) return false;
+  const char first = languageTag[0] >= 'A' && languageTag[0] <= 'Z' ? languageTag[0] - 'A' + 'a' : languageTag[0];
+  const char second = languageTag[1] >= 'A' && languageTag[1] <= 'Z' ? languageTag[1] - 'A' + 'a' : languageTag[1];
+  if ((first == 'j' && second == 'a') || (first == 'z' && second == 'h') || (first == 'k' && second == 'o')) {
+    return true;
+  }
+  if (languageTag.size() < 3) return false;
+  const char third = languageTag[2] >= 'A' && languageTag[2] <= 'Z' ? languageTag[2] - 'A' + 'a' : languageTag[2];
+  return (first == 'j' && second == 'p' && third == 'n') || (first == 'z' && second == 'h' && third == 'o') ||
+         (first == 'c' && second == 'h' && third == 'i') || (first == 'k' && second == 'o' && third == 'r');
+}
+
 // Returns true for Unicode combining diacritical marks that should not advance the cursor.
 inline bool utf8IsCombiningMark(const uint32_t cp) {
   return (cp >= 0x0300 && cp <= 0x036F)      // Combining Diacritical Marks

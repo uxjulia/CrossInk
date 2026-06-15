@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Added
+- EPUB layout now supports CJK book text with SD-card fonts, including character-level wrapping and basic CJK punctuation line-break rules.
 
 ### Changed
 

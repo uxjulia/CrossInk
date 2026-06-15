@@ -11,6 +11,7 @@
 #include <Logging.h>
 #include <Memory.h>
 #include <MemoryBudget.h>
+#include <Utf8.h>
 
 #include <algorithm>
 #include <cstring>
@@ -299,6 +300,10 @@ bool releaseReaderSdFontCachesForLowMemory(const GfxRenderer& renderer, const ch
           before.maxAllocHeap, after.maxAllocHeap);
 #endif
   return true;
+}
+
+bool shouldUseCjkLowMemoryRendering(const Epub* epub, const GfxRenderer& renderer, const int fontId) {
+  return epub && renderer.isSdCardFont(fontId) && utf8LanguageTagIsCjk(epub->getLanguage());
 }
 
 int clampPercent(int percent) {
@@ -2842,10 +2847,15 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
 
   const bool pageHasImages = page->hasImages();
   const bool foregroundBlack = ReaderUtils::readerForegroundBlack();
+  const bool cjkLowMemoryRendering = shouldUseCjkLowMemoryRendering(epub.get(), renderer, fontId);
   const bool needsImageGrayscale = pageHasImages;
-  const bool needsTextGrayscale = SETTINGS.textAntiAliasing && foregroundBlack;
+  const bool needsTextGrayscale = SETTINGS.textAntiAliasing && foregroundBlack && !cjkLowMemoryRendering;
   const bool needsAnyGrayscale = needsTextGrayscale || needsImageGrayscale;
   const int contentBottom = renderer.getScreenHeight() - orientedMarginBottom;
+
+  if (cjkLowMemoryRendering && SETTINGS.textAntiAliasing && foregroundBlack) {
+    LOG_DBG("ERS", "CJK SD-font page render: skipping text anti-alias grayscale to preserve heap");
+  }
 
   const auto finalizeBufferComposition = [&]() {
     drawPublisherPageMarkers(renderer, *page, orientedMarginTop, contentBottom, foregroundBlack);

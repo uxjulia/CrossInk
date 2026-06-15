@@ -5,6 +5,7 @@
 #include <Logging.h>
 #include <MemoryBudget.h>
 #include <Serialization.h>
+#include <Utf8.h>
 
 #include "Epub/css/CssParser.h"
 #include "Page.h"
@@ -13,7 +14,7 @@
 
 namespace {
 constexpr uint32_t SECTION_CACHE_MAGIC = 0x535843FF;  // bytes: 0xFF, "CXS"
-constexpr uint8_t SECTION_FILE_VERSION = 40;
+constexpr uint8_t SECTION_FILE_VERSION = 41;
 constexpr uint8_t INITIAL_PAGE_LUT_RESERVE = 32;
 constexpr uint32_t HEADER_SIZE = sizeof(SECTION_CACHE_MAGIC) + sizeof(uint8_t) + sizeof(int) + sizeof(float) +
                                  sizeof(bool) + sizeof(bool) + sizeof(uint8_t) + sizeof(uint16_t) + sizeof(uint16_t) +
@@ -26,6 +27,10 @@ struct PageLutEntry {
   uint16_t paragraphIndex;
   uint16_t listItemIndex;
 };
+
+bool shouldDisableLatinReadingAssistForCjk(const std::shared_ptr<Epub>& epub) {
+  return epub && utf8LanguageTagIsCjk(epub->getLanguage());
+}
 }  // namespace
 
 uint32_t Section::onPageComplete(std::unique_ptr<Page> page) {
@@ -89,6 +94,9 @@ bool Section::loadSectionFile(const int fontId, const float lineCompression, con
                               const uint16_t viewportWidth, const uint16_t viewportHeight,
                               const bool hyphenationEnabled, const bool embeddedStyle, const uint8_t imageRendering,
                               const bool bionicReadingEnabled, const bool guideReadingEnabled) {
+  const bool cjkOptimized = shouldDisableLatinReadingAssistForCjk(epub);
+  const bool effectiveBionicReadingEnabled = bionicReadingEnabled && !cjkOptimized;
+  const bool effectiveGuideReadingEnabled = guideReadingEnabled && !cjkOptimized;
   if (!Storage.openFileForRead("SCT", filePath, file)) {
     return false;
   }
@@ -155,7 +163,8 @@ bool Section::loadSectionFile(const int fontId, const float lineCompression, con
         paragraphAlignment != fileParagraphAlignment || viewportWidth != fileViewportWidth ||
         viewportHeight != fileViewportHeight || hyphenationEnabled != fileHyphenationEnabled ||
         embeddedStyle != fileEmbeddedStyle || imageRendering != fileImageRendering ||
-        bionicReadingEnabled != fileBionicReadingEnabled || guideReadingEnabled != fileGuideReadingEnabled) {
+        effectiveBionicReadingEnabled != fileBionicReadingEnabled ||
+        effectiveGuideReadingEnabled != fileGuideReadingEnabled) {
       file.close();
       LOG_ERR("SCT", "Deserialization failed: Parameters do not match");
       clearCache();
@@ -203,9 +212,16 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
   const auto tmpSectionPath = filePath + ".tmp";
   pageCount = 0;
   if (layoutAbortedForLowMemory) *layoutAbortedForLowMemory = false;
+  const bool cjkOptimized = shouldDisableLatinReadingAssistForCjk(epub);
+  const bool effectiveBionicReadingEnabled = bionicReadingEnabled && !cjkOptimized;
+  const bool effectiveGuideReadingEnabled = guideReadingEnabled && !cjkOptimized;
   LOG_DBG("SCT", "Create section start: spine=%d viewport=%ux%u image=%u bionic=%u guide=%u free=%u maxAlloc=%u",
-          spineIndex, viewportWidth, viewportHeight, imageRendering, bionicReadingEnabled, guideReadingEnabled,
-          ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+          spineIndex, viewportWidth, viewportHeight, imageRendering, effectiveBionicReadingEnabled,
+          effectiveGuideReadingEnabled, ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+  if (cjkOptimized && (bionicReadingEnabled || guideReadingEnabled)) {
+    LOG_DBG("SCT", "CJK language detected (%s); disabling bionic/guide reading for section layout",
+            epub->getLanguage().c_str());
+  }
 
   // Create cache directory if it doesn't exist
   {
@@ -260,7 +276,7 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
   }
   if (!writeSectionFileHeader(fontId, lineCompression, extraParagraphSpacing, forceParagraphIndents, paragraphAlignment,
                               viewportWidth, viewportHeight, hyphenationEnabled, embeddedStyle, imageRendering,
-                              bionicReadingEnabled, guideReadingEnabled)) {
+                              effectiveBionicReadingEnabled, effectiveGuideReadingEnabled)) {
     LOG_ERR("SCT", "Failed to write section header");
     file.close();
     Storage.remove(tmpSectionPath.c_str());
@@ -308,7 +324,8 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
 
   ChapterHtmlSlimParser visitor(
       epub, tmpHtmlPath, renderer, fontId, lineCompression, extraParagraphSpacing, forceParagraphIndents,
-      paragraphAlignment, viewportWidth, viewportHeight, hyphenationEnabled, bionicReadingEnabled, guideReadingEnabled,
+      paragraphAlignment, viewportWidth, viewportHeight, hyphenationEnabled, effectiveBionicReadingEnabled,
+      effectiveGuideReadingEnabled,
       [this, &lut](std::unique_ptr<Page> page, const uint16_t paragraphIndex, const uint16_t listItemIndex) {
         lut.push_back({this->onPageComplete(std::move(page)), paragraphIndex, listItemIndex});
       },

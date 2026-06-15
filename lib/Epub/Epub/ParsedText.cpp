@@ -143,6 +143,102 @@ bool isWordCharacter(uint32_t cp) {
 
 }  // namespace
 
+void ParsedText::reserveWordCapacity(const size_t requiredSize) {
+  if (words.capacity() >= requiredSize) {
+    return;
+  }
+
+  size_t newCapacity = words.capacity() * 2;
+  if (newCapacity < requiredSize) {
+    newCapacity = requiredSize;
+  }
+  if (newCapacity < 16) {
+    newCapacity = 16;
+  }
+
+  words.reserve(newCapacity);
+  wordStyles.reserve(newCapacity);
+  wordContinues.reserve(newCapacity);
+  wordNoBreakBefore.reserve(newCapacity);
+  wordIsBionicSuffix.reserve(newCapacity);
+  wordIsGuideDot.reserve(newCapacity);
+  wordBackgroundBlack.reserve(newCapacity);
+}
+
+void ParsedText::pushToken(std::string_view token, const EpdFontFamily::Style style, const bool continues,
+                           const bool noBreakBefore, const bool bionicSuffix, const bool guideDot,
+                           const bool backgroundBlack) {
+  if (token.empty()) {
+    return;
+  }
+  words.emplace_back(token);
+  wordStyles.push_back(style);
+  wordContinues.push_back(continues);
+  wordNoBreakBefore.push_back(noBreakBefore);
+  wordIsBionicSuffix.push_back(bionicSuffix);
+  wordIsGuideDot.push_back(guideDot);
+  wordBackgroundBlack.push_back(backgroundBlack);
+}
+
+bool ParsedText::addCjkAwareWord(std::string_view word, const EpdFontFamily::Style baseStyle,
+                                 const bool attachToPrevious, const bool backgroundBlack) {
+  const auto* ptr = reinterpret_cast<const unsigned char*>(word.data());
+  const auto* end = ptr + word.size();
+  bool containsCjk = false;
+  while (ptr < end) {
+    const uint32_t cp = utf8NextCodepoint(&ptr);
+    if (utf8IsCjkBreakable(cp)) {
+      containsCjk = true;
+      break;
+    }
+  }
+
+  if (!containsCjk) {
+    return false;
+  }
+
+  reserveWordCapacity(words.size() + word.size());
+
+  ptr = reinterpret_cast<const unsigned char*>(word.data());
+  const unsigned char* segmentStart = ptr;
+  bool isFirstToken = true;
+  bool openingNeedsNextToken = false;
+
+  auto flushNonCjkSegment = [&](const unsigned char* segmentEnd) {
+    if (segmentEnd <= segmentStart) {
+      return;
+    }
+    const bool continues = isFirstToken ? attachToPrevious : true;
+    const bool noBreakBefore = (isFirstToken && attachToPrevious) || openingNeedsNextToken;
+    pushToken(std::string_view(reinterpret_cast<const char*>(segmentStart), segmentEnd - segmentStart), baseStyle,
+              continues, noBreakBefore, false, false, backgroundBlack);
+    isFirstToken = false;
+    openingNeedsNextToken = false;
+  };
+
+  while (ptr < end) {
+    const unsigned char* cpStart = ptr;
+    const uint32_t cp = utf8NextCodepoint(&ptr);
+    if (!utf8IsCjkBreakable(cp)) {
+      continue;
+    }
+
+    flushNonCjkSegment(cpStart);
+
+    const bool continues = isFirstToken ? attachToPrevious : true;
+    const bool noBreakBefore =
+        (isFirstToken && attachToPrevious) || openingNeedsNextToken || utf8IsCjkClosingPunctuation(cp);
+    pushToken(std::string_view(reinterpret_cast<const char*>(cpStart), ptr - cpStart), baseStyle, continues,
+              noBreakBefore, false, false, backgroundBlack);
+    isFirstToken = false;
+    openingNeedsNextToken = utf8IsCjkOpeningPunctuation(cp);
+    segmentStart = ptr;
+  }
+
+  flushNonCjkSegment(end);
+  return true;
+}
+
 void ParsedText::addWord(std::string word, const EpdFontFamily::Style fontStyle, const bool underline,
                          const bool attachToPrevious, const bool backgroundBlack) {
   if (word.empty()) return;
@@ -154,24 +250,21 @@ void ParsedText::addWord(std::string word, const EpdFontFamily::Style fontStyle,
   const bool wordStartsRtl = !hasRtlWord && mayContainRtlBytes(word.c_str()) &&
                              BidiUtils::startsWithRtl(word.c_str(), RTL_PER_WORD_PROBE_DEPTH);
 
+  if (addCjkAwareWord(word, baseStyle, attachToPrevious, backgroundBlack)) {
+    if (wordStartsRtl) {
+      hasRtlWord = true;
+    }
+    return;
+  }
+
   // GUIDE READING: insert middle dot (U+00B7) between non-continuation words.
   if (guideReadingEnabled && !attachToPrevious && !words.empty()) {
-    words.emplace_back("\xc2\xb7");
-    wordStyles.push_back(EpdFontFamily::REGULAR);
-    wordContinues.push_back(false);
-    wordIsBionicSuffix.push_back(false);
-    wordIsGuideDot.push_back(true);
-    wordBackgroundBlack.push_back(false);
+    pushToken("\xc2\xb7", EpdFontFamily::REGULAR, false, true, false, true, false);
   }
 
   // Already-bold text should stay fully bold; bionic splitting would make its suffix regular later.
   if (!this->bionicReadingEnabled || (baseStyle & EpdFontFamily::BOLD) != 0) {
-    words.push_back(std::move(word));
-    wordStyles.push_back(baseStyle);
-    wordContinues.push_back(attachToPrevious);
-    wordIsBionicSuffix.push_back(false);
-    wordIsGuideDot.push_back(false);
-    wordBackgroundBlack.push_back(backgroundBlack);
+    pushToken(word, baseStyle, attachToPrevious, attachToPrevious, false, false, backgroundBlack);
     if (wordStartsRtl) {
       hasRtlWord = true;
     }
@@ -183,39 +276,14 @@ void ParsedText::addWord(std::string word, const EpdFontFamily::Style fontStyle,
   // Pre-reserve capacity to prevent mid-word heap reallocations.
   size_t maxPossibleNewTokens = word.length();
   size_t requiredSize = words.size() + maxPossibleNewTokens;
-
-  if (words.capacity() < requiredSize) {
-    // Emulate standard geometric growth (doubling) to ensure we don't reallocate on every word.
-    size_t newCapacity = words.capacity() * 2;
-
-    // Ensure the doubled capacity is actually enough for this specific word
-    if (newCapacity < requiredSize) {
-      newCapacity = requiredSize;
-    }
-    // Set a sensible minimum starting size so the first few words don't trigger tiny reallocations
-    if (newCapacity < 16) {
-      newCapacity = 16;
-    }
-
-    words.reserve(newCapacity);
-    wordStyles.reserve(newCapacity);
-    wordContinues.reserve(newCapacity);
-    wordIsBionicSuffix.reserve(newCapacity);
-    wordIsGuideDot.reserve(newCapacity);
-    wordBackgroundBlack.reserve(newCapacity);
-  }
+  reserveWordCapacity(requiredSize);
 
   // Lambda helper to process and push individual sub-segments of the string
   // Use std::string_view to avoid heap allocations when slicing
   auto processSegment = [&](std::string_view segment, bool isWord, bool attach) {
     if (!isWord) {
       // Punctuation and Numbers stay regular
-      words.emplace_back(segment);
-      wordStyles.push_back(baseStyle);
-      wordContinues.push_back(attach);
-      wordIsBionicSuffix.push_back(false);
-      wordIsGuideDot.push_back(false);
-      wordBackgroundBlack.push_back(backgroundBlack);
+      pushToken(segment, baseStyle, attach, attach, false, false, backgroundBlack);
     } else {
       size_t charCount = 0;
       const unsigned char* countPtr = reinterpret_cast<const unsigned char*>(segment.data());
@@ -233,12 +301,8 @@ void ParsedText::addWord(std::string word, const EpdFontFamily::Style fontStyle,
 
       if (targetBoldChars >= charCount) {
         // Whole segment is bold - no suffix split needed
-        words.emplace_back(segment);
-        wordStyles.push_back(static_cast<EpdFontFamily::Style>(baseStyle | EpdFontFamily::BOLD));
-        wordContinues.push_back(attach);
-        wordIsBionicSuffix.push_back(false);
-        wordIsGuideDot.push_back(false);
-        wordBackgroundBlack.push_back(backgroundBlack);
+        pushToken(segment, static_cast<EpdFontFamily::Style>(baseStyle | EpdFontFamily::BOLD), attach, attach, false,
+                  false, backgroundBlack);
       } else {
         countPtr = reinterpret_cast<const unsigned char*>(segment.data());
         for (size_t i = 0; i < targetBoldChars; ++i) {
@@ -247,20 +311,12 @@ void ParsedText::addWord(std::string word, const EpdFontFamily::Style fontStyle,
         size_t splitByteOffset = countPtr - reinterpret_cast<const unsigned char*>(segment.data());
 
         // Bold prefix
-        words.emplace_back(segment.substr(0, splitByteOffset));
-        wordStyles.push_back(static_cast<EpdFontFamily::Style>(baseStyle | EpdFontFamily::BOLD));
-        wordContinues.push_back(attach);
-        wordIsBionicSuffix.push_back(false);
-        wordIsGuideDot.push_back(false);
-        wordBackgroundBlack.push_back(backgroundBlack);
+        pushToken(segment.substr(0, splitByteOffset),
+                  static_cast<EpdFontFamily::Style>(baseStyle | EpdFontFamily::BOLD), attach, attach, false, false,
+                  backgroundBlack);
 
         // Regular suffix - marked so extractLine can merge it back into one TextBlock entry
-        words.emplace_back(segment.substr(splitByteOffset));
-        wordStyles.push_back(baseStyle);
-        wordContinues.push_back(true);
-        wordIsBionicSuffix.push_back(true);
-        wordIsGuideDot.push_back(false);
-        wordBackgroundBlack.push_back(backgroundBlack);
+        pushToken(segment.substr(splitByteOffset), baseStyle, true, true, true, false, backgroundBlack);
       }
     }
   };
@@ -381,6 +437,7 @@ void ParsedText::layoutAndExtractLines(const GfxRenderer& renderer, const int fo
     words.erase(words.begin(), words.begin() + consumed);
     wordStyles.erase(wordStyles.begin(), wordStyles.begin() + consumed);
     wordContinues.erase(wordContinues.begin(), wordContinues.begin() + consumed);
+    wordNoBreakBefore.erase(wordNoBreakBefore.begin(), wordNoBreakBefore.begin() + consumed);
     wordIsBionicSuffix.erase(wordIsBionicSuffix.begin(), wordIsBionicSuffix.begin() + consumed);
     wordIsGuideDot.erase(wordIsGuideDot.begin(), wordIsGuideDot.begin() + consumed);
     wordBackgroundBlack.erase(wordBackgroundBlack.begin(), wordBackgroundBlack.begin() + consumed);
@@ -405,7 +462,7 @@ std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, c
   }
 
   auto nextTokenAttaches = [&](const size_t index, const size_t totalWordCount) {
-    return index + 1 < totalWordCount && (continuesVec[index + 1] || wordIsGuideDot[index + 1]);
+    return index + 1 < totalWordCount && (wordNoBreakBefore[index + 1] || wordIsGuideDot[index + 1]);
   };
 
   const int firstLineIndent = resolveFirstLineIndent(true, renderer, fontId);
@@ -524,7 +581,7 @@ std::vector<size_t> ParsedText::computeHyphenatedLineBreaks(const GfxRenderer& r
   size_t currentIndex = 0;
   bool isFirstLine = true;
   auto currentTokenAttaches = [&](const size_t index) {
-    return index < wordWidths.size() && (continuesVec[index] || wordIsGuideDot[index]);
+    return index < wordWidths.size() && (wordNoBreakBefore[index] || wordIsGuideDot[index]);
   };
 
   while (currentIndex < wordWidths.size()) {
@@ -652,6 +709,7 @@ bool ParsedText::hyphenateWordAtIndex(const size_t wordIndex, const int availabl
   // The hyphen remainder is neither a bionic suffix nor a guide dot - it starts fresh on the next line.
   wordIsBionicSuffix.insert(wordIsBionicSuffix.begin() + wordIndex + 1, false);
   wordIsGuideDot.insert(wordIsGuideDot.begin() + wordIndex + 1, false);
+  wordNoBreakBefore.insert(wordNoBreakBefore.begin() + wordIndex + 1, false);
 
   // Continuation flag handling after splitting a word into prefix + remainder.
   //
@@ -726,6 +784,7 @@ bool ParsedText::splitPathologicalTokenAtIndex(const size_t wordIndex, const int
   wordBackgroundBlack.insert(wordBackgroundBlack.begin() + wordIndex + 1, wordBackgroundBlack[wordIndex]);
   wordIsBionicSuffix.insert(wordIsBionicSuffix.begin() + wordIndex + 1, false);
   wordIsGuideDot.insert(wordIsGuideDot.begin() + wordIndex + 1, false);
+  wordNoBreakBefore.insert(wordNoBreakBefore.begin() + wordIndex + 1, false);
   wordContinues.insert(wordContinues.begin() + wordIndex + 1, false);
 
   wordWidths[wordIndex] = static_cast<uint16_t>(chosenWidth);
