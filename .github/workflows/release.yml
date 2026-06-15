@@ -16,6 +16,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
+          token: ${{ secrets.RELEASE_PAT }}
           submodules: recursive
           fetch-depth: 0
 
