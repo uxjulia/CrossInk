@@ -47,6 +47,7 @@ DEFAULT_OUTPUT = SCRIPT_DIR / "output"
 DOWNLOAD_DIR = SCRIPT_DIR / "downloaded_fonts"
 INSTANCE_DIR = SCRIPT_DIR / "instanced_fonts"
 DEFAULT_FALLBACK_FONT = EPDFONTS_DIR / "builtinFonts/source/NotoSans/NotoSans-Regular.ttf"
+PATCHED_INTERVAL_PRESETS = ("punctuation",)
 
 
 def is_url(value: str) -> bool:
@@ -73,6 +74,19 @@ def validate_config(families: list[dict]) -> list[str]:
                 )
 
     return errors
+
+
+def patched_intervals(intervals: str) -> str:
+    """Append required fallback-backed intervals to a family interval list."""
+    requested = [part.strip() for part in intervals.split(",") if part.strip()]
+    normalized = {part.lower() for part in requested}
+    patched = list(requested)
+
+    for preset in PATCHED_INTERVAL_PRESETS:
+        if preset not in normalized:
+            patched.append(preset)
+
+    return ",".join(patched)
 
 
 def download_font(url: str, dest: Path) -> Path:
@@ -192,7 +206,7 @@ def build_family(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     styles = family.get("styles", {})
-    intervals = family["intervals"]
+    intervals = patched_intervals(str(family["intervals"]))
     sizes = ",".join(str(s) for s in family["sizes"])
 
     # Resolve all font file paths (downloads as needed)

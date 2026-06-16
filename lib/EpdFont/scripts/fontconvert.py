@@ -138,6 +138,29 @@ intervals = [
     (0xFFFD, 0xFFFD),
 ]
 
+# Keep common non-rendering controls/format marks present but invisible when a
+# requested interval includes them. Some source fonts expose cmap entries for
+# these, often with blank glyphs; generating our own zero-width glyph keeps the
+# output consistent and avoids showing U+FFFD for text cleanup artifacts.
+SYNTHETIC_BLANK_CODEPOINT_RANGES = (
+    (0x0000, 0x001F),  # C0 controls
+    (0x007F, 0x009F),  # DEL + C1 controls / mis-decoded Windows-1252 bytes
+    (0x00AD, 0x00AD),  # soft hyphen
+    (0x034F, 0x034F),  # combining grapheme joiner
+    (0x061C, 0x061C),  # Arabic letter mark
+    (0x180B, 0x180F),  # Mongolian variation selectors / separator
+    (0x200B, 0x200F),  # zero-width and bidi marks
+    (0x202A, 0x202E),  # bidi embedding/override marks
+    (0x2060, 0x2064),  # word joiner / invisible operators
+    (0x2066, 0x206F),  # bidi isolates / invisible controls
+    (0xFE00, 0xFE0F),  # variation selectors
+    (0xFEFF, 0xFEFF),  # zero-width no-break space / BOM
+)
+
+
+def is_synthetic_blank_codepoint(code_point: int) -> bool:
+    return any(start <= code_point <= end for start, end in SYNTHETIC_BLANK_CODEPOINT_RANGES)
+
 add_ints = []
 if args.additional_intervals:
     add_ints = [tuple([int(n, base=0) for n in i.split(",")]) for i in args.additional_intervals]
@@ -280,7 +303,7 @@ for i_start, i_end in unvalidated_intervals:
     start = i_start
     for code_point in range(i_start, i_end + 1):
         face = load_glyph(code_point)
-        if face is None:
+        if face is None and not is_synthetic_blank_codepoint(code_point):
             if start < code_point:
                 intervals.append((start, code_point - 1))
             start = code_point + 1
@@ -295,7 +318,35 @@ all_glyphs = []
 
 for i_start, i_end in intervals:
     for code_point in range(i_start, i_end + 1):
+        if is_synthetic_blank_codepoint(code_point):
+            glyph = GlyphProps(
+                width = 0,
+                height = 0,
+                advance_x = 0,
+                left = 0,
+                top = 0,
+                data_length = 0,
+                data_offset = total_size,
+                code_point = code_point,
+            )
+            all_glyphs.append((glyph, b''))
+            continue
+
         face = load_glyph(code_point)
+        if face is None:
+            glyph = GlyphProps(
+                width = 0,
+                height = 0,
+                advance_x = 0,
+                left = 0,
+                top = 0,
+                data_length = 0,
+                data_offset = total_size,
+                code_point = code_point,
+            )
+            all_glyphs.append((glyph, b''))
+            continue
+
         bitmap = face.glyph.bitmap
 
         # Build out 4-bit greyscale bitmap
