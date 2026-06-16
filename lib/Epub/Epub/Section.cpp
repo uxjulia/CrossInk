@@ -197,15 +197,19 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
                                 const bool hyphenationEnabled, const bool embeddedStyle, const uint8_t imageRendering,
                                 const bool bionicReadingEnabled, const bool guideReadingEnabled,
                                 const std::function<void()>& popupFn, bool* imagesWereSuppressed,
-                                bool* layoutAbortedForLowMemory) {
+                                bool* layoutAbortedForLowMemory, const EpubLayoutMode layoutMode) {
   const auto localPath = epub->getSpineItem(spineIndex).href;
   const auto tmpHtmlPath = epub->getCachePath() + "/.tmp_" + std::to_string(spineIndex) + ".html";
   const auto tmpSectionPath = filePath + ".tmp";
   pageCount = 0;
   if (layoutAbortedForLowMemory) *layoutAbortedForLowMemory = false;
-  LOG_DBG("SCT", "Create section start: spine=%d viewport=%ux%u image=%u bionic=%u guide=%u free=%u maxAlloc=%u",
-          spineIndex, viewportWidth, viewportHeight, imageRendering, bionicReadingEnabled, guideReadingEnabled,
-          ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+  const bool compatibilityLayout = layoutMode == EpubLayoutMode::Compatibility;
+  const bool effectiveBionicReadingEnabled = bionicReadingEnabled;
+  const bool effectiveGuideReadingEnabled = !compatibilityLayout && guideReadingEnabled;
+  LOG_DBG("SCT",
+          "Create section start: spine=%d mode=%u viewport=%ux%u image=%u bionic=%u guide=%u free=%u maxAlloc=%u",
+          spineIndex, compatibilityLayout ? 1U : 0U, viewportWidth, viewportHeight, imageRendering,
+          effectiveBionicReadingEnabled, effectiveGuideReadingEnabled, ESP.getFreeHeap(), ESP.getMaxAllocHeap());
 
   // Create cache directory if it doesn't exist
   {
@@ -260,7 +264,7 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
   }
   if (!writeSectionFileHeader(fontId, lineCompression, extraParagraphSpacing, forceParagraphIndents, paragraphAlignment,
                               viewportWidth, viewportHeight, hyphenationEnabled, embeddedStyle, imageRendering,
-                              bionicReadingEnabled, guideReadingEnabled)) {
+                              effectiveBionicReadingEnabled, effectiveGuideReadingEnabled)) {
     LOG_ERR("SCT", "Failed to write section header");
     file.close();
     Storage.remove(tmpSectionPath.c_str());
@@ -308,11 +312,12 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
 
   ChapterHtmlSlimParser visitor(
       epub, tmpHtmlPath, renderer, fontId, lineCompression, extraParagraphSpacing, forceParagraphIndents,
-      paragraphAlignment, viewportWidth, viewportHeight, hyphenationEnabled, bionicReadingEnabled, guideReadingEnabled,
+      paragraphAlignment, viewportWidth, viewportHeight, hyphenationEnabled, effectiveBionicReadingEnabled,
+      effectiveGuideReadingEnabled,
       [this, &lut](std::unique_ptr<Page> page, const uint16_t paragraphIndex, const uint16_t listItemIndex) {
         lut.push_back({this->onPageComplete(std::move(page)), paragraphIndex, listItemIndex});
       },
-      embeddedStyle, contentBase, imageBasePath, imageRendering, std::move(tocAnchors), popupFn, cssParser);
+      embeddedStyle, contentBase, imageBasePath, imageRendering, std::move(tocAnchors), popupFn, cssParser, layoutMode);
   Hyphenator::setPreferredLanguage(epub->getLanguage());
   LOG_DBG("SCT", "Parser start: spine=%d free=%u maxAlloc=%u", spineIndex, ESP.getFreeHeap(), ESP.getMaxAllocHeap());
   success = visitor.parseAndBuildPages();
