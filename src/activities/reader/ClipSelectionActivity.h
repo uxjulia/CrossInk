@@ -4,6 +4,7 @@
 #include <Epub/Section.h>
 #include <Memory.h>
 
+#include <array>
 #include <memory>
 #include <string>
 #include <vector>
@@ -56,6 +57,7 @@ class ClipSelectionActivity final : public Activity {
   int startMarkIdx = -1;
   bool needsPageSwitch = false;
   bool hasSavedBuffer = false;
+  mutable std::array<std::string, 4> prewarmTextByStyle;
 
   ButtonNavigator buttonNavigator;
 
@@ -63,6 +65,7 @@ class ClipSelectionActivity final : public Activity {
   void storeCurrentBuffer();
   void restoreSavedBuffer() const;
   bool switchToPage(int pageIdx);
+  void prewarmHighlightedWords() const;
   void drawHighlights();
   void applyWordStyle(const WordRef& word, const ClipWordStyle& style) const;
   int lineEndForward(int idx) const;

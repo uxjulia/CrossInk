@@ -1,5 +1,6 @@
 #include "ClipSelectionActivity.h"
 
+#include <FontCacheManager.h>
 #include <GfxRenderer.h>
 #include <I18n.h>
 #include <Logging.h>
@@ -183,6 +184,7 @@ void ClipSelectionActivity::render(RenderLock&&) {
     restoreSavedBuffer();
   }
 
+  prewarmHighlightedWords();
   drawHighlights();
 
   const auto confirmLabel = startMarkIdx == -1 ? tr(STR_SELECT) : tr(STR_DONE);
@@ -202,8 +204,17 @@ bool ClipSelectionActivity::switchToPage(const int pageIdx) {
     return false;
   }
 
-  renderer.clearScreen(ReaderUtils::readerBackgroundColor());
-  page->render(renderer, fontId, marginLeft, marginTop, ReaderUtils::readerForegroundBlack());
+  if (auto* fcm = renderer.getFontCacheManager()) {
+    auto scope = fcm->createPrewarmScope();
+    page->renderText(renderer, fontId, marginLeft, marginTop, ReaderUtils::readerForegroundBlack());
+    scope.endScanAndPrewarm();
+    renderer.clearScreen(ReaderUtils::readerBackgroundColor());
+    page->render(renderer, fontId, marginLeft, marginTop, ReaderUtils::readerForegroundBlack());
+  } else {
+    renderer.clearScreen(ReaderUtils::readerBackgroundColor());
+    page->render(renderer, fontId, marginLeft, marginTop, ReaderUtils::readerForegroundBlack());
+  }
+
   storeCurrentBuffer();
   currentDisplayPage = pageIdx;
   return true;
@@ -237,6 +248,41 @@ void ClipSelectionActivity::applyWordStyle(const WordRef& word, const ClipWordSt
   if ((style.flags & ClipWordStyle::UNDERLINE) != 0) {
     const int underlineY = word.y + renderer.getFontAscenderSize(fontId) + 2;
     renderer.drawLine(drawX, underlineY, drawX + drawW, underlineY, true);
+  }
+}
+
+void ClipSelectionActivity::prewarmHighlightedWords() const {
+  if (!renderer.isSdCardFont(fontId)) return;
+
+  auto* fcm = renderer.getFontCacheManager();
+  if (!fcm) return;
+
+  for (auto& text : prewarmTextByStyle) {
+    text.clear();
+  }
+
+  const auto appendWord = [this](const WordRef& word) {
+    if (word.pageIdx != currentDisplayPage) return;
+    const uint8_t styleIdx = static_cast<uint8_t>(word.style) & 0x03;
+    if (styleIdx >= prewarmTextByStyle.size()) return;
+    prewarmTextByStyle[styleIdx] += word.text;
+    prewarmTextByStyle[styleIdx].push_back(' ');
+  };
+
+  if (startMarkIdx != -1) {
+    const int from = std::min(startMarkIdx, cursorIdx);
+    const int to = std::max(startMarkIdx, cursorIdx);
+    for (int i = from; i <= to; i++) {
+      appendWord(words[i]);
+    }
+  }
+
+  appendWord(words[cursorIdx]);
+
+  for (uint8_t styleIdx = 0; styleIdx < prewarmTextByStyle.size(); styleIdx++) {
+    if (!prewarmTextByStyle[styleIdx].empty()) {
+      fcm->prewarmCache(fontId, prewarmTextByStyle[styleIdx].c_str(), static_cast<uint8_t>(1u << styleIdx));
+    }
   }
 }
 

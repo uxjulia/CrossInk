@@ -2481,17 +2481,21 @@ void EpubReaderActivity::startClipSelection() {
           const std::string visibleWord = stripEmSpacePrefix(wordList[i]);
           if (visibleWord.find_first_not_of(" \t\r\n") == std::string::npos) continue;
 
-          const int wordWidth = renderer.getTextWidth(readerFontId, wordList[i].c_str(), styles[i]);
+          const auto textStyle = static_cast<EpdFontFamily::Style>(styles[i] & ~EpdFontFamily::UNDERLINE);
+          int wordWidth = renderer.getTextAdvanceX(readerFontId, wordList[i].c_str(), textStyle);
           if (wordWidth <= 0) continue;
 
           WordRef word;
           word.x = layout.marginLeft + line.xPos + xpos[i];
           word.y = layout.marginTop + line.yPos;
+          if (i + 1 < count && xpos[i + 1] > xpos[i]) {
+            wordWidth = std::min(wordWidth, static_cast<int>(xpos[i + 1] - xpos[i]));
+          }
           word.w = wordWidth;
           word.h = lineHeight;
           word.pageIdx = pageIdx;
           word.text = wordList[i];
-          word.style = styles[i];
+          word.style = textStyle;
           words.push_back(std::move(word));
         }
       }
@@ -3758,16 +3762,17 @@ void EpubReaderActivity::drawClippingHighlights(const Page& page, const int font
         const int skipX = hasEmSpace ? renderer.getTextAdvanceX(fontId, "\xe2\x80\x83", textStyle) : 0;
         const int wordX = orientedMarginLeft + line.xPos + xpos[i] + skipX;
         const int wordY = orientedMarginTop + line.yPos;
-        int wordW = renderer.getTextWidth(fontId, wordText.c_str(), styles[i]) - skipX;
+        int wordW = renderer.getTextAdvanceX(fontId, wordText.c_str(), textStyle) - skipX;
         const int wordH = renderer.getLineHeight(fontId);
-        if (i + 1 < wordList.size() && i + 1 < xpos.size() && i + 1 < styles.size() &&
-            isHighlightedWord(pageWordIndex + 1)) {
+        if (i + 1 < wordList.size() && i + 1 < xpos.size() && i + 1 < styles.size()) {
           const std::string& nextWordText = wordList[i + 1];
           const bool nextHasEmSpace = hasEmSpacePrefix(nextWordText);
           const auto nextTextStyle = static_cast<EpdFontFamily::Style>(styles[i + 1] & ~EpdFontFamily::UNDERLINE);
           const int nextSkipX = nextHasEmSpace ? renderer.getTextAdvanceX(fontId, "\xe2\x80\x83", nextTextStyle) : 0;
           const int nextWordX = orientedMarginLeft + line.xPos + xpos[i + 1] + nextSkipX;
-          if (nextWordX > wordX + wordW) {
+          if (isHighlightedWord(pageWordIndex + 1) && nextWordX > wordX + wordW) {
+            wordW = nextWordX - wordX;
+          } else if (nextWordX > wordX && wordW > nextWordX - wordX) {
             wordW = nextWordX - wordX;
           }
         }
