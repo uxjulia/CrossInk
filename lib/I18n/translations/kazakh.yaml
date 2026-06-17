@@ -341,6 +341,7 @@ STR_AUTO_TURN_INTERVAL_SECONDS: "Автоматты бет аудару арал
 STR_AUTO_TURN_STEP_HINT: "Сол/Оң: 1 с  Жоғары/Төмен: 5 с"
 STR_REMAP_FRONT_BUTTONS_READER: "Түймелерді қайта баптау (оқырман)"
 STR_READING_STATS: "Оқу статистикасы"
+STR_READER_OPTIONS: "Кітап параметрлері"
 STR_BOOKMARKS: "Бетбелгілер"
 STR_OPDS_SERVERS: "OPDS серверлері"
 STR_LONG_PRESS_MENU_ACTION: "Ұзақ басу мәзір әрекеті"

@@ -104,10 +104,12 @@ bool CrossPointState::loadFromBinaryFile() {
     serialization::readPod(inputFile, pendingBookmarkSpine);
     serialization::readPod(inputFile, pendingBookmarkProgress);
     pendingBookmarkParagraphIndex = UINT16_MAX;
+    pendingClippingIndex = UINT16_MAX;
   } else {
     pendingBookmarkSpine = UINT16_MAX;
     pendingBookmarkProgress = -1.0f;
     pendingBookmarkParagraphIndex = UINT16_MAX;
+    pendingClippingIndex = UINT16_MAX;
   }
 
   return true;

@@ -368,6 +368,7 @@ STR_AUTO_TURN_INTERVAL_SECONDS: "Intervallo di cambio pagina automatico (secondi
 STR_AUTO_TURN_STEP_HINT: "Sinistra/Destra: 1 s  Su/Giù: 5 s"
 STR_REMAP_FRONT_BUTTONS_READER: "Rimappa pulsanti (lettore)"
 STR_READING_STATS: "Statistiche di lettura"
+STR_READER_OPTIONS: "Opzioni libro"
 STR_BOOKMARKS: "Segnalibri"
 STR_LONG_PRESS_MENU_ACTION: "Azione menu pressione lunga"
 STR_LONG_PRESS_BACK_ACTION: "Azione Indietro pressione lunga"

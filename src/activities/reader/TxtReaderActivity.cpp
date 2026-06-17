@@ -257,8 +257,6 @@ void TxtReaderActivity::loop() {
     if (currentPage < totalPages - 1) {
       currentPage++;
       requestUpdate();
-    } else {
-      onGoHome();
     }
   }
 }

@@ -46,17 +46,54 @@ namespace {
 //   [24]     finishedDate.day          uint8_t
 //   [25-40]  timeOfDaySeconds[4]       uint32_t LE each
 //   [41-68]  dayOfWeekSeconds[7]       uint32_t LE each
-static constexpr uint8_t STATS_FILE_VERSION = 4;
+//
+// Binary layout v5 (73 bytes):
+//   [0-68]   v4 fields
+//   [69-72]  estimatedTimeLeftSeconds  uint32_t LE, 0 means unavailable
+static constexpr uint8_t STATS_FILE_VERSION = 5;
 static constexpr uint8_t STATS_FILE_VERSION_V2 = 2;
 static constexpr uint8_t STATS_FILE_VERSION_V1 = 1;
 static constexpr uint8_t STATS_FILE_VERSION_V3 = 3;
+static constexpr uint8_t STATS_FILE_VERSION_V4 = 4;
 static constexpr int STATS_FILE_SIZE_V1 = 11;
 static constexpr int STATS_FILE_SIZE_V2 = 12;
 static constexpr int STATS_FILE_SIZE_V3 = 16;
-static constexpr int STATS_FILE_SIZE = 69;
+static constexpr int STATS_FILE_SIZE_V4 = 69;
+static constexpr int STATS_FILE_SIZE = 73;
 static constexpr uint16_t MAX_PACE_SAMPLE_COUNT = 1000;
 static constexpr uint8_t FLAG_START_DATE_MANUAL = 1u << 0;
 static constexpr uint8_t FLAG_FINISHED_DATE_MANUAL = 1u << 1;
+static constexpr uint8_t PREVIOUS_VERSIONED_STATS_FILE_VERSION = STATS_FILE_VERSION - 1;
+static constexpr const char* LEGACY_STATS_FILE_NAME = "stats.bin";
+
+std::string statsFileNameForVersion(const uint8_t version) {
+  char buf[16];
+  snprintf(buf, sizeof(buf), "stats_v%u.bin", version);
+  return std::string(buf);
+}
+
+bool openStatsFileForRead(const std::string& cachePath, FsFile& f) {
+  const std::string currentName = statsFileNameForVersion(STATS_FILE_VERSION);
+  if (Storage.openFileForRead("STATS", cachePath + "/" + currentName, f)) {
+    return true;
+  }
+
+  // When bumping STATS_FILE_VERSION, this automatically tries the previous
+  // versioned filename (e.g. v6 falls back to stats_v5.bin) before the original
+  // unversioned stats.bin migration source.
+  const std::string previousName = statsFileNameForVersion(PREVIOUS_VERSIONED_STATS_FILE_VERSION);
+  if (Storage.openFileForRead("STATS", cachePath + "/" + previousName, f)) {
+    LOG_DBG("STATS", "Migrating %s to %s", previousName.c_str(), currentName.c_str());
+    return true;
+  }
+
+  if (Storage.openFileForRead("STATS", cachePath + "/" + LEGACY_STATS_FILE_NAME, f)) {
+    LOG_DBG("STATS", "Migrating legacy %s to %s", LEGACY_STATS_FILE_NAME, currentName.c_str());
+    return true;
+  }
+
+  return false;
+}
 
 uint16_t readLe16(const uint8_t* data, const int offset) {
   return static_cast<uint16_t>(data[offset]) | (static_cast<uint16_t>(data[offset + 1]) << 8);
@@ -95,12 +132,13 @@ ReadingStatsDate readDate(const uint8_t* data, const int offset) {
   }
   return date;
 }
+
 }  // namespace
 
 BookReadingStats BookReadingStats::load(const std::string& cachePath) {
   BookReadingStats stats;
   FsFile f;
-  if (!Storage.openFileForRead("STATS", cachePath + "/stats.bin", f)) {
+  if (!openStatsFileForRead(cachePath, f)) {
     return stats;
   }
   uint8_t data[STATS_FILE_SIZE] = {};
@@ -126,7 +164,15 @@ BookReadingStats BookReadingStats::load(const std::string& cachePath) {
     return stats;
   }
 
-  if (n != STATS_FILE_SIZE || data[0] != STATS_FILE_VERSION) {
+  if (n != STATS_FILE_SIZE && n != STATS_FILE_SIZE_V4) {
+    LOG_DBG("STATS", "Stats missing or version mismatch, starting fresh");
+    return stats;
+  }
+  if (n == STATS_FILE_SIZE_V4 && data[0] != STATS_FILE_VERSION_V4) {
+    LOG_DBG("STATS", "Stats missing or version mismatch, starting fresh");
+    return stats;
+  }
+  if (n == STATS_FILE_SIZE && data[0] != STATS_FILE_VERSION) {
     LOG_DBG("STATS", "Stats missing or version mismatch, starting fresh");
     return stats;
   }
@@ -144,6 +190,9 @@ BookReadingStats BookReadingStats::load(const std::string& cachePath) {
   }
   for (size_t i = 0; i < stats.dayOfWeekSeconds.size(); ++i) {
     stats.dayOfWeekSeconds[i] = readLe32(data, 41 + static_cast<int>(i) * 4);
+  }
+  if (n == STATS_FILE_SIZE) {
+    stats.estimatedTimeLeftSeconds = readLe32(data, 69);
   }
   return stats;
 }
@@ -191,9 +240,10 @@ void BookReadingStats::formatDuration(uint32_t seconds, char* buf, size_t len) {
 }
 
 void BookReadingStats::save(const std::string& cachePath) const {
+  const std::string statsFileName = statsFileNameForVersion(STATS_FILE_VERSION);
   FsFile f;
-  if (!Storage.openFileForWrite("STATS", cachePath + "/stats.bin", f)) {
-    LOG_ERR("STATS", "Could not write stats.bin");
+  if (!Storage.openFileForWrite("STATS", cachePath + "/" + statsFileName, f)) {
+    LOG_ERR("STATS", "Could not write %s", statsFileName.c_str());
     return;
   }
   uint8_t data[STATS_FILE_SIZE];
@@ -218,18 +268,31 @@ void BookReadingStats::save(const std::string& cachePath) const {
   for (size_t i = 0; i < dayOfWeekSeconds.size(); ++i) {
     writeLe32(data, 41 + static_cast<int>(i) * 4, dayOfWeekSeconds[i]);
   }
+  writeLe32(data, 69, estimatedTimeLeftSeconds);
   f.write(data, STATS_FILE_SIZE);
   f.close();
 }
 
 bool BookReadingStats::remove(const std::string& cachePath) {
-  const std::string statsPath = cachePath + "/stats.bin";
-  if (!Storage.exists(statsPath.c_str())) {
-    return true;
+  const std::string statsFileName = statsFileNameForVersion(STATS_FILE_VERSION);
+  const std::string statsPath = cachePath + "/" + statsFileName;
+  bool ok = true;
+  if (Storage.exists(statsPath.c_str()) && !Storage.remove(statsPath.c_str())) {
+    LOG_ERR("STATS", "Could not delete %s", statsFileName.c_str());
+    ok = false;
   }
-  if (!Storage.remove(statsPath.c_str())) {
-    LOG_ERR("STATS", "Could not delete stats.bin");
-    return false;
+
+  const std::string previousStatsFileName = statsFileNameForVersion(PREVIOUS_VERSIONED_STATS_FILE_VERSION);
+  const std::string previousStatsPath = cachePath + "/" + previousStatsFileName;
+  if (Storage.exists(previousStatsPath.c_str()) && !Storage.remove(previousStatsPath.c_str())) {
+    LOG_ERR("STATS", "Could not delete %s", previousStatsFileName.c_str());
+    ok = false;
   }
-  return true;
+
+  const std::string legacyStatsPath = cachePath + "/" + LEGACY_STATS_FILE_NAME;
+  if (Storage.exists(legacyStatsPath.c_str()) && !Storage.remove(legacyStatsPath.c_str())) {
+    LOG_ERR("STATS", "Could not delete %s", LEGACY_STATS_FILE_NAME);
+    ok = false;
+  }
+  return ok;
 }

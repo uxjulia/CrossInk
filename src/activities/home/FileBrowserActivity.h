@@ -1,6 +1,10 @@
 #pragma once
 
+#include <FileIndex.h>
+
+#include <array>
 #include <functional>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -45,14 +49,25 @@ class FileBrowserActivity final : public Activity {
   Mode mode = Mode::Books;
 
   // Files state
+  static constexpr size_t INDEX_ROW_CACHE_SIZE = 32;
   std::string basepath = "/";
   std::vector<std::string> files;
+  std::unique_ptr<char[]> fileNameBuffer;
+  std::unique_ptr<FileIndex> fileIndex;
+  std::unique_ptr<FileIndex::Entry> indexEntry;
+  std::array<std::string, INDEX_ROW_CACHE_SIZE> indexCachedNames;
+  std::array<size_t, INDEX_ROW_CACHE_SIZE> indexCachedRows{};
+  bool usingIndex = false;
   bool fileListMemoryLimited = false;
 
   // Data loading
+  void clearIndexNameCache();
   void loadFiles();
+  bool loadFilesIntoVector(size_t cap, bool& overflow);
+  size_t entryCount() const;
+  const char* entryNameAt(size_t row);
   void toggleHiddenFiles();
-  size_t findEntry(const std::string& name) const;
+  size_t findEntry(const std::string& name);
 
  public:
   explicit FileBrowserActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::string initialPath = "/",

@@ -74,7 +74,9 @@ To reset only this reader's local all-time totals, delete both:
 /.crosspoint/global_stats.bin.bak
 ```
 
-Do not delete `/.crosspoint/epub_<hash>/stats.bin` unless you also want to remove the per-book stats for that book.
+Do not delete `/.crosspoint/epub_<hash>/stats.bin` or versioned files such as
+`/.crosspoint/epub_<hash>/stats_v5.bin` unless you also want to remove the
+per-book stats for that book.
 
 If a sync was interrupted, a temporary `*.part` file may be left in `synced_stats/`. CrossInk ignores invalid stats files while aggregating, so it is safe to delete leftover `.part` files.
 

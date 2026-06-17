@@ -21,4 +21,9 @@ void Activity::startActivityForResult(std::unique_ptr<Activity>&& activity, Acti
 
 void Activity::setResult(ActivityResult&& result) { this->result = std::move(result); }
 
+void Activity::finishAfterBackPress() {
+  mappedInput.suppressNextBackRelease();
+  finish();
+}
+
 void Activity::finish() { activityManager.popActivity(); }

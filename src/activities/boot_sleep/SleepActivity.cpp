@@ -34,6 +34,10 @@ namespace {
 constexpr bool TURN_OFF_SCREEN_AFTER_SLEEP_REFRESH = true;
 constexpr int sleepBuildInfoSideMargin = 20;
 
+bool sleepCoverFilterInvertsGeneratedScreen() {
+  return SETTINGS.sleepScreenCoverFilter == CrossPointSettings::SLEEP_SCREEN_COVER_FILTER::INVERTED_BLACK_AND_WHITE;
+}
+
 void hideOverlayBatteryStrip(const GfxRenderer& renderer) {
   if (!SETTINGS.statusBarBattery) {
     return;
@@ -547,7 +551,15 @@ void SleepActivity::renderBitmapSleepScreen(const Bitmap& bitmap) const {
     renderer.invertScreen();
   }
 
-  renderer.displayBuffer(HalDisplay::HALF_REFRESH, TURN_OFF_SCREEN_AFTER_SLEEP_REFRESH);
+  if (hasGreyscale) {
+    // OEM grayscale pipeline base: on X3 this displays the frame with the
+    // dedicated "AA-pre-BW(mid)" differential waveform, leaving every pixel
+    // in the calibrated state the gray nudge refresh expects; on X4 it is a
+    // plain HALF refresh (previous behavior).
+    renderer.displayGrayscaleBase(HalDisplay::HALF_REFRESH);
+  } else {
+    renderer.displayBuffer(HalDisplay::HALF_REFRESH, TURN_OFF_SCREEN_AFTER_SLEEP_REFRESH);
+  }
 
   if (hasGreyscale) {
     bitmap.rewindToData();
@@ -629,7 +641,9 @@ void SleepActivity::renderReadingStatsSleepScreen() const {
   } else {
     renderPerBookStatsPage(renderer, nullptr, bookTitle, bookStats, progressPercent, false, 0, false, false, false);
   }
-  renderer.invertScreen();
+  if (!sleepCoverFilterInvertsGeneratedScreen()) {
+    renderer.invertScreen();
+  }
   renderer.displayBuffer(HalDisplay::HALF_REFRESH, TURN_OFF_SCREEN_AFTER_SLEEP_REFRESH);
 }
 
@@ -646,6 +660,9 @@ void SleepActivity::renderMinimalSleepScreen() const {
   const float progressPercent = RecentBookProgress::loadPercent(book);
   MinimalTheme theme;
   theme.drawSleepScreen(renderer, book, &bookStats, progressPercent);
+  if (sleepCoverFilterInvertsGeneratedScreen()) {
+    renderer.invertScreen();
+  }
   renderer.displayBuffer(HalDisplay::HALF_REFRESH, TURN_OFF_SCREEN_AFTER_SLEEP_REFRESH);
 }
 
@@ -663,6 +680,9 @@ void SleepActivity::renderMinimalStatsSleepScreen() const {
   const float progressPercent = RecentBookProgress::loadPercent(book);
   MinimalTheme theme;
   theme.drawStatsSleepScreen(renderer, book, &bookStats, &globalStats, progressPercent);
+  if (sleepCoverFilterInvertsGeneratedScreen()) {
+    renderer.invertScreen();
+  }
   renderer.displayBuffer(HalDisplay::HALF_REFRESH, TURN_OFF_SCREEN_AFTER_SLEEP_REFRESH);
 }
 

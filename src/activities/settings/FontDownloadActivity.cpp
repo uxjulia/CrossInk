@@ -770,7 +770,7 @@ bool FontDownloadActivity::isSelectedFamilyDeletable() const {
 void FontDownloadActivity::loop() {
   if (state_ == FAMILY_LIST) {
     if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
-      finish();
+      finishAfterBackPress();
       return;
     }
 
@@ -850,7 +850,7 @@ void FontDownloadActivity::loop() {
       errorMessage_.clear();
       errorHint_.clear();
       if (families_.empty()) {
-        finish();
+        finishAfterBackPress();
       } else {
         RenderLock lock(*this);
         state_ = FAMILY_LIST;

@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 
+#include "Epub/EpubLayoutMode.h"
 #include "Epub/FootnoteEntry.h"
 #include "Epub/ParsedText.h"
 #include "Epub/blocks/ImageBlock.h"
@@ -57,7 +58,7 @@ class ChapterHtmlSlimParser {
   bool hyphenationEnabled;
   bool bionicReadingEnabled;
   bool guideReadingEnabled;
-  const CssParser* cssParser;
+  CssParser* cssParser;
   bool embeddedStyle;
   uint8_t imageRendering;
   std::string contentBase;
@@ -66,6 +67,8 @@ class ChapterHtmlSlimParser {
   bool lowMemoryImageFallback = false;
   bool lowMemoryAbort = false;
   bool attemptedTextLayoutFontCacheRelease = false;
+  bool attemptedCompatibilityCssRelease = false;
+  EpubLayoutMode layoutMode = EpubLayoutMode::Full;
 
   // Style tracking (replaces depth-based approach)
   struct StyleStackEntry {
@@ -157,6 +160,8 @@ class ChapterHtmlSlimParser {
   void attachPendingPublisherPageMarkers(int yPos);
   void flushPartWordBuffer();
   void makePages();
+  bool isCompatibilityLayout() const { return layoutMode == EpubLayoutMode::Compatibility; }
+  void pushCssAncestor(int depth, const char* tag, const std::string& classAttr);
   static void applyDirectionToEntry(StyleStackEntry& entry, const CssStyle& css);
   void emitHorizontalRule(const BlockStyle& blockStyle);
   void finalizeCurrentTableCell();
@@ -172,17 +177,15 @@ class ChapterHtmlSlimParser {
   static void XMLCALL endElement(void* userData, const XML_Char* name);
 
  public:
-  explicit ChapterHtmlSlimParser(std::shared_ptr<Epub> epub, const std::string& filepath, GfxRenderer& renderer,
-                                 const int fontId, const float lineCompression, const bool extraParagraphSpacing,
-                                 const bool forceParagraphIndents, const uint8_t paragraphAlignment,
-                                 const uint16_t viewportWidth, const uint16_t viewportHeight,
-                                 const bool hyphenationEnabled, const bool bionicReadingEnabled,
-                                 const bool guideReadingEnabled,
-                                 const std::function<void(std::unique_ptr<Page>, uint16_t, uint16_t)>& completePageFn,
-                                 const bool embeddedStyle, const std::string& contentBase,
-                                 const std::string& imageBasePath, const uint8_t imageRendering = 0,
-                                 std::vector<std::string> tocAnchors = {},
-                                 const std::function<void()>& popupFn = nullptr, const CssParser* cssParser = nullptr)
+  explicit ChapterHtmlSlimParser(
+      std::shared_ptr<Epub> epub, const std::string& filepath, GfxRenderer& renderer, const int fontId,
+      const float lineCompression, const bool extraParagraphSpacing, const bool forceParagraphIndents,
+      const uint8_t paragraphAlignment, const uint16_t viewportWidth, const uint16_t viewportHeight,
+      const bool hyphenationEnabled, const bool bionicReadingEnabled, const bool guideReadingEnabled,
+      const std::function<void(std::unique_ptr<Page>, uint16_t, uint16_t)>& completePageFn, const bool embeddedStyle,
+      const std::string& contentBase, const std::string& imageBasePath, const uint8_t imageRendering = 0,
+      std::vector<std::string> tocAnchors = {}, const std::function<void()>& popupFn = nullptr,
+      CssParser* cssParser = nullptr, const EpubLayoutMode layoutMode = EpubLayoutMode::Full)
 
       : epub(epub),
         filepath(filepath),
@@ -202,6 +205,7 @@ class ChapterHtmlSlimParser {
         cssParser(cssParser),
         embeddedStyle(embeddedStyle),
         imageRendering(imageRendering),
+        layoutMode(layoutMode),
         contentBase(contentBase),
         imageBasePath(imageBasePath),
         tocAnchors(std::move(tocAnchors)) {}

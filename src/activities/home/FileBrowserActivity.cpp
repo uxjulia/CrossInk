@@ -5,6 +5,7 @@
 #include <GfxRenderer.h>
 #include <HalStorage.h>
 #include <I18n.h>
+#include <Memory.h>
 
 #include <algorithm>
 #include <cstring>
@@ -23,6 +24,8 @@ namespace {
 constexpr unsigned long GO_HOME_MS = 1000;
 constexpr unsigned long COMPLETED_FEEDBACK_MS = 1000;
 constexpr int ROOT_HINT_GAP = 20;
+constexpr size_t NAME_BUFFER_SIZE = 500;
+constexpr size_t INDEX_THRESHOLD = 200;
 constexpr uint32_t FILE_BROWSER_APPEND_MIN_FREE_AFTER_ALLOC = 48U * 1024U;
 constexpr uint32_t FILE_BROWSER_APPEND_MIN_MAX_ALLOC_AFTER_ALLOC = 16U * 1024U;
 
@@ -79,6 +82,26 @@ bool hasFileMetadata(const std::string& path) {
          FsHelpers::hasMarkdownExtension(path);
 }
 
+bool isSupportedBrowserFile(std::string_view filename) {
+  return FsHelpers::hasEpubExtension(filename) || FsHelpers::hasXtcExtension(filename) ||
+         FsHelpers::hasTxtExtension(filename) || FsHelpers::hasMarkdownExtension(filename) ||
+         FsHelpers::hasBmpExtension(filename) || FsHelpers::hasPngExtension(filename);
+}
+
+bool acceptCommon(const char* name, bool isDir) {
+  if (isMacOSMetadataEntry(name) || isWindowsMetadataEntry(name) || (!SETTINGS.showHiddenFiles && name[0] == '.')) {
+    return false;
+  }
+  return isDir || isSupportedBrowserFile(name);
+}
+
+bool acceptFirmware(const char* name, bool isDir) {
+  if (isMacOSMetadataEntry(name) || isWindowsMetadataEntry(name) || (!SETTINGS.showHiddenFiles && name[0] == '.')) {
+    return false;
+  }
+  return isDir || FsHelpers::checkFileExtension(std::string_view{name}, ".bin");
+}
+
 std::string buildFullPath(std::string basepath, const std::string& entry) {
   if (basepath.back() != '/') basepath += "/";
   return basepath + entry;
@@ -133,54 +156,52 @@ void collectMetadataPathsRecursively(const std::string& dirPath, std::vector<std
 std::string getFileName(std::string filename);
 }  // namespace
 
-void FileBrowserActivity::loadFiles() {
+bool FileBrowserActivity::loadFilesIntoVector(size_t cap, bool& overflow) {
   files.clear();
-  fileListMemoryLimited = false;
+  overflow = false;
 
   auto root = Storage.open(basepath.c_str());
   if (!root || !root.isDirectory()) {
     if (root) {
       root.close();
     }
-    return;
+    return false;
   }
 
   root.rewindDirectory();
 
-  char name[500];
+  if (!fileNameBuffer) {
+    LOG_ERR("FileBrowser", "fileNameBuffer not allocated");
+    root.close();
+    return false;
+  }
+
+  const auto accept = (mode == Mode::PickFirmware) ? acceptFirmware : acceptCommon;
+
+  files.reserve(std::min<size_t>(cap, INDEX_THRESHOLD));
   for (auto file = root.openNextFile(); file; file = root.openNextFile()) {
-    file.getName(name, sizeof(name));
-    if (isMacOSMetadataEntry(name) || isWindowsMetadataEntry(name) || (!SETTINGS.showHiddenFiles && name[0] == '.')) {
+    file.getName(fileNameBuffer.get(), NAME_BUFFER_SIZE);
+    const bool isDir = file.isDirectory();
+    if (!accept(fileNameBuffer.get(), isDir)) {
       file.close();
       continue;
     }
 
-    bool shouldAdd = false;
-    size_t entryLen = std::strlen(name);
-    if (file.isDirectory()) {
-      if (entryLen + 1 >= sizeof(name)) {
-        LOG_ERR("FileBrowser", "Skipping oversized directory entry: %s", name);
+    if (files.size() >= cap) {
+      overflow = true;
+      file.close();
+      break;
+    }
+
+    size_t entryLen = std::strlen(fileNameBuffer.get());
+    if (isDir) {
+      if (entryLen + 1 >= NAME_BUFFER_SIZE) {
+        LOG_ERR("FileBrowser", "Skipping oversized directory entry: %s", fileNameBuffer.get());
         file.close();
         continue;
       }
-      name[entryLen++] = '/';
-      name[entryLen] = '\0';
-      shouldAdd = true;
-    } else {
-      std::string_view filename{name};
-      if (mode == Mode::PickFirmware) {
-        // Firmware picker: only show .bin files.
-        shouldAdd = FsHelpers::checkFileExtension(filename, ".bin");
-      } else if (FsHelpers::hasEpubExtension(filename) || FsHelpers::hasXtcExtension(filename) ||
-                 FsHelpers::hasTxtExtension(filename) || FsHelpers::hasMarkdownExtension(filename) ||
-                 FsHelpers::hasBmpExtension(filename) || FsHelpers::hasPngExtension(filename)) {
-        shouldAdd = true;
-      }
-    }
-
-    if (!shouldAdd) {
-      file.close();
-      continue;
+      fileNameBuffer[entryLen++] = '/';
+      fileNameBuffer[entryLen] = '\0';
     }
 
     if (!hasHeapForFileEntryAppend(files, entryLen)) {
@@ -190,18 +211,103 @@ void FileBrowserActivity::loadFiles() {
       file.close();
       root.close();
       files.clear();
-      return;
+      return true;
     }
 
-    files.emplace_back(name);
+    files.emplace_back(fileNameBuffer.get());
     file.close();
   }
   root.close();
+  return true;
+}
+
+void FileBrowserActivity::loadFiles() {
+  usingIndex = false;
+  clearIndexNameCache();
+  fileListMemoryLimited = false;
+  if (fileIndex) fileIndex->close();
+
+  bool overflow = false;
+  if (!loadFilesIntoVector(INDEX_THRESHOLD, overflow)) {
+    return;
+  }
+
+  if (!overflow || fileListMemoryLimited) {
+    FsHelpers::sortFileList(files);
+    return;
+  }
+
+  files.clear();
+  files.shrink_to_fit();
+
+  if (!fileIndex) fileIndex = makeUniqueNoThrow<FileIndex>();
+  if (!indexEntry) indexEntry = makeUniqueNoThrow<FileIndex::Entry>();
+  if (fileIndex && indexEntry) {
+    {
+      RenderLock lock(*this);
+      GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
+    }
+
+    const auto accept = (mode == Mode::PickFirmware) ? acceptFirmware : acceptCommon;
+    if (fileIndex->open(basepath.c_str(), accept)) {
+      usingIndex = true;
+      requestUpdate(true);
+      return;
+    }
+  } else {
+    LOG_ERR("FileBrowser", "index alloc failed");
+  }
+
+  LOG_ERR("FileBrowser", "index unavailable for %s; showing first %u entries", basepath.c_str(),
+          static_cast<unsigned>(INDEX_THRESHOLD));
+  overflow = false;
+  loadFilesIntoVector(INDEX_THRESHOLD, overflow);
   FsHelpers::sortFileList(files);
+  requestUpdate(true);
+}
+
+size_t FileBrowserActivity::entryCount() const {
+  return usingIndex && fileIndex ? fileIndex->totalCount() : files.size();
+}
+
+void FileBrowserActivity::clearIndexNameCache() {
+  for (size_t i = 0; i < INDEX_ROW_CACHE_SIZE; i++) {
+    indexCachedRows[i] = SIZE_MAX;
+    indexCachedNames[i].clear();
+  }
+}
+
+const char* FileBrowserActivity::entryNameAt(size_t row) {
+  if (!usingIndex) {
+    return files[row].c_str();
+  }
+
+  const size_t cacheSlot = row % INDEX_ROW_CACHE_SIZE;
+  if (indexCachedRows[cacheSlot] != row) {
+    if (!fileIndex || !indexEntry || !fileIndex->entryAt(row, *indexEntry)) {
+      LOG_ERR("FileBrowser", "index read failed at row %u", static_cast<unsigned>(row));
+      indexCachedRows[cacheSlot] = SIZE_MAX;
+      indexCachedNames[cacheSlot] = "?";
+      return indexCachedNames[cacheSlot].c_str();
+    }
+
+    indexCachedNames[cacheSlot].assign(indexEntry->name);
+    if (indexEntry->isDir) indexCachedNames[cacheSlot] += '/';
+    indexCachedRows[cacheSlot] = row;
+  }
+  return indexCachedNames[cacheSlot].c_str();
 }
 
 void FileBrowserActivity::onEnter() {
   Activity::onEnter();
+
+  fileNameBuffer = makeUniqueNoThrow<char[]>(NAME_BUFFER_SIZE);
+  if (!fileNameBuffer) {
+    LOG_ERR("FileBrowser", "name buffer alloc failed (%u bytes)", static_cast<unsigned>(NAME_BUFFER_SIZE));
+    fileListMemoryLimited = true;
+    requestUpdate();
+    return;
+  }
 
   selectorIndex = 0;
 
@@ -240,6 +346,11 @@ void FileBrowserActivity::onEnter() {
 void FileBrowserActivity::onExit() {
   Activity::onExit();
   files.clear();
+  fileNameBuffer.reset();
+  fileIndex.reset();
+  indexEntry.reset();
+  clearIndexNameCache();
+  usingIndex = false;
 }
 
 void FileBrowserActivity::promptDeleteFile(const std::string& fullPath, const std::string& entry) {
@@ -262,10 +373,10 @@ void FileBrowserActivity::promptDeleteFile(const std::string& fullPath, const st
     }
 
     loadFiles();
-    if (files.empty()) {
+    if (entryCount() == 0) {
       selectorIndex = 0;
-    } else if (selectorIndex >= files.size()) {
-      selectorIndex = files.size() - 1;
+    } else if (selectorIndex >= entryCount()) {
+      selectorIndex = entryCount() - 1;
     }
     requestUpdate(true);
   };
@@ -307,10 +418,10 @@ void FileBrowserActivity::promptDeleteDirectory(const std::string& fullPath, con
     }
 
     loadFiles();
-    if (files.empty()) {
+    if (entryCount() == 0) {
       selectorIndex = 0;
-    } else if (selectorIndex >= files.size()) {
-      selectorIndex = files.size() - 1;
+    } else if (selectorIndex >= entryCount()) {
+      selectorIndex = entryCount() - 1;
     }
     requestUpdate(true);
   };
@@ -355,6 +466,10 @@ void FileBrowserActivity::showDirectoryActionMenu(const std::string& entry, bool
                              case FileBrowserAction::RemoveFromRecents:
                              case FileBrowserAction::PinFavorite:
                              case FileBrowserAction::UnpinFavorite:
+                             case FileBrowserAction::ViewBookmarks:
+                             case FileBrowserAction::ViewClippings:
+                             case FileBrowserAction::DeleteBookmarks:
+                             case FileBrowserAction::DeleteClippings:
                                return;
                            }
                          });
@@ -495,7 +610,7 @@ void FileBrowserActivity::showFileActionMenu(const std::string& entry, bool igno
               completedFeedbackShowTime = millis();
             }
             loadFiles();
-            selectorIndex = files.empty() ? 0 : std::min(selectorIndex, files.size() - 1);
+            selectorIndex = entryCount() == 0 ? 0 : std::min(selectorIndex, entryCount() - 1);
             requestUpdate(true);
             return;
           case FileBrowserAction::PinFavorite:
@@ -517,6 +632,10 @@ void FileBrowserActivity::showFileActionMenu(const std::string& entry, bool igno
           case FileBrowserAction::SetSleepFolder:
           case FileBrowserAction::ClearSleepFolder:
           case FileBrowserAction::RemoveFromRecents:
+          case FileBrowserAction::ViewBookmarks:
+          case FileBrowserAction::ViewClippings:
+          case FileBrowserAction::DeleteBookmarks:
+          case FileBrowserAction::DeleteClippings:
             return;
         }
       });
@@ -524,7 +643,7 @@ void FileBrowserActivity::showFileActionMenu(const std::string& entry, bool igno
 
 void FileBrowserActivity::toggleHiddenFiles() {
   const std::string currentEntry =
-      (!files.empty() && selectorIndex < files.size()) ? files[selectorIndex] : std::string();
+      (entryCount() > 0 && selectorIndex < entryCount()) ? entryNameAt(selectorIndex) : std::string();
   SETTINGS.showHiddenFiles = SETTINGS.showHiddenFiles ? 0 : 1;
   if (!SETTINGS.saveToFile()) {
     LOG_ERR("FileBrowser", "Failed to save showHiddenFiles=%u", SETTINGS.showHiddenFiles);
@@ -536,8 +655,8 @@ void FileBrowserActivity::toggleHiddenFiles() {
 
   loadFiles();
   selectorIndex = currentEntry.empty() ? 0 : findEntry(currentEntry);
-  if (!files.empty() && selectorIndex >= files.size()) {
-    selectorIndex = files.size() - 1;
+  if (entryCount() > 0 && selectorIndex >= entryCount()) {
+    selectorIndex = entryCount() - 1;
   }
   requestUpdate();
 }
@@ -572,7 +691,8 @@ void FileBrowserActivity::loop() {
 
   const int pathReserved = renderer.getLineHeight(SMALL_FONT_ID) + UITheme::getInstance().getMetrics().verticalSpacing;
   int pageItems = UITheme::getNumberOfItemsPerPage(renderer, true, false, true, false, pathReserved);
-  const bool compactFileRows = SETTINGS.fileBrowserDisplay == CrossPointSettings::FILE_BROWSER_DISPLAY_2_LINES;
+  const bool compactFileRows =
+      !usingIndex && SETTINGS.fileBrowserDisplay == CrossPointSettings::FILE_BROWSER_DISPLAY_2_LINES;
   if (compactFileRows) {
     const auto& metrics = UITheme::getInstance().getMetrics();
     const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
@@ -581,8 +701,8 @@ void FileBrowserActivity::loop() {
     pageItems = std::max(1, contentHeight / MinimalTheme::compactFileBrowserRowHeightFor(renderer));
   }
 
-  if (!files.empty()) {
-    const std::string& entry = files[selectorIndex];
+  if (entryCount() > 0) {
+    const std::string entry = entryNameAt(selectorIndex);
     const bool isDirectory = (entry.back() == '/');
     if (mode == Mode::Books && !longPressConfirmHandled && mappedInput.isPressed(MappedInputManager::Button::Confirm) &&
         mappedInput.getHeldTime() >= GO_HOME_MS) {
@@ -605,9 +725,9 @@ void FileBrowserActivity::loop() {
       lockNextConfirmRelease = false;
       return;
     }
-    if (files.empty()) return;
+    if (entryCount() == 0) return;
 
-    const std::string& entry = files[selectorIndex];
+    const std::string entry = entryNameAt(selectorIndex);
     bool isDirectory = (entry.back() == '/');
 
     // Firmware picker: select file -> return path; navigate into directories normally.
@@ -675,7 +795,7 @@ void FileBrowserActivity::loop() {
     }
   }
 
-  int listSize = static_cast<int>(files.size());
+  int listSize = static_cast<int>(entryCount());
   buttonNavigator.onNextRelease([this, listSize] {
     selectorIndex = ButtonNavigator::nextIndex(static_cast<int>(selectorIndex), listSize);
     requestUpdate();
@@ -716,6 +836,9 @@ std::string getFileExtension(std::string filename) {
     return "";
   }
   const auto pos = filename.rfind('.');
+  if (pos == std::string::npos) {
+    return "";
+  }
   return filename.substr(pos);
 }
 
@@ -741,22 +864,35 @@ void FileBrowserActivity::render(RenderLock&&) {
   const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
   const int contentHeight =
       pageHeight - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing - pathReserved;
-  if (files.empty()) {
+  const size_t visibleEntries = entryCount();
+  if (visibleEntries == 0) {
     const char* emptyMsg = fileListMemoryLimited
                                ? tr(STR_MEMORY_ERROR)
                                : ((mode == Mode::PickFirmware) ? tr(STR_NO_BIN_FILES) : tr(STR_NO_FILES_FOUND));
     renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding, contentTop + 20, emptyMsg);
   } else {
-    const bool compactFileRows = SETTINGS.fileBrowserDisplay == CrossPointSettings::FILE_BROWSER_DISPLAY_2_LINES;
-    const std::function<std::string(int)> compactRowMarker =
-        compactFileRows ? [this](int index) { return files[index].back() == '/' ? "folder" : ""; }
-                        : std::function<std::string(int)>{};
-    const auto rowTitle = [this](int index) { return getFileName(files[index]); };
-    const auto rowIcon = [this](int index) { return UITheme::getFileIcon(files[index]); };
+    const bool compactFileRows =
+        !usingIndex && SETTINGS.fileBrowserDisplay == CrossPointSettings::FILE_BROWSER_DISPLAY_2_LINES;
+    std::function<std::string(int)> compactRowMarker;
+    if (compactFileRows) {
+      compactRowMarker = [this](int index) {
+        const std::string entry = entryNameAt(index);
+        return !entry.empty() && entry.back() == '/' ? "folder" : "";
+      };
+    }
+    const auto rowTitle = [this](int index) {
+      const std::string entry = entryNameAt(index);
+      return getFileName(entry);
+    };
+    const auto rowIcon = [this](int index) {
+      const std::string entry = entryNameAt(index);
+      return UITheme::getFileIcon(entry);
+    };
     const auto rowValue = [this](int index) {
-      const std::string extension = SETTINGS.hideFileExtension != 0 ? std::string() : getFileExtension(files[index]);
-      const std::string fullPath = buildFullPath(basepath, files[index]);
-      if (files[index].back() == '/' && isPreferredSleepFolder(fullPath)) {
+      const std::string entry = entryNameAt(index);
+      const std::string extension = SETTINGS.hideFileExtension != 0 ? std::string() : getFileExtension(entry);
+      const std::string fullPath = buildFullPath(basepath, entry);
+      if (entry.back() == '/' && isPreferredSleepFolder(fullPath)) {
         return std::string("*");
       }
       if (isPinnedSleepFavorite(fullPath)) {
@@ -766,11 +902,11 @@ void FileBrowserActivity::render(RenderLock&&) {
     };
     const Rect listRect{0, contentTop, pageWidth, contentHeight};
     if (compactFileRows) {
-      MinimalTheme::drawCompactFileBrowserList(renderer, listRect, files.size(), selectorIndex, rowTitle,
-                                               compactRowMarker, rowIcon, rowValue);
+      MinimalTheme::drawCompactFileBrowserList(renderer, listRect, static_cast<int>(visibleEntries), selectorIndex,
+                                               rowTitle, compactRowMarker, rowIcon, rowValue);
     } else {
-      GUI.drawList(renderer, listRect, files.size(), selectorIndex, rowTitle, compactRowMarker, rowIcon, rowValue,
-                   false);
+      GUI.drawList(renderer, listRect, static_cast<int>(visibleEntries), selectorIndex, rowTitle, compactRowMarker,
+                   rowIcon, rowValue, false);
     }
   }
 
@@ -803,10 +939,11 @@ void FileBrowserActivity::render(RenderLock&&) {
   const char* backLabel = (basepath == "/") ? (mode == Mode::PickFirmware ? tr(STR_BACK) : tr(STR_HOME)) : tr(STR_BACK);
   // In PickFirmware mode, Confirm on a .bin returns the path to the caller (not "open"); show
   // STR_SELECT instead. Directories in the same picker still descend, so keep STR_OPEN there.
-  const bool selectingFirmwareFile = mode == Mode::PickFirmware && !files.empty() && files[selectorIndex].back() != '/';
-  const char* confirmLabel = files.empty() ? "" : (selectingFirmwareFile ? tr(STR_SELECT) : tr(STR_OPEN));
-  const auto labels = mappedInput.mapLabels(backLabel, confirmLabel, files.empty() ? "" : tr(STR_DIR_UP),
-                                            files.empty() ? "" : tr(STR_DIR_DOWN));
+  const bool selectingFirmwareFile =
+      mode == Mode::PickFirmware && visibleEntries > 0 && std::string(entryNameAt(selectorIndex)).back() != '/';
+  const char* confirmLabel = visibleEntries == 0 ? "" : (selectingFirmwareFile ? tr(STR_SELECT) : tr(STR_OPEN));
+  const auto labels = mappedInput.mapLabels(backLabel, confirmLabel, visibleEntries == 0 ? "" : tr(STR_DIR_UP),
+                                            visibleEntries == 0 ? "" : tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
   if (mode == Mode::Books && basepath == "/") {
@@ -824,7 +961,14 @@ void FileBrowserActivity::render(RenderLock&&) {
   renderer.displayBuffer();
 }
 
-size_t FileBrowserActivity::findEntry(const std::string& name) const {
+size_t FileBrowserActivity::findEntry(const std::string& name) {
+  if (usingIndex && fileIndex) {
+    std::string raw = name;
+    if (!raw.empty() && raw.back() == '/') raw.pop_back();
+    const size_t row = fileIndex->findRowByName(raw.c_str());
+    return row == SIZE_MAX ? 0 : row;
+  }
+
   for (size_t i = 0; i < files.size(); i++)
     if (files[i] == name) return i;
   return 0;

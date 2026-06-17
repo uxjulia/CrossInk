@@ -203,7 +203,8 @@ void CalibreConnectActivity::render(RenderLock&&) {
     renderer.drawText(UI_12_FONT_ID, metrics.contentSidePadding, y, tr(STR_CALIBRE_STATUS), true, EpdFontFamily::BOLD);
     y += heightText12 + metrics.verticalSpacing * 2;
 
-    if (lastProgressTotal > 0 && lastProgressReceived <= lastProgressTotal) {
+    const bool showUploadProgress = lastProgressTotal > 0 && lastProgressReceived <= lastProgressTotal;
+    if (showUploadProgress) {
       std::string label = tr(STR_CALIBRE_RECEIVING);
       if (!currentUploadName.empty()) {
         label += ": " + currentUploadName;
@@ -218,7 +219,7 @@ void CalibreConnectActivity::render(RenderLock&&) {
       y += height + metrics.verticalSpacing * 2 + metrics.progressBarHeight;
     }
 
-    if (lastCompleteAt > 0 && (millis() - lastCompleteAt) < 6000) {
+    if (!showUploadProgress && lastCompleteAt > 0 && (millis() - lastCompleteAt) < 6000) {
       std::string msg = std::string(tr(STR_CALIBRE_RECEIVED)) + lastCompleteName;
       msg = renderer.truncatedText(SMALL_FONT_ID, msg.c_str(), pageWidth - metrics.contentSidePadding * 2,
                                    EpdFontFamily::REGULAR);

@@ -2,7 +2,8 @@
 
 These formats describe the SD-card cache files under `/.crosspoint/epub_<hash>/`.
 All POD fields are written in the ESP32 little-endian representation used by
-`Serialization.h`; strings are length-prefixed UTF-8.
+`Serialization.h`; strings are length-prefixed UTF-8 unless a format notes a
+fixed-size char buffer.
 
 ## `book.bin`
 
@@ -87,6 +88,135 @@ if (parsedSize != fileSize) {
     std::warning(std::format("Unparsed data detected: {} bytes remaining at offset 0x{:X}", fileSize - parsedSize, parsedSize));
 }
 ```
+
+## `reader_settings.bin`
+
+### Version 2
+
+Each EPUB cache directory may contain `reader_settings.bin`. Missing files mean
+the book uses global Reader settings and the default auto-page-turn interval.
+
+Version 1 stored only:
+
+- `u8 version`
+- `u16 autoPageTurnSeconds`
+
+Version 2 stores flags before the full reader-settings snapshot. This lets the
+file preserve an auto-page-turn interval without forcing custom font/layout
+settings for the book.
+
+```c++
+struct ReaderSettingsBin {
+    u8 version; // 2
+    u8 flags;   // bit 0 = custom reader settings, bit 1 = custom auto-page-turn interval
+    u16 autoPageTurnSeconds;
+
+    u8 fontFamily;
+    u8 fontSize;
+    u8 lineHeightPercent;
+    u8 orientation;
+    u8 screenMargin;
+    u8 publisherPageNumbers;
+    u8 paragraphAlignment;
+    u8 embeddedStyle;
+    u8 hyphenationEnabled;
+    u8 textAntiAliasing;
+    u8 readerDarkMode;
+    u8 imageRendering;
+    u8 extraParagraphSpacing;
+    u8 forceParagraphIndents;
+    u8 bionicReadingEnabled;
+    u8 guideReadingEnabled;
+    char sdFontFamilyName[64];
+};
+```
+
+## `/.crosspoint/clippings/<bookType>_<crc32(path)>.bin`
+
+### Version 2
+
+Clipping files store the per-book EPUB clipping list used by the reader. A
+saved clipping is also what CrossInk renders as an in-reader highlight; there is
+no separate highlight file. The file lives in `/.crosspoint/clippings/` instead
+of the EPUB render-cache directory so clearing/rebuilding layout cache does not
+delete user clippings.
+
+The current implementation only writes EPUB clipping files, so `bookType` is
+`epub`. The numeric suffix is `uzlib_crc32()` of the book's SD-card path, for
+example:
+
+```text
+/.crosspoint/clippings/epub_1234567890.bin
+```
+
+Binary layout:
+
+- `[0]` version (`2`)
+- `[1-2]` clipping count (`uint16_t` LE, maximum `64`)
+- book title (`String`)
+- book author (`String`)
+- book path (`String`)
+- repeated clipping records:
+  - `spineIndex` (`uint16_t` LE)
+  - `startPage` (`uint16_t` LE)
+  - `endPage` (`uint16_t` LE)
+  - `pageCount` (`uint16_t` LE, at least `1`)
+  - `startWordIndex` (`uint16_t` LE)
+  - `endWordIndex` (`uint16_t` LE)
+  - `wordCount` (`uint16_t` LE)
+  - `paragraphIndex` (`uint16_t` LE, `UINT16_MAX` when unavailable)
+  - `timestamp` (`uint32_t` LE, seconds since firmware boot when saved)
+  - `chapterTitle` (`char[48]`, null-terminated/truncated)
+  - selected text (`String`, truncated to `512` bytes for the in-app store)
+
+CrossInk uses the stored spine/page/paragraph fields as anchors, then searches
+near that location for the stored clipping text after relayout. This is similar
+to keeping both a DOM position and a text quote in a web app: the numeric
+position gives a fast starting point, while the text makes jumps and highlights
+survive font, layout, or page-count changes when possible.
+
+Creating a clipping also appends a Kindle-style export entry to
+`/My Clippings.txt` on the SD-card root. That text export can keep up to `2000`
+bytes of the selected text and is append-only. Removing a clipping from the
+reader deletes or rewrites only the binary clipping file; it does not remove
+previous entries from `/My Clippings.txt`.
+
+When CrossInk moves an EPUB through its built-in move-to-Read flow, it rewrites
+the clipping file under the new path-derived name and removes the old one. If a
+book is renamed or moved outside CrossInk, the path hash changes, so the old
+clipping file may no longer be associated with the book until the file is moved
+back or the clipping store is migrated.
+
+## `stats_v5.bin`
+
+### Version 5
+
+`stats_v5.bin` stores per-book reading statistics for stats schema version 5.
+Versioned filenames let firmware branches with different stats schemas keep
+their own per-book stats files without overwriting each other. Version 5 extends
+version 4 with a cached live reader book time-left estimate so Home and Reading
+Stats can show the same estimate the reader last computed.
+
+When `stats_v5.bin` is missing, CrossInk can read the previous versioned stats
+filename (`stats_v4.bin` for version 5, `stats_v5.bin` after a future version 6
+bump) before falling back to legacy `stats.bin` files with compatible stats
+payloads. Future changes are always saved to the current versioned filename.
+
+Binary layout:
+
+- `[0]` version (`5`)
+- `[1-2]` `sessionCount` (`uint16_t` LE)
+- `[3-6]` `totalReadingSeconds` (`uint32_t` LE)
+- `[7-10]` `totalPagesTurned` (`uint32_t` LE)
+- `[11]` `isCompleted` (`uint8_t`)
+- `[12-13]` `avgSecondsPerForwardPage` (`uint16_t` LE)
+- `[14-15]` `paceSampleCount` (`uint16_t` LE)
+- `[16]` flags (`bit0=startDateManual`, `bit1=finishedDateManual`)
+- `[17-20]` `startDate` (`year uint16_t` LE, `month uint8_t`, `day uint8_t`)
+- `[21-24]` `finishedDate` (`year uint16_t` LE, `month uint8_t`, `day uint8_t`)
+- `[25-40]` `timeOfDaySeconds[4]` (`uint32_t` LE each)
+- `[41-68]` `dayOfWeekSeconds[7]` (`uint32_t` LE each)
+- `[69-72]` `estimatedTimeLeftSeconds` (`uint32_t` LE, `0` means unavailable)
 
 ## `section.bin`
 

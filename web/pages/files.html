@@ -40,7 +40,10 @@
     <h3>📤 Upload file</h3>
     <div class="upload-form">
       <p class="file-info">Select a file to upload to <strong id="uploadPathDisplay"></strong></p>
-      <input type="file" id="fileInput" onchange="validateFile()" multiple>
+      <div class="drop-zone" id="dropZone">
+        <input type="file" id="fileInput" onchange="validateFile()" multiple>
+        <p class="drop-zone-hint">⬇ Drop files here — or click to browse</p>
+      </div>
       <div class="picker-columns" id="pickerColumns">
         <div class="convert-options" id="convertOptions" style="display:none;">
           <div class="convert-row">

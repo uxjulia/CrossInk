@@ -182,6 +182,11 @@ bool fallbackEstimatedTimeLeft(const BookReadingStats& stats, const float progre
   return seconds > 0;
 }
 
+bool cachedEstimatedTimeLeft(const BookReadingStats& stats, uint32_t& seconds) {
+  seconds = stats.estimatedTimeLeftSeconds;
+  return seconds > 0;
+}
+
 bool estimateFinishDateFromDailyPace(const BookReadingStats& stats, const ReadingStatsDateTime& today,
                                      const uint32_t estimatedReadingSeconds, ReadingStatsDate& outDate) {
   outDate = {};
@@ -341,9 +346,14 @@ void drawPerBookStatsCard(GfxRenderer& renderer, const int x, const int y, const
   drawStatCell(renderer, x, thirdW, y + layout.topCardTitleH + rowH, rowH, buf, tr(STR_STATS_AVG_SESSION_LBL));
 
   uint32_t fallbackEstimateSeconds = 0;
+  uint32_t cachedEstimateSeconds = 0;
+  const bool hasCachedEstimate = cachedEstimatedTimeLeft(stats, cachedEstimateSeconds);
   const bool hasFallbackEstimate = fallbackEstimatedTimeLeft(stats, progressPercent, fallbackEstimateSeconds);
-  if (!stats.isCompleted && (hasEstimatedTimeLeft || hasFallbackEstimate)) {
-    formatCompactEstimate(hasEstimatedTimeLeft ? estimatedTimeLeftSeconds : fallbackEstimateSeconds, buf, sizeof(buf));
+  if (!stats.isCompleted && (hasEstimatedTimeLeft || hasCachedEstimate || hasFallbackEstimate)) {
+    formatCompactEstimate(hasEstimatedTimeLeft ? estimatedTimeLeftSeconds
+                          : hasCachedEstimate  ? cachedEstimateSeconds
+                                               : fallbackEstimateSeconds,
+                          buf, sizeof(buf));
   } else {
     snprintf(buf, sizeof(buf), "-");
   }
@@ -379,8 +389,10 @@ void drawPerBookStatsCard(GfxRenderer& renderer, const int x, const int y, const
   bool finished = stats.isCompleted;
   if (finished) {
     finishDisplayDate = stats.finishedDate;
-  } else if (hasToday && (hasEstimatedTimeLeft || hasFallbackEstimate)) {
-    const uint32_t remainingReadingSeconds = hasEstimatedTimeLeft ? estimatedTimeLeftSeconds : fallbackEstimateSeconds;
+  } else if (hasToday && (hasEstimatedTimeLeft || hasCachedEstimate || hasFallbackEstimate)) {
+    const uint32_t remainingReadingSeconds = hasEstimatedTimeLeft ? estimatedTimeLeftSeconds
+                                             : hasCachedEstimate  ? cachedEstimateSeconds
+                                                                  : fallbackEstimateSeconds;
     if (!estimateFinishDateFromDailyPace(stats, today, remainingReadingSeconds, finishDisplayDate)) {
       ReadingStatsDateTime estimatedFinish = today;
       addSecondsToReadingStatsDateTime(estimatedFinish, remainingReadingSeconds);

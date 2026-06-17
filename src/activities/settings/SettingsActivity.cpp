@@ -44,6 +44,11 @@ namespace {
 constexpr int systemVersionFooterSideMargin = 20;
 constexpr int systemVersionFooterBottomInset = 15;
 constexpr int roundedRaffHeaderDateYOffset = 13;
+constexpr size_t controlsParentBaseCount = 3;
+constexpr size_t controlsPowerMinCount = 2;
+constexpr size_t controlsPowerMaxCount = 3;
+constexpr size_t controlsFrontButtonCount = 6;
+constexpr size_t controlsSideButtonCount = 3;
 
 uint8_t enumDisplayIndexForRawValue(const SettingInfo& setting, uint8_t rawValue) {
   if (setting.enumRawValues.empty()) {
@@ -228,9 +233,15 @@ void SettingsActivity::rebuildSettingsLists() {
   controlsFrontButtonSettings = buildControlsFrontButtonSettingsList(allSettings);
   controlsSideButtonSettings = buildControlsSideButtonSettingsList(allSettings);
 
-  if (controlsPowerSettings.size() < 2 || controlsPowerSettings.size() > 3 || controlsFrontButtonSettings.size() != 5 ||
-      controlsSideButtonSettings.size() != 3) {
-    LOG_ERR("SET", "Unexpected controls submenu counts: power=%u front=%u side=%u",
+  const size_t expectedControlsCount = controlsParentBaseCount +
+                                       (hasSettingByName(allSettings, StrId::STR_TILT_PAGE_TURN) ? 1u : 0u) +
+                                       (hasSettingByName(allSettings, StrId::STR_TILT_PAGE_TURN_DIRECTION) ? 1u : 0u);
+  if (controlsSettings.size() != expectedControlsCount || controlsPowerSettings.size() < controlsPowerMinCount ||
+      controlsPowerSettings.size() > controlsPowerMaxCount ||
+      controlsFrontButtonSettings.size() != controlsFrontButtonCount ||
+      controlsSideButtonSettings.size() != controlsSideButtonCount) {
+    LOG_ERR("SET", "Unexpected controls menu counts: controls=%u/%u power=%u front=%u side=%u",
+            static_cast<uint32_t>(controlsSettings.size()), static_cast<uint32_t>(expectedControlsCount),
             static_cast<uint32_t>(controlsPowerSettings.size()),
             static_cast<uint32_t>(controlsFrontButtonSettings.size()),
             static_cast<uint32_t>(controlsSideButtonSettings.size()));

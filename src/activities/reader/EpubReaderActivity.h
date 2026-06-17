@@ -15,19 +15,42 @@
 #include "activities/Activity.h"
 
 class EpubReaderActivity final : public Activity {
+ public:
+  struct ReaderSettingsSnapshot {
+    uint8_t fontFamily = 0;
+    uint8_t fontSize = 0;
+    uint8_t lineHeightPercent = 100;
+    uint8_t orientation = 0;
+    uint8_t screenMargin = 5;
+    uint8_t publisherPageNumbers = 0;
+    uint8_t paragraphAlignment = 0;
+    uint8_t embeddedStyle = 1;
+    uint8_t hyphenationEnabled = 0;
+    uint8_t textAntiAliasing = 1;
+    uint8_t readerDarkMode = 0;
+    uint8_t imageRendering = 0;
+    uint8_t extraParagraphSpacing = 1;
+    uint8_t forceParagraphIndents = 0;
+    uint8_t bionicReadingEnabled = 0;
+    uint8_t guideReadingEnabled = 0;
+    char sdFontFamilyName[64] = "";
+  };
+
+ private:
   std::shared_ptr<Epub> epub;
   std::unique_ptr<Section> section = nullptr;
   int currentSpineIndex = 0;
   int nextPageNumber = 0;
   int activeSectionFontId = 0;
-  bool activeSectionUsesFallbackFont = false;
   std::optional<uint16_t> pendingPageJump;
   // Set when navigating to a footnote href with a fragment (e.g. #note1).
   // Cleared on the next render after the new section loads and resolves it to a page.
   std::string pendingAnchor;
   int pagesUntilFullRefresh = 0;
   int cachedSpineIndex = 0;
+  int cachedChapterPageNumber = 0;
   int cachedChapterTotalPageCount = 0;
+  uint16_t cachedPageParagraphIndex = UINT16_MAX;
   unsigned long lastPageTurnTime = 0UL;
   unsigned long pageTurnDuration = 0UL;
   unsigned long pageShownAtMs = 0UL;
@@ -36,6 +59,12 @@ class EpubReaderActivity final : public Activity {
   uint16_t sessionPaceSampleCount = 0;
   uint32_t sessionReadingSeconds = 0;
   uint16_t lastAutoPageTurnIntervalSeconds = 0;
+  bool bookHasCustomReaderSettings = false;
+  bool bookHasAutoPageTurnInterval = false;
+  bool restoreGlobalReaderSettingsOnExit = false;
+  ReaderSettingsSnapshot globalReaderSettingsBeforeBook;
+  bool bookReaderSettingsSuspendedForGlobalEdit = false;
+  ReaderSettingsSnapshot suspendedBookReaderSettings;
   BookReadingStats stats;
   GlobalReadingStats globalStats;
   ReadingStatsDateTime sessionStartLocalDateTime;
@@ -45,7 +74,8 @@ class EpubReaderActivity final : public Activity {
   bool pendingPercentJump = false;
   // Normalized 0.0-1.0 progress within the target spine item, computed from book percentage.
   float pendingSpineProgress = 0.0f;
-  uint16_t pendingBookmarkParagraphIndex = UINT16_MAX;
+  uint16_t pendingParagraphIndex = UINT16_MAX;
+  uint16_t pendingClippingIndex = UINT16_MAX;
   bool pendingScreenshot = false;
   bool pendingSyncSaveError = false;
   bool skipNextButtonCheck = false;  // Skip button processing for one frame after subactivity exit
@@ -97,9 +127,11 @@ class EpubReaderActivity final : public Activity {
 
   void renderContents(std::unique_ptr<Page> page, int fontId, int orientedMarginTop, int orientedMarginRight,
                       int orientedMarginBottom, int orientedMarginLeft);
+  void drawClippingHighlights(const Page& page, int fontId, int orientedMarginTop, int orientedMarginLeft) const;
   void renderStatusBar() const;
   void silentIndexNextChapterIfNeeded(uint16_t viewportWidth, uint16_t viewportHeight);
   bool saveProgress(int spineIndex, int currentPage, int pageCount);
+  void cacheCurrentSectionPosition();
   void pauseReadingPaceTimer(const char* reason = "unknown");
   void resumeReadingPaceTimer(const char* reason = "unknown");
   void armReadingPaceWarmup(const char* reason = "unknown");
@@ -114,10 +146,23 @@ class EpubReaderActivity final : public Activity {
   bool estimateProgressTimeLeftSeconds(uint32_t& seconds) const;
   bool estimateTimeLeftSeconds(bool bookEstimate, uint32_t& seconds) const;
   bool formatTimeLeftLabel(char* buf, size_t len) const;
+  void refreshCachedTimeLeftEstimate();
   void resetCurrentBookStatsAfterDelete();
   void openFileTransfer();
   void openAutoPageTurnIntervalPicker(bool ignoreInitialConfirmRelease = false);
+  void startClipSelection();
   void resetReadingPaceData();
+  void captureGlobalReaderSettings();
+  void restoreGlobalReaderSettings();
+  void loadBookReaderSettings();
+  void saveCurrentBookReaderSettings();
+  void saveGlobalSettingsPreservingBookOverrides();
+  void beginGlobalSettingsEdit();
+  void endGlobalSettingsEdit();
+  static void saveReaderOptionsForBook(void* ctx);
+  static void saveGlobalSettingsForBookReader(void* ctx);
+  static void beginGlobalSettingsEditForBookReader(void* ctx);
+  static void endGlobalSettingsEditForBookReader(void* ctx);
   // Jump to a percentage of the book (0-100), mapping it to spine and page.
   void jumpToPercent(int percent);
   void reindexCurrentSection();

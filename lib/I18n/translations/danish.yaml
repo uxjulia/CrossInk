@@ -349,6 +349,7 @@ STR_AUTO_TURN_INTERVAL_SECONDS: "Interval for automatisk sidevendning (sekunder)
 STR_AUTO_TURN_STEP_HINT: "Venstre/Højre: 1 s  Op/Ned: 5 s"
 STR_REMAP_FRONT_BUTTONS_READER: "Omtildel knapper (læser)"
 STR_READING_STATS: "Læsestatistik"
+STR_READER_OPTIONS: "Bogindstillinger"
 STR_BOOKMARKS: "Bogmærker"
 STR_OPDS_SERVERS: "OPDS-servere"
 STR_LONG_PRESS_MENU_ACTION: "Menuhandling ved langt tryk"

@@ -24,6 +24,10 @@ class Activity {
   ActivityResultHandler resultHandler;
   ActivityResult result;
 
+  // Use when a screen exits on Back press instead of Back release so the
+  // parent screen does not also receive the held button's release.
+  void finishAfterBackPress();
+
  public:
   explicit Activity(std::string name, GfxRenderer& renderer, MappedInputManager& mappedInput)
       : name(std::move(name)), renderer(renderer), mappedInput(mappedInput) {}

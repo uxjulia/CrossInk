@@ -236,6 +236,27 @@ h2 {
 .upload-form input[type="file"].has-files::file-selector-button {
       background-color: var(--label-color);
     }
+.drop-zone {
+      border: 2px dashed var(--border-color);
+      border-radius: var(--radius-sm);
+      padding: 14px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color 0.15s, background-color 0.15s;
+    }
+.drop-zone.dragover {
+      border-color: var(--accent-color);
+      background-color: var(--accent-color-10);
+    }
+.drop-zone-hint {
+      margin: 8px 0 0;
+      font-size: 0.85em;
+      color: var(--label-color);
+      pointer-events: none;
+    }
+.drop-zone.dragover .drop-zone-hint {
+      color: var(--accent-color);
+    }
 .upload-btn {
       background-color: var(--accent-color);
       color: white;

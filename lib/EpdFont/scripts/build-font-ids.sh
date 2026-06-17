@@ -15,6 +15,13 @@ hash_files() {
     "$@"
 }
 
+emit_hash_define() {
+  local name="$1"; shift
+  local hash
+  hash="$(hash_files "$@")"
+  echo "#define ${name} (${hash})"
+}
+
 # Emit a reading-font ID define.
 # When the noemoji/ directory exists, emits an #ifdef OMIT_EMOJI_FONTS block so
 # the correct hash is selected at compile time.
@@ -30,25 +37,19 @@ reading_font_id() {
     for f in "${files[@]}"; do
       noemoji_files+=("./noemoji/$(basename "$f")")
     done
+    local noemoji_hash
+    local default_hash
+    noemoji_hash="$(hash_files "${noemoji_files[@]}")"
+    default_hash="$(hash_files "${files[@]}")"
     echo "#ifdef OMIT_EMOJI_FONTS"
-    echo "#define ${name} ($(hash_files "${noemoji_files[@]}"))"
+    echo "#define ${name} (${noemoji_hash})"
     echo "#else"
-    echo "#define ${name} ($(hash_files "${files[@]}"))"
+    echo "#define ${name} (${default_hash})"
     echo "#endif"
   else
-    echo "#define ${name} ($(hash_files "${files[@]}"))"
+    emit_hash_define "${name}" "${files[@]}"
   fi
 }
-
-# NotoEmoji / NotoSymbols — standalone emoji font IDs (no noemoji variant needed)
-echo "#define NOTOEMOJI_10_FONT_ID ($(hash_files ./notoemoji_10_regular.h))"
-echo "#define NOTOEMOJI_12_FONT_ID ($(hash_files ./notoemoji_12_regular.h))"
-echo "#define NOTOEMOJI_14_FONT_ID ($(hash_files ./notoemoji_14_regular.h))"
-echo "#define NOTOEMOJI_16_FONT_ID ($(hash_files ./notoemoji_16_regular.h))"
-echo "#define NOTOSYMBOLS_10_FONT_ID ($(hash_files ./notosymbols_10_regular.h))"
-echo "#define NOTOSYMBOLS_12_FONT_ID ($(hash_files ./notosymbols_12_regular.h))"
-echo "#define NOTOSYMBOLS_14_FONT_ID ($(hash_files ./notosymbols_14_regular.h))"
-echo "#define NOTOSYMBOLS_16_FONT_ID ($(hash_files ./notosymbols_16_regular.h))"
 
 # Reading fonts - support OMIT_EMOJI_FONTS
 reading_font_id LEXENDDECA_8_FONT_ID \
@@ -103,16 +104,14 @@ reading_font_id BITTER_20_FONT_ID \
   ./bitter_20_regular.h ./bitter_20_bold.h ./bitter_20_bolditalic.h ./bitter_20_italic.h
 
 # UI fonts — no emoji variant
-echo "#define UI_10_FONT_ID ($(hash_files ./inter_10_regular.h ./inter_10_bold.h))"
-echo "#define UI_12_FONT_ID ($(hash_files ./inter_12_regular.h ./inter_12_bold.h))"
-echo "#define SMALL_FONT_ID ($(hash_files ./inter_8_regular.h))"
+emit_hash_define UI_10_FONT_ID ./inter_10_regular.h ./inter_10_bold.h
+emit_hash_define UI_12_FONT_ID ./inter_12_regular.h ./inter_12_bold.h
+emit_hash_define SMALL_FONT_ID ./inter_8_regular.h
 
 echo ""
 echo "// Font ID 0 is reserved as the \"not found\" sentinel."
 echo "// Guard against any hash accidentally producing 0."
 for id in \
-  NOTOEMOJI_10_FONT_ID NOTOEMOJI_12_FONT_ID NOTOEMOJI_14_FONT_ID NOTOEMOJI_16_FONT_ID \
-  NOTOSYMBOLS_10_FONT_ID NOTOSYMBOLS_12_FONT_ID NOTOSYMBOLS_14_FONT_ID NOTOSYMBOLS_16_FONT_ID \
   LEXENDDECA_8_FONT_ID LEXENDDECA_9_FONT_ID LEXENDDECA_10_FONT_ID LEXENDDECA_12_FONT_ID LEXENDDECA_14_FONT_ID \
   LEXENDDECA_16_FONT_ID LEXENDDECA_18_FONT_ID LEXENDDECA_20_FONT_ID \
   CHAREINK_8_FONT_ID CHAREINK_9_FONT_ID CHAREINK_10_FONT_ID CHAREINK_12_FONT_ID CHAREINK_14_FONT_ID \

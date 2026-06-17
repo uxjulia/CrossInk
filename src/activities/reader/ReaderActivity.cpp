@@ -3,6 +3,7 @@
 #include <FsHelpers.h>
 #include <HalStorage.h>
 #include <I18n.h>
+#include <Memory.h>
 
 #include "CrossPointSettings.h"
 #include "Epub.h"
@@ -45,7 +46,11 @@ std::unique_ptr<Epub> ReaderActivity::loadEpub(const std::string& path) {
     return nullptr;
   }
 
-  auto epub = std::unique_ptr<Epub>(new Epub(path, "/.crosspoint"));
+  auto epub = makeUniqueNoThrow<Epub>(path, "/.crosspoint");
+  if (!epub) {
+    LOG_ERR("READER", "Failed to allocate EPUB object");
+    return nullptr;
+  }
   if (epub->load(true, SETTINGS.embeddedStyle == 0)) {
     return epub;
   }
@@ -60,7 +65,11 @@ std::unique_ptr<Xtc> ReaderActivity::loadXtc(const std::string& path) {
     return nullptr;
   }
 
-  auto xtc = std::unique_ptr<Xtc>(new Xtc(path, "/.crosspoint"));
+  auto xtc = makeUniqueNoThrow<Xtc>(path, "/.crosspoint");
+  if (!xtc) {
+    LOG_ERR("READER", "Failed to allocate XTC object");
+    return nullptr;
+  }
   if (xtc->load()) {
     return xtc;
   }
@@ -75,7 +84,11 @@ std::unique_ptr<Txt> ReaderActivity::loadTxt(const std::string& path) {
     return nullptr;
   }
 
-  auto txt = std::unique_ptr<Txt>(new Txt(path, "/.crosspoint"));
+  auto txt = makeUniqueNoThrow<Txt>(path, "/.crosspoint");
+  if (!txt) {
+    LOG_ERR("READER", "Failed to allocate TXT object");
+    return nullptr;
+  }
   if (txt->load()) {
     return txt;
   }

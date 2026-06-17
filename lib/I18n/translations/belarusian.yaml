@@ -346,6 +346,7 @@ STR_AUTO_TURN_INTERVAL_SECONDS: "Інтэрвал аўтаперагортван
 STR_AUTO_TURN_STEP_HINT: "Улева/Управа: 1 с  Уверх/Уніз: 5 с"
 STR_REMAP_FRONT_BUTTONS_READER: "Пераназначыць кнопкі (чытанне)"
 STR_READING_STATS: "Статыстыка чытання"
+STR_READER_OPTIONS: "Параметры кнігі"
 STR_BOOKMARKS: "Закладкі"
 STR_OPDS_SERVERS: "Серверы OPDS"
 STR_CONTROLS_GENERAL: "Агульныя"

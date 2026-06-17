@@ -5,6 +5,8 @@
 #include <string_view>
 #include <vector>
 
+#include "NaturalSort.h"
+
 namespace FsHelpers {
 
 std::string decodeUriEscapes(const std::string& path);

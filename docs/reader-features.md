@@ -21,7 +21,7 @@ Open the reader menu and select **Reader Options** to adjust settings such as:
 - Margins
 - Alignment
 - Image rendering
-- Guide Dots
+- Bionic Reading / Guide Dots
 - Dark Reader Mode
 
 Changes take effect immediately.
@@ -98,6 +98,25 @@ You can:
 - Open a bookmark list
 - Jump back to saved locations
 - Delete individual bookmarks
+
+## Clippings And Highlights
+
+CrossInk supports EPUB text clippings from the reader. Use **Create Clipping**
+from the reader menu, select text on the current page, and save it.
+
+A saved clipping is used in three ways:
+
+- It appears as a highlight in the reader
+- It appears in the in-app clipping list for that book
+- It is appended to `/My Clippings.txt` on the SD card in a Kindle-style text format
+
+The in-app clipping list is stored separately from the text export. Deleting a
+clipping from CrossInk removes the saved clipping and highlight from the device
+UI, but it does not rewrite old entries that were already appended to
+`/My Clippings.txt`.
+
+For storage paths and binary format details, see [Data Cache](./data-cache.md)
+and [File Formats](./file-formats.md).
 
 ## Reading Stats
 

@@ -365,6 +365,7 @@ STR_AUTO_TURN_INTERVAL_SECONDS: "Інтервал автоперегортанн
 STR_AUTO_TURN_STEP_HINT: "Вліво/Вправо: 1 с  Вгору/Вниз: 5 с"
 STR_REMAP_FRONT_BUTTONS_READER: "Налаштувати кнопки (читання)"
 STR_READING_STATS: "Статистика читання"
+STR_READER_OPTIONS: "Параметри книги"
 STR_BOOKMARKS: "Закладки"
 STR_LONG_PRESS_MENU_ACTION: "Дія меню при утримуванні"
 STR_LONG_PRESS_BACK_ACTION: "Дія Назад при утримуванні"

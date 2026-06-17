@@ -216,7 +216,7 @@ void StatusBarSettingsActivity::onExit() { Activity::onExit(); }
 
 void StatusBarSettingsActivity::loop() {
   if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
-    finish();
+    finishAfterBackPress();
     return;
   }
 
