@@ -10,6 +10,7 @@
 ### Changed
 - The EPUB reader menu has been updated to split out the growing menu of items into 3 separate screens for faster navigation.
 - The Epub reader menu now labels per-book reader settings as `Book Options` and avoids showing duplicate `Orientation` controls.
+- The `Inverted` sleep cover filter now flips Minimal and Reading Stats sleep screens to black text on a white background.
 
 ### Fixed
 - Calibre Wireless transfer status no longer stacks the last received-file message on top of the upload percentage.
