@@ -48,7 +48,7 @@ void decodeOffset(uint8_t biased, uint8_t& sign, uint8_t& hours, uint8_t& quarte
 void ClockOffsetActivity::onEnter() {
   Activity::onEnter();
   loadFromSettings();
-  activeField = FIELD_HOURS;
+  activeField = FIELD_SIGN;
   requestUpdate();
 }
 

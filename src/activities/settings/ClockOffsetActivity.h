@@ -20,7 +20,7 @@ class ClockOffsetActivity final : public Activity {
   ButtonNavigator buttonNavigator;
 
   enum Field { FIELD_SIGN = 0, FIELD_HOURS = 1, FIELD_MINUTES = 2, FIELD_COUNT };
-  Field activeField = FIELD_HOURS;
+  Field activeField = FIELD_SIGN;
 
   // Working copy of the offset, edited in-place. Saved back to SETTINGS on exit.
   // 0 = positive offset, 1 = negative offset.
