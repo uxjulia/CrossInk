@@ -1,0 +1,20 @@
+# Hyphenation Test Data
+#
+# Language: pt
+# Source: Pyphen pt patterns, focused smoke set for Portuguese registry coverage.
+# Format: word | hyphenated_form | frequency_in_source
+# Hyphenation points are marked with =
+
+aceitação|acei=ta=ção|1
+entidade|en=ti=da=de|1
+português|por=tu=guês|1
+justificação|jus=ti=fi=ca=ção|1
+hifenização|hi=fe=ni=za=ção|1
+desenvolvimento|de=sen=vol=vi=men=to|1
+extraordinário|ex=tra=or=di=ná=rio|1
+caracteristicamente|ca=rac=te=ris=ti=ca=men=te|1
+internacionalização|in=ter=na=ci=o=na=li=za=ção|1
+conhecimento|co=nhe=ci=men=to|1
+possibilidade|pos=si=bi=li=da=de|1
+biblioteca|bi=bli=o=te=ca|1
+transferência|trans=fe=rên=cia|1

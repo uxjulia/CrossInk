@@ -26,6 +26,7 @@
 - RoundedRaff's header battery icon and percentage now sit lower to avoid clipping at the top edge.
 - Lyra Carousel now keeps the Home header current when rendering the menu or restoring cached carousel frames, preventing stale battery and clock values while navigating between books.
 - Web file manager multi-delete now handles larger selections without failing after a small batch.
+- Portuguese EPUBs now use Portuguese hyphenation rules instead of leaving long words unhyphenated when Hyphenation is enabled.
 
 ## [v1.3.3] - 2026-06-13
 
