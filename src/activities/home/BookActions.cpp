@@ -1,6 +1,7 @@
 #include "BookActions.h"
 
 #include <Epub.h>
+#include <Epub/EpubRenderMode.h>
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
 #include <HalStorage.h>
@@ -27,12 +28,13 @@ namespace BookActions {
 std::vector<FileBrowserActionActivity::MenuItem> buildBookActionItems(const std::string& fullPath,
                                                                       const bool includeRemoveFromRecents) {
   std::vector<FileBrowserActionActivity::MenuItem> items;
-  items.reserve(includeRemoveFromRecents ? 5 : 4);
+  items.reserve(includeRemoveFromRecents ? 6 : 5);
   items.push_back({FileBrowserAction::Delete, StrId::STR_DELETE});
   if (hasClearableBookCache(fullPath)) {
     items.push_back({FileBrowserAction::DeleteCache, StrId::STR_DELETE_CACHE});
   }
   if (FsHelpers::hasEpubExtension(fullPath)) {
+    items.push_back({FileBrowserAction::EpubRenderMode, StrId::STR_EPUB_RENDER_MODE});
     items.push_back({FileBrowserAction::DeleteStats, StrId::STR_DELETE_BOOK_STATS});
   }
   if (FsHelpers::hasEpubExtension(fullPath)) {
@@ -75,6 +77,35 @@ bool deleteBookStats(const std::string& fullPath) {
   }
   const Epub epub(fullPath, "/.crosspoint");
   return BookReadingStats::remove(epub.getCachePath());
+}
+
+std::vector<std::string> epubRenderModeOptions() {
+  return {I18N.get(StrId::STR_RENDER_MODE_CROSSINK_DEFAULT), I18N.get(StrId::STR_RENDER_MODE_BALANCED),
+          I18N.get(StrId::STR_RENDER_MODE_LIGHT)};
+}
+
+uint8_t epubRenderModeDisplayIndex(const uint8_t renderMode) {
+  switch (static_cast<EpubRenderMode>(renderMode)) {
+    case EpubRenderMode::Balanced:
+      return 1;
+    case EpubRenderMode::Light:
+      return 2;
+    case EpubRenderMode::CrossInkDefault:
+    default:
+      return 0;
+  }
+}
+
+uint8_t epubRenderModeForDisplayIndex(const uint8_t displayIndex) {
+  switch (displayIndex) {
+    case 1:
+      return static_cast<uint8_t>(EpubRenderMode::Balanced);
+    case 2:
+      return static_cast<uint8_t>(EpubRenderMode::Light);
+    case 0:
+    default:
+      return static_cast<uint8_t>(EpubRenderMode::CrossInkDefault);
+  }
 }
 
 std::string confirmationHeading(const StrId actionLabelId) {

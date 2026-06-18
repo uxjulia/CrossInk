@@ -117,6 +117,19 @@ bool isTableStructuralTag(const char* name) {
   return strcmp(name, "table") == 0 || strcmp(name, "tr") == 0 || strcmp(name, "td") == 0 || strcmp(name, "th") == 0;
 }
 
+void stripPublisherSpacing(BlockStyle& blockStyle) {
+  blockStyle.marginLeft = 0;
+  blockStyle.marginRight = 0;
+  blockStyle.marginTop = 0;
+  blockStyle.marginBottom = 0;
+  blockStyle.paddingLeft = 0;
+  blockStyle.paddingRight = 0;
+  blockStyle.paddingTop = 0;
+  blockStyle.paddingBottom = 0;
+  blockStyle.textIndentDefined = false;
+  blockStyle.textIndent = 0;
+}
+
 void ChapterHtmlSlimParser::skipCurrentElement() {
   skipUntilDepth = depth;
   skipEndElementStateUntilDepth = depth;
@@ -145,7 +158,7 @@ void ChapterHtmlSlimParser::updateEffectiveInlineStyle() {
   effectiveStrikethrough =
       currentCssStyle.hasTextDecoration() && currentCssStyle.textDecoration == CssTextDecoration::LineThrough;
   effectiveBackgroundBlack =
-      !isCompatibilityLayout() && currentCssStyle.hasBackgroundBlack() && currentCssStyle.backgroundBlack;
+      honorsPublisherDecorations() && currentCssStyle.hasBackgroundBlack() && currentCssStyle.backgroundBlack;
   effectiveDirectionDefined = currentCssStyle.hasDirection();
   effectiveDirection = currentCssStyle.direction;
   effectiveSup = currentCssStyle.hasVerticalAlign() && currentCssStyle.verticalAlign == CssVerticalAlign::Super;
@@ -165,7 +178,7 @@ void ChapterHtmlSlimParser::updateEffectiveInlineStyle() {
     if (entry.hasStrikethrough) {
       effectiveStrikethrough = entry.strikethrough;
     }
-    if (!isCompatibilityLayout() && entry.hasBackgroundBlack) {
+    if (honorsPublisherDecorations() && entry.hasBackgroundBlack) {
       effectiveBackgroundBlack = entry.backgroundBlack;
     }
     if (entry.hasDirection) {
@@ -217,14 +230,14 @@ bool ChapterHtmlSlimParser::shouldAbortForLowMemory(const char* stage) {
     }
   }
 
-  if (isCompatibilityLayout() && cssParser && !attemptedCompatibilityCssRelease) {
-    attemptedCompatibilityCssRelease = true;
+  if (usesSimpleCssLookup() && cssParser && !attemptedSimplifiedCssRelease) {
+    attemptedSimplifiedCssRelease = true;
     const auto beforeClear = heap;
     cssParser->clear();
     cssParser = nullptr;
     decltype(ancestorStack_){}.swap(ancestorStack_);
     const auto afterClear = MemoryBudget::snapshot();
-    LOG_DBG("EHP", "Cleared CSS cache during compatibility layout before %s: free=%u->%u maxAlloc=%u->%u", stage,
+    LOG_DBG("EHP", "Cleared CSS cache during simplified layout before %s: free=%u->%u maxAlloc=%u->%u", stage,
             beforeClear.freeHeap, afterClear.freeHeap, beforeClear.maxAllocHeap, afterClear.maxAllocHeap);
     heap = afterClear;
     if (heap.freeHeap >= MIN_FREE_HEAP_FOR_TEXT_LAYOUT && heap.maxAllocHeap >= MIN_MAX_ALLOC_FOR_TEXT_LAYOUT) {
@@ -341,7 +354,7 @@ void ChapterHtmlSlimParser::flushPartWordBuffer() {
   // flush the buffer
   partWordBuffer[partWordBufferIndex] = '\0';
   currentTextBlock->addWord(partWordBuffer, fontStyle, false, nextWordContinues,
-                            !isCompatibilityLayout() && effectiveBackgroundBlack);
+                            honorsPublisherDecorations() && effectiveBackgroundBlack);
   partWordBufferIndex = 0;
   nextWordContinues = false;
 }
@@ -383,8 +396,7 @@ void ChapterHtmlSlimParser::startNewTextBlock(const BlockStyle& blockStyle) {
   // block is flushed so the chapter starts on a fresh page.
   flushPendingAnchor();
   currentTextBlock.reset(new (std::nothrow) ParsedText(extraParagraphSpacing, forceParagraphIndents, hyphenationEnabled,
-                                                       bionicReadingEnabled,
-                                                       !isCompatibilityLayout() && guideReadingEnabled, blockStyle));
+                                                       bionicReadingEnabled, guideReadingEnabled, blockStyle));
   if (!currentTextBlock) {
     const auto heap = MemoryBudget::snapshot();
     LOG_ERR("EHP", "Failed to create text block (%u free, %u max alloc)", heap.freeHeap, heap.maxAllocHeap);
@@ -395,7 +407,7 @@ void ChapterHtmlSlimParser::startNewTextBlock(const BlockStyle& blockStyle) {
 }
 
 void ChapterHtmlSlimParser::pushCssAncestor(const int depth, const char* tag, const std::string& classAttr) {
-  if (isCompatibilityLayout()) {
+  if (usesSimpleCssLookup()) {
     return;
   }
   ancestorStack_.push_back({depth, std::string(tag), classAttr});
@@ -884,8 +896,8 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
   // before tag-specific branches emit any content or metadata.
   CssStyle cssStyle;
   if (self->cssParser) {
-    cssStyle = self->isCompatibilityLayout() ? self->cssParser->resolveStyle(name, classAttr)
-                                             : self->cssParser->resolveStyle(name, classAttr, self->ancestorStack_);
+    cssStyle = self->usesSimpleCssLookup() ? self->cssParser->resolveStyle(name, classAttr)
+                                           : self->cssParser->resolveStyle(name, classAttr, self->ancestorStack_);
     if (!styleAttr.empty()) {
       CssStyle inlineStyle = CssParser::parseInlineStyle(styleAttr);
       cssStyle.applyOver(inlineStyle);
@@ -915,7 +927,7 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
   const bool isPublisherPageBreak =
       attributeContainsToken(roleAttr, "doc-pagebreak") || attributeContainsToken(epubTypeAttr, "pagebreak");
   if (isPublisherPageBreak) {
-    if (!self->isCompatibilityLayout()) {
+    if (self->honorsPublisherDecorations()) {
       const char* markerLabel = getAttribute(atts, "title");
       if (!markerLabel || markerLabel[0] == '\0') {
         markerLabel = getAttribute(atts, "aria-label");
@@ -934,7 +946,7 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
 
   // Special handling for tables/cells: buffer simple tables for grid layout, with
   // a clean flat-paragraph fallback for anything more complex.
-  if (self->isCompatibilityLayout()) {
+  if (self->flattensTables()) {
     if (strcmp(name, "table") == 0) {
       if (self->tableDepth > 0) {
         self->tableDepth += 1;
@@ -1171,7 +1183,7 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
 
       // Skip image if CSS display:none
       if (self->cssParser) {
-        CssStyle imgDisplayStyle = self->isCompatibilityLayout()
+        CssStyle imgDisplayStyle = self->usesSimpleCssLookup()
                                        ? self->cssParser->resolveStyle("img", classAttr)
                                        : self->cssParser->resolveStyle("img", classAttr, self->ancestorStack_);
         if (!styleAttr.empty()) {
@@ -1249,14 +1261,17 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
                   int displayWidth = 0;
                   int displayHeight = 0;
                   const float emSize = static_cast<float>(self->renderer.getFontAscenderSize(self->fontId));
-                  CssStyle imgStyle =
-                      self->cssParser ? (self->isCompatibilityLayout()
-                                             ? self->cssParser->resolveStyle("img", classAttr)
-                                             : self->cssParser->resolveStyle("img", classAttr, self->ancestorStack_))
-                                      : CssStyle{};
-                  // Merge inline style (e.g. style="height: 2em") so it overrides stylesheet rules
-                  if (!styleAttr.empty()) {
-                    imgStyle.applyOver(CssParser::parseInlineStyle(styleAttr));
+                  CssStyle imgStyle;
+                  if (!self->isLightMode()) {
+                    imgStyle = self->cssParser
+                                   ? (self->usesSimpleCssLookup()
+                                          ? self->cssParser->resolveStyle("img", classAttr)
+                                          : self->cssParser->resolveStyle("img", classAttr, self->ancestorStack_))
+                                   : CssStyle{};
+                    // Merge inline style (e.g. style="height: 2em") so it overrides stylesheet rules
+                    if (!styleAttr.empty()) {
+                      imgStyle.applyOver(CssParser::parseInlineStyle(styleAttr));
+                    }
                   }
                   const bool hasCssHeight = imgStyle.hasImageHeight();
                   const bool hasCssWidth = imgStyle.hasImageWidth();
@@ -1512,17 +1527,8 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
     userAlignmentBlockStyle.alignment = requestedAlign == CssTextAlign::None ? CssTextAlign::Justify : requestedAlign;
   }
 
-  if (!self->embeddedStyle) {
-    userAlignmentBlockStyle.marginLeft = 0;
-    userAlignmentBlockStyle.marginRight = 0;
-    userAlignmentBlockStyle.marginTop = 0;
-    userAlignmentBlockStyle.marginBottom = 0;
-    userAlignmentBlockStyle.paddingLeft = 0;
-    userAlignmentBlockStyle.paddingRight = 0;
-    userAlignmentBlockStyle.paddingTop = 0;
-    userAlignmentBlockStyle.paddingBottom = 0;
-    userAlignmentBlockStyle.textIndentDefined = false;
-    userAlignmentBlockStyle.textIndent = 0;
+  if (!self->embeddedStyle || self->isLightMode()) {
+    stripPublisherSpacing(userAlignmentBlockStyle);
   }
 
   // Force paragraph indent to prevent unreadable walls of text.
@@ -1540,18 +1546,13 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
   }
 
   if (strcmp(name, "hr") == 0) {
+    if (self->isLightMode()) {
+      self->skipCurrentElement();
+      return;
+    }
     auto hrBlockStyle = BlockStyle::fromCssStyle(cssStyle, emSize, CssTextAlign::Left, self->viewportWidth);
-    if (!self->embeddedStyle) {
-      hrBlockStyle.marginLeft = 0;
-      hrBlockStyle.marginRight = 0;
-      hrBlockStyle.marginTop = 0;
-      hrBlockStyle.marginBottom = 0;
-      hrBlockStyle.paddingLeft = 0;
-      hrBlockStyle.paddingRight = 0;
-      hrBlockStyle.paddingTop = 0;
-      hrBlockStyle.paddingBottom = 0;
-      hrBlockStyle.textIndentDefined = false;
-      hrBlockStyle.textIndent = 0;
+    if (!self->embeddedStyle || self->isLightMode()) {
+      stripPublisherSpacing(hrBlockStyle);
     }
     self->emitHorizontalRule(hrBlockStyle);
     self->pushCssAncestor(self->depth, name, classAttr);
@@ -1566,17 +1567,8 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
     if (self->embeddedStyle && cssStyle.hasTextAlign()) {
       headerBlockStyle.alignment = cssStyle.textAlign;
     }
-    if (!self->embeddedStyle) {
-      headerBlockStyle.marginLeft = 0;
-      headerBlockStyle.marginRight = 0;
-      headerBlockStyle.marginTop = 0;
-      headerBlockStyle.marginBottom = 0;
-      headerBlockStyle.paddingLeft = 0;
-      headerBlockStyle.paddingRight = 0;
-      headerBlockStyle.paddingTop = 0;
-      headerBlockStyle.paddingBottom = 0;
-      headerBlockStyle.textIndentDefined = false;
-      headerBlockStyle.textIndent = 0;
+    if (!self->embeddedStyle || self->isLightMode()) {
+      stripPublisherSpacing(headerBlockStyle);
     }
     const auto accumulated =
         self->blockStyleStack.back().getCombinedBlockStyle(headerBlockStyle, BlockStyle::CombineAxis::Horizontal);
@@ -1621,7 +1613,7 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
 
       if (strcmp(name, "li") == 0) {
         self->currentTextBlock->addWord("\xe2\x80\xa2", EpdFontFamily::REGULAR, false, false,
-                                        !self->isCompatibilityLayout() && self->effectiveBackgroundBlack);
+                                        self->honorsPublisherDecorations() && self->effectiveBackgroundBlack);
         self->pendingListMarkerDepth = self->depth;
       }
     }
@@ -2169,7 +2161,7 @@ bool ChapterHtmlSlimParser::parseAndBuildPages() {
   paragraphAlignmentBlockStyle.alignment = align;
   startNewTextBlock(paragraphAlignmentBlockStyle);
 
-  if (!isCompatibilityLayout()) {
+  if (!usesSimpleCssLookup()) {
     ancestorStack_.reserve(32);
   }
 

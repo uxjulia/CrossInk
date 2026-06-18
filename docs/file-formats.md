@@ -91,7 +91,7 @@ if (parsedSize != fileSize) {
 
 ## `reader_settings.bin`
 
-### Version 2
+### Version 3
 
 Each EPUB cache directory may contain `reader_settings.bin`. Missing files mean
 the book uses global Reader settings and the default auto-page-turn interval.
@@ -105,11 +105,16 @@ Version 2 stores flags before the full reader-settings snapshot. This lets the
 file preserve an auto-page-turn interval without forcing custom font/layout
 settings for the book.
 
+Version 3 adds a per-book EPUB render mode override. This can be changed from
+book action menus before opening the book, so a problematic EPUB can be moved to
+Balanced or Light rendering without entering the reader first.
+
 ```c++
 struct ReaderSettingsBin {
-    u8 version; // 2
-    u8 flags;   // bit 0 = custom reader settings, bit 1 = custom auto-page-turn interval
+    u8 version; // 3
+    u8 flags;   // bit 0 = custom reader settings, bit 1 = custom auto-page-turn interval, bit 2 = render mode override
     u16 autoPageTurnSeconds;
+    u8 renderMode; // 0 = CrossInk Default, 1 = Balanced, 2 = Light
 
     u8 fontFamily;
     u8 fontSize;
@@ -127,6 +132,7 @@ struct ReaderSettingsBin {
     u8 forceParagraphIndents;
     u8 bionicReadingEnabled;
     u8 guideReadingEnabled;
+    u8 snapshotRenderMode;
     char sdFontFamilyName[64];
 };
 ```
@@ -220,17 +226,18 @@ Binary layout:
 
 ## `section.bin`
 
-### Version 40
+### Version 42
 
 Each file in `sections/*.bin` stores one laid-out spine section. The header is
 also the cache-busting key: if any layout-affecting setting differs from the
 current reader settings, the section is discarded and rebuilt.
 
-Version 40 includes:
+Version 42 includes:
 
 - cache-busting fields for font, line compression, extra paragraph spacing,
   forced paragraph indents, paragraph alignment, viewport size, hyphenation,
-  embedded CSS, image rendering mode, Bionic Reading, and Guide Dots
+  embedded CSS, image rendering mode, Bionic Reading, Guide Dots, and EPUB
+  render mode
 - page offset LUT
 - anchor-to-page map for fragment and footnote navigation
 - paragraph and list-item LUTs used by KOReader sync page refinement
@@ -247,7 +254,7 @@ import std.mem;
 import std.string;
 import std.core;
 
-#define EXPECTED_VERSION 41
+#define EXPECTED_VERSION 42
 #define MAX_STRING_LENGTH 65535
 #define FOOTNOTE_NUMBER_LEN 32
 #define FOOTNOTE_HREF_LEN 96
@@ -445,6 +452,7 @@ struct SectionBin {
     u8 imageRendering;
     bool bionicReadingEnabled;
     bool guideReadingEnabled;
+    u8 renderMode; // 0 = CrossInk Default, 1 = Balanced, 2 = Light
 
     u16 pageCount;
     u32 pageLutOffset;

@@ -14,6 +14,7 @@ Welcome to CrossInk, a personal fork of CrossPoint Reader.
 - [Installation](./installation.md)
 - [Font Build Variants](./font-build-variants.md)
 - [Reader Features](./reader-features.md)
+- [EPUB Render Modes](./epub-render-modes.md)
 - [Controls](./controls.md)
 - [Simulator](./simulator.md)
 - [Data Cache](./data-cache.md)

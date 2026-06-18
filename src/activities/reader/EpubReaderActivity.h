@@ -33,6 +33,7 @@ class EpubReaderActivity final : public Activity {
     uint8_t forceParagraphIndents = 0;
     uint8_t bionicReadingEnabled = 0;
     uint8_t guideReadingEnabled = 0;
+    uint8_t epubRenderMode = 0;
     char sdFontFamilyName[64] = "";
   };
 
@@ -61,6 +62,7 @@ class EpubReaderActivity final : public Activity {
   uint16_t lastAutoPageTurnIntervalSeconds = 0;
   bool bookHasCustomReaderSettings = false;
   bool bookHasAutoPageTurnInterval = false;
+  bool bookHasRenderModeOverride = false;
   bool restoreGlobalReaderSettingsOnExit = false;
   ReaderSettingsSnapshot globalReaderSettingsBeforeBook;
   bool bookReaderSettingsSuspendedForGlobalEdit = false;
@@ -100,6 +102,10 @@ class EpubReaderActivity final : public Activity {
   bool pendingTiltPageTurnFeedback = false;
   bool tiltPageTurnFeedbackEnabled = false;
   unsigned long tiltPageTurnFeedbackShowTime = 0UL;
+  bool pendingRenderModeToast = false;
+  bool renderModeToastShown = false;
+  uint8_t renderModeToastMode = 0;
+  unsigned long renderModeToastShowTime = 0UL;
   int completionTriggerSpineIndex = -1;
   float completionTriggerSpineProgress = 1.0f;
   bool completionPromptQueued = false;
@@ -187,6 +193,7 @@ class EpubReaderActivity final : public Activity {
   void setBookCompleted(bool isCompleted);
   void showCompletedFeedback(bool isCompleted);
   void showTiltPageTurnFeedback(bool enabled);
+  void showRenderModeToast(uint8_t renderMode);
 
   // Footnote navigation
   void navigateToHref(const std::string& href, bool savePosition = false);
@@ -210,5 +217,7 @@ class EpubReaderActivity final : public Activity {
   // Used by SleepActivity to prepare the background for the overlay sleep mode.
   // Returns false if the page cannot be loaded (missing cache / file error).
   static bool drawCurrentPageToBuffer(const std::string& filePath, GfxRenderer& renderer);
+  static uint8_t loadBookRenderMode(const std::string& filePath);
+  static bool saveBookRenderMode(const std::string& filePath, uint8_t renderMode);
   ScreenshotInfo getScreenshotInfo() const override;
 };

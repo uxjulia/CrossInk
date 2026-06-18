@@ -8,7 +8,7 @@
 #include <string>
 #include <vector>
 
-#include "Epub/EpubLayoutMode.h"
+#include "Epub/EpubRenderMode.h"
 #include "Epub/FootnoteEntry.h"
 #include "Epub/ParsedText.h"
 #include "Epub/blocks/ImageBlock.h"
@@ -67,8 +67,8 @@ class ChapterHtmlSlimParser {
   bool lowMemoryImageFallback = false;
   bool lowMemoryAbort = false;
   bool attemptedTextLayoutFontCacheRelease = false;
-  bool attemptedCompatibilityCssRelease = false;
-  EpubLayoutMode layoutMode = EpubLayoutMode::Full;
+  bool attemptedSimplifiedCssRelease = false;
+  EpubRenderMode renderMode = EpubRenderMode::CrossInkDefault;
 
   // Style tracking (replaces depth-based approach)
   struct StyleStackEntry {
@@ -160,7 +160,10 @@ class ChapterHtmlSlimParser {
   void attachPendingPublisherPageMarkers(int yPos);
   void flushPartWordBuffer();
   void makePages();
-  bool isCompatibilityLayout() const { return layoutMode == EpubLayoutMode::Compatibility; }
+  bool usesSimpleCssLookup() const { return renderMode != EpubRenderMode::CrossInkDefault; }
+  bool flattensTables() const { return renderMode != EpubRenderMode::CrossInkDefault; }
+  bool isLightMode() const { return renderMode == EpubRenderMode::Light; }
+  bool honorsPublisherDecorations() const { return renderMode != EpubRenderMode::Light; }
   void pushCssAncestor(int depth, const char* tag, const std::string& classAttr);
   static void applyDirectionToEntry(StyleStackEntry& entry, const CssStyle& css);
   void emitHorizontalRule(const BlockStyle& blockStyle);
@@ -185,7 +188,7 @@ class ChapterHtmlSlimParser {
       const std::function<void(std::unique_ptr<Page>, uint16_t, uint16_t)>& completePageFn, const bool embeddedStyle,
       const std::string& contentBase, const std::string& imageBasePath, const uint8_t imageRendering = 0,
       std::vector<std::string> tocAnchors = {}, const std::function<void()>& popupFn = nullptr,
-      CssParser* cssParser = nullptr, const EpubLayoutMode layoutMode = EpubLayoutMode::Full)
+      CssParser* cssParser = nullptr, const EpubRenderMode renderMode = EpubRenderMode::CrossInkDefault)
 
       : epub(epub),
         filepath(filepath),
@@ -205,7 +208,7 @@ class ChapterHtmlSlimParser {
         cssParser(cssParser),
         embeddedStyle(embeddedStyle),
         imageRendering(imageRendering),
-        layoutMode(layoutMode),
+        renderMode(renderMode),
         contentBase(contentBase),
         imageBasePath(imageBasePath),
         tocAnchors(std::move(tocAnchors)) {}

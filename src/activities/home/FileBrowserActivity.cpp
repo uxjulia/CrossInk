@@ -15,7 +15,9 @@
 #include "CrossPointState.h"
 #include "FileBrowserActionActivity.h"
 #include "MappedInputManager.h"
+#include "activities/reader/EpubReaderActivity.h"
 #include "activities/util/ConfirmationActivity.h"
+#include "activities/util/OptionSelectionActivity.h"
 #include "components/UITheme.h"
 #include "components/themes/minimal/MinimalTheme.h"
 #include "fontIds.h"
@@ -470,6 +472,7 @@ void FileBrowserActivity::showDirectoryActionMenu(const std::string& entry, bool
                              case FileBrowserAction::ViewClippings:
                              case FileBrowserAction::DeleteBookmarks:
                              case FileBrowserAction::DeleteClippings:
+                             case FileBrowserAction::EpubRenderMode:
                                return;
                            }
                          });
@@ -613,6 +616,26 @@ void FileBrowserActivity::showFileActionMenu(const std::string& entry, bool igno
             selectorIndex = entryCount() == 0 ? 0 : std::min(selectorIndex, entryCount() - 1);
             requestUpdate(true);
             return;
+          case FileBrowserAction::EpubRenderMode: {
+            const uint8_t currentIndex =
+                BookActions::epubRenderModeDisplayIndex(EpubReaderActivity::loadBookRenderMode(fullPath));
+            startActivityForResult(
+                std::make_unique<OptionSelectionActivity>(renderer, mappedInput, "EpubRenderModeSelect",
+                                                          StrId::STR_EPUB_RENDER_MODE,
+                                                          BookActions::epubRenderModeOptions(), currentIndex),
+                [this, fullPath](const ActivityResult& selectionResult) {
+                  if (!selectionResult.isCancelled) {
+                    const auto* selection = std::get_if<OptionSelectionResult>(&selectionResult.data);
+                    if (selection != nullptr &&
+                        !EpubReaderActivity::saveBookRenderMode(
+                            fullPath, BookActions::epubRenderModeForDisplayIndex(selection->index))) {
+                      LOG_ERR("FileBrowser", "Failed to save render mode for: %s", fullPath.c_str());
+                    }
+                  }
+                  requestUpdate();
+                });
+            return;
+          }
           case FileBrowserAction::PinFavorite:
             if (FsHelpers::hasPngExtension(fullPath)) {
               startActivityForResult(

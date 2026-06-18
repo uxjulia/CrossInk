@@ -22,6 +22,7 @@ enum class FileBrowserAction : int {
   ViewClippings = 10,
   DeleteBookmarks = 11,
   DeleteClippings = 12,
+  EpubRenderMode = 13,
 };
 
 class FileBrowserActionActivity final : public Activity {

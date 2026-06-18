@@ -6,6 +6,7 @@
 - File Browser now indexes large SD-card folders so directories with many books can be browsed without loading every filename into memory at once.
 - EPUB text clipping with saved highlights, clipping lists, and Kindle-style `/My Clippings.txt` export.
 - Per-book EPUB reader settings for font, layout, styling, and reading aids when changed from inside the reader.
+- Per-book EPUB render modes for switching difficult books between `CrossInk Default`, `Balanced`, and `Light` from the reader, File Browser, or Recent Books menus.
 
 ### Changed
 - The EPUB reader menu has been updated to split out the growing menu of items into 3 separate screens for faster navigation.
@@ -14,7 +15,7 @@
 
 ### Fixed
 - Calibre Wireless transfer status no longer stacks the last received-file message on top of the upload percentage.
-- EPUB chapters that run out of memory during full CrossInk layout now retry with a lighter compatibility renderer before showing a low-memory error.
+- EPUB chapters that run out of memory during full CrossInk layout now retry with `Balanced` and then `Light` rendering before showing a low-memory error, and save the first successful fallback for that book.
 - EPUB reader font-size changes now restore the current chapter position by content instead of jumping far backward after re-indexing.
 - Reading Stats now use the reader's last live book time-left estimate instead of showing a separate fallback estimate.
 - Per-book reading stats now migrate compatible legacy `stats.bin` files into the `stats_v5.bin` flow instead of resetting when only the old filename exists.

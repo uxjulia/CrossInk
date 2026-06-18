@@ -1,5 +1,6 @@
 #include "ReaderOptionsActivity.h"
 
+#include <Epub/EpubRenderMode.h>
 #include <GfxRenderer.h>
 #include <I18n.h>
 
@@ -67,6 +68,14 @@ uint8_t valueOptionCount(const SettingInfo& setting) {
   const uint8_t step = setting.valueRange.step == 0 ? 1 : setting.valueRange.step;
   return static_cast<uint8_t>(((setting.valueRange.max - setting.valueRange.min) / step) + 1);
 }
+
+SettingInfo buildReaderRenderModeSetting() {
+  return SettingInfo::Enum(
+             StrId::STR_EPUB_RENDER_MODE, &CrossPointSettings::epubRenderMode,
+             {StrId::STR_RENDER_MODE_CROSSINK_DEFAULT, StrId::STR_RENDER_MODE_BALANCED, StrId::STR_RENDER_MODE_LIGHT})
+      .withEnumRawValues({static_cast<uint8_t>(EpubRenderMode::CrossInkDefault),
+                          static_cast<uint8_t>(EpubRenderMode::Balanced), static_cast<uint8_t>(EpubRenderMode::Light)});
+}
 }  // namespace
 
 void ReaderOptionsActivity::onEnter() {
@@ -85,6 +94,7 @@ void ReaderOptionsActivity::rebuildSettingsList() {
   sdFontSystem.refreshIfDirty();
   const auto allSettings = getSettingsList(&sdFontSystem.registry());
   settings = buildReaderSettingsParentList(allSettings);
+  settings.push_back(buildReaderRenderModeSetting());
   fontSettings = buildReaderFontSettingsList(allSettings);
   pageLayoutSettings = buildReaderPageLayoutSettingsList(allSettings);
   fontSettings.erase(std::remove_if(fontSettings.begin(), fontSettings.end(),
