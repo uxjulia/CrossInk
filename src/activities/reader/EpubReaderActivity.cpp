@@ -686,10 +686,19 @@ void captureReaderSettings(EpubReaderActivity::ReaderSettingsSnapshot& out) {
   out.sdFontFamilyName[sizeof(out.sdFontFamilyName) - 1] = '\0';
 }
 
+uint8_t clampedStoredReaderFontSize(const EpubReaderActivity::ReaderSettingsSnapshot& in) {
+  if (in.sdFontFamilyName[0] != '\0') {
+    return std::min<uint8_t>(in.fontSize, CrossPointSettings::SD_FONT_MAX_SIZE_STEPS - 1);
+  }
+  const uint8_t builtinSizeCount = CrossPointSettings::getActiveReaderFontSizeCount();
+  return in.fontSize < builtinSizeCount ? in.fontSize : SETTINGS.fontSize;
+}
+
 void applyReaderSettings(const EpubReaderActivity::ReaderSettingsSnapshot& in) {
   SETTINGS.fontFamily = in.fontFamily < CrossPointSettings::BUILTIN_FONT_COUNT ? in.fontFamily : SETTINGS.fontFamily;
-  SETTINGS.fontSize =
-      in.fontSize < CrossPointSettings::getActiveReaderFontSizeCount() ? in.fontSize : SETTINGS.fontSize;
+  std::strncpy(SETTINGS.sdFontFamilyName, in.sdFontFamilyName, sizeof(SETTINGS.sdFontFamilyName) - 1);
+  SETTINGS.sdFontFamilyName[sizeof(SETTINGS.sdFontFamilyName) - 1] = '\0';
+  SETTINGS.fontSize = clampedStoredReaderFontSize(in);
   SETTINGS.lineHeightPercent = CrossPointSettings::clampedLineHeightPercent(in.lineHeightPercent);
   SETTINGS.orientation = in.orientation < CrossPointSettings::ORIENTATION_COUNT ? in.orientation : SETTINGS.orientation;
   SETTINGS.screenMargin = std::clamp<uint8_t>(in.screenMargin, 5, 40);
@@ -707,8 +716,6 @@ void applyReaderSettings(const EpubReaderActivity::ReaderSettingsSnapshot& in) {
   SETTINGS.forceParagraphIndents = in.forceParagraphIndents ? 1 : 0;
   SETTINGS.bionicReadingEnabled = in.bionicReadingEnabled ? 1 : 0;
   SETTINGS.guideReadingEnabled = in.guideReadingEnabled ? 1 : 0;
-  std::strncpy(SETTINGS.sdFontFamilyName, in.sdFontFamilyName, sizeof(SETTINGS.sdFontFamilyName) - 1);
-  SETTINGS.sdFontFamilyName[sizeof(SETTINGS.sdFontFamilyName) - 1] = '\0';
 }
 
 struct BookReaderSettingsData {
@@ -1317,6 +1324,7 @@ void EpubReaderActivity::loadBookReaderSettings() {
   if (data.hasCustomReaderSettings) {
     applyReaderSettings(data.readerSettings);
   }
+  sdFontSystem.ensureLoaded(renderer);
 }
 
 void EpubReaderActivity::saveCurrentBookReaderSettings() {
@@ -3956,6 +3964,7 @@ bool EpubReaderActivity::drawCurrentPageToBuffer(const std::string& filePath, Gf
   if (readerSettings.hasCustomReaderSettings) {
     applyReaderSettings(readerSettings.readerSettings);
   }
+  sdFontSystem.ensureLoaded(renderer);
 
   // Load CSS when embeddedStyle is enabled, as createSectionFile may need it to rebuild the cache.
   if (!epub->load(true, SETTINGS.embeddedStyle == 0)) {

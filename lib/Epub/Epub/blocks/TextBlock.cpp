@@ -144,7 +144,8 @@ void TextBlock::render(const GfxRenderer& renderer, const int fontId, const int 
     }
 
     if (hasGuideDots && wordGuideDotXOffset[i] > 0) {
-      renderer.drawText(fontId, wordX + wordGuideDotXOffset[i], y, "\xc2\xb7", foregroundBlack, EpdFontFamily::REGULAR);
+      renderer.drawText(fontId, wordX + wordGuideDotXOffset[i], wordY, "\xc2\xb7", foregroundBlack,
+                        EpdFontFamily::REGULAR, baseDir);
     }
 
     if (!scanning && (currentStyle & EpdFontFamily::UNDERLINE) != 0) {
