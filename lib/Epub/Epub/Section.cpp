@@ -13,7 +13,8 @@
 
 namespace {
 constexpr uint32_t SECTION_CACHE_MAGIC = 0x535843FF;  // bytes: 0xFF, "CXS"
-constexpr uint8_t SECTION_FILE_VERSION = 41;
+// v42: words NFC-composed at layout time; bump invalidates NFD section caches.
+constexpr uint8_t SECTION_FILE_VERSION = 42;
 constexpr uint8_t INITIAL_PAGE_LUT_RESERVE = 32;
 constexpr uint32_t HEADER_SIZE = sizeof(SECTION_CACHE_MAGIC) + sizeof(uint8_t) + sizeof(int) + sizeof(float) +
                                  sizeof(bool) + sizeof(bool) + sizeof(uint8_t) + sizeof(uint16_t) + sizeof(uint16_t) +

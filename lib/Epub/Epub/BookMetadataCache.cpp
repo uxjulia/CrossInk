@@ -2,6 +2,7 @@
 
 #include <Logging.h>
 #include <Serialization.h>
+#include <Utf8.h>
 #include <ZipFile.h>
 
 #include <deque>
@@ -11,7 +12,7 @@
 
 namespace {
 constexpr uint32_t BOOK_CACHE_MAGIC = 0x425843FF;  // bytes: 0xFF, "CXB"
-constexpr uint8_t BOOK_CACHE_VERSION = 7;
+constexpr uint8_t BOOK_CACHE_VERSION = 8;  // v8: TOC/book titles stored NFC-composed
 constexpr char bookBinFile[] = "/book.bin";
 constexpr char tmpSpineBinFile[] = "/spine.bin.tmp";
 constexpr char tmpTocBinFile[] = "/toc.bin.tmp";
@@ -377,7 +378,9 @@ void BookMetadataCache::createTocEntry(const std::string& title, const std::stri
     }
   }
 
-  const TocEntry entry(title, href, anchor, level, spineIndex);
+  // Compose the title to NFC at index time so the cache stores precomposed glyphs;
+  // device fonts have no combining-mark positioning, so NFD titles render broken.
+  const TocEntry entry(utf8ComposeNfc(title), href, anchor, level, spineIndex);
   writeTocEntry(tocFile, entry);
   tocCount++;
 }
