@@ -105,4 +105,3 @@ jobs:
             .pio/build/teensy/firmware-teensy-${{ env.RC_BRANCH_SAFE }}-${{ env.RC_HASH_SHORT }}-RC.bin
             .pio/build/tiny/firmware-tiny-${{ env.RC_BRANCH_SAFE }}-${{ env.RC_HASH_SHORT }}-RC.bin
             .pio/build/xlarge/firmware-xlarge-${{ env.RC_BRANCH_SAFE }}-${{ env.RC_HASH_SHORT }}-RC.bin
-            .pio/build/no_emoji/firmware-no_emoji-${{ env.RC_BRANCH_SAFE }}-${{ env.RC_HASH_SHORT }}-RC.bin

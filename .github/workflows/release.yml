@@ -62,7 +62,7 @@ jobs:
       - name: Build CrossInk
         env:
           CROSSPOINT_RELEASE_VERSION: ${{ env.RELEASE_VERSION }}
-        run: pio run -e teensy -e tiny -e xlarge -e no_emoji
+        run: pio run -e teensy -e tiny -e xlarge
 
       - name: Generate release catalog
         run: |
@@ -72,7 +72,6 @@ jobs:
             --firmware ".pio/build/teensy/firmware-teensy-v${{ env.RELEASE_VERSION }}.bin" \
             --firmware ".pio/build/tiny/firmware-tiny-v${{ env.RELEASE_VERSION }}.bin" \
             --firmware ".pio/build/xlarge/firmware-xlarge-v${{ env.RELEASE_VERSION }}.bin" \
-            --firmware ".pio/build/no_emoji/firmware-no_emoji-v${{ env.RELEASE_VERSION }}.bin" \
             --output ".pio/build/catalog"
 
       - name: Publish catalog to GitHub Pages source
@@ -118,4 +117,3 @@ jobs:
             .pio/build/teensy/firmware-teensy-v${{ env.RELEASE_VERSION }}.bin
             .pio/build/tiny/firmware-tiny-v${{ env.RELEASE_VERSION }}.bin
             .pio/build/xlarge/firmware-xlarge-v${{ env.RELEASE_VERSION }}.bin
-            .pio/build/no_emoji/firmware-no_emoji-v${{ env.RELEASE_VERSION }}.bin
