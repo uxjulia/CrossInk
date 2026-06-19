@@ -82,7 +82,6 @@ struct CssPropertyFlags {
   uint32_t backgroundBlack : 1;
   uint32_t verticalAlign : 1;
   uint32_t direction : 1;
-  uint32_t lineHeight : 1;
   uint32_t pageBreakBefore : 1;
   uint32_t pageBreakAfter : 1;
 
@@ -106,15 +105,13 @@ struct CssPropertyFlags {
         backgroundBlack(0),
         verticalAlign(0),
         direction(0),
-        lineHeight(0),
         pageBreakBefore(0),
         pageBreakAfter(0) {}
 
   [[nodiscard]] bool anySet() const {
     return textAlign || fontStyle || fontWeight || textDecoration || textIndent || marginTop || marginBottom ||
            marginLeft || marginRight || paddingTop || paddingBottom || paddingLeft || paddingRight || imageHeight ||
-           imageWidth || display || backgroundBlack || verticalAlign || direction || lineHeight || pageBreakBefore ||
-           pageBreakAfter;
+           imageWidth || display || backgroundBlack || verticalAlign || direction || pageBreakBefore || pageBreakAfter;
   }
 
   void clearAll() {
@@ -122,7 +119,7 @@ struct CssPropertyFlags {
     marginTop = marginBottom = marginLeft = marginRight = 0;
     paddingTop = paddingBottom = paddingLeft = paddingRight = 0;
     imageHeight = imageWidth = display = backgroundBlack = verticalAlign = direction = 0;
-    lineHeight = pageBreakBefore = pageBreakAfter = 0;
+    pageBreakBefore = pageBreakAfter = 0;
   }
 };
 
@@ -153,7 +150,6 @@ struct CssStyle {
   CssDisplay display = CssDisplay::Block;                       // display property (Block or None)
   bool backgroundBlack = false;                                 // Simple black inline/block background support
   CssVerticalAlign verticalAlign = CssVerticalAlign::Baseline;  // vertical-align (super/sub positioning)
-  uint16_t lineHeightPermille = 1000;                           // 1000 = current reader line height
   bool pageBreakBefore = false;
   bool pageBreakAfter = false;
 
@@ -238,10 +234,6 @@ struct CssStyle {
       verticalAlign = base.verticalAlign;
       defined.verticalAlign = 1;
     }
-    if (base.hasLineHeight()) {
-      lineHeightPermille = base.lineHeightPermille;
-      defined.lineHeight = 1;
-    }
     if (base.hasPageBreakBefore()) {
       pageBreakBefore = base.pageBreakBefore;
       defined.pageBreakBefore = 1;
@@ -271,7 +263,6 @@ struct CssStyle {
   [[nodiscard]] bool hasBackgroundBlack() const { return defined.backgroundBlack; }
   [[nodiscard]] bool hasVerticalAlign() const { return defined.verticalAlign; }
   [[nodiscard]] bool hasDirection() const { return defined.direction; }
-  [[nodiscard]] bool hasLineHeight() const { return defined.lineHeight; }
   [[nodiscard]] bool hasPageBreakBefore() const { return defined.pageBreakBefore; }
   [[nodiscard]] bool hasPageBreakAfter() const { return defined.pageBreakAfter; }
 
@@ -288,7 +279,6 @@ struct CssStyle {
     display = CssDisplay::Block;
     backgroundBlack = false;
     verticalAlign = CssVerticalAlign::Baseline;
-    lineHeightPermille = 1000;
     pageBreakBefore = false;
     pageBreakAfter = false;
     defined.clearAll();

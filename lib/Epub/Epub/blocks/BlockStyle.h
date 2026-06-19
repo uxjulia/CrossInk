@@ -31,8 +31,6 @@ struct BlockStyle {
   bool textAlignDefined = false;   // true if text-align was explicitly set in CSS
   bool isRtl = false;              // true if resolved direction is RTL
   bool directionDefined = false;   // true if direction was explicitly set in CSS/HTML
-  uint16_t lineHeightPermille = 1000;
-  bool lineHeightDefined = false;
   bool pageBreakBefore = false;
   bool pageBreakAfter = false;
   // Set when this block was created by a <br> element. Used by startNewTextBlock to inject
@@ -101,10 +99,6 @@ struct BlockStyle {
       result.isRtl = isRtl;
       result.directionDefined = true;
     }
-    if (!child.lineHeightDefined && lineHeightDefined) {
-      result.lineHeightPermille = lineHeightPermille;
-      result.lineHeightDefined = true;
-    }
     return result;
   }
 
@@ -143,10 +137,6 @@ struct BlockStyle {
     if (cssStyle.hasDirection()) {
       blockStyle.isRtl = cssStyle.direction == CssTextDirection::Rtl;
       blockStyle.directionDefined = true;
-    }
-    if (cssStyle.hasLineHeight()) {
-      blockStyle.lineHeightPermille = cssStyle.lineHeightPermille;
-      blockStyle.lineHeightDefined = true;
     }
     if (cssStyle.hasPageBreakBefore()) {
       blockStyle.pageBreakBefore = cssStyle.pageBreakBefore;

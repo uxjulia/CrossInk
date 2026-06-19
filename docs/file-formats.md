@@ -226,13 +226,13 @@ Binary layout:
 
 ## `section.bin`
 
-### Version 43
+### Version 44
 
 Each file in `sections/*.bin` stores one laid-out spine section. The header is
 also the cache-busting key: if any layout-affecting setting differs from the
 current reader settings, the section is discarded and rebuilt.
 
-Version 43 includes:
+Version 44 includes:
 
 - cache-busting fields for font, line compression, extra paragraph spacing,
   forced paragraph indents, paragraph alignment, viewport size, hyphenation,
@@ -243,7 +243,7 @@ Version 43 includes:
 - paragraph and list-item LUTs used by KOReader sync page refinement
 - optional per-word Bionic Reading split metadata
 - optional per-word Guide Dot x-offset metadata
-- publisher CSS `line-height`, page-break handling, and adjusted justification spacing baked into page layout
+- publisher CSS page-break handling and adjusted justification spacing baked into page layout
 - table fragments
 - per-page footnote entries
 - per-page publisher page markers

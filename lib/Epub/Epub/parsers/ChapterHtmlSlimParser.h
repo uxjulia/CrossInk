@@ -159,7 +159,7 @@ class ChapterHtmlSlimParser {
   void attachPendingPublisherPageMarkers(int yPos);
   void flushPartWordBuffer();
   void makePages();
-  int effectiveLineHeight(const BlockStyle& blockStyle) const;
+  int effectiveLineHeight() const;
   bool usesSimpleCssLookup() const { return renderMode != EpubRenderMode::CrossInkDefault; }
   bool flattensTables() const { return renderMode != EpubRenderMode::CrossInkDefault; }
   bool isLightMode() const { return renderMode == EpubRenderMode::Light; }

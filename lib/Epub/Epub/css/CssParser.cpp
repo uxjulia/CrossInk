@@ -54,12 +54,9 @@ constexpr size_t MAX_SELECTOR_LENGTH = 256;
 constexpr size_t CSS_LENGTH_FIELD_COUNT = 11;
 constexpr size_t CSS_LENGTH_BYTES = sizeof(float) + sizeof(uint8_t);
 constexpr size_t CSS_FIXED_STYLE_BYTES = 4 * sizeof(uint8_t) + (CSS_LENGTH_FIELD_COUNT * CSS_LENGTH_BYTES) +
-                                         4 * sizeof(uint8_t) + sizeof(uint16_t) + 2 * sizeof(uint8_t) +
-                                         sizeof(uint32_t);
-static_assert(CSS_FIXED_STYLE_BYTES == 71,
+                                         4 * sizeof(uint8_t) + 2 * sizeof(uint8_t) + sizeof(uint32_t);
+static_assert(CSS_FIXED_STYLE_BYTES == 69,
               "CssStyle cache payload changed; update read/writeCssStylePayload and bump CSS_CACHE_VERSION");
-constexpr uint16_t MIN_LINE_HEIGHT_PERMILLE = 700;
-constexpr uint16_t MAX_LINE_HEIGHT_PERMILLE = 2000;
 
 // Check if character is CSS whitespace
 constexpr bool isCssWhitespace(const char c) { return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f'; }
@@ -165,32 +162,6 @@ std::string_view stripTrailingImportant(std::string_view value) {
     value.remove_suffix(1);
   }
   return value;
-}
-
-bool tryInterpretLineHeightPermille(std::string_view value, uint16_t& out) {
-  value = trimCssWhitespace(stripTrailingImportant(value));
-  if (value.empty() || iequalsAscii(value, "normal") || iequalsAscii(value, "inherit") ||
-      iequalsAscii(value, "initial") || iequalsAscii(value, "unset")) {
-    return false;
-  }
-
-  float multiplier = 0.0f;
-  if (value.back() == '%') {
-    float percent = 0.0f;
-    if (!tryParseNumber(value.substr(0, value.size() - 1), percent)) return false;
-    multiplier = percent / 100.0f;
-  } else if (value.size() > 3 && iequalsAscii(value.substr(value.size() - 3), "rem")) {
-    if (!tryParseNumber(value.substr(0, value.size() - 3), multiplier)) return false;
-  } else if (value.size() > 2 && iequalsAscii(value.substr(value.size() - 2), "em")) {
-    if (!tryParseNumber(value.substr(0, value.size() - 2), multiplier)) return false;
-  } else {
-    if (!tryParseNumber(value, multiplier)) return false;
-  }
-
-  if (multiplier <= 0.0f) return false;
-  const auto permille = static_cast<uint16_t>(multiplier * 1000.0f + 0.5f);
-  out = std::max(MIN_LINE_HEIGHT_PERMILLE, std::min(MAX_LINE_HEIGHT_PERMILLE, permille));
-  return true;
 }
 
 bool tryInterpretCssPageBreak(std::string_view value, bool& out) {
@@ -517,12 +488,6 @@ void CssParser::parseDeclarationIntoStyle(std::string_view decl, CssStyle& style
     } else if (iequalsAscii(value, "sub")) {
       style.verticalAlign = CssVerticalAlign::Sub;
       style.defined.verticalAlign = 1;
-    }
-  } else if (iequalsAscii(name, "line-height")) {
-    uint16_t lineHeightPermille = 1000;
-    if (tryInterpretLineHeightPermille(value, lineHeightPermille)) {
-      style.lineHeightPermille = lineHeightPermille;
-      style.defined.lineHeight = 1;
     }
   } else if (iequalsAscii(name, "page-break-before") || iequalsAscii(name, "break-before")) {
     bool pageBreakBefore = false;
@@ -913,7 +878,6 @@ bool CssParser::writeCssStylePayload(FsFile& file, const CssStyle& style) {
       !writeByte(static_cast<uint8_t>(style.display)) ||
       !writeByte(static_cast<uint8_t>(style.backgroundBlack ? 1 : 0)) ||
       !writeByte(static_cast<uint8_t>(style.verticalAlign)) || !writeByte(static_cast<uint8_t>(style.direction)) ||
-      !writeBytes(&style.lineHeightPermille, sizeof(style.lineHeightPermille)) ||
       !writeByte(static_cast<uint8_t>(style.pageBreakBefore ? 1 : 0)) ||
       !writeByte(static_cast<uint8_t>(style.pageBreakAfter ? 1 : 0))) {
     return false;
@@ -939,7 +903,6 @@ bool CssParser::writeCssStylePayload(FsFile& file, const CssStyle& style) {
   if (style.defined.backgroundBlack) definedBits |= 1 << 16;
   if (style.defined.verticalAlign) definedBits |= 1 << 17;
   if (style.defined.direction) definedBits |= 1 << 18;
-  if (style.defined.lineHeight) definedBits |= 1 << 19;
   if (style.defined.pageBreakBefore) definedBits |= 1 << 20;
   if (style.defined.pageBreakAfter) definedBits |= 1 << 21;
   return writeBytes(&definedBits, sizeof(definedBits));
@@ -981,9 +944,6 @@ bool CssParser::readCssStylePayload(FsFile& file, CssStyle& style) {
   uint8_t directionVal = 0;
   if (file.read(&directionVal, 1) != 1) return false;
   style.direction = static_cast<CssTextDirection>(directionVal);
-  if (file.read(&style.lineHeightPermille, sizeof(style.lineHeightPermille)) != sizeof(style.lineHeightPermille)) {
-    return false;
-  }
   uint8_t pageBreakVal = 0;
   if (file.read(&pageBreakVal, 1) != 1) return false;
   style.pageBreakBefore = pageBreakVal != 0;
@@ -1011,7 +971,6 @@ bool CssParser::readCssStylePayload(FsFile& file, CssStyle& style) {
   style.defined.backgroundBlack = (definedBits & 1 << 16) != 0;
   style.defined.verticalAlign = (definedBits & 1 << 17) != 0;
   style.defined.direction = (definedBits & 1 << 18) != 0;
-  style.defined.lineHeight = (definedBits & 1 << 19) != 0;
   style.defined.pageBreakBefore = (definedBits & 1 << 20) != 0;
   style.defined.pageBreakAfter = (definedBits & 1 << 21) != 0;
   return true;

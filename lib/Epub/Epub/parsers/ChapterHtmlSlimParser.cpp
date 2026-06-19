@@ -360,7 +360,7 @@ void ChapterHtmlSlimParser::startNewTextBlock(const BlockStyle& blockStyle) {
         // The empty block was created by a <br> section separator. Inject a full line of
         // blank space before the following paragraph so the scene/section break is visible.
         // This only fires when the <br> block stayed empty (i.e. no inline text was added).
-        const int16_t lineHeight = static_cast<int16_t>(effectiveLineHeight(currentTextBlock->getBlockStyle()));
+        const int16_t lineHeight = static_cast<int16_t>(effectiveLineHeight());
         incoming.marginTop = static_cast<int16_t>(incoming.marginTop + lineHeight);
       }
 
@@ -2266,7 +2266,7 @@ void ChapterHtmlSlimParser::addLineToPage(std::shared_ptr<TextBlock> line) {
     return;
   }
 
-  const int lineHeight = effectiveLineHeight(line->getBlockStyle());
+  const int lineHeight = effectiveLineHeight();
 
   if (!currentPage) {
     if (!startNewPage("line layout")) {
@@ -2298,10 +2298,8 @@ void ChapterHtmlSlimParser::addLineToPage(std::shared_ptr<TextBlock> line) {
   currentPageNextY += lineHeight;
 }
 
-int ChapterHtmlSlimParser::effectiveLineHeight(const BlockStyle& blockStyle) const {
-  const float baseLineHeight = renderer.getLineHeight(fontId) * lineCompression;
-  const float scaledLineHeight = baseLineHeight * static_cast<float>(blockStyle.lineHeightPermille) / 1000.0f;
-  return std::max(1, static_cast<int>(scaledLineHeight + 0.5f));
+int ChapterHtmlSlimParser::effectiveLineHeight() const {
+  return std::max(1, static_cast<int>(renderer.getLineHeight(fontId) * lineCompression + 0.5f));
 }
 
 void ChapterHtmlSlimParser::makePages() {
@@ -2322,7 +2320,7 @@ void ChapterHtmlSlimParser::makePages() {
 
   // Apply top spacing before the paragraph (stored in pixels)
   const BlockStyle& blockStyle = currentTextBlock->getBlockStyle();
-  const int lineHeight = effectiveLineHeight(blockStyle);
+  const int lineHeight = effectiveLineHeight();
   if (blockStyle.marginTop > 0) {
     currentPageNextY += blockStyle.marginTop;
   }

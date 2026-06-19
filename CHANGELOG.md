@@ -18,6 +18,8 @@
 - Calibre Wireless transfer status no longer stacks the last received-file message on top of the upload percentage.
 - OTA checks from older `no_emoji` builds now resolve to the `tiny` firmware update.
 - EPUB layout now honors publisher `line-height` and page-break CSS, avoids stretching justified spaces before closing punctuation, and keeps large CSS rule sets in a smaller disk-backed lookup cache.
+- EPUB layout now honors publisher page-break CSS, avoids stretching justified spaces before closing punctuation, and keeps large CSS rule sets in a smaller disk-backed lookup cache.
+- EPUB first-open conversion now uses more compact OPF manifest lookups and streams cover-wrapper parsing to avoid large temporary heap buffers on books with huge manifests.
 - EPUB chapters that run out of memory during full CrossInk layout now retry with `Balanced` and then `Light` rendering before showing a low-memory error, and save the first successful fallback for that book.
 - EPUB reader font-size changes now restore the current chapter position by content instead of jumping far backward after re-indexing.
 - Reading Stats now use the reader's last live book time-left estimate instead of showing a separate fallback estimate.
