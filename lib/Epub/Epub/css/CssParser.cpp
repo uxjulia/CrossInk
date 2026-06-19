@@ -51,6 +51,15 @@ constexpr size_t MIN_FREE_HEAP_FOR_CSS = 48 * 1024;
 // Maximum length for a single selector string
 // Prevents parsing of extremely long or malformed selectors
 constexpr size_t MAX_SELECTOR_LENGTH = 256;
+constexpr size_t CSS_LENGTH_FIELD_COUNT = 11;
+constexpr size_t CSS_LENGTH_BYTES = sizeof(float) + sizeof(uint8_t);
+constexpr size_t CSS_FIXED_STYLE_BYTES = 4 * sizeof(uint8_t) + (CSS_LENGTH_FIELD_COUNT * CSS_LENGTH_BYTES) +
+                                         4 * sizeof(uint8_t) + sizeof(uint16_t) + 2 * sizeof(uint8_t) +
+                                         sizeof(uint32_t);
+static_assert(CSS_FIXED_STYLE_BYTES == 71,
+              "CssStyle cache payload changed; update read/writeCssStylePayload and bump CSS_CACHE_VERSION");
+constexpr uint16_t MIN_LINE_HEIGHT_PERMILLE = 700;
+constexpr uint16_t MAX_LINE_HEIGHT_PERMILLE = 2000;
 
 // Check if character is CSS whitespace
 constexpr bool isCssWhitespace(const char c) { return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f'; }
@@ -156,6 +165,46 @@ std::string_view stripTrailingImportant(std::string_view value) {
     value.remove_suffix(1);
   }
   return value;
+}
+
+bool tryInterpretLineHeightPermille(std::string_view value, uint16_t& out) {
+  value = trimCssWhitespace(stripTrailingImportant(value));
+  if (value.empty() || iequalsAscii(value, "normal") || iequalsAscii(value, "inherit") ||
+      iequalsAscii(value, "initial") || iequalsAscii(value, "unset")) {
+    return false;
+  }
+
+  float multiplier = 0.0f;
+  if (value.back() == '%') {
+    float percent = 0.0f;
+    if (!tryParseNumber(value.substr(0, value.size() - 1), percent)) return false;
+    multiplier = percent / 100.0f;
+  } else if (value.size() > 3 && iequalsAscii(value.substr(value.size() - 3), "rem")) {
+    if (!tryParseNumber(value.substr(0, value.size() - 3), multiplier)) return false;
+  } else if (value.size() > 2 && iequalsAscii(value.substr(value.size() - 2), "em")) {
+    if (!tryParseNumber(value.substr(0, value.size() - 2), multiplier)) return false;
+  } else {
+    if (!tryParseNumber(value, multiplier)) return false;
+  }
+
+  if (multiplier <= 0.0f) return false;
+  const auto permille = static_cast<uint16_t>(multiplier * 1000.0f + 0.5f);
+  out = std::max(MIN_LINE_HEIGHT_PERMILLE, std::min(MAX_LINE_HEIGHT_PERMILLE, permille));
+  return true;
+}
+
+bool tryInterpretCssPageBreak(std::string_view value, bool& out) {
+  value = trimCssWhitespace(stripTrailingImportant(value));
+  if (iequalsAscii(value, "always") || iequalsAscii(value, "page") || iequalsAscii(value, "left") ||
+      iequalsAscii(value, "right")) {
+    out = true;
+    return true;
+  }
+  if (iequalsAscii(value, "auto") || iequalsAscii(value, "avoid") || iequalsAscii(value, "avoid-page")) {
+    out = false;
+    return true;
+  }
+  return false;
 }
 
 bool tryInterpretBackgroundBlack(std::string_view value, bool& out) {
@@ -469,6 +518,24 @@ void CssParser::parseDeclarationIntoStyle(std::string_view decl, CssStyle& style
       style.verticalAlign = CssVerticalAlign::Sub;
       style.defined.verticalAlign = 1;
     }
+  } else if (iequalsAscii(name, "line-height")) {
+    uint16_t lineHeightPermille = 1000;
+    if (tryInterpretLineHeightPermille(value, lineHeightPermille)) {
+      style.lineHeightPermille = lineHeightPermille;
+      style.defined.lineHeight = 1;
+    }
+  } else if (iequalsAscii(name, "page-break-before") || iequalsAscii(name, "break-before")) {
+    bool pageBreakBefore = false;
+    if (tryInterpretCssPageBreak(value, pageBreakBefore)) {
+      style.pageBreakBefore = pageBreakBefore;
+      style.defined.pageBreakBefore = 1;
+    }
+  } else if (iequalsAscii(name, "page-break-after") || iequalsAscii(name, "break-after")) {
+    bool pageBreakAfter = false;
+    if (tryInterpretCssPageBreak(value, pageBreakAfter)) {
+      style.pageBreakAfter = pageBreakAfter;
+      style.defined.pageBreakAfter = 1;
+    }
   }
 }
 
@@ -759,10 +826,10 @@ CssStyle CssParser::resolveStyle(std::string_view tagName, std::string_view clas
 
   CssStyle result;
 
-  // 1. Apply element-level style (lowest priority). The map's hash/equal are
-  // case-insensitive, so the raw tagName view can be used as the lookup key.
-  if (auto it = rulesBySelector_.find(tagName); it != rulesBySelector_.end()) {
-    result.applyOver(it->second);
+  // 1. Apply element-level style (lowest priority).
+  CssStyle matchedStyle;
+  if (lookupRule(tagName, matchedStyle)) {
+    result.applyOver(matchedStyle);
   }
 
   // 2. Apply two-part descendant rules — higher specificity than bare element, lower than class.
@@ -781,19 +848,27 @@ CssStyle CssParser::resolveStyle(std::string_view tagName, std::string_view clas
   if (classAttr.empty()) return result;
 
   // TODO: Support combinations of classes (e.g. style on .class1.class2)
-  // 2. Apply class styles (medium priority). The transparent hash/equal accept
-  // a CompositeKey, so we never materialize the concatenation.
+  // 2. Apply class styles (medium priority).
   forEachDelimitedToken(classAttr, isCssWhitespace, [&](std::string_view cls) {
-    if (auto it = rulesBySelector_.find(CompositeKey{".", cls}); it != rulesBySelector_.end()) {
-      result.applyOver(it->second);
+    if (cls.size() + 1 > MAX_SELECTOR_LENGTH) return;
+    std::array<char, MAX_SELECTOR_LENGTH> selector{};
+    selector[0] = '.';
+    memcpy(selector.data() + 1, cls.data(), cls.size());
+    if (lookupRule(std::string_view(selector.data(), cls.size() + 1), matchedStyle)) {
+      result.applyOver(matchedStyle);
     }
   });
 
   // TODO: Support combinations of classes (e.g. style on p.class1.class2)
   // 3. Apply element.class styles (higher priority).
   forEachDelimitedToken(classAttr, isCssWhitespace, [&](std::string_view cls) {
-    if (auto it = rulesBySelector_.find(CompositeKey{tagName, ".", cls}); it != rulesBySelector_.end()) {
-      result.applyOver(it->second);
+    if (tagName.size() + 1 + cls.size() > MAX_SELECTOR_LENGTH) return;
+    std::array<char, MAX_SELECTOR_LENGTH> selector{};
+    memcpy(selector.data(), tagName.data(), tagName.size());
+    selector[tagName.size()] = '.';
+    memcpy(selector.data() + tagName.size() + 1, cls.data(), cls.size());
+    if (lookupRule(std::string_view(selector.data(), tagName.size() + 1 + cls.size()), matchedStyle)) {
+      result.applyOver(matchedStyle);
     }
   });
 
@@ -810,6 +885,174 @@ CssStyle CssParser::parseInlineStyle(std::string_view styleValue) { return parse
 constexpr char rulesCache[] = "/css_rules.cache";
 constexpr char rulesCacheTmp[] = "/css_rules.cache.tmp";
 constexpr char rulesCacheBackup[] = "/css_rules.cache.bak";
+
+uint32_t CssParser::selectorHash(std::string_view selector) {
+  uint32_t h = 2166136261U;
+  for (char c : selector) {
+    h ^= static_cast<uint8_t>(asciiToLower(c));
+    h *= 16777619U;
+  }
+  return h;
+}
+
+bool CssParser::writeCssStylePayload(FsFile& file, const CssStyle& style) {
+  auto writeBytes = [&file](const void* data, const size_t len) -> bool {
+    return len == 0 || file.write(reinterpret_cast<const uint8_t*>(data), len) == len;
+  };
+  auto writeByte = [&writeBytes](const uint8_t value) -> bool { return writeBytes(&value, sizeof(value)); };
+  auto writeLength = [&writeBytes, &writeByte](const CssLength& len) -> bool {
+    return writeBytes(&len.value, sizeof(len.value)) && writeByte(static_cast<uint8_t>(len.unit));
+  };
+
+  if (!writeByte(static_cast<uint8_t>(style.textAlign)) || !writeByte(static_cast<uint8_t>(style.fontStyle)) ||
+      !writeByte(static_cast<uint8_t>(style.fontWeight)) || !writeByte(static_cast<uint8_t>(style.textDecoration)) ||
+      !writeLength(style.textIndent) || !writeLength(style.marginTop) || !writeLength(style.marginBottom) ||
+      !writeLength(style.marginLeft) || !writeLength(style.marginRight) || !writeLength(style.paddingTop) ||
+      !writeLength(style.paddingBottom) || !writeLength(style.paddingLeft) || !writeLength(style.paddingRight) ||
+      !writeLength(style.imageHeight) || !writeLength(style.imageWidth) ||
+      !writeByte(static_cast<uint8_t>(style.display)) ||
+      !writeByte(static_cast<uint8_t>(style.backgroundBlack ? 1 : 0)) ||
+      !writeByte(static_cast<uint8_t>(style.verticalAlign)) || !writeByte(static_cast<uint8_t>(style.direction)) ||
+      !writeBytes(&style.lineHeightPermille, sizeof(style.lineHeightPermille)) ||
+      !writeByte(static_cast<uint8_t>(style.pageBreakBefore ? 1 : 0)) ||
+      !writeByte(static_cast<uint8_t>(style.pageBreakAfter ? 1 : 0))) {
+    return false;
+  }
+
+  uint32_t definedBits = 0;
+  if (style.defined.textAlign) definedBits |= 1 << 0;
+  if (style.defined.fontStyle) definedBits |= 1 << 1;
+  if (style.defined.fontWeight) definedBits |= 1 << 2;
+  if (style.defined.textDecoration) definedBits |= 1 << 3;
+  if (style.defined.textIndent) definedBits |= 1 << 4;
+  if (style.defined.marginTop) definedBits |= 1 << 5;
+  if (style.defined.marginBottom) definedBits |= 1 << 6;
+  if (style.defined.marginLeft) definedBits |= 1 << 7;
+  if (style.defined.marginRight) definedBits |= 1 << 8;
+  if (style.defined.paddingTop) definedBits |= 1 << 9;
+  if (style.defined.paddingBottom) definedBits |= 1 << 10;
+  if (style.defined.paddingLeft) definedBits |= 1 << 11;
+  if (style.defined.paddingRight) definedBits |= 1 << 12;
+  if (style.defined.imageHeight) definedBits |= 1 << 13;
+  if (style.defined.imageWidth) definedBits |= 1 << 14;
+  if (style.defined.display) definedBits |= 1 << 15;
+  if (style.defined.backgroundBlack) definedBits |= 1 << 16;
+  if (style.defined.verticalAlign) definedBits |= 1 << 17;
+  if (style.defined.direction) definedBits |= 1 << 18;
+  if (style.defined.lineHeight) definedBits |= 1 << 19;
+  if (style.defined.pageBreakBefore) definedBits |= 1 << 20;
+  if (style.defined.pageBreakAfter) definedBits |= 1 << 21;
+  return writeBytes(&definedBits, sizeof(definedBits));
+}
+
+bool CssParser::readCssStylePayload(FsFile& file, CssStyle& style) {
+  auto readLength = [&file](CssLength& len) -> bool {
+    if (file.read(&len.value, sizeof(len.value)) != sizeof(len.value)) return false;
+    uint8_t unitVal;
+    if (file.read(&unitVal, 1) != 1) return false;
+    len.unit = static_cast<CssUnit>(unitVal);
+    return true;
+  };
+
+  uint8_t enumVal;
+  if (file.read(&enumVal, 1) != 1) return false;
+  style.textAlign = static_cast<CssTextAlign>(enumVal);
+  if (file.read(&enumVal, 1) != 1) return false;
+  style.fontStyle = static_cast<CssFontStyle>(enumVal);
+  if (file.read(&enumVal, 1) != 1) return false;
+  style.fontWeight = static_cast<CssFontWeight>(enumVal);
+  if (file.read(&enumVal, 1) != 1) return false;
+  style.textDecoration = static_cast<CssTextDecoration>(enumVal);
+  if (!readLength(style.textIndent) || !readLength(style.marginTop) || !readLength(style.marginBottom) ||
+      !readLength(style.marginLeft) || !readLength(style.marginRight) || !readLength(style.paddingTop) ||
+      !readLength(style.paddingBottom) || !readLength(style.paddingLeft) || !readLength(style.paddingRight) ||
+      !readLength(style.imageHeight) || !readLength(style.imageWidth)) {
+    return false;
+  }
+  uint8_t displayVal;
+  if (file.read(&displayVal, 1) != 1) return false;
+  style.display = static_cast<CssDisplay>(displayVal);
+  uint8_t backgroundBlackVal = 0;
+  if (file.read(&backgroundBlackVal, 1) != 1) return false;
+  style.backgroundBlack = backgroundBlackVal != 0;
+  uint8_t verticalAlignVal = 0;
+  if (file.read(&verticalAlignVal, 1) != 1) return false;
+  style.verticalAlign = static_cast<CssVerticalAlign>(verticalAlignVal);
+  uint8_t directionVal = 0;
+  if (file.read(&directionVal, 1) != 1) return false;
+  style.direction = static_cast<CssTextDirection>(directionVal);
+  if (file.read(&style.lineHeightPermille, sizeof(style.lineHeightPermille)) != sizeof(style.lineHeightPermille)) {
+    return false;
+  }
+  uint8_t pageBreakVal = 0;
+  if (file.read(&pageBreakVal, 1) != 1) return false;
+  style.pageBreakBefore = pageBreakVal != 0;
+  if (file.read(&pageBreakVal, 1) != 1) return false;
+  style.pageBreakAfter = pageBreakVal != 0;
+
+  uint32_t definedBits = 0;
+  if (file.read(&definedBits, sizeof(definedBits)) != sizeof(definedBits)) return false;
+  style.defined.textAlign = (definedBits & 1 << 0) != 0;
+  style.defined.fontStyle = (definedBits & 1 << 1) != 0;
+  style.defined.fontWeight = (definedBits & 1 << 2) != 0;
+  style.defined.textDecoration = (definedBits & 1 << 3) != 0;
+  style.defined.textIndent = (definedBits & 1 << 4) != 0;
+  style.defined.marginTop = (definedBits & 1 << 5) != 0;
+  style.defined.marginBottom = (definedBits & 1 << 6) != 0;
+  style.defined.marginLeft = (definedBits & 1 << 7) != 0;
+  style.defined.marginRight = (definedBits & 1 << 8) != 0;
+  style.defined.paddingTop = (definedBits & 1 << 9) != 0;
+  style.defined.paddingBottom = (definedBits & 1 << 10) != 0;
+  style.defined.paddingLeft = (definedBits & 1 << 11) != 0;
+  style.defined.paddingRight = (definedBits & 1 << 12) != 0;
+  style.defined.imageHeight = (definedBits & 1 << 13) != 0;
+  style.defined.imageWidth = (definedBits & 1 << 14) != 0;
+  style.defined.display = (definedBits & 1 << 15) != 0;
+  style.defined.backgroundBlack = (definedBits & 1 << 16) != 0;
+  style.defined.verticalAlign = (definedBits & 1 << 17) != 0;
+  style.defined.direction = (definedBits & 1 << 18) != 0;
+  style.defined.lineHeight = (definedBits & 1 << 19) != 0;
+  style.defined.pageBreakBefore = (definedBits & 1 << 20) != 0;
+  style.defined.pageBreakAfter = (definedBits & 1 << 21) != 0;
+  return true;
+}
+
+bool CssParser::readRuleFromDiskAtOffset(const uint32_t ruleOffset, std::string_view selector,
+                                         CssStyle& outStyle) const {
+  FsFile file;
+  if (!Storage.openFileForRead("CSS", cachePath + rulesCache, file)) {
+    return false;
+  }
+
+  char selectorBuf[MAX_SELECTOR_LENGTH];
+  uint16_t selectorLen = 0;
+  bool ok = file.seek(ruleOffset) && file.read(&selectorLen, sizeof(selectorLen)) == sizeof(selectorLen) &&
+            selectorLen == selector.size() && selectorLen <= MAX_SELECTOR_LENGTH &&
+            file.read(selectorBuf, selectorLen) == selectorLen &&
+            SvEqual{}(std::string_view(selectorBuf, selectorLen), selector) && readCssStylePayload(file, outStyle);
+  file.close();
+  return ok;
+}
+
+bool CssParser::lookupRule(std::string_view selector, CssStyle& outStyle) const {
+  if (auto it = rulesBySelector_.find(selector); it != rulesBySelector_.end()) {
+    outStyle = it->second;
+    return true;
+  }
+  if (selector.empty() || selector.size() > MAX_SELECTOR_LENGTH || !cacheIndexLoaded_) {
+    return false;
+  }
+
+  const uint32_t h = selectorHash(selector);
+  auto it = std::lower_bound(cacheRuleOffsets_.begin(), cacheRuleOffsets_.end(), h,
+                             [](const SelectorEntry& e, const uint32_t key) { return e.hash < key; });
+  for (; it != cacheRuleOffsets_.end() && it->hash == h; ++it) {
+    if (readRuleFromDiskAtOffset(it->offset, selector, outStyle)) {
+      return true;
+    }
+  }
+  return false;
+}
 
 bool CssParser::hasCache() const { return Storage.exists((cachePath + rulesCache).c_str()); }
 
@@ -856,52 +1099,23 @@ bool CssParser::saveToCache(const bool complete) const {
   const auto ruleCount = static_cast<uint16_t>(rulesBySelector_.size());
   writeBytes(&ruleCount, sizeof(ruleCount));
 
-  auto writeLength = [&writeBytes, &writeByte](const CssLength& len) -> bool {
-    return writeBytes(&len.value, sizeof(len.value)) && writeByte(static_cast<uint8_t>(len.unit));
-  };
-
-  auto writeStyle = [&](const CssStyle& style) -> bool {
-    if (!writeByte(static_cast<uint8_t>(style.textAlign)) || !writeByte(static_cast<uint8_t>(style.fontStyle)) ||
-        !writeByte(static_cast<uint8_t>(style.fontWeight)) || !writeByte(static_cast<uint8_t>(style.textDecoration)) ||
-        !writeLength(style.textIndent) || !writeLength(style.marginTop) || !writeLength(style.marginBottom) ||
-        !writeLength(style.marginLeft) || !writeLength(style.marginRight) || !writeLength(style.paddingTop) ||
-        !writeLength(style.paddingBottom) || !writeLength(style.paddingLeft) || !writeLength(style.paddingRight) ||
-        !writeLength(style.imageHeight) || !writeLength(style.imageWidth) ||
-        !writeByte(static_cast<uint8_t>(style.display)) ||
-        !writeByte(static_cast<uint8_t>(style.backgroundBlack ? 1 : 0)) ||
-        !writeByte(static_cast<uint8_t>(style.verticalAlign)) || !writeByte(static_cast<uint8_t>(style.direction))) {
-      return false;
-    }
-    uint32_t definedBits = 0;
-    if (style.defined.textAlign) definedBits |= 1 << 0;
-    if (style.defined.fontStyle) definedBits |= 1 << 1;
-    if (style.defined.fontWeight) definedBits |= 1 << 2;
-    if (style.defined.textDecoration) definedBits |= 1 << 3;
-    if (style.defined.textIndent) definedBits |= 1 << 4;
-    if (style.defined.marginTop) definedBits |= 1 << 5;
-    if (style.defined.marginBottom) definedBits |= 1 << 6;
-    if (style.defined.marginLeft) definedBits |= 1 << 7;
-    if (style.defined.marginRight) definedBits |= 1 << 8;
-    if (style.defined.paddingTop) definedBits |= 1 << 9;
-    if (style.defined.paddingBottom) definedBits |= 1 << 10;
-    if (style.defined.paddingLeft) definedBits |= 1 << 11;
-    if (style.defined.paddingRight) definedBits |= 1 << 12;
-    if (style.defined.imageHeight) definedBits |= 1 << 13;
-    if (style.defined.imageWidth) definedBits |= 1 << 14;
-    if (style.defined.display) definedBits |= 1 << 15;
-    if (style.defined.backgroundBlack) definedBits |= 1 << 16;
-    if (style.defined.verticalAlign) definedBits |= 1 << 17;
-    if (style.defined.direction) definedBits |= 1 << 18;
-    return writeBytes(&definedBits, sizeof(definedBits));
-  };
+  std::vector<SelectorEntry> indexEntries;
+  indexEntries.reserve(ruleCount);
+  const SelectorEntry zeroEntry{0, 0};
+  for (uint16_t i = 0; i < ruleCount; ++i) {
+    writeBytes(&zeroEntry, sizeof(zeroEntry));
+  }
 
   // Write each simple rule: selector string + CssStyle fields
   for (const auto& pair : rulesBySelector_) {
+    const uint32_t ruleOffset = file.position();
     const auto selectorLen = static_cast<uint16_t>(pair.first.size());
     if (!writeBytes(&selectorLen, sizeof(selectorLen)) || !writeBytes(pair.first.data(), selectorLen) ||
-        !writeStyle(pair.second)) {
+        !writeCssStylePayload(file, pair.second)) {
+      writeOk = false;
       break;
     }
+    indexEntries.push_back({selectorHash(pair.first), ruleOffset});
   }
 
   // Write descendant rules: count, then (ancestorSelector, subjectSelector, CssStyle) per entry
@@ -910,17 +1124,39 @@ bool CssParser::saveToCache(const bool complete) const {
   for (const auto& rule : descendantRules_) {
     const auto ancLen = static_cast<uint16_t>(rule.ancestorSelector.size());
     if (!writeBytes(&ancLen, sizeof(ancLen)) || !writeBytes(rule.ancestorSelector.data(), ancLen)) {
+      writeOk = false;
       break;
     }
     const auto subLen = static_cast<uint16_t>(rule.subjectSelector.size());
     if (!writeBytes(&subLen, sizeof(subLen)) || !writeBytes(rule.subjectSelector.data(), subLen) ||
-        !writeStyle(rule.style)) {
+        !writeCssStylePayload(file, rule.style)) {
+      writeOk = false;
       break;
     }
   }
 
   if (!writeOk) {
     LOG_ERR("CSS", "Failed to write temporary CSS cache");
+    file.close();
+    Storage.remove(tmpPath.c_str());
+    return false;
+  }
+
+  std::sort(indexEntries.begin(), indexEntries.end(),
+            [](const SelectorEntry& a, const SelectorEntry& b) { return a.hash < b.hash; });
+  if (!file.seek(sizeof(uint32_t) + sizeof(uint8_t) + sizeof(uint8_t) + sizeof(uint16_t))) {
+    LOG_ERR("CSS", "Failed to seek CSS index placeholder");
+    file.close();
+    Storage.remove(tmpPath.c_str());
+    return false;
+  }
+  for (const auto& entry : indexEntries) {
+    if (!writeBytes(&entry, sizeof(entry))) {
+      break;
+    }
+  }
+  if (!writeOk) {
+    LOG_ERR("CSS", "Failed to patch CSS index");
     file.close();
     Storage.remove(tmpPath.c_str());
     return false;
@@ -1026,106 +1262,37 @@ bool CssParser::loadFromCache() {
     return static_cast<size_t>(file.available()) >= neededBytes;
   };
 
-  constexpr size_t CSS_LENGTH_FIELD_COUNT = 11;
-  constexpr size_t CSS_LENGTH_BYTES = sizeof(float) + sizeof(uint8_t);
-  constexpr size_t CSS_FIXED_STYLE_BYTES =
-      4 * sizeof(uint8_t) + (CSS_LENGTH_FIELD_COUNT * CSS_LENGTH_BYTES) + 4 * sizeof(uint8_t) + sizeof(uint32_t);
-
-  auto readLength = [&file](CssLength& len) -> bool {
-    if (file.read(&len.value, sizeof(len.value)) != sizeof(len.value)) return false;
-    uint8_t unitVal;
-    if (file.read(&unitVal, 1) != 1) return false;
-    len.unit = static_cast<CssUnit>(unitVal);
-    return true;
-  };
-
-  auto readStyle = [&](CssStyle& style) -> bool {
-    uint8_t enumVal;
-    if (file.read(&enumVal, 1) != 1) return false;
-    style.textAlign = static_cast<CssTextAlign>(enumVal);
-    if (file.read(&enumVal, 1) != 1) return false;
-    style.fontStyle = static_cast<CssFontStyle>(enumVal);
-    if (file.read(&enumVal, 1) != 1) return false;
-    style.fontWeight = static_cast<CssFontWeight>(enumVal);
-    if (file.read(&enumVal, 1) != 1) return false;
-    style.textDecoration = static_cast<CssTextDecoration>(enumVal);
-    if (!readLength(style.textIndent) || !readLength(style.marginTop) || !readLength(style.marginBottom) ||
-        !readLength(style.marginLeft) || !readLength(style.marginRight) || !readLength(style.paddingTop) ||
-        !readLength(style.paddingBottom) || !readLength(style.paddingLeft) || !readLength(style.paddingRight) ||
-        !readLength(style.imageHeight) || !readLength(style.imageWidth)) {
+  cacheRuleOffsets_.reserve(ruleCount);
+  for (uint16_t i = 0; i < ruleCount; ++i) {
+    SelectorEntry entry{};
+    if (file.read(&entry, sizeof(entry)) != sizeof(entry)) {
+      LOG_DBG("CSS", "Truncated CSS cache while reading selector index");
+      cacheRuleOffsets_.clear();
       return false;
     }
-    uint8_t displayVal;
-    if (file.read(&displayVal, 1) != 1) return false;
-    style.display = static_cast<CssDisplay>(displayVal);
-    uint8_t backgroundBlackVal = 0;
-    if (file.read(&backgroundBlackVal, 1) != 1) return false;
-    style.backgroundBlack = backgroundBlackVal != 0;
-    uint8_t verticalAlignVal = 0;
-    if (file.read(&verticalAlignVal, 1) != 1) return false;
-    style.verticalAlign = static_cast<CssVerticalAlign>(verticalAlignVal);
-    uint8_t directionVal = 0;
-    if (file.read(&directionVal, 1) != 1) return false;
-    style.direction = static_cast<CssTextDirection>(directionVal);
+    cacheRuleOffsets_.push_back(entry);
+  }
+  cacheIndexLoaded_ = true;
+  cachedRuleCount_ = cacheRuleOffsets_.size();
 
-    uint32_t definedBits = 0;
-    if (file.read(&definedBits, sizeof(definedBits)) != sizeof(definedBits)) return false;
-    style.defined.textAlign = (definedBits & 1 << 0) != 0;
-    style.defined.fontStyle = (definedBits & 1 << 1) != 0;
-    style.defined.fontWeight = (definedBits & 1 << 2) != 0;
-    style.defined.textDecoration = (definedBits & 1 << 3) != 0;
-    style.defined.textIndent = (definedBits & 1 << 4) != 0;
-    style.defined.marginTop = (definedBits & 1 << 5) != 0;
-    style.defined.marginBottom = (definedBits & 1 << 6) != 0;
-    style.defined.marginLeft = (definedBits & 1 << 7) != 0;
-    style.defined.marginRight = (definedBits & 1 << 8) != 0;
-    style.defined.paddingTop = (definedBits & 1 << 9) != 0;
-    style.defined.paddingBottom = (definedBits & 1 << 10) != 0;
-    style.defined.paddingLeft = (definedBits & 1 << 11) != 0;
-    style.defined.paddingRight = (definedBits & 1 << 12) != 0;
-    style.defined.imageHeight = (definedBits & 1 << 13) != 0;
-    style.defined.imageWidth = (definedBits & 1 << 14) != 0;
-    style.defined.display = (definedBits & 1 << 15) != 0;
-    style.defined.backgroundBlack = (definedBits & 1 << 16) != 0;
-    style.defined.verticalAlign = (definedBits & 1 << 17) != 0;
-    style.defined.direction = (definedBits & 1 << 18) != 0;
-    return true;
-  };
-
-  // Read each simple rule
+  // Skip each simple rule payload; simple styles stay disk-backed and are read on demand.
   for (uint16_t i = 0; i < ruleCount; ++i) {
     uint16_t selectorLen = 0;
     if (!hasRemainingBytes(sizeof(selectorLen)) ||
         file.read(&selectorLen, sizeof(selectorLen)) != sizeof(selectorLen)) {
-      rulesBySelector_.clear();
+      cacheRuleOffsets_.clear();
       return false;
     }
-    if (selectorLen == 0 || selectorLen > MAX_SELECTOR_LENGTH || !hasRemainingBytes(selectorLen)) {
+    if (selectorLen == 0 || selectorLen > MAX_SELECTOR_LENGTH ||
+        !hasRemainingBytes(static_cast<size_t>(selectorLen) + CSS_FIXED_STYLE_BYTES)) {
       LOG_DBG("CSS", "Invalid selector length in cache: %u", selectorLen);
-      rulesBySelector_.clear();
+      cacheRuleOffsets_.clear();
       return false;
     }
-    std::string selector;
-    selector.resize(selectorLen);
-    if (file.read(&selector[0], selectorLen) != selectorLen) {
-      rulesBySelector_.clear();
+    const uint32_t nextRecord = file.position() + selectorLen + CSS_FIXED_STYLE_BYTES;
+    if (!file.seek(nextRecord)) {
+      cacheRuleOffsets_.clear();
       return false;
-    }
-    if (!hasRemainingBytes(CSS_FIXED_STYLE_BYTES)) {
-      LOG_DBG("CSS", "Truncated CSS cache while reading style payload");
-      rulesBySelector_.clear();
-      return false;
-    }
-    CssStyle style;
-    if (!readStyle(style)) {
-      rulesBySelector_.clear();
-      return false;
-    }
-    auto existing = rulesBySelector_.find(selector);
-    if (existing != rulesBySelector_.end()) {
-      existing->second.applyOver(style);
-    } else {
-      rulesBySelector_.emplace(std::move(selector), style);
     }
   }
 
@@ -1158,7 +1325,7 @@ bool CssParser::loadFromCache() {
         descendantRules_.clear();
         return false;
       }
-      if (!hasRemainingBytes(CSS_FIXED_STYLE_BYTES) || !readStyle(rule.style)) {
+      if (!hasRemainingBytes(CSS_FIXED_STYLE_BYTES) || !readCssStylePayload(file, rule.style)) {
         LOG_DBG("CSS", "Truncated CSS cache reading descendant rule style");
         rulesBySelector_.clear();
         descendantRules_.clear();
@@ -1168,7 +1335,7 @@ bool CssParser::loadFromCache() {
     }
   }
 
-  LOG_DBG("CSS", "Loaded %zu rules + %u descendant rules from %s cache", rulesBySelector_.size(), descendantCount,
-          cachePartial_ ? "partial" : "complete");
+  LOG_DBG("CSS", "Loaded %u indexed rules + %u descendant rules from %s cache", static_cast<unsigned>(cachedRuleCount_),
+          descendantCount, cachePartial_ ? "partial" : "complete");
   return true;
 }

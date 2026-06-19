@@ -375,7 +375,7 @@ void ChapterHtmlSlimParser::startNewTextBlock(const BlockStyle& blockStyle) {
         // The empty block was created by a <br> section separator. Inject a full line of
         // blank space before the following paragraph so the scene/section break is visible.
         // This only fires when the <br> block stayed empty (i.e. no inline text was added).
-        const int16_t lineHeight = static_cast<int16_t>(renderer.getLineHeight(fontId) * lineCompression + 0.5f);
+        const int16_t lineHeight = static_cast<int16_t>(effectiveLineHeight(currentTextBlock->getBlockStyle()));
         incoming.marginTop = static_cast<int16_t>(incoming.marginTop + lineHeight);
       }
 
@@ -1560,6 +1560,24 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
     return;
   }
 
+  const bool cssPageBreakBefore =
+      userAlignmentBlockStyle.pageBreakBefore &&
+      (matches(name, HEADER_TAGS, std::size(HEADER_TAGS)) || matches(name, BLOCK_TAGS, std::size(BLOCK_TAGS)));
+  if (cssPageBreakBefore && ((self->currentTextBlock && !self->currentTextBlock->isEmpty()) ||
+                             (self->currentPage && !self->currentPage->elements.empty()))) {
+    if (self->partWordBufferIndex > 0) {
+      self->flushPartWordBuffer();
+    }
+    if (self->currentTextBlock && !self->currentTextBlock->isEmpty()) {
+      self->makePages();
+    }
+    if (self->currentPage && !self->currentPage->elements.empty()) {
+      self->completePageFn(std::move(self->currentPage), self->xpathParagraphIndex, self->xpathListItemIndex);
+      self->completedPageCount++;
+      self->currentPageNextY = 0;
+    }
+  }
+
   if (matches(name, HEADER_TAGS, std::size(HEADER_TAGS))) {
     self->currentCssStyle = cssStyle;
     auto headerBlockStyle = BlockStyle::fromCssStyle(cssStyle, emSize, CssTextAlign::Center, self->viewportWidth);
@@ -2263,7 +2281,7 @@ void ChapterHtmlSlimParser::addLineToPage(std::shared_ptr<TextBlock> line) {
     return;
   }
 
-  const int lineHeight = renderer.getLineHeight(fontId) * lineCompression;
+  const int lineHeight = effectiveLineHeight(line->getBlockStyle());
 
   if (!currentPage) {
     if (!startNewPage("line layout")) {
@@ -2295,6 +2313,12 @@ void ChapterHtmlSlimParser::addLineToPage(std::shared_ptr<TextBlock> line) {
   currentPageNextY += lineHeight;
 }
 
+int ChapterHtmlSlimParser::effectiveLineHeight(const BlockStyle& blockStyle) const {
+  const float baseLineHeight = renderer.getLineHeight(fontId) * lineCompression;
+  const float scaledLineHeight = baseLineHeight * static_cast<float>(blockStyle.lineHeightPermille) / 1000.0f;
+  return std::max(1, static_cast<int>(scaledLineHeight + 0.5f));
+}
+
 void ChapterHtmlSlimParser::makePages() {
   if (shouldAbortForLowMemory("page layout")) {
     return;
@@ -2311,10 +2335,9 @@ void ChapterHtmlSlimParser::makePages() {
     }
   }
 
-  const int lineHeight = renderer.getLineHeight(fontId) * lineCompression;
-
   // Apply top spacing before the paragraph (stored in pixels)
   const BlockStyle& blockStyle = currentTextBlock->getBlockStyle();
+  const int lineHeight = effectiveLineHeight(blockStyle);
   if (blockStyle.marginTop > 0) {
     currentPageNextY += blockStyle.marginTop;
   }
@@ -2356,5 +2379,11 @@ void ChapterHtmlSlimParser::makePages() {
   // Extra paragraph spacing if enabled (default behavior)
   if (extraParagraphSpacing) {
     currentPageNextY += lineHeight / 2;
+  }
+
+  if (blockStyle.pageBreakAfter && currentPage && !currentPage->elements.empty()) {
+    completePageFn(std::move(currentPage), xpathParagraphIndex, xpathListItemIndex);
+    completedPageCount++;
+    currentPageNextY = 0;
   }
 }

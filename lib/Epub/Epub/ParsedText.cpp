@@ -96,6 +96,8 @@ bool isNoBreakBeforeCjkPunctuation(const uint32_t cp) {
   }
 }
 
+bool isClosingPunctuationForJustify(const uint32_t cp) { return isNoBreakBeforeCjkPunctuation(cp); }
+
 bool isNoBreakAfterCjkPunctuation(const uint32_t cp) {
   switch (cp) {
     case '(':
@@ -961,9 +963,13 @@ void ParsedText::extractLine(const size_t breakIndex, const int pageWidth, const
     lineWordWidthSum += lineWordWidths[wordIdx];
     // Count gaps: each word after the first creates a gap, unless it's a continuation
     if (wordIdx > 0 && noSpaceBeforeVec[lastBreakAt + wordIdx]) {
-      actualGapCount++;
+      if (!isClosingPunctuationForJustify(firstCodepoint(lineWords[wordIdx]))) {
+        actualGapCount++;
+      }
     } else if (wordIdx > 0 && !continuesVec[lastBreakAt + wordIdx]) {
-      actualGapCount++;
+      if (!isClosingPunctuationForJustify(firstCodepoint(lineWords[wordIdx]))) {
+        actualGapCount++;
+      }
       totalNaturalGaps += renderer.getSpaceAdvance(fontId, lastCodepoint(lineWords[wordIdx - 1]),
                                                    firstCodepoint(lineWords[wordIdx]), lineWordStyles[wordIdx - 1]);
     } else if (wordIdx > 0 && continuesVec[lastBreakAt + wordIdx]) {
@@ -1049,9 +1055,13 @@ void ParsedText::extractLine(const size_t breakIndex, const int pageWidth, const
     for (size_t wordIdx = 0; wordIdx < reorderedWidthsScratch.size(); ++wordIdx) {
       reorderedWordWidthSum += reorderedWidthsScratch[wordIdx];
       if (wordIdx > 0 && reorderedNoSpaceBeforeScratch[wordIdx]) {
-        reorderedGapCount++;
+        if (!isClosingPunctuationForJustify(firstCodepoint(reorderedWordsScratch[wordIdx]))) {
+          reorderedGapCount++;
+        }
       } else if (wordIdx > 0 && !reorderedContinuesScratch[wordIdx]) {
-        reorderedGapCount++;
+        if (!isClosingPunctuationForJustify(firstCodepoint(reorderedWordsScratch[wordIdx]))) {
+          reorderedGapCount++;
+        }
         reorderedNaturalGaps += renderer.getSpaceAdvance(fontId, lastCodepoint(reorderedWordsScratch[wordIdx - 1]),
                                                          firstCodepoint(reorderedWordsScratch[wordIdx]),
                                                          reorderedStylesScratch[wordIdx - 1]);
@@ -1111,7 +1121,8 @@ void ParsedText::extractLine(const size_t breakIndex, const int pageWidth, const
                               : renderer.getSpaceAdvance(fontId, lastCodepoint(reorderedWordsScratch[wordIdx]),
                                                          firstCodepoint(reorderedWordsScratch[wordIdx + 1]),
                                                          reorderedStylesScratch[wordIdx]);
-        if (effectiveAlignment == CssTextAlign::Justify && !isLastLine) {
+        const bool nextIsClosing = isClosingPunctuationForJustify(firstCodepoint(reorderedWordsScratch[wordIdx + 1]));
+        if (effectiveAlignment == CssTextAlign::Justify && !isLastLine && !nextIsClosing) {
           gap += reorderedJustifyExtra;
         }
         xpos += gap;
@@ -1160,7 +1171,10 @@ void ParsedText::extractLine(const size_t breakIndex, const int pageWidth, const
                       : renderer.getSpaceAdvance(fontId, lastCodepoint(lineWords[wordIdx]),
                                                  firstCodepoint(lineWords[wordIdx + 1]), lineWordStyles[wordIdx]);
           }
-          if (wordIdx + 1 < lineWordCount && effectiveAlignment == CssTextAlign::Justify && !isLastLine) {
+          const bool nextIsClosing =
+              wordIdx + 1 < lineWordCount && isClosingPunctuationForJustify(firstCodepoint(lineWords[wordIdx + 1]));
+          if (wordIdx + 1 < lineWordCount && effectiveAlignment == CssTextAlign::Justify && !isLastLine &&
+              !nextIsClosing) {
             gap += justifyExtra;
           }
           xpos -= gap;
@@ -1198,7 +1212,10 @@ void ParsedText::extractLine(const size_t breakIndex, const int pageWidth, const
                       : renderer.getSpaceAdvance(fontId, lastCodepoint(lineWords[wordIdx]),
                                                  firstCodepoint(lineWords[wordIdx + 1]), lineWordStyles[wordIdx]);
           }
-          if (wordIdx + 1 < lineWordCount && effectiveAlignment == CssTextAlign::Justify && !isLastLine) {
+          const bool nextIsClosing =
+              wordIdx + 1 < lineWordCount && isClosingPunctuationForJustify(firstCodepoint(lineWords[wordIdx + 1]));
+          if (wordIdx + 1 < lineWordCount && effectiveAlignment == CssTextAlign::Justify && !isLastLine &&
+              !nextIsClosing) {
             gap += justifyExtra;
           }
           xpos += lineWordWidths[wordIdx] + gap;

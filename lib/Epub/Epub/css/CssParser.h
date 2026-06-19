@@ -48,9 +48,10 @@ class CssParser {
  public:
   // Bump when CSS cache format or rules change; section caches are invalidated when this changes
   static constexpr uint32_t CSS_CACHE_MAGIC = 0x435843FF;  // bytes: 0xFF, "CXC"
-  static constexpr uint8_t CSS_CACHE_VERSION = 11;
+  static constexpr uint8_t CSS_CACHE_VERSION = 12;
 
   static constexpr size_t MAX_DESCENDANT_RULES = 100;
+  static constexpr size_t CSS_INDEX_BYTES_PER_RULE = 8;
 
   explicit CssParser(std::string cachePath) : cachePath(std::move(cachePath)) {}
   ~CssParser() = default;
@@ -89,12 +90,16 @@ class CssParser {
   /**
    * Check if any rules have been loaded
    */
-  [[nodiscard]] bool empty() const { return rulesBySelector_.empty() && descendantRules_.empty(); }
+  [[nodiscard]] bool empty() const {
+    return rulesBySelector_.empty() && cacheRuleOffsets_.empty() && descendantRules_.empty();
+  }
 
   /**
    * Get count of loaded rule sets
    */
-  [[nodiscard]] size_t ruleCount() const { return rulesBySelector_.size(); }
+  [[nodiscard]] size_t ruleCount() const {
+    return rulesBySelector_.empty() ? cachedRuleCount_ : rulesBySelector_.size();
+  }
 
   /**
    * Clear all loaded rules
@@ -105,6 +110,9 @@ class CssParser {
     // post-index cleanup behavior callers relied on.
     decltype(rulesBySelector_){}.swap(rulesBySelector_);
     decltype(descendantRules_){}.swap(descendantRules_);
+    decltype(cacheRuleOffsets_){}.swap(cacheRuleOffsets_);
+    cacheIndexLoaded_ = false;
+    cachedRuleCount_ = 0;
     cachePartial_ = false;
   }
 
@@ -184,6 +192,16 @@ class CssParser {
   std::string cachePath;
   bool cachePartial_ = false;
 
+  struct SelectorEntry {
+    uint32_t hash;
+    uint32_t offset;
+  };
+  static_assert(sizeof(SelectorEntry) == CSS_INDEX_BYTES_PER_RULE,
+                "SelectorEntry size changed; update CSS_INDEX_BYTES_PER_RULE");
+  mutable bool cacheIndexLoaded_ = false;
+  mutable size_t cachedRuleCount_ = 0;
+  mutable std::vector<SelectorEntry> cacheRuleOffsets_;
+
   // Internal parsing helpers
   [[nodiscard]] bool processRuleBlockWithStyle(std::string_view selectorGroup, const CssStyle& style);
   static bool selectorMatchesElement(std::string_view selector, std::string_view tag, std::string_view classAttr);
@@ -198,4 +216,9 @@ class CssParser {
   static CssLength interpretLength(std::string_view val);
   /** Returns true only when a numeric length was parsed (e.g. 2em, 50%). False for auto/inherit/initial. */
   static bool tryInterpretLength(std::string_view val, CssLength& out);
+  static uint32_t selectorHash(std::string_view selector);
+  bool lookupRule(std::string_view selector, CssStyle& outStyle) const;
+  bool readRuleFromDiskAtOffset(uint32_t ruleOffset, std::string_view selector, CssStyle& outStyle) const;
+  static bool readCssStylePayload(FsFile& file, CssStyle& style);
+  static bool writeCssStylePayload(FsFile& file, const CssStyle& style);
 };
