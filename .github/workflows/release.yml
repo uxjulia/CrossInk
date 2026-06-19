@@ -9,6 +9,12 @@ on:
 
 permissions:
   contents: write
+  id-token: write
+
+env:
+  RELEASE_S3_BUCKET: crossink-releases
+  RELEASE_S3_REGION: us-east-1
+  RELEASE_S3_BASE_URL: https://crossink-releases.s3.us-east-1.amazonaws.com
 
 jobs:
   build-release:
@@ -64,15 +70,39 @@ jobs:
           CROSSPOINT_RELEASE_VERSION: ${{ env.RELEASE_VERSION }}
         run: pio run -e teensy -e tiny -e xlarge
 
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.RELEASE_S3_UPLOAD_ROLE_ARN }}
+          aws-region: ${{ env.RELEASE_S3_REGION }}
+
+      - name: Publish firmware assets to S3
+        run: |
+          S3_PREFIX="s3://${{ env.RELEASE_S3_BUCKET }}/v${{ env.RELEASE_VERSION }}"
+          aws s3 cp ".pio/build/teensy/firmware-teensy-v${{ env.RELEASE_VERSION }}.bin" "$S3_PREFIX/" \
+            --content-type "application/octet-stream" \
+            --cache-control "public, max-age=31536000, immutable" \
+            --only-show-errors
+          aws s3 cp ".pio/build/tiny/firmware-tiny-v${{ env.RELEASE_VERSION }}.bin" "$S3_PREFIX/" \
+            --content-type "application/octet-stream" \
+            --cache-control "public, max-age=31536000, immutable" \
+            --only-show-errors
+          aws s3 cp ".pio/build/xlarge/firmware-xlarge-v${{ env.RELEASE_VERSION }}.bin" "$S3_PREFIX/" \
+            --content-type "application/octet-stream" \
+            --cache-control "public, max-age=31536000, immutable" \
+            --only-show-errors
+
       - name: Generate release catalog
         run: |
           python3 scripts/generate_release_catalog.py \
             --version "${{ env.RELEASE_VERSION }}" \
             --repo "${{ github.repository }}" \
+            --firmware-base-url "${{ env.RELEASE_S3_BASE_URL }}/v${{ env.RELEASE_VERSION }}/" \
             --firmware ".pio/build/teensy/firmware-teensy-v${{ env.RELEASE_VERSION }}.bin" \
             --firmware ".pio/build/tiny/firmware-tiny-v${{ env.RELEASE_VERSION }}.bin" \
             --firmware ".pio/build/xlarge/firmware-xlarge-v${{ env.RELEASE_VERSION }}.bin" \
-            --output ".pio/build/catalog"
+            --output ".pio/build/catalog" \
+            --ota-output ".pio/build/ota"
 
       - name: Publish catalog to GitHub Pages source
         env:
@@ -97,13 +127,14 @@ jobs:
           git fetch origin "$DEFAULT_BRANCH"
           git worktree add ../crossink-pages "origin/$DEFAULT_BRANCH"
           cp ".pio/build/catalog" "../crossink-pages/docs/catalog"
+          cp ".pio/build/ota" "../crossink-pages/docs/ota"
           cd ../crossink-pages
-          if git diff --quiet -- docs/catalog; then
-            echo "docs/catalog is already current"
+          if git diff --quiet -- docs/catalog docs/ota; then
+            echo "docs/catalog and docs/ota are already current"
             exit 0
           fi
-          git add docs/catalog
-          git commit -S -m "Update release catalog for v${RELEASE_VERSION}"
+          git add docs/catalog docs/ota
+          git commit -S -m "Update release manifests for v${RELEASE_VERSION}"
           git push origin "HEAD:$DEFAULT_BRANCH"
 
       - name: Create GitHub Release

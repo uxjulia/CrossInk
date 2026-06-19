@@ -1,0 +1,25 @@
+{
+  "tag_name": "v1.3.3",
+  "assets": [
+    {
+      "name": "firmware-teensy-v1.3.3.bin",
+      "browser_download_url": "https://github.com/uxjulia/CrossInk/releases/latest/download/firmware-teensy-v1.3.3.bin",
+      "size": 5752432
+    },
+    {
+      "name": "firmware-tiny-v1.3.3.bin",
+      "browser_download_url": "https://github.com/uxjulia/CrossInk/releases/latest/download/firmware-tiny-v1.3.3.bin",
+      "size": 6186384
+    },
+    {
+      "name": "firmware-xlarge-v1.3.3.bin",
+      "browser_download_url": "https://github.com/uxjulia/CrossInk/releases/latest/download/firmware-xlarge-v1.3.3.bin",
+      "size": 6050896
+    },
+    {
+      "name": "firmware-no_emoji-v1.3.3.bin",
+      "browser_download_url": "https://github.com/uxjulia/CrossInk/releases/latest/download/firmware-no_emoji-v1.3.3.bin",
+      "size": 6509856
+    }
+  ]
+}
