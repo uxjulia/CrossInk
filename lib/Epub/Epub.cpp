@@ -24,6 +24,7 @@ namespace {
 constexpr int kDefaultThumbHeight = 180;
 constexpr char kCrossInkLocationsPath[] = "META-INF/crossink-locations.json";
 constexpr size_t kCrossInkLocationsMaxBytes = 64 * 1024;
+constexpr uint32_t kDefaultReferenceWordsPerPage = 250;
 
 float clampUnit(const float value) {
   if (value <= 0.0f) {
@@ -1019,6 +1020,9 @@ bool Epub::getItemSize(const std::string& itemHref, size_t* size) const {
 bool Epub::loadCrossInkLocations() {
   locationSpine.clear();
   totalLocations = 0;
+  totalWords = 0;
+  wordsPerReferencePage = 0;
+  totalReferencePages = 0;
   crossinkLocationsLoaded = false;
 
   if (!bookMetadataCache || !bookMetadataCache->isLoaded()) {
@@ -1058,6 +1062,9 @@ bool Epub::loadCrossInkLocations() {
   const char* format = doc["format"] | "";
   const int version = doc["version"] | 0;
   const uint32_t parsedTotalLocations = doc["totalLocations"] | 0;
+  const uint32_t parsedTotalWords = doc["totalWords"] | 0;
+  const uint32_t parsedWordsPerReferencePage = doc["wordsPerReferencePage"] | 0;
+  const uint32_t parsedTotalReferencePages = doc["totalReferencePages"] | 0;
   JsonArrayConst spine = doc["spine"];
 
   if (std::strcmp(format, "crossink-locations") != 0 || version != 1 || parsedTotalLocations == 0 || spine.isNull()) {
@@ -1077,6 +1084,8 @@ bool Epub::loadCrossInkLocations() {
 
     const uint32_t startLocation = spineItem["startLocation"] | 0;
     const uint32_t endLocation = spineItem["endLocation"] | 0;
+    const uint32_t wordStart = spineItem["wordStart"] | 0;
+    const uint32_t wordCount = spineItem["wordCount"] | 0;
     if (startLocation == 0 && endLocation == 0) {
       continue;
     }
@@ -1085,7 +1094,7 @@ bool Epub::loadCrossInkLocations() {
       continue;
     }
 
-    locationSpine[static_cast<size_t>(index)] = {startLocation, endLocation};
+    locationSpine[static_cast<size_t>(index)] = {startLocation, endLocation, wordStart, wordCount};
     hasValidEntry = true;
   }
 
@@ -1095,9 +1104,16 @@ bool Epub::loadCrossInkLocations() {
   }
 
   totalLocations = parsedTotalLocations;
+  totalWords = parsedTotalWords;
+  wordsPerReferencePage = parsedWordsPerReferencePage > 0 ? parsedWordsPerReferencePage : kDefaultReferenceWordsPerPage;
+  totalReferencePages = parsedTotalReferencePages;
+  if (totalReferencePages == 0 && totalWords > 0 && wordsPerReferencePage > 0) {
+    totalReferencePages = (totalWords + wordsPerReferencePage - 1) / wordsPerReferencePage;
+  }
   crossinkLocationsLoaded = true;
-  LOG_INF("EBP", "Loaded CrossInk locations: %lu locations across %zu spine items",
-          static_cast<unsigned long>(totalLocations), locationSpine.size());
+  LOG_INF("EBP", "Loaded CrossInk locations: %lu locations, %lu reference pages across %zu spine items",
+          static_cast<unsigned long>(totalLocations), static_cast<unsigned long>(totalReferencePages),
+          locationSpine.size());
   return true;
 }
 
@@ -1286,6 +1302,28 @@ bool Epub::resolveLocationPercentToSpineProgress(const int percent, int& spineIn
   }
 
   return false;
+}
+
+bool Epub::resolveReferencePage(const int currentSpineIndex, const float currentSpineRead, uint32_t& currentPage,
+                                uint32_t& pageCount) const {
+  currentPage = 0;
+  pageCount = 0;
+  if (!crossinkLocationsLoaded || totalWords == 0 || wordsPerReferencePage == 0 || totalReferencePages == 0 ||
+      currentSpineIndex < 0 || currentSpineIndex >= static_cast<int>(locationSpine.size())) {
+    return false;
+  }
+
+  const LocationSpineEntry& entry = locationSpine[static_cast<size_t>(currentSpineIndex)];
+  if (entry.wordCount == 0 || entry.wordStart >= totalWords) {
+    return false;
+  }
+
+  const float clampedProgress = clampUnit(currentSpineRead);
+  const uint32_t completedWords =
+      entry.wordStart + static_cast<uint32_t>(clampedProgress * static_cast<float>(entry.wordCount));
+  currentPage = std::min<uint32_t>(completedWords / wordsPerReferencePage + 1, totalReferencePages);
+  pageCount = totalReferencePages;
+  return true;
 }
 
 int Epub::resolveHrefToSpineIndex(const std::string& href) const {

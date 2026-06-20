@@ -749,7 +749,9 @@ void BaseTheme::fillPopupProgress(const GfxRenderer& renderer, const Rect& layou
 
 void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, const int currentPage,
                               const int pageCount, std::string title, const int paddingBottom, const int textYOffset,
-                              const bool isPageBookmarked, const char* timeLeftLabel, const bool darkMode) const {
+                              const bool isPageBookmarked, const char* timeLeftLabel, const bool darkMode,
+                              const float chapterProgressPercent, const int stableCurrentPage,
+                              const int stablePageCount) const {
   const bool foregroundBlack = !darkMode;
   auto metrics = UITheme::getInstance().getMetrics();
   int orientedMarginTop, orientedMarginRight, orientedMarginBottom, orientedMarginLeft;
@@ -761,14 +763,25 @@ void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, c
   auto textY = screenHeight - UITheme::getInstance().getStatusBarHeight() - orientedMarginBottom - paddingBottom - 4;
   int progressTextWidth = 0;
 
-  if (SETTINGS.statusBarBookProgressPercentage || SETTINGS.statusBarChapterPageCount) {
+  const bool showStablePageNumbers = SETTINGS.stablePageNumbers && stableCurrentPage > 0 && stablePageCount > 0;
+  if (SETTINGS.statusBarBookProgressPercentage || SETTINGS.statusBarChapterPageCount || showStablePageNumbers) {
     // Right aligned text for progress counter
-    char progressStr[32];
+    char progressStr[48];
 
-    if (SETTINGS.statusBarBookProgressPercentage && SETTINGS.statusBarChapterPageCount) {
+    if (SETTINGS.statusBarChapterPageCount && showStablePageNumbers && SETTINGS.statusBarBookProgressPercentage) {
+      snprintf(progressStr, sizeof(progressStr), "%d/%d  %d/%d  %.0f%%", currentPage, pageCount, stableCurrentPage,
+               stablePageCount, bookProgress);
+    } else if (SETTINGS.statusBarChapterPageCount && showStablePageNumbers) {
+      snprintf(progressStr, sizeof(progressStr), "%d/%d  %d/%d", currentPage, pageCount, stableCurrentPage,
+               stablePageCount);
+    } else if (SETTINGS.statusBarChapterPageCount && SETTINGS.statusBarBookProgressPercentage) {
       snprintf(progressStr, sizeof(progressStr), "%d/%d  %.0f%%", currentPage, pageCount, bookProgress);
+    } else if (showStablePageNumbers && SETTINGS.statusBarBookProgressPercentage) {
+      snprintf(progressStr, sizeof(progressStr), "%d/%d  %.0f%%", stableCurrentPage, stablePageCount, bookProgress);
     } else if (SETTINGS.statusBarBookProgressPercentage) {
       snprintf(progressStr, sizeof(progressStr), "%.0f%%", bookProgress);
+    } else if (showStablePageNumbers) {
+      snprintf(progressStr, sizeof(progressStr), "%d/%d", stableCurrentPage, stablePageCount);
     } else {
       snprintf(progressStr, sizeof(progressStr), "%d/%d", currentPage, pageCount);
     }
@@ -788,6 +801,8 @@ void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, c
     size_t progress;
     if (SETTINGS.statusBarProgressBar == CrossPointSettings::STATUS_BAR_PROGRESS_BAR::BOOK_PROGRESS) {
       progress = static_cast<size_t>(bookProgress);
+    } else if (chapterProgressPercent >= 0.0f) {
+      progress = static_cast<size_t>(std::clamp(chapterProgressPercent, 0.0f, 100.0f));
     } else {
       // Chapter progress
       progress = (pageCount > 0) ? (static_cast<float>(currentPage) / pageCount) * 100 : 0;

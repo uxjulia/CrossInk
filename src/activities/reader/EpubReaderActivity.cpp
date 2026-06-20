@@ -1878,7 +1878,7 @@ void EpubReaderActivity::loop() {
             automaticPageTurnActive, getAutoPageTurnIntervalSeconds(),
             SETTINGS.statusBarTimeLeft != CrossPointSettings::STATUS_BAR_TIME_LEFT::TIME_LEFT_HIDE,
             saveReaderOptionsForBook, this, saveGlobalSettingsForBookReader, this, beginGlobalSettingsEditForBookReader,
-            this, endGlobalSettingsEditForBookReader, this),
+            this, epub && epub->hasStablePageNumbers(), endGlobalSettingsEditForBookReader, this),
         [this](const ActivityResult& result) {
           if (const auto* clipping = std::get_if<ClippingJumpResult>(&result.data)) {
             applyOrientation(clipping->orientation);
@@ -4074,8 +4074,19 @@ void EpubReaderActivity::drawClippingHighlights(const Page& page, const int font
 
 void EpubReaderActivity::renderStatusBar() const {
   const int currentPage = section->currentPage + 1;
-  const float pageCount = section->pageCount;
+  const int pageCount = section->pageCount;
   const float bookProgress = getCurrentBookProgressPercent();
+  const float chapterProgress = (section->pageCount > 0)
+                                    ? static_cast<float>(section->currentPage) / static_cast<float>(section->pageCount)
+                                    : 0.0f;
+
+  uint32_t referencePage = 0;
+  uint32_t referencePageCount = 0;
+  if (!SETTINGS.stablePageNumbers ||
+      !epub->resolveReferencePage(currentSpineIndex, chapterProgress, referencePage, referencePageCount)) {
+    referencePage = 0;
+    referencePageCount = 0;
+  }
 
   std::string title;
 
@@ -4104,13 +4115,16 @@ void EpubReaderActivity::renderStatusBar() const {
     title = epub->getTitle();
   }
 
-  const float rawProgress = (pageCount > 0) ? (static_cast<float>(section->currentPage) / pageCount) : 0.0f;
+  const float rawProgress = (section->pageCount > 0)
+                                ? (static_cast<float>(section->currentPage) / static_cast<float>(section->pageCount))
+                                : 0.0f;
   const bool bookmarked = BOOKMARKS.hasBookmarkForPage(static_cast<uint16_t>(currentSpineIndex), rawProgress,
                                                        section->pageCount > 0 ? section->pageCount : 1);
   char timeLeftLabel[24] = {};
   const char* timeLeft = formatTimeLeftLabel(timeLeftLabel, sizeof(timeLeftLabel)) ? timeLeftLabel : nullptr;
   GUI.drawStatusBar(renderer, bookProgress, currentPage, pageCount, title, 0, textYOffset, bookmarked, timeLeft,
-                    ReaderUtils::readerDarkModeEnabled());
+                    ReaderUtils::readerDarkModeEnabled(), chapterProgress * 100.0f, static_cast<int>(referencePage),
+                    static_cast<int>(referencePageCount));
   GUI.drawTopStatusBarClock(renderer, UITheme::getInstance().getMetrics().topPadding, nullptr, true, 0,
                             ReaderUtils::readerDarkModeEnabled());
 }

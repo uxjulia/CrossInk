@@ -1776,7 +1776,8 @@ function exportLogToFile(filename = null, isBatch = false) {
 /** Defensive CSS injected into every XHTML <head> — prevents e-ink overflow. */
 const DEFENSIVE_STYLE = '<style type="text/css">img,svg{max-width:100%;height:auto}body{overflow-wrap:break-word}table{max-width:100%;table-layout:fixed}pre,code{white-space:pre-wrap;word-wrap:break-word}*{box-sizing:border-box}</style>';
 const CROSSINK_LOCATION_MANIFEST_PATH = 'META-INF/crossink-locations.json';
-const CROSSINK_LOCATION_WORDS_PER_UNIT = 128;
+const CROSSINK_LOCATION_WORDS_PER_UNIT = 64;
+const CROSSINK_REFERENCE_WORDS_PER_PAGE = 250;
 
 /** Escape a string for safe insertion into XML attribute values / text content. */
 function xmlEscape(str) {
@@ -2066,6 +2067,8 @@ function buildCrossInkLocationManifest(opfContent, opfPath, xhtmlFiles) {
     const locationCount = Math.ceil(wordCount / CROSSINK_LOCATION_WORDS_PER_UNIT);
     const startLocation = locationCount > 0 ? nextLocation : 0;
     const endLocation = locationCount > 0 ? nextLocation + locationCount - 1 : 0;
+    const startReferencePage = wordCount > 0 ? Math.floor(totalWords / CROSSINK_REFERENCE_WORDS_PER_PAGE) + 1 : 0;
+    const endReferencePage = wordCount > 0 ? Math.ceil((totalWords + wordCount) / CROSSINK_REFERENCE_WORDS_PER_PAGE) : 0;
 
     spine.push({
       index,
@@ -2073,7 +2076,9 @@ function buildCrossInkLocationManifest(opfContent, opfPath, xhtmlFiles) {
       wordStart: totalWords,
       wordCount,
       startLocation,
-      endLocation
+      endLocation,
+      startReferencePage,
+      endReferencePage
     });
 
     totalWords += wordCount;
@@ -2086,8 +2091,10 @@ function buildCrossInkLocationManifest(opfContent, opfPath, xhtmlFiles) {
     generator: 'crossink-web-uploader',
     unit: 'word',
     wordsPerLocation: CROSSINK_LOCATION_WORDS_PER_UNIT,
+    wordsPerReferencePage: CROSSINK_REFERENCE_WORDS_PER_PAGE,
     totalWords,
     totalLocations: Math.max(0, nextLocation - 1),
+    totalReferencePages: Math.ceil(totalWords / CROSSINK_REFERENCE_WORDS_PER_PAGE),
     spine
   };
 }
@@ -3128,7 +3135,8 @@ async function convertEpubFile(file, progressCallback) {
         compressionOptions: { level: 8 },
         createFolders: false
       });
-      logFix('CrossInk locations', `${locationManifest.totalLocations} locations`);
+      logFix('CrossInk locations',
+             `${locationManifest.totalLocations} locations, ${locationManifest.totalReferencePages} reference pages`);
     }
   }
 

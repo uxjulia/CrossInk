@@ -33,9 +33,14 @@ class Epub {
   struct LocationSpineEntry {
     uint32_t startLocation = 0;
     uint32_t endLocation = 0;
+    uint32_t wordStart = 0;
+    uint32_t wordCount = 0;
   };
   std::vector<LocationSpineEntry> locationSpine;
   uint32_t totalLocations = 0;
+  uint32_t totalWords = 0;
+  uint32_t wordsPerReferencePage = 0;
+  uint32_t totalReferencePages = 0;
   bool crossinkLocationsLoaded = false;
   enum class CssParseStatus : uint8_t {
     Failed,
@@ -106,9 +111,14 @@ class Epub {
 
   size_t getBookSize() const;
   bool hasCrossInkLocations() const { return crossinkLocationsLoaded; }
+  bool hasStablePageNumbers() const {
+    return crossinkLocationsLoaded && totalWords > 0 && wordsPerReferencePage > 0 && totalReferencePages > 0;
+  }
   float calculateSizeProgress(int currentSpineIndex, float currentSpineRead) const;
   float calculateProgress(int currentSpineIndex, float currentSpineRead) const;
   bool resolveLocationPercentToSpineProgress(int percent, int& spineIndex, float& spineProgress) const;
+  bool resolveReferencePage(int currentSpineIndex, float currentSpineRead, uint32_t& currentPage,
+                            uint32_t& pageCount) const;
   CssParser* getCssParser() const { return cssParser.get(); }
   int resolveHrefToSpineIndex(const std::string& href) const;
 

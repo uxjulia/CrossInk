@@ -223,7 +223,9 @@ class BaseTheme {
   virtual void drawStatusBar(GfxRenderer& renderer, const float bookProgress, const int currentPage,
                              const int pageCount, std::string title, const int paddingBottom = 0,
                              const int textYOffset = 0, const bool isPageBookmarked = false,
-                             const char* timeLeftLabel = nullptr, bool darkMode = false) const;
+                             const char* timeLeftLabel = nullptr, bool darkMode = false,
+                             float chapterProgressPercent = -1.0f, int stableCurrentPage = 0,
+                             int stablePageCount = 0) const;
   virtual void drawTopStatusBarClock(const GfxRenderer& renderer, int topY = -1, const char* previewTime = nullptr,
                                      bool readerContext = true, int textYOffset = 0, bool darkMode = false) const;
   virtual void drawHelpText(const GfxRenderer& renderer, Rect rect, const char* label) const;

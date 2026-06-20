@@ -31,6 +31,7 @@ class ReaderOptionsActivity final : public Activity {
   GlobalSettingsEditCallback endGlobalSettingsEditCallback = nullptr;
   void* endGlobalSettingsEditContext = nullptr;
   bool settingsDirty = false;
+  bool stablePageNumbersAvailable = false;
 
   void rebuildSettingsList();
   void setCurrentSettings();
@@ -49,12 +50,15 @@ class ReaderOptionsActivity final : public Activity {
   void endGlobalSettingsEdit();
 
  public:
-  explicit ReaderOptionsActivity(
-      GfxRenderer& renderer, MappedInputManager& mappedInput, SaveSettingsCallback saveSettingsCallback = nullptr,
-      void* saveSettingsContext = nullptr, SaveGlobalSettingsCallback saveGlobalSettingsCallback = nullptr,
-      void* saveGlobalSettingsContext = nullptr, GlobalSettingsEditCallback beginGlobalSettingsEditCallback = nullptr,
-      void* beginGlobalSettingsEditContext = nullptr,
-      GlobalSettingsEditCallback endGlobalSettingsEditCallback = nullptr, void* endGlobalSettingsEditContext = nullptr)
+  explicit ReaderOptionsActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
+                                 SaveSettingsCallback saveSettingsCallback = nullptr,
+                                 void* saveSettingsContext = nullptr,
+                                 SaveGlobalSettingsCallback saveGlobalSettingsCallback = nullptr,
+                                 void* saveGlobalSettingsContext = nullptr,
+                                 GlobalSettingsEditCallback beginGlobalSettingsEditCallback = nullptr,
+                                 void* beginGlobalSettingsEditContext = nullptr,
+                                 GlobalSettingsEditCallback endGlobalSettingsEditCallback = nullptr,
+                                 void* endGlobalSettingsEditContext = nullptr, bool stablePageNumbersAvailable = false)
       : Activity("ReaderOptions", renderer, mappedInput),
         saveSettingsCallback(saveSettingsCallback),
         saveSettingsContext(saveSettingsContext),
@@ -63,7 +67,8 @@ class ReaderOptionsActivity final : public Activity {
         beginGlobalSettingsEditCallback(beginGlobalSettingsEditCallback),
         beginGlobalSettingsEditContext(beginGlobalSettingsEditContext),
         endGlobalSettingsEditCallback(endGlobalSettingsEditCallback),
-        endGlobalSettingsEditContext(endGlobalSettingsEditContext) {}
+        endGlobalSettingsEditContext(endGlobalSettingsEditContext),
+        stablePageNumbersAvailable(stablePageNumbersAvailable) {}
   void onEnter() override;
   void onExit() override;
   void loop() override;
