@@ -41,18 +41,6 @@ No 18 pt or 20 pt font size. This is the preferred general-purpose build.
   - 18 pt
   - 20 pt
 
-### `no_emoji`
-
-All standard font sizes from 10 pt through 18 pt are available, but emoji and miscellaneous-symbol support is removed.
-
-- No emoji or miscellaneous-symbol support
-- 5 font sizes:
-  - 10 pt
-  - 12 pt
-  - 14 pt
-  - 16 pt
-  - 18 pt
-
 ## Flashing A Variant
 
 Download the matching `firmware-*.bin` from the [releases page](https://github.com/uxjulia/CrossInk/releases), or build and upload locally with PlatformIO:
@@ -61,4 +49,4 @@ Download the matching `firmware-*.bin` from the [releases page](https://github.c
 pio run -e tiny --target upload
 ```
 
-Replace `tiny` with `teensy`, `xlarge`, or `no_emoji` as needed.
+Replace `tiny` with `teensy` or `xlarge` as needed.

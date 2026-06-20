@@ -10,7 +10,7 @@
 ### Changed
 - The EPUB reader menu now splits the growing menu into 3 screens, labels per-book settings as `Book Options`, and avoids showing duplicate `Orientation` controls.
 - The `Inverted` sleep cover filter now flips Minimal and Reading Stats sleep screens to black text on a white background.
-- OTA update checks now use a stable CrossInk manifest endpoint for S3-hosted release assets, and older `no_emoji` builds now resolve to the `tiny` firmware update.
+- OTA update checks now use a stable CrossInk manifest endpoint for S3-hosted release assets, and retired build variants now resolve to the `tiny` firmware update.
 
 ### Fixed
 - Calibre Wireless transfer status no longer stacks the last received-file message on top of the upload percentage.

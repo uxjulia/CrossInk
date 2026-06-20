@@ -73,7 +73,7 @@ pio run -e simulator
 pio run -e default
 ```
 
-`pio run` without an environment builds the release variants listed in `platformio.ini`: `teensy`, `tiny`, `xlarge`, and `no_emoji`.
+`pio run` without an environment builds the release variants listed in `platformio.ini`: `teensy`, `tiny`, and `xlarge`.
 
 ## Flash
 

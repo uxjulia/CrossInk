@@ -34,7 +34,7 @@ pio run -e default
 CI enforces formatting, static analysis, and the primary firmware build.
 Use clang-format 21+ locally to match CI.
 If `clang-format` is missing or too old locally, see [Getting Started](./getting-started.md).
-Run plain `pio run` before larger PRs to build the release variants (`teensy`, `tiny`, `xlarge`, and `no_emoji`).
+Run plain `pio run` before larger PRs to build the release variants (`teensy`, `tiny`, and `xlarge`).
 
 ## 4) Open the PR
 

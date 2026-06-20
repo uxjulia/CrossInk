@@ -20,7 +20,7 @@ pio run -e simulator
 pio run -e default
 ```
 
-`pio run` without `-e` builds the release matrix from `platformio.ini` (`teensy`, `tiny`, `xlarge`, and `no_emoji`). Use it before opening broad firmware PRs, but prefer explicit environments while iterating.
+`pio run` without `-e` builds the release matrix from `platformio.ini` (`teensy`, `tiny`, and `xlarge`). Use it before opening broad firmware PRs, but prefer explicit environments while iterating.
 
 ## Flash and monitor
 

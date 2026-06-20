@@ -67,7 +67,7 @@ The UI now uses [Inter](https://fonts.google.com/specimen/Inter) as the display 
 
 ### Font Sizes
 
-There are 4 available build variants to choose from due to build size constraints: `teensy`, `tiny`, `xlarge`, and `no_emoji`.
+There are 3 available build variants to choose from due to build size constraints: `teensy`, `tiny`, and `xlarge`.
 
 See [Font Build Variants](./docs/font-build-variants.md) for the full point-size and emoji-support matrix.
 
