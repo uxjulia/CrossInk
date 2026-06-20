@@ -91,7 +91,7 @@ if (parsedSize != fileSize) {
 
 ## `reader_settings.bin`
 
-### Version 3
+### Version 2
 
 Each EPUB cache directory may contain `reader_settings.bin`. Missing files mean
 the book uses global Reader settings and the default auto-page-turn interval.
@@ -103,15 +103,14 @@ Version 1 stored only:
 
 Version 2 stores flags before the full reader-settings snapshot. This lets the
 file preserve an auto-page-turn interval without forcing custom font/layout
-settings for the book.
-
-Version 3 adds a per-book EPUB render mode override. This can be changed from
-book action menus before opening the book, so a problematic EPUB can be moved to
-Balanced or Light rendering without entering the reader first.
+settings for the book. It also stores a per-book EPUB render mode override,
+which can be changed from book action menus before opening the book so a
+problematic EPUB can be moved to Balanced or Light rendering without entering
+the reader first.
 
 ```c++
 struct ReaderSettingsBin {
-    u8 version; // 3
+    u8 version; // 2
     u8 flags;   // bit 0 = custom reader settings, bit 1 = custom auto-page-turn interval, bit 2 = render mode override
     u16 autoPageTurnSeconds;
     u8 renderMode; // 0 = CrossInk Default, 1 = Balanced, 2 = Light
@@ -139,7 +138,7 @@ struct ReaderSettingsBin {
 
 ## `/.crosspoint/clippings/<bookType>_<crc32(path)>.bin`
 
-### Version 2
+### Version 1
 
 Clipping files store the per-book EPUB clipping list used by the reader. A
 saved clipping is also what CrossInk renders as an in-reader highlight; there is
@@ -157,7 +156,7 @@ example:
 
 Binary layout:
 
-- `[0]` version (`2`)
+- `[0]` version (`1`)
 - `[1-2]` clipping count (`uint16_t` LE, maximum `64`)
 - book title (`String`)
 - book author (`String`)
@@ -226,13 +225,13 @@ Binary layout:
 
 ## `section.bin`
 
-### Version 44
+### Version 41
 
 Each file in `sections/*.bin` stores one laid-out spine section. The header is
 also the cache-busting key: if any layout-affecting setting differs from the
 current reader settings, the section is discarded and rebuilt.
 
-Version 44 includes:
+Version 41 includes:
 
 - cache-busting fields for font, line compression, extra paragraph spacing,
   forced paragraph indents, paragraph alignment, viewport size, hyphenation,
@@ -255,7 +254,7 @@ import std.mem;
 import std.string;
 import std.core;
 
-#define EXPECTED_VERSION 42
+#define EXPECTED_VERSION 41
 #define MAX_STRING_LENGTH 65535
 #define FOOTNOTE_NUMBER_LEN 32
 #define FOOTNOTE_HREF_LEN 96

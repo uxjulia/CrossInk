@@ -402,8 +402,8 @@ static void processSmoothSourceRow(BmpConvertCtx* ctx, const uint8_t* srcRow, co
   }
 
   while (ctx->smoothNextOutY < ctx->outHeight) {
-    const uint64_t srcY_fp = static_cast<uint64_t>(ctx->srcYOffset_fp) +
-                             static_cast<uint64_t>(ctx->smoothNextOutY) * ctx->scaleY_fp;
+    const uint64_t srcY_fp =
+        static_cast<uint64_t>(ctx->srcYOffset_fp) + static_cast<uint64_t>(ctx->smoothNextOutY) * ctx->scaleY_fp;
     const int y0 = std::min(ctx->srcHeight - 1, static_cast<int>(srcY_fp >> 16));
     const int y1 = (y0 + 1 < ctx->srcHeight) ? (y0 + 1) : y0;
     if (y1 > srcY) break;

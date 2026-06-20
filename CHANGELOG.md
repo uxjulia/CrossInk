@@ -1,19 +1,16 @@
 # Changelog
 
-## [1.3.4-RC] - 2026-06-17
+## [v1.3.4] - 2026-06-20
 
 ### Added
 - File Browser now indexes large SD-card folders so directories with many books can be browsed without loading every filename into memory at once.
 - EPUB text clipping with saved highlights, clipping lists, and Kindle-style `/My Clippings.txt` export.
-- Per-book EPUB reader settings for font, layout, styling, and reading aids when changed from inside the reader.
-- Per-book EPUB render modes for switching difficult books between `CrossInk Default`, `Balanced`, and `Light` from the reader, File Browser, or Recent Books menus.
+- Per-book EPUB options for font, layout, styling, reading aids, and render modes, including `CrossInk Default`, `Balanced`, and `Light` modes for difficult books.
 
 ### Changed
-- The EPUB reader menu has been updated to split out the growing menu of items into 3 separate screens for faster navigation.
-- The Epub reader menu now labels per-book reader settings as `Book Options` and avoids showing duplicate `Orientation` controls.
+- The EPUB reader menu now splits the growing menu into 3 screens, labels per-book settings as `Book Options`, and avoids showing duplicate `Orientation` controls.
 - The `Inverted` sleep cover filter now flips Minimal and Reading Stats sleep screens to black text on a white background.
-- OTA update checks now use a stable CrossInk manifest endpoint that can point firmware downloads at S3-hosted release assets.
-- OTA checks from older `no_emoji` builds now resolve to the `tiny` firmware update.
+- OTA update checks now use a stable CrossInk manifest endpoint for S3-hosted release assets, and older `no_emoji` builds now resolve to the `tiny` firmware update.
 
 ### Fixed
 - Calibre Wireless transfer status no longer stacks the last received-file message on top of the upload percentage.

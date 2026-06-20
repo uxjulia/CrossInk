@@ -61,8 +61,7 @@ constexpr uint16_t MIN_AUTO_PAGE_TURN_INTERVAL_S = 5;
 constexpr uint16_t MAX_AUTO_PAGE_TURN_INTERVAL_S = 120;
 constexpr int MAX_PAGE_LOAD_RETRIES = 3;
 constexpr uint8_t LEGACY_READER_SETTINGS_FILE_VERSION = 1;
-constexpr uint8_t READER_SETTINGS_FILE_VERSION_V2 = 2;
-constexpr uint8_t READER_SETTINGS_FILE_VERSION = 3;
+constexpr uint8_t READER_SETTINGS_FILE_VERSION = 2;
 constexpr uint8_t READER_SETTINGS_FLAG_CUSTOM = 1 << 0;
 constexpr uint8_t READER_SETTINGS_FLAG_AUTO_PAGE_TURN = 1 << 1;
 constexpr uint8_t READER_SETTINGS_FLAG_RENDER_MODE = 1 << 2;
@@ -809,8 +808,7 @@ struct BookReaderSettingsData {
   EpubReaderActivity::ReaderSettingsSnapshot readerSettings;
 };
 
-bool readReaderSettingsSnapshot(FsFile& file, EpubReaderActivity::ReaderSettingsSnapshot& out,
-                                const uint8_t fileVersion) {
+bool readReaderSettingsSnapshot(FsFile& file, EpubReaderActivity::ReaderSettingsSnapshot& out) {
   if (!(readU8(file, out.fontFamily) && readU8(file, out.fontSize) && readU8(file, out.lineHeightPercent) &&
         readU8(file, out.orientation) && readU8(file, out.screenMargin) && readU8(file, out.publisherPageNumbers) &&
         readU8(file, out.paragraphAlignment) && readU8(file, out.embeddedStyle) &&
@@ -820,14 +818,10 @@ bool readReaderSettingsSnapshot(FsFile& file, EpubReaderActivity::ReaderSettings
         readU8(file, out.bionicReadingEnabled) && readU8(file, out.guideReadingEnabled))) {
     return false;
   }
-  if (fileVersion >= READER_SETTINGS_FILE_VERSION) {
-    if (!readU8(file, out.epubRenderMode)) {
-      return false;
-    }
-    out.epubRenderMode = normalizeRenderModeRaw(out.epubRenderMode);
-  } else {
-    out.epubRenderMode = static_cast<uint8_t>(EpubRenderMode::CrossInkDefault);
+  if (!readU8(file, out.epubRenderMode)) {
+    return false;
   }
+  out.epubRenderMode = normalizeRenderModeRaw(out.epubRenderMode);
   return readExact(file, out.sdFontFamilyName, sizeof(out.sdFontFamilyName));
 }
 
@@ -869,7 +863,7 @@ BookReaderSettingsData loadBookReaderSettingsFile(const std::string& cachePath) 
     return data;
   }
 
-  if (version != READER_SETTINGS_FILE_VERSION && version != READER_SETTINGS_FILE_VERSION_V2) {
+  if (version != READER_SETTINGS_FILE_VERSION) {
     file.close();
     LOG_DBG("ERS", "Reader settings version mismatch, using defaults");
     return data;
@@ -880,11 +874,11 @@ BookReaderSettingsData loadBookReaderSettingsFile(const std::string& cachePath) 
   uint8_t renderMode = static_cast<uint8_t>(EpubRenderMode::CrossInkDefault);
   EpubReaderActivity::ReaderSettingsSnapshot snapshot;
   bool ok = readU8(file, flags) && readU16(file, seconds);
-  if (ok && version >= READER_SETTINGS_FILE_VERSION) {
+  if (ok) {
     ok = readU8(file, renderMode);
   }
   if (ok) {
-    ok = readReaderSettingsSnapshot(file, snapshot, version);
+    ok = readReaderSettingsSnapshot(file, snapshot);
   }
   file.close();
   if (!ok) {
@@ -900,7 +894,7 @@ BookReaderSettingsData loadBookReaderSettingsFile(const std::string& cachePath) 
     data.hasCustomReaderSettings = true;
     data.readerSettings = snapshot;
   }
-  if (version >= READER_SETTINGS_FILE_VERSION && (flags & READER_SETTINGS_FLAG_RENDER_MODE)) {
+  if (flags & READER_SETTINGS_FLAG_RENDER_MODE) {
     data.hasRenderModeOverride = true;
     data.renderMode = normalizeRenderModeRaw(renderMode);
   }
@@ -4194,7 +4188,6 @@ bool EpubReaderActivity::drawCurrentPageToBuffer(const std::string& filePath, Gf
   const int readerFontId = SETTINGS.getReaderFontId();
   int renderFontId = readerFontId;
   const EpubRenderMode selectedRenderMode = normalizeRenderMode(SETTINGS.epubRenderMode);
-  EpubRenderMode usedRenderMode = selectedRenderMode;
   auto section =
       makeUniqueNoThrow<Section>(epub, spineIndex, renderer, sectionCacheSuffixForRenderMode(selectedRenderMode));
   if (!section) {
@@ -4215,6 +4208,7 @@ bool EpubReaderActivity::drawCurrentPageToBuffer(const std::string& filePath, Gf
             ESP.getFreeHeap(), ESP.getMaxAllocHeap());
     bool layoutAbortedForLowMemory = false;
     bool buildSucceeded = false;
+    EpubRenderMode usedRenderMode = selectedRenderMode;
     uint8_t fallbackCount = 0;
     const auto fallbackModes = fallbackModesForSelection(selectedRenderMode, fallbackCount);
     for (uint8_t i = 0; i < fallbackCount && !buildSucceeded; ++i) {

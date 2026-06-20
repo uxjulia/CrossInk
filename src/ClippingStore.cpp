@@ -11,7 +11,7 @@
 #include <functional>
 
 namespace {
-constexpr uint8_t VERSION = 2;
+constexpr uint8_t VERSION = 1;
 constexpr size_t INITIAL_CLIPPING_RESERVE = 4;
 constexpr char CLIPPINGS_DIR[] = "/.crosspoint/clippings";
 
