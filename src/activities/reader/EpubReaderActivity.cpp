@@ -2912,7 +2912,6 @@ void EpubReaderActivity::executeReaderQuickAction(CrossPointSettings::LONG_PRESS
 
 bool EpubReaderActivity::quickActionUsesConfirmRelease(const CrossPointSettings::LONG_PRESS_MENU_ACTION action) const {
   switch (action) {
-    case CrossPointSettings::LONG_MENU_SYNC_PROGRESS:
     case CrossPointSettings::LONG_MENU_READING_STATS:
     case CrossPointSettings::LONG_MENU_CYCLE_PAGE_TURN:
     case CrossPointSettings::LONG_MENU_CREATE_CLIPPING:
