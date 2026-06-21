@@ -2901,6 +2901,9 @@ void EpubReaderActivity::executeReaderQuickAction(CrossPointSettings::LONG_PRESS
     case CrossPointSettings::LONG_MENU_FILE_BROWSER:
       activityManager.goToFileBrowser(epub ? epub->getPath() : "");
       break;
+    case CrossPointSettings::LONG_MENU_CREATE_CLIPPING:
+      startClipSelection();
+      break;
     case CrossPointSettings::LONG_MENU_OFF:
     default:
       break;
@@ -2912,6 +2915,7 @@ bool EpubReaderActivity::quickActionUsesConfirmRelease(const CrossPointSettings:
     case CrossPointSettings::LONG_MENU_SYNC_PROGRESS:
     case CrossPointSettings::LONG_MENU_READING_STATS:
     case CrossPointSettings::LONG_MENU_CYCLE_PAGE_TURN:
+    case CrossPointSettings::LONG_MENU_CREATE_CLIPPING:
       return true;
     case CrossPointSettings::LONG_MENU_FOOTNOTES:
       return currentPageFootnotes.size() > 1;
@@ -3026,6 +3030,10 @@ bool EpubReaderActivity::executeShortPowerButtonAction() {
     case CrossPointSettings::SHORT_PWRBTN::FILE_BROWSER:
       executeReaderQuickAction(CrossPointSettings::LONG_MENU_FILE_BROWSER);
       return true;
+    case CrossPointSettings::SHORT_PWRBTN::CREATE_CLIPPING:
+      mappedInput.suppressNextPowerConfirmRelease();
+      executeReaderQuickAction(CrossPointSettings::LONG_MENU_CREATE_CLIPPING);
+      return true;
     default:
       return false;
   }
@@ -3114,6 +3122,10 @@ bool EpubReaderActivity::executeLongPowerButtonAction() {
       return true;
     case CrossPointSettings::SHORT_PWRBTN::FILE_BROWSER:
       executeReaderQuickAction(CrossPointSettings::LONG_MENU_FILE_BROWSER);
+      return true;
+    case CrossPointSettings::SHORT_PWRBTN::CREATE_CLIPPING:
+      mappedInput.suppressNextPowerConfirmRelease();
+      executeReaderQuickAction(CrossPointSettings::LONG_MENU_CREATE_CLIPPING);
       return true;
     default:
       return false;

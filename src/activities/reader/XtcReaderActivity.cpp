@@ -139,6 +139,8 @@ void XtcReaderActivity::loop() {
       case CrossPointSettings::SHORT_PWRBTN::FILE_BROWSER:
         activityManager.goToFileBrowser(xtc ? xtc->getPath() : "");
         return true;
+      case CrossPointSettings::SHORT_PWRBTN::CREATE_CLIPPING:
+        return false;
       default:
         return false;
     }
@@ -285,6 +287,8 @@ bool XtcReaderActivity::executeLongPressBackAction() {
     case CrossPointSettings::LONG_PRESS_MENU_ACTION::LONG_MENU_FILE_BROWSER:
       activityManager.goToFileBrowser(xtc ? xtc->getPath() : "");
       return true;
+    case CrossPointSettings::LONG_PRESS_MENU_ACTION::LONG_MENU_CREATE_CLIPPING:
+      return false;
     default:
       return false;
   }
