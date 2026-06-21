@@ -101,6 +101,18 @@ void KOReaderSyncActivity::saveProgressAndReturn(const CrossPointPosition& posit
 
 void KOReaderSyncActivity::returnToReader() { activityManager.goToReader(epubPath); }
 
+bool KOReaderSyncActivity::consumeInitialConfirmRelease() {
+  if (!lockInitialConfirmRelease) {
+    return false;
+  }
+
+  if (mappedInput.wasReleased(MappedInputManager::Button::Confirm) ||
+      !mappedInput.isPressed(MappedInputManager::Button::Confirm)) {
+    lockInitialConfirmRelease = false;
+  }
+  return true;
+}
+
 void KOReaderSyncActivity::onWifiSelectionComplete(const bool success) {
   if (!success) {
     LOG_DBG("KOSync", "WiFi connection failed, exiting");
@@ -322,6 +334,7 @@ void KOReaderSyncActivity::performUpload() {
 void KOReaderSyncActivity::onEnter() {
   Activity::onEnter();
   ReaderUtils::applyOrientation(renderer, SETTINGS.orientation);
+  lockInitialConfirmRelease = mappedInput.isPressed(MappedInputManager::Button::Confirm);
 
   // Check for credentials first
   if (!KOREADER_STORE.hasCredentials()) {
@@ -487,6 +500,10 @@ void KOReaderSyncActivity::render(RenderLock&&) {
 }
 
 void KOReaderSyncActivity::loop() {
+  if (consumeInitialConfirmRelease()) {
+    return;
+  }
+
   if (state == NO_CREDENTIALS || state == SYNC_FAILED || state == UPLOAD_COMPLETE) {
     if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
       returnToReader();

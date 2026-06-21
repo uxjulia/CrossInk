@@ -28,10 +28,13 @@
 - EPUB layout now honors publisher page-break CSS, avoids stretching justified spaces before closing punctuation, and keeps large CSS rule sets in a smaller disk-backed lookup cache.
 - EPUB first-open conversion now uses more compact OPF manifest lookups and streams cover-wrapper parsing to avoid large temporary heap buffers on books with huge manifests.
 - EPUB chapters that run out of memory during full CrossInk layout now retry with `Balanced` and then `Light` rendering before showing a low-memory error, and save the first successful fallback for that book.
+- EPUB low-memory layout errors now suggest turning off Bionic Reading or Guide Dots when either reading aid is adding memory pressure.
+- EPUB next-chapter pre-indexing now uses the same render-mode fallbacks as visible chapter loading when layout runs low on memory.
 - EPUB reader font-size changes now restore the current chapter position by content instead of jumping far backward after re-indexing.
 - Reading Stats now use the reader's last live book time-left estimate instead of showing a separate fallback estimate.
 - Per-book reading stats now migrate compatible legacy `stats.bin` files into the `stats_v5.bin` flow instead of resetting when only the old filename exists.
 - Lyra Carousel Home menu rendering now avoids extra label allocations that could crash tiny builds under low memory.
+- EPUB image-heavy chapters no longer risk a reboot while saving their reading cache under low memory.
 - TXT readers now stay open when pressing a page-turn button at the end of the file.
 - Long-press reader shortcuts that open another screen no longer close or confirm it again when releasing the shortcut button.
 - RoundedRaff's header battery icon and percentage now sit lower to avoid clipping at the top edge.
