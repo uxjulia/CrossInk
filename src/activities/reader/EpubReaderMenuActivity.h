@@ -51,7 +51,7 @@ class EpubReaderMenuActivity final : public Activity {
       ReaderOptionsActivity::SaveGlobalSettingsCallback saveGlobalSettingsCallback = nullptr,
       void* saveGlobalSettingsContext = nullptr,
       ReaderOptionsActivity::GlobalSettingsEditCallback beginGlobalSettingsEditCallback = nullptr,
-      void* beginGlobalSettingsEditContext = nullptr,
+      void* beginGlobalSettingsEditContext = nullptr, bool stablePageNumbersAvailable = false,
       ReaderOptionsActivity::GlobalSettingsEditCallback endGlobalSettingsEditCallback = nullptr,
       void* endGlobalSettingsEditContext = nullptr);
 
@@ -106,6 +106,7 @@ class EpubReaderMenuActivity final : public Activity {
   void* saveGlobalSettingsContext = nullptr;
   ReaderOptionsActivity::GlobalSettingsEditCallback beginGlobalSettingsEditCallback = nullptr;
   void* beginGlobalSettingsEditContext = nullptr;
+  bool stablePageNumbersAvailable = false;
   ReaderOptionsActivity::GlobalSettingsEditCallback endGlobalSettingsEditCallback = nullptr;
   void* endGlobalSettingsEditContext = nullptr;
   bool settingsChanged = false;

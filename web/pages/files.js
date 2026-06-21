@@ -1775,6 +1775,9 @@ function exportLogToFile(filename = null, isBatch = false) {
 
 /** Defensive CSS injected into every XHTML <head> — prevents e-ink overflow. */
 const DEFENSIVE_STYLE = '<style type="text/css">img,svg{max-width:100%;height:auto}body{overflow-wrap:break-word}table{max-width:100%;table-layout:fixed}pre,code{white-space:pre-wrap;word-wrap:break-word}*{box-sizing:border-box}</style>';
+const CROSSINK_LOCATION_MANIFEST_PATH = 'META-INF/x-locations.json';
+const CROSSINK_LOCATION_WORDS_PER_UNIT = 64;
+const CROSSINK_REFERENCE_WORDS_PER_PAGE = 250;
 
 /** Escape a string for safe insertion into XML attribute values / text content. */
 function xmlEscape(str) {
@@ -1950,6 +1953,149 @@ function protectWhitespaceOnlyTextNodes(content) {
         return Number.isInteger(index) && index >= 0 && index < preserved.length ? preserved[index] : match;
       });
     }
+  };
+}
+
+function getElementsByLocalName(root, localName) {
+  const seen = new Set();
+  const elements = [];
+  for (const element of [...root.getElementsByTagNameNS('*', localName), ...root.getElementsByTagName(localName)]) {
+    if (seen.has(element)) continue;
+    seen.add(element);
+    elements.push(element);
+  }
+  return elements;
+}
+
+function parseOpfSpineHrefs(opfContent, opfPath) {
+  const opfDir = opfPath.includes('/') ? opfPath.substring(0, opfPath.lastIndexOf('/')) : '';
+  const opfBasePath = opfDir ? `${opfDir}/content.opf` : 'content.opf';
+
+  try {
+    const doc = new DOMParser().parseFromString(opfContent, 'application/xml');
+    if (!doc.querySelector('parsererror')) {
+      const manifest = {};
+      for (const item of getElementsByLocalName(doc, 'item')) {
+        const id = item.getAttribute('id');
+        const href = item.getAttribute('href');
+        if (id && href) {
+          manifest[id] = resolvePath(opfBasePath, decodeHref(href.split('#')[0]));
+        }
+      }
+
+      const spineHrefs = [];
+      for (const itemref of getElementsByLocalName(doc, 'itemref')) {
+        const idref = itemref.getAttribute('idref');
+        if (idref && manifest[idref]) spineHrefs.push(manifest[idref]);
+      }
+      if (spineHrefs.length > 0) return spineHrefs;
+    }
+  } catch (e) { /* fall through to regex parser */ }
+
+  const manifest = {};
+  const itemRegex = /<item\b[^>]*>/gi;
+  let match;
+  while ((match = itemRegex.exec(opfContent)) !== null) {
+    const tag = match[0];
+    const idMatch = tag.match(/\bid=["']([^"']+)["']/i);
+    const hrefMatch = tag.match(/\bhref=["']([^"']+)["']/i);
+    if (idMatch && hrefMatch) {
+      manifest[idMatch[1]] = resolvePath(opfBasePath, decodeHref(hrefMatch[1].split('#')[0]));
+    }
+  }
+
+  const spineHrefs = [];
+  const itemrefRegex = /<itemref\b[^>]*idref=["']([^"']+)["'][^>]*>/gi;
+  while ((match = itemrefRegex.exec(opfContent)) !== null) {
+    if (manifest[match[1]]) spineHrefs.push(manifest[match[1]]);
+  }
+  return spineHrefs;
+}
+
+function extractLocationText(xhtmlContent) {
+  try {
+    const doc = new DOMParser().parseFromString(xhtmlContent, 'application/xhtml+xml');
+    if (!doc.querySelector('parsererror')) {
+      doc.querySelectorAll('script,style,svg,metadata').forEach(el => el.remove());
+      return (doc.body || doc.documentElement).textContent || '';
+    }
+  } catch (e) { /* fall through to HTML parser */ }
+
+  try {
+    const doc = new DOMParser().parseFromString(xhtmlContent, 'text/html');
+    doc.querySelectorAll('script,style,svg,metadata').forEach(el => el.remove());
+    return (doc.body || doc.documentElement).textContent || '';
+  } catch (e) {
+    return xhtmlContent.replace(/<script[\s\S]*?<\/script>/gi, ' ')
+                       .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+                       .replace(/<svg[\s\S]*?<\/svg>/gi, ' ')
+                       .replace(/<[^>]+>/g, ' ');
+  }
+}
+
+function countLocationWords(text) {
+  const normalized = text.replace(/\s+/g, ' ').trim();
+  if (!normalized) return 0;
+  try {
+    return (normalized.match(/[\p{L}\p{N}]+(?:['’-][\p{L}\p{N}]+)*/gu) || []).length;
+  } catch (e) {
+    return (normalized.match(/[A-Za-z0-9]+(?:['-][A-Za-z0-9]+)*/g) || []).length;
+  }
+}
+
+function resolveXhtmlContentForLocation(path, xhtmlFiles) {
+  if (xhtmlFiles[path]) return xhtmlFiles[path];
+  const decoded = decodeHref(path);
+  if (xhtmlFiles[decoded]) return xhtmlFiles[decoded];
+  const filename = decoded.split('/').pop();
+  const match = Object.entries(xhtmlFiles).find(([candidate]) => candidate === decoded || candidate.endsWith('/' + filename));
+  return match ? match[1] : null;
+}
+
+function buildCrossInkLocationManifest(opfContent, opfPath, xhtmlFiles) {
+  const spineHrefs = parseOpfSpineHrefs(opfContent, opfPath);
+  if (spineHrefs.length === 0) return null;
+
+  const spine = [];
+  let totalWords = 0;
+  let nextLocation = 1;
+
+  for (let index = 0; index < spineHrefs.length; index++) {
+    const href = spineHrefs[index];
+    const content = resolveXhtmlContentForLocation(href, xhtmlFiles);
+    const wordCount = content ? countLocationWords(extractLocationText(content)) : 0;
+    const locationCount = Math.ceil(wordCount / CROSSINK_LOCATION_WORDS_PER_UNIT);
+    const startLocation = locationCount > 0 ? nextLocation : 0;
+    const endLocation = locationCount > 0 ? nextLocation + locationCount - 1 : 0;
+    const startReferencePage = wordCount > 0 ? Math.floor(totalWords / CROSSINK_REFERENCE_WORDS_PER_PAGE) + 1 : 0;
+    const endReferencePage = wordCount > 0 ? Math.ceil((totalWords + wordCount) / CROSSINK_REFERENCE_WORDS_PER_PAGE) : 0;
+
+    spine.push({
+      index,
+      href,
+      wordStart: totalWords,
+      wordCount,
+      startLocation,
+      endLocation,
+      startReferencePage,
+      endReferencePage
+    });
+
+    totalWords += wordCount;
+    nextLocation += locationCount;
+  }
+
+  return {
+    format: 'crossink-locations',
+    version: 1,
+    generator: 'crossink-web-uploader',
+    unit: 'word',
+    wordsPerLocation: CROSSINK_LOCATION_WORDS_PER_UNIT,
+    wordsPerReferencePage: CROSSINK_REFERENCE_WORDS_PER_PAGE,
+    totalWords,
+    totalLocations: Math.max(0, nextLocation - 1),
+    totalReferencePages: Math.ceil(totalWords / CROSSINK_REFERENCE_WORDS_PER_PAGE),
+    spine
   };
 }
 
@@ -2703,6 +2849,7 @@ async function convertEpubFile(file, progressCallback) {
   const entries = Object.entries(zip.files);
   const splitImages = {};
   const xhtmlFiles = {};
+  const processedXhtmlFiles = {};
   let opfPath = null, opfContent = null;
   let mainIdentifier = null;
 
@@ -2962,6 +3109,7 @@ async function convertEpubFile(file, progressCallback) {
     }
 
     out.file(xhtmlPath, t, { compression: 'DEFLATE', compressionOptions: { level: 8 }, createFolders: false });
+    processedXhtmlFiles[xhtmlPath] = t;
   }
 
   // Extract main identifier from OPF using DOMParser with regex fallback
@@ -2979,6 +3127,17 @@ async function convertEpubFile(file, progressCallback) {
     t = fixOPF(t, opfContent, opfDir, splitImages);
     if (t !== opfContent) logFix('OPF', 'manifest updated');
     out.file(opfPath, t, { compression: 'DEFLATE', compressionOptions: { level: 8 }, createFolders: false });
+
+    const locationManifest = buildCrossInkLocationManifest(t, opfPath, processedXhtmlFiles);
+    if (locationManifest) {
+      out.file(CROSSINK_LOCATION_MANIFEST_PATH, JSON.stringify(locationManifest), {
+        compression: 'DEFLATE',
+        compressionOptions: { level: 8 },
+        createFolders: false
+      });
+      logFix('CrossInk locations',
+             `${locationManifest.totalLocations} locations, ${locationManifest.totalReferencePages} reference pages`);
+    }
   }
 
   // Copy remaining files
@@ -2986,6 +3145,7 @@ async function convertEpubFile(file, progressCallback) {
     if (operationCancelled) throw new Error('Cancelled by user');
     if (fileObj.dir || path === 'mimetype') continue;
     const low = path.toLowerCase();
+    if (low === CROSSINK_LOCATION_MANIFEST_PATH.toLowerCase()) continue;
     if (low.match(/\.(png|gif|webp|bmp|jpg|jpeg)$/) || low.match(/\.(xhtml|html|htm)$/) || low.endsWith('.opf')) continue;
 
     let data = await fileObj.async('arraybuffer');

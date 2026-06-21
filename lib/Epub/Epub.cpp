@@ -1,5 +1,6 @@
 #include "Epub.h"
 
+#include <ArduinoJson.h>
 #include <FsHelpers.h>
 #include <HalStorage.h>
 #include <JpegToBmpConverter.h>
@@ -8,7 +9,9 @@
 #include <Utf8.h>
 #include <ZipFile.h>
 
+#include <algorithm>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <functional>
 #include <utility>
@@ -20,6 +23,19 @@
 
 namespace {
 constexpr int kDefaultThumbHeight = 180;
+constexpr char kCrossInkLocationsPath[] = "META-INF/x-locations.json";
+constexpr size_t kCrossInkLocationsMaxBytes = 64 * 1024;
+constexpr uint32_t kDefaultReferenceWordsPerPage = 250;
+
+float clampUnit(const float value) {
+  if (value <= 0.0f) {
+    return 0.0f;
+  }
+  if (value >= 1.0f) {
+    return 1.0f;
+  }
+  return value;
+}
 
 int32_t readLe32(const uint8_t* data) {
   return static_cast<int32_t>(static_cast<uint32_t>(data[0]) | (static_cast<uint32_t>(data[1]) << 8) |
@@ -591,6 +607,7 @@ bool Epub::load(const bool buildIfMissing, const bool skipLoadingCss) {
         }
       }
     }
+    loadCrossInkLocations();
     LOG_DBG("EBP", "Loaded ePub: %s", filepath.c_str());
     return true;
   }
@@ -698,6 +715,7 @@ bool Epub::load(const bool buildIfMissing, const bool skipLoadingCss) {
     return false;
   }
 
+  loadCrossInkLocations();
   LOG_DBG("EBP", "Loaded ePub: %s", filepath.c_str());
   return true;
 }
@@ -1040,6 +1058,106 @@ bool Epub::getItemSize(const std::string& itemHref, size_t* size) const {
   return ZipFile(filepath).getInflatedFileSize(path.c_str(), size);
 }
 
+bool Epub::loadCrossInkLocations() {
+  locationSpine.clear();
+  totalLocations = 0;
+  totalWords = 0;
+  wordsPerReferencePage = 0;
+  totalReferencePages = 0;
+  crossinkLocationsLoaded = false;
+
+  if (!bookMetadataCache || !bookMetadataCache->isLoaded()) {
+    return false;
+  }
+
+  const int spineCount = getSpineItemsCount();
+  if (spineCount <= 0) {
+    return false;
+  }
+
+  size_t manifestSize = 0;
+  if (!getItemSize(kCrossInkLocationsPath, &manifestSize)) {
+    return false;
+  }
+  if (manifestSize == 0 || manifestSize > kCrossInkLocationsMaxBytes) {
+    LOG_ERR("EBP", "Ignoring CrossInk locations manifest with unsupported size: %zu bytes", manifestSize);
+    return false;
+  }
+
+  size_t bytesRead = 0;
+  uint8_t* manifestData = readItemContentsToBytes(kCrossInkLocationsPath, &bytesRead, true);
+  if (!manifestData) {
+    LOG_ERR("EBP", "Failed to read CrossInk locations manifest");
+    return false;
+  }
+
+  JsonDocument doc;
+  const DeserializationError err = deserializeJson(doc, reinterpret_cast<const char*>(manifestData), bytesRead);
+  free(manifestData);
+
+  if (err) {
+    LOG_ERR("EBP", "CrossInk locations parse error: %s", err.c_str());
+    return false;
+  }
+
+  const char* format = doc["format"] | "";
+  const int version = doc["version"] | 0;
+  const uint32_t parsedTotalLocations = doc["totalLocations"] | 0;
+  const uint32_t parsedTotalWords = doc["totalWords"] | 0;
+  const uint32_t parsedWordsPerReferencePage = doc["wordsPerReferencePage"] | 0;
+  const uint32_t parsedTotalReferencePages = doc["totalReferencePages"] | 0;
+  JsonArrayConst spine = doc["spine"];
+
+  if (std::strcmp(format, "crossink-locations") != 0 || version != 1 || parsedTotalLocations == 0 || spine.isNull()) {
+    LOG_ERR("EBP", "Ignoring unsupported CrossInk locations manifest");
+    return false;
+  }
+
+  locationSpine.assign(static_cast<size_t>(spineCount), {});
+  bool hasValidEntry = false;
+  size_t ordinal = 0;
+  for (JsonObjectConst spineItem : spine) {
+    const int index = spineItem["index"] | static_cast<int>(ordinal);
+    ordinal++;
+    if (index < 0 || index >= spineCount) {
+      continue;
+    }
+
+    const uint32_t startLocation = spineItem["startLocation"] | 0;
+    const uint32_t endLocation = spineItem["endLocation"] | 0;
+    const uint32_t wordStart = spineItem["wordStart"] | 0;
+    const uint32_t wordCount = spineItem["wordCount"] | 0;
+    if (startLocation == 0 && endLocation == 0) {
+      continue;
+    }
+    if (startLocation == 0 || endLocation < startLocation || endLocation > parsedTotalLocations) {
+      LOG_ERR("EBP", "Ignoring invalid CrossInk location range at spine %d", index);
+      continue;
+    }
+
+    locationSpine[static_cast<size_t>(index)] = {startLocation, endLocation, wordStart, wordCount};
+    hasValidEntry = true;
+  }
+
+  if (!hasValidEntry) {
+    locationSpine.clear();
+    return false;
+  }
+
+  totalLocations = parsedTotalLocations;
+  totalWords = parsedTotalWords;
+  wordsPerReferencePage = parsedWordsPerReferencePage > 0 ? parsedWordsPerReferencePage : kDefaultReferenceWordsPerPage;
+  totalReferencePages = parsedTotalReferencePages;
+  if (totalReferencePages == 0 && totalWords > 0 && wordsPerReferencePage > 0) {
+    totalReferencePages = (totalWords + wordsPerReferencePage - 1) / wordsPerReferencePage;
+  }
+  crossinkLocationsLoaded = true;
+  LOG_INF("EBP", "Loaded CrossInk locations: %lu locations, %lu reference pages across %zu spine items",
+          static_cast<unsigned long>(totalLocations), static_cast<unsigned long>(totalReferencePages),
+          locationSpine.size());
+  return true;
+}
+
 int Epub::getSpineItemsCount() const {
   if (!bookMetadataCache || !bookMetadataCache->isLoaded()) {
     return 0;
@@ -1150,17 +1268,103 @@ int Epub::getSpineIndexForTextReference() const {
   return 0;
 }
 
-// Calculate progress in book (returns 0.0-1.0)
-float Epub::calculateProgress(const int currentSpineIndex, const float currentSpineRead) const {
+float Epub::calculateSizeProgress(const int currentSpineIndex, const float currentSpineRead) const {
   const size_t bookSize = getBookSize();
   if (bookSize == 0) {
     return 0.0f;
   }
   const size_t prevChapterSize = (currentSpineIndex >= 1) ? getCumulativeSpineItemSize(currentSpineIndex - 1) : 0;
   const size_t curChapterSize = getCumulativeSpineItemSize(currentSpineIndex) - prevChapterSize;
-  const float sectionProgSize = currentSpineRead * static_cast<float>(curChapterSize);
+  const float sectionProgSize = clampUnit(currentSpineRead) * static_cast<float>(curChapterSize);
   const float totalProgress = static_cast<float>(prevChapterSize) + sectionProgSize;
   return totalProgress / static_cast<float>(bookSize);
+}
+
+// Calculate progress in book (returns 0.0-1.0)
+float Epub::calculateProgress(const int currentSpineIndex, const float currentSpineRead) const {
+  if (!crossinkLocationsLoaded || totalLocations == 0 || currentSpineIndex < 0 ||
+      currentSpineIndex >= static_cast<int>(locationSpine.size())) {
+    return calculateSizeProgress(currentSpineIndex, currentSpineRead);
+  }
+
+  const LocationSpineEntry& entry = locationSpine[static_cast<size_t>(currentSpineIndex)];
+  if (entry.startLocation == 0 || entry.endLocation < entry.startLocation) {
+    return calculateSizeProgress(currentSpineIndex, currentSpineRead);
+  }
+
+  const uint32_t locationCount = entry.endLocation - entry.startLocation + 1;
+  const float completedBeforeSpine = static_cast<float>(entry.startLocation - 1);
+  const float completedInSpine = clampUnit(currentSpineRead) * static_cast<float>(locationCount);
+  return clampUnit((completedBeforeSpine + completedInSpine) / static_cast<float>(totalLocations));
+}
+
+bool Epub::resolveLocationPercentToSpineProgress(const int percent, int& spineIndex, float& spineProgress) const {
+  if (!crossinkLocationsLoaded || totalLocations == 0 || locationSpine.empty()) {
+    return false;
+  }
+
+  const int clampedPercent = std::max(0, std::min(100, percent));
+  if (clampedPercent <= 0) {
+    spineIndex = 0;
+    spineProgress = 0.0f;
+    return true;
+  }
+
+  if (clampedPercent >= 100) {
+    for (int i = static_cast<int>(locationSpine.size()) - 1; i >= 0; i--) {
+      const LocationSpineEntry& entry = locationSpine[static_cast<size_t>(i)];
+      if (entry.startLocation > 0 && entry.endLocation >= entry.startLocation) {
+        spineIndex = i;
+        spineProgress = 1.0f;
+        return true;
+      }
+    }
+    return false;
+  }
+
+  const float targetCompletedLocations =
+      static_cast<float>(totalLocations) * static_cast<float>(clampedPercent) / 100.0f;
+  for (size_t i = 0; i < locationSpine.size(); i++) {
+    const LocationSpineEntry& entry = locationSpine[i];
+    if (entry.startLocation == 0 || entry.endLocation < entry.startLocation) {
+      continue;
+    }
+
+    const uint32_t locationCount = entry.endLocation - entry.startLocation + 1;
+    const float completedBeforeSpine = static_cast<float>(entry.startLocation - 1);
+    const float completedThroughSpine = static_cast<float>(entry.endLocation);
+    if (targetCompletedLocations > completedThroughSpine) {
+      continue;
+    }
+
+    spineIndex = static_cast<int>(i);
+    spineProgress = clampUnit((targetCompletedLocations - completedBeforeSpine) / static_cast<float>(locationCount));
+    return true;
+  }
+
+  return false;
+}
+
+bool Epub::resolveReferencePage(const int currentSpineIndex, const float currentSpineRead, uint32_t& currentPage,
+                                uint32_t& pageCount) const {
+  currentPage = 0;
+  pageCount = 0;
+  if (!crossinkLocationsLoaded || totalWords == 0 || wordsPerReferencePage == 0 || totalReferencePages == 0 ||
+      currentSpineIndex < 0 || currentSpineIndex >= static_cast<int>(locationSpine.size())) {
+    return false;
+  }
+
+  const LocationSpineEntry& entry = locationSpine[static_cast<size_t>(currentSpineIndex)];
+  if (entry.wordCount == 0 || entry.wordStart >= totalWords) {
+    return false;
+  }
+
+  const float clampedProgress = clampUnit(currentSpineRead);
+  const uint32_t completedWords =
+      entry.wordStart + static_cast<uint32_t>(clampedProgress * static_cast<float>(entry.wordCount));
+  currentPage = std::min<uint32_t>(completedWords / wordsPerReferencePage + 1, totalReferencePages);
+  pageCount = totalReferencePages;
+  return true;
 }
 
 int Epub::resolveHrefToSpineIndex(const std::string& href) const {

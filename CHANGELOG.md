@@ -1,4 +1,13 @@
 # Changelog
+## [Unreleased]
+
+### Added
+- Optimized EPUBs now store location metadata at `META-INF/x-locations.json`.
+- X3 SD-card writes now use the RTC for file timestamps when the clock is available.
+
+### Changed
+
+### Fixed
 
 ## [v1.3.4] - 2026-06-20
 
@@ -29,7 +38,6 @@
 - Web file manager multi-delete now handles larger selections without failing after a small batch.
 - Portuguese EPUBs now use Portuguese hyphenation rules instead of leaving long words unhyphenated when Hyphenation is enabled.
 - Progressive JPEG EPUB covers now render more smoothly in generated cover and thumbnail BMP assets.
-- X3 SD-card writes now use the RTC for file timestamps when the clock is available.
 
 ## [v1.3.3] - 2026-06-13
 

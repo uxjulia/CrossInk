@@ -352,11 +352,12 @@ void ReaderOptionsActivity::toggleCurrentSetting() {
         settingsDirty = false;
       }
       beginGlobalSettingsEdit();
-      startActivityForResult(std::make_unique<StatusBarSettingsActivity>(renderer, mappedInput, true),
-                             [this](const ActivityResult&) {
-                               persistGlobalSettings();
-                               endGlobalSettingsEdit();
-                             });
+      startActivityForResult(
+          std::make_unique<StatusBarSettingsActivity>(renderer, mappedInput, true, stablePageNumbersAvailable),
+          [this](const ActivityResult&) {
+            persistGlobalSettings();
+            endGlobalSettingsEdit();
+          });
       return;
     }
   } else if (setting.type == SettingType::SUBMENU) {
