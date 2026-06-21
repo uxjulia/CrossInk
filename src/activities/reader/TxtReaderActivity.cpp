@@ -312,6 +312,8 @@ bool TxtReaderActivity::executePowerButtonAction() {
       case CrossPointSettings::SHORT_PWRBTN::FILE_BROWSER:
         activityManager.goToFileBrowser(txt ? txt->getPath() : "");
         return true;
+      case CrossPointSettings::SHORT_PWRBTN::CREATE_CLIPPING:
+        return false;
       default:
         return false;
     }
@@ -361,6 +363,8 @@ bool TxtReaderActivity::executeLongPressBackAction() {
     case CrossPointSettings::LONG_PRESS_MENU_ACTION::LONG_MENU_FILE_BROWSER:
       activityManager.goToFileBrowser(txt ? txt->getPath() : "");
       return true;
+    case CrossPointSettings::LONG_PRESS_MENU_ACTION::LONG_MENU_CREATE_CLIPPING:
+      return false;
     default:
       return false;
   }
