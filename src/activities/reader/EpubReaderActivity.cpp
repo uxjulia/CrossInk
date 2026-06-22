@@ -2718,6 +2718,7 @@ void EpubReaderActivity::startClipSelection() {
           word.pageIdx = pageIdx;
           word.text = wordList[i];
           word.style = textStyle;
+          word.endsWithInsertedHyphen = block.wordEndsWithInsertedHyphen(i);
           words.push_back(std::move(word));
         }
       }

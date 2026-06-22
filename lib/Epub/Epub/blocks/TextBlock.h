@@ -27,11 +27,15 @@ class TextBlock final : public Block {
   // Eliminates the guide dot as a separate TextBlock entry, saving ~12 bytes per inter-word gap.
   // Empty when no word in the block has a guide dot.
   std::vector<uint16_t> wordGuideDotXOffset;
-  // 1 when a simple black CSS background should be painted behind this word/token.
+  // Per-word flags. Bit 0 paints a simple black CSS background behind this word/token.
+  // Bit 1 marks a visible hyphen inserted by layout/hyphenation, not the EPUB text.
   std::vector<uint8_t> wordBackgroundBlack;
   BlockStyle blockStyle;
 
  public:
+  static constexpr uint8_t WORD_FLAG_BACKGROUND_BLACK = 0x01;
+  static constexpr uint8_t WORD_FLAG_INSERTED_HYPHEN = 0x02;
+
   explicit TextBlock(std::vector<std::string> words, std::vector<int16_t> word_xpos,
                      std::vector<EpdFontFamily::Style> word_styles, std::vector<uint8_t> bionic_boundary,
                      std::vector<uint16_t> bionic_suffix_x, std::vector<uint16_t> guide_dot_x_offset,
@@ -50,6 +54,9 @@ class TextBlock final : public Block {
   const std::vector<std::string>& getWords() const { return words; }
   const std::vector<int16_t>& getWordXpos() const { return wordXpos; }
   const std::vector<EpdFontFamily::Style>& getWordStyles() const { return wordStyles; }
+  bool wordEndsWithInsertedHyphen(size_t index) const {
+    return index < wordBackgroundBlack.size() && (wordBackgroundBlack[index] & WORD_FLAG_INSERTED_HYPHEN) != 0;
+  }
   bool isEmpty() override { return words.empty(); }
   size_t wordCount() const { return words.size(); }
   // given a renderer works out where to break the words into lines

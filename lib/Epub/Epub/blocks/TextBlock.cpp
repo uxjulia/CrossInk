@@ -112,7 +112,7 @@ void TextBlock::render(const GfxRenderer& renderer, const int fontId, const int 
     const auto baseDir = static_cast<BidiUtils::BidiBaseDir>(
         BidiUtils::detectParagraphLevel(words[i].c_str(), blockStyle.isRtl ? 1 : 0));
 
-    if (wordBackgroundBlack[i] != 0 && isWhitespaceOnlyBackgroundToken(words[i])) {
+    if ((wordBackgroundBlack[i] & WORD_FLAG_BACKGROUND_BLACK) != 0 && isWhitespaceOnlyBackgroundToken(words[i])) {
       const uint16_t backgroundWidth = measureBackgroundWidth(renderer, fontId, words[i], currentStyle);
       if (backgroundWidth > 0) {
         renderer.fillRect(wordX, y, backgroundWidth, renderer.getFontAscenderSize(fontId), true);

@@ -33,6 +33,7 @@
 - Web file manager multi-delete now handles larger selections without failing after a small batch.
 - Portuguese EPUBs now use Portuguese hyphenation rules instead of leaving long words unhyphenated when Hyphenation is enabled.
 - Progressive JPEG EPUB covers now render more smoothly in generated cover and thumbnail BMP assets.
+- EPUB clippings now keep real hyphens while omitting hyphens inserted only by reader hyphenation.
 
 ## [v1.3.3] - 2026-06-13
 

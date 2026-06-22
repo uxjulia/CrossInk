@@ -286,7 +286,7 @@ void ParsedText::addWord(std::string word, const EpdFontFamily::Style fontStyle,
     wordNoSpaceBefore.push_back(noSpaceBefore);
     wordIsBionicSuffix.push_back(isBionicSuffix);
     wordIsGuideDot.push_back(isGuideDot);
-    wordBackgroundBlack.push_back(isGuideDot ? false : backgroundBlack);
+    wordBackgroundBlack.push_back(!isGuideDot && backgroundBlack ? TextBlock::WORD_FLAG_BACKGROUND_BLACK : 0);
   };
 
   bool effectiveAttachToPrevious = attachToPrevious;
@@ -378,7 +378,7 @@ void ParsedText::addWord(std::string word, const EpdFontFamily::Style fontStyle,
       wordNoSpaceBefore.push_back(noSpaceBefore);
       wordIsBionicSuffix.push_back(false);
       wordIsGuideDot.push_back(false);
-      wordBackgroundBlack.push_back(backgroundBlack);
+      wordBackgroundBlack.push_back(backgroundBlack ? TextBlock::WORD_FLAG_BACKGROUND_BLACK : 0);
     } else {
       size_t charCount = 0;
       const unsigned char* countPtr = reinterpret_cast<const unsigned char*>(segment.data());
@@ -402,7 +402,7 @@ void ParsedText::addWord(std::string word, const EpdFontFamily::Style fontStyle,
         wordNoSpaceBefore.push_back(noSpaceBefore);
         wordIsBionicSuffix.push_back(false);
         wordIsGuideDot.push_back(false);
-        wordBackgroundBlack.push_back(backgroundBlack);
+        wordBackgroundBlack.push_back(backgroundBlack ? TextBlock::WORD_FLAG_BACKGROUND_BLACK : 0);
       } else {
         countPtr = reinterpret_cast<const unsigned char*>(segment.data());
         for (size_t i = 0; i < targetBoldChars; ++i) {
@@ -417,7 +417,7 @@ void ParsedText::addWord(std::string word, const EpdFontFamily::Style fontStyle,
         wordNoSpaceBefore.push_back(noSpaceBefore);
         wordIsBionicSuffix.push_back(false);
         wordIsGuideDot.push_back(false);
-        wordBackgroundBlack.push_back(backgroundBlack);
+        wordBackgroundBlack.push_back(backgroundBlack ? TextBlock::WORD_FLAG_BACKGROUND_BLACK : 0);
 
         // Regular suffix - marked so extractLine can merge it back into one TextBlock entry
         words.emplace_back(segment.substr(splitByteOffset));
@@ -426,7 +426,7 @@ void ParsedText::addWord(std::string word, const EpdFontFamily::Style fontStyle,
         wordNoSpaceBefore.push_back(false);
         wordIsBionicSuffix.push_back(true);
         wordIsGuideDot.push_back(false);
-        wordBackgroundBlack.push_back(backgroundBlack);
+        wordBackgroundBlack.push_back(backgroundBlack ? TextBlock::WORD_FLAG_BACKGROUND_BLACK : 0);
       }
     }
   };
@@ -820,6 +820,7 @@ bool ParsedText::hyphenateWordAtIndex(const size_t wordIndex, const int availabl
   words[wordIndex].resize(chosenOffset);
   if (chosenNeedsHyphen) {
     words[wordIndex].push_back('-');
+    wordBackgroundBlack[wordIndex] |= TextBlock::WORD_FLAG_INSERTED_HYPHEN;
   }
 
   // Insert the remainder word (with matching style and continuation flag) directly after the prefix.
@@ -829,6 +830,7 @@ bool ParsedText::hyphenateWordAtIndex(const size_t wordIndex, const int availabl
   // The hyphen remainder is neither a bionic suffix nor a guide dot - it starts fresh on the next line.
   wordIsBionicSuffix.insert(wordIsBionicSuffix.begin() + wordIndex + 1, false);
   wordIsGuideDot.insert(wordIsGuideDot.begin() + wordIndex + 1, false);
+  wordBackgroundBlack[wordIndex + 1] &= TextBlock::WORD_FLAG_BACKGROUND_BLACK;
 
   // Continuation flag handling after splitting a word into prefix + remainder.
   //
@@ -904,6 +906,7 @@ bool ParsedText::splitPathologicalTokenAtIndex(const size_t wordIndex, const int
   wordBackgroundBlack.insert(wordBackgroundBlack.begin() + wordIndex + 1, wordBackgroundBlack[wordIndex]);
   wordIsBionicSuffix.insert(wordIsBionicSuffix.begin() + wordIndex + 1, false);
   wordIsGuideDot.insert(wordIsGuideDot.begin() + wordIndex + 1, false);
+  wordBackgroundBlack[wordIndex + 1] &= TextBlock::WORD_FLAG_BACKGROUND_BLACK;
   wordContinues.insert(wordContinues.begin() + wordIndex + 1, false);
   wordNoSpaceBefore.insert(wordNoSpaceBefore.begin() + wordIndex + 1, false);
 
@@ -1265,6 +1268,7 @@ void ParsedText::extractLine(const size_t breakIndex, const int pageWidth, const
     if (lineBionicSuffix[i] && !outWords.empty()) {
       // Bionic suffix: merge string into the preceding bold-prefix entry.
       outWords.back() += lineWords[i];
+      outBackgroundBlack.back() |= lineBackgroundBlack[i] & TextBlock::WORD_FLAG_INSERTED_HYPHEN;
     } else if (lineGuideDot[i] && !outWords.empty()) {
       // Guide dot: annotate the preceding word entry with the dot's pixel offset.
       // Offset is relative to that word's x so render can place it without extra data.

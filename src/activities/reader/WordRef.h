@@ -13,4 +13,5 @@ struct WordRef {
   std::string text;
   EpdFontFamily::Style style = EpdFontFamily::REGULAR;
   bool paragraphStart = false;
+  bool endsWithInsertedHyphen = false;
 };

@@ -60,8 +60,8 @@ std::string cleanWordText(const std::string& word) {
   return out;
 }
 
-std::string stripTrailingHyphen(std::string word) {
-  while (!word.empty() && word.back() == '-') {
+std::string stripTrailingInsertedHyphen(std::string word, const bool insertedHyphen) {
+  if (insertedHyphen && !word.empty() && word.back() == '-') {
     word.pop_back();
   }
   return word;
@@ -90,7 +90,7 @@ ClippingResult build(const std::vector<WordRef>& words, const int from, const in
   int anchorCount = 0;
 
   for (int i = from; i <= to; ++i) {
-    const auto wordText = cleanWordText(words[i].text);
+    const auto wordText = stripTrailingInsertedHyphen(cleanWordText(words[i].text), words[i].endsWithInsertedHyphen);
     if (wordText.empty()) {
       continue;
     }
@@ -99,11 +99,9 @@ ClippingResult build(const std::vector<WordRef>& words, const int from, const in
     const bool paragraphStart = i > from && (hasEmSpace(words[i].text) || words[i].paragraphStart || yGap);
 
     if (i > from && !text.empty() && !paragraphStart) {
-      const auto prevStripped = cleanWordText(words[i - 1].text);
-      if (!prevStripped.empty() && prevStripped.back() == '-' &&
-          !std::isspace(static_cast<unsigned char>(wordText[0])) &&
+      const auto prevClean = cleanWordText(words[i - 1].text);
+      if (!prevClean.empty() && prevClean.back() == '-' && !std::isspace(static_cast<unsigned char>(wordText[0])) &&
           !std::ispunct(static_cast<unsigned char>(wordText[0]))) {
-        text.pop_back();
         text += wordText;
         continue;
       }
@@ -122,7 +120,7 @@ ClippingResult build(const std::vector<WordRef>& words, const int from, const in
 
     if (anchorCount < ANCHOR_WORDS) {
       if (!startAnchor.empty()) startAnchor += ' ';
-      startAnchor += stripTrailingHyphen(wordText);
+      startAnchor += wordText;
       anchorCount++;
     }
   }
@@ -130,7 +128,7 @@ ClippingResult build(const std::vector<WordRef>& words, const int from, const in
   std::string endAnchor;
   anchorCount = 0;
   for (int i = to; i >= from && anchorCount < ANCHOR_WORDS; --i) {
-    const auto wordText = stripTrailingHyphen(cleanWordText(words[i].text));
+    const auto wordText = stripTrailingInsertedHyphen(cleanWordText(words[i].text), words[i].endsWithInsertedHyphen);
     endAnchor = endAnchor.empty() ? wordText : wordText + ' ' + endAnchor;
     anchorCount++;
   }
@@ -138,13 +136,13 @@ ClippingResult build(const std::vector<WordRef>& words, const int from, const in
   constexpr int CONTEXT_WORDS = 3;
   std::string beforeStart;
   for (int i = from - 1; i >= 0 && (from - i) <= CONTEXT_WORDS; --i) {
-    const auto stripped = stripTrailingHyphen(cleanWordText(words[i].text));
+    const auto stripped = stripTrailingInsertedHyphen(cleanWordText(words[i].text), words[i].endsWithInsertedHyphen);
     if (stripped.find_first_not_of(' ') == std::string::npos) continue;
     beforeStart = beforeStart.empty() ? stripped : stripped + ' ' + beforeStart;
   }
   std::string afterEnd;
   for (int i = to + 1; i < total && (i - to) <= CONTEXT_WORDS; ++i) {
-    const auto stripped = stripTrailingHyphen(cleanWordText(words[i].text));
+    const auto stripped = stripTrailingInsertedHyphen(cleanWordText(words[i].text), words[i].endsWithInsertedHyphen);
     if (stripped.find_first_not_of(' ') == std::string::npos) continue;
     afterEnd = afterEnd.empty() ? stripped : afterEnd + ' ' + stripped;
   }
@@ -156,7 +154,7 @@ ClippingResult build(const std::vector<WordRef>& words, const int from, const in
   if (midStart < from) midStart = from;
   if (midEnd > to) midEnd = to;
   for (int i = midStart; i <= midEnd; ++i) {
-    const auto wordText = stripTrailingHyphen(cleanWordText(words[i].text));
+    const auto wordText = stripTrailingInsertedHyphen(cleanWordText(words[i].text), words[i].endsWithInsertedHyphen);
     if (!midText.empty()) midText += ' ';
     midText += wordText;
   }
