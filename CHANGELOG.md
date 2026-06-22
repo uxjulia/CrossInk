@@ -15,6 +15,7 @@
 
 ### Fixed
 - Calibre Wireless transfer status no longer stacks the last received-file message on top of the upload percentage.
+- EPUB reader menu tab icons now stay centered in landscape and inverted orientations.
 - X3 Tilt Direction now labels left/right choices as `Left-Right` and `Right-Left`, with existing left/right preferences migrated to keep the same physical tilt behavior.
 - EPUB layout now honors publisher page-break CSS, avoids stretching justified spaces before closing punctuation, and keeps large CSS rule sets in a smaller disk-backed lookup cache.
 - EPUB first-open conversion now uses more compact OPF manifest lookups and streams cover-wrapper parsing to avoid large temporary heap buffers on books with huge manifests.
