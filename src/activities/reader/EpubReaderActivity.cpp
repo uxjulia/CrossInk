@@ -1771,6 +1771,13 @@ void EpubReaderActivity::onExit() {
     globalStats.save();
   }
 
+  // Leaving mid-footnote loses the in-RAM return stack on deep sleep; persist the
+  // pre-footnote position so the book reopens at the link origin, not the footnote.
+  if (footnoteDepth > 0 && epub) {
+    const SavedPosition& origin = savedPositions[0];
+    saveProgress(origin.spineIndex, origin.pageNumber, 0);
+  }
+
   BOOKMARKS.unload();
   CLIPPINGS.unload();
   section.reset();
