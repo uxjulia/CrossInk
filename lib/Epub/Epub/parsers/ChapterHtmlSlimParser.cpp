@@ -31,8 +31,12 @@ constexpr uint32_t MIN_FREE_HEAP_FOR_TEXT_LAYOUT = 44 * 1024;
 constexpr uint32_t MIN_MAX_ALLOC_FOR_TEXT_LAYOUT = 32 * 1024;
 constexpr uint32_t MIN_FREE_HEAP_FOR_TABLE_BUFFERING = 64 * 1024;
 constexpr uint32_t MIN_MAX_ALLOC_FOR_TABLE_BUFFERING = 40 * 1024;
-constexpr size_t MAX_BUFFERED_WORDS_BEFORE_LAYOUT = 350;
-constexpr uint16_t MAX_TEXT_RUN_BYTES_BEFORE_LAYOUT = 2048;
+constexpr size_t DEFAULT_BUFFERED_WORDS_BEFORE_LAYOUT = 350;
+constexpr uint16_t DEFAULT_TEXT_RUN_BYTES_BEFORE_LAYOUT = 2048;
+constexpr size_t SINGLE_READING_AID_BUFFERED_WORDS_BEFORE_LAYOUT = 240;
+constexpr uint16_t SINGLE_READING_AID_TEXT_RUN_BYTES_BEFORE_LAYOUT = 1536;
+constexpr size_t COMBINED_READING_AID_BUFFERED_WORDS_BEFORE_LAYOUT = 175;
+constexpr uint16_t COMBINED_READING_AID_TEXT_RUN_BYTES_BEFORE_LAYOUT = 1024;
 constexpr uint8_t INITIAL_PAGE_ELEMENT_RESERVE = 8;
 constexpr uint8_t INITIAL_TABLE_FRAGMENT_ROW_RESERVE = 8;
 constexpr uint32_t PAGE_ELEMENT_RESERVE_MIN_MAX_ALLOC = 1024;
@@ -347,18 +351,42 @@ void ChapterHtmlSlimParser::flushPartWordBuffer() {
   nextWordContinues = false;
 }
 
+size_t ChapterHtmlSlimParser::bufferedWordsBeforeLayoutLimit() const {
+  if (bionicReadingEnabled && guideReadingEnabled) {
+    return COMBINED_READING_AID_BUFFERED_WORDS_BEFORE_LAYOUT;
+  }
+  if (bionicReadingEnabled || guideReadingEnabled) {
+    return SINGLE_READING_AID_BUFFERED_WORDS_BEFORE_LAYOUT;
+  }
+  return DEFAULT_BUFFERED_WORDS_BEFORE_LAYOUT;
+}
+
+uint16_t ChapterHtmlSlimParser::textRunBytesBeforeLayoutLimit() const {
+  if (bionicReadingEnabled && guideReadingEnabled) {
+    return COMBINED_READING_AID_TEXT_RUN_BYTES_BEFORE_LAYOUT;
+  }
+  if (bionicReadingEnabled || guideReadingEnabled) {
+    return SINGLE_READING_AID_TEXT_RUN_BYTES_BEFORE_LAYOUT;
+  }
+  return DEFAULT_TEXT_RUN_BYTES_BEFORE_LAYOUT;
+}
+
 void ChapterHtmlSlimParser::flushLongTextRunIfNeeded() {
   if (!currentTextBlock) {
     currentTextRunBytes = 0;
     return;
   }
 
-  if (currentTextBlock->size() <= MAX_BUFFERED_WORDS_BEFORE_LAYOUT &&
-      currentTextRunBytes <= MAX_TEXT_RUN_BYTES_BEFORE_LAYOUT) {
+  const size_t wordLimit = bufferedWordsBeforeLayoutLimit();
+  const uint16_t byteLimit = textRunBytesBeforeLayoutLimit();
+  const size_t wordCount = currentTextBlock->size();
+  if (wordCount <= wordLimit && currentTextRunBytes <= byteLimit) {
     return;
   }
 
-  LOG_DBG("EHP", "Text block too long, splitting into multiple pages");
+  LOG_DBG("EHP", "Text block too long, splitting into multiple pages (words=%u/%u bytes=%u/%u)",
+          static_cast<unsigned>(wordCount), static_cast<unsigned>(wordLimit),
+          static_cast<unsigned>(currentTextRunBytes), static_cast<unsigned>(byteLimit));
   const int horizontalInset = currentTextBlock->getBlockStyle().totalHorizontalInset();
   const uint16_t effectiveWidth =
       (horizontalInset < viewportWidth) ? static_cast<uint16_t>(viewportWidth - horizontalInset) : viewportWidth;
@@ -1984,7 +2012,8 @@ void XMLCALL ChapterHtmlSlimParser::characterData(void* userData, const XML_Char
   // This keeps memory bounded for chapters with very long XHTML text runs even when
   // the text does not contain enough word boundaries to trip the word-count guard.
   if (self->partWordBufferIndex > 0 &&
-      self->currentTextRunBytes + static_cast<uint16_t>(self->partWordBufferIndex) > MAX_TEXT_RUN_BYTES_BEFORE_LAYOUT) {
+      static_cast<size_t>(self->currentTextRunBytes) + static_cast<size_t>(self->partWordBufferIndex) >
+          self->textRunBytesBeforeLayoutLimit()) {
     self->flushPartWordBuffer();
   }
   self->flushLongTextRunIfNeeded();

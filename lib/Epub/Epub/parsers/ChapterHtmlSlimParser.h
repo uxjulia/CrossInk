@@ -160,6 +160,8 @@ class ChapterHtmlSlimParser {
   void attachPendingPublisherPageMarkers(int yPos);
   void flushPartWordBuffer();
   void flushLongTextRunIfNeeded();
+  size_t bufferedWordsBeforeLayoutLimit() const;
+  uint16_t textRunBytesBeforeLayoutLimit() const;
   void makePages();
   int effectiveLineHeight() const;
   bool usesSimpleCssLookup() const { return renderMode != EpubRenderMode::CrossInkDefault; }
