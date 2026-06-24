@@ -14,8 +14,8 @@
 
 namespace {
 constexpr uint32_t SECTION_CACHE_MAGIC = 0x535843FF;  // bytes: 0xFF, "CXS"
-// v43: preserves the v42 NFC text-composition invalidation and the latest section layout metadata.
-constexpr uint8_t SECTION_FILE_VERSION = 43;
+// v41: busts public v40 caches for updated text/layout metadata in this release.
+constexpr uint8_t SECTION_FILE_VERSION = 41;
 constexpr uint16_t MAX_SECTION_PAGE_LUT_ENTRIES = 1024;
 constexpr uint32_t HEADER_SIZE = sizeof(SECTION_CACHE_MAGIC) + sizeof(uint8_t) + sizeof(int) + sizeof(float) +
                                  sizeof(bool) + sizeof(bool) + sizeof(uint8_t) + sizeof(uint16_t) + sizeof(uint16_t) +

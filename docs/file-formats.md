@@ -7,10 +7,12 @@ fixed-size char buffer.
 
 ## `book.bin`
 
-### Version 7
+### Version 8
 
 `book.bin` stores EPUB metadata plus lookup tables for spine and TOC entries.
 The current firmware writes this version from `BookMetadataCache`.
+Version 8 stores book and TOC title strings NFC-composed so decomposed
+diacritics render correctly with device fonts.
 
 ImHex pattern:
 
@@ -19,7 +21,7 @@ import std.mem;
 import std.string;
 import std.core;
 
-#define EXPECTED_VERSION 7
+#define EXPECTED_VERSION 8
 #define MAX_STRING_LENGTH 65535
 
 struct String {
@@ -227,13 +229,13 @@ Binary layout:
 
 ## `section.bin`
 
-### Version 43
+### Version 41
 
 Each file in `sections/*.bin` stores one laid-out spine section. The header is
 also the cache-busting key: if any layout-affecting setting differs from the
 current reader settings, the section is discarded and rebuilt.
 
-Version 43 includes:
+Version 41 includes:
 
 - cache-busting fields for font, line compression, extra paragraph spacing,
   forced paragraph indents, paragraph alignment, viewport size, hyphenation,
@@ -257,7 +259,7 @@ import std.mem;
 import std.string;
 import std.core;
 
-#define EXPECTED_VERSION 43
+#define EXPECTED_VERSION 41
 #define MAX_STRING_LENGTH 65535
 #define FOOTNOTE_NUMBER_LEN 32
 #define FOOTNOTE_HREF_LEN 96
