@@ -1035,15 +1035,23 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
       headerStyle.italic = true;
       headerStyle.hasUnderline = true;
       headerStyle.underline = false;
-      self->inlineStyleStack.push_back(headerStyle);
+      bool pushedHeaderStyle = false;
+      if (self->inlineStyleCount_ < MAX_INLINE_STYLE_DEPTH) {
+        self->inlineStyleBuf_[self->inlineStyleCount_++] = headerStyle;
+        pushedHeaderStyle = true;
+      } else {
+        LOG_ERR("EHP", "inline style stack overflow (table cell label)");
+      }
       self->updateEffectiveInlineStyle();
       self->characterData(userData, headerText, static_cast<int>(strlen(headerText)));
       if (self->partWordBufferIndex > 0) {
         self->flushPartWordBuffer();
       }
       self->nextWordContinues = false;
-      self->inlineStyleStack.pop_back();
-      self->updateEffectiveInlineStyle();
+      if (pushedHeaderStyle) {
+        self->inlineStyleCount_--;
+        self->updateEffectiveInlineStyle();
+      }
 
       self->depth += 1;
       return;
