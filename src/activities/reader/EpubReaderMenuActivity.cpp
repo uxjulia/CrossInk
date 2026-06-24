@@ -105,6 +105,29 @@ void drawBookmarkTabIcon(const GfxRenderer& renderer, int x, int y, const bool f
   renderer.fillPolygon(polyX, polyY, 5, foregroundBlack);
 }
 
+void drawReaderMenuBitmapIcon(const GfxRenderer& renderer, const uint8_t bitmap[], const int x, const int y,
+                              const int width, const int height, const bool foregroundBlack = true) {
+  if (bitmap == nullptr || width <= 0 || height <= 0) {
+    return;
+  }
+
+  const int stride = (width + 7) / 8;
+  for (int row = 0; row < height; ++row) {
+    const int srcOffset = row * stride;
+    for (int col = 0; col < width; ++col) {
+      const uint8_t mask = static_cast<uint8_t>(0x80 >> (col & 7));
+      if ((bitmap[srcOffset + (col >> 3)] & mask) != 0) {
+        continue;
+      }
+
+      // Icon assets are authored for the legacy portrait blitter. Keep that
+      // source rotation, but route placement through logical coordinates so
+      // landscape and inverted reader menus keep the tabs centered.
+      renderer.drawPixel(x + width - 1 - row, y + col, foregroundBlack);
+    }
+  }
+}
+
 }  // namespace
 
 EpubReaderMenuActivity::EpubReaderMenuActivity(
@@ -230,19 +253,11 @@ void EpubReaderMenuActivity::drawIconTabBar(const Rect rect) const {
     }
 
     if (i == static_cast<size_t>(MenuTab::Main)) {
-      if (tabFocused) {
-        renderer.drawIconInverted(MenuIcon24, iconX, iconY, tabIconSize, tabIconSize);
-      } else {
-        renderer.drawIcon(MenuIcon24, iconX, iconY, tabIconSize, tabIconSize);
-      }
+      drawReaderMenuBitmapIcon(renderer, MenuIcon24, iconX, iconY, tabIconSize, tabIconSize, !tabFocused);
     } else if (i == static_cast<size_t>(MenuTab::Bookmarks)) {
       drawBookmarkTabIcon(renderer, iconX, iconY, !tabFocused);
     } else {
-      if (tabFocused) {
-        renderer.drawIconInverted(Settings2Icon24, iconX, iconY, tabIconSize, tabIconSize);
-      } else {
-        renderer.drawIcon(Settings2Icon24, iconX, iconY, tabIconSize, tabIconSize);
-      }
+      drawReaderMenuBitmapIcon(renderer, Settings2Icon24, iconX, iconY, tabIconSize, tabIconSize, !tabFocused);
     }
   }
 }

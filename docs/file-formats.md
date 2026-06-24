@@ -225,13 +225,13 @@ Binary layout:
 
 ## `section.bin`
 
-### Version 42
+### Version 43
 
 Each file in `sections/*.bin` stores one laid-out spine section. The header is
 also the cache-busting key: if any layout-affecting setting differs from the
 current reader settings, the section is discarded and rebuilt.
 
-Version 42 includes:
+Version 43 includes:
 
 - cache-busting fields for font, line compression, extra paragraph spacing,
   forced paragraph indents, paragraph alignment, viewport size, hyphenation,
@@ -242,6 +242,7 @@ Version 42 includes:
 - paragraph and list-item LUTs used by KOReader sync page refinement
 - optional per-word Bionic Reading split metadata
 - optional per-word Guide Dot x-offset metadata
+- reading-aid layout that stores Bionic Reading and Guide Dots as per-word metadata instead of temporary layout words
 - publisher CSS page-break handling and adjusted justification spacing baked into page layout
 - table fragments
 - per-page footnote entries
@@ -254,7 +255,7 @@ import std.mem;
 import std.string;
 import std.core;
 
-#define EXPECTED_VERSION 42
+#define EXPECTED_VERSION 43
 #define MAX_STRING_LENGTH 65535
 #define FOOTNOTE_NUMBER_LEN 32
 #define FOOTNOTE_HREF_LEN 96

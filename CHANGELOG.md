@@ -34,6 +34,7 @@
 - Reading Stats now use the reader's last live book time-left estimate instead of showing a separate fallback estimate.
 - Per-book reading stats now migrate compatible legacy `stats.bin` files into the `stats_v5.bin` flow instead of resetting when only the old filename exists.
 - Lyra Carousel Home menu rendering now avoids extra label allocations that could crash tiny builds under low memory.
+- Lyra Carousel Home cover refresh no longer risks a reboot when memory is tight after returning to or selecting a recent book.
 - EPUB image-heavy chapters no longer risk a reboot while saving their reading cache under low memory.
 - TXT readers now stay open when pressing a page-turn button at the end of the file.
 - Long-press reader shortcuts that open another screen no longer close or confirm it again when releasing the shortcut button.

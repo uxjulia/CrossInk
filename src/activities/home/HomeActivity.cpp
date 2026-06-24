@@ -568,8 +568,8 @@ void HomeActivity::loadRecentCovers(int coverHeight) {
       static_cast<CrossPointSettings::UI_THEME>(SETTINGS.uiTheme) == CrossPointSettings::UI_THEME::LYRA_CAROUSEL;
   const bool isMinimal = isMinimalTheme();
   const size_t recentBookCount = recentBooks.size();
-  // Tracks which book indices had a thumbnail generated this pass.
-  std::vector<char> bookUpdated(recentBookCount, false);
+  // Home only loads kMaxCachedBooks recents; fixed storage avoids an aborting std::vector allocation on low heap.
+  std::array<char, kMaxCachedBooks> bookUpdated{};
   const int progressIncrement = 90 / static_cast<int>(std::max<size_t>(1, recentBookCount));
 
   int progress = 0;
@@ -618,7 +618,7 @@ void HomeActivity::loadRecentCovers(int coverHeight) {
               updateRecentBookCoverPath(book, "");
               book.coverBmpPath = "";
             } else {
-              bookUpdated[bookIdx] = true;
+              if (bookIdx < bookUpdated.size()) bookUpdated[bookIdx] = true;
             }
             coverRendered = false;
             requestUpdate();
@@ -641,7 +641,7 @@ void HomeActivity::loadRecentCovers(int coverHeight) {
                 updateRecentBookCoverPath(book, "");
                 book.coverBmpPath = "";
               } else {
-                bookUpdated[bookIdx] = true;
+                if (bookIdx < bookUpdated.size()) bookUpdated[bookIdx] = true;
               }
               coverRendered = false;
               requestUpdate();
@@ -678,7 +678,7 @@ void HomeActivity::loadRecentCovers(int coverHeight) {
               updateRecentBookCoverPath(book, "");
               book.coverBmpPath = "";
             } else {
-              bookUpdated[bookIdx] = true;  // non-carousel path reuses same tracking
+              if (bookIdx < bookUpdated.size()) bookUpdated[bookIdx] = true;  // non-carousel path reuses same tracking
             }
             coverRendered = false;
             requestUpdate();
@@ -698,7 +698,7 @@ void HomeActivity::loadRecentCovers(int coverHeight) {
                 updateRecentBookCoverPath(book, "");
                 book.coverBmpPath = "";
               } else {
-                bookUpdated[bookIdx] = true;
+                if (bookIdx < bookUpdated.size()) bookUpdated[bookIdx] = true;
               }
               coverRendered = false;
               requestUpdate();

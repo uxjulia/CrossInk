@@ -15,10 +15,10 @@ class GfxRenderer;
 class ParsedText {
   std::vector<std::string> words;
   std::vector<EpdFontFamily::Style> wordStyles;
-  std::vector<bool> wordContinues;       // true = word attaches to previous (no space before it)
-  std::vector<bool> wordNoSpaceBefore;   // true = may break before token, but no synthetic space when joined
-  std::vector<bool> wordIsBionicSuffix;  // true = token is the regular tail of a bionic bold-prefix split
-  std::vector<bool> wordIsGuideDot;      // true = token is a guide dot (U+00B7) inserted between words
+  std::vector<bool> wordContinues;          // true = word attaches to previous (no space before it)
+  std::vector<bool> wordNoSpaceBefore;      // true = may break before token, but no synthetic space when joined
+  std::vector<uint8_t> wordBionicBoundary;  // UTF-8 byte offset where the regular suffix starts; 0 = no split
+  std::vector<bool> wordGuideDotBefore;     // true = virtual guide dot belongs between previous token and this one
   std::vector<uint8_t> wordBackgroundBlack;
   bool extraParagraphSpacing;
   bool forceParagraphIndents;
@@ -32,8 +32,8 @@ class ParsedText {
   std::vector<uint16_t> reorderedWidthsScratch;
   std::vector<bool> reorderedContinuesScratch;
   std::vector<bool> reorderedNoSpaceBeforeScratch;
-  std::vector<bool> reorderedBionicSuffixScratch;
-  std::vector<bool> reorderedGuideDotScratch;
+  std::vector<uint8_t> reorderedBionicBoundaryScratch;
+  std::vector<bool> reorderedGuideDotBeforeScratch;
   std::vector<uint8_t> reorderedBackgroundBlackScratch;
   std::vector<uint16_t> visualOrderScratch;
 

@@ -317,12 +317,16 @@ bool matchClipRunFromPageWord(const Page& page, const Clipping& clipping, const 
     return false;
   }
 
+  if (stoppedByMismatch) {
+    return false;
+  }
+
   // A relayout can split a saved clipping so this page starts mid-clipping.
-  // Accept complete runs, page-boundary partial runs, or longer mid-page runs.
+  // Accept complete runs or page-boundary partial runs.
   if (!reachedClipEnd && matchedTokens < minPartialMatch) {
     const bool startsAtClipBoundary = startClipToken == 0;
     const bool startsAtPageBoundary = startPageWord == 0;
-    if (stoppedByMismatch || (!startsAtClipBoundary && !startsAtPageBoundary)) {
+    if (!startsAtClipBoundary && !startsAtPageBoundary) {
       return false;
     }
   }
@@ -4056,12 +4060,12 @@ void EpubReaderActivity::drawClippingHighlights(const Page& page, const int font
     if (clipping.spineIndex != static_cast<uint16_t>(currentSpineIndex)) {
       continue;
     }
-    if (!canUseStoredRanges || clipping.pageCount != currentPageCount) {
-      continue;
-    }
-
     ClippingPageMatch match;
-    if (findClippingStoredRangeOnPage(page, clipping, currentPage, currentPageCount, match)) {
+    const bool matchedStoredRange =
+        canUseStoredRanges && findClippingStoredRangeOnPage(page, clipping, currentPage, currentPageCount, match);
+    const bool shouldSearchText = !canUseStoredRanges || clipping.pageCount != currentPageCount ||
+                                  (currentPage >= clipping.startPage && currentPage <= clipping.endPage);
+    if (matchedStoredRange || (shouldSearchText && findClippingTextOnPage(page, clipping, match))) {
       matches[matchCount++] = match;
       if (matchCount >= matches.size()) {
         break;
