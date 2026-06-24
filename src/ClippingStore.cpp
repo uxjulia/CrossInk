@@ -123,15 +123,24 @@ ClippingStore::AddResult ClippingStore::addClipping(const uint16_t spineIndex, c
 
   clippings.push_back(std::move(clipping));
   dirty = true;
-  saveToFile();
+  if (!saveToFile()) {
+    clippings.pop_back();
+    dirty = true;
+    return AddResult::SaveFailed;
+  }
   return AddResult::Added;
 }
 
 bool ClippingStore::removeClippingAt(const size_t index) {
   if (index >= clippings.size()) return false;
+  Clipping clipping = std::move(clippings[index]);
   clippings.erase(clippings.begin() + index);
   dirty = true;
-  saveToFile();
+  if (!saveToFile()) {
+    clippings.insert(clippings.begin() + index, std::move(clipping));
+    dirty = true;
+    return false;
+  }
   return true;
 }
 
@@ -141,11 +150,13 @@ bool ClippingStore::hasClippingForPage(const uint16_t spineIndex, const uint16_t
   });
 }
 
-void ClippingStore::saveToFile() {
-  if (!dirty) return;
+bool ClippingStore::saveToFile() {
+  if (!dirty) return true;
   if (writeToFile()) {
     dirty = false;
+    return true;
   }
+  return false;
 }
 
 void ClippingStore::clearAll() {
@@ -229,28 +240,35 @@ bool ClippingStore::writeToFile() const {
   }
 
   const uint16_t count = static_cast<uint16_t>(std::min<size_t>(clippings.size(), CLIPPING_MAX_PER_BOOK));
-  serialization::writePod(f, VERSION);
-  serialization::writePod(f, count);
-  serialization::writeString(f, bookTitle);
-  serialization::writeString(f, bookAuthor);
-  serialization::writeString(f, bookFilePath);
+  if (!serialization::tryWritePod(f, VERSION) || !serialization::tryWritePod(f, count) ||
+      !serialization::tryWriteString(f, bookTitle) || !serialization::tryWriteString(f, bookAuthor) ||
+      !serialization::tryWriteString(f, bookFilePath)) {
+    LOG_ERR("CLIP", "Failed to write clipping header: %s", storeFilePath.c_str());
+    f.close();
+    return false;
+  }
 
   for (uint16_t i = 0; i < count; ++i) {
     const Clipping& clipping = clippings[i];
-    serialization::writePod(f, clipping.spineIndex);
-    serialization::writePod(f, clipping.startPage);
-    serialization::writePod(f, clipping.endPage);
-    serialization::writePod(f, clipping.pageCount);
-    serialization::writePod(f, clipping.startWordIndex);
-    serialization::writePod(f, clipping.endWordIndex);
-    serialization::writePod(f, clipping.wordCount);
-    serialization::writePod(f, clipping.paragraphIndex);
-    serialization::writePod(f, clipping.timestamp);
-    f.write(reinterpret_cast<const uint8_t*>(clipping.chapterTitle), sizeof(clipping.chapterTitle));
-    serialization::writeString(f, clipping.text);
+    if (!serialization::tryWritePod(f, clipping.spineIndex) || !serialization::tryWritePod(f, clipping.startPage) ||
+        !serialization::tryWritePod(f, clipping.endPage) || !serialization::tryWritePod(f, clipping.pageCount) ||
+        !serialization::tryWritePod(f, clipping.startWordIndex) ||
+        !serialization::tryWritePod(f, clipping.endWordIndex) || !serialization::tryWritePod(f, clipping.wordCount) ||
+        !serialization::tryWritePod(f, clipping.paragraphIndex) || !serialization::tryWritePod(f, clipping.timestamp) ||
+        f.write(reinterpret_cast<const uint8_t*>(clipping.chapterTitle), sizeof(clipping.chapterTitle)) !=
+            sizeof(clipping.chapterTitle) ||
+        !serialization::tryWriteString(f, clipping.text)) {
+      LOG_ERR("CLIP", "Failed to write clipping record %u: %s", i, storeFilePath.c_str());
+      f.close();
+      return false;
+    }
   }
 
-  f.flush();
+  if (!f.sync()) {
+    LOG_ERR("CLIP", "Failed to sync clipping file: %s", storeFilePath.c_str());
+    f.close();
+    return false;
+  }
   f.close();
   return true;
 }
