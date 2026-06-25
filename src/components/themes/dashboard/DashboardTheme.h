@@ -28,4 +28,7 @@ class DashboardTheme : public MinimalTheme {
                            const std::function<bool()>& storeCoverBuffer, const BookReadingStats* stats = nullptr,
                            float progressPercent = -1.0f, const GlobalReadingStats* globalStats = nullptr,
                            const char* currentChapterTitle = nullptr) const override;
+  void drawSleepScreen(const GfxRenderer& renderer, const RecentBook& book, const BookReadingStats* stats,
+                       const GlobalReadingStats* globalStats, float progressPercent = -1.0f,
+                       const char* currentChapterTitle = nullptr) const;
 };
