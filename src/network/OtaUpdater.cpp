@@ -10,6 +10,7 @@ OtaUpdater::OtaUpdaterError OtaUpdater::installUpdate(ProgressCallback, void*, s
 #include <Logging.h>
 #include <Memory.h>
 #include <ReleaseJsonParser.h>
+#include <strings.h>
 
 #include <cstring>
 
@@ -41,6 +42,7 @@ constexpr size_t OTA_PROGRESS_UPDATE_BYTES = 64 * 1024;
 constexpr int OTA_HTTP_READ_TIMEOUT_MS = 5000;
 constexpr uint32_t OTA_DOWNLOAD_IDLE_TIMEOUT_MS = 30000;
 constexpr size_t OTA_READ_BUFFER_SIZE = 1024;
+constexpr uint8_t OTA_MAX_REDIRECTS = 5;
 
 struct ParsedVersion {
   int segments[VERSION_SEGMENT_COUNT] = {0, 0, 0, 0};
@@ -113,6 +115,81 @@ bool startsWith(const char* value, const char* prefix) {
   if (value == nullptr || prefix == nullptr) return false;
   const size_t prefixLength = strlen(prefix);
   return strncmp(value, prefix, prefixLength) == 0;
+}
+
+bool isRedirectStatus(const int status) {
+  return status == 301 || status == 302 || status == 303 || status == 307 || status == 308;
+}
+
+esp_err_t captureLocationHeader(esp_http_client_event_t* evt) {
+  auto* location = static_cast<std::string*>(evt->user_data);
+  if (evt->event_id == HTTP_EVENT_ON_HEADER && location != nullptr && evt->header_key != nullptr &&
+      evt->header_value != nullptr && strcasecmp(evt->header_key, "Location") == 0) {
+    location->assign(evt->header_value);
+  }
+  return ESP_OK;
+}
+
+struct ParsedUrl {
+  bool https = false;
+  std::string host;
+  std::string path;
+  uint16_t port = 80;
+};
+
+bool parseUrl(const std::string& url, ParsedUrl& out) {
+  const size_t schemeEnd = url.find("://");
+  if (schemeEnd == std::string::npos) return false;
+
+  const std::string scheme = url.substr(0, schemeEnd);
+  out.https = scheme == "https";
+  if (!out.https && scheme != "http") return false;
+
+  const size_t hostStart = schemeEnd + 3;
+  const size_t pathStart = url.find('/', hostStart);
+  const std::string hostPort =
+      url.substr(hostStart, pathStart == std::string::npos ? std::string::npos : pathStart - hostStart);
+  out.path = pathStart == std::string::npos ? "/" : url.substr(pathStart);
+  out.port = out.https ? 443 : 80;
+
+  const size_t portSep = hostPort.rfind(':');
+  if (portSep != std::string::npos) {
+    out.host = hostPort.substr(0, portSep);
+    const std::string portText = hostPort.substr(portSep + 1);
+    if (portText.empty()) return false;
+    uint32_t parsedPort = 0;
+    for (const char c : portText) {
+      if (c < '0' || c > '9') return false;
+      parsedPort = parsedPort * 10 + static_cast<uint32_t>(c - '0');
+      if (parsedPort > UINT16_MAX) return false;
+    }
+    if (parsedPort == 0) return false;
+    out.port = static_cast<uint16_t>(parsedPort);
+  } else {
+    out.host = hostPort;
+  }
+
+  return !out.host.empty() && !out.path.empty();
+}
+
+std::string buildRedirectUrl(const std::string& baseUrl, const std::string& location) {
+  if (startsWith(location.c_str(), "http://") || startsWith(location.c_str(), "https://")) return location;
+
+  ParsedUrl base;
+  if (!parseUrl(baseUrl, base)) return location;
+
+  std::string origin = base.https ? "https://" : "http://";
+  origin += base.host;
+  if ((base.https && base.port != 443) || (!base.https && base.port != 80)) {
+    origin += ":";
+    origin += std::to_string(base.port);
+  }
+
+  if (!location.empty() && location[0] == '/') return origin + location;
+
+  const size_t lastSlash = base.path.rfind('/');
+  const std::string parent = lastSlash == std::string::npos ? "/" : base.path.substr(0, lastSlash + 1);
+  return origin + parent + location;
 }
 
 char lowerHex(const uint8_t value) {
@@ -367,62 +444,104 @@ OtaUpdater::OtaUpdaterError OtaUpdater::installUpdate(ProgressCallback onProgres
   installCtx.onProgress = onProgress;
   installCtx.progressCtx = ctx;
 
-  esp_http_client_config_t client_config = {
-      .url = otaUrl.c_str(),
-      .timeout_ms = 15000,
-      // 4096 holds the github->CDN redirect headers (the 512 default truncates
-      // them); TX only carries our GET. Both are contiguous blocks contending
-      // with the TLS handshake on a tight internal arena, so keep them minimal.
-      .buffer_size = 4096,
-      .buffer_size_tx = 1024,
-      .skip_cert_common_name_check = true,
-      .crt_bundle_attach = esp_crt_bundle_attach,
-      .keep_alive_enable = false,
-  };
-
   WifiPowerSaveGuard wifiPowerSaveGuard;
 
   LOG_INF("OTA", "Starting firmware download: url=%s heap=%u maxAlloc=%u", otaUrl.c_str(), ESP.getFreeHeap(),
           ESP.getMaxAllocHeap());
 
-  esp_http_client_handle_t client = esp_http_client_init(&client_config);
-  if (client == nullptr) {
-    LOG_ERR("OTA", "HTTP client init failed (heap=%u maxAlloc=%u)", ESP.getFreeHeap(), ESP.getMaxAllocHeap());
-    return HTTP_ERROR;
-  }
-
-  esp_err_t esp_err = http_client_set_header_cb(client);
-  if (esp_err != ESP_OK) {
-    LOG_ERR("OTA", "Failed to set OTA User-Agent: %s", esp_err_to_name(esp_err));
-    esp_http_client_cleanup(client);
-    return INTERNAL_UPDATE_ERROR;
-  }
-
   auto buffer = makeUniqueNoThrow<char[]>(OTA_READ_BUFFER_SIZE);
   if (!buffer) {
     LOG_ERR("OTA", "Failed to allocate %zu byte OTA read buffer (heap=%u maxAlloc=%u)", OTA_READ_BUFFER_SIZE,
             ESP.getFreeHeap(), ESP.getMaxAllocHeap());
-    esp_http_client_cleanup(client);
     return OOM_ERROR;
   }
 
-  LOG_INF("OTA", "Opening firmware connection");
-  esp_err = esp_http_client_open(client, 0);
-  if (esp_err != ESP_OK) {
-    LOG_ERR("OTA", "Firmware HTTP open failed: %s (heap=%u maxAlloc=%u)", esp_err_to_name(esp_err), ESP.getFreeHeap(),
-            ESP.getMaxAllocHeap());
-    logTlsError(client, "Firmware open failure");
+  std::string currentUrl = otaUrl;
+  esp_http_client_handle_t client = nullptr;
+  int64_t contentLength = -1;
+  int statusCode = 0;
+  esp_err_t esp_err = ESP_OK;
+
+  for (uint8_t hop = 0; hop < OTA_MAX_REDIRECTS; ++hop) {
+    std::string redirectLocation;
+    esp_http_client_config_t client_config = {};
+    client_config.url = currentUrl.c_str();
+    client_config.timeout_ms = 15000;
+    // 4096 holds the github->CDN redirect headers (the 512 default truncates
+    // them); TX only carries our GET. Both are contiguous blocks contending
+    // with the TLS handshake on a tight internal arena, so keep them minimal.
+    client_config.buffer_size = 4096;
+    client_config.buffer_size_tx = 1024;
+    client_config.skip_cert_common_name_check = true;
+    client_config.crt_bundle_attach = esp_crt_bundle_attach;
+    client_config.event_handler = captureLocationHeader;
+    client_config.user_data = &redirectLocation;
+    client_config.keep_alive_enable = false;
+
+    client = esp_http_client_init(&client_config);
+    if (client == nullptr) {
+      LOG_ERR("OTA", "HTTP client init failed (heap=%u maxAlloc=%u)", ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+      return HTTP_ERROR;
+    }
+
+    esp_err = http_client_set_header_cb(client);
+    if (esp_err != ESP_OK) {
+      LOG_ERR("OTA", "Failed to set OTA User-Agent: %s", esp_err_to_name(esp_err));
+      esp_http_client_cleanup(client);
+      return INTERNAL_UPDATE_ERROR;
+    }
+
+    LOG_INF("OTA", "Opening firmware connection");
+    esp_err = esp_http_client_open(client, 0);
+    if (esp_err != ESP_OK) {
+      LOG_ERR("OTA", "Firmware HTTP open failed: %s (heap=%u maxAlloc=%u)", esp_err_to_name(esp_err), ESP.getFreeHeap(),
+              ESP.getMaxAllocHeap());
+      logTlsError(client, "Firmware open failure");
+      esp_http_client_cleanup(client);
+      return HTTP_ERROR;
+    }
+
+    LOG_INF("OTA", "Fetching firmware headers");
+    contentLength = esp_http_client_fetch_headers(client);
+    statusCode = esp_http_client_get_status_code(client);
+    if (contentLength < 0) {
+      LOG_ERR("OTA", "Firmware header fetch failed: %lld", static_cast<long long>(contentLength));
+      logTlsError(client, "Firmware header failure");
+      esp_http_client_cleanup(client);
+      return HTTP_ERROR;
+    }
+    if (!isRedirectStatus(statusCode)) {
+      break;
+    }
+
+    if (redirectLocation.empty()) {
+      LOG_ERR("OTA", "Firmware redirect missing Location header");
+      esp_http_client_cleanup(client);
+      return HTTP_ERROR;
+    }
+
+    const std::string redirectUrl = buildRedirectUrl(currentUrl, redirectLocation);
+    ParsedUrl currentParsed;
+    ParsedUrl redirectParsed;
+    if (!parseUrl(redirectUrl, redirectParsed)) {
+      LOG_ERR("OTA", "Rejected firmware redirect with unsupported Location");
+      esp_http_client_cleanup(client);
+      return HTTP_ERROR;
+    }
+    if (parseUrl(currentUrl, currentParsed) && currentParsed.https && !redirectParsed.https) {
+      LOG_ERR("OTA", "Rejected firmware HTTPS downgrade redirect to %s", redirectParsed.host.c_str());
+      esp_http_client_cleanup(client);
+      return HTTP_ERROR;
+    }
+
+    LOG_DBG("OTA", "Following firmware redirect to %s", redirectParsed.host.c_str());
     esp_http_client_cleanup(client);
-    return HTTP_ERROR;
+    client = nullptr;
+    currentUrl = redirectUrl;
   }
 
-  LOG_INF("OTA", "Fetching firmware headers");
-  const int64_t contentLength = esp_http_client_fetch_headers(client);
-  const int statusCode = esp_http_client_get_status_code(client);
-  if (contentLength < 0) {
-    LOG_ERR("OTA", "Firmware header fetch failed: %lld", static_cast<long long>(contentLength));
-    logTlsError(client, "Firmware header failure");
-    esp_http_client_cleanup(client);
+  if (client == nullptr) {
+    LOG_ERR("OTA", "Firmware redirect limit exceeded");
     return HTTP_ERROR;
   }
   if (statusCode < 200 || statusCode >= 300) {

@@ -2911,12 +2911,19 @@ void EpubReaderActivity::startClipSelection() {
         if (!result.isCancelled) {
           const auto& clip = std::get<ClippingResult>(result.data);
           if (!clip.text.empty()) {
+            const size_t clippingIndex = CLIPPINGS.getClippings().size();
             const auto addResult =
                 CLIPPINGS.addClipping(static_cast<uint16_t>(currentSpineIndex), clip.sectionPage, clip.endSectionPage,
                                       clip.sectionPageCount, clip.startPageWordIndex, clip.endPageWordIndex,
                                       clip.wordCount, chapterTitle.c_str(), clip.paragraphIndex, clip.text);
-            const bool exported = ClippingsManager::saveClipping(bookTitle, author, chapterTitle,
-                                                                 static_cast<int>(clip.sectionPage) + 1, clip.text);
+            bool exported = false;
+            if (addResult == ClippingStore::AddResult::Added) {
+              exported = ClippingsManager::saveClipping(bookTitle, author, chapterTitle,
+                                                        static_cast<int>(clip.sectionPage) + 1, clip.text);
+              if (!exported && !CLIPPINGS.removeClippingAt(clippingIndex)) {
+                LOG_ERR("CLIP", "Failed to roll back clipping after export failure");
+              }
+            }
             const bool saved = addResult == ClippingStore::AddResult::Added && exported;
             drawToast(renderer, addResult == ClippingStore::AddResult::LimitReached ? tr(STR_CLIPPING_LIMIT_REACHED)
                                 : saved                                             ? tr(STR_CLIPPING_SAVED)

@@ -2,15 +2,14 @@
 ## [Unreleased]
 
 ### Added
-- Optimized EPUBs now store location metadata at `META-INF/x-locations.json`.
-- X3 SD-card writes now use the RTC for file timestamps when the clock is available.
+
 
 ### Changed
 
 ### Fixed
-- Fixed long stalls when opening footnotes in EPUBs with very large shared notes sections.
 
-## [v1.3.4] - 2026-06-20
+
+## [v1.3.4] - 2026-06-24
 
 ### Added
 - File Browser now indexes large SD-card folders so directories with many books can be browsed without loading every filename into memory at once.
@@ -18,11 +17,12 @@
 - `Create Clipping` is now available as a reader shortcut for short/long Power, long-press Menu, and long-press Back actions.
 - Per-book EPUB options for font, layout, styling, reading aids, and render modes, including `CrossInk Default`, `Balanced`, and `Light` modes for difficult books.
 - Arena allocator (`lib/Memory/Arena.h`) for burst-then-discard allocation patterns - reduces heap fragmentation during EPUB parsing and page layout over long reading sessions.
+- Optimized EPUBs now store location metadata at `META-INF/x-locations.json`.
+- X3 SD-card writes now use the RTC for file timestamps when the clock is available.
 
 ### Changed
 - The EPUB reader menu now splits the growing menu into 3 screens, labels per-book settings as `Book Options`, and avoids showing duplicate `Orientation` controls.
 - The `Inverted` sleep cover filter now flips Minimal and Reading Stats sleep screens to black text on a white background.
-- OTA update checks now use a stable CrossInk manifest endpoint for S3-hosted release assets, and retired build variants now resolve to the `tiny` firmware update.
 
 ### Fixed
 - Calibre Wireless transfer status no longer stacks the last received-file message on top of the upload percentage.
@@ -33,7 +33,7 @@
 - EPUB reader font-size changes now restore the current chapter position by content instead of jumping far backward after re-indexing.
 - Reading Stats now use the reader's last live book time-left estimate instead of showing a separate fallback estimate.
 - Per-book reading stats now migrate compatible legacy `stats.bin` files into the `stats_v5.bin` flow instead of resetting when only the old filename exists.
-- Lyra Carousel Home menu rendering now avoids extra label allocations that could crash tiny builds under low memory.
+- Lyra Carousel Home menu rendering now avoids extra label allocations that could crash builds under low memory.
 - Lyra Carousel Home cover refresh no longer risks a reboot when memory is tight after returning to or selecting a recent book.
 - EPUB image-heavy chapters no longer risk a reboot while saving their reading cache under low memory.
 - TXT readers now stay open when pressing a page-turn button at the end of the file.
@@ -44,6 +44,9 @@
 - Portuguese EPUBs now use Portuguese hyphenation rules instead of leaving long words unhyphenated when Hyphenation is enabled.
 - Progressive JPEG EPUB covers now render more smoothly in generated cover and thumbnail BMP assets.
 - EPUB section layout now flushes long text runs earlier when Bionic Reading or Guide Dots are enabled, reducing low-memory failures on difficult books.
+- Footnotes in EPUBs with very large shared notes sections no longer cause long stalls when opened.
+- Firmware updates now follow GitHub asset redirects before streaming the install.
+- Tiled grayscale rendering now serializes display transfers on the shared SPI bus to avoid display glitches during SD activity.
 
 ## [v1.3.3] - 2026-06-13
 

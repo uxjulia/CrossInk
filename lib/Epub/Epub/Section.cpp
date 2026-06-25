@@ -14,9 +14,9 @@
 
 namespace {
 constexpr uint32_t SECTION_CACHE_MAGIC = 0x535843FF;  // bytes: 0xFF, "CXS"
-// v43: preserves the v42 NFC text-composition invalidation and the latest section layout metadata.
-constexpr uint8_t SECTION_FILE_VERSION = 43;
-constexpr uint16_t MAX_SECTION_PAGE_LUT_ENTRIES = 1024;
+// v41: busts public v40 caches for updated text/layout metadata in this release.
+constexpr uint8_t SECTION_FILE_VERSION = 41;
+constexpr uint16_t INITIAL_SECTION_PAGE_LUT_ENTRIES = 1024;
 constexpr uint32_t HEADER_SIZE = sizeof(SECTION_CACHE_MAGIC) + sizeof(uint8_t) + sizeof(int) + sizeof(float) +
                                  sizeof(bool) + sizeof(bool) + sizeof(uint8_t) + sizeof(uint16_t) + sizeof(uint16_t) +
                                  sizeof(uint16_t) + sizeof(bool) + sizeof(bool) + sizeof(uint8_t) + sizeof(bool) +
@@ -28,6 +28,26 @@ struct PageLutEntry {
   uint16_t paragraphIndex;
   uint16_t listItemIndex;
 };
+
+bool ensurePageLutCapacity(std::unique_ptr<PageLutEntry[]>& lut, uint16_t& lutCapacity, const uint16_t lutCount) {
+  if (lutCount < lutCapacity) return true;
+  if (lutCapacity == UINT16_MAX) return false;
+
+  uint32_t nextCapacity = static_cast<uint32_t>(lutCapacity) * 2U;
+  if (nextCapacity > UINT16_MAX) {
+    nextCapacity = UINT16_MAX;
+  }
+
+  auto grown = makeUniqueNoThrow<PageLutEntry[]>(nextCapacity);
+  if (!grown) return false;
+
+  for (uint16_t i = 0; i < lutCount; i++) {
+    grown[i] = lut[i];
+  }
+  lut = std::move(grown);
+  lutCapacity = static_cast<uint16_t>(nextCapacity);
+  return true;
+}
 }  // namespace
 
 uint32_t Section::onPageComplete(std::unique_ptr<Page> page) {
@@ -283,10 +303,10 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
     return false;
   }
   // 1024 entries is 8 KB. Stack is too small, and std::vector growth in the page callback can abort on OOM.
-  auto lut = makeUniqueNoThrow<PageLutEntry[]>(MAX_SECTION_PAGE_LUT_ENTRIES);
+  uint16_t lutCapacity = INITIAL_SECTION_PAGE_LUT_ENTRIES;
+  auto lut = makeUniqueNoThrow<PageLutEntry[]>(lutCapacity);
   if (!lut) {
-    LOG_ERR("SCT", "Failed to allocate page LUT (%u bytes)",
-            static_cast<unsigned>(sizeof(PageLutEntry) * MAX_SECTION_PAGE_LUT_ENTRIES));
+    LOG_ERR("SCT", "Failed to allocate page LUT (%u bytes)", static_cast<unsigned>(sizeof(PageLutEntry) * lutCapacity));
     if (layoutAbortedForLowMemory) *layoutAbortedForLowMemory = true;
     file.close();
     Storage.remove(tmpSectionPath.c_str());
@@ -336,13 +356,19 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
       epub, tmpHtmlPath, renderer, fontId, lineCompression, extraParagraphSpacing, forceParagraphIndents,
       paragraphAlignment, viewportWidth, viewportHeight, hyphenationEnabled, effectiveBionicReadingEnabled,
       effectiveGuideReadingEnabled,
-      [this, &lut, &lutCount, &pageCompletionFailed](std::unique_ptr<Page> page, const uint16_t paragraphIndex,
-                                                     const uint16_t listItemIndex) {
+      [this, &lut, &lutCapacity, &lutCount, &pageCompletionFailed, layoutAbortedForLowMemory](
+          std::unique_ptr<Page> page, const uint16_t paragraphIndex, const uint16_t listItemIndex) {
         if (pageCompletionFailed) {
           return;
         }
-        if (lutCount >= MAX_SECTION_PAGE_LUT_ENTRIES) {
-          LOG_ERR("SCT", "Section page LUT exceeded %u entries", MAX_SECTION_PAGE_LUT_ENTRIES);
+        if (lutCount == UINT16_MAX) {
+          LOG_ERR("SCT", "Section page count exceeded cache format limit");
+          pageCompletionFailed = true;
+          return;
+        }
+        if (!ensurePageLutCapacity(lut, lutCapacity, lutCount)) {
+          LOG_ERR("SCT", "Failed to grow section page LUT from %u entries", lutCapacity);
+          if (layoutAbortedForLowMemory) *layoutAbortedForLowMemory = true;
           pageCompletionFailed = true;
           return;
         }
@@ -362,7 +388,9 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
           ESP.getFreeHeap(), ESP.getMaxAllocHeap());
 
   if (imagesWereSuppressed) *imagesWereSuppressed = visitor.wasLowMemoryFallbackTriggered();
-  if (layoutAbortedForLowMemory) *layoutAbortedForLowMemory = visitor.wasLowMemoryAbortTriggered();
+  if (layoutAbortedForLowMemory) {
+    *layoutAbortedForLowMemory = *layoutAbortedForLowMemory || visitor.wasLowMemoryAbortTriggered();
+  }
 
   Storage.remove(tmpHtmlPath.c_str());
   if (!success || pageCompletionFailed) {

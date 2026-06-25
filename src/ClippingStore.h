@@ -35,6 +35,7 @@ class ClippingStore {
   enum class AddResult : uint8_t {
     Added,
     LimitReached,
+    SaveFailed,
   };
 
   static ClippingStore& getInstance() { return instance; }
@@ -47,7 +48,7 @@ class ClippingStore {
                         uint16_t startWordIndex, uint16_t endWordIndex, uint16_t wordCount, const char* chapterTitle,
                         uint16_t paragraphIndex, const std::string& text);
   bool removeClippingAt(size_t index);
-  void saveToFile();
+  bool saveToFile();
   void clearAll();
 
   bool hasClippings() const { return !clippings.empty(); }
