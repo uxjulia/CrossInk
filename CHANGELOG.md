@@ -2,7 +2,7 @@
 ## [Unreleased]
 
 ### Added
-
+- Dashboard UI theme for the Home screen, combining the current book cover, reading stats, streak, and reader type in one layout.
 
 ### Changed
 

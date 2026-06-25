@@ -503,7 +503,10 @@ void LyraTheme::drawSideButtonHints(const GfxRenderer& renderer, const char* top
 void LyraTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std::vector<RecentBook>& recentBooks,
                                     int selectorIndex, bool& coverRendered, bool& coverBufferStored,
                                     bool& bufferRestored, const std::function<bool()>& storeCoverBuffer,
-                                    const BookReadingStats* stats, float progressPercent) const {
+                                    const BookReadingStats* stats, float progressPercent,
+                                    const GlobalReadingStats* globalStats, const char* currentChapterTitle) const {
+  (void)globalStats;
+  (void)currentChapterTitle;
   const int tileWidth = rect.width - 2 * LyraMetrics::values.contentSidePadding;
   const int tileHeight = rect.height;
   const int tileY = rect.y;
