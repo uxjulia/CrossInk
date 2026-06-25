@@ -4,11 +4,12 @@
 ### Added
 - Dashboard UI theme for the Home screen, combining the current book cover, reading stats, streak, and reader type in one layout.
 - Nearby Position Sync for sending or applying the current EPUB position between two CrossInk devices over ESP-NOW.
+- Web EPUB optimizer now writes CrossInk location metadata into optimized EPUBs so future reader builds can use stable word-based positions across layout changes.
+- EPUB reader now uses CrossInk location metadata from optimized EPUBs for word-weighted progress and percent-based jumps.
 
 ### Changed
 
 ### Fixed
-
 
 ## [v1.3.4] - 2026-06-24
 
