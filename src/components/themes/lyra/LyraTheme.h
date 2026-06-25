@@ -94,12 +94,13 @@ class LyraTheme : public BaseTheme {
                        bool allowInvertedText = false) const override;
   void drawSideButtonHints(const GfxRenderer& renderer, const char* topBtn, const char* bottomBtn) const override;
   void drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount, int selectedIndex,
-                      const std::function<std::string(int index)>& buttonLabel,
+                      const std::function<const char*(int index)>& buttonLabel,
                       const std::function<UIIcon(int index)>& rowIcon) const override;
   void drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std::vector<RecentBook>& recentBooks,
                            int selectorIndex, bool& coverRendered, bool& coverBufferStored, bool& bufferRestored,
                            const std::function<bool()>& storeCoverBuffer, const BookReadingStats* stats = nullptr,
-                           float progressPercent = -1.0f) const override;
+                           float progressPercent = -1.0f, const GlobalReadingStats* globalStats = nullptr,
+                           const char* currentChapterTitle = nullptr) const override;
   void drawEmptyRecents(const GfxRenderer& renderer, const Rect rect) const;
   bool showsFileIcons() const override { return true; }
 

@@ -15,6 +15,7 @@
 #include "../home/RecentBookProgress.h"
 #include "../reader/BookStatsView.h"
 #include "../reader/EpubReaderActivity.h"
+#include "../reader/EpubReaderUtils.h"
 #include "../reader/TxtReaderActivity.h"
 #include "../reader/XtcReaderActivity.h"
 #include "AppVersion.h"
@@ -24,6 +25,7 @@
 #include "SleepCoverAssets.h"
 #include "activities/reader/ReaderUtils.h"
 #include "components/UITheme.h"
+#include "components/themes/dashboard/DashboardTheme.h"
 #include "components/themes/minimal/MinimalTheme.h"
 #include "fontIds.h"
 #include "images/Logo120.h"
@@ -241,6 +243,30 @@ BookReadingStats loadBookStatsForPath(const std::string& path) {
   return BookReadingStats::load(epubCachePathFor(path));
 }
 
+std::string loadChapterTitleForPath(const std::string& path) {
+  if (!FsHelpers::hasEpubExtension(path)) {
+    return {};
+  }
+
+  Epub epub(path, "/.crosspoint");
+  if (!epub.load(false, true)) {
+    return {};
+  }
+
+  EpubReaderUtils::Progress progress;
+  if (!EpubReaderUtils::loadProgress(epub, progress, "SLP")) {
+    return {};
+  }
+
+  const auto spineItem = epub.getSpineItem(progress.spineIndex);
+  if (spineItem.tocIndex < 0) {
+    return {};
+  }
+
+  const auto tocItem = epub.getTocItem(spineItem.tocIndex);
+  return tocItem.title;
+}
+
 enum class OverlayDrawResult : uint8_t { NotFound, Drawn, Failed };
 
 enum class SleepImageMode : uint8_t { Custom, Overlay };
@@ -435,6 +461,8 @@ void SleepActivity::onEnter() {
       return renderMinimalSleepScreen();
     case (CrossPointSettings::SLEEP_SCREEN_MODE::MINIMAL_STATS_SLEEP):
       return renderMinimalStatsSleepScreen();
+    case (CrossPointSettings::SLEEP_SCREEN_MODE::DASHBOARD_SLEEP):
+      return renderDashboardSleepScreen();
     default:
       return renderDefaultSleepScreen();
   }
@@ -683,6 +711,31 @@ void SleepActivity::renderMinimalStatsSleepScreen() const {
   if (sleepCoverFilterInvertsGeneratedScreen()) {
     renderer.invertScreen();
   }
+  renderer.displayBuffer(HalDisplay::HALF_REFRESH, TURN_OFF_SCREEN_AFTER_SLEEP_REFRESH);
+}
+
+void SleepActivity::renderDashboardSleepScreen() const {
+  const std::string& path = currentBookPath.empty() ? APP_STATE.openEpubPath : currentBookPath;
+  if (path.empty()) {
+    return renderDefaultSleepScreen();
+  }
+
+  RecentBook book = recentBookForPath(path);
+  const std::string fallbackCoverPath = book.coverBmpPath;
+  book.coverBmpPath = SleepCoverAssets::cachedDashboardCoverPathFor(path);
+  if (book.coverBmpPath.empty() && SleepCoverAssets::prepareDashboardCoverForPath(path)) {
+    book.coverBmpPath = SleepCoverAssets::cachedDashboardCoverPathFor(path);
+  }
+  if (book.coverBmpPath.empty()) {
+    book.coverBmpPath = fallbackCoverPath;
+  }
+
+  const BookReadingStats bookStats = loadBookStatsForPath(path);
+  const GlobalReadingStats globalStats = GlobalReadingStats::load();
+  const float progressPercent = RecentBookProgress::loadPercent(book);
+  const std::string chapterTitle = loadChapterTitleForPath(path);
+  DashboardTheme theme;
+  theme.drawSleepScreen(renderer, book, &bookStats, &globalStats, progressPercent, chapterTitle.c_str());
   renderer.displayBuffer(HalDisplay::HALF_REFRESH, TURN_OFF_SCREEN_AFTER_SLEEP_REFRESH);
 }
 

@@ -4,10 +4,13 @@
 #include <GfxRenderer.h>
 #include <HalStorage.h>
 #include <I18n.h>
+#include <Utf8.h>
 
 #include <algorithm>
 #include <atomic>
 #include <cstdint>
+#include <cstdio>
+#include <cstring>
 #include <string>
 #include <vector>
 
@@ -71,6 +74,7 @@ constexpr int kCenterOutlineW = 4;  // white ring around centre cover
 constexpr int kMenuIconSize = 32;  // must match actual bitmap dimensions
 constexpr int kMenuIconPad = 14;   // symmetric vertical padding → tile height = 60
 constexpr int kHighlightPad = 7;   // highlight padding around the selected icon
+constexpr size_t kMenuLabelBufferSize = 96;
 // Row is anchored to the bottom of the screen, just above button hints
 constexpr int kButtonHintsH = LyraCarouselMetrics::values.buttonHintsHeight;
 
@@ -102,6 +106,52 @@ Rect shrinkCenterCoverRect(const Rect& rect) {
   const int width = std::max(0, insetWidth);
   const int height = std::max(0, insetHeight);
   return Rect{rect.x + (rect.width - width) / 2, rect.y + (rect.height - height) / 2, width, height};
+}
+
+void removeLastUtf8Codepoint(char* text) {
+  if (!text) return;
+  const size_t len = strlen(text);
+  if (len == 0) return;
+
+  size_t lead = len - 1;
+  while (lead > 0 && (static_cast<unsigned char>(text[lead]) & 0xC0) == 0x80) {
+    --lead;
+  }
+  text[lead] = '\0';
+}
+
+void fitMenuLabel(const GfxRenderer& renderer, const char* label, int maxWidth, char* out, size_t outSize) {
+  if (!out || outSize == 0) return;
+  out[0] = '\0';
+  if (!label || maxWidth <= 0) return;
+
+  snprintf(out, outSize, "%s", label);
+  out[outSize - 1] = '\0';
+  const int safeLen = utf8SafeTruncateBuffer(out, static_cast<int>(strlen(out)));
+  out[safeLen] = '\0';
+
+  if (renderer.getTextWidth(kMenuLabelFontId, out, EpdFontFamily::REGULAR) <= maxWidth) {
+    return;
+  }
+
+  constexpr char ellipsis[] = "\xe2\x80\xa6";
+  char candidate[kMenuLabelBufferSize];
+  while (out[0] != '\0') {
+    removeLastUtf8Codepoint(out);
+    snprintf(candidate, sizeof(candidate), "%s%s", out, ellipsis);
+    candidate[sizeof(candidate) - 1] = '\0';
+    if (renderer.getTextWidth(kMenuLabelFontId, candidate, EpdFontFamily::REGULAR) <= maxWidth) {
+      snprintf(out, outSize, "%s", candidate);
+      out[outSize - 1] = '\0';
+      return;
+    }
+  }
+
+  snprintf(out, outSize, "%s", ellipsis);
+  out[outSize - 1] = '\0';
+  if (renderer.getTextWidth(kMenuLabelFontId, out, EpdFontFamily::REGULAR) > maxWidth) {
+    out[0] = '\0';
+  }
 }
 
 Rect computeCenterCoverSlotRect(const GfxRenderer& renderer, Rect rect, const std::vector<RecentBook>& recentBooks) {
@@ -204,7 +254,11 @@ void LyraCarouselTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect,
                                             const std::vector<RecentBook>& recentBooks, int selectorIndex,
                                             bool& coverRendered, bool& coverBufferStored, bool& bufferRestored,
                                             const std::function<bool()>& storeCoverBuffer,
-                                            const BookReadingStats* stats, float progressPercent) const {
+                                            const BookReadingStats* stats, float progressPercent,
+                                            const GlobalReadingStats* globalStats,
+                                            const char* currentChapterTitle) const {
+  (void)globalStats;
+  (void)currentChapterTitle;
   // Reserved for future use: tells the carousel whether Home restored a cached frame buffer.
   (void)bufferRestored;
   if (recentBooks.empty()) {
@@ -453,7 +507,7 @@ void LyraCarouselTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect,
 // Horizontal icon-only menu row — anchored to bottom of screen
 // ---------------------------------------------------------------------------
 void LyraCarouselTheme::drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount, int selectedIndex,
-                                       const std::function<std::string(int index)>& buttonLabel,
+                                       const std::function<const char*(int index)>& buttonLabel,
                                        const std::function<UIIcon(int index)>& rowIcon) const {
   if (buttonCount <= 0) return;
   // Rect is retained by the BaseTheme interface; this carousel menu anchors to the screen bottom.
@@ -491,17 +545,17 @@ void LyraCarouselTheme::drawButtonMenu(GfxRenderer& renderer, Rect rect, int but
 
   renderer.fillRect(0, metrics.labelY, renderer.getScreenWidth(), metrics.labelLineHeight, false);
   if (selectedIndex >= 0 && selectedIndex < buttonCount && buttonLabel != nullptr) {
-    const std::string labelStr = buttonLabel(selectedIndex);
-    const auto centeredLabel =
-        renderer.truncatedText(kMenuLabelFontId, labelStr.c_str(), renderer.getScreenWidth() - 40);
-    const int labelWidth = renderer.getTextWidth(kMenuLabelFontId, centeredLabel.c_str(), EpdFontFamily::REGULAR);
-    renderer.drawText(kMenuLabelFontId, (renderer.getScreenWidth() - labelWidth) / 2, metrics.labelY + 2,
-                      centeredLabel.c_str(), true, EpdFontFamily::REGULAR);
+    char centeredLabel[kMenuLabelBufferSize];
+    fitMenuLabel(renderer, buttonLabel(selectedIndex), renderer.getScreenWidth() - 40, centeredLabel,
+                 sizeof(centeredLabel));
+    const int labelWidth = renderer.getTextWidth(kMenuLabelFontId, centeredLabel, EpdFontFamily::REGULAR);
+    renderer.drawText(kMenuLabelFontId, (renderer.getScreenWidth() - labelWidth) / 2, metrics.labelY + 2, centeredLabel,
+                      true, EpdFontFamily::REGULAR);
   }
 }
 
 void LyraCarouselTheme::drawButtonMenuSelectionOverlay(const GfxRenderer& renderer, int buttonCount, int selectedIndex,
-                                                       const std::function<std::string(int index)>& buttonLabel,
+                                                       const std::function<const char*(int index)>& buttonLabel,
                                                        const std::function<UIIcon(int index)>& rowIcon) const {
   if (buttonCount <= 0 || selectedIndex < 0 || selectedIndex >= buttonCount) return;
 
@@ -530,12 +584,12 @@ void LyraCarouselTheme::drawButtonMenuSelectionOverlay(const GfxRenderer& render
 
   renderer.fillRect(0, metrics.labelY, renderer.getScreenWidth(), metrics.labelLineHeight, false);
   if (buttonLabel != nullptr) {
-    const std::string labelStr = buttonLabel(selectedIndex);
-    const auto centeredLabel =
-        renderer.truncatedText(kMenuLabelFontId, labelStr.c_str(), renderer.getScreenWidth() - 40);
-    const int labelWidth = renderer.getTextWidth(kMenuLabelFontId, centeredLabel.c_str(), EpdFontFamily::REGULAR);
-    renderer.drawText(kMenuLabelFontId, (renderer.getScreenWidth() - labelWidth) / 2, metrics.labelY + 2,
-                      centeredLabel.c_str(), true, EpdFontFamily::REGULAR);
+    char centeredLabel[kMenuLabelBufferSize];
+    fitMenuLabel(renderer, buttonLabel(selectedIndex), renderer.getScreenWidth() - 40, centeredLabel,
+                 sizeof(centeredLabel));
+    const int labelWidth = renderer.getTextWidth(kMenuLabelFontId, centeredLabel, EpdFontFamily::REGULAR);
+    renderer.drawText(kMenuLabelFontId, (renderer.getScreenWidth() - labelWidth) / 2, metrics.labelY + 2, centeredLabel,
+                      true, EpdFontFamily::REGULAR);
   }
 }
 

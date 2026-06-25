@@ -78,6 +78,7 @@ class NearbyStatsSyncActivity final : public Activity {
   bool sendLocalStats();
   bool sendAck(const uint8_t* peerMac);
   bool addPeer(const uint8_t* peerMac);
+  void exitViaBack();
   void updateSyncProgress();
   void setState(State state);
   void setError(const std::string& error);

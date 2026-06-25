@@ -49,6 +49,7 @@ class HomeActivity final : public Activity {
   int coverRectW = 0;
   int coverRectH = 0;
   float currentBookProgressPercent = -1.0f;
+  std::string currentBookChapterTitle;
   BookReadingStats currentBookStats;
   GlobalReadingStats globalStats;
   GlobalReadingStats allDevicesGlobalStats;

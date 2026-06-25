@@ -37,6 +37,7 @@
 #include "KOReaderCredentialStore.h"
 #include "KOReaderSyncActivity.h"
 #include "MappedInputManager.h"
+#include "NearbyBookPositionSyncActivity.h"
 #include "ProgressMapper.h"
 #include "QrDisplayActivity.h"
 #include "ReaderUtils.h"
@@ -1650,6 +1651,7 @@ void EpubReaderActivity::onEnter() {
   captureGlobalReaderSettings();
   epub->setupCacheDir();
   loadBookReaderSettings();
+  sdFontSystem.ensureLoaded(renderer);
 
   // Configure screen orientation based on settings
   // NOTE: This affects layout math and must be applied before any render calls.
@@ -2650,6 +2652,49 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
             renderer, mappedInput, savedEpubPath, currentSpineIndex, currentPage, totalPages, std::move(localKoPos),
             std::move(localChapterName), paragraphIndex));
       }
+      break;
+    }
+    case EpubReaderMenuActivity::MenuAction::NEARBY_POSITION_SYNC: {
+      const int currentPage = section ? section->currentPage : nextPageNumber;
+      const int totalPages = section ? section->pageCount : std::max(1, cachedChapterTotalPageCount);
+      std::optional<uint16_t> paragraphIndex;
+      if (section && currentPage >= 0 && currentPage < section->pageCount) {
+        if (const auto pIdx = section->getParagraphIndexForPage(static_cast<uint16_t>(currentPage))) {
+          paragraphIndex = *pIdx;
+        }
+      }
+
+      CrossPointPosition localPos = {currentSpineIndex, currentPage, totalPages};
+      if (paragraphIndex.has_value()) {
+        localPos.paragraphIndex = *paragraphIndex;
+        localPos.hasParagraphIndex = true;
+      }
+      KOReaderPosition localKoPos = ProgressMapper::toKOReader(epub, localPos);
+      const int tocIdx = epub->getTocIndexForSpineIndex(currentSpineIndex);
+      std::string localChapterName = (tocIdx >= 0) ? epub->getTocItem(tocIdx).title : "";
+      const std::string savedEpubPath = epub->getPath();
+
+      if (!saveProgress(currentSpineIndex, currentPage, totalPages)) {
+        LOG_ERR("NBPS", "Aborting nearby position sync because current progress could not be saved");
+        pendingSyncSaveError = true;
+        requestUpdate();
+        return;
+      }
+
+      LOG_DBG("NBPS", "Releasing section for nearby position sync (heap before: %u)", (unsigned)ESP.getFreeHeap());
+      {
+        RenderLock lock(*this);
+        if (section) {
+          nextPageNumber = section->currentPage;
+        }
+        section.reset();
+      }
+      LOG_DBG("NBPS", "Section released for nearby position sync (heap after: %u)", (unsigned)ESP.getFreeHeap());
+
+      pauseReadingPaceTimer("nearby_position_sync");
+      activityManager.replaceActivity(std::make_unique<NearbyBookPositionSyncActivity>(
+          renderer, mappedInput, epub, savedEpubPath, currentSpineIndex, currentPage, totalPages, std::move(localKoPos),
+          std::move(localChapterName), paragraphIndex));
       break;
     }
     case EpubReaderMenuActivity::MenuAction::BOOKMARK_TOGGLE: {

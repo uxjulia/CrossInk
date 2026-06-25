@@ -503,7 +503,10 @@ void LyraTheme::drawSideButtonHints(const GfxRenderer& renderer, const char* top
 void LyraTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std::vector<RecentBook>& recentBooks,
                                     int selectorIndex, bool& coverRendered, bool& coverBufferStored,
                                     bool& bufferRestored, const std::function<bool()>& storeCoverBuffer,
-                                    const BookReadingStats* stats, float progressPercent) const {
+                                    const BookReadingStats* stats, float progressPercent,
+                                    const GlobalReadingStats* globalStats, const char* currentChapterTitle) const {
+  (void)globalStats;
+  (void)currentChapterTitle;
   const int tileWidth = rect.width - 2 * LyraMetrics::values.contentSidePadding;
   const int tileHeight = rect.height;
   const int tileY = rect.y;
@@ -642,7 +645,7 @@ void LyraTheme::drawEmptyRecents(const GfxRenderer& renderer, const Rect rect) c
 }
 
 void LyraTheme::drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount, int selectedIndex,
-                               const std::function<std::string(int index)>& buttonLabel,
+                               const std::function<const char*(int index)>& buttonLabel,
                                const std::function<UIIcon(int index)>& rowIcon) const {
   const auto& menuMetrics = UITheme::getInstance().getMetrics();
 
@@ -680,8 +683,8 @@ void LyraTheme::drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount
       renderer.fillRoundedRect(tileRect.x, tileRect.y, tileRect.width, tileRect.height, cornerRadius, Color::LightGray);
     }
 
-    std::string labelStr = buttonLabel(i);
-    const char* label = labelStr.c_str();
+    const char* label = buttonLabel != nullptr ? buttonLabel(i) : "";
+    if (!label) label = "";
     int textX = tileRect.x + 16;
     const int lineHeight = renderer.getLineHeight(UI_12_FONT_ID);
     const int textY = tileRect.y + (menuMetrics.menuRowHeight - lineHeight) / 2;

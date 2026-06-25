@@ -211,6 +211,11 @@ filename (`stats_v4.bin` for version 5, `stats_v5.bin` after a future version 6
 bump) before falling back to legacy `stats.bin` files with compatible stats
 payloads. Future changes are always saved to the current versioned filename.
 
+When `stats_v5.bin` is missing, CrossInk can read the previous versioned stats
+filename (`stats_v4.bin` for version 5, `stats_v5.bin` after a future version 6
+bump) before falling back to legacy `stats.bin` files with compatible stats
+payloads. Future changes are always saved to the current versioned filename.
+
 Binary layout:
 
 - `[0]` version (`5`)

@@ -471,7 +471,9 @@ void BaseTheme::drawTabBar(const GfxRenderer& renderer, const Rect rect, const s
 void BaseTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std::vector<RecentBook>& recentBooks,
                                     int selectorIndex, bool& coverRendered, bool& coverBufferStored,
                                     bool& bufferRestored, const std::function<bool()>& storeCoverBuffer,
-                                    const BookReadingStats* /*stats*/, float /*progressPercent*/) const {
+                                    const BookReadingStats* /*stats*/, float /*progressPercent*/,
+                                    const GlobalReadingStats* /*globalStats*/,
+                                    const char* /*currentChapterTitle*/) const {
   const bool hasContinueReading = !recentBooks.empty();
   const bool bookSelected = hasContinueReading && selectorIndex == 0;
 
@@ -619,7 +621,7 @@ void BaseTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
 }
 
 void BaseTheme::drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount, int selectedIndex,
-                               const std::function<std::string(int index)>& buttonLabel,
+                               const std::function<const char*(int index)>& buttonLabel,
                                const std::function<UIIcon(int index)>& rowIcon) const {
   (void)rowIcon;
   constexpr int maxVisibleItems = 7;
@@ -679,8 +681,8 @@ void BaseTheme::drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount
                         BaseMetrics::values.menuRowHeight);
     }
 
-    std::string labelStr = buttonLabel(i);
-    const char* label = labelStr.c_str();
+    const char* label = buttonLabel != nullptr ? buttonLabel(i) : "";
+    if (!label) label = "";
     const int textWidth = renderer.getTextWidth(UI_10_FONT_ID, label);
     const int textX = rect.x + BaseMetrics::values.contentSidePadding + (tileWidth - textWidth) / 2;
     const int lineHeight = renderer.getLineHeight(UI_10_FONT_ID);
