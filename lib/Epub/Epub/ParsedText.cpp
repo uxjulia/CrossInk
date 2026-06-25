@@ -685,6 +685,13 @@ bool ParsedText::layoutAndExtractLines(const GfxRenderer& renderer, const int fo
   return true;
 }
 
+bool ParsedText::layoutAndExtractLinesPreservingSource(
+    const GfxRenderer& renderer, const int fontId, const uint16_t viewportWidth,
+    const std::function<void(std::shared_ptr<TextBlock>)>& processLine) const {
+  ParsedText layoutProbe(*this);
+  return layoutProbe.layoutAndExtractLines(renderer, fontId, viewportWidth, processLine);
+}
+
 std::vector<uint16_t> ParsedText::calculateWordWidths(const GfxRenderer& renderer, const int fontId) {
   std::vector<uint16_t> wordWidths;
   wordWidths.reserve(words.size());

@@ -734,7 +734,7 @@ void ChapterHtmlSlimParser::emitBufferedTableAsFragments(BufferedTable& table) {
       destCell.isHeader = sourceCell.isHeader;
 
       if (sourceCell.text) {
-        if (!sourceCell.text->layoutAndExtractLines(
+        if (!sourceCell.text->layoutAndExtractLinesPreservingSource(
                 renderer, fontId, innerColumnWidth,
                 [&destCell](const std::shared_ptr<TextBlock>& textBlock) { destCell.lines.push_back(textBlock); })) {
           LOG_DBG("EHP", "Table layout fallback: cell text layout failed");

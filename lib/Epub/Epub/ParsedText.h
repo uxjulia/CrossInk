@@ -78,4 +78,6 @@ class ParsedText {
   bool layoutAndExtractLines(const GfxRenderer& renderer, int fontId, uint16_t viewportWidth,
                              const std::function<void(std::shared_ptr<TextBlock>)>& processLine,
                              bool includeLastLine = true);
+  bool layoutAndExtractLinesPreservingSource(const GfxRenderer& renderer, int fontId, uint16_t viewportWidth,
+                                             const std::function<void(std::shared_ptr<TextBlock>)>& processLine) const;
 };
