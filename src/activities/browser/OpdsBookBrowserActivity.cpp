@@ -22,7 +22,7 @@
 namespace {
 constexpr int PAGE_ITEMS = 23;
 constexpr size_t OPDS_BROWSER_ENTRY_CAPACITY = MAX_OPDS_FEED_ENTRIES + 2;
-constexpr size_t OPDS_DOWNLOAD_BUFFER_SIZE = 4096;
+constexpr size_t OPDS_DOWNLOAD_BUFFER_SIZE = 2048;
 
 std::string buildBookFilenameBase(const OpdsEntry& book, const OpdsFilenameFormat format) {
   if (book.author.empty()) return book.title;
