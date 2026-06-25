@@ -44,6 +44,7 @@ constexpr int kFooterIconSize = 24;
 constexpr int kFooterIconTextGap = 18;
 constexpr int kFooterBottomGap = 57;
 constexpr int kStatsRowCount = 7;
+constexpr int kStatsRowCountX4 = 6;
 constexpr int kStatsValueLabelGap = 1;
 
 bool isWideScreen(const GfxRenderer& renderer) { return renderer.getScreenWidth() >= 560; }
@@ -226,9 +227,9 @@ int statsBlockHeight(const GfxRenderer& renderer) {
   return valueLineH + kStatsValueLabelGap + labelLineH;
 }
 
-int statsBlockTop(const Rect& coverRect, const int index, const int blockH) {
-  const int remainingH = std::max(0, coverRect.height - blockH * kStatsRowCount);
-  const int gapCount = kStatsRowCount - 1;
+int statsBlockTop(const Rect& coverRect, const int index, const int blockH, const int rowCount) {
+  const int remainingH = std::max(0, coverRect.height - blockH * rowCount);
+  const int gapCount = rowCount - 1;
   const int gap = gapCount > 0 ? remainingH / gapCount : 0;
   const int remainder = gapCount > 0 ? remainingH % gapCount : 0;
   return coverRect.y + index * (blockH + gap) + std::min(index, remainder);
@@ -245,6 +246,8 @@ void drawDashboardStats(const GfxRenderer& renderer, const Rect& coverRect, cons
                         const float progressPercent, const bool black = true) {
   const int rightX = renderer.getScreenWidth() - contentInset(renderer) - (gpio.deviceIsX3() ? kPairInwardShiftX3 : 0);
   const int blockH = statsBlockHeight(renderer);
+  const bool showRtcStats = gpio.deviceIsX3();
+  const int rowCount = showRtcStats ? kStatsRowCount : kStatsRowCountX4;
   const BookReadingStats emptyStats;
   const BookReadingStats& bookStats = stats != nullptr ? *stats : emptyStats;
   char value[40];
@@ -254,7 +257,7 @@ void drawDashboardStats(const GfxRenderer& renderer, const Rect& coverRect, cons
   uint32_t estimatedSeconds = 0;
   const bool hasEstimate = estimatedTimeLeft(bookStats, progressPercent, estimatedSeconds);
   ReadingStatsDateTime today;
-  const bool hasToday = getCurrentLocalReadingStatsDateTime(today);
+  const bool hasToday = showRtcStats && getCurrentLocalReadingStatsDateTime(today);
   const ReadingStatsDate endDate = bookStats.isCompleted && bookStats.finishedDate.isValid()
                                        ? bookStats.finishedDate
                                        : (hasToday ? today.date : ReadingStatsDate{});
@@ -262,11 +265,11 @@ void drawDashboardStats(const GfxRenderer& renderer, const Rect& coverRect, cons
   const uint16_t daysReading = hasDaySpan ? readingSpanDaysElapsed(bookStats.startDate, endDate) : 0;
 
   int rowIndex = 0;
-  int rowY = statsBlockTop(coverRect, rowIndex, blockH);
+  int rowY = statsBlockTop(coverRect, rowIndex, blockH, rowCount);
   BookReadingStats::formatDuration(bookStats.totalReadingSeconds, value, sizeof(value));
   drawStatsRow(renderer, rightX, rowY, value, tr(STR_STATS_TIME_LBL), black);
 
-  rowY = statsBlockTop(coverRect, ++rowIndex, blockH);
+  rowY = statsBlockTop(coverRect, ++rowIndex, blockH, rowCount);
   if (hasEstimate && !bookStats.isCompleted) {
     formatCompactDuration(estimatedSeconds, value, sizeof(value));
   } else {
@@ -274,7 +277,7 @@ void drawDashboardStats(const GfxRenderer& renderer, const Rect& coverRect, cons
   }
   drawStatsRow(renderer, rightX, rowY, value, tr(STR_TIME_LEFT), black);
 
-  rowY = statsBlockTop(coverRect, ++rowIndex, blockH);
+  rowY = statsBlockTop(coverRect, ++rowIndex, blockH, rowCount);
   if (progressPercent >= 0.0f) {
     snprintf(value, sizeof(value), "%d%%", static_cast<int>(progressPercent + 0.5f));
   } else {
@@ -282,20 +285,34 @@ void drawDashboardStats(const GfxRenderer& renderer, const Rect& coverRect, cons
   }
   drawStatsRow(renderer, rightX, rowY, value, tr(STR_STATS_PROGRESS_LBL), black);
 
-  rowY = statsBlockTop(coverRect, ++rowIndex, blockH);
-  if (hasDaySpan) {
-    const uint16_t dailyAverageDays = std::max<uint16_t>(1, daysReading);
-    BookReadingStats::formatDuration(bookStats.totalReadingSeconds / dailyAverageDays, value, sizeof(value));
-  } else {
-    snprintf(value, sizeof(value), "-");
+  if (showRtcStats) {
+    rowY = statsBlockTop(coverRect, ++rowIndex, blockH, rowCount);
+    if (hasDaySpan) {
+      const uint16_t dailyAverageDays = std::max<uint16_t>(1, daysReading);
+      BookReadingStats::formatDuration(bookStats.totalReadingSeconds / dailyAverageDays, value, sizeof(value));
+    } else {
+      snprintf(value, sizeof(value), "-");
+    }
+    drawStatsRow(renderer, rightX, rowY, value, tr(STR_STATS_DAILY_AVG_LBL), black);
   }
-  drawStatsRow(renderer, rightX, rowY, value, tr(STR_STATS_DAILY_AVG_LBL), black);
 
-  rowY = statsBlockTop(coverRect, ++rowIndex, blockH);
+  rowY = statsBlockTop(coverRect, ++rowIndex, blockH, rowCount);
   snprintf(value, sizeof(value), "%.1f", pagesPerMinute(bookStats.totalPagesTurned, bookStats.totalReadingSeconds));
   drawStatsRow(renderer, rightX, rowY, value, tr(STR_STATS_PAGES_PER_MIN), black);
 
-  rowY = statsBlockTop(coverRect, ++rowIndex, blockH);
+  if (!showRtcStats) {
+    rowY = statsBlockTop(coverRect, ++rowIndex, blockH, rowCount);
+    snprintf(value, sizeof(value), "%u", static_cast<unsigned>(bookStats.sessionCount));
+    drawStatsRow(renderer, rightX, rowY, value, tr(STR_STATS_SESSIONS_LBL), black);
+
+    rowY = statsBlockTop(coverRect, ++rowIndex, blockH, rowCount);
+    const uint32_t avgSeconds = bookStats.sessionCount > 0 ? bookStats.totalReadingSeconds / bookStats.sessionCount : 0;
+    BookReadingStats::formatDuration(avgSeconds, value, sizeof(value));
+    drawStatsRow(renderer, rightX, rowY, value, tr(STR_STATS_AVG_SESSION_LBL), black);
+    return;
+  }
+
+  rowY = statsBlockTop(coverRect, ++rowIndex, blockH, rowCount);
   if (hasDaySpan) {
     snprintf(value, sizeof(value), "%u %s", static_cast<unsigned>(daysReading), dayCountText(daysReading));
   } else {
@@ -305,7 +322,7 @@ void drawDashboardStats(const GfxRenderer& renderer, const Rect& coverRect, cons
   snprintf(label, sizeof(label), "%s %s", tr(STR_STATS_STARTED), startedDate);
   drawStatsRow(renderer, rightX, rowY, value, label, black);
 
-  rowY = statsBlockTop(coverRect, ++rowIndex, blockH);
+  rowY = statsBlockTop(coverRect, ++rowIndex, blockH, rowCount);
   ReadingStatsDate finishDisplayDate;
   if (bookStats.isCompleted) {
     finishDisplayDate = bookStats.finishedDate;
