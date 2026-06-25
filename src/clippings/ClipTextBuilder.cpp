@@ -67,21 +67,34 @@ std::string stripTrailingInsertedHyphen(std::string word, const bool insertedHyp
   return word;
 }
 
+bool areWordsVisuallyAttached(const WordRef& previousWord, const WordRef& word) {
+  if (word.pageIdx != previousWord.pageIdx || word.y != previousWord.y) return false;
+
+  if (word.x >= previousWord.x) {
+    return word.x <= previousWord.x + previousWord.w + 2;
+  }
+  return previousWord.x <= word.x + word.w + 2;
+}
+
 }  // namespace
 
-ClippingResult build(const std::vector<WordRef>& words, const int from, const int to, const int total,
-                     const int startPageInSection, const int sectionPageCount) {
+ClippingResult build(const std::vector<WordRef>& words, const std::vector<int>& wordOrder, const int fromOrder,
+                     const int toOrder, const int totalOrder, const int startPageInSection,
+                     const int sectionPageCount) {
   std::string text;
   text.reserve(256);
 
-  uint16_t startPageWordIndex = 0;
-  uint16_t endPageWordIndex = 0;
-  for (int i = 0; i <= to; ++i) {
-    if (i < from && words[i].pageIdx == words[from].pageIdx) {
-      startPageWordIndex++;
+  const WordRef& firstWord = words[wordOrder[fromOrder]];
+  const WordRef& lastWord = words[wordOrder[toOrder]];
+  uint16_t startPageWordIndex = firstWord.pageWordIndex;
+  uint16_t endPageWordIndex = lastWord.pageWordIndex;
+  for (int orderIdx = fromOrder; orderIdx <= toOrder; ++orderIdx) {
+    const WordRef& word = words[wordOrder[orderIdx]];
+    if (word.pageIdx == firstWord.pageIdx) {
+      startPageWordIndex = std::min(startPageWordIndex, word.pageWordIndex);
     }
-    if (i < to && words[i].pageIdx == words[to].pageIdx) {
-      endPageWordIndex++;
+    if (word.pageIdx == lastWord.pageIdx) {
+      endPageWordIndex = std::max(endPageWordIndex, word.pageWordIndex);
     }
   }
 
@@ -89,17 +102,19 @@ ClippingResult build(const std::vector<WordRef>& words, const int from, const in
   std::string startAnchor;
   int anchorCount = 0;
 
-  for (int i = from; i <= to; ++i) {
-    const auto wordText = stripTrailingInsertedHyphen(cleanWordText(words[i].text), words[i].endsWithInsertedHyphen);
+  for (int orderIdx = fromOrder; orderIdx <= toOrder; ++orderIdx) {
+    const WordRef& word = words[wordOrder[orderIdx]];
+    const auto wordText = stripTrailingInsertedHyphen(cleanWordText(word.text), word.endsWithInsertedHyphen);
     if (wordText.empty()) {
       continue;
     }
+    const WordRef* previousWord = orderIdx > fromOrder ? &words[wordOrder[orderIdx - 1]] : nullptr;
     const bool yGap =
-        i > from && words[i].pageIdx == words[i - 1].pageIdx && words[i].y > words[i - 1].y + words[i - 1].h;
-    const bool paragraphStart = i > from && (hasEmSpace(words[i].text) || words[i].paragraphStart || yGap);
+        previousWord && word.pageIdx == previousWord->pageIdx && word.y > previousWord->y + previousWord->h;
+    const bool paragraphStart = previousWord && (hasEmSpace(word.text) || word.paragraphStart || yGap);
 
-    if (i > from && !text.empty() && !paragraphStart) {
-      const auto prevClean = cleanWordText(words[i - 1].text);
+    if (previousWord && !text.empty() && !paragraphStart) {
+      const auto prevClean = cleanWordText(previousWord->text);
       if (!prevClean.empty() && prevClean.back() == '-' && !std::isspace(static_cast<unsigned char>(wordText[0])) &&
           !std::ispunct(static_cast<unsigned char>(wordText[0]))) {
         text += wordText;
@@ -110,8 +125,7 @@ ClippingResult build(const std::vector<WordRef>& words, const int from, const in
     if (paragraphStart) {
       text += '\n';
     } else if (!text.empty()) {
-      const bool attached = words[i].pageIdx == words[i - 1].pageIdx && words[i].y == words[i - 1].y &&
-                            words[i].x <= words[i - 1].x + words[i - 1].w + 2;
+      const bool attached = previousWord && areWordsVisuallyAttached(*previousWord, word);
       if (!attached) {
         text += ' ';
       }
@@ -127,46 +141,50 @@ ClippingResult build(const std::vector<WordRef>& words, const int from, const in
 
   std::string endAnchor;
   anchorCount = 0;
-  for (int i = to; i >= from && anchorCount < ANCHOR_WORDS; --i) {
-    const auto wordText = stripTrailingInsertedHyphen(cleanWordText(words[i].text), words[i].endsWithInsertedHyphen);
+  for (int orderIdx = toOrder; orderIdx >= fromOrder && anchorCount < ANCHOR_WORDS; --orderIdx) {
+    const WordRef& word = words[wordOrder[orderIdx]];
+    const auto wordText = stripTrailingInsertedHyphen(cleanWordText(word.text), word.endsWithInsertedHyphen);
     endAnchor = endAnchor.empty() ? wordText : wordText + ' ' + endAnchor;
     anchorCount++;
   }
 
   constexpr int CONTEXT_WORDS = 3;
   std::string beforeStart;
-  for (int i = from - 1; i >= 0 && (from - i) <= CONTEXT_WORDS; --i) {
-    const auto stripped = stripTrailingInsertedHyphen(cleanWordText(words[i].text), words[i].endsWithInsertedHyphen);
+  for (int orderIdx = fromOrder - 1; orderIdx >= 0 && (fromOrder - orderIdx) <= CONTEXT_WORDS; --orderIdx) {
+    const WordRef& word = words[wordOrder[orderIdx]];
+    const auto stripped = stripTrailingInsertedHyphen(cleanWordText(word.text), word.endsWithInsertedHyphen);
     if (stripped.find_first_not_of(' ') == std::string::npos) continue;
     beforeStart = beforeStart.empty() ? stripped : stripped + ' ' + beforeStart;
   }
   std::string afterEnd;
-  for (int i = to + 1; i < total && (i - to) <= CONTEXT_WORDS; ++i) {
-    const auto stripped = stripTrailingInsertedHyphen(cleanWordText(words[i].text), words[i].endsWithInsertedHyphen);
+  for (int orderIdx = toOrder + 1; orderIdx < totalOrder && (orderIdx - toOrder) <= CONTEXT_WORDS; ++orderIdx) {
+    const WordRef& word = words[wordOrder[orderIdx]];
+    const auto stripped = stripTrailingInsertedHyphen(cleanWordText(word.text), word.endsWithInsertedHyphen);
     if (stripped.find_first_not_of(' ') == std::string::npos) continue;
     afterEnd = afterEnd.empty() ? stripped : afterEnd + ' ' + stripped;
   }
 
   std::string midText;
   constexpr int MID_WORDS = 4;
-  int midStart = (from + to) / 2 - (MID_WORDS / 2);
+  int midStart = (fromOrder + toOrder) / 2 - (MID_WORDS / 2);
   int midEnd = midStart + MID_WORDS - 1;
-  if (midStart < from) midStart = from;
-  if (midEnd > to) midEnd = to;
-  for (int i = midStart; i <= midEnd; ++i) {
-    const auto wordText = stripTrailingInsertedHyphen(cleanWordText(words[i].text), words[i].endsWithInsertedHyphen);
+  if (midStart < fromOrder) midStart = fromOrder;
+  if (midEnd > toOrder) midEnd = toOrder;
+  for (int orderIdx = midStart; orderIdx <= midEnd; ++orderIdx) {
+    const WordRef& word = words[wordOrder[orderIdx]];
+    const auto wordText = stripTrailingInsertedHyphen(cleanWordText(word.text), word.endsWithInsertedHyphen);
     if (!midText.empty()) midText += ' ';
     midText += wordText;
   }
 
-  LOG_DBG("CLIP", "Built clipping: words=%d start=\"%.24s\" end=\"%.24s\"", to - from + 1, startAnchor.c_str(),
-          endAnchor.c_str());
+  LOG_DBG("CLIP", "Built clipping: words=%d start=\"%.24s\" end=\"%.24s\"", toOrder - fromOrder + 1,
+          startAnchor.c_str(), endAnchor.c_str());
 
   return ClippingResult{std::move(text),
-                        from,
-                        to,
-                        static_cast<uint16_t>(startPageInSection + words[from].pageIdx),
-                        static_cast<uint16_t>(startPageInSection + words[to].pageIdx),
+                        wordOrder[fromOrder],
+                        wordOrder[toOrder],
+                        static_cast<uint16_t>(startPageInSection + firstWord.pageIdx),
+                        static_cast<uint16_t>(startPageInSection + lastWord.pageIdx),
                         static_cast<uint16_t>(std::max(1, sectionPageCount)),
                         startPageWordIndex,
                         endPageWordIndex,
@@ -176,7 +194,7 @@ ClippingResult build(const std::vector<WordRef>& words, const int from, const in
                         std::move(beforeStart),
                         std::move(afterEnd),
                         std::move(midText),
-                        static_cast<uint16_t>(to - from + 1)};
+                        static_cast<uint16_t>(toOrder - fromOrder + 1)};
 }
 
 }  // namespace ClipTextBuilder

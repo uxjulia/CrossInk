@@ -2865,6 +2865,7 @@ void EpubReaderActivity::startClipSelection() {
     const int lineHeight = renderer.getLineHeight(readerFontId);
     startPage = section->currentPage;
     const int pagesToLoad = std::min(3, section->pageCount - startPage);
+    std::array<uint16_t, 3> pageWordCounts{};
     words.reserve(static_cast<size_t>(std::max(0, pagesToLoad)) * 80);
 
     for (int pageIdx = 0; pageIdx < pagesToLoad; ++pageIdx) {
@@ -2906,9 +2907,11 @@ void EpubReaderActivity::startClipSelection() {
           word.w = wordWidth;
           word.h = lineHeight;
           word.pageIdx = pageIdx;
+          word.pageWordIndex = pageWordCounts[pageIdx]++;
           word.text = wordList[i];
           word.style = textStyle;
           word.endsWithInsertedHyphen = block.wordEndsWithInsertedHyphen(i);
+          word.lineIsRtl = block.getBlockStyle().isRtl;
           words.push_back(std::move(word));
         }
       }

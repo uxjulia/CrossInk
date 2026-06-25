@@ -46,6 +46,16 @@ void ClipSelectionActivity::onEnter() {
     finish();
     return;
   }
+  buildReadingOrder();
+  if (readingOrder.empty()) {
+    LOG_ERR("CLIP", "No readable word order available");
+    ActivityResult result;
+    result.isCancelled = true;
+    setResult(std::move(result));
+    finish();
+    return;
+  }
+  cursorIdx = 0;
 
   savedSectionPage = section.currentPage;
   if (!allocateSavedBuffer()) {
@@ -112,15 +122,41 @@ void ClipSelectionActivity::restoreSavedBuffer() const {
   }
 }
 
-void ClipSelectionActivity::loop() {
+void ClipSelectionActivity::buildReadingOrder() {
+  readingOrder.clear();
+  readingOrder.reserve(words.size());
+
+  int lineStart = 0;
   const int total = static_cast<int>(words.size());
+  while (lineStart < total) {
+    int lineEnd = lineStart + 1;
+    while (lineEnd < total && words[lineEnd].pageIdx == words[lineStart].pageIdx &&
+           words[lineEnd].y == words[lineStart].y) {
+      lineEnd++;
+    }
+
+    if (words[lineStart].lineIsRtl) {
+      for (int i = lineEnd - 1; i >= lineStart; --i) {
+        readingOrder.push_back(i);
+      }
+    } else {
+      for (int i = lineStart; i < lineEnd; ++i) {
+        readingOrder.push_back(i);
+      }
+    }
+    lineStart = lineEnd;
+  }
+}
+
+void ClipSelectionActivity::loop() {
+  const int total = static_cast<int>(readingOrder.size());
   using Button = MappedInputManager::Button;
 
-  auto moveCursor = [this](const int nextIdx) {
-    if (nextIdx == cursorIdx) return;
-    const int previousPage = words[cursorIdx].pageIdx;
-    cursorIdx = nextIdx;
-    if (words[cursorIdx].pageIdx != previousPage) {
+  auto moveCursor = [this](const int nextOrderIdx) {
+    if (nextOrderIdx == cursorIdx || nextOrderIdx < 0 || nextOrderIdx >= static_cast<int>(readingOrder.size())) return;
+    const int previousPage = words[readingOrder[cursorIdx]].pageIdx;
+    cursorIdx = nextOrderIdx;
+    if (words[readingOrder[cursorIdx]].pageIdx != previousPage) {
       needsPageSwitch = true;
     }
     requestUpdate();
@@ -150,7 +186,7 @@ void ClipSelectionActivity::loop() {
     } else {
       const int from = std::min(startMarkIdx, cursorIdx);
       const int to = std::max(startMarkIdx, cursorIdx);
-      auto result = ClipTextBuilder::build(words, from, to, total, startPageInSection, section.pageCount);
+      auto result = ClipTextBuilder::build(words, readingOrder, from, to, total, startPageInSection, section.pageCount);
       if (const auto paragraphIndex = section.getParagraphIndexForPage(result.sectionPage)) {
         result.paragraphIndex = *paragraphIndex;
       }
@@ -178,7 +214,7 @@ void ClipSelectionActivity::render(RenderLock&&) {
   if (!hasSavedBuffer) return;
 
   if (needsPageSwitch) {
-    switchToPage(words[cursorIdx].pageIdx);
+    switchToPage(words[readingOrder[cursorIdx]].pageIdx);
     needsPageSwitch = false;
   } else {
     restoreSavedBuffer();
@@ -273,11 +309,11 @@ void ClipSelectionActivity::prewarmHighlightedWords() const {
     const int from = std::min(startMarkIdx, cursorIdx);
     const int to = std::max(startMarkIdx, cursorIdx);
     for (int i = from; i <= to; i++) {
-      appendWord(words[i]);
+      appendWord(words[readingOrder[i]]);
     }
   }
 
-  appendWord(words[cursorIdx]);
+  appendWord(words[readingOrder[cursorIdx]]);
 
   for (uint8_t styleIdx = 0; styleIdx < prewarmTextByStyle.size(); styleIdx++) {
     if (!prewarmTextByStyle[styleIdx].empty()) {
@@ -294,41 +330,43 @@ void ClipSelectionActivity::drawHighlights() {
     const int from = std::min(startMarkIdx, cursorIdx);
     const int to = std::max(startMarkIdx, cursorIdx);
     for (int i = from; i <= to; i++) {
-      if (words[i].pageIdx == currentDisplayPage) {
-        applyWordStyle(words[i], selectionStyle);
+      const WordRef& word = words[readingOrder[i]];
+      if (word.pageIdx == currentDisplayPage) {
+        applyWordStyle(word, selectionStyle);
       }
     }
   }
 
-  if (words[cursorIdx].pageIdx == currentDisplayPage) {
-    applyWordStyle(words[cursorIdx], cursorStyle);
+  const WordRef& cursorWord = words[readingOrder[cursorIdx]];
+  if (cursorWord.pageIdx == currentDisplayPage) {
+    applyWordStyle(cursorWord, cursorStyle);
   }
 }
 
-int ClipSelectionActivity::lineEndForward(const int idx) const {
-  const int total = static_cast<int>(words.size());
-  const int lineY = words[idx].y;
-  const int page = words[idx].pageIdx;
-  for (int i = idx + 1; i < total; ++i) {
-    if (words[i].pageIdx != page || words[i].y != lineY) return i;
+int ClipSelectionActivity::lineEndForward(const int orderIdx) const {
+  const int total = static_cast<int>(readingOrder.size());
+  const WordRef& current = words[readingOrder[orderIdx]];
+  for (int i = orderIdx + 1; i < total; ++i) {
+    const WordRef& word = words[readingOrder[i]];
+    if (word.pageIdx != current.pageIdx || word.y != current.y) return i;
   }
-  return idx;
+  return orderIdx;
 }
 
-int ClipSelectionActivity::lineEndBackward(const int idx) const {
-  const int lineY = words[idx].y;
-  const int page = words[idx].pageIdx;
-  int i = idx - 1;
+int ClipSelectionActivity::lineEndBackward(const int orderIdx) const {
+  const WordRef& current = words[readingOrder[orderIdx]];
+  int i = orderIdx - 1;
   for (; i >= 0; --i) {
-    if (words[i].pageIdx != page || words[i].y != lineY) break;
+    const WordRef& word = words[readingOrder[i]];
+    if (word.pageIdx != current.pageIdx || word.y != current.y) break;
   }
-  if (i < 0) return idx;
+  if (i < 0) return orderIdx;
 
-  const int prevY = words[i].y;
-  const int prevPage = words[i].pageIdx;
+  const WordRef& previous = words[readingOrder[i]];
   int first = i;
   for (; i >= 0; --i) {
-    if (words[i].pageIdx != prevPage || words[i].y != prevY) break;
+    const WordRef& word = words[readingOrder[i]];
+    if (word.pageIdx != previous.pageIdx || word.y != previous.y) break;
     first = i;
   }
   return first;

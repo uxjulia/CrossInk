@@ -58,9 +58,11 @@ class ClipSelectionActivity final : public Activity {
   bool needsPageSwitch = false;
   bool hasSavedBuffer = false;
   mutable std::array<std::string, 4> prewarmTextByStyle;
+  std::vector<int> readingOrder;
 
   ButtonNavigator buttonNavigator;
 
+  void buildReadingOrder();
   bool allocateSavedBuffer();
   void storeCurrentBuffer();
   void restoreSavedBuffer() const;
@@ -68,6 +70,6 @@ class ClipSelectionActivity final : public Activity {
   void prewarmHighlightedWords() const;
   void drawHighlights();
   void applyWordStyle(const WordRef& word, const ClipWordStyle& style) const;
-  int lineEndForward(int idx) const;
-  int lineEndBackward(int idx) const;
+  int lineEndForward(int orderIdx) const;
+  int lineEndBackward(int orderIdx) const;
 };

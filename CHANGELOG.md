@@ -10,6 +10,7 @@
 ### Changed
 
 ### Fixed
+- EPUB clipping selection now follows right-to-left line order when selecting Hebrew and other RTL text.
 
 ## [v1.3.4] - 2026-06-24
 
