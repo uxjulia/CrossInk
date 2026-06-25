@@ -29,7 +29,7 @@
 #include "fontIds.h"
 
 namespace {
-constexpr int kContentInsetX4 = 32;
+constexpr int kContentInsetX4 = 20;
 constexpr int kContentInsetX3 = 75;
 constexpr int kTopInset = 20;
 constexpr int kCoverCornerRadius = 8;
