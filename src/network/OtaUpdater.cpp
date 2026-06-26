@@ -477,6 +477,7 @@ OtaUpdater::OtaUpdaterError OtaUpdater::installUpdate(ProgressCallback onProgres
     client_config.event_handler = captureLocationHeader;
     client_config.user_data = &redirectLocation;
     client_config.keep_alive_enable = false;
+    client_config.disable_auto_redirect = true;
 
     client = esp_http_client_init(&client_config);
     if (client == nullptr) {
