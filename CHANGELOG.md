@@ -11,6 +11,7 @@
 
 ### Fixed
 - EPUB grayscale page turns on X3 now use the grayscale-aware display base, reducing the moment where new text appears too dark before the anti-aliased overlay finishes.
+- EPUB chapters with many inline anchors or footnote links are less likely to fail with a memory error when first opened.
 - EPUB clipping selection now follows right-to-left line order when selecting Hebrew and other RTL text.
 - Lyra Carousel no longer shows a blank carousel after returning from WiFi-related File Transfer screens and moving between the menu row and book row.
 - Stable page numbers now work with EPUBs optimized by v1.3.4 as well as newer optimized EPUBs.

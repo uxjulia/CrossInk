@@ -44,6 +44,7 @@ constexpr uint8_t INITIAL_TABLE_FRAGMENT_ROW_RESERVE = 8;
 constexpr uint32_t PAGE_ELEMENT_RESERVE_MIN_MAX_ALLOC = 1024;
 // Cap chapter anchors so converter-generated IDs do not grow memory without bound.
 constexpr size_t MAX_ANCHORS_PER_CHAPTER = 1024;
+constexpr size_t MAX_PENDING_FOOTNOTES_BEFORE_LAYOUT = Page::MAX_FOOTNOTES_PER_PAGE * 3;
 
 static constexpr const char* const HEADER_TAGS[] = {"h1", "h2", "h3", "h4", "h5", "h6"};
 static constexpr const char* const BLOCK_TAGS[] = {"p", "li", "div", "br", "blockquote"};
@@ -283,6 +284,7 @@ void ChapterHtmlSlimParser::flushPendingAnchor() {
   // Record deferred anchor after previous block is flushed (and any TOC page break)
   anchorData.push_back({std::move(pendingAnchorId), static_cast<uint16_t>(completedPageCount)});
   pendingAnchorId.clear();
+  pendingAnchorFromInlineA = false;
 }
 
 bool ChapterHtmlSlimParser::handlePreviewScanStart(const XML_Char** atts) {
@@ -301,6 +303,7 @@ void ChapterHtmlSlimParser::startPreviewAtAnchor() {
   completedPageCount = 0;
   currentPageNextY = 0;
   pendingAnchorId.clear();
+  pendingAnchorFromInlineA = false;
   anchorData.clear();
   anchorData.push_back({previewAnchor, 0});
 
@@ -420,7 +423,7 @@ uint16_t ChapterHtmlSlimParser::textRunBytesBeforeLayoutLimit() const {
   return DEFAULT_TEXT_RUN_BYTES_BEFORE_LAYOUT;
 }
 
-void ChapterHtmlSlimParser::flushLongTextRunIfNeeded() {
+void ChapterHtmlSlimParser::flushLongTextRunIfNeeded(const bool force) {
   if (!currentTextBlock) {
     currentTextRunBytes = 0;
     return;
@@ -429,13 +432,14 @@ void ChapterHtmlSlimParser::flushLongTextRunIfNeeded() {
   const size_t wordLimit = bufferedWordsBeforeLayoutLimit();
   const uint16_t byteLimit = textRunBytesBeforeLayoutLimit();
   const size_t wordCount = currentTextBlock->size();
-  if (wordCount <= wordLimit && currentTextRunBytes <= byteLimit) {
+  if (!force && wordCount <= wordLimit && currentTextRunBytes <= byteLimit) {
     return;
   }
 
-  LOG_DBG("EHP", "Text block too long, splitting into multiple pages (words=%u/%u bytes=%u/%u)",
+  LOG_DBG("EHP", "Text block flush: force=%u words=%u/%u bytes=%u/%u footnotes=%u/%u", force ? 1U : 0U,
           static_cast<unsigned>(wordCount), static_cast<unsigned>(wordLimit),
-          static_cast<unsigned>(currentTextRunBytes), static_cast<unsigned>(byteLimit));
+          static_cast<unsigned>(currentTextRunBytes), static_cast<unsigned>(byteLimit),
+          static_cast<unsigned>(pendingFootnotes.size()), static_cast<unsigned>(MAX_PENDING_FOOTNOTES_BEFORE_LAYOUT));
   const int horizontalInset = currentTextBlock->getBlockStyle().totalHorizontalInset();
   const uint16_t effectiveWidth =
       (horizontalInset < viewportWidth) ? static_cast<uint16_t>(viewportWidth - horizontalInset) : viewportWidth;
@@ -617,6 +621,7 @@ void ChapterHtmlSlimParser::emitHorizontalRule(const BlockStyle& blockStyle) {
   if (!pendingAnchorId.empty()) {
     anchorData.push_back({std::move(pendingAnchorId), static_cast<uint16_t>(completedPageCount)});
     pendingAnchorId.clear();
+    pendingAnchorFromInlineA = false;
   }
 }
 
@@ -998,15 +1003,14 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
         const bool isTocAnchor =
             std::find(self->tocAnchors.begin(), self->tocAnchors.end(), idValue) != self->tocAnchors.end();
         if (isTocAnchor || (!isNonNavigableInlineElement(name) && self->anchorData.size() < MAX_ANCHORS_PER_CHAPTER)) {
-          // Flush a displaced anchor before overwriting. Consecutive non-block elements
-          // (e.g. <aside id="fn1">text</aside><aside id="fn2">) with no intervening block
-          // never trigger startNewTextBlock, so fn1 gets silently overwritten. That leaves
-          // fn1 missing from the anchor map -> getPageForAnchor returns nullopt -> reader
-          // lands at page 0 (section start) instead of the footnote.
-          if (!self->pendingAnchorId.empty()) {
+          // Flush displaced block anchors before overwriting. Keep dense inline <a id>
+          // runs coalesced so converter-generated anchors do not churn heap in link-heavy chapters.
+          const bool previousAnchorShouldBeRecorded = !self->pendingAnchorFromInlineA;
+          if (previousAnchorShouldBeRecorded && !self->pendingAnchorId.empty()) {
             self->flushPendingAnchor();
           }
           self->pendingAnchorId = idValue;
+          self->pendingAnchorFromInlineA = !isTocAnchor && strcmp(name, "a") == 0;
         }
       } else if (strcmp(atts[i], "dir") == 0) {
         dirAttr = atts[i + 1];
@@ -2272,6 +2276,12 @@ void XMLCALL ChapterHtmlSlimParser::endElement(void* userData, const XML_Char* n
       int wordIndex =
           self->wordsExtractedInBlock + (self->currentTextBlock ? static_cast<int>(self->currentTextBlock->size()) : 0);
       self->pendingFootnotes.push_back({wordIndex, entry});
+      if (self->pendingFootnotes.size() >= MAX_PENDING_FOOTNOTES_BEFORE_LAYOUT && self->tableDepth == 0) {
+        if (self->partWordBufferIndex > 0) {
+          self->flushPartWordBuffer();
+        }
+        self->flushLongTextRunIfNeeded(true);
+      }
     }
     self->insideFootnoteLink = false;
   }
@@ -2510,6 +2520,7 @@ bool ChapterHtmlSlimParser::parseAndBuildPages() {
     if (!pendingAnchorId.empty()) {
       anchorData.push_back({std::move(pendingAnchorId), static_cast<uint16_t>(completedPageCount)});
       pendingAnchorId.clear();
+      pendingAnchorFromInlineA = false;
     }
     if (currentPage && !currentPage->elements.empty()) {
       completePageFn(std::move(currentPage), xpathParagraphIndex, xpathListItemIndex);
