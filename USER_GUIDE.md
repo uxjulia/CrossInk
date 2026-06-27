@@ -26,16 +26,16 @@ Welcome to the **CrossInk** firmware. This guide outlines the hardware controls,
     - [3.7 Sleep Screen](#37-sleep-screen)
     - [3.8 Custom Fonts (SD Card)](#38-custom-fonts-sd-card)
   - [4. Reading Mode](#4-reading-mode)
-      - [Page Turning](#page-turning)
-      - [Chapter Navigation](#chapter-navigation)
-      - [Auto Page Turn](#auto-page-turn)
-      - [Tilt Page Turn (X3 only)](#tilt-page-turn-x3-only)
-      - [Footnote Navigation](#footnote-navigation)
-      - [System Navigation](#system-navigation)
-      - [Supported Languages](#supported-languages)
+    - [Page Turning](#page-turning)
+    - [Chapter Navigation](#chapter-navigation)
+    - [Auto Page Turn](#auto-page-turn)
+    - [Tilt Page Turn (X3 only)](#tilt-page-turn-x3-only)
+    - [Footnote Navigation](#footnote-navigation)
+    - [System Navigation](#system-navigation)
+    - [Supported Languages](#supported-languages)
   - [5. Reader Menu](#5-reader-menu)
-      - [5.1 Chapter Selection](#51-chapter-selection)
-      - [5.2 Bookmarks](#52-bookmarks)
+    - [5.1 Chapter Selection](#51-chapter-selection)
+    - [5.2 Bookmarks](#52-bookmarks)
   - [6. Current Limitations & Roadmap](#6-current-limitations--roadmap)
   - [7. Troubleshooting Issues & Escaping Bootloop](#7-troubleshooting-issues--escaping-bootloop)
 
@@ -92,10 +92,10 @@ See [Reading Mode](#4-reading-mode) below for more information.
 
 The Browse Files screen acts as a file and folder browser. The full path to the current directory is shown at the top of the screen. File extensions are displayed alongside each filename, and directories are shown with brackets (e.g. `[folder-name]`). Hidden directories can be shown from settings.
 
-* **Navigate List:** Use **Left** (or **Volume Up**), or **Right** (or **Volume Down**) to move the selection cursor up and down through folders and books. You can also long-press these buttons to scroll a full page up or down.
-* **Open Selection:** Press **Confirm** to open a folder or start reading a selected book. Selecting a `.bmp` file will open the image viewer.
-* **Delete Files or Folders:** Hold and release **Confirm** to open the selected file or folder action menu, then choose **Delete**. You will be given an option to either confirm or cancel. Folder deletion is limited to empty folders.
-* **Book Actions:** EPUB and XTC files can also show options such as **Delete Cache** or **Mark Finished** from the same action menu.
+- **Navigate List:** Use **Left** (or **Volume Up**), or **Right** (or **Volume Down**) to move the selection cursor up and down through folders and books. You can also long-press these buttons to scroll a full page up or down.
+- **Open Selection:** Press **Confirm** to open a folder or start reading a selected book. Selecting a `.bmp` file will open the image viewer.
+- **Delete Files or Folders:** Hold and release **Confirm** to open the selected file or folder action menu, then choose **Delete**. You will be given an option to either confirm or cancel. Folder deletion is limited to empty folders.
+- **Book Actions:** EPUB and XTC files can also show options such as **Delete Cache** or **Mark Finished** from the same action menu.
 
 ### 3.4 Recent Books Screen
 
@@ -123,7 +123,6 @@ A **Wi-Fi signal strength indicator** (dBm) is displayed on-screen during joined
 CrossInk supports sending books from Calibre using the CrossPoint Reader device plugin.
 
 1. Install the plugin in Calibre:
-
    - Head to https://github.com/crosspoint-reader/calibre-plugins/releases to download the latest version of the crosspoint_reader plugin.
 
    - Download the zip file.
@@ -143,7 +142,6 @@ The Settings screen allows you to configure the device's behavior. There are a f
 #### 3.6.1 Display
 
 - **Sleep Screen**: Which sleep screen to display when the device sleeps:
-
   - "Dark" (default) - The default dark CrossInk logo sleep screen
   - "Light" - The same default sleep screen, on a white background
   - "Custom" - Custom images from the SD card; see [Sleep Screen](#37-sleep-screen) below for more information
@@ -157,18 +155,17 @@ The Settings screen allows you to configure the device's behavior. There are a f
   - "Quick Resume" - Keeps the current content visible while sleeping
 
 - **Sleep Screen Cover Mode**: How to display the book cover when "Cover" sleep screen is selected:
-
   - "Fit" (default) - Scale the image down to fit centered on the screen, padding with white borders as necessary
   - "Crop" - Scale the image down and crop as necessary to try to fill the screen (Note: this is experimental and may not work as expected)
 
 - **Sleep Screen Cover Filter**: What filter will be applied to the book cover when "Cover" sleep screen is selected:
-
   - "None" (default) - The cover image will be converted to a grayscale image and displayed as it is
   - "Contrast" - The image will be displayed as a black & white image without grayscale conversion
   - "Inverted" - The image will be inverted as in white & black and will be displayed without grayscale conversion
 
-- **Hide Battery %**: Configure where to suppress the battery percentage display in the status bar; the battery icon will still be shown:
+- **Quick Resume on Timeout**: Whether to enable the "Quick Resume" sleep screen when the device goes to sleep due to inactivity (System > Time to Sleep). This is useful for quickly resuming reading without waiting for the device to fully wake up and load the book. This overwrites the Sleep Screen Cover Mode when enabled.
 
+- **Hide Battery %**: Configure where to suppress the battery percentage display in the status bar; the battery icon will still be shown:
   - "Never" (default) - Always show battery percentage
   - "In Reader" - Show battery percentage everywhere except in reading mode
   - "Always" - Always hide battery percentage
@@ -176,7 +173,6 @@ The Settings screen allows you to configure the device's behavior. There are a f
 - **Refresh Frequency**: Set how often the screen does a full refresh while reading to reduce ghosting; options are every 1, 5, 10, 15, or 30 pages.
 
 - **UI Theme**: Set which UI theme to use:
-
   - "Classic" - The original Crosspoint theme
   - "Minimal" - A minimal theme with a large book cover
   - "Lyra" - A theme with simple icons featuring your current book
@@ -187,7 +183,6 @@ The Settings screen allows you to configure the device's behavior. There are a f
 - **Recent Books View**: Choose whether the Recent Books screen uses a list or grid layout.
 
 - **Sunlight Fading Fix**: Configure whether to enable a software-fix for the issue where white X4 models may fade when used in direct sunlight:
-
   - "OFF" (default) - Disable the fix
   - "ON" - Enable the fix
 
@@ -197,7 +192,6 @@ The Settings screen allows you to configure the device's behavior. There are a f
 #### 3.6.2 Reader
 
 - **Reader Font Family**: Choose the font used for reading:
-
   - "Lexend Deca" (default)
   - "Bitter"
   - "ChareInk"
@@ -215,14 +209,12 @@ The Settings screen allows you to configure the device's behavior. There are a f
 - **Hyphenation**: Whether to hyphenate text in Reading Mode; options are "ON" or "OFF".
 
 - **Reading Orientation**: Set the screen orientation for reading EPUB files:
-
   - "Portrait" (default) - Standard portrait orientation
   - "Landscape CW" - Landscape, rotated clockwise
   - "Inverted" - Portrait, upside down
   - "Landscape CCW" - Landscape, rotated counter-clockwise
 
 - **Extra Paragraph Spacing**: Set how to handle paragraph breaks:
-
   - "ON" - Vertical space will be added between paragraphs in Reading Mode
   - "OFF" - Paragraphs will not have vertical space added, but will have first-line indentation
 
@@ -233,6 +225,16 @@ The Settings screen allows you to configure the device's behavior. There are a f
 - **Bionic Reading**: Bolds the first part of each word to create visual fixation points. This can help improve reading speed and focus; options are "ON" or "OFF" (default).
 
 - **Guide Dots**: Adds guide dots between words; options are "ON" or "OFF" (default).
+
+- **Customise Status Bar**: Configure the status bar displayed while reading:
+  - Chapter Page Count - Show/Hide the current page in the chapter (ex: 5/25). Page count may change based on the font size and margins set.
+  - Book Progress Percentage - Show/Hide the current percent progress in the book.
+  - Progress Bar - Show/Hide a progress bar for either the book or chapter.
+  - Progress Bar Thickness - Set the thickness of the progress bar
+  - Title - Display the chapter or book title
+  - Time Left - Display the estimated reading time left for the book or chapter
+  - Battery - Show/Hide the battery indicator
+  - XTC Status Bar - Show/Hide a status bar for XTC files
 
 #### 3.6.3 Controls
 
@@ -249,7 +251,6 @@ The Settings screen allows you to configure the device's behavior. There are a f
 - **Side Button Long-press Action**: Set whether long-pressing side buttons does nothing, skips chapters, changes font size, or changes orientation.
 
 - **Short-press Action / Long-press Action**: Controls the effect of a short or long press of the power button:
-
   - "Ignore" (default) - Require a long press to turn off the device
   - "Sleep" - A short press puts the device into sleep mode
   - "Page Turn" - A short press in reading mode turns to the next page; a long press turns the device off
@@ -283,7 +284,6 @@ CrossInk supports saving multiple OPDS servers and switching between them when b
 2. Select **Add Server** to create a new entry, or select an existing server to edit it.
 
 3. Configure these fields:
-
    - **Server Name**: Optional display name (for example, "Home Calibre" or "Public Catalog").
 
    - **OPDS Server URL**: Full catalog root URL (for Calibre Content Server, usually ends with `/opds`).
@@ -345,7 +345,6 @@ Already have KOReader Sync credentials? Skip registration; basic sync only requi
 When this returns `HTTP 402` with `{"code":2002,"message":"Username is already registered."}`, pick a different username or use that existing account.
 
 2. On each device:
-
    - Go to **Settings -> System -> KOReader Sync**.
 
    - Set **Username** and **Password** (enter the plain password; CrossInk computes MD5 internally, and use the same values on all devices).
@@ -355,7 +354,6 @@ When this returns `HTTP 402` with `{"code":2002,"message":"Username is already r
    - Run **Authenticate**.
 
 3. While reading, press **Confirm** to open the reader menu, then select **Sync Progress**.
-
    - Choose **Apply Remote** to jump to remote progress.
 
    - Choose **Upload Local** to push current progress.
@@ -422,7 +420,6 @@ curl -i "http://<server-ip>:17200/users/create" \
 If this returns `HTTP 402` with `{"code":2002,"message":"Username is already registered."}`, the account already exists.
 
 4. On each device:
-
    - Go to **Settings -> System -> KOReader Sync**.
 
    - Set **Username** and **Password** (enter the plain password; CrossInk computes MD5 internally, and use the same values on all devices).
@@ -434,7 +431,6 @@ If this returns `HTTP 402` with `{"code":2002,"message":"Username is already reg
 If you use the HTTPS listener, use `https://<server-ip>:7200` (`curl -k` only for self-signed certificate testing).
 
 5. While reading, press **Confirm** to open the reader menu, then select **Sync Progress**.
-
    - Choose **Apply Remote** to jump to remote progress.
 
    - Choose **Upload Local** to push current progress.
@@ -445,8 +441,8 @@ The **Sleep Screen** setting controls what is displayed when the device goes to 
 
 | Mode               | Behavior                                                                                                                     |
 | ------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
-| **Dark** (default) | The CrossInk logo on a dark background.                                                                                    |
-| **Light**          | The CrossInk logo on a white background.                                                                                   |
+| **Dark** (default) | The CrossInk logo on a dark background.                                                                                      |
+| **Light**          | The CrossInk logo on a white background.                                                                                     |
 | **Custom**         | A custom image from the SD card (see below). Falls back to **Dark** if no custom image is found.                             |
 | **Cover**          | The cover of the currently open book. Falls back to **Dark** if no book is open.                                             |
 | **Cover + Custom** | The cover of the currently open book, shown only while actively reading. Falls back to **Custom** behavior when not reading. |
@@ -513,8 +509,8 @@ If the **Short-press Action** setting is set to "Page Turn", you can also turn t
 
 ### Chapter Navigation
 
-* **Next Chapter:** Press and **hold** the **Right** (or **Volume Down**) button briefly, then release.
-* **Previous Chapter:** Press and **hold** the **Left** (or **Volume Up**) button briefly, then release.
+- **Next Chapter:** Press and **hold** the **Right** (or **Volume Down**) button briefly, then release.
+- **Previous Chapter:** Press and **hold** the **Left** (or **Volume Up**) button briefly, then release.
 
 This feature can be disabled in the **[Controls Settings](#363-controls)** to help avoid changing chapters by mistake.
 
@@ -534,17 +530,17 @@ If the device goes to sleep or you close the book while viewing a footnote, the 
 
 ### System Navigation
 
-* **Return to Home:** Press the **Back** button to close the book and return to the **[Home](#31-home-screen)** screen.
-* **Return to Browse Files:** Press and hold the **Back** button to close the book and return to the **[Browse Files](#33-browse-files-screen)** screen.
-* **Reader Menu:** Press **Confirm** to open the **[Reader Menu](#5-reader-menu)**, which includes chapter navigation, reading options, and more.
+- **Return to Home:** Press the **Back** button to close the book and return to the **[Home](#31-home-screen)** screen.
+- **Return to Browse Files:** Press and hold the **Back** button to close the book and return to the **[Browse Files](#33-browse-files-screen)** screen.
+- **Reader Menu:** Press **Confirm** to open the **[Reader Menu](#5-reader-menu)**, which includes chapter navigation, reading options, and more.
 
 ### Supported Languages
 
 CrossInk renders text using the following Unicode character blocks, enabling support for a wide range of languages:
 
-* **Latin Script (Basic, Supplement, Extended-A/B):** Covers English, German, French, Spanish, Portuguese, Italian, Dutch, Swedish, Norwegian, Danish, Finnish, Polish, Czech, Hungarian, Romanian, Slovak, Slovenian, Turkish, Catalan, and others.
-* **Cyrillic Script (Standard and Extended):** Covers Russian, Ukrainian, Belarusian, Bulgarian, Serbian, Macedonian, Kazakh, Kyrgyz, Mongolian, and others.
-* **Vietnamese:** Supported via extended Latin glyph coverage in the built-in reader fonts.
+- **Latin Script (Basic, Supplement, Extended-A/B):** Covers English, German, French, Spanish, Portuguese, Italian, Dutch, Swedish, Norwegian, Danish, Finnish, Polish, Czech, Hungarian, Romanian, Slovak, Slovenian, Turkish, Catalan, and others.
+- **Cyrillic Script (Standard and Extended):** Covers Russian, Ukrainian, Belarusian, Bulgarian, Serbian, Macedonian, Kazakh, Kyrgyz, Mongolian, and others.
+- **Vietnamese:** Supported via extended Latin glyph coverage in the built-in reader fonts.
 
 What is not supported with built-in reader fonts: Chinese, Japanese, Korean, Arabic, Greek, Hebrew, and Farsi. However, **CJK, Hebrew, Greek, and other extended scripts can be enabled by installing custom SD card fonts** — see [Custom Fonts (SD Card)](#38-custom-fonts-sd-card).
 
@@ -557,7 +553,7 @@ Press **Confirm** while reading to open the Reader Menu. From here you can acces
 Available options include:
 
 - **Select Chapter** – Open the table of contents to jump to a specific chapter (see [Chapter Selection](#51-chapter-selection) below).
-- **Footnotes** – Navigate to the footnotes for the current section *(only shown in books that contain footnotes)*.
+- **Footnotes** – Navigate to the footnotes for the current section _(only shown in books that contain footnotes)_.
 - **Reader Options** – Open reader-specific options without leaving the book.
 - **Controls** – Open reader control options without leaving the book.
 - **Reading Orientation** – Cycle through screen orientations without leaving the reader.
@@ -580,7 +576,7 @@ Accessible by selecting **Chapters** from the Reader Menu.
 
 1. Use **Left** (or **Volume Up**), or **Right** (or **Volume Down**) to highlight the desired chapter.
 2. Press **Confirm** to jump to that chapter.
-3. *Alternatively, press **Back** to cancel and return to your current page.*
+3. _Alternatively, press **Back** to cancel and return to your current page._
 
 ---
 
@@ -598,9 +594,9 @@ Bookmarks are stored as per-book `.bin` files in the `.crosspoint/bookmarks` fol
 
 Please note that this firmware is currently in active development. The following features are **not yet supported** but are planned for future updates:
 
-* **Cover Images:** Large cover images embedded into EPUB require several seconds (~10s for ~2000 pixel tall image) to convert for sleep screen and home screen thumbnail. Consider optimizing the EPUB with e.g. https://github.com/bigbag/epub-to-xtc-converter to speed this up.
-* **Unsupported Image Formats:** Most JPG and PNG images in EPUBs render correctly. GIFs and progressive JPEGs are not supported and will fall back to an `[Image]` placeholder.
-* **Dictionary Lookup:** Inline word lookup is not yet implemented.
+- **Cover Images:** Large cover images embedded into EPUB require several seconds (~10s for ~2000 pixel tall image) to convert for sleep screen and home screen thumbnail. Consider optimizing the EPUB with e.g. https://github.com/bigbag/epub-to-xtc-converter to speed this up.
+- **Unsupported Image Formats:** Most JPG and PNG images in EPUBs render correctly. GIFs and progressive JPEGs are not supported and will fall back to an `[Image]` placeholder.
+- **Dictionary Lookup:** Inline word lookup is not yet implemented.
 
 ---
 
