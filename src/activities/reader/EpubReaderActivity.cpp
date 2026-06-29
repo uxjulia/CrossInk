@@ -1731,7 +1731,7 @@ void EpubReaderActivity::onEnter() {
   APP_STATE.openEpubPath = epub->getPath();
   APP_STATE.saveToFile();
   RECENT_BOOKS.addOrUpdateBook(epub->getPath(), epub->getTitle(), epub->getAuthor(), epub->getThumbBmpPath());
-  SleepCoverAssets::prepareEpub(*epub);
+  SleepCoverAssets::prepareEpub(*epub, &renderer);
 
   // Trigger first update
   requestUpdate();

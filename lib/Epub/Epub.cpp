@@ -2,9 +2,11 @@
 
 #include <ArduinoJson.h>
 #include <FsHelpers.h>
+#include <GfxRenderer.h>
 #include <HalStorage.h>
 #include <JpegToBmpConverter.h>
 #include <Logging.h>
+#include <MemoryBudget.h>
 #include <PngToBmpConverter.h>
 #include <Utf8.h>
 #include <ZipFile.h>
@@ -85,6 +87,22 @@ bool cachedBmpMatchesDimensions(const std::string& path, const int width, const 
     Storage.remove(path.c_str());
   }
   return matches;
+}
+
+void releaseReaderSdFontCachesBeforeCoverDecode(const GfxRenderer* renderer, const int readerFontId,
+                                                const char* reason) {
+  if (!renderer) return;
+  if (readerFontId <= 0) return;
+  if (!renderer->isSdCardFont(readerFontId)) return;
+
+  const auto before = MemoryBudget::snapshot();
+  if (!MemoryBudget::shouldReleaseSdFontCachesForEpubInlineImage(before)) return;
+
+  if (!renderer->releaseSdCardFontForLowMemory(readerFontId)) return;
+
+  const auto after = MemoryBudget::snapshot();
+  LOG_DBG("EBP", "Released SD font caches before %s: free=%u->%u maxAlloc=%u->%u", reason, before.freeHeap,
+          after.freeHeap, before.maxAllocHeap, after.maxAllocHeap);
 }
 
 std::string getThumbBmpPathForDimensions(const std::string& cachePath, int width, int height) {
@@ -785,7 +803,7 @@ std::string Epub::getCoverBmpPath(bool cropped) const {
   return cachePath + "/" + coverFileName + ".bmp";
 }
 
-bool Epub::generateCoverBmp(bool cropped) const {
+bool Epub::generateCoverBmp(bool cropped, const GfxRenderer* renderer, const int readerFontId) const {
   // Already generated, return true
   if (Storage.exists(getCoverBmpPath(cropped).c_str())) {
     return true;
@@ -830,6 +848,7 @@ bool Epub::generateCoverBmp(bool cropped) const {
       Storage.remove(coverJpgTempPath.c_str());
       return false;
     }
+    releaseReaderSdFontCachesBeforeCoverDecode(renderer, readerFontId, "cover JPG decode");
     const bool success = JpegToBmpConverter::jpegFileToBmpStream(coverJpg, coverBmp, cropped);
     // Explicitly close() files before calling Storage.remove()
     coverJpg.close();
@@ -872,6 +891,7 @@ bool Epub::generateCoverBmp(bool cropped) const {
       Storage.remove(coverPngTempPath.c_str());
       return false;
     }
+    releaseReaderSdFontCachesBeforeCoverDecode(renderer, readerFontId, "cover PNG decode");
     const bool success = PngToBmpConverter::pngFileToBmpStream(coverPng, coverBmp, cropped);
     // Explicitly close() files before calling Storage.remove()
     coverPng.close();
@@ -910,15 +930,20 @@ std::string Epub::getAdaptiveThumbBmpPath(int width, int height) const {
   return getAdaptiveThumbBmpPathForDimensions(cachePath, width, height);
 }
 
-bool Epub::generateThumbBmp(int height) const { return generateThumbBmp(0, height); }
-
-bool Epub::generateThumbBmp(int width, int height) const { return generateThumbBmpInternal(width, height, false); }
-
-bool Epub::generateAdaptiveThumbBmp(int width, int height) const {
-  return generateThumbBmpInternal(width, height, true);
+bool Epub::generateThumbBmp(int height, const GfxRenderer* renderer, const int readerFontId) const {
+  return generateThumbBmp(0, height, renderer, readerFontId);
 }
 
-bool Epub::generateThumbBmpInternal(int width, int height, const bool adaptiveContain) const {
+bool Epub::generateThumbBmp(int width, int height, const GfxRenderer* renderer, const int readerFontId) const {
+  return generateThumbBmpInternal(width, height, false, renderer, readerFontId);
+}
+
+bool Epub::generateAdaptiveThumbBmp(int width, int height, const GfxRenderer* renderer, const int readerFontId) const {
+  return generateThumbBmpInternal(width, height, true, renderer, readerFontId);
+}
+
+bool Epub::generateThumbBmpInternal(int width, int height, const bool adaptiveContain, const GfxRenderer* renderer,
+                                    const int readerFontId) const {
   if (height <= 0) {
     LOG_DBG("EBP", "Using default thumb BMP height for requested dimensions: %dx%d", width, height);
   }
@@ -969,6 +994,7 @@ bool Epub::generateThumbBmpInternal(int width, int height, const bool adaptiveCo
     }
     int THUMB_TARGET_WIDTH = width;
     int THUMB_TARGET_HEIGHT = height;
+    releaseReaderSdFontCachesBeforeCoverDecode(renderer, readerFontId, "thumbnail JPG decode");
     const bool success = JpegToBmpConverter::jpegFileTo1BitBmpStreamWithSize(coverJpg, thumbBmp, THUMB_TARGET_WIDTH,
                                                                              THUMB_TARGET_HEIGHT, adaptiveContain);
     // Explicitly close() files before calling Storage.remove()
@@ -1012,6 +1038,7 @@ bool Epub::generateThumbBmpInternal(int width, int height, const bool adaptiveCo
     }
     int THUMB_TARGET_WIDTH = width;
     int THUMB_TARGET_HEIGHT = height;
+    releaseReaderSdFontCachesBeforeCoverDecode(renderer, readerFontId, "thumbnail PNG decode");
     const bool success = PngToBmpConverter::pngFileTo1BitBmpStreamWithSize(coverPng, thumbBmp, THUMB_TARGET_WIDTH,
                                                                            THUMB_TARGET_HEIGHT, adaptiveContain);
     // Explicitly close() files before calling Storage.remove()

@@ -664,11 +664,13 @@ void HomeActivity::loadRecentCovers(int coverHeight) {
             }
             bool success = true;
             if (centerMissing)
-              success =
-                  epub.generateThumbBmp(LyraCarouselTheme::kCenterThumbW, LyraCarouselTheme::kCenterThumbH) && success;
+              success = epub.generateThumbBmp(LyraCarouselTheme::kCenterThumbW, LyraCarouselTheme::kCenterThumbH,
+                                              &renderer, SETTINGS.getReaderFontId()) &&
+                        success;
             if (sideMissing)
-              success =
-                  epub.generateThumbBmp(LyraCarouselTheme::kSideCoverW, LyraCarouselTheme::kSideCoverH) && success;
+              success = epub.generateThumbBmp(LyraCarouselTheme::kSideCoverW, LyraCarouselTheme::kSideCoverH, &renderer,
+                                              SETTINGS.getReaderFontId()) &&
+                        success;
             if (!success) {
               updateRecentBookCoverPath(book, "");
               book.coverBmpPath = "";
@@ -734,10 +736,13 @@ void HomeActivity::loadRecentCovers(int coverHeight) {
             const bool success =
                 useDashboardThumb
                     ? epub.generateAdaptiveThumbBmp(dashboardHomeCoverWidth(coverHeight),
-                                                    dashboardHomeCoverHeight(coverHeight))
-                    : (useExactHomeThumb ? epub.generateAdaptiveThumbBmp(minimalHomeCoverWidth(coverHeight),
-                                                                         minimalHomeCoverHeight(coverHeight))
-                                         : epub.generateThumbBmp(0, coverHeight));
+                                                    dashboardHomeCoverHeight(coverHeight), &renderer,
+                                                    SETTINGS.getReaderFontId())
+                    : (useExactHomeThumb
+                           ? epub.generateAdaptiveThumbBmp(minimalHomeCoverWidth(coverHeight),
+                                                           minimalHomeCoverHeight(coverHeight), &renderer,
+                                                           SETTINGS.getReaderFontId())
+                           : epub.generateThumbBmp(0, coverHeight, &renderer, SETTINGS.getReaderFontId()));
             if (!success) {
               updateRecentBookCoverPath(book, "");
               book.coverBmpPath = "";

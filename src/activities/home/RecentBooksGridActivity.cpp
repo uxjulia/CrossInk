@@ -285,7 +285,7 @@ void RecentBooksGridActivity::loadPageCovers(int pageStart) {
             popupRect = GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
           }
           GUI.fillPopupProgress(renderer, popupRect, 10 + (processedCount * 90) / totalToProcess);
-          if (epub.generateThumbBmp(COVER_WIDTH, COVER_HEIGHT)) {
+          if (epub.generateThumbBmp(COVER_WIDTH, COVER_HEIGHT, &renderer, SETTINGS.getReaderFontId())) {
             const std::string reusablePath = epub.getThumbBmpPath();
             book.coverBmpPath = reusablePath;
             updateRecentBookCoverPath(book, reusablePath);

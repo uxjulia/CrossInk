@@ -623,7 +623,7 @@ void SleepActivity::renderCoverSleepScreen() const {
 
   bool cropped = SETTINGS.sleepScreenCoverMode == CrossPointSettings::SLEEP_SCREEN_COVER_MODE::CROP;
   std::string coverBmpPath = SleepCoverAssets::cachedCoverPathFor(path, cropped);
-  if (coverBmpPath.empty() && SleepCoverAssets::prepareFullCoverForPath(path, cropped)) {
+  if (coverBmpPath.empty() && SleepCoverAssets::prepareFullCoverForPath(path, cropped, &renderer)) {
     coverBmpPath = SleepCoverAssets::cachedCoverPathFor(path, cropped);
   }
   if (coverBmpPath.empty()) {
@@ -721,7 +721,7 @@ void SleepActivity::renderDashboardSleepScreen() const {
   RecentBook book = recentBookForPath(path);
   const std::string fallbackCoverPath = book.coverBmpPath;
   book.coverBmpPath = SleepCoverAssets::cachedDashboardCoverPathFor(path);
-  if (book.coverBmpPath.empty() && SleepCoverAssets::prepareDashboardCoverForPath(path)) {
+  if (book.coverBmpPath.empty() && SleepCoverAssets::prepareDashboardCoverForPath(path, &renderer)) {
     book.coverBmpPath = SleepCoverAssets::cachedDashboardCoverPathFor(path);
   }
   if (book.coverBmpPath.empty()) {
