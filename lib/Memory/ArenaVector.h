@@ -73,6 +73,11 @@ class ArenaVector {
   }
 
   void clear() { size_ = 0; }
+  void resetStorage() {
+    data_ = nullptr;
+    size_ = 0;
+    capacity_ = 0;
+  }
 
   [[nodiscard]] bool empty() const { return size_ == 0; }
   [[nodiscard]] size_t size() const { return size_; }

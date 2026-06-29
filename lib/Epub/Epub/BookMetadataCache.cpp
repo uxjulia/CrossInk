@@ -5,7 +5,6 @@
 #include <Utf8.h>
 #include <ZipFile.h>
 
-#include <deque>
 #include <limits>
 
 #include "FsHelpers.h"
@@ -16,6 +15,7 @@ constexpr uint8_t BOOK_CACHE_VERSION = 8;          // v8: TOC/book titles stored
 constexpr char bookBinFile[] = "/book.bin";
 constexpr char tmpSpineBinFile[] = "/spine.bin.tmp";
 constexpr char tmpTocBinFile[] = "/toc.bin.tmp";
+constexpr size_t METADATA_ARENA_SLAB_BYTES = 4096;
 }  // namespace
 
 /* ============= WRITING / BUILDING FUNCTIONS ================ */
@@ -54,8 +54,16 @@ bool BookMetadataCache::beginTocPass() {
   }
 
   if (spineCount >= LARGE_SPINE_THRESHOLD) {
-    spineHrefIndex.clear();
-    spineHrefIndex.resize(spineCount);
+    spineHrefIndex.resetStorage();
+    spineHrefIndexArena.release();
+    if (!spineHrefIndexArena.init(METADATA_ARENA_SLAB_BYTES) || !spineHrefIndex.resize(spineCount)) {
+      LOG_ERR("BMC", "Failed to allocate spine href index arena for %u spine items", spineCount);
+      spineHrefIndex.resetStorage();
+      spineHrefIndexArena.release();
+      tocFile.close();
+      spineFile.close();
+      return false;
+    }
     spineFile.seek(0);
     for (int i = 0; i < spineCount; i++) {
       auto entry = readSpineEntry(spineFile);
@@ -84,8 +92,8 @@ bool BookMetadataCache::endTocPass() {
   tocFile.close();
   spineFile.close();
 
-  spineHrefIndex.clear();
-  spineHrefIndex.shrink_to_fit();
+  spineHrefIndex.resetStorage();
+  spineHrefIndexArena.release();
   useSpineHrefIndex = false;
 
   return true;
@@ -120,6 +128,11 @@ bool BookMetadataCache::buildBookBin(const std::string& epubPath, const BookMeta
     spineFile.close();
     return false;
   }
+  auto closeBuildFiles = [this]() {
+    bookFile.close();
+    spineFile.close();
+    tocFile.close();
+  };
 
   constexpr uint32_t headerASize = sizeof(BOOK_CACHE_MAGIC) + sizeof(BOOK_CACHE_VERSION) +
                                    /* LUT Offset */ sizeof(uint32_t) + sizeof(spineCount) + sizeof(tocCount);
@@ -161,8 +174,24 @@ bool BookMetadataCache::buildBookBin(const std::string& epubPath, const BookMeta
   // LUTs complete
   // Loop through spines from spine file matching up TOC indexes, calculating cumulative size and writing to book.bin
 
+  Arena metadataArena;
+  if (!metadataArena.init(METADATA_ARENA_SLAB_BYTES)) {
+    LOG_ERR("BMC", "Failed to allocate metadata scratch arena (%u bytes)",
+            static_cast<unsigned>(METADATA_ARENA_SLAB_BYTES));
+    closeBuildFiles();
+    return false;
+  }
+
   // Build spineIndex->tocIndex mapping in one pass (O(n) instead of O(n*m))
-  std::deque<int16_t> spineToTocIndex(spineCount, -1);
+  ArenaVector<int16_t> spineToTocIndex(metadataArena);
+  if (!spineToTocIndex.resize(spineCount)) {
+    LOG_ERR("BMC", "Failed to allocate spine-to-TOC index for %u spine items", spineCount);
+    closeBuildFiles();
+    return false;
+  }
+  for (size_t i = 0; i < spineToTocIndex.size(); ++i) {
+    spineToTocIndex[i] = -1;
+  }
   tocFile.seek(0);
   for (int j = 0; j < tocCount; j++) {
     auto tocEntry = readTocEntry(tocFile);
@@ -178,9 +207,7 @@ bool BookMetadataCache::buildBookBin(const std::string& epubPath, const BookMeta
   if (!zip.open()) {
     LOG_ERR("BMC", "Could not open EPUB zip for size calculations");
     // Explicit close() required: member variables persist beyond function scope
-    bookFile.close();
-    spineFile.close();
-    tocFile.close();
+    closeBuildFiles();
     return false;
   }
   // NOTE: We intentionally skip calling loadAllFileStatSlims() here.
@@ -191,14 +218,19 @@ bool BookMetadataCache::buildBookBin(const std::string& epubPath, const BookMeta
   // This is O(n*log(m)) instead of O(n*m) while avoiding memory exhaustion.
   // See: https://github.com/crosspoint-reader/crosspoint-reader/issues/134
 
-  std::deque<uint32_t> spineSizes;
+  ArenaVector<uint32_t> spineSizes(metadataArena);
   bool useBatchSizes = false;
 
   if (spineCount >= LARGE_SPINE_THRESHOLD) {
     LOG_DBG("BMC", "Using batch size lookup for %d spine items", spineCount);
 
-    std::deque<ZipFile::SizeTarget> targets;
-    targets.resize(spineCount);
+    ArenaVector<ZipFile::SizeTarget> targets(metadataArena);
+    if (!targets.resize(spineCount) || !spineSizes.resize(spineCount)) {
+      LOG_ERR("BMC", "Failed to allocate batch size lookup scratch for %u spine items", spineCount);
+      zip.close();
+      closeBuildFiles();
+      return false;
+    }
 
     spineFile.seek(0);
     for (int i = 0; i < spineCount; i++) {
@@ -216,12 +248,9 @@ bool BookMetadataCache::buildBookBin(const std::string& epubPath, const BookMeta
       return a.hash < b.hash || (a.hash == b.hash && a.len < b.len);
     });
 
-    spineSizes.resize(spineCount, 0);
-    int matched = zip.fillUncompressedSizes(targets, spineSizes);
-    LOG_DBG("BMC", "Batch lookup matched %d/%d spine items", matched, spineCount);
-
-    targets.clear();
-    targets.shrink_to_fit();
+    int matched = zip.fillUncompressedSizes(targets.data(), targets.size(), spineSizes.data(), spineSizes.size());
+    LOG_DBG("BMC", "Batch lookup matched %d/%d spine items (arena=%u bytes)", matched, spineCount,
+            static_cast<unsigned>(metadataArena.used()));
 
     useBatchSizes = true;
   }
@@ -263,9 +292,7 @@ bool BookMetadataCache::buildBookBin(const std::string& epubPath, const BookMeta
     if (itemSize > maxStoredCumulativeSize || cumSize > maxStoredCumulativeSize - itemSize) {
       LOG_ERR("BMC", "Spine cumulative size overflow for item %d (cumSize=%u, itemSize=%zu)", i, cumSize, itemSize);
       zip.close();
-      bookFile.close();
-      spineFile.close();
-      tocFile.close();
+      closeBuildFiles();
       return false;
     }
 
@@ -286,9 +313,7 @@ bool BookMetadataCache::buildBookBin(const std::string& epubPath, const BookMeta
   }
 
   // Explicit close() required: member variables persist beyond function scope
-  bookFile.close();
-  spineFile.close();
-  tocFile.close();
+  closeBuildFiles();
 
   LOG_DBG("BMC", "Successfully built book.bin");
   return true;

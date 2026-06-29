@@ -297,8 +297,9 @@ bool ZipFile::getInflatedFileSize(const char* filename, size_t* size) {
   return true;
 }
 
-int ZipFile::fillUncompressedSizes(std::deque<SizeTarget>& targets, std::deque<uint32_t>& sizes) {
-  if (targets.empty()) {
+int ZipFile::fillUncompressedSizes(const SizeTarget* targets, const size_t targetCount, uint32_t* sizes,
+                                   const size_t sizeCount) {
+  if (targets == nullptr || sizes == nullptr || targetCount == 0) {
     return 0;
   }
 
@@ -310,7 +311,8 @@ int ZipFile::fillUncompressedSizes(std::deque<SizeTarget>& targets, std::deque<u
   file.seek(zipDetails.centralDirOffset);
 
   int matched = 0;
-  const int targetCount = static_cast<int>(targets.size());
+  const auto expectedMatches = static_cast<int>(targetCount);
+  const SizeTarget* const targetEnd = targets + targetCount;
   uint32_t sig;
   char itemName[256];
 
@@ -340,19 +342,19 @@ int ZipFile::fillUncompressedSizes(std::deque<SizeTarget>& targets, std::deque<u
       uint64_t hash = fnvHash64(itemName, nameLen);
       SizeTarget key = {hash, nameLen, 0};
 
-      auto it = std::lower_bound(targets.begin(), targets.end(), key, [](const SizeTarget& a, const SizeTarget& b) {
+      auto it = std::lower_bound(targets, targetEnd, key, [](const SizeTarget& a, const SizeTarget& b) {
         return a.hash < b.hash || (a.hash == b.hash && a.len < b.len);
       });
 
-      while (it != targets.end() && it->hash == hash && it->len == nameLen) {
-        if (it->index < sizes.size()) {
+      while (it != targetEnd && it->hash == hash && it->len == nameLen) {
+        if (it->index < sizeCount) {
           sizes[it->index] = uncompressedSize;
           matched++;
         }
         ++it;
       }
 
-      if (matched >= targetCount) {
+      if (matched >= expectedMatches) {
         break;
       }
     } else {
