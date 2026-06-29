@@ -14,6 +14,7 @@ constexpr char MEDIA_TYPE_NCX[] = "application/x-dtbncx+xml";
 constexpr char MEDIA_TYPE_CSS[] = "text/css";
 constexpr char MEDIA_TYPE_IMAGE_PREFIX[] = "image/";
 constexpr char itemCacheFile[] = "/.items.bin";
+constexpr size_t ITEM_INDEX_ARENA_SLAB_BYTES = 4096;
 
 bool startsWithImageMediaType(const std::string& mediaType) {
   constexpr size_t prefixLen = sizeof(MEDIA_TYPE_IMAGE_PREFIX) - 1;
@@ -33,6 +34,12 @@ bool startsWithImageMediaType(const std::string& mediaType) {
 }  // namespace
 
 bool ContentOpfParser::setup() {
+  if (!itemIndexArena.init(ITEM_INDEX_ARENA_SLAB_BYTES)) {
+    LOG_ERR("COF", "Failed to allocate manifest index arena (%u bytes)",
+            static_cast<unsigned>(ITEM_INDEX_ARENA_SLAB_BYTES));
+    return false;
+  }
+
   parser = XML_ParserCreate(nullptr);
   if (!parser) {
     LOG_DBG("COF", "Couldn't allocate memory for parser");
@@ -59,7 +66,7 @@ ContentOpfParser::~ContentOpfParser() {
 size_t ContentOpfParser::write(const uint8_t data) { return write(&data, 1); }
 
 size_t ContentOpfParser::write(const uint8_t* buffer, const size_t size) {
-  if (!parser) return 0;
+  if (!parser || parseFailed) return 0;
 
   const uint8_t* currentBufferPos = buffer;
   auto remainingInBuffer = size;
@@ -76,9 +83,12 @@ size_t ContentOpfParser::write(const uint8_t* buffer, const size_t size) {
     const auto toRead = remainingInBuffer < 1024 ? remainingInBuffer : 1024;
     memcpy(buf, currentBufferPos, toRead);
 
-    if (XML_ParseBuffer(parser, static_cast<int>(toRead), remainingSize == toRead) == XML_STATUS_ERROR) {
-      LOG_DBG("COF", "Parse error at line %lu: %s", XML_GetCurrentLineNumber(parser),
-              XML_ErrorString(XML_GetErrorCode(parser)));
+    const XML_Status parseStatus = XML_ParseBuffer(parser, static_cast<int>(toRead), remainingSize == toRead);
+    if (parseStatus != XML_STATUS_OK) {
+      if (!parseFailed) {
+        LOG_DBG("COF", "Parse error at line %lu: %s", XML_GetCurrentLineNumber(parser),
+                XML_ErrorString(XML_GetErrorCode(parser)));
+      }
       destroyXmlParser(parser);
       return 0;
     }
@@ -140,7 +150,8 @@ void XMLCALL ContentOpfParser::startElement(void* userData, const XML_Char* name
     std::sort(self->itemIndex.begin(), self->itemIndex.end(), [](const ItemIndexEntry& a, const ItemIndexEntry& b) {
       return a.idHash < b.idHash || (a.idHash == b.idHash && a.idLen < b.idLen);
     });
-    LOG_DBG("COF", "Using compact manifest index for %zu items", self->itemIndex.size());
+    LOG_DBG("COF", "Using compact manifest index for %zu items (arena=%u bytes)", self->itemIndex.size(),
+            static_cast<unsigned>(self->itemIndexArena.used()));
     return;
   }
 
@@ -196,7 +207,14 @@ void XMLCALL ContentOpfParser::startElement(void* userData, const XML_Char* name
       entry.idHash = fnvHash(itemId);
       entry.idLen = static_cast<uint16_t>(itemId.size());
       entry.fileOffset = static_cast<uint32_t>(self->tempItemStore.position());
-      self->itemIndex.push_back(entry);
+      if (!self->itemIndex.push_back(entry)) {
+        LOG_ERR("COF", "Manifest index arena OOM at %zu items", self->itemIndex.size());
+        self->parseFailed = true;
+        if (self->parser) {
+          XML_StopParser(self->parser, XML_FALSE);
+        }
+        return;
+      }
     }
 
     // Write compact manifest rows down to SD card. idref matching uses the

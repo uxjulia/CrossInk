@@ -1,8 +1,9 @@
 #pragma once
+#include <Arena.h>
+#include <ArenaVector.h>
 #include <Print.h>
 
 #include <algorithm>
-#include <deque>
 #include <vector>
 
 #include "Epub.h"
@@ -31,6 +32,8 @@ class ContentOpfParser final : public Print {
   BookMetadataCache* cache;
   HalFile tempItemStore;
   std::string coverItemId;
+  Arena itemIndexArena;
+  bool parseFailed = false;
 
   // Index for compact idref->href lookup. The temp manifest rows store only
   // hash/length plus href, not a second full copy of every manifest ID.
@@ -39,7 +42,7 @@ class ContentOpfParser final : public Print {
     uint16_t idLen;       // length for collision reduction
     uint32_t fileOffset;  // offset in .items.bin
   };
-  std::deque<ItemIndexEntry> itemIndex;
+  ArenaVector<ItemIndexEntry> itemIndex;
 
   // FNV-1a hash function
   static uint64_t fnvHash(const char* s, size_t len) {
@@ -79,7 +82,11 @@ class ContentOpfParser final : public Print {
 
   explicit ContentOpfParser(const std::string& cachePath, const std::string& baseContentPath, const size_t xmlSize,
                             BookMetadataCache* cache)
-      : cachePath(cachePath), baseContentPath(baseContentPath), remainingSize(xmlSize), cache(cache) {}
+      : cachePath(cachePath),
+        baseContentPath(baseContentPath),
+        remainingSize(xmlSize),
+        cache(cache),
+        itemIndex(itemIndexArena) {}
   ~ContentOpfParser() override;
 
   bool setup();
