@@ -19,7 +19,7 @@ void FontCacheManager::clearCache() {
   }
 }
 
-void FontCacheManager::prewarmCache(int fontId, const char* utf8Text, uint8_t styleMask) {
+bool FontCacheManager::prewarmCache(int fontId, const char* utf8Text, uint8_t styleMask) {
   // SD card font prewarm path: prewarm all requested styles in one call
   auto it = sdCardFonts_.find(fontId);
   if (it != sdCardFonts_.end()) {
@@ -27,11 +27,11 @@ void FontCacheManager::prewarmCache(int fontId, const char* utf8Text, uint8_t st
     if (missed > 0) {
       LOG_DBG("FCM", "prewarmCache(SD): %d glyph(s) not found (styleMask=0x%02X)", missed, styleMask);
     }
-    return;
+    return !it->second->lastPrewarmFailed();
   }
 
   // Standard compressed font prewarm path: loop over all requested styles
-  if (!fontDecompressor_ || fontMap_.count(fontId) == 0) return;
+  if (!fontDecompressor_ || fontMap_.count(fontId) == 0) return false;
 
   // Reverse iteration is harmless now; the decompressor keeps one retained page slot per style.
   for (int8_t i = 3; i >= 0; i--) {
@@ -44,6 +44,7 @@ void FontCacheManager::prewarmCache(int fontId, const char* utf8Text, uint8_t st
       LOG_DBG("FCM", "prewarmCache: %d glyph(s) not cached for style %d", missed, i);
     }
   }
+  return true;
 }
 
 void FontCacheManager::logStats(const char* label) {
@@ -87,9 +88,9 @@ FontCacheManager::PrewarmScope::PrewarmScope(FontCacheManager& manager) : manage
   manager_->scanFontId_ = -1;
 }
 
-void FontCacheManager::PrewarmScope::endScanAndPrewarm() {
+bool FontCacheManager::PrewarmScope::endScanAndPrewarm() {
   manager_->scanMode_ = ScanMode::None;
-  if (manager_->scanText_.empty()) return;
+  if (manager_->scanText_.empty()) return true;
 
   // Build style bitmask from all styles that appeared during the scan
   uint8_t styleMask = 0;
@@ -98,11 +99,12 @@ void FontCacheManager::PrewarmScope::endScanAndPrewarm() {
   }
   if (styleMask == 0) styleMask = 1;  // default to regular
 
-  manager_->prewarmCache(manager_->scanFontId_, manager_->scanText_.c_str(), styleMask);
+  const bool ok = manager_->prewarmCache(manager_->scanFontId_, manager_->scanText_.c_str(), styleMask);
 
   // Keep the grown capacity around so the next page can reuse it without
   // another allocate-grow-shrink cycle.
   manager_->scanText_.clear();
+  return ok;
 }
 
 FontCacheManager::PrewarmScope::~PrewarmScope() {

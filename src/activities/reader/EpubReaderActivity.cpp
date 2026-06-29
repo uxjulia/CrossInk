@@ -206,7 +206,14 @@ bool hasEmSpacePrefix(const std::string& text) {
          static_cast<unsigned char>(text[1]) == 0x80 && static_cast<unsigned char>(text[2]) == 0x83;
 }
 
-std::string stripEmSpacePrefix(const std::string& text) { return hasEmSpacePrefix(text) ? text.substr(3) : text; }
+bool hasVisibleWordText(const std::string& text) {
+  const char* cursor = text.c_str() + (hasEmSpacePrefix(text) ? 3 : 0);
+  while (*cursor) {
+    if (*cursor != ' ' && *cursor != '\t' && *cursor != '\r' && *cursor != '\n') return true;
+    cursor++;
+  }
+  return false;
+}
 
 uint8_t largestBlockPercent(const MemoryBudget::HeapSnapshot& heap) {
   if (heap.freeHeap == 0) {
@@ -2866,7 +2873,23 @@ void EpubReaderActivity::startClipSelection() {
     startPage = section->currentPage;
     const int pagesToLoad = std::min(3, section->pageCount - startPage);
     std::array<uint16_t, 3> pageWordCounts{};
-    words.reserve(static_cast<size_t>(std::max(0, pagesToLoad)) * 80);
+    static constexpr size_t CLIP_SELECTION_WORDS_PER_PAGE = 80;
+    static constexpr size_t MAX_CLIP_SELECTION_WORDS = 240;
+    static constexpr uint32_t CLIP_SELECTION_WORD_RESERVE_HEADROOM = 16U * 1024U;
+    const size_t maxSelectableWords =
+        std::min(MAX_CLIP_SELECTION_WORDS, static_cast<size_t>(pagesToLoad) * CLIP_SELECTION_WORDS_PER_PAGE);
+    const uint32_t wordReserveBytes = static_cast<uint32_t>(maxSelectableWords * sizeof(WordRef));
+    const auto heapBeforeWords = MemoryBudget::snapshot();
+    if (heapBeforeWords.maxAllocHeap < wordReserveBytes + CLIP_SELECTION_WORD_RESERVE_HEADROOM) {
+      LOG_ERR("CLIP", "Low heap for clipping selection (%u free, %u max alloc, need block %u); skipping",
+              heapBeforeWords.freeHeap, heapBeforeWords.maxAllocHeap,
+              wordReserveBytes + CLIP_SELECTION_WORD_RESERVE_HEADROOM);
+      section->currentPage = startPage;
+      requestUpdate();
+      return;
+    }
+    words.reserve(maxSelectableWords);
+    bool wordLimitLogged = false;
 
     for (int pageIdx = 0; pageIdx < pagesToLoad; ++pageIdx) {
       section->currentPage = startPage + pageIdx;
@@ -2891,8 +2914,15 @@ void EpubReaderActivity::startClipSelection() {
           renderer.ensureSdCardFontReady(readerFontId, wordList, /*includeHyphen=*/false, styleMask);
         }
         for (size_t i = 0; i < count; ++i) {
-          const std::string visibleWord = stripEmSpacePrefix(wordList[i]);
-          if (visibleWord.find_first_not_of(" \t\r\n") == std::string::npos) continue;
+          if (!hasVisibleWordText(wordList[i])) continue;
+          if (words.size() >= maxSelectableWords) {
+            if (!wordLimitLogged) {
+              LOG_ERR("CLIP", "Selectable word cap hit (%u words); clipping range truncated",
+                      static_cast<unsigned>(maxSelectableWords));
+              wordLimitLogged = true;
+            }
+            break;
+          }
 
           const auto textStyle = static_cast<EpdFontFamily::Style>(styles[i] & ~EpdFontFamily::UNDERLINE);
           int wordWidth = renderer.getTextAdvanceX(readerFontId, wordList[i].c_str(), textStyle);

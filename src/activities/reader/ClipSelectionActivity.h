@@ -42,7 +42,7 @@ class ClipSelectionActivity final : public Activity {
   static constexpr size_t BUFFER_CHUNK_SIZE = 4096;
 
   std::vector<WordRef> words;
-  int fontId = 0;
+  int renderFontId = 0;
   Section& section;
   int startPageInSection = 0;
   int marginTop = 0;
@@ -57,6 +57,7 @@ class ClipSelectionActivity final : public Activity {
   int startMarkIdx = -1;
   bool needsPageSwitch = false;
   bool hasSavedBuffer = false;
+  bool usingFallbackFont = false;
   mutable std::array<std::string, 4> prewarmTextByStyle;
   std::vector<int> readingOrder;
 
@@ -67,9 +68,10 @@ class ClipSelectionActivity final : public Activity {
   void storeCurrentBuffer();
   void restoreSavedBuffer() const;
   bool switchToPage(int pageIdx);
-  void prewarmHighlightedWords() const;
+  bool prewarmHighlightedWords() const;
   void drawHighlights();
   void applyWordStyle(const WordRef& word, const ClipWordStyle& style) const;
+  void useFallbackFont(const char* reason);
   int lineEndForward(int orderIdx) const;
   int lineEndBackward(int orderIdx) const;
 };

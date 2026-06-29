@@ -17,6 +17,8 @@
 
 namespace {
 
+constexpr int CLIP_SELECTION_FALLBACK_FONT_ID = UI_12_FONT_ID;
+
 bool hasEmSpace(const std::string& text) {
   return text.size() >= 3 && static_cast<unsigned char>(text[0]) == 0xE2 &&
          static_cast<unsigned char>(text[1]) == 0x80 && static_cast<unsigned char>(text[2]) == 0x83;
@@ -29,7 +31,7 @@ ClipSelectionActivity::ClipSelectionActivity(GfxRenderer& renderer, MappedInputM
                                              const int startPageInSection, const int marginTop, const int marginLeft)
     : Activity("ClipSelection", renderer, mappedInput),
       words(std::move(words)),
-      fontId(fontId),
+      renderFontId(fontId),
       section(section),
       startPageInSection(startPageInSection),
       marginTop(marginTop),
@@ -80,6 +82,11 @@ void ClipSelectionActivity::onExit() {
   section.currentPage = savedSectionPage;
   savedBufferChunks.clear();
   hasSavedBuffer = false;
+  if (usingFallbackFont) {
+    if (auto* fcm = renderer.getFontCacheManager()) {
+      fcm->clearCache();
+    }
+  }
   Activity::onExit();
 }
 
@@ -220,7 +227,10 @@ void ClipSelectionActivity::render(RenderLock&&) {
     restoreSavedBuffer();
   }
 
-  prewarmHighlightedWords();
+  if (!prewarmHighlightedWords() && renderer.isSdCardFont(renderFontId)) {
+    useFallbackFont("highlight prewarm");
+    if (!switchToPage(currentDisplayPage)) return;
+  }
   drawHighlights();
 
   const auto confirmLabel = startMarkIdx == -1 ? tr(STR_SELECT) : tr(STR_DONE);
@@ -241,14 +251,28 @@ bool ClipSelectionActivity::switchToPage(const int pageIdx) {
   }
 
   if (auto* fcm = renderer.getFontCacheManager()) {
-    auto scope = fcm->createPrewarmScope();
-    page->renderText(renderer, fontId, marginLeft, marginTop, ReaderUtils::readerForegroundBlack());
-    scope.endScanAndPrewarm();
-    renderer.clearScreen(ReaderUtils::readerBackgroundColor());
-    page->render(renderer, fontId, marginLeft, marginTop, ReaderUtils::readerForegroundBlack());
+    bool renderWithFallback = false;
+    {
+      auto scope = fcm->createPrewarmScope();
+      page->renderText(renderer, renderFontId, marginLeft, marginTop, ReaderUtils::readerForegroundBlack());
+      if (!scope.endScanAndPrewarm() && renderer.isSdCardFont(renderFontId)) {
+        useFallbackFont("page prewarm");
+        renderWithFallback = true;
+      } else {
+        renderer.clearScreen(ReaderUtils::readerBackgroundColor());
+        page->render(renderer, renderFontId, marginLeft, marginTop, ReaderUtils::readerForegroundBlack());
+      }
+    }
+    if (renderWithFallback) {
+      auto fallbackScope = fcm->createPrewarmScope();
+      page->renderText(renderer, renderFontId, marginLeft, marginTop, ReaderUtils::readerForegroundBlack());
+      fallbackScope.endScanAndPrewarm();
+      renderer.clearScreen(ReaderUtils::readerBackgroundColor());
+      page->render(renderer, renderFontId, marginLeft, marginTop, ReaderUtils::readerForegroundBlack());
+    }
   } else {
     renderer.clearScreen(ReaderUtils::readerBackgroundColor());
-    page->render(renderer, fontId, marginLeft, marginTop, ReaderUtils::readerForegroundBlack());
+    page->render(renderer, renderFontId, marginLeft, marginTop, ReaderUtils::readerForegroundBlack());
   }
 
   storeCurrentBuffer();
@@ -258,7 +282,7 @@ bool ClipSelectionActivity::switchToPage(const int pageIdx) {
 
 void ClipSelectionActivity::applyWordStyle(const WordRef& word, const ClipWordStyle& style) const {
   const auto textStyle = static_cast<EpdFontFamily::Style>(word.style & ~EpdFontFamily::UNDERLINE);
-  const int skipX = hasEmSpace(word.text) ? renderer.getTextAdvanceX(fontId, "\xe2\x80\x83", textStyle) : 0;
+  const int skipX = hasEmSpace(word.text) ? renderer.getTextAdvanceX(renderFontId, "\xe2\x80\x83", textStyle) : 0;
   const int drawX = word.x + skipX;
   const int drawW = word.w - skipX;
   if (drawW <= 0) return;
@@ -277,21 +301,21 @@ void ClipSelectionActivity::applyWordStyle(const WordRef& word, const ClipWordSt
 
   if (word.text.find_first_not_of(" \t") != std::string::npos) {
     const bool textBlack = !invert;
-    renderer.drawText(fontId, drawX, word.y, hasEmSpace(word.text) ? word.text.c_str() + 3 : word.text.c_str(),
+    renderer.drawText(renderFontId, drawX, word.y, hasEmSpace(word.text) ? word.text.c_str() + 3 : word.text.c_str(),
                       textBlack, textStyle);
   }
 
   if ((style.flags & ClipWordStyle::UNDERLINE) != 0) {
-    const int underlineY = word.y + renderer.getFontAscenderSize(fontId) + 2;
+    const int underlineY = word.y + renderer.getFontAscenderSize(renderFontId) + 2;
     renderer.drawLine(drawX, underlineY, drawX + drawW, underlineY, true);
   }
 }
 
-void ClipSelectionActivity::prewarmHighlightedWords() const {
-  if (!renderer.isSdCardFont(fontId)) return;
+bool ClipSelectionActivity::prewarmHighlightedWords() const {
+  if (!renderer.isSdCardFont(renderFontId)) return true;
 
   auto* fcm = renderer.getFontCacheManager();
-  if (!fcm) return;
+  if (!fcm) return true;
 
   for (auto& text : prewarmTextByStyle) {
     text.clear();
@@ -315,11 +339,23 @@ void ClipSelectionActivity::prewarmHighlightedWords() const {
 
   appendWord(words[readingOrder[cursorIdx]]);
 
+  bool ok = true;
   for (uint8_t styleIdx = 0; styleIdx < prewarmTextByStyle.size(); styleIdx++) {
     if (!prewarmTextByStyle[styleIdx].empty()) {
-      fcm->prewarmCache(fontId, prewarmTextByStyle[styleIdx].c_str(), static_cast<uint8_t>(1u << styleIdx));
+      ok =
+          fcm->prewarmCache(renderFontId, prewarmTextByStyle[styleIdx].c_str(), static_cast<uint8_t>(1u << styleIdx)) &&
+          ok;
     }
   }
+  return ok;
+}
+
+void ClipSelectionActivity::useFallbackFont(const char* reason) {
+  if (usingFallbackFont) return;
+  LOG_ERR("CLIP", "SD font %d failed during %s; using fallback font %d for clipping selection", renderFontId, reason,
+          CLIP_SELECTION_FALLBACK_FONT_ID);
+  renderFontId = CLIP_SELECTION_FALLBACK_FONT_ID;
+  usingFallbackFont = true;
 }
 
 void ClipSelectionActivity::drawHighlights() {

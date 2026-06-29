@@ -705,7 +705,8 @@ bool SdCardFont::readAdvance(uint32_t codepoint, uint8_t style, uint16_t* outAdv
 // --- Prewarm ---
 
 int SdCardFont::prewarm(const char* utf8Text, uint8_t styleMask, bool metadataOnly) {
-  if (!loaded_) return -1;
+  lastPrewarmFailed_ = false;
+  if (!loaded_) return failPrewarm(-1);
   styleMask = resolveStyleMask(styleMask);
   if (styleMask == 0) return 0;
 
@@ -720,7 +721,7 @@ int SdCardFont::prewarm(const char* utf8Text, uint8_t styleMask, bool metadataOn
   std::unique_ptr<uint32_t[]> codepoints(new (std::nothrow) uint32_t[MAX_PAGE_GLYPHS]);
   if (!codepoints) {
     LOG_ERR("SDCF", "Failed to allocate codepoint buffer (%u bytes)", MAX_PAGE_GLYPHS * 4);
-    return -1;
+    return failPrewarm(-1);
   }
   uint32_t cpCount = 0;
 
@@ -808,6 +809,11 @@ int SdCardFont::prewarm(const char* utf8Text, uint8_t styleMask, bool metadataOn
   return totalMissed;
 }
 
+int SdCardFont::failPrewarm(const int missed) {
+  lastPrewarmFailed_ = true;
+  return missed;
+}
+
 int SdCardFont::prewarmStyle(uint8_t styleIdx, const uint32_t* codepoints, uint32_t cpCount, bool metadataOnly) {
   auto& s = styles_[styleIdx];
 
@@ -819,7 +825,7 @@ int SdCardFont::prewarmStyle(uint8_t styleIdx, const uint32_t* codepoints, uint3
   CpGlyphMapping* mappings = new (std::nothrow) CpGlyphMapping[cpCount];
   if (!mappings) {
     LOG_ERR("SDCF", "Failed to allocate mapping array for style %u", styleIdx);
-    return static_cast<int>(cpCount);
+    return failPrewarm(static_cast<int>(cpCount));
   }
 
   uint32_t validCount = 0;
@@ -848,7 +854,7 @@ int SdCardFont::prewarmStyle(uint8_t styleIdx, const uint32_t* codepoints, uint3
   if (!s.miniIntervals) {
     LOG_ERR("SDCF", "Failed to allocate mini intervals for style %u", styleIdx);
     delete[] mappings;
-    return static_cast<int>(cpCount);
+    return failPrewarm(static_cast<int>(cpCount));
   }
 
   s.miniIntervalCount = 0;
@@ -870,7 +876,7 @@ int SdCardFont::prewarmStyle(uint8_t styleIdx, const uint32_t* codepoints, uint3
     LOG_ERR("SDCF", "Failed to allocate mini glyphs for style %u", styleIdx);
     delete[] mappings;
     freeStyleMiniData(s);
-    return static_cast<int>(cpCount);
+    return failPrewarm(static_cast<int>(cpCount));
   }
 
   // Build sorted read order for sequential I/O
@@ -879,7 +885,7 @@ int SdCardFont::prewarmStyle(uint8_t styleIdx, const uint32_t* codepoints, uint3
     LOG_ERR("SDCF", "Failed to allocate read order for style %u", styleIdx);
     delete[] mappings;
     freeStyleMiniData(s);
-    return static_cast<int>(cpCount);
+    return failPrewarm(static_cast<int>(cpCount));
   }
   for (uint32_t i = 0; i < validCount; i++) readOrder[i] = i;
   std::sort(readOrder, readOrder + validCount,
@@ -891,7 +897,7 @@ int SdCardFont::prewarmStyle(uint8_t styleIdx, const uint32_t* codepoints, uint3
     delete[] readOrder;
     delete[] mappings;
     freeStyleMiniData(s);
-    return static_cast<int>(cpCount);
+    return failPrewarm(static_cast<int>(cpCount));
   }
 
   unsigned long sdStart = millis();
@@ -916,7 +922,7 @@ int SdCardFont::prewarmStyle(uint8_t styleIdx, const uint32_t* codepoints, uint3
         delete[] readOrder;
         delete[] mappings;
         freeStyleMiniData(s);
-        return static_cast<int>(cpCount);
+        return failPrewarm(static_cast<int>(cpCount));
       }
       seekCount++;
     }
@@ -925,7 +931,7 @@ int SdCardFont::prewarmStyle(uint8_t styleIdx, const uint32_t* codepoints, uint3
       delete[] readOrder;
       delete[] mappings;
       freeStyleMiniData(s);
-      return static_cast<int>(cpCount);
+      return failPrewarm(static_cast<int>(cpCount));
     }
     lastReadIndex = gIdx;
   }
@@ -944,7 +950,7 @@ int SdCardFont::prewarmStyle(uint8_t styleIdx, const uint32_t* codepoints, uint3
       delete[] readOrder;
       delete[] mappings;
       freeStyleMiniData(s);
-      return static_cast<int>(cpCount);
+      return failPrewarm(static_cast<int>(cpCount));
     }
 
     // Read bitmap data sorted by file offset
@@ -970,7 +976,7 @@ int SdCardFont::prewarmStyle(uint8_t styleIdx, const uint32_t* codepoints, uint3
           delete[] readOrder;
           delete[] mappings;
           freeStyleMiniData(s);
-          return static_cast<int>(cpCount);
+          return failPrewarm(static_cast<int>(cpCount));
         }
         seekCount++;
       }
@@ -979,7 +985,7 @@ int SdCardFont::prewarmStyle(uint8_t styleIdx, const uint32_t* codepoints, uint3
         delete[] readOrder;
         delete[] mappings;
         freeStyleMiniData(s);
-        return static_cast<int>(cpCount);
+        return failPrewarm(static_cast<int>(cpCount));
       }
       lastBitmapEnd = fileOff + glyph.dataLength;
 
