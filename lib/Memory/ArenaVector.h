@@ -54,6 +54,24 @@ class ArenaVector {
     return true;
   }
 
+  bool insert(const size_t index, const T& value) {
+    if (index > size_) {
+      return false;
+    }
+    if (size_ == capacity_) {
+      const size_t nextCapacity = capacity_ == 0 ? 8 : capacity_ * 2;
+      if (!reserve(nextCapacity)) {
+        return false;
+      }
+    }
+    if (index < size_) {
+      std::memmove(data_ + index + 1, data_ + index, sizeof(T) * (size_ - index));
+    }
+    data_[index] = value;
+    ++size_;
+    return true;
+  }
+
   void clear() { size_ = 0; }
 
   [[nodiscard]] bool empty() const { return size_ == 0; }
