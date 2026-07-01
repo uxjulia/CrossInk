@@ -12,6 +12,7 @@
 - EPUB parsing, large-book metadata indexing, and generated cover conversion now use more arena-backed scratch buffers to reduce heap fragmentation during heavy book processing.
 
 ### Fixed
+- Auto Turn interval settings and related action prompts opened from a long-press shortcut now stay open after releasing the shortcut button.
 - Font selection no longer reopens the font preview after choosing a font.
 - Chinese and other large SD-card font EPUBs no longer overlap characters after font or line-spacing changes exhaust the small glyph-advance cache.
 - EPUB clipping selection now falls back to a built-in UI font if an SD-card reader font cannot be prewarmed, avoiding replacement-glyph pages and low-memory crashes while leaving the reader font unchanged.

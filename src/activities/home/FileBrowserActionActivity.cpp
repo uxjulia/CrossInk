@@ -26,12 +26,10 @@ void FileBrowserActionActivity::onEnter() {
 
 void FileBrowserActionActivity::loop() {
   if (ignoreConfirmRelease) {
-    if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
+    const bool confirmReleased = mappedInput.wasReleased(MappedInputManager::Button::Confirm);
+    if (confirmReleased || !mappedInput.isPressed(MappedInputManager::Button::Confirm)) {
       ignoreConfirmRelease = false;
       return;
-    }
-    if (!mappedInput.isPressed(MappedInputManager::Button::Confirm)) {
-      ignoreConfirmRelease = false;
     }
   }
 
