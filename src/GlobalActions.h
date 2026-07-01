@@ -12,7 +12,6 @@ inline bool isPowerButtonActionAvailableOutsideReader(const CrossPointSettings::
     case CrossPointSettings::SHORT_PWRBTN::CALIBRE_WIRELESS:
     case CrossPointSettings::SHORT_PWRBTN::JOIN_NETWORK:
     case CrossPointSettings::SHORT_PWRBTN::CREATE_HOTSPOT:
-    case CrossPointSettings::SHORT_PWRBTN::QUICK_RETURN:
       return true;
     case CrossPointSettings::SHORT_PWRBTN::IGNORE:
     case CrossPointSettings::SHORT_PWRBTN::PAGE_TURN:

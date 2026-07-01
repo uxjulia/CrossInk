@@ -481,6 +481,7 @@ void EpubReaderClippingListActivity::render(RenderLock&&) {
     const char* chapter = clipping.chapterTitle[0] != '\0' ? clipping.chapterTitle : tr(STR_UNKNOWN_CHAPTER);
     const std::string chapterTrunc = renderer.truncatedText(SMALL_FONT_ID, chapter, contentWidth - 40);
     renderer.drawText(SMALL_FONT_ID, marginLeft, rowY + 31, chapterTrunc.c_str(), !isSelected);
+
   }
 
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_OPEN), tr(STR_DIR_UP), tr(STR_DIR_DOWN));

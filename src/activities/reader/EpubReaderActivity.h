@@ -213,7 +213,6 @@ class EpubReaderActivity final : public Activity {
       : Activity("EpubReader", renderer, mappedInput), epub(std::move(epub)) {}
   void onEnter() override;
   void onExit() override;
-  void onReveal() override;
   void loop() override;
   void render(RenderLock&& lock) override;
   bool preventAutoSleep() override { return automaticPageTurnActive; }

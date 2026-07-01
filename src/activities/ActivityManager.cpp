@@ -301,57 +301,6 @@ bool ActivityManager::isReaderActivity() const {
                      [](const auto& activity) { return activity && activity->isReaderActivity(); });
 }
 
-void ActivityManager::quickReturn() {
-  if (!currentActivity) {
-    return;
-  }
-
-  // If a live reader is parked beneath the current screen (reader options/settings
-  // opened from a book), unwind everything stacked above it and reveal the reader.
-  const auto readerIt = std::find_if(stackActivities.begin(), stackActivities.end(),
-                                     [](const auto& activity) { return activity && activity->isReaderActivity(); });
-  if (readerIt != stackActivities.end()) {
-    const size_t readerIdx = static_cast<size_t>(std::distance(stackActivities.begin(), readerIt));
-    {
-      RenderLock lock;
-      // Discard the current screen and every screen stacked above the reader.
-      exitActivity(lock);
-      while (stackActivities.size() > readerIdx + 1) {
-        stackActivities.back()->onExit();
-        stackActivities.pop_back();
-      }
-      currentActivity = std::move(stackActivities.back());
-      stackActivities.pop_back();
-      // The skipped screens never delivered their result; drop the stale handler so it
-      // cannot fire against the next pushed activity.
-      currentActivity->resultHandler = nullptr;
-      LOG_DBG("ACT", "Quick Return revealed reader, stack size = %zu", stackActivities.size());
-    }
-    // onReveal() may take its own RenderLock, so call it after releasing ours.
-    currentActivity->onReveal();
-    requestUpdate(/*immediate=*/true);
-    return;
-  }
-
-  // No reader beneath us: no-op if we are already reading or already home, otherwise
-  // drop the home-rooted settings tree and return to the Home screen.
-  if (currentActivity->isReaderActivity() || currentActivity->name == "Home") {
-    return;
-  }
-  goHome();
-}
-
-bool ActivityManager::quickReturnHasTarget() const {
-  if (!currentActivity) {
-    return false;
-  }
-  const bool readerOnStack = std::any_of(stackActivities.begin(), stackActivities.end(),
-                                         [](const auto& activity) { return activity && activity->isReaderActivity(); });
-  // A reader beneath us means we can return to it; otherwise quickReturn() goes Home,
-  // which is only meaningful when we are not already in the reading view or on Home.
-  return readerOnStack || (!currentActivity->isReaderActivity() && currentActivity->name != "Home");
-}
-
 bool ActivityManager::canSnapshotForSleepOverlay() const {
   return currentActivity && currentActivity->canSnapshotForSleepOverlay();
 }

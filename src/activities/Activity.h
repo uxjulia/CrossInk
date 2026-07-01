@@ -34,11 +34,6 @@ class Activity {
   virtual ~Activity() = default;
   virtual void onEnter();
   virtual void onExit();
-  // Called when this activity is revealed by ActivityManager::quickReturn() after the
-  // screens stacked above it were discarded without their normal Back/result handling.
-  // Override to reconcile any state (e.g. re-apply settings, force re-layout) that the
-  // skipped result handlers would have applied. A repaint is requested by the caller.
-  virtual void onReveal() {}
   virtual void loop() {}
 
   virtual void render(RenderLock&&) {}

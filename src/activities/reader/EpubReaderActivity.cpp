@@ -3135,31 +3135,10 @@ void EpubReaderActivity::executeReaderQuickAction(CrossPointSettings::LONG_PRESS
     case CrossPointSettings::LONG_MENU_CREATE_CLIPPING:
       startClipSelection();
       break;
-    case CrossPointSettings::LONG_MENU_QUICK_RETURN:
-      // Quick Return from the reading view is a no-op (we are already reading).
-      // When triggered from a settings/options screen it is handled globally in
-      // the main loop via ActivityManager::quickReturn().
-      break;
     case CrossPointSettings::LONG_MENU_OFF:
     default:
       break;
   }
-}
-
-void EpubReaderActivity::onReveal() {
-  // Reached via ActivityManager::quickReturn(): the reader options/settings screens
-  // stacked above us were discarded without running their result handlers, so re-apply
-  // orientation and force a re-layout in case a font/layout setting changed while away.
-  applyOrientation(SETTINGS.orientation);
-  sdFontSystem.ensureLoaded(renderer);
-  {
-    RenderLock lock(*this);
-    if (section) {
-      cacheCurrentSectionPosition();
-    }
-    section.reset();  // Force re-layout with the current reader settings
-  }
-  requestUpdate();
 }
 
 bool EpubReaderActivity::quickActionUsesConfirmRelease(const CrossPointSettings::LONG_PRESS_MENU_ACTION action) const {

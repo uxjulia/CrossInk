@@ -55,7 +55,6 @@ class TxtReaderActivity final : public Activity {
       : Activity("TxtReader", renderer, mappedInput), txt(std::move(txt)) {}
   void onEnter() override;
   void onExit() override;
-  void onReveal() override;
   void loop() override;
   void render(RenderLock&&) override;
   bool isReaderActivity() const override { return true; }

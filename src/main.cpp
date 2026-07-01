@@ -75,7 +75,6 @@ inline esp_sleep_wakeup_cause_t esp_sleep_get_wakeup_cause() { return ESP_SLEEP_
 #include "activities/ActivityManager.h"
 #include "activities/reader/EpubReaderUtils.h"
 #include "activities/reader/KOReaderSyncActivity.h"
-#include "activities/reader/ReaderUtils.h"
 #include "activities/reader/ReadingStatsUtils.h"
 #include "activities/reader/StatsBackup.h"
 #include "activities/settings/KOReaderSettingsActivity.h"
@@ -577,59 +576,9 @@ bool handleGlobalPowerButtonAction(const CrossPointSettings::SHORT_PWRBTN action
       }
       activityManager.goToHotspotFileTransfer();
       return true;
-    case CrossPointSettings::SHORT_PWRBTN::QUICK_RETURN:
-      activityManager.quickReturn();
-      return true;
     default:
       return false;
   }
-}
-
-// Long-press Back / Menu (Confirm) Quick Return. Unlike the reader's own long-press
-// handling, this also fires from the nested settings/options screens, so the user can
-// jump straight back to the reader or Home instead of pressing Back repeatedly. Gated by
-// quickReturnHasTarget() so it stays inert in the reading view (where the reader treats
-// LONG_MENU_QUICK_RETURN as a no-op) and on the Home screen.
-bool handleQuickReturnLongPress() {
-  // Confirm long-press threshold; mirrors longPressMenuMs in EpubReaderActivity.cpp.
-  constexpr unsigned long QUICK_RETURN_MENU_HOLD_MS = 600;
-
-  static bool backHandled = false;
-  static bool menuHandled = false;
-
-  // Reset the latches with the non-consuming isPressed() rather than wasReleased():
-  // wasReleased() clears the suppress-release flag that finishAfterBackPress() screens
-  // rely on, which would let the parent screen also act on the release (double-pop).
-  if (!mappedInputManager.isPressed(MappedInputManager::Button::Back)) {
-    backHandled = false;
-  }
-  if (!mappedInputManager.isPressed(MappedInputManager::Button::Confirm)) {
-    menuHandled = false;
-  }
-
-  if (!activityManager.quickReturnHasTarget()) {
-    return false;
-  }
-
-  if (SETTINGS.longPressBackAction == CrossPointSettings::LONG_MENU_QUICK_RETURN && !backHandled &&
-      mappedInputManager.isPressed(MappedInputManager::Button::Back) &&
-      mappedInputManager.getHeldTime() >= ReaderUtils::GO_HOME_MS) {
-    backHandled = true;
-    mappedInputManager.suppressNextBackRelease();
-    activityManager.quickReturn();
-    return true;
-  }
-
-  if (SETTINGS.longPressMenuAction == CrossPointSettings::LONG_MENU_QUICK_RETURN && !menuHandled &&
-      mappedInputManager.isPressed(MappedInputManager::Button::Confirm) &&
-      mappedInputManager.getHeldTime() >= QUICK_RETURN_MENU_HOLD_MS) {
-    menuHandled = true;
-    mappedInputManager.suppressNextConfirmRelease();
-    activityManager.quickReturn();
-    return true;
-  }
-
-  return false;
 }
 
 namespace {
@@ -1104,11 +1053,6 @@ void loop() {
   }
 
   if (millis() >= allowSleepAt && handleGlobalPowerButtonAction(getPowerButtonAction())) {
-    lastActivityTime = millis();
-    return;
-  }
-
-  if (millis() >= allowSleepAt && handleQuickReturnLongPress()) {
     lastActivityTime = millis();
     return;
   }

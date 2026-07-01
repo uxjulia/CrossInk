@@ -2,7 +2,6 @@
 ## [Unreleased]
 
 ### Added
-- `Quick Return` shortcut for short/long Power, long-press Menu, and long-press Back actions that jumps straight back to the book you were reading (or the Home screen) from deep inside nested settings, instead of pressing Back repeatedly.
 - Dashboard UI theme for the Home screen, combining the current book cover, reading stats, streak, and reader type in one layout.
 - Nearby Position Sync for sending or applying the current EPUB position between two CrossInk devices over ESP-NOW.
 - Web EPUB optimizer now writes CrossInk location metadata into optimized EPUBs so future reader builds can use stable word-based positions across layout changes.
