@@ -29,6 +29,7 @@ My goal with this fork was to maintain the core Crosspoint firmware while integr
 - Added ~~strikethrough~~ support.
 - Made <u>underlines</u> thicker for better visibility.
 - Added a custom `Minimal` theme and sleep screen option for the minimalists out there.
+- Added a custom `Dashboard` theme and sleep screen option for reading stats enthusiasts.
 - Added support for `<hr>` section breaks.
 - Added support for "redaction" style rendering.
 - Added improved support for tables with simple markup.
@@ -42,7 +43,8 @@ My goal with this fork was to maintain the core Crosspoint firmware while integr
 - Added ability to move finished books to "Read" folder.
 - In-book menu to quickly adjust reader options without having to exit the book.
 - Reading stats: total books read, total reading time, number of sessions, pages turned, average session time, pages turned per minute. You can also set your reading stats as your sleep screen.
-- Reading stats [syncing](./docs/reading-stats-sync.md) between two devices.
+- All-time reading stats [syncing](./docs/reading-stats-sync.md) between two CrossInk devices.
+- Reading [progress sync](./docs/nearby-position-sync.md) between two CrossInk devices.
 - Added customizable Auto Page Turn Interval (anything between 5-120 seconds).
 - Added ability to view Recent Books as a 3x3 grid view.
 - To view a more detailed list for each version, visit the [releases](https://github.com/uxjulia/CrossInk/releases) page to read release notes.
