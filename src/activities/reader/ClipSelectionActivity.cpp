@@ -465,6 +465,10 @@ bool ClipSelectionActivity::finishDictionarySelection() {
     LOG_ERR("CLIP", "Dictionary clipping text is empty");
     return false;
   }
+  // Dictionary touch-drag selection skips confirmSelection(), so retain its
+  // final page here before onExit() restores the reader position. The request
+  // records the actual drag endpoint, rather than the first clipping page.
+  savedSectionPage = startPageInSection + lastRequestedWord->pageIdx;
   setResult(std::move(result));
   finish();
   return true;

@@ -69,7 +69,7 @@
 - Minimal and Dashboard Home screens no longer highlight front-button hints when pressing the side Up or Down buttons.
 - Declining an alternate dictionary-form lookup now returns to the reader instead of leaving the selected word active.
 - Starting a clipping with buttons now highlights a word near the middle of the current page instead of the first word.
-- Saving a clipping that spans pages now keeps the reader on the page where the selection ended.
+- Saving a clipping that spans pages now keeps the reader on the page where the selection ended, including drag selection.
 - Quick Actions now consumes its own taps and button releases without blocking unrelated Power shortcuts in reader menus.
 - Quick Lock can be unlocked again with its assigned long-press Menu or Back shortcut on X3/X4 readers.
 - Custom sleep images retain their grayscale detail, and newer X3 devices no longer retain or stripe the sleep screen after waking.
