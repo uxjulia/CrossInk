@@ -21,15 +21,17 @@
 // from. Observing a real discharge means writing to the SD card instead.
 //
 // Rows are appended to /battery_log.csv as:
-//   timestamp,uptime_ms,soc,mv,charging,event
+//   timestamp,uptime_ms,soc,mv,charging,event,version,git_sha,git_dirty,device,wake_route
 // A field that could not be read is written empty rather than as a plausible
 // zero. The timestamp is local wall-clock at minute resolution - HalClock does
 // not expose the RTC's seconds - so use uptime_ms to order rows within one
-// wake.
+// wake. The first firmware using this schema preserves an old-format log as
+// /battery_log_v1.csv instead of appending unlabeled columns to it.
 //
-// Enable with -DCROSSINK_BATTERY_DIAG_LOG=1. The `debug` env already sets it;
-// no shipping environment does. Firmware only - the simulator's stand-in HAL
-// has no battery backend to sample, so the flag must stay off there.
+// Enable with -DCROSSINK_BATTERY_DIAG_LOG=1. The debug environment carries a
+// commented opt-in flag; no shipping environment enables it. Firmware only -
+// the simulator's stand-in HAL has no battery backend to sample, so the flag
+// must stay off there.
 namespace BatteryDiagnosticLog {
 
 // The device sleeps through most of a discharge, and the X3 cuts the SD rail
@@ -44,9 +46,11 @@ enum class Event : uint8_t {
 #if CROSSINK_BATTERY_DIAG_LOG
 // Appends one sample. Never fatal: every failure logs and returns, because a
 // diagnostic must not be able to take down the boot or sleep path it sits in.
-void record(Event event);
+// deviceName is the runtime board profile name. wakeRoute applies only to a
+// Wake event; pass nullptr for Sleep.
+void record(Event event, const char* deviceName, const char* wakeRoute = nullptr);
 #else
-inline void record(Event) {}
+inline void record(Event, const char* = nullptr, const char* = nullptr) {}
 #endif
 
 }  // namespace BatteryDiagnosticLog
