@@ -90,6 +90,7 @@ class ClipSelectionActivity final : public Activity {
   void useFallbackFont(const char* reason);
   bool selectWordAtPoint(int x, int y);
   bool isWithinCurrentPageEndDwellSlop(int x, int y) const;
+  uint16_t tableSelectionForRange(int from, int to) const;
   void confirmSelection();
   bool finishDictionarySelection();
   int lineEndForward(int orderIdx) const;

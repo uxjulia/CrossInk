@@ -17,6 +17,13 @@ static_assert(TableFragmentCell::MAX_SERIALIZED_LINES == MAX_TABLE_LINES_PER_CEL
 static_assert(TableFragmentRow::MAX_SERIALIZED_CELLS == MAX_TABLE_CELLS_PER_ROW);
 static_assert(PageTableFragment::MAX_SERIALIZED_ROWS == MAX_TABLE_ROWS_PER_FRAGMENT);
 
+uint16_t tableSelectionForLine(const size_t elementIndex, const uint8_t logicalColumn) {
+  if (elementIndex >= MAX_PAGE_ELEMENTS || logicalColumn >= MAX_TABLE_CELLS_PER_ROW) {
+    return UINT16_MAX;
+  }
+  return static_cast<uint16_t>(elementIndex * MAX_TABLE_CELLS_PER_ROW + logicalColumn);
+}
+
 template <typename Predicate>
 void renderFilteredPageElements(const std::vector<std::unique_ptr<PageElement>>& elements, GfxRenderer& renderer,
                                 const int fontId, const int xOffset, const int yOffset, const bool foregroundBlack,
@@ -336,7 +343,8 @@ void PageTableFragment::render(GfxRenderer& renderer, const int fontId, const in
 bool Page::forEachTextLine(const PageTextLineVisitor visitor, void* context) const {
   if (!visitor) return false;
 
-  for (const auto& element : elements) {
+  for (size_t elementIndex = 0; elementIndex < elements.size(); ++elementIndex) {
+    const auto& element = elements[elementIndex];
     if (!element) continue;
 
     if (element->getTag() == TAG_PageLine) {
@@ -377,8 +385,16 @@ bool Page::forEachTextLine(const PageTextLineVisitor visitor, void* context) con
                                                                 span, fragment.cellPadding);
             const int cellHeight = std::max(0, static_cast<int>(row.height) - fragment.cellPadding * 2);
             const int lineY = cellY + static_cast<int>(lineIndex) * fragment.lineHeight;
-            const PageTextLine line{cell.lines[lineIndex].get(), cellX, lineY, cellX, cellY, cellWidth, cellHeight,
-                                    fragment.lineHeight,         true};
+            const PageTextLine line{cell.lines[lineIndex].get(),
+                                    cellX,
+                                    lineY,
+                                    cellX,
+                                    cellY,
+                                    cellWidth,
+                                    cellHeight,
+                                    fragment.lineHeight,
+                                    true,
+                                    tableSelectionForLine(elementIndex, logicalColumn)};
             return visitor(line, context);
           });
       if (!visited) return false;

@@ -19,6 +19,6 @@ struct SelectionBounds {
 
 ClippingResult build(const ClipWordStore& wordStore, const uint16_t* wordOrder, int fromOrder, int toOrder,
                      int totalOrder, int startPageInSection, int sectionPageCount,
-                     const SelectionBounds* selectionBounds = nullptr);
+                     const SelectionBounds* selectionBounds = nullptr, uint16_t tableSelection = UINT16_MAX);
 
 }  // namespace ClipTextBuilder

@@ -105,6 +105,10 @@ struct PageTextLine {
   int clipHeight = 0;
   int lineHeight = 0;
   bool isTableText = false;
+  // Identifies a logical table column within this page layout. Normal text and
+  // unsupported table shapes use the sentinel, so their selection behavior is
+  // unchanged.
+  uint16_t tableSelection = UINT16_MAX;
 };
 
 using PageTextLineVisitor = bool (*)(const PageTextLine& line, void* context);

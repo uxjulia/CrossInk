@@ -17,6 +17,7 @@ struct WordRef {
   uint16_t pageWordIndex = 0;
   uint16_t textOffset = 0;
   uint16_t textLength = 0;
+  uint16_t tableSelection = UINT16_MAX;
   EpdFontFamily::Style style = EpdFontFamily::REGULAR;
   bool paragraphStart = false;
   bool endsWithInsertedHyphen = false;

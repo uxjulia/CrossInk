@@ -111,6 +111,7 @@ struct ClippingResult {
   uint16_t startPageWordIndex = 0;
   uint16_t endPageWordIndex = 0;
   uint16_t paragraphIndex = UINT16_MAX;
+  uint16_t tableSelection = UINT16_MAX;
   std::string startText;
   std::string endText;
   std::string beforeStartText;

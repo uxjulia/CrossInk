@@ -379,6 +379,16 @@ bool ClipSelectionActivity::isWithinCurrentPageEndDwellSlop(const int x, const i
   return word.pageIdx == currentDisplayPage && ClipSelectionPaging::isWithinPageEndDwellSlop(word, x, y);
 }
 
+uint16_t ClipSelectionActivity::tableSelectionForRange(const int from, const int to) const {
+  const WordRef& first = wordStore.words[readingOrder[from]];
+  const WordRef& last = wordStore.words[readingOrder[to]];
+  if (first.pageIdx != last.pageIdx || first.tableSelection == UINT16_MAX ||
+      first.tableSelection != last.tableSelection) {
+    return UINT16_MAX;
+  }
+  return first.tableSelection;
+}
+
 void ClipSelectionActivity::confirmSelection() {
   if (startMarkIdx == -1) {
     startMarkIdx = cursorIdx;
@@ -389,8 +399,9 @@ void ClipSelectionActivity::confirmSelection() {
   const int total = static_cast<int>(readingOrderSize);
   const int from = std::min(startMarkIdx, cursorIdx);
   const int to = std::max(startMarkIdx, cursorIdx);
-  auto result =
-      ClipTextBuilder::build(wordStore, readingOrder.data(), from, to, total, startPageInSection, section.pageCount);
+  const uint16_t tableSelection = tableSelectionForRange(from, to);
+  auto result = ClipTextBuilder::build(wordStore, readingOrder.data(), from, to, total, startPageInSection,
+                                       section.pageCount, nullptr, tableSelection);
   if (const auto paragraphIndex = section.getParagraphIndexForPage(result.sectionPage)) {
     result.paragraphIndex = *paragraphIndex;
   }
@@ -592,9 +603,11 @@ void ClipSelectionActivity::drawHighlights() {
   if (startMarkIdx != -1) {
     const int from = std::min(startMarkIdx, cursorIdx);
     const int to = std::max(startMarkIdx, cursorIdx);
+    const uint16_t tableSelection = tableSelectionForRange(from, to);
     for (int i = from; i <= to; i++) {
       const WordRef& word = wordStore.words[readingOrder[i]];
-      if (word.pageIdx == currentDisplayPage) {
+      if (word.pageIdx == currentDisplayPage &&
+          (tableSelection == UINT16_MAX || word.tableSelection == tableSelection)) {
         applyWordStyle(word, selectionStyle);
       }
     }

@@ -1,13 +1,12 @@
 #pragma once
 
-#include <algorithm>
 #include <cstddef>
 
 namespace TableTextLineOrder {
 
 // Visit table text in visual reading order: left-to-right across each wrapped
-// line, then top-to-bottom. This keeps clipping word ordinals aligned with what
-// the reader shows instead of exhausting one cell before moving to the next.
+// line, then top-to-bottom. This keeps generic reader navigation aligned with
+// what the reader shows; clipping applies table-column constraints separately.
 template <typename Row, typename Visitor>
 bool forEachCellLineInVisualOrder(const Row& row, Visitor&& visitor) {
   size_t maxLineCount = 0;
