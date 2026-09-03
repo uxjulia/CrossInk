@@ -13,6 +13,7 @@
 #include <Xtc.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <new>
 #include <string_view>
@@ -645,11 +646,22 @@ void SleepActivity::renderDefaultSleepScreen() const {
   renderer.displayBuffer(HalDisplay::HALF_REFRESH, TURN_OFF_SCREEN_AFTER_SLEEP_REFRESH);
 }
 
-void SleepActivity::renderBitmapSleepScreen(const Bitmap& bitmap) const {
+void SleepActivity::renderBitmapSleepScreen(Bitmap& bitmap) const {
   int x, y;
   const auto pageWidth = renderer.getScreenWidth();
   const auto pageHeight = renderer.getScreenHeight();
   float cropX = 0, cropY = 0;
+
+  // Keep error diffusion on the screen-sized grid. Resampling an already
+  // dithered source makes the source pattern alias into regular seams.
+  if (SETTINGS.sleepScreenCoverMode == CrossPointSettings::SLEEP_SCREEN_COVER_MODE::FIT &&
+      (bitmap.getWidth() > pageWidth || bitmap.getHeight() > pageHeight)) {
+    const float scale = std::min(static_cast<float>(pageWidth) / bitmap.getWidth(),
+                                 static_cast<float>(pageHeight) / bitmap.getHeight());
+    const int targetWidth = static_cast<int>(std::floor((bitmap.getWidth() - 1) * scale)) + 1;
+    const int targetHeight = static_cast<int>(std::floor((bitmap.getHeight() - 1) * scale)) + 1;
+    bitmap.setDitheredOutputSize(targetWidth, targetHeight);
+  }
 
   if (bitmap.getWidth() > pageWidth || bitmap.getHeight() > pageHeight) {
     // image will scale, make sure placement is right

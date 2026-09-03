@@ -1,7 +1,9 @@
 #include "Bitmap.h"
 
+#include <algorithm>
 #include <cstdlib>
 #include <cstring>
+#include <new>
 
 // ============================================================================
 // IMAGE PROCESSING OPTIONS
@@ -121,6 +123,9 @@ BmpReaderError Bitmap::parseHeaders() {
 
   if (width <= 0 || height <= 0) return BmpReaderError::BadDimensions;
 
+  outputWidth = width;
+  outputHeight = height;
+
   // Safety limits to prevent memory issues on ESP32
   constexpr int MAX_IMAGE_WIDTH = 2048;
   constexpr int MAX_IMAGE_HEIGHT = 3072;
@@ -168,7 +173,12 @@ BmpReaderError Bitmap::parseHeaders() {
   const bool highColor = !nativePalette;
   if (highColor && dithering) {
     if (USE_ATKINSON) {
-      atkinsonDitherer = new AtkinsonDitherer(width);
+      atkinsonDitherer = new (std::nothrow) AtkinsonDitherer(width);
+      if (!atkinsonDitherer || !atkinsonDitherer->isValid()) {
+        delete atkinsonDitherer;
+        atkinsonDitherer = nullptr;
+        return BmpReaderError::OomRowBuffer;
+      }
     } else {
       fsDitherer = new FloydSteinbergDitherer(width);
     }
@@ -177,32 +187,60 @@ BmpReaderError Bitmap::parseHeaders() {
   return BmpReaderError::Ok;
 }
 
+bool Bitmap::setDitheredOutputSize(const int targetWidth, const int targetHeight) {
+  if (!dithering || !atkinsonDitherer || targetWidth <= 0 || targetHeight <= 0 || targetWidth > width ||
+      targetHeight > height || (targetWidth == width && targetHeight == height)) {
+    return false;
+  }
+
+  // The error buffers must use final-screen coordinates. Recreating this tiny
+  // helper costs about 3 KiB for an X3-wide custom sleep image, not a full BMP.
+  auto* resizedDitherer = new (std::nothrow) AtkinsonDitherer(targetWidth);
+  if (!resizedDitherer || !resizedDitherer->isValid()) {
+    delete resizedDitherer;
+    return false;
+  }
+
+  delete atkinsonDitherer;
+  atkinsonDitherer = resizedDitherer;
+  outputWidth = targetWidth;
+  outputHeight = targetHeight;
+  return true;
+}
+
 // packed 2bpp output, 0 = black, 1 = dark gray, 2 = light gray, 3 = white
 BmpReaderError Bitmap::readNextRow(uint8_t* data, uint8_t* rowBuffer) const {
   // Note: rowBuffer should be pre-allocated by the caller to size 'rowBytes'
-  if (file.read(rowBuffer, rowBytes) != rowBytes) return BmpReaderError::ShortReadRow;
+  if (outputRowsRead >= outputHeight) return BmpReaderError::ShortReadRow;
 
-  prevRowY += 1;
+  // Select source rows before dithering. For example, a 480x800 custom
+  // wallpaper fitted to an X3 becomes 475x792 here, so error diffusion never
+  // has to survive the renderer's later non-integer scale.
+  const int sourceY = std::min(height - 1, (outputRowsRead * height + height / 2) / outputHeight);
+  while (sourceRowsRead <= sourceY) {
+    if (file.read(rowBuffer, rowBytes) != rowBytes) return BmpReaderError::ShortReadRow;
+    sourceRowsRead++;
+  }
 
   uint8_t* outPtr = data;
   uint8_t currentOutByte = 0;
   int bitShift = 6;
-  int currentX = 0;
+  const int outputY = outputRowsRead;
 
   // Helper lambda to pack 2bpp color into the output stream
-  auto packPixel = [&](const uint8_t lum) {
+  auto packPixel = [&](const uint8_t lum, const int outputX) {
     uint8_t color;
     if (atkinsonDitherer) {
-      color = atkinsonDitherer->processPixel(adjustPixel(lum), currentX);
+      color = atkinsonDitherer->processPixel(adjustPixel(lum), outputX);
     } else if (fsDitherer) {
-      color = fsDitherer->processPixel(adjustPixel(lum), currentX);
+      color = fsDitherer->processPixel(adjustPixel(lum), outputX);
     } else {
       if (nativePalette) {
         // Palette matches native gray levels: direct mapping (still apply brightness/contrast/gamma)
         color = static_cast<uint8_t>(adjustPixel(lum) >> 6);
       } else {
         // Non-native palette with dithering disabled: simple quantization
-        color = quantize(adjustPixel(lum), currentX, prevRowY);
+        color = quantize(adjustPixel(lum), outputX, outputY);
       }
     }
     currentOutByte |= (color << bitShift);
@@ -213,62 +251,42 @@ BmpReaderError Bitmap::readNextRow(uint8_t* data, uint8_t* rowBuffer) const {
     } else {
       bitShift -= 2;
     }
-    currentX++;
   };
 
-  uint8_t lum;
-
-  switch (bpp) {
-    case 32: {
-      const uint8_t* p = rowBuffer;
-      for (int x = 0; x < width; x++) {
+  for (int outputX = 0; outputX < outputWidth; outputX++) {
+    const int sourceX = std::min(width - 1, (outputX * width + width / 2) / outputWidth);
+    uint8_t lum;
+    switch (bpp) {
+      case 32: {
+        const uint8_t* p = rowBuffer + sourceX * 4;
         lum = (77u * p[2] + 150u * p[1] + 29u * p[0]) >> 8;
-        packPixel(lum);
-        p += 4;
+        break;
       }
-      break;
-    }
-    case 24: {
-      const uint8_t* p = rowBuffer;
-      for (int x = 0; x < width; x++) {
+      case 24: {
+        const uint8_t* p = rowBuffer + sourceX * 3;
         lum = (77u * p[2] + 150u * p[1] + 29u * p[0]) >> 8;
-        packPixel(lum);
-        p += 3;
+        break;
       }
-      break;
-    }
-    case 8: {
-      for (int x = 0; x < width; x++) {
-        packPixel(paletteLum[rowBuffer[x]]);
+      case 8:
+        lum = paletteLum[rowBuffer[sourceX]];
+        break;
+      case 4: {
+        const uint8_t nibble = (sourceX & 1) ? (rowBuffer[sourceX >> 1] & 0x0F) : (rowBuffer[sourceX >> 1] >> 4);
+        lum = paletteLum[nibble];
+        break;
       }
-      break;
-    }
-    case 4: {
-      for (int x = 0; x < width; x++) {
-        const uint8_t nibble = (x & 1) ? (rowBuffer[x >> 1] & 0x0F) : (rowBuffer[x >> 1] >> 4);
-        packPixel(paletteLum[nibble]);
-      }
-      break;
-    }
-    case 2: {
-      for (int x = 0; x < width; x++) {
-        lum = paletteLum[(rowBuffer[x >> 2] >> (6 - ((x & 3) * 2))) & 0x03];
-        packPixel(lum);
-      }
-      break;
-    }
-    case 1: {
-      for (int x = 0; x < width; x++) {
-        // Get palette index (0 or 1) from bit at position x
-        const uint8_t palIndex = (rowBuffer[x >> 3] & (0x80 >> (x & 7))) ? 1 : 0;
-        // Use palette lookup for proper black/white mapping
+      case 2:
+        lum = paletteLum[(rowBuffer[sourceX >> 2] >> (6 - ((sourceX & 3) * 2))) & 0x03];
+        break;
+      case 1: {
+        const uint8_t palIndex = (rowBuffer[sourceX >> 3] & (0x80 >> (sourceX & 7))) ? 1 : 0;
         lum = paletteLum[palIndex];
-        packPixel(lum);
+        break;
       }
-      break;
+      default:
+        return BmpReaderError::UnsupportedBpp;
     }
-    default:
-      return BmpReaderError::UnsupportedBpp;
+    packPixel(lum, outputX);
   }
 
   if (atkinsonDitherer)
@@ -278,6 +296,8 @@ BmpReaderError Bitmap::readNextRow(uint8_t* data, uint8_t* rowBuffer) const {
 
   // Flush remaining bits if width is not a multiple of 4
   if (bitShift != 6) *outPtr = currentOutByte;
+
+  outputRowsRead++;
 
   return BmpReaderError::Ok;
 }
@@ -290,6 +310,8 @@ BmpReaderError Bitmap::rewindToData() const {
   // Reset dithering when rewinding
   if (fsDitherer) fsDitherer->reset();
   if (atkinsonDitherer) atkinsonDitherer->reset();
+  sourceRowsRead = 0;
+  outputRowsRead = 0;
 
   return BmpReaderError::Ok;
 }

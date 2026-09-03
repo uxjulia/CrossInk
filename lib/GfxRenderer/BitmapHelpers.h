@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <cstring>
+#include <new>
 
 struct BmpHeader;
 
@@ -105,9 +106,17 @@ class Atkinson1BitDitherer {
 class AtkinsonDitherer {
  public:
   explicit AtkinsonDitherer(int width) : width(width) {
-    errorRow0 = new int16_t[width + 4]();  // Current row
-    errorRow1 = new int16_t[width + 4]();  // Next row
-    errorRow2 = new int16_t[width + 4]();  // Row after next
+    errorRow0 = new (std::nothrow) int16_t[width + 4]();  // Current row
+    errorRow1 = new (std::nothrow) int16_t[width + 4]();  // Next row
+    errorRow2 = new (std::nothrow) int16_t[width + 4]();  // Row after next
+    if (!isValid()) {
+      delete[] errorRow0;
+      delete[] errorRow1;
+      delete[] errorRow2;
+      errorRow0 = nullptr;
+      errorRow1 = nullptr;
+      errorRow2 = nullptr;
+    }
   }
 
   ~AtkinsonDitherer() {
@@ -120,6 +129,8 @@ class AtkinsonDitherer {
 
   // **2. EXPLICITLY DELETE THE COPY ASSIGNMENT OPERATOR**
   AtkinsonDitherer& operator=(const AtkinsonDitherer& other) = delete;
+
+  bool isValid() const { return errorRow0 != nullptr && errorRow1 != nullptr && errorRow2 != nullptr; }
 
   uint8_t processPixel(int gray, int x) {
     // Add accumulated error
