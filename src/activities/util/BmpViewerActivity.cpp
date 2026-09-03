@@ -7,10 +7,15 @@
 #include <I18n.h>
 
 #include <algorithm>
+#include <cctype>
 
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
 #include "Epub/converters/PngToFramebufferConverter.h"
+#include "activities/boot_sleep/SleepImageIndex.h"
+#include "activities/home/BookActions.h"
+#include "activities/home/FileBrowserActionActivity.h"
+#include "activities/util/ConfirmationActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 
@@ -21,6 +26,28 @@ bool isViewableImageFile(const std::string& filename) {
 }
 
 bool isMacOSSidecarFile(const std::string& filename) { return filename.rfind("._", 0) == 0; }
+
+std::string imageDisplayName(const std::string& path) {
+  const size_t filenameStart = path.find_last_of('/') + 1;
+  const size_t extensionStart = path.find_last_of('.');
+  return path.substr(filenameStart, extensionStart - filenameStart);
+}
+
+bool equalsIgnoreCase(const std::string& a, const std::string& b) {
+  if (a.length() != b.length()) return false;
+  for (size_t i = 0; i < a.length(); ++i) {
+    if (std::tolower(static_cast<unsigned char>(a[i])) != std::tolower(static_cast<unsigned char>(b[i]))) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool isSleepFavoriteFolder(const std::string& imagePath) {
+  const std::string folder = FsHelpers::extractFolderPath(imagePath);
+  return equalsIgnoreCase(folder, "/sleep") || equalsIgnoreCase(folder, "/.sleep") ||
+         folder == APP_STATE.preferredSleepFolderPath;
+}
 
 void drawImageError(GfxRenderer& renderer, const MappedInputManager& mappedInput, const char* message) {
   renderer.clearScreen();
@@ -240,6 +267,101 @@ void BmpViewerActivity::doSetSleepCover() {
   onEnter();
 }
 
+void BmpViewerActivity::pinSleepFavorite() {
+  APP_STATE.favoriteSleepImagePath = filePath;
+  if (!APP_STATE.saveToFile()) {
+    LOG_ERR("BmpViewer", "Failed to save favorite sleep image path: %s", filePath.c_str());
+    return;
+  }
+  LOG_INF("BmpViewer", "Pinned favorite sleep image: %s", filePath.c_str());
+}
+
+void BmpViewerActivity::unpinSleepFavorite() {
+  APP_STATE.favoriteSleepImagePath.clear();
+  if (!APP_STATE.saveToFile()) {
+    LOG_ERR("BmpViewer", "Failed to clear favorite sleep image");
+    return;
+  }
+  LOG_INF("BmpViewer", "Cleared favorite sleep image");
+}
+
+void BmpViewerActivity::promptDeleteImage() {
+  const std::string path = filePath;
+  startActivityForResult(
+      std::make_unique<ConfirmationActivity>(renderer, mappedInput, BookActions::confirmationHeading(StrId::STR_DELETE),
+                                             imageDisplayName(path)),
+      [this, path](const ActivityResult& result) {
+        if (result.isCancelled) return;
+        if (!Storage.remove(path.c_str())) {
+          LOG_ERR("BmpViewer", "Failed to delete image: %s", path.c_str());
+          return;
+        }
+        SleepImageIndex::invalidateForPath(path.c_str());
+        if (APP_STATE.favoriteSleepImagePath == path) {
+          unpinSleepFavorite();
+        }
+        activityManager.goToFileBrowser(path);
+      });
+}
+
+void BmpViewerActivity::showContextMenu() {
+  std::vector<FileBrowserActionActivity::MenuItem> items = BookActions::buildBookActionItems(filePath, false);
+  if (BookActions::canSendNearby(filePath)) {
+    items.push_back({FileBrowserAction::SendNearby, StrId::STR_SEND_NEARBY_BOOK});
+  }
+
+  if (isSleepFavoriteFolder(filePath)) {
+    const bool isPinned = APP_STATE.favoriteSleepImagePath == filePath;
+    items.push_back({isPinned ? FileBrowserAction::UnpinFavorite : FileBrowserAction::PinFavorite,
+                     isPinned ? StrId::STR_UNPIN_AS_FAVORITE : StrId::STR_PIN_AS_FAVORITE});
+  }
+
+  startActivityForResult(std::make_unique<FileBrowserActionActivity>(renderer, mappedInput, imageDisplayName(filePath),
+                                                                     std::move(items), false),
+                         [this](const ActivityResult& result) {
+                           if (result.isCancelled) return;
+
+                           const auto* actionResult = std::get_if<FileBrowserActionResult>(&result.data);
+                           if (actionResult == nullptr) return;
+
+                           switch (static_cast<FileBrowserAction>(actionResult->action)) {
+                             case FileBrowserAction::Delete:
+                               promptDeleteImage();
+                               return;
+                             case FileBrowserAction::SendNearby:
+                               activityManager.goToNearbyBookSend(filePath, false);
+                               return;
+                             case FileBrowserAction::PinFavorite:
+                               if (FsHelpers::hasPngExtension(filePath)) {
+                                 startActivityForResult(std::make_unique<ConfirmationActivity>(
+                                                            renderer, mappedInput, "", tr(STR_PIN_PNG_WARNING)),
+                                                        [this](const ActivityResult& confirmation) {
+                                                          if (!confirmation.isCancelled) pinSleepFavorite();
+                                                        });
+                               } else {
+                                 pinSleepFavorite();
+                               }
+                               return;
+                             case FileBrowserAction::UnpinFavorite:
+                               unpinSleepFavorite();
+                               return;
+                             case FileBrowserAction::DeleteCache:
+                             case FileBrowserAction::SetSleepFolder:
+                             case FileBrowserAction::ClearSleepFolder:
+                             case FileBrowserAction::ToggleCompleted:
+                             case FileBrowserAction::RemoveFromRecents:
+                             case FileBrowserAction::DeleteStats:
+                             case FileBrowserAction::ViewBookmarks:
+                             case FileBrowserAction::ViewClippings:
+                             case FileBrowserAction::DeleteBookmarks:
+                             case FileBrowserAction::DeleteClippings:
+                             case FileBrowserAction::EpubRenderMode:
+                             case FileBrowserAction::ResetReaderSettings:
+                               return;
+                           }
+                         });
+}
+
 void BmpViewerActivity::loop() {
   // Keep CPU awake/polling so 1st click works
   Activity::loop();
@@ -263,6 +385,21 @@ void BmpViewerActivity::loop() {
   if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
     activityManager.goToFileBrowser(filePath);
     return;
+  }
+
+  if (mappedInput.hasTouchHardware()) {
+    constexpr unsigned long CONTEXT_MENU_HOLD_MS = 1000;
+    int touchX = 0;
+    int touchY = 0;
+    if (mappedInput.isScreenTouchLongPress(touchX, touchY, CONTEXT_MENU_HOLD_MS)) {
+      mappedInput.suppressCurrentTouchContact();
+      showContextMenu();
+      return;
+    }
+    if (mappedInput.wasScreenTapped(touchX, touchY)) {
+      showContextMenu();
+      return;
+    }
   }
 
   const auto swipe = mappedInput.wasSwipe();
