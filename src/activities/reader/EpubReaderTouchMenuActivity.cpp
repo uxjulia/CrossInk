@@ -291,8 +291,6 @@ EpubReaderTouchMenuActivity::EpubReaderTouchMenuActivity(
     const bool hasDictionary, const bool hasBookmarks, const bool hasClippings, const bool isCurrentPageBookmarked,
     const bool isBookCompleted, const bool showReadingPaceReset, const bool stablePageNumbersAvailable,
     const uint16_t autoPageTurnIntervalSeconds, const bool automaticPageTurnActive,
-    const AutoPageTurnIntervalChangedCallback autoPageTurnIntervalChangedCallback,
-    void* const autoPageTurnIntervalChangedContext,
     ReaderOptionsActivity::SaveSettingsCallback saveReaderSettingsCallback, void* saveReaderSettingsContext,
     ReaderOptionsActivity::SaveGlobalSettingsCallback saveGlobalSettingsCallback, void* saveGlobalSettingsContext,
     ReaderOptionsActivity::GlobalSettingsEditCallback beginGlobalSettingsEditCallback,
@@ -330,8 +328,6 @@ EpubReaderTouchMenuActivity::EpubReaderTouchMenuActivity(
       hasDictionaryFontOverride(hasDictionaryFontOverride),
       dictionaryFontChangedCallback(dictionaryFontChangedCallback),
       dictionaryFontChangedContext(dictionaryFontChangedContext),
-      autoPageTurnIntervalChangedCallback(autoPageTurnIntervalChangedCallback),
-      autoPageTurnIntervalChangedContext(autoPageTurnIntervalChangedContext),
       uiTarget(makeUiTarget(renderer)),
       app(uiTarget, uiTarget.deviceContext()) {
   if (dictionaryFontFamilyName) {
@@ -369,9 +365,6 @@ void EpubReaderTouchMenuActivity::onEnter() {
 
 void EpubReaderTouchMenuActivity::onExit() {
   commitSettings();
-  if (autoPageTurnIntervalChanged && autoPageTurnIntervalChangedCallback) {
-    autoPageTurnIntervalChangedCallback(autoPageTurnIntervalChangedContext, autoPageTurnIntervalSeconds);
-  }
   dictionaryRegistry.clear();
   sdFontSystem.releaseRegistry();
   mappedInput.setReaderTouchscreenOverride(false);
@@ -568,7 +561,6 @@ void EpubReaderTouchMenuActivity::onSliderEvent(const fui::ActionEvent& event, v
     self->autoPageTurnIntervalSeconds = static_cast<uint16_t>(tapValue(
         percentToByte(event.dragPermille, READER_AUTO_PAGE_TURN_MIN_SECONDS, READER_AUTO_PAGE_TURN_MAX_SECONDS),
         READER_AUTO_PAGE_TURN_MIN_SECONDS, READER_AUTO_PAGE_TURN_MAX_SECONDS));
-    self->autoPageTurnIntervalChanged = true;
     self->requestUpdate();
     return;
   }
@@ -583,7 +575,6 @@ void EpubReaderTouchMenuActivity::onStepEvent(const fui::ActionEvent& event, voi
   self->buttonFocusActive = false;
   if (self->state.pane == ReaderDrawerPane::AutoPageTurn) {
     self->adjustActiveSlider(event.value);
-    self->autoPageTurnIntervalChanged = true;
     self->requestUpdate();
     return;
   }
@@ -614,6 +605,10 @@ void EpubReaderTouchMenuActivity::onConfirmEvent(const fui::ActionEvent&, void* 
   self->buttonFocusActive = false;
   if (self->state.pane == ReaderDrawerPane::Percent) {
     self->completePercentSelection();
+    return;
+  }
+  if (self->state.pane == ReaderDrawerPane::AutoPageTurn) {
+    self->completeAutoPageTurnSelection();
     return;
   }
   self->closePane();
@@ -1533,6 +1528,17 @@ void EpubReaderTouchMenuActivity::completePercentSelection() {
   finish();
 }
 
+void EpubReaderTouchMenuActivity::completeAutoPageTurnSelection() {
+  const bool changed = didChangeSettings;
+  commitSettings();
+  MenuResult menu{static_cast<int>(EpubReaderMenuAction::AUTO_PAGE_TURN), draft.orientation, changed};
+  menu.drawerState = state;
+  menu.changeMask = changeMask;
+  menu.drawerValue = static_cast<int16_t>(autoPageTurnIntervalSeconds);
+  setResult(std::move(menu));
+  finish();
+}
+
 void EpubReaderTouchMenuActivity::adjustActiveSlider(const int delta) {
   if (state.pane == ReaderDrawerPane::Spacing) {
     draft.lineHeightPercent = CrossPointSettings::clampedLineHeightPercent(static_cast<uint8_t>(
@@ -1751,7 +1757,7 @@ void EpubReaderTouchMenuActivity::loop() {
       return;
     }
     if (state.pane == ReaderDrawerPane::AutoPageTurn) {
-      closePane();
+      completeAutoPageTurnSelection();
       return;
     }
     activateListIndex(state.selectedIndex);

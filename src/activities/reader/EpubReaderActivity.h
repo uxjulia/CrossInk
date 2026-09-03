@@ -394,7 +394,6 @@ class EpubReaderActivity final : public Activity {
   void beginGlobalSettingsEdit();
   void endGlobalSettingsEdit();
   static void saveReaderOptionsForBook(void* ctx);
-  static void setAutoPageTurnIntervalForBookReader(void* ctx, uint16_t seconds);
   static void saveDictionaryFontForBookReader(void* ctx, const char* familyName, uint8_t pointSize);
   static void saveGlobalSettingsForBookReader(void* ctx);
   static void beginGlobalSettingsEditForBookReader(void* ctx);

@@ -2086,11 +2086,6 @@ void EpubReaderActivity::saveReaderOptionsForBook(void* ctx) {
   static_cast<EpubReaderActivity*>(ctx)->saveCurrentBookReaderSettings();
 }
 
-void EpubReaderActivity::setAutoPageTurnIntervalForBookReader(void* ctx, const uint16_t seconds) {
-  if (!ctx) return;
-  static_cast<EpubReaderActivity*>(ctx)->setAutoPageTurnIntervalSeconds(seconds);
-}
-
 void EpubReaderActivity::saveDictionaryFontForBookReader(void* ctx, const char* familyName, const uint8_t pointSize) {
   if (!ctx) return;
   static_cast<EpubReaderActivity*>(ctx)->saveDictionaryFontForBook(familyName, pointSize);
@@ -2384,11 +2379,10 @@ void EpubReaderActivity::openReaderMenu() {
         !previewActive && BOOKMARKS.hasBookmarkForPage(bmSpine, bmProgress, bookmarkPageCount), isBookCompleted,
         SETTINGS.statusBarTimeLeft != CrossPointSettings::STATUS_BAR_TIME_LEFT::TIME_LEFT_HIDE,
         !previewActive && epub && epub->hasStablePageNumbers(), getAutoPageTurnIntervalSeconds(),
-        automaticPageTurnActive, setAutoPageTurnIntervalForBookReader, this, saveReaderOptionsForBook, this,
-        saveGlobalSettingsForBookReader, this, beginGlobalSettingsEditForBookReader, this,
-        endGlobalSettingsEditForBookReader, this, bookSettings.dictionarySdFontFamilyName,
-        bookSettings.dictionaryFontPointSize, bookSettings.hasDictionaryFontOverride, saveDictionaryFontForBookReader,
-        this, touchReaderDrawerState);
+        automaticPageTurnActive, saveReaderOptionsForBook, this, saveGlobalSettingsForBookReader, this,
+        beginGlobalSettingsEditForBookReader, this, endGlobalSettingsEditForBookReader, this,
+        bookSettings.dictionarySdFontFamilyName, bookSettings.dictionaryFontPointSize,
+        bookSettings.hasDictionaryFontOverride, saveDictionaryFontForBookReader, this, touchReaderDrawerState);
     if (!menuActivity) {
       LOG_ERR("ERS", "Could not allocate touch reader menu");
       resumeReadingPaceTimer("reader_menu_oom");
@@ -2476,6 +2470,10 @@ void EpubReaderActivity::openReaderMenu() {
     if (!result.isCancelled) {
       if (menu->action == static_cast<int>(EpubReaderMenuAction::GO_TO_PERCENT) && menu->drawerValue >= 0) {
         jumpToPercent(menu->drawerValue);
+        return;
+      }
+      if (menu->action == static_cast<int>(EpubReaderMenuAction::AUTO_PAGE_TURN) && menu->drawerValue >= 0) {
+        setAutoPageTurnIntervalSeconds(static_cast<uint16_t>(menu->drawerValue));
         return;
       }
       const auto action = static_cast<EpubReaderMenuActivity::MenuAction>(menu->action);
