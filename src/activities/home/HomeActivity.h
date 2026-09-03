@@ -49,6 +49,9 @@ class HomeActivity final : public Activity {
   int minimalHomeNavIndex = -1;
   bool coverRendered = false;      // Track if cover has been rendered once
   bool coverBufferStored = false;  // Track if cover buffer is stored
+  // Cached cover pixels already include Dark Mode's image-polarity correction.
+  // They must be redrawn rather than reused when the output polarity changes.
+  bool coverBufferInverted = false;
   // Home can be entered while Back is still held (e.g. leaving Settings with
   // Back): ignore that stale release until a fresh press is seen here.
   bool backPressSeen = false;
@@ -76,6 +79,7 @@ class HomeActivity final : public Activity {
 
   uint8_t* carouselFrames[kCarouselFrameCount] = {};
   bool carouselFramesReady = false;
+  bool carouselFramesInverted = false;
   bool carouselWarmupPending = false;
 
   std::vector<RecentBook> recentBooks;
@@ -97,6 +101,7 @@ class HomeActivity final : public Activity {
   bool restoreCoverBuffer();  // Restore frame buffer from stored cover
   void freeCoverBuffer();     // Free the stored cover buffer
   void invalidateCoverCache();
+  void invalidatePolarityMismatchedCaches();
   bool preRenderCarouselFrames(bool showProgressPopup = false);
   void freeCarouselFrames();
   bool allocateCarouselFrameSlots(int targetFrameCount);

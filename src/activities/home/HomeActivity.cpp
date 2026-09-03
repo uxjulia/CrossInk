@@ -487,6 +487,11 @@ void buildCarouselCacheKey(const std::vector<RecentBook>& recentBooks, const boo
                            std::string& key, uint64_t& keyHash) {
   key.clear();
   key.reserve(512);
+  // Framebuffer snapshots include both UI pixels and counter-inverted cover
+  // pixels, so a Light Mode snapshot cannot be reused in Dark Mode (or vice
+  // versa).
+  key += SETTINGS.screenInverted ? "dark:1" : "dark:0";
+  key += '\0';
   // The carousel cache stores the bottom icon row too, so menu visibility must
   // be part of the key alongside book covers/progress.
   appendCarouselMenuStateToKey(key, hasOpdsServers, hasReadingStats, hasBookmarks, hasClippings);
@@ -1103,6 +1108,7 @@ bool HomeActivity::storeCoverBuffer() {
     coverBufferSize = 0;
     return false;
   }
+  coverBufferInverted = SETTINGS.screenInverted != 0;
   return true;
 }
 
@@ -1123,6 +1129,18 @@ void HomeActivity::freeCoverBuffer() {
 void HomeActivity::invalidateCoverCache() {
   coverRendered = false;
   freeCoverBuffer();
+}
+
+void HomeActivity::invalidatePolarityMismatchedCaches() {
+  const bool darkModeEnabled = SETTINGS.screenInverted != 0;
+  if (coverBufferStored && coverBufferInverted != darkModeEnabled) {
+    invalidateCoverCache();
+  }
+  if (carouselFramesReady && carouselFramesInverted != darkModeEnabled) {
+    freeCarouselFrames();
+    gCarouselCache.invalidate();
+    carouselWarmupPending = true;
+  }
 }
 
 void HomeActivity::freeCarouselFrames() {
@@ -1404,6 +1422,7 @@ bool HomeActivity::preRenderCarouselFrames(bool showProgressPopup) {
   if (newKey == gCarouselCache.key && gCarouselCache.frameCount > 0) {
     for (int i = 0; i < gCarouselCache.frameCount; ++i) carouselFrames[i] = gCarouselCache.frames[i];
     carouselFramesReady = true;
+    carouselFramesInverted = SETTINGS.screenInverted != 0;
     coverRendered = false;
     coverBufferStored = false;
     return false;
@@ -1454,6 +1473,7 @@ bool HomeActivity::preRenderCarouselFrames(bool showProgressPopup) {
   gCarouselCache.key = newKey;
   gCarouselCache.keyHash = diskCacheValid ? newKeyHash : 0;
   carouselFramesReady = true;
+  carouselFramesInverted = SETTINGS.screenInverted != 0;
   coverRendered = false;
   coverBufferStored = false;
 
@@ -2072,6 +2092,8 @@ void HomeActivity::render(RenderLock&&) {
   if (quickActionsPopup.processRender(renderer, mappedInput)) {
     return;
   }
+
+  invalidatePolarityMismatchedCaches();
 
   const auto& metrics = UITheme::getInstance().getMetrics();
   const auto pageWidth = renderer.getScreenWidth();
