@@ -2069,6 +2069,12 @@ void EpubReaderActivity::endGlobalSettingsEdit() {
   if (!bookReaderSettingsSuspendedForGlobalEdit) {
     return;
   }
+
+  // Global Settings is editing SETTINGS while the book-specific reader values
+  // are suspended. Retain every edited reader default before restoring this
+  // book, otherwise the stale snapshot is written back on a later save or
+  // when the reader exits.
+  captureReaderSettings(globalReaderSettingsBeforeBook);
   applyReaderSettings(suspendedBookReaderSettings);
   bookReaderSettingsSuspendedForGlobalEdit = false;
 }
