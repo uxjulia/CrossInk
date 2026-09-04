@@ -129,6 +129,14 @@ class ButtonShortcutController {
     toggleQuickLock(nowMs, QuickLockTrigger::LongPower, true);
     return true;
   }
+  bool tryUnlockWithTrigger(uint32_t nowMs, QuickLockTrigger trigger) {
+    if (trigger == QuickLockTrigger::None || trigger == QuickLockTrigger::LongPower || !quickLockState_.isLocked() ||
+        quickLockTrigger_ != trigger) {
+      return false;
+    }
+    toggleQuickLock(nowMs, trigger);
+    return true;
+  }
   void restoreQuickLock(uint32_t nowMs, QuickLockTrigger trigger) {
     if (!quickLockState_.isLocked()) {
       // Older state files did not retain the activating shortcut. Keep their

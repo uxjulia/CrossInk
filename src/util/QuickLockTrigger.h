@@ -11,4 +11,7 @@ enum class QuickLockTrigger : uint8_t {
   UpDown,
   LongBack,
   LongMenu,
+  HomeDoubleTap,
+  HomeTap,
+  HomeLongPress,
 };

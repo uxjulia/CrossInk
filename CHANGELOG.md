@@ -8,7 +8,7 @@
 - Frontlit readers can choose Never for periodic full-screen refreshes, and Night Mode now applies system-wide for ESP32-S3 devices.
 - Tapping the reader status bar on touch devices now toggles it for the current reading session without changing the page layout.
 - Quick Actions provides a menu of favorite reader commands, assignable to Power + Up and, on X4 Pro, Home-button gestures.
-- A new Quick Lock shortcut locks the device without putting it to sleep; it uses the regular sleep timeout and can be assigned to Power + Up, long-press Back, or long-press Menu.
+- A new Quick Lock shortcut locks the device without putting it to sleep; it uses the regular sleep timeout and can be assigned to Power + Up, long-press Back or Menu, or any X4 Pro Home-button shortcut.
 - Shortcuts can now go to the previous page or start Nearby Position Sync from an EPUB reader.
 - Dictionary lookups can now save the selected word or phrase directly as a clipping on touch devices.
 - Up + Down side-button shortcut added for touchscreen devices, while the reader touchscreen is disabled, the same chord always opens the reader menu so it can be restored.

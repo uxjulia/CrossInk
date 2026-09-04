@@ -543,6 +543,7 @@ CrossPointSettings::SHORT_PWRBTN getPowerButtonAction() {
 
 void notifyQuickLockChanged(const bool restoringAfterWake = false) {
   const bool locked = buttonShortcutController.isQuickLocked();
+  x4ProHomeKeyTapPending = false;
   mappedInputManager.clearInjectedReleases();
   LOG_DBG("MAIN", "Quick Lock %s", locked ? "enabled" : "disabled");
   if (locked) {
@@ -809,7 +810,8 @@ void putTiltSensorToSleepForDeepSleep() {
   LOG_ERR("MAIN", "Tilt sensor did not confirm sleep before deep sleep");
 }
 
-bool executeX4ProHomeButtonAction(const uint8_t action) {
+bool executeX4ProHomeButtonAction(const uint8_t action,
+                                  const QuickLockTrigger quickLockTrigger = QuickLockTrigger::None) {
   switch (action) {
     case CrossPointSettings::HOME_BUTTON_BACK_HOME:
       return activityManager.handleHomeButtonBackOrHome();
@@ -836,17 +838,71 @@ bool executeX4ProHomeButtonAction(const uint8_t action) {
     dispatchShortcutAction(powerAction);
     return true;
   }
-  if (handleGlobalPowerButtonAction(powerAction)) {
+  if (handleGlobalPowerButtonAction(powerAction, quickLockTrigger)) {
     return true;
   }
   activityManager.handleShortcutAction(powerAction);
   return true;
 }
 
-bool handleX4ProHomeKeyShortcuts() {
+bool wasX4ProHomeKeyTapped() {
 #ifdef SIMULATOR
-  return false;
+  return simulatorHomeKeyInput.wasTapped();
 #else
+  return gpio.wasHomeKeyTapped();
+#endif
+}
+
+bool wasX4ProHomeKeyLongPressed() {
+#ifdef SIMULATOR
+  return simulatorHomeKeyInput.wasLongPressed();
+#else
+  return gpio.wasHomeKeyLongPressed();
+#endif
+}
+
+bool unlockX4ProHomeQuickLock(const QuickLockTrigger trigger) {
+  if (!buttonShortcutController.tryUnlockWithTrigger(millis(), trigger)) {
+    return false;
+  }
+  notifyQuickLockChanged();
+  return true;
+}
+
+bool handleX4ProHomeKeyQuickLockUnlock() {
+  if (!mappedInputManager.hasHomeKey()) {
+    return false;
+  }
+
+  const QuickLockTrigger trigger = buttonShortcutController.quickLockTrigger();
+  if (trigger == QuickLockTrigger::HomeTap) {
+    return wasX4ProHomeKeyTapped() && unlockX4ProHomeQuickLock(trigger);
+  }
+  if (trigger == QuickLockTrigger::HomeLongPress) {
+    return wasX4ProHomeKeyLongPressed() && unlockX4ProHomeQuickLock(trigger);
+  }
+  if (trigger != QuickLockTrigger::HomeDoubleTap) {
+    return false;
+  }
+
+  const unsigned long now = millis();
+  if (x4ProHomeKeyTapPending && now - lastX4ProHomeKeyTapAt > X4PRO_HOME_KEY_DOUBLE_TAP_MS) {
+    x4ProHomeKeyTapPending = false;
+  }
+  if (!wasX4ProHomeKeyTapped()) {
+    return false;
+  }
+  if (!x4ProHomeKeyTapPending) {
+    lastX4ProHomeKeyTapAt = now;
+    x4ProHomeKeyTapPending = true;
+    return true;
+  }
+
+  x4ProHomeKeyTapPending = false;
+  return unlockX4ProHomeQuickLock(trigger);
+}
+
+bool handleX4ProHomeKeyShortcuts() {
   if (!mappedInputManager.hasHomeKey()) {
     return false;
   }
@@ -857,7 +913,7 @@ bool handleX4ProHomeKeyShortcuts() {
     const bool hadPendingTap = x4ProHomeKeyTapPending;
     x4ProHomeKeyTapPending = false;
     mappedInputManager.clearDeferredHomeGesture();
-    return hadPendingTap || gpio.wasHomeKeyTapped() || gpio.wasHomeKeyLongPressed();
+    return hadPendingTap || wasX4ProHomeKeyTapped() || wasX4ProHomeKeyLongPressed();
   }
 
   // Reader menus set the touchscreen override while they are active, which
@@ -867,7 +923,7 @@ bool handleX4ProHomeKeyShortcuts() {
     const bool hadPendingTap = x4ProHomeKeyTapPending;
     x4ProHomeKeyTapPending = false;
     mappedInputManager.clearDeferredHomeGesture();
-    return hadPendingTap || gpio.wasHomeKeyTapped() || gpio.wasHomeKeyLongPressed();
+    return hadPendingTap || wasX4ProHomeKeyTapped() || wasX4ProHomeKeyLongPressed();
   }
 
   // A lower-bezel swipe can report a capacitive Home tap as well. Let the
@@ -889,22 +945,22 @@ bool handleX4ProHomeKeyShortcuts() {
       // Keep reader menus and other overlays on their existing local Home route.
       mappedInputManager.queueDeferredHomeGesture();
     } else {
-      executeX4ProHomeButtonAction(SETTINGS.homeButtonTapAction);
+      executeX4ProHomeButtonAction(SETTINGS.homeButtonTapAction, QuickLockTrigger::HomeTap);
       completedPendingTap = true;
     }
   }
 
-  if (gpio.wasHomeKeyLongPressed()) {
+  if (wasX4ProHomeKeyLongPressed()) {
     // A hold is a separate gesture, not the second half of a double tap.
     x4ProHomeKeyTapPending = false;
     if (SETTINGS.homeButtonLongPressAction == CrossPointSettings::HOME_BUTTON_READER_MENU) {
       return completedPendingTap;
     }
-    executeX4ProHomeButtonAction(SETTINGS.homeButtonLongPressAction);
+    executeX4ProHomeButtonAction(SETTINGS.homeButtonLongPressAction, QuickLockTrigger::HomeLongPress);
     return true;
   }
 
-  if (!gpio.wasHomeKeyTapped()) return completedPendingTap;
+  if (!wasX4ProHomeKeyTapped()) return completedPendingTap;
 
   if (!x4ProHomeKeyTapPending) {
     lastX4ProHomeKeyTapAt = now;
@@ -913,9 +969,8 @@ bool handleX4ProHomeKeyShortcuts() {
   }
 
   x4ProHomeKeyTapPending = false;
-  executeX4ProHomeButtonAction(SETTINGS.homeButtonDoubleTapAction);
+  executeX4ProHomeButtonAction(SETTINGS.homeButtonDoubleTapAction, QuickLockTrigger::HomeDoubleTap);
   return true;
-#endif
 }
 }  // namespace
 constexpr char SLEEP_FRAME_FILE[] = "/.crosspoint/sleep_frame.bin";
@@ -1641,6 +1696,10 @@ void loop() {
         powerPressed && gpio.getPowerButtonHeldTime() >= SETTINGS.getPowerButtonLongPressDuration();
     if (buttonShortcutController.tryUnlockLongPower(millis(), longPowerPressed)) {
       notifyQuickLockChanged();
+      lastActivityTime = millis();
+      return;
+    }
+    if (handleX4ProHomeKeyQuickLockUnlock()) {
       lastActivityTime = millis();
       return;
     }

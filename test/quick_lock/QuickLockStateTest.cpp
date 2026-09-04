@@ -72,6 +72,21 @@ TEST(ButtonShortcutController, LongPowerRequiresReleaseBeforeItCanUnlock) {
   EXPECT_FALSE(controller.isQuickLocked());
 }
 
+TEST(ButtonShortcutController, HomeQuickLockOnlyUnlocksWithTheMatchingHomeGesture) {
+  ButtonShortcutController controller;
+
+  constexpr QuickLockTrigger homeTriggers[] = {QuickLockTrigger::HomeTap, QuickLockTrigger::HomeDoubleTap,
+                                               QuickLockTrigger::HomeLongPress};
+  for (const auto trigger : homeTriggers) {
+    controller.toggleQuickLock(10U, trigger);
+
+    EXPECT_FALSE(controller.tryUnlockWithTrigger(11U, QuickLockTrigger::ShortPower));
+    EXPECT_TRUE(controller.isQuickLocked());
+    EXPECT_TRUE(controller.tryUnlockWithTrigger(12U, trigger));
+    EXPECT_FALSE(controller.isQuickLocked());
+  }
+}
+
 TEST(ButtonShortcutController, PageTurnChordEmitsPageTurn) {
   ButtonShortcutController controller;
   using Action = ButtonShortcutController::ChordAction;
