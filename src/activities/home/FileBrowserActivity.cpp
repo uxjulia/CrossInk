@@ -999,7 +999,10 @@ void FileBrowserActivity::loop() {
         listNav.selected = static_cast<int>(selectorIndex);
         listNav.top = topIndex;
         listNav.visibleRows = visibleRows;
-        moved = listNav.scrollBy(delta, listSize);
+        // Page by the measured rows, like the button navigation below: with
+        // wrapped rows the fixed-height estimate skips entries.
+        const int page = listNav.pageRowsFor(listSize);
+        moved = listNav.scrollBy(swipe == MappedInputManager::SwipeDir::Up ? page : -page, listSize);
         topIndex = listNav.top;
       }
     }
@@ -1038,7 +1041,7 @@ void FileBrowserActivity::loop() {
       RenderLock lock(*this);
       nextIndex = ButtonNavigator::nextPageIndex(
           static_cast<int>(selectorIndex), listSize,
-          static_cast<size_t>(listSize) > MAX_VIRTUAL_LIST_ENTRIES ? visibleRows : listNav.pageRows());
+          static_cast<size_t>(listSize) > MAX_VIRTUAL_LIST_ENTRIES ? visibleRows : listNav.pageRowsFor(listSize));
     }
     moveSelection(nextIndex);
   };
@@ -1048,7 +1051,7 @@ void FileBrowserActivity::loop() {
       RenderLock lock(*this);
       previousIndex = ButtonNavigator::previousPageIndex(
           static_cast<int>(selectorIndex), listSize,
-          static_cast<size_t>(listSize) > MAX_VIRTUAL_LIST_ENTRIES ? visibleRows : listNav.pageRows());
+          static_cast<size_t>(listSize) > MAX_VIRTUAL_LIST_ENTRIES ? visibleRows : listNav.pageRowsFor(listSize));
     }
     moveSelection(previousIndex);
   };
@@ -1263,7 +1266,11 @@ void FileBrowserActivity::buildListScreen(UiApp::ScreenType& screen) {
   props.partialTrailingRow = false;
   screen.list(props);
   if (usesVirtualList) topIndex = listNav.top;
-  fui::drawListScrollIndicator(screen.target(), listRect, totalEntries, visibleRows, topIndex,
+  // The nav path knows how many rows the layout actually fits; the local
+  // window path has only the fixed-height estimate.
+  const auto indicatorRows =
+      static_cast<uint16_t>(usesVirtualList ? listNav.pageRowsFor(static_cast<int>(totalEntries)) : visibleRows);
+  fui::drawListScrollIndicator(screen.target(), listRect, totalEntries, indicatorRows, topIndex,
                                screen.theme().listScrollWidth, screen.theme().listScrollSide,
                                screen.theme().listScrollInset);
 }

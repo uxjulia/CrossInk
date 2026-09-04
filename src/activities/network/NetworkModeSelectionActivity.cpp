@@ -115,11 +115,14 @@ void NetworkModeSelectionActivity::loop() {
     bool moved = false;
     {
       RenderLock lock(*this);
-      const int delta = swipe == MappedInputManager::SwipeDir::Up ? visibleRows : -visibleRows;
       listNav.selected = listIndexForMenuIndex(selectedIndex);
       listNav.top = topIndex;
       listNav.visibleRows = visibleRows;
-      moved = listNav.scrollBy(delta, LIST_ITEM_COUNT);
+      // Page by the rows the last layout measured, not the fixed-height
+      // estimate: wrapped subtitles fit fewer rows, and paging by the larger
+      // estimate would skip the ones in between.
+      const int page = listNav.pageRowsFor(LIST_ITEM_COUNT);
+      moved = listNav.scrollBy(swipe == MappedInputManager::SwipeDir::Up ? page : -page, LIST_ITEM_COUNT);
       topIndex = listNav.top;
     }
     if (moved) {
