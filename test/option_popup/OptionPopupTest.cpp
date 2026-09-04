@@ -120,4 +120,57 @@ TEST(OptionPopup, ButtonNavigationSkipsDisabledOptions) {
   EXPECT_EQ(selectedIndex, 2);
 }
 
+TEST(OptionPopup, SwipeMovesByAVisiblePage) {
+  GfxRenderer renderer;
+  HalGPIO gpio;
+  MappedInputManager input(gpio, renderer);
+  OptionPopup popup;
+  PopupTouchHarness touch(input);
+  int selectedIndex = -1;
+
+  std::vector<std::string> options;
+  for (int i = 0; i < 25; ++i) options.push_back(std::to_string(i));
+  popup.show("Long popup", options, 0, [&](const int index) { selectedIndex = index; });
+
+  input.injectSwipe(MappedInputManager::SwipeDir::Up);
+  EXPECT_TRUE(popup.handleInput(input, [] {}));
+  popup.render(renderer);
+  EXPECT_EQ(GUI.getLastFirstOptionIndex(), 10);
+  touch.touchPopup(popup, 80, [] {});
+  EXPECT_EQ(selectedIndex, 10);
+
+  popup.show("Long popup", options, 24, [&](const int index) { selectedIndex = index; });
+  input.injectSwipe(MappedInputManager::SwipeDir::Down);
+  EXPECT_TRUE(popup.handleInput(input, [] {}));
+  popup.render(renderer);
+  EXPECT_EQ(GUI.getLastFirstOptionIndex(), 5);
+  touch.touchPopup(popup, 80, [] {});
+  EXPECT_EQ(selectedIndex, 5);
+}
+
+TEST(OptionPopup, SwipeKeepsDisabledDestinationUnselectableWithoutWrapping) {
+  GfxRenderer renderer;
+  HalGPIO gpio;
+  MappedInputManager input(gpio, renderer);
+  OptionPopup popup;
+  PopupTouchHarness touch(input);
+  int selectedIndex = -1;
+
+  std::vector<std::string> options;
+  for (int i = 0; i < 25; ++i) options.push_back(std::to_string(i));
+  popup.show("Long popup", options, 0, [&](const int index) { selectedIndex = index; });
+  std::vector<bool> disabled(25, false);
+  disabled[10] = true;
+  popup.setDisabledOptions(std::move(disabled));
+
+  input.injectSwipe(MappedInputManager::SwipeDir::Up);
+  EXPECT_TRUE(popup.handleInput(input, [] {}));
+  touch.touchPopup(popup, 80, [] {});
+  EXPECT_EQ(selectedIndex, -1);
+  EXPECT_TRUE(popup.isActive());
+
+  touch.touchPopup(popup, 116, [] {});
+  EXPECT_EQ(selectedIndex, 11);
+}
+
 }  // namespace

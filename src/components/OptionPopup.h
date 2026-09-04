@@ -84,6 +84,7 @@ class OptionPopup {
     disabledOptions = std::move(disabled);
     if (disabledOptions.size() != ownedStrings.size()) disabledOptions.assign(ownedStrings.size(), false);
     selectedIndex = firstEnabledIndex(selectedIndex, 1);
+    firstOptionIndex = -1;
     layoutValid = false;
   }
 
@@ -194,9 +195,12 @@ class OptionPopup {
       const int visibleCount = static_cast<int>(hitLayout.options.size());
       if (visibleCount < count) {
         const int delta = swipe == MappedInputManager::SwipeDir::Up ? visibleCount : -visibleCount;
-        selectedIndex = firstEnabledIndex(selectedIndex, delta);
-        layoutValid = false;
-        requestUpdate();
+        const int next = std::clamp(hitLayout.firstOptionIndex + delta, 0, count - visibleCount);
+        if (next != firstOptionIndex) {
+          firstOptionIndex = next;
+          layoutValid = false;
+          requestUpdate();
+        }
       }
       touchDownOptionIndex = -1;
       touchDownTarget = TouchTarget::None;
@@ -216,6 +220,7 @@ class OptionPopup {
                               : ButtonNavigator::previousIndex(selectedIndex, count);
         selectedIndex = firstEnabledIndex(next, -1);
       }
+      followSelection(visibleCount, count);
       layoutValid = false;
       requestUpdate();
     };
@@ -230,6 +235,7 @@ class OptionPopup {
                               : ButtonNavigator::nextIndex(selectedIndex, count);
         selectedIndex = firstEnabledIndex(next, 1);
       }
+      followSelection(visibleCount, count);
       layoutValid = false;
       requestUpdate();
     };
@@ -269,9 +275,10 @@ class OptionPopup {
 
   void render(const GfxRenderer& renderer) const {
     if (!active) return;
+    const auto& renderLayout = getLayout(renderer);
     GUI.drawOptionPopup(renderer, title.c_str(), ownedStrings, selectedIndex, confirmationMode, tr(STR_CANCEL),
                         tr(STR_SAVE), footerFocused, primaryOptionIndex, popupNote.boldLabel, popupNote.body,
-                        disabledOptions);
+                        disabledOptions, renderLayout.firstOptionIndex);
   }
 
   bool isActive() const { return active; }
@@ -350,7 +357,9 @@ class OptionPopup {
     const int rowStep = rowHeight + itemSpacing;
     const int visibleCount = std::max(1, std::min(optionCount, (maxListHeight + itemSpacing) / rowStep));
     const int safeSelectedIndex = std::clamp(selectedIndex, 0, optionCount - 1);
-    const int visibleStart = std::clamp(safeSelectedIndex - visibleCount / 2, 0, optionCount - visibleCount);
+    const int centeredStart = std::clamp(safeSelectedIndex - visibleCount / 2, 0, optionCount - visibleCount);
+    const int visibleStart =
+        firstOptionIndex < 0 ? centeredStart : std::clamp(firstOptionIndex, 0, optionCount - visibleCount);
     const int listHeight = rowHeight * visibleCount + itemSpacing * (visibleCount - 1);
     const bool hasHiddenOptions = visibleCount < optionCount;
     const int scrollBarGutter =
@@ -365,6 +374,7 @@ class OptionPopup {
 
     layout.dialog = Rect{dialogX, dialogY, dialogW, dialogH};
     layout.firstOptionIndex = visibleStart;
+    firstOptionIndex = visibleStart;
     layout.footer = TouchActionButtons::Layout();
     if (confirmationMode) {
       const int footerY = dialogY + dialogH - footerSpace;
@@ -407,6 +417,7 @@ class OptionPopup {
   std::vector<std::string> ownedStrings;
   std::vector<bool> disabledOptions;
   int selectedIndex = 0;
+  mutable int firstOptionIndex = -1;
   int touchDownOptionIndex = -1;
   TouchTarget touchDownTarget = TouchTarget::None;
   std::function<void(int)> onSelectCallback;
@@ -421,6 +432,7 @@ class OptionPopup {
 
   void activate(int currentIndex) {
     layoutValid = false;
+    firstOptionIndex = -1;
     touchDownOptionIndex = -1;
     touchDownTarget = TouchTarget::None;
     disabledOptions.assign(ownedStrings.size(), false);
@@ -517,5 +529,16 @@ class OptionPopup {
       index = (index + (direction < 0 ? count - 1 : 1)) % count;
     }
     return std::clamp(start, 0, count - 1);
+  }
+
+  void followSelection(const int visibleCount, const int count) {
+    const int maxTop = std::max(0, count - visibleCount);
+    int top = std::clamp(firstOptionIndex, 0, maxTop);
+    if (selectedIndex < top) {
+      top = selectedIndex;
+    } else if (selectedIndex >= top + visibleCount) {
+      top = selectedIndex - visibleCount + 1;
+    }
+    firstOptionIndex = std::clamp(top, 0, maxTop);
   }
 };

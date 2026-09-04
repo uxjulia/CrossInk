@@ -10,7 +10,15 @@ class ThemeStub {
  public:
   void drawButtonHints(const GfxRenderer&, const char*, const char*, const char*, const char*, bool) const {}
   void drawOptionPopup(const GfxRenderer&, const char*, const std::vector<std::string>&, int, bool, const char*,
-                       const char*, bool, int, const char*, const char*, const std::vector<bool>&) const {}
+                       const char*, bool, int, const char*, const char*, const std::vector<bool>&,
+                       const int firstOptionIndex) const {
+    lastFirstOptionIndex = firstOptionIndex;
+  }
+
+  int getLastFirstOptionIndex() const { return lastFirstOptionIndex; }
+
+ private:
+  mutable int lastFirstOptionIndex = -1;
 };
 
 class UITheme {

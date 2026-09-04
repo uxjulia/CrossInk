@@ -1105,8 +1105,8 @@ void BaseTheme::drawTextField(const GfxRenderer& renderer, Rect rect, const int 
 void BaseTheme::drawOptionPopup(const GfxRenderer& renderer, const char* title, const std::vector<std::string>& options,
                                 int selectedIndex, const bool showConfirmationFooter, const char* cancelLabel,
                                 const char* saveLabel, const bool saveFocused, const int primaryOptionIndex,
-                                const char* noteLabel, const char* noteBody,
-                                const std::vector<bool>& disabledOptions) const {
+                                const char* noteLabel, const char* noteBody, const std::vector<bool>& disabledOptions,
+                                const int firstOptionIndex) const {
   const auto& metrics = UITheme::getInstance().getMetrics();
   const auto pageWidth = renderer.getScreenWidth();
   const auto pageHeight = renderer.getScreenHeight();
@@ -1180,7 +1180,9 @@ void BaseTheme::drawOptionPopup(const GfxRenderer& renderer, const char* title, 
   const int rowStep = rowHeight + itemSpacing;
   const int maxVisibleOptions = std::max(1, std::min(optionCount, (maxListHeight + itemSpacing) / rowStep));
   const int safeSelectedIndex = std::clamp(selectedIndex, 0, optionCount - 1);
-  const int visibleStart = std::clamp(safeSelectedIndex - maxVisibleOptions / 2, 0, optionCount - maxVisibleOptions);
+  const int centeredStart = std::clamp(safeSelectedIndex - maxVisibleOptions / 2, 0, optionCount - maxVisibleOptions);
+  const int visibleStart =
+      firstOptionIndex < 0 ? centeredStart : std::clamp(firstOptionIndex, 0, optionCount - maxVisibleOptions);
   const int visibleEnd = visibleStart + maxVisibleOptions;
   const int visibleCount = visibleEnd - visibleStart;
   const int listHeight = rowHeight * visibleCount + itemSpacing * (visibleCount - 1);
