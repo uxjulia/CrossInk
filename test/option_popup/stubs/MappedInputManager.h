@@ -82,6 +82,7 @@ class MappedInputManager {
   }
 
   void suppressNextTouchTap() { suppressTouchTap = true; }
+  void suppressCurrentTouchContact() { suppressTouchTap = true; }
   void suppressNextConfirmRelease() {}
   void suppressNextBackRelease() {}
   void suppressNextPowerRelease() { powerReleaseSuppressed = true; }

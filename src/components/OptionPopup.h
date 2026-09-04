@@ -105,6 +105,8 @@ class OptionPopup {
     activate(currentIndex);
   }
 
+  // Dismiss on the press edge and suppress its matching release, so an
+  // activity revealed beneath a popup cannot receive the same tap.
   void setDismissOnOutsideTouchDown(bool enabled) { dismissOnOutsideTouchDown = enabled; }
 
   // Actions that repaint synchronously can suppress the redundant update queued
@@ -147,7 +149,12 @@ class OptionPopup {
         touchDownTarget = TouchTarget::Save;
         return true;
       }
-      if ((dismissOnOutsideTouchDown || confirmationMode) && !contains(hitLayout.dialog, tx, ty)) {
+      if (dismissOnOutsideTouchDown && !contains(hitLayout.dialog, tx, ty)) {
+        input.suppressCurrentTouchContact();
+        cancel(input, requestUpdate, false);
+        return true;
+      }
+      if (confirmationMode && !contains(hitLayout.dialog, tx, ty)) {
         touchDownTarget = TouchTarget::Outside;
       }
       return true;

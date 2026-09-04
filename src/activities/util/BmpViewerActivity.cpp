@@ -317,7 +317,7 @@ void BmpViewerActivity::showContextMenu() {
   }
 
   startActivityForResult(std::make_unique<FileBrowserActionActivity>(renderer, mappedInput, imageDisplayName(filePath),
-                                                                     std::move(items), false),
+                                                                     std::move(items), false, false),
                          [this](const ActivityResult& result) {
                            if (result.isCancelled) return;
 

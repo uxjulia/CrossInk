@@ -102,6 +102,26 @@ TEST(OptionPopup, DisabledTouchOptionDoesNotSelect) {
   EXPECT_TRUE(popup.isActive());
 }
 
+TEST(OptionPopup, OutsideTouchDismissesWhenEnabled) {
+  GfxRenderer renderer;
+  HalGPIO gpio;
+  MappedInputManager input(gpio, renderer);
+  OptionPopup popup;
+
+  const char* options[] = {"Action"};
+  popup.show("Image actions", options, 1, 0, [](const int) {});
+  popup.setDismissOnOutsideTouchDown(true);
+
+  input.injectTouchDown(0, 0);
+  EXPECT_TRUE(popup.handleInput(input, [] {}));
+  EXPECT_FALSE(popup.isActive());
+
+  input.injectTouchRelease(0, 0);
+  int touchX = 0;
+  int touchY = 0;
+  EXPECT_FALSE(input.wasScreenTapped(touchX, touchY));
+}
+
 TEST(OptionPopup, ButtonNavigationSkipsDisabledOptions) {
   GfxRenderer renderer;
   HalGPIO gpio;
