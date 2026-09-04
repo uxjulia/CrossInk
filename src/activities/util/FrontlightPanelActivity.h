@@ -85,7 +85,7 @@ class FrontlightPanelActivity final : public Activity {
   void onExit() override;
   void loop() override;
   void render(RenderLock&&) override;
-  // From an EPUB reader, Home returns to the library; elsewhere it dismisses
+  // From an active reader, Home returns to the library; elsewhere it dismisses
   // the overlay back to the current screen.
   bool handleHomeGesture() override;
   bool requiresFreshBackdrop() const override { return true; }

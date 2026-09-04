@@ -280,7 +280,7 @@ void FrontlightPanelActivity::activateQuickAction(const int index) {
 }
 
 bool FrontlightPanelActivity::handleHomeGesture() {
-  if (context.activeEpub) {
+  if (context.activeReaderBook) {
     activityManager.goHome();
     return true;
   }
@@ -299,7 +299,8 @@ void FrontlightPanelActivity::loop() {
   }
 
   const Rect homeButton = homeButtonRect();
-  if (context.activeEpub && mappedInput.wasTapInRect(homeButton.x, homeButton.y, homeButton.width, homeButton.height)) {
+  if (context.activeReaderBook &&
+      mappedInput.wasTapInRect(homeButton.x, homeButton.y, homeButton.width, homeButton.height)) {
     activityManager.goHome();
     return;
   }
@@ -518,7 +519,7 @@ void FrontlightPanelActivity::drawHeader() {
   if (context.showReaderDetails) {
     if (formatHeaderDateText(date, sizeof(date))) title = date;
     titleFontId = UI_10_FONT_ID;
-  } else if (context.activeEpub && !context.bookTitle.empty()) {
+  } else if (context.activeReaderBook && !context.bookTitle.empty()) {
     title = context.bookTitle.c_str();
     titleFontId = UI_10_FONT_ID;
   } else if (formatHeaderDateText(date, sizeof(date))) {
@@ -536,7 +537,7 @@ void FrontlightPanelActivity::drawHeader() {
   // owns the clock and battery, so centering across the whole header crowds it.
   const int headerBottom = header.y + header.height;
   const int titleY = headerBottom - HEADER_CONTENT_BOTTOM_GAP - renderer.getLineHeight(titleFontId);
-  const bool showBookTitle = !context.showReaderDetails && context.activeEpub && !context.bookTitle.empty();
+  const bool showBookTitle = !context.showReaderDetails && context.activeReaderBook && !context.bookTitle.empty();
   if (showBookTitle) {
     const auto tokens = uiThemeTokens(uiTarget);
     const Rect homeButton = homeButtonRect();
@@ -549,7 +550,7 @@ void FrontlightPanelActivity::drawHeader() {
     UITheme::drawCenteredText(renderer, header, titleFontId, titleY, title, true);
   }
 
-  if (context.activeEpub) {
+  if (context.activeReaderBook) {
     const Rect button = homeButtonRect();
     uiTarget.bitmap(fui::Rect{static_cast<int16_t>(button.x + (button.width - HEADER_ICON_SIZE) / 2),
                               static_cast<int16_t>(headerBottom - HEADER_CONTENT_BOTTOM_GAP - HEADER_ICON_SIZE),

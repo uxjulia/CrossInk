@@ -102,6 +102,13 @@ class XtcReaderActivity final : public Activity {
     return true;
   }
   bool isReaderActivity() const override { return true; }
+  bool usesFullScreenReaderVerticalSwipes() const override {
+#if defined(FREEINK_DEVICE_STICKY) && FREEINK_DEVICE_STICKY
+    return true;
+#else
+    return false;
+#endif
+  }
   void onInputLockChanged(bool locked) override;
   bool handleQuickLockUnlock(QuickLockTrigger trigger) override;
   bool canSnapshotForSleepOverlay() const override { return true; }
@@ -116,6 +123,11 @@ class XtcReaderActivity final : public Activity {
     return true;
   }
   std::string getCurrentBookPath() const override { return xtc ? xtc->getPath() : std::string{}; }
+  std::string getCurrentBookTitle() const override { return xtc ? xtc->getTitle() : std::string{}; }
+  bool getFrontlightPanelBookDetails(FrontlightPanelBookDetails& details) override;
+  std::unique_ptr<Activity> createFrontlightReadingStatsActivity() override;
+  void onFrontlightPanelOpened() override { pauseReadingStatsTimer("frontlight_panel"); }
+  void onFrontlightPanelClosed() override;
 
   // Renders the last saved page to the frame buffer without flushing to display.
   // Used by SleepActivity to prepare the background for the overlay sleep mode.

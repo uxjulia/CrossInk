@@ -121,6 +121,19 @@ TEST(FrontlightPanelModel, ChoosesCurrentThenLastThenDeviceStats) {
   EXPECT_EQ(chooseFrontlightBookSource(false, false, false), FrontlightBookSource::DeviceOnly);
 }
 
+TEST(FrontlightPanelModel, ActiveReaderBookRequiresReaderAndExistingBook) {
+  EXPECT_TRUE(hasFrontlightActiveReaderBook(true, true));
+  EXPECT_FALSE(hasFrontlightActiveReaderBook(false, true));
+  EXPECT_FALSE(hasFrontlightActiveReaderBook(true, false));
+}
+
+TEST(FrontlightPanelModel, StickyReaderDetailsRequireAnOpenReaderWithoutFrontlight) {
+  EXPECT_TRUE(shouldShowStickyReaderDetails(true, false, true));
+  EXPECT_FALSE(shouldShowStickyReaderDetails(false, false, true));
+  EXPECT_FALSE(shouldShowStickyReaderDetails(true, true, true));
+  EXPECT_FALSE(shouldShowStickyReaderDetails(true, false, false));
+}
+
 TEST(FrontlightPanelModel, TouchDrawerSupportsFrontlightOrReaderDetails) {
   EXPECT_TRUE(supportsFrontlightDrawer(true, true));
   EXPECT_FALSE(supportsFrontlightDrawer(true, false));

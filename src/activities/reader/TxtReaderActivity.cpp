@@ -848,6 +848,23 @@ void TxtReaderActivity::renderStatusBar() const {
                     ReaderUtils::readerDarkModeEnabled());
 }
 
+bool TxtReaderActivity::getFrontlightPanelBookDetails(FrontlightPanelBookDetails& details) {
+  RenderLock lock(*this);
+  if (!txt) return false;
+
+  details.title = txt->getTitle();
+  details.author.clear();
+  details.chapter.clear();
+  if (!initialized || totalPages <= 0) {
+    details.progressPercent = 0;
+    return true;
+  }
+
+  const int page = std::clamp(currentPage, 0, totalPages - 1);
+  details.progressPercent = (page + 1) * 100 / totalPages;
+  return true;
+}
+
 bool TxtReaderActivity::saveProgress(const int page) {
   if (!txt) {
     return false;

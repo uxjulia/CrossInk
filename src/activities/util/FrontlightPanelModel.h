@@ -28,6 +28,15 @@ constexpr FrontlightBookSource chooseFrontlightBookSource(const bool activeEpub,
   return FrontlightBookSource::DeviceOnly;
 }
 
+constexpr bool hasFrontlightActiveReaderBook(const bool isReaderActivity, const bool currentBookValid) {
+  return isReaderActivity && currentBookValid;
+}
+
+constexpr bool shouldShowStickyReaderDetails(const bool hasStickyReaderDetailsPanel, const bool hasFrontlight,
+                                             const bool activeReaderBook) {
+  return hasStickyReaderDetailsPanel && !hasFrontlight && activeReaderBook;
+}
+
 constexpr bool supportsFrontlightDrawer(const bool hasTouchHardware, const bool hasFrontlight,
                                         const bool hasReaderDetailsPanel = false) {
   return hasTouchHardware && (hasFrontlight || hasReaderDetailsPanel);
@@ -56,6 +65,9 @@ struct FrontlightPanelResult {
 
 struct FrontlightPanelContext {
   Activity* sourceActivity = nullptr;
+  // An open reader of any supported format. This controls reader header chrome
+  // and Home navigation; EPUB-only actions remain gated by activeEpub.
+  bool activeReaderBook = false;
   bool activeEpub = false;
   bool showReaderDetails = false;
   std::string bookTitle;
