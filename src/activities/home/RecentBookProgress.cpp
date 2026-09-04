@@ -167,16 +167,18 @@ float loadTxtProgressPercent(const RecentBook& book) {
     return -1.0f;
   }
 
+  // TXT progress starts with a 16-bit page number; the remaining bytes are a
+  // file offset used only to restore the reader page.
+  // Read the reader's four-byte minimum so an interrupted write is rejected,
+  // then decode only its two-byte page field.
   uint8_t progressData[4];
   const int progressBytes = progressFile.read(progressData, sizeof(progressData));
   progressFile.close();
-  if (progressBytes != 4) {
+  if (progressBytes != static_cast<int>(sizeof(progressData))) {
     return -1.0f;
   }
 
-  const uint32_t currentPage = static_cast<uint32_t>(progressData[0]) | (static_cast<uint32_t>(progressData[1]) << 8) |
-                               (static_cast<uint32_t>(progressData[2]) << 16) |
-                               (static_cast<uint32_t>(progressData[3]) << 24);
+  const uint16_t currentPage = static_cast<uint16_t>(progressData[0]) | (static_cast<uint16_t>(progressData[1]) << 8);
 
   FsFile indexFile;
   if (!Storage.openFileForRead("RBPR", txt.getCachePath() + "/index.bin", indexFile)) {
