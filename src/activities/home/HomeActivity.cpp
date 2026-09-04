@@ -905,6 +905,7 @@ void HomeActivity::onEnter() {
   lastCarouselBookIndex = 0;
   carouselCoverTouchDownIndex = -1;
   carouselCoverTouchDownWasSelected = false;
+  carouselMenuTouchDownIndex = -1;
   minimalMenuOpen = false;
   minimalSuppressInitialFrontRelease = usesMinimalHomeInteraction();
   backPressSeen = false;
@@ -1114,6 +1115,7 @@ void HomeActivity::updateHighlightedBookContext(const bool allowEpubLoad) {
 void HomeActivity::onExit() {
   Activity::onExit();
 
+  carouselMenuTouchDownIndex = -1;
   freeCoverBuffer();
   gCarouselCache.invalidate();
   freeCarouselFrames();
@@ -1812,6 +1814,10 @@ void HomeActivity::loop() {
   const bool carouselSwipeStartsInMenu =
       hasCarouselSwipe && containsPoint(LyraCarouselTheme::buttonMenuTouchRect(renderer, carouselMenuItemCount),
                                         carouselSwipeStartX, carouselSwipeStartY);
+  if (hasCarouselSwipe && carouselMenuTouchDownIndex >= 0) {
+    carouselMenuTouchDownIndex = -1;
+    requestUpdate();
+  }
 
   // A touch swipe can also satisfy the generic Back gesture. Keep it in the
   // carousel path so a left-edge swipe cannot open the selected book instead.
@@ -1903,16 +1909,17 @@ void HomeActivity::loop() {
 
     auto handleTouch = [&](const bool activate) {
       int touchedMenuIndex = -1;
-      // Carousel menu icons have no pressed/highlight state. A completed tap
-      // is the only menu interaction that changes selection or opens an item.
+      if (!activate && mappedInput.wasItemTouchedDown(touchedMenuIndex)) {
+        if (touchedMenuIndex < 0 || touchedMenuIndex >= menuItemCount) return false;
+        carouselMenuTouchDownIndex = touchedMenuIndex;
+        requestUpdate();
+        return true;
+      }
       if (activate && mappedInput.wasItemTapped(touchedMenuIndex)) {
         if (touchedMenuIndex < 0 || touchedMenuIndex >= menuItemCount) return false;
-        const int previousSelectorIndex = selectorIndex;
-        selectorIndex = bookCount + touchedMenuIndex;
-        if (selectorIndex != previousSelectorIndex) {
-          invalidateCoverCache();
-        }
-        activateSelectedHomeItem();
+        carouselMenuTouchDownIndex = -1;
+        const auto menuItems = buildHomeMenuItems(hasOpdsServers, hasReadingStats, hasBookmarks, hasClippings);
+        activateHomeMenuAction(menuItems[touchedMenuIndex].action);
         return true;
       }
 
@@ -1955,6 +1962,13 @@ void HomeActivity::loop() {
       return;
     }
     if (!hasCarouselSwipe && handleTouch(/*activate=*/true)) {
+      return;
+    }
+    // A release outside the icon strip (including a cancelled tap) must clear
+    // the transient touch highlight without changing carousel selection.
+    if (!hasCarouselSwipe && carouselMenuTouchDownIndex >= 0 && mappedInput.wasScreenTouchReleased()) {
+      carouselMenuTouchDownIndex = -1;
+      requestUpdate();
       return;
     }
 
@@ -2235,11 +2249,13 @@ void HomeActivity::render(RenderLock&&) {
         static_cast<const LyraCarouselTheme&>(GUI).registerButtonMenuTouchTargets(renderer,
                                                                                   static_cast<int>(menuItems.size()));
       }
-      if (!inCarouselRow) {
-        if (static_cast<CrossPointSettings::UI_THEME>(SETTINGS.uiTheme) ==
-            CrossPointSettings::UI_THEME::LYRA_CAROUSEL) {
+      if (static_cast<CrossPointSettings::UI_THEME>(SETTINGS.uiTheme) == CrossPointSettings::UI_THEME::LYRA_CAROUSEL) {
+        const int menuHighlightIndex = mappedInput.hasTouchHardware()
+                                           ? carouselMenuTouchDownIndex
+                                           : (inCarouselRow ? -1 : selectorIndex - recentBooks.size());
+        if (menuHighlightIndex >= 0) {
           static_cast<const LyraCarouselTheme&>(GUI).drawButtonMenuSelectionOverlay(
-              renderer, static_cast<int>(menuItems.size()), selectorIndex - recentBooks.size(),
+              renderer, static_cast<int>(menuItems.size()), menuHighlightIndex,
               [&menuItems](int index) { return menuItems[index].label; },
               [&menuItems](int index) { return menuItems[index].icon; });
         }
@@ -2298,14 +2314,16 @@ void HomeActivity::render(RenderLock&&) {
   const int menuEndY = pageHeight - metrics.buttonHintsHeight;
   const int menuHeight = std::max(0, menuEndY - menuStartY);
 
+  const bool isCarouselTheme =
+      static_cast<CrossPointSettings::UI_THEME>(SETTINGS.uiTheme) == CrossPointSettings::UI_THEME::LYRA_CAROUSEL;
+  const int menuSelectedIndex = isCarouselTheme && mappedInput.hasTouchHardware()
+                                    ? carouselMenuTouchDownIndex
+                                    : selectorIndex - getHomeMenuSelectionOffset(recentBooks);
   GUI.drawButtonMenu(
-      renderer, Rect{0, menuStartY, pageWidth, menuHeight}, static_cast<int>(menuItems.size()),
-      selectorIndex - getHomeMenuSelectionOffset(recentBooks),
+      renderer, Rect{0, menuStartY, pageWidth, menuHeight}, static_cast<int>(menuItems.size()), menuSelectedIndex,
       [&menuItems](int index) { return menuItems[index].label; },
       [&menuItems](int index) { return menuItems[index].icon; });
 
-  const bool isCarouselTheme =
-      static_cast<CrossPointSettings::UI_THEME>(SETTINGS.uiTheme) == CrossPointSettings::UI_THEME::LYRA_CAROUSEL;
   const char* readLabel = recentBooks.empty() ? "" : tr(STR_READ);
   const auto labels = isCarouselTheme
                           ? mappedInput.mapLabels(readLabel, tr(STR_SELECT), tr(STR_DIR_LEFT), tr(STR_DIR_RIGHT))

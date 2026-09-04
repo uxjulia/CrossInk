@@ -31,6 +31,9 @@ class HomeActivity final : public Activity {
   int lastCarouselBookIndex = 0;  // remembered position when leaving carousel row
   int carouselCoverTouchDownIndex = -1;
   bool carouselCoverTouchDownWasSelected = false;
+  // Touch menus use a momentary pressed state. Keep it separate from the
+  // keyboard selection so a returned Home screen cannot retain an icon tint.
+  int carouselMenuTouchDownIndex = -1;
   bool recentsLoading = false;
   bool recentsLoaded = false;
   bool firstRenderDone = false;
