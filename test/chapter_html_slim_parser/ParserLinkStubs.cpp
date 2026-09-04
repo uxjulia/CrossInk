@@ -1,11 +1,10 @@
+#include <BidiUtils.h>
 #include <Epub/Page.h>
 #include <Epub/blocks/TextBlock.h>
 #include <Epub/converters/ImageDecoderFactory.h>
 #include <Epub/hyphenation/Hyphenator.h>
 #include <Epub/parsers/PreviewBlockLocator.h>
 #include <Epub/tables/CompactTableLayout.h>
-
-#include <BidiUtils.h>
 #include <GfxRenderer.h>
 
 std::vector<Hyphenator::BreakInfo> Hyphenator::breakOffsets(const std::string&, bool) { return {}; }
@@ -40,7 +39,7 @@ bool CompactTableLayout::beginCell(bool, uint8_t, uint32_t, const BlockStyle&) {
 bool CompactTableLayout::appendWord(std::string_view, EpdFontFamily::Style, bool, bool, uint8_t) { return true; }
 bool CompactTableLayout::endCell(const std::vector<std::pair<int, FootnoteEntry>>&) { return true; }
 CompactTableLayout::RowResult CompactTableLayout::finishRow(TableFragmentRow&, std::vector<std::shared_ptr<TextBlock>>&,
-                                                             std::vector<FootnoteEntry>&, uint32_t&) {
+                                                            std::vector<FootnoteEntry>&, uint32_t&) {
   return RowResult::Ok;
 }
 

@@ -60,7 +60,6 @@ class ActivityManager {
   PendingAction pendingAction = PendingAction::None;
   // Set when an overlay is closed specifically to hand control back to the
   // reader's menu. It must wait until the reader is current again.
-  bool openReaderMenuAfterPop = false;
   int16_t pendingReaderMenuAction = -1;
 
   // A one-shot Home selection to restore after Settings replaces Home. This
@@ -148,7 +147,6 @@ class ActivityManager {
   bool openReaderSettingsForTouchscreenEscapeHatch();
   bool handleHomeButtonBackOrHome();
   bool openReaderMenuFromShortcut();
-  bool openReaderMenuAfterClosingOverlay();
   bool handleShortcutAction(uint8_t action);
   bool hasActivityNamed(const char* activityName) const;
 #ifdef SIMULATOR

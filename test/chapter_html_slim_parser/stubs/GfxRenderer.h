@@ -2,11 +2,13 @@
 
 #include <EpdFontFamily.h>
 
+#include <deque>
 #include <string>
 #include <vector>
-#include <deque>
 
-namespace BidiUtils { enum class BidiBaseDir : signed char { AUTO = -1, LTR = 0, RTL = 1 }; }
+namespace BidiUtils {
+enum class BidiBaseDir : signed char { AUTO = -1, LTR = 0, RTL = 1 };
+}
 
 class GfxRenderer {
  public:
@@ -22,7 +24,8 @@ class GfxRenderer {
   bool ensureSdCardFontReady(int, const uint32_t*, size_t, bool, bool, uint8_t) const { return true; }
   bool ensureSdCardFontReady(int, const std::deque<std::string>&, bool, uint8_t) const { return true; }
   bool ensureSdCardFontReady(int, const char*, uint8_t) const { return true; }
-  std::vector<std::string> wrappedText(int, const char*, int, int, EpdFontFamily::Style = EpdFontFamily::REGULAR) const {
+  std::vector<std::string> wrappedText(int, const char*, int, int,
+                                       EpdFontFamily::Style = EpdFontFamily::REGULAR) const {
     return {};
   }
 };

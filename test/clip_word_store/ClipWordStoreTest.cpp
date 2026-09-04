@@ -105,7 +105,7 @@ TEST(ClipTextBuilder, JoinsInsertedHyphenAcrossParagraphBoundary) {
   store.words.push_back(suffix);
 
   const uint16_t order[] = {0, 1};
-  const ClippingResult result = ClipTextBuilder::build(store, order, 0, 1, 2, 0, 2);
+  const ClippingResult result = ClipTextBuilder::build(store, order, 0, 1, 0, 2);
 
   EXPECT_EQ(result.text, "hyphenated");
 }
@@ -136,7 +136,7 @@ TEST(ClipTextBuilder, AppliesDictionaryFragmentBoundsToTheirOwnPages) {
 
   const uint16_t order[] = {0, 1, 2};
   const ClipTextBuilder::SelectionBounds bounds{0, 0, 4, 1, 0, 1};
-  const ClippingResult result = ClipTextBuilder::build(store, order, 0, 2, 3, 0, 2, &bounds);
+  const ClippingResult result = ClipTextBuilder::build(store, order, 0, 2, 0, 2, &bounds);
 
   EXPECT_EQ(result.text, "t middle f");
 }
@@ -162,13 +162,44 @@ TEST(ClipTextBuilder, KeepsVerticalTableSelectionsInTheirColumn) {
   }
 
   const uint16_t order[] = {0, 1, 2, 3};
-  const ClippingResult result = ClipTextBuilder::build(store, order, 1, 3, 4, 0, 1, nullptr, rightColumn);
+  const ClippingResult result = ClipTextBuilder::build(store, order, 1, 3, 0, 1, nullptr, rightColumn);
 
   EXPECT_EQ(result.text, "right-top\nright-bottom");
   EXPECT_EQ(result.wordCount, 2);
   EXPECT_EQ(result.startPageWordIndex, 1);
   EXPECT_EQ(result.endPageWordIndex, 3);
   EXPECT_EQ(result.tableSelection, rightColumn);
+}
+
+TEST(ClipTextBuilder, RetainsSelectionMetadata) {
+  ClipWordStore store;
+  WordRef first;
+  first.pageIdx = 1;
+  first.pageWordIndex = 2;
+  first.tableSelection = 7;
+  ASSERT_TRUE(store.appendText(first, "first"));
+  store.words.push_back(first);
+
+  WordRef last;
+  last.pageIdx = 3;
+  last.pageWordIndex = 5;
+  last.tableSelection = 7;
+  last.x = 10;
+  ASSERT_TRUE(store.appendText(last, "last"));
+  store.words.push_back(last);
+
+  const uint16_t order[] = {0, 1};
+  const ClippingResult result = ClipTextBuilder::build(store, order, 0, 1, 10, 8, nullptr, 7);
+
+  EXPECT_EQ(result.text, "first last");
+  EXPECT_EQ(result.sectionPage, 11);
+  EXPECT_EQ(result.endSectionPage, 13);
+  EXPECT_EQ(result.sectionPageCount, 8);
+  EXPECT_EQ(result.startPageWordIndex, 2);
+  EXPECT_EQ(result.endPageWordIndex, 5);
+  EXPECT_EQ(result.paragraphIndex, UINT16_MAX);
+  EXPECT_EQ(result.tableSelection, 7);
+  EXPECT_EQ(result.wordCount, 2);
 }
 
 TEST(ClippingTextMatcher, MatchesLayoutInsertedHyphenFragmentsAsOneToken) {

@@ -47,8 +47,6 @@ void ReleaseJsonParser::reset() {
   currentAssetSize = 0;
 }
 
-void ReleaseJsonParser::setAssetMatcher(AssetMatcher matcher) { assetMatcher = matcher; }
-
 void ReleaseJsonParser::feed(const char* data, size_t len) { parser.feed(data, len); }
 
 bool ReleaseJsonParser::foundTag() const { return tagFound; }

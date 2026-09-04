@@ -182,7 +182,6 @@ class DictionaryWordSelectActivity final : public Activity {
   static void renderDefinitionBackgroundCallback(void* context);
   bool buildWorkingSet(bool consumeInitialConfirm);
   void suspendWorkingSet();
-  bool restoreWorkingSet();
 
   bool allocateWorkingSet();
   bool extractWords();

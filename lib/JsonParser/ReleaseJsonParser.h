@@ -15,7 +15,6 @@ class ReleaseJsonParser {
   ReleaseJsonParser& operator=(const ReleaseJsonParser&) = delete;
 
   void reset();
-  void setAssetMatcher(AssetMatcher assetMatcher);
   void feed(const char* data, size_t len);
 
   bool foundTag() const;

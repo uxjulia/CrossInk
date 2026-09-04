@@ -58,15 +58,6 @@ class PersistableStoreBase {
   // Reads path and parses it into doc. Returns false silently when the file
   // does not exist (expected on first boot); logs on read/parse failure.
   static bool readDocFromFile(const char* path, JsonDocument& doc);
-
- protected:
-  /**
-   * Helper function for extracting an obfuscated password from a JSON value.
-   * Accepts JsonVariantConst so callers can pass either a whole JsonDocument
-   * or a JsonObject element (e.g. inside an array iteration).
-   * If the decoded password requires a resave (e.g. from plaintext fallback), `needsResave` is set to true.
-   */
-  static std::string extractPassword(JsonVariantConst doc, bool& needsResave);
 };
 
 /**

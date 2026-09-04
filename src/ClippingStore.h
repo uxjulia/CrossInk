@@ -77,7 +77,6 @@ class ClippingStore {
   void clearAll();
 
   bool hasClippings() const { return !clippings.empty(); }
-  bool hasClippingForPage(uint16_t spineIndex, uint16_t page) const;
   size_t clippingCount() const { return clippings.size(); }
   const Clipping* clippingAt(size_t index) const;
   const std::vector<Clipping>& getClippings() const { return clippings; }

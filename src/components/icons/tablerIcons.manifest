@@ -5,5 +5,4 @@
 #
 # Keep each generated header to one source library. The alias is the C++ symbol
 # suffix, and the value is the Tabler SVG filename without .svg.
-tabler-settings = settings
 tabler-moon-filled = moon

@@ -161,7 +161,3 @@ bool FontInstaller::refreshRegistry() {
   registry_.discover();
   return !registry_.lastDiscoveryFailed();
 }
-
-bool FontInstaller::isFamilyInstalled(const char* familyName) const {
-  return registry_.findFamily(familyName) != nullptr;
-}

@@ -23,10 +23,6 @@ emit_hash_define() {
 }
 
 # Reading fonts
-emit_hash_define LEXENDDECA_8_FONT_ID \
-  ./lexenddeca_8_regular.h ./lexenddeca_8_bold.h ./lexenddeca_8_bolditalic.h ./lexenddeca_8_italic.h
-emit_hash_define LEXENDDECA_9_FONT_ID \
-  ./lexenddeca_9_regular.h ./lexenddeca_9_bold.h ./lexenddeca_9_bolditalic.h ./lexenddeca_9_italic.h
 emit_hash_define LEXENDDECA_10_FONT_ID \
   ./lexenddeca_10_regular.h ./lexenddeca_10_bold.h ./lexenddeca_10_bolditalic.h ./lexenddeca_10_italic.h
 emit_hash_define LEXENDDECA_12_FONT_ID \
@@ -35,32 +31,6 @@ emit_hash_define LEXENDDECA_14_FONT_ID \
   ./lexenddeca_14_regular.h ./lexenddeca_14_bold.h ./lexenddeca_14_bolditalic.h ./lexenddeca_14_italic.h
 emit_hash_define LEXENDDECA_16_FONT_ID \
   ./lexenddeca_16_regular.h ./lexenddeca_16_bold.h ./lexenddeca_16_bolditalic.h ./lexenddeca_16_italic.h
-emit_hash_define LEXENDDECA_18_FONT_ID \
-  ./lexenddeca_18_regular.h ./lexenddeca_18_bold.h ./lexenddeca_18_bolditalic.h ./lexenddeca_18_italic.h
-emit_hash_define LEXENDDECA_20_FONT_ID \
-  ./lexenddeca_20_regular.h ./lexenddeca_20_bold.h ./lexenddeca_20_bolditalic.h ./lexenddeca_20_italic.h
-
-emit_hash_define CHAREINK_8_FONT_ID \
-  ./charein_8_regular.h ./charein_8_bold.h ./charein_8_bolditalic.h ./charein_8_italic.h
-emit_hash_define CHAREINK_9_FONT_ID \
-  ./charein_9_regular.h ./charein_9_bold.h ./charein_9_bolditalic.h ./charein_9_italic.h
-emit_hash_define CHAREINK_10_FONT_ID \
-  ./charein_10_regular.h ./charein_10_bold.h ./charein_10_bolditalic.h ./charein_10_italic.h
-emit_hash_define CHAREINK_12_FONT_ID \
-  ./charein_12_regular.h ./charein_12_bold.h ./charein_12_bolditalic.h ./charein_12_italic.h
-emit_hash_define CHAREINK_14_FONT_ID \
-  ./charein_14_regular.h ./charein_14_bold.h ./charein_14_bolditalic.h ./charein_14_italic.h
-emit_hash_define CHAREINK_16_FONT_ID \
-  ./charein_16_regular.h ./charein_16_bold.h ./charein_16_bolditalic.h ./charein_16_italic.h
-emit_hash_define CHAREINK_18_FONT_ID \
-  ./charein_18_regular.h ./charein_18_bold.h ./charein_18_bolditalic.h ./charein_18_italic.h
-emit_hash_define CHAREINK_20_FONT_ID \
-  ./charein_20_regular.h ./charein_20_bold.h ./charein_20_bolditalic.h ./charein_20_italic.h
-
-emit_hash_define BITTER_8_FONT_ID \
-  ./bitter_8_regular.h ./bitter_8_bold.h ./bitter_8_bolditalic.h ./bitter_8_italic.h
-emit_hash_define BITTER_9_FONT_ID \
-  ./bitter_9_regular.h ./bitter_9_bold.h ./bitter_9_bolditalic.h ./bitter_9_italic.h
 emit_hash_define BITTER_10_FONT_ID \
   ./bitter_10_regular.h ./bitter_10_bold.h ./bitter_10_bolditalic.h ./bitter_10_italic.h
 emit_hash_define BITTER_12_FONT_ID \
@@ -69,10 +39,6 @@ emit_hash_define BITTER_14_FONT_ID \
   ./bitter_14_regular.h ./bitter_14_bold.h ./bitter_14_bolditalic.h ./bitter_14_italic.h
 emit_hash_define BITTER_16_FONT_ID \
   ./bitter_16_regular.h ./bitter_16_bold.h ./bitter_16_bolditalic.h ./bitter_16_italic.h
-emit_hash_define BITTER_18_FONT_ID \
-  ./bitter_18_regular.h ./bitter_18_bold.h ./bitter_18_bolditalic.h ./bitter_18_italic.h
-emit_hash_define BITTER_20_FONT_ID \
-  ./bitter_20_regular.h ./bitter_20_bold.h ./bitter_20_bolditalic.h ./bitter_20_italic.h
 
 # UI fonts
 emit_hash_define UI_10_FONT_ID ./inter_10_regular.h ./inter_10_bold.h
@@ -83,12 +49,8 @@ echo ""
 echo "// Font ID 0 is reserved as the \"not found\" sentinel."
 echo "// Guard against any hash accidentally producing 0."
 for id in \
-  LEXENDDECA_8_FONT_ID LEXENDDECA_9_FONT_ID LEXENDDECA_10_FONT_ID LEXENDDECA_12_FONT_ID LEXENDDECA_14_FONT_ID \
-  LEXENDDECA_16_FONT_ID LEXENDDECA_18_FONT_ID LEXENDDECA_20_FONT_ID \
-  CHAREINK_8_FONT_ID CHAREINK_9_FONT_ID CHAREINK_10_FONT_ID CHAREINK_12_FONT_ID CHAREINK_14_FONT_ID \
-  CHAREINK_16_FONT_ID CHAREINK_18_FONT_ID CHAREINK_20_FONT_ID \
-  BITTER_8_FONT_ID BITTER_9_FONT_ID BITTER_10_FONT_ID BITTER_12_FONT_ID BITTER_14_FONT_ID \
-  BITTER_16_FONT_ID BITTER_18_FONT_ID BITTER_20_FONT_ID \
+  LEXENDDECA_10_FONT_ID LEXENDDECA_12_FONT_ID LEXENDDECA_14_FONT_ID LEXENDDECA_16_FONT_ID \
+  BITTER_10_FONT_ID BITTER_12_FONT_ID BITTER_14_FONT_ID BITTER_16_FONT_ID \
   UI_10_FONT_ID UI_12_FONT_ID SMALL_FONT_ID; do
   echo "static_assert(${id} != 0, \"Font ID collision with sentinel\");"
 done

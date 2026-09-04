@@ -259,23 +259,6 @@ void DictionaryWordSelectActivity::suspendWorkingSet() {
   MemoryBudget::logHeapShape("dict.parent_suspended");
 }
 
-bool DictionaryWordSelectActivity::restoreWorkingSet() {
-  if (!workingSetSuspended_) return true;
-  page = readerPageLoad_(readerContext_, activePageOffset_);
-  if (!page) {
-    LOG_ERR("DICT", "Failed to reload reader page after dictionary definition");
-    return false;
-  }
-  if (!buildWorkingSet(/*consumeInitialConfirm=*/false)) return false;
-  if (suspendedSelectionX_ >= 0 && suspendedSelectionY_ >= 0) {
-    navigator.selectWordAtPoint(suspendedSelectionX_, suspendedSelectionY_,
-                                renderer.getLineHeight(SETTINGS.getReaderFontId()));
-  }
-  workingSetSuspended_ = false;
-  MemoryBudget::logHeapShape("dict.parent_restored");
-  return true;
-}
-
 void DictionaryWordSelectActivity::onExit() {
   controller.onExit();
   navigator.releaseWorkingSet();

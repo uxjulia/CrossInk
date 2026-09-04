@@ -195,7 +195,6 @@ class DictHtmlRenderer {
   SpanSink spanSink_;
 
 #ifdef DICT_HTML_RENDERER_TRACK_UNKNOWN
-  static void extractLastWord(const char* text, int len, char* out, int outSize);
   void recordUnknownTag(const char* tagName, const char* wordBefore, const char* tagContents, const char* wordAfter);
 #endif
 };

@@ -3,7 +3,10 @@
 #include <cstdint>
 
 namespace MemoryBudget {
-struct Snapshot { uint32_t freeHeap = UINT32_MAX; uint32_t maxAllocHeap = UINT32_MAX; };
+struct Snapshot {
+  uint32_t freeHeap = UINT32_MAX;
+  uint32_t maxAllocHeap = UINT32_MAX;
+};
 inline constexpr uint32_t EPUB_TEXT_LAYOUT_MIN_FREE = 0;
 inline Snapshot snapshot() { return {}; }
 inline bool hasHeapForEpubTextLayoutStart(Snapshot) { return true; }

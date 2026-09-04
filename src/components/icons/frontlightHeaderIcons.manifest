@@ -3,6 +3,5 @@
 #   --manifest src/components/icons/frontlightHeaderIcons.manifest \
 #   --svgdir freeink-sdk/libs/assets/Icons/lucide/icons --sizes 28 \
 #   --out src/components/icons/frontlightHeaderIcons.h
-sliders-horizontal = sliders-horizontal
 lightbulb = lightbulb
 lightbulb-off = lightbulb-off

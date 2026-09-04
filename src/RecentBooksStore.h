@@ -36,11 +36,6 @@ class RecentBooksStore : public PersistableStore<RecentBooksStore> {
   bool fromJson(JsonVariantConst doc);
   bool loadFromFile();
 
-  // Deprecated compatibility wrapper. Use addOrUpdateBook so the promote-or-update behavior is explicit.
-  [[deprecated("use addOrUpdateBook")]]
-  void addBook(const std::string& path, const std::string& title, const std::string& author,
-               const std::string& coverBmpPath);
-
   // Add a new book to the front, or refresh an existing entry and promote it
   // to the front.
   void addOrUpdateBook(const std::string& path, const std::string& title, const std::string& author,

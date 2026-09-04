@@ -1593,8 +1593,6 @@ EpdFont* SdCardFont::getEpdFont(uint8_t style) {
   return &styles_[style].epdFont;
 }
 
-bool SdCardFont::hasStyle(uint8_t style) const { return styles_[style & (MAX_STYLES - 1)].present; }
-
 uint8_t SdCardFont::resolveStyle(uint8_t style) const {
   static const uint8_t kFallbacks[MAX_STYLES][MAX_STYLES] = {
       // REGULAR: REGULAR -> BOLD -> ITALIC -> BOLD_ITALIC

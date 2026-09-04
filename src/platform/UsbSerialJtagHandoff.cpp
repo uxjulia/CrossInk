@@ -4,8 +4,8 @@
 #include <sdkconfig.h>
 #endif
 
-#if defined(ARDUINO_ARCH_ESP32) && CONFIG_IDF_TARGET_ESP32S3 && \
-    (FREEINK_DEVICE_X4PRO || FREEINK_DEVICE_X4CLASSIC) && FREEINK_CAP_USB_MSC
+#if defined(ARDUINO_ARCH_ESP32) && CONFIG_IDF_TARGET_ESP32S3 && (FREEINK_DEVICE_X4PRO || FREEINK_DEVICE_X4CLASSIC) && \
+    FREEINK_CAP_USB_MSC
 
 #include <Arduino.h>
 #include <esp_err.h>

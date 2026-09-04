@@ -141,7 +141,6 @@ class FontDownloadActivity : public Activity {
   void resolveInstalledFamilyName(ManifestFamily& family) const;
   void clearManifestFamilies();
   void downloadFamily(ManifestFamily& family);
-  void downloadSelectedFamily(int familyIndex);
   void returnToFamilyList();
   void updateAll();
   static bool computeFileCrc32(const char* path, uint32_t& outCrc);
@@ -155,6 +154,4 @@ class FontDownloadActivity : public Activity {
   int listItemCount() const;
   size_t totalUpdateSize() const;
   static void formatSize(size_t bytes, char* buffer, size_t bufferSize);
-  int fontListPageItems() const;
-  void drawFontList(Rect rect);
 };

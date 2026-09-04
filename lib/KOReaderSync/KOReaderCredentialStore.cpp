@@ -118,13 +118,6 @@ bool KOReaderCredentialStore::hasCredentials() const {
   return !username.empty() && !password.empty();
 }
 
-void KOReaderCredentialStore::clearCredentials() {
-  ensureLoaded();
-  username.clear();
-  password.clear();
-  saveToFile();
-}
-
 void KOReaderCredentialStore::setServerUrl(const std::string& url) {
   ensureLoaded();
   serverUrl = url;

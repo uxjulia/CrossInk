@@ -172,12 +172,6 @@ bool ClippingStore::removeClippingAt(const size_t index) {
   return true;
 }
 
-bool ClippingStore::hasClippingForPage(const uint16_t spineIndex, const uint16_t page) const {
-  return std::any_of(clippings.begin(), clippings.end(), [&](const Clipping& clipping) {
-    return clipping.spineIndex == spineIndex && page >= clipping.startPage && page <= clipping.endPage;
-  });
-}
-
 const Clipping* ClippingStore::clippingAt(const size_t index) const {
   if (index >= clippings.size()) return nullptr;
   return &clippings[index];

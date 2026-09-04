@@ -80,7 +80,6 @@ class XtcParser {
   bool getChapterForPage(uint32_t page, ChapterInfo& chapter, size_t* chapterIndex = nullptr);
 
   // Validation
-  static bool isValidXtcFile(const char* filepath);
 
   // Error information
   XtcError getLastError() const { return m_lastError; }

@@ -3448,28 +3448,6 @@ std::unique_ptr<Page> EpubReaderActivity::reloadDictionaryLookupPageCallback(voi
   return static_cast<EpubReaderActivity*>(context)->reloadDictionaryLookupPage(pageOffset);
 }
 
-void EpubReaderActivity::renderDictionaryLookupBackground() {
-  auto backgroundPage = reloadDictionaryLookupPage();
-  if (!backgroundPage) {
-    LOG_ERR("DICT", "Failed to reload reader page for dictionary modal background");
-    renderer.clearScreen(ReaderUtils::readerBackgroundColor());
-    return;
-  }
-
-  const ReaderViewportLayout layout = computeReaderViewportLayout(renderer, automaticPageTurnActive);
-  renderer.clearScreen(ReaderUtils::readerBackgroundColor());
-  const bool foregroundBlack = ReaderUtils::readerForegroundBlack();
-  auto* fcm = renderer.getFontCacheManager();
-  if (!fcm) {
-    backgroundPage->render(renderer, SETTINGS.getReaderFontId(), layout.marginLeft, layout.marginTop, foregroundBlack);
-    return;
-  }
-  auto scope = fcm->createPrewarmScope();
-  backgroundPage->render(renderer, SETTINGS.getReaderFontId(), layout.marginLeft, layout.marginTop, foregroundBlack);
-  scope.endScanAndPrewarm();
-  backgroundPage->render(renderer, SETTINGS.getReaderFontId(), layout.marginLeft, layout.marginTop, foregroundBlack);
-}
-
 void EpubReaderActivity::openWordSelect(bool framebufferContainsPage, int initialTouchX, int initialTouchY,
                                         bool autoLookupInitialWord) {
   std::unique_ptr<Page> pageForLookup;

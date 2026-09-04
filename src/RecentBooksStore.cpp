@@ -52,11 +52,6 @@ bool RecentBooksStore::fromJson(JsonVariantConst doc) {
   return true;
 }
 
-void RecentBooksStore::addBook(const std::string& path, const std::string& title, const std::string& author,
-                               const std::string& coverBmpPath) {
-  addOrUpdateBook(path, title, author, coverBmpPath);
-}
-
 void RecentBooksStore::addOrUpdateBook(const std::string& path, const std::string& title, const std::string& author,
                                        const std::string& coverBmpPath, const RecentBook::CoverState coverState) {
   ensureLoaded();

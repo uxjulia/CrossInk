@@ -107,18 +107,6 @@ class ChapterHtmlSlimParser {
   size_t parseFileSize_ = 0;
   uint32_t parseStartTime_ = 0;
 
-  struct PendingImageExtraction {
-    std::unique_ptr<ZipFileStreamReader> stream;
-    HalFile file;
-    std::string tag;
-    std::string classAttr;
-    std::string styleAttr;
-    std::string alt;
-    std::string cachedImagePath;
-    bool failed = false;
-  };
-  std::unique_ptr<PendingImageExtraction> pendingImageExtraction_;
-
   bool ensureInputFileOpen();
 
   // Style tracking (replaces depth-based approach)
@@ -289,11 +277,6 @@ class ChapterHtmlSlimParser {
   void flushMalformedPartialContent();
   bool appendMalformedMarkupWarningPage();
   void prewarmSectionAdvanceTable(FsFile& file) const;
-  bool startImageExtraction(const char* tag, std::string_view classAttr, std::string_view styleAttr,
-                            const std::string& alt, const std::string& resolvedPath);
-  ParseStatus pumpPendingImageExtraction();
-  bool finishPendingImageExtraction(PendingImageExtraction& pending);
-  void fallbackPendingImage(PendingImageExtraction& pending);
   // XML callbacks
   static void XMLCALL startElement(void* userData, const XML_Char* name, const XML_Char** atts);
   static void XMLCALL characterData(void* userData, const XML_Char* s, int len);

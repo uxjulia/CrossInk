@@ -268,17 +268,6 @@ std::string WifiCredentialStore::getLastConnectedSsid() const {
   return lastConnectedSsid;
 }
 
-void WifiCredentialStore::clearLastConnectedSsid() {
-  ensureLoaded();
-
-  {
-    std::lock_guard<std::mutex> lock(credentialMutex);
-    if (lastConnectedSsid.empty()) return;
-    lastConnectedSsid.clear();
-  }
-  saveToFile();
-}
-
 void WifiCredentialStore::clearAll() {
   ensureLoaded();
 

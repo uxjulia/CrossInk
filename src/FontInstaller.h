@@ -48,9 +48,6 @@ class FontInstaller {
   /// Returns false only when discovery could not complete due to low memory.
   bool refreshRegistry();
 
-  /// Check whether a family name already exists in the registry.
-  bool isFamilyInstalled(const char* familyName) const;
-
  private:
   SdCardFontRegistry& registry_;
 

@@ -1123,23 +1123,4 @@ void DictHtmlRenderer::recordUnknownTag(const char* tagName, const char* wordBef
   info.wordAfter[sizeof(info.wordAfter) - 1] = '\0';
 }
 
-void DictHtmlRenderer::extractLastWord(const char* text, int len, char* out, int outSize) {
-  if (!text || len <= 0 || !out || outSize <= 0) {
-    if (out && outSize > 0) out[0] = '\0';
-    return;
-  }
-  int end = len - 1;
-  while (end >= 0 && (text[end] == ' ' || text[end] == '\t' || text[end] == '\n')) end--;
-  if (end < 0) {
-    out[0] = '\0';
-    return;
-  }
-  int start = end;
-  while (start > 0 && text[start - 1] != ' ' && text[start - 1] != '\t' && text[start - 1] != '\n') start--;
-  int wlen = end - start + 1;
-  if (wlen >= outSize) wlen = outSize - 1;
-  memcpy(out, text + start, wlen);
-  out[wlen] = '\0';
-}
-
 #endif  // DICT_HTML_RENDERER_TRACK_UNKNOWN

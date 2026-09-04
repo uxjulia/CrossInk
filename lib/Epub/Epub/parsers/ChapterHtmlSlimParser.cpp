@@ -2185,8 +2185,6 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
                     releaseHeapAfter.maxAllocHeap, src.c_str());
           }
 
-          const auto heapBeforeImage = MemoryBudget::snapshot();
-
           if (self->lowMemoryImageFallback) {
             self->skipCurrentElement();
             return;

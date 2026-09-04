@@ -8,12 +8,6 @@ class Activity;
 
 enum class FrontlightPanelAction : uint8_t {
   None = 0,
-  ReadingStats,
-  SyncTransfer,
-  DarkMode,
-  GlobalSettings,
-  ToggleTouchscreen,
-  Home,
   SyncProgress,
   NearbyPositionSync,
   SendNearbyBook,
@@ -59,8 +53,6 @@ struct FrontlightPanelResult {
   FrontlightDrawerState state{};
   bool activeEpub = false;
   std::string bookPath;
-  bool inversionChanged = false;
-  bool touchscreenChanged = false;
 };
 
 struct FrontlightPanelContext {

@@ -731,26 +731,6 @@ void SettingsActivity::onEnter() {
   requestUpdate();
 }
 
-void SettingsActivity::selectCategory(const int categoryIndex) {
-  selectedCategoryIndex = categoryIndex;
-  switch (selectedCategoryIndex) {
-    case 0:
-      currentSettings = &displaySettings;
-      break;
-    case 1:
-      currentSettings = &readerSettings;
-      break;
-    case 2:
-      currentSettings = &controlsSettings;
-      break;
-    case 3:
-      currentSettings = &systemSettings;
-      break;
-  }
-  settingsCount = static_cast<int>(currentSettings->size());
-  topIndex = 0;
-}
-
 void SettingsActivity::onTabEvent(const fui::ActionEvent& event, void* user) {
   auto* self = static_cast<SettingsActivity*>(user);
   if (self->optionPopup.isActive()) return;

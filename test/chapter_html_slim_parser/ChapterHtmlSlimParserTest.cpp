@@ -1,12 +1,11 @@
+#include <Epub.h>
+#include <Epub/Page.h>
+#include <GfxRenderer.h>
 #include <gtest/gtest.h>
 
 #include <array>
 #include <memory>
 #include <string>
-
-#include <Epub/Page.h>
-#include <Epub.h>
-#include <GfxRenderer.h>
 
 #define class struct
 #define private public
@@ -22,8 +21,8 @@ class ChapterHtmlSlimParserTest : public ::testing::TestWithParam<const char*> {
   Epub epub;
   GfxRenderer renderer;
   CssParser cssParser{"/tmp"};
-  ChapterHtmlSlimParser parser{epub, filepath, renderer, 0, 1.0f, false, false, 0, 480, 800, false, false, false, 0,
-                               {}, true, "", "", 0, {}, nullptr, &cssParser};
+  ChapterHtmlSlimParser parser{epub,  filepath, renderer, 0,  1.0f, false, false, 0, 480, 800,     false,
+                               false, false,    0,        {}, true, "",    "",    0, {},  nullptr, &cssParser};
   std::array<ChapterHtmlSlimParser::StyleStackEntry, 4> inlineStyles{};
 
   void SetUp() override {
@@ -43,8 +42,8 @@ TEST_P(ChapterHtmlSlimParserTest, KeepsCssVerticalAlignAndInternalLinkMetadata) 
 
   ASSERT_EQ(parser.currentTextBlock->size(), 1u);
   const auto style = parser.currentTextBlock->getWordStyleAt(0);
-  const auto expectedStyle = std::string(verticalAlign).find("super") != std::string::npos ? EpdFontFamily::SUP
-                                                                                              : EpdFontFamily::SUB;
+  const auto expectedStyle =
+      std::string(verticalAlign).find("super") != std::string::npos ? EpdFontFamily::SUP : EpdFontFamily::SUB;
   EXPECT_NE(static_cast<uint8_t>(style) & static_cast<uint8_t>(expectedStyle), 0u);
 
   ASSERT_EQ(parser.pendingFootnotes.size(), 1u);
@@ -52,9 +51,9 @@ TEST_P(ChapterHtmlSlimParserTest, KeepsCssVerticalAlignAndInternalLinkMetadata) 
   EXPECT_STREQ(footnote.href, expectedHref);
   ASSERT_NE(footnote.linkId, 0u);
   ASSERT_EQ(parser.currentTextBlock->wordBackgroundBlack.size(), 1u);
-  const uint8_t wordLinkId = static_cast<uint8_t>((parser.currentTextBlock->wordBackgroundBlack.front() &
-                                                    TextBlock::WORD_FLAG_LINK_ID_MASK) >>
-                                                   TextBlock::WORD_FLAG_LINK_ID_SHIFT);
+  const uint8_t wordLinkId =
+      static_cast<uint8_t>((parser.currentTextBlock->wordBackgroundBlack.front() & TextBlock::WORD_FLAG_LINK_ID_MASK) >>
+                           TextBlock::WORD_FLAG_LINK_ID_SHIFT);
   EXPECT_EQ(wordLinkId, footnote.linkId);
 }
 

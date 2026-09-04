@@ -60,37 +60,6 @@ void WordSelectNavigator::organizeIntoRows(std::vector<WordInfo>& words, std::ve
   }
 }
 
-void WordSelectNavigator::mergeHyphenatedPairs(std::vector<WordInfo>& words, const std::vector<Row>& rows,
-                                               std::string& textPool) {
-  for (size_t r = 0; r + 1 < rows.size(); r++) {
-    if (rows[r].wordCount == 0 || rows[r + 1].wordCount == 0) continue;
-
-    const int lastWordIdx = rows[r].firstWord + rows[r].wordCount - 1;
-    const char* lastWord = textPool.data() + words[lastWordIdx].textOffset;
-    uint16_t lastLen = words[lastWordIdx].textLen;
-    if (lastLen == 0) continue;
-    if (!utf8EndsWithHyphen(lastWord, lastLen)) continue;
-    // A word that also starts with '-' (e.g. -re-) is a standalone affix token,
-    // not the first half of a line-break compound.
-    if (lastWord[0] == '-') continue;
-
-    const int nextWordIdx = rows[r + 1].firstWord;
-    words[lastWordIdx].continuationIndex = nextWordIdx;
-    words[nextWordIdx].continuationOf = lastWordIdx;
-
-    std::string firstPart(lastWord, lastLen);
-    utf8RemoveTrailingHyphen(firstPart);
-    const char* nextWord = textPool.data() + words[nextWordIdx].textOffset;
-    const char* strippedNext = (nextWord[0] == '-') ? nextWord + 1 : nextWord;
-    std::string merged = firstPart + strippedNext;
-    uint16_t mergedOff = poolAppend(textPool, merged.c_str(), merged.size());
-    words[lastWordIdx].lookupOffset = mergedOff;
-    words[lastWordIdx].lookupLen = static_cast<uint16_t>(merged.size());
-    words[nextWordIdx].lookupOffset = mergedOff;
-    words[nextWordIdx].lookupLen = static_cast<uint16_t>(merged.size());
-  }
-}
-
 uint16_t WordSelectNavigator::poolAppend(std::string& pool, const char* s, size_t len) {
   return TextPool::append(pool, s, len);
 }
@@ -119,20 +88,6 @@ const WordSelectNavigator::WordInfo* WordSelectNavigator::getSelected() const {
   if (rows.empty() || currentRow >= static_cast<int>(rows.size())) return nullptr;
   if (rows[currentRow].wordCount == 0) return nullptr;
   return &words[rows[currentRow].firstWord + currentWordInRow];
-}
-
-const WordSelectNavigator::WordInfo* WordSelectNavigator::getPairedHalf() const {
-  const WordInfo* sel = getSelected();
-  if (!sel) return nullptr;
-  const int wordIdx = rows[currentRow].firstWord + currentWordInRow;
-  int otherIdx = (sel->continuationOf >= 0) ? sel->continuationOf : -1;
-  if (otherIdx < 0 && sel->continuationIndex >= 0 && sel->continuationIndex != wordIdx) {
-    otherIdx = sel->continuationIndex;
-  }
-  if (otherIdx >= 0 && otherIdx < static_cast<int>(words.size())) {
-    return &words[otherIdx];
-  }
-  return nullptr;
 }
 
 int WordSelectNavigator::getCurrentFlatIndex() const {

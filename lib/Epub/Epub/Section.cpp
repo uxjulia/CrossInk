@@ -1444,26 +1444,6 @@ std::unique_ptr<Page> Section::loadPage(const int page) {
 
 std::unique_ptr<Page> Section::loadPageFromSectionFile() { return loadPage(currentPage); }
 
-std::string Section::getTextFromSectionFile() {
-  std::string fullText;
-  auto p = loadPage(currentPage);
-  if (p) {
-    for (const auto& el : p->elements) {
-      if (el->getTag() == TAG_PageLine) {
-        const auto& line = static_cast<const PageLine&>(*el);
-        if (line.getBlock()) {
-          const auto& block = *line.getBlock();
-          for (uint16_t i = 0; i < block.wordCount(); i++) {
-            if (!fullText.empty()) fullText += " ";
-            fullText += block.wordText(i);
-          }
-        }
-      }
-    }
-  }
-  return fullText;
-}
-
 std::optional<uint16_t> Section::getCachedPageCount() const {
   FsFile f;
   if (!Storage.openFileForRead("SCT", filePath, f)) {
