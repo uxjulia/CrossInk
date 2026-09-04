@@ -1,0 +1,5 @@
+# Manifest for src/components/icons/readingStatsIcons.h — regenerate with:
+#   python3 scripts/generate_icons.py --library tabler \
+#     --manifest src/components/icons/readingStatsIcons.manifest \
+#     --sizes 24,32 --stroke-width 1.75 --out src/components/icons/readingStatsIcons.h
+reading-stats = chart-bar

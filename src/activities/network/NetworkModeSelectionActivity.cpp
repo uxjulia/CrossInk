@@ -7,7 +7,8 @@
 #include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
 #include "components/UIThemeTokens.h"
-#include "components/icons/chart.h"
+#include "components/icons/listIcons.h"
+#include "components/icons/readingStatsIcons.h"
 #include "fontIds.h"
 
 namespace fui = freeink::ui;
@@ -189,7 +190,7 @@ void NetworkModeSelectionActivity::buildListScreen(UiApp::ScreenType& screen) {
     } else if (menuModes[i] == NetworkMode::NEARBY_BOOK_RECEIVE) {
       item.icon = fui::bitmapFromIcon(icon_chevrons_left_right_ellipsis_32);
     } else if (menuModes[i] == NetworkMode::NEARBY_STATS_SYNC) {
-      item.icon = fui::BitmapRef{ChartListIcon, 32, 32, fui::BitmapFormat::Mask1};
+      item.icon = fui::bitmapFromIcon(icon_reading_stats_32);
     } else {
       item.icon = listIconFor(menuIcons[i], 32);  // subtitle rows carry the larger icon
     }

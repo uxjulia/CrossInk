@@ -19,9 +19,9 @@
 #include "components/UITheme.h"
 #include "components/UIThemeTokens.h"
 #include "components/UiAppHelpers.h"
-#include "components/icons/chart.h"
 #include "components/icons/frontlightHeaderIcons.h"
 #include "components/icons/listIcons.h"
+#include "components/icons/readingStatsIcons.h"
 #include "components/icons/tablerIcons.h"
 #include "components/icons/touchscreenStateIcons.h"
 
@@ -439,7 +439,7 @@ void FrontlightPanelActivity::buildPanelScreen(UiApp::ScreenType& screen) {
   const fui::Rect actionBar = screen.takeBottom(ACTION_BAR_HEIGHT);
   const int16_t slotWidth = static_cast<int16_t>(actionBar.width / 5);
   const std::array<fui::BitmapRef, 5> icons = {
-      fui::BitmapRef{ChartListIcon, 32, 32, fui::BitmapFormat::Mask1}, fui::bitmapFromIcon(icon_transfer_24),
+      fui::bitmapFromIcon(icon_reading_stats_24), fui::bitmapFromIcon(icon_transfer_24),
       fui::bitmapFromIcon(icon_tabler_moon_filled_24), fui::bitmapFromIcon(icon_sliders_horizontal_24),
       fui::bitmapFromIcon(pendingTouchscreenDisabled ? icon_device_tablet_off_24 : icon_device_tablet_24)};
   for (int16_t i = 0; i < 5; ++i) {

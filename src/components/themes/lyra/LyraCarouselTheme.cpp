@@ -19,8 +19,8 @@
 #include "components/TouchRegistry.h"
 #include "components/UITheme.h"
 #include "components/UiAppHelpers.h"
-#include "components/icons/chart.h"
 #include "components/icons/cover.h"
+#include "components/icons/readingStatsIcons.h"
 #include "fontIds.h"
 
 namespace {
@@ -595,11 +595,6 @@ void LyraCarouselTheme::drawButtonMenu(GfxRenderer& renderer, Rect rect, int but
       const UIIcon icon = rowIcon(i);
       if (icon == UIIcon::BookmarkIcon) {
         drawMenuBookmarkIcon(renderer, iconX, iconY, selected);
-      } else if (icon == UIIcon::Chart) {
-        if (selected)
-          renderer.drawIconInverted(ChartIcon, iconX, iconY, kMenuIconSize, kMenuIconSize);
-        else
-          renderer.drawIcon(ChartIcon, iconX, iconY, kMenuIconSize, kMenuIconSize);
       } else {
         const freeink::Icon* bmp = iconForName(icon, kMenuIconSize);
         if (bmp != nullptr) {
@@ -660,8 +655,6 @@ void LyraCarouselTheme::drawButtonMenuSelectionOverlay(const GfxRenderer& render
     const UIIcon icon = rowIcon(selectedIndex);
     if (icon == UIIcon::BookmarkIcon) {
       drawMenuBookmarkIcon(renderer, iconX, iconY, true);
-    } else if (icon == UIIcon::Chart) {
-      renderer.drawIconInverted(ChartIcon, iconX, iconY, kMenuIconSize, kMenuIconSize);
     } else {
       const freeink::Icon* bmp = iconForName(icon, kMenuIconSize);
       if (bmp != nullptr) {
