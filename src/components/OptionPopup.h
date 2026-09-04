@@ -78,6 +78,15 @@ class OptionPopup {
 
   void setCancelCallback(std::function<void()> onCancel) { onCancelCallback = std::move(onCancel); }
 
+  // Disabled rows stay visible for context but cannot receive touch or button
+  // selection. The caller supplies one flag per option after show().
+  void setDisabledOptions(std::vector<bool> disabled) {
+    disabledOptions = std::move(disabled);
+    if (disabledOptions.size() != ownedStrings.size()) disabledOptions.assign(ownedStrings.size(), false);
+    selectedIndex = firstEnabledIndex(selectedIndex, 1);
+    layoutValid = false;
+  }
+
   // Confirmation-style option lists can mark one option as the primary action
   // without changing the appearance of ordinary option selectors.
   void setPrimaryOptionIndex(const int index) {
@@ -118,6 +127,7 @@ class OptionPopup {
       for (int i = 0; i < static_cast<int>(hitLayout.options.size()); i++) {
         if (contains(hitLayout.options[i], tx, ty)) {
           const int optionIndex = hitLayout.firstOptionIndex + i;
+          if (isDisabled(optionIndex)) break;
           touchDownOptionIndex = optionIndex;
           touchDownTarget = TouchTarget::Option;
           if (selectedIndex != optionIndex) {
@@ -164,8 +174,11 @@ class OptionPopup {
       }
       for (int i = 0; i < static_cast<int>(hitLayout.options.size()); i++) {
         if (contains(hitLayout.options[i], tx, ty)) {
-          selectedIndex = hitLayout.firstOptionIndex + i;
-          selectTouchOption(input, requestUpdate);
+          const int optionIndex = hitLayout.firstOptionIndex + i;
+          if (!isDisabled(optionIndex)) {
+            selectedIndex = optionIndex;
+            selectTouchOption(input, requestUpdate);
+          }
           return true;
         }
       }
@@ -181,7 +194,7 @@ class OptionPopup {
       const int visibleCount = static_cast<int>(hitLayout.options.size());
       if (visibleCount < count) {
         const int delta = swipe == MappedInputManager::SwipeDir::Up ? visibleCount : -visibleCount;
-        selectedIndex = std::clamp(selectedIndex + delta, 0, count - 1);
+        selectedIndex = firstEnabledIndex(selectedIndex, delta);
         layoutValid = false;
         requestUpdate();
       }
@@ -199,8 +212,9 @@ class OptionPopup {
       } else if (confirmationMode && selectedIndex == 0) {
         footerFocused = true;
       } else {
-        selectedIndex = page ? ButtonNavigator::previousPageIndex(selectedIndex, count, visibleCount)
-                             : ButtonNavigator::previousIndex(selectedIndex, count);
+        const int next = page ? ButtonNavigator::previousPageIndex(selectedIndex, count, visibleCount)
+                              : ButtonNavigator::previousIndex(selectedIndex, count);
+        selectedIndex = firstEnabledIndex(next, -1);
       }
       layoutValid = false;
       requestUpdate();
@@ -212,8 +226,9 @@ class OptionPopup {
       } else if (confirmationMode && selectedIndex == count - 1) {
         footerFocused = true;
       } else {
-        selectedIndex = page ? ButtonNavigator::nextPageIndex(selectedIndex, count, visibleCount)
-                             : ButtonNavigator::nextIndex(selectedIndex, count);
+        const int next = page ? ButtonNavigator::nextPageIndex(selectedIndex, count, visibleCount)
+                              : ButtonNavigator::nextIndex(selectedIndex, count);
+        selectedIndex = firstEnabledIndex(next, 1);
       }
       layoutValid = false;
       requestUpdate();
@@ -255,7 +270,8 @@ class OptionPopup {
   void render(const GfxRenderer& renderer) const {
     if (!active) return;
     GUI.drawOptionPopup(renderer, title.c_str(), ownedStrings, selectedIndex, confirmationMode, tr(STR_CANCEL),
-                        tr(STR_SAVE), footerFocused, primaryOptionIndex, popupNote.boldLabel, popupNote.body);
+                        tr(STR_SAVE), footerFocused, primaryOptionIndex, popupNote.boldLabel, popupNote.body,
+                        disabledOptions);
   }
 
   bool isActive() const { return active; }
@@ -389,6 +405,7 @@ class OptionPopup {
   bool footerFocused = false;
   std::string title;
   std::vector<std::string> ownedStrings;
+  std::vector<bool> disabledOptions;
   int selectedIndex = 0;
   int touchDownOptionIndex = -1;
   TouchTarget touchDownTarget = TouchTarget::None;
@@ -406,6 +423,7 @@ class OptionPopup {
     layoutValid = false;
     touchDownOptionIndex = -1;
     touchDownTarget = TouchTarget::None;
+    disabledOptions.assign(ownedStrings.size(), false);
     footerFocused = false;
     skipPostSelectionUpdate_ = false;
     if (ownedStrings.empty()) {
@@ -450,6 +468,7 @@ class OptionPopup {
   }
 
   void save(MappedInputManager& input, const std::function<void()>& requestUpdate, const bool suppressRelease) {
+    if (isDisabled(selectedIndex)) return;
     active = false;
     suppressSelectionRelease(input, suppressRelease);
     if (onSelectCallback) onSelectCallback(selectedIndex);
@@ -483,5 +502,20 @@ class OptionPopup {
     if (suppressRelease) input.suppressNextBackRelease();
     if (onCancelCallback) onCancelCallback();
     requestUpdate();
+  }
+
+  bool isDisabled(const int index) const {
+    return index >= 0 && index < static_cast<int>(disabledOptions.size()) && disabledOptions[index];
+  }
+
+  int firstEnabledIndex(const int start, const int direction) const {
+    if (ownedStrings.empty()) return 0;
+    const int count = static_cast<int>(ownedStrings.size());
+    int index = std::clamp(start, 0, count - 1);
+    for (int attempts = 0; attempts < count; ++attempts) {
+      if (!isDisabled(index)) return index;
+      index = (index + (direction < 0 ? count - 1 : 1)) % count;
+    }
+    return std::clamp(start, 0, count - 1);
   }
 };

@@ -223,29 +223,22 @@ void FrontlightPanelActivity::openSyncDialog() {
   static constexpr std::array<StrId, 3> OPTIONS = {StrId::STR_SYNC_PROGRESS, StrId::STR_NEARBY_POSITION_SYNC,
                                                    StrId::STR_SEND_NEARBY_BOOK};
   drawerState.syncDialogOpen = true;
-  if (context.bookPath.empty()) {
-    std::vector<std::string> disabledOptions;
-    disabledOptions.reserve(OPTIONS.size());
-    for (const StrId option : OPTIONS) {
-      disabledOptions.emplace_back(std::string(I18N.get(option)) + " - " + tr(STR_UNAVAILABLE));
-    }
-    optionPopup.show(StrId::STR_SYNC_AND_TRANSFER, disabledOptions, 0, [this](const int) { openSyncDialog(); });
-    optionPopup.setCancelCallback([this] { closeSyncDialog(); });
-    requestUpdate();
-    return;
-  }
-  optionPopup.show(StrId::STR_SYNC_AND_TRANSFER, OPTIONS.data(), OPTIONS.size(), 0, [this](const int index) {
-    drawerState.syncDialogOpen = false;
-    FrontlightPanelResult panelResult;
-    panelResult.state = drawerState;
-    panelResult.activeEpub = context.activeEpub;
-    panelResult.bookPath = context.bookPath;
-    if (index == 0) panelResult.action = FrontlightPanelAction::SyncProgress;
-    if (index == 1) panelResult.action = FrontlightPanelAction::NearbyPositionSync;
-    if (index == 2) panelResult.action = FrontlightPanelAction::SendNearbyBook;
-    setResult(ActivityResult(std::move(panelResult)));
-    finish();
-  });
+  const bool canSyncBookProgress = context.activeEpub;
+  const bool canSendBook = !context.bookPath.empty();
+  optionPopup.show(StrId::STR_SYNC_AND_TRANSFER, OPTIONS.data(), OPTIONS.size(), canSyncBookProgress ? 0 : 2,
+                   [this](const int index) {
+                     drawerState.syncDialogOpen = false;
+                     FrontlightPanelResult panelResult;
+                     panelResult.state = drawerState;
+                     panelResult.activeEpub = context.activeEpub;
+                     panelResult.bookPath = context.bookPath;
+                     if (index == 0) panelResult.action = FrontlightPanelAction::SyncProgress;
+                     if (index == 1) panelResult.action = FrontlightPanelAction::NearbyPositionSync;
+                     if (index == 2) panelResult.action = FrontlightPanelAction::SendNearbyBook;
+                     setResult(ActivityResult(std::move(panelResult)));
+                     finish();
+                   });
+  optionPopup.setDisabledOptions({!canSyncBookProgress, !canSyncBookProgress, !canSendBook});
   optionPopup.setCancelCallback([this] { closeSyncDialog(); });
   requestUpdate();
 }

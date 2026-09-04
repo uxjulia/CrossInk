@@ -188,6 +188,12 @@ void TxtReaderActivity::openReaderMenu() {
   });
 }
 
+bool TxtReaderActivity::handleFrontlightPanelResult(const FrontlightPanelResult& result) {
+  if (result.action != FrontlightPanelAction::SendNearbyBook || !txt) return false;
+  saveProgress(currentPage);
+  return activityManager.goToNearbyBookSend(txt->getPath(), true);
+}
+
 void TxtReaderActivity::loop() {
   if (quickActionsPopup.handleInput(mappedInput, [this] { requestUpdate(); })) return;
 #if CROSSINK_APP_CAP_TOUCH

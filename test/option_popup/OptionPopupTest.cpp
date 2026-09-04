@@ -85,4 +85,39 @@ TEST(OptionPopup, PowerConfirmSelectionSuppressesItsPowerRelease) {
   EXPECT_TRUE(input.wasReleased(MappedInputManager::Button::Power));
 }
 
+TEST(OptionPopup, DisabledTouchOptionDoesNotSelect) {
+  GfxRenderer renderer;
+  HalGPIO gpio;
+  MappedInputManager input(gpio, renderer);
+  OptionPopup popup;
+  PopupTouchHarness touch(input);
+  int selections = 0;
+
+  const char* options[] = {"Unavailable"};
+  popup.show("Sync & Transfer", options, 1, 0, [&](const int) { ++selections; });
+  popup.setDisabledOptions({true});
+
+  touch.touchPopup(popup, 250, [] {});
+  EXPECT_EQ(selections, 0);
+  EXPECT_TRUE(popup.isActive());
+}
+
+TEST(OptionPopup, ButtonNavigationSkipsDisabledOptions) {
+  GfxRenderer renderer;
+  HalGPIO gpio;
+  MappedInputManager input(gpio, renderer);
+  OptionPopup popup;
+  int selectedIndex = -1;
+
+  const char* options[] = {"Sync Progress", "Nearby Position Sync", "Send to Nearby Device"};
+  popup.show("Sync & Transfer", options, 3, 2, [&](const int index) { selectedIndex = index; });
+  popup.setDisabledOptions({true, true, false});
+
+  ButtonNavigator::injectNextRelease();
+  EXPECT_TRUE(popup.handleInput(input, [] {}));
+  input.injectPowerConfirmPress();
+  EXPECT_TRUE(popup.handleInput(input, [] {}));
+  EXPECT_EQ(selectedIndex, 2);
+}
+
 }  // namespace

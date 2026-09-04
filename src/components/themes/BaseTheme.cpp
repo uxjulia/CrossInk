@@ -1105,7 +1105,8 @@ void BaseTheme::drawTextField(const GfxRenderer& renderer, Rect rect, const int 
 void BaseTheme::drawOptionPopup(const GfxRenderer& renderer, const char* title, const std::vector<std::string>& options,
                                 int selectedIndex, const bool showConfirmationFooter, const char* cancelLabel,
                                 const char* saveLabel, const bool saveFocused, const int primaryOptionIndex,
-                                const char* noteLabel, const char* noteBody) const {
+                                const char* noteLabel, const char* noteBody,
+                                const std::vector<bool>& disabledOptions) const {
   const auto& metrics = UITheme::getInstance().getMetrics();
   const auto pageWidth = renderer.getScreenWidth();
   const auto pageHeight = renderer.getScreenHeight();
@@ -1285,11 +1286,14 @@ void BaseTheme::drawOptionPopup(const GfxRenderer& renderer, const char* title, 
       const int optionIndex = visibleStart + visibleIndex;
       const int itemY = y + visibleIndex * (rowHeight + itemSpacing);
       const bool selected = !saveFocused && optionIndex == safeSelectedIndex;
+      const bool disabled = optionIndex < static_cast<int>(disabledOptions.size()) && disabledOptions[optionIndex];
       const char* labelText = options[optionIndex].c_str();
 
-      if (metrics.optionPopupDrawAllRows || selected) {
+      if (metrics.optionPopupDrawAllRows || selected || disabled) {
         Color rowColor;
-        if (selected) {
+        if (disabled) {
+          rowColor = Color::LightGray;
+        } else if (selected) {
           rowColor = metrics.optionPopupSelectionLight ? Color::LightGray : Color::Black;
         } else {
           rowColor = Color::White;
@@ -1308,7 +1312,7 @@ void BaseTheme::drawOptionPopup(const GfxRenderer& renderer, const char* title, 
       // Unselected items: text is dark (invert=true means draw on white bg).
       // Selected on dark bg: text must be white (invert=false).
       // Selected on light bg: text stays dark (invert=true).
-      const bool invertText = selected ? metrics.optionPopupSelectionLight : true;
+      const bool invertText = disabled || (selected ? metrics.optionPopupSelectionLight : true);
       renderer.drawText(optionFontId, textX, textY, labelText, invertText, style);
     }
   }

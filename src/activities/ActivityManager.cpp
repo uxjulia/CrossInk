@@ -66,18 +66,23 @@ std::string fileNameFromPath(const std::string& path) {
   return slash == std::string::npos ? path : path.substr(slash + 1);
 }
 
+bool isNearbyTransferFile(const std::string& path) {
+  return FsHelpers::hasEpubExtension(path) || FsHelpers::hasXtcExtension(path) || FsHelpers::hasTxtExtension(path);
+}
+
 FrontlightPanelContext buildFrontlightPanelContext(Activity& activity, GfxRenderer& renderer,
                                                    MappedInputManager& mappedInput) {
   FrontlightPanelContext context;
   context.sourceActivity = &activity;
   const std::string currentPath = activity.getCurrentBookPath();
-  const bool currentBookValid = !currentPath.empty() && Storage.exists(currentPath.c_str());
+  const bool currentBookValid = isNearbyTransferFile(currentPath) && Storage.exists(currentPath.c_str());
   const bool currentEpubValid = FsHelpers::hasEpubExtension(currentPath) && currentBookValid;
   const bool lastValid = !APP_STATE.openEpubPath.empty() && FsHelpers::hasEpubExtension(APP_STATE.openEpubPath) &&
                          Storage.exists(APP_STATE.openEpubPath.c_str());
   context.activeReaderBook = hasFrontlightActiveReaderBook(activity.isReaderActivity(), currentBookValid);
   if (context.activeReaderBook) {
     context.bookTitle = activity.getCurrentBookTitle();
+    context.bookPath = currentPath;
     context.activeEpub = activity.isEpubReaderActivity() && currentEpubValid;
     if (shouldShowStickyReaderDetails(hasStickyReaderDetailsPanel(), Frontlight.present(), context.activeReaderBook) &&
         activity.getFrontlightPanelBookDetails(context.bookDetails)) {

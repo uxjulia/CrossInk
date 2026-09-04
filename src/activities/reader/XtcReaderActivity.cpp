@@ -957,6 +957,12 @@ void XtcReaderActivity::onReaderMenuConfirm(const int action) {
   }
 }
 
+bool XtcReaderActivity::handleFrontlightPanelResult(const FrontlightPanelResult& result) {
+  if (result.action != FrontlightPanelAction::SendNearbyBook || !xtc) return false;
+  saveProgress(currentPage);
+  return activityManager.goToNearbyBookSend(xtc->getPath(), true);
+}
+
 bool XtcReaderActivity::supportsQuickAction(const CrossPointSettings::SHORT_PWRBTN action) {
   switch (action) {
     case CrossPointSettings::SHORT_PWRBTN::PREVIOUS_PAGE:
