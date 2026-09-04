@@ -8,6 +8,7 @@
 #include <HalStorage.h>
 #include <I18n.h>
 #include <Memory.h>
+#include <MemoryBudget.h>
 #include <Serialization.h>
 #include <Utf8.h>
 #include <Xtc.h>
@@ -20,6 +21,10 @@
 #include <functional>
 #include <string>
 #include <vector>
+
+#if defined(CROSSINK_ISSUE_666_MEMORY_DIAGNOSTICS) && defined(ARDUINO_ARCH_ESP32) && !defined(SIMULATOR)
+#include <esp_memory_utils.h>
+#endif
 
 #include "../reader/BookReadingStats.h"
 #include "../reader/BookStatsActivity.h"
@@ -126,6 +131,35 @@ bool hasHeapForCarouselFrameCache() {
   return ESP.getFreeHeap() >= CAROUSEL_FRAME_MIN_FREE_AFTER_ALLOC &&
          ESP.getMaxAllocHeap() >= CAROUSEL_FRAME_MIN_MAX_ALLOC_AFTER_ALLOC;
 }
+
+#if defined(CROSSINK_ISSUE_666_MEMORY_DIAGNOSTICS) && defined(ARDUINO_ARCH_ESP32) && !defined(SIMULATOR)
+const char* carouselPointerPool(const void* ptr) {
+  if (!ptr) return "null";
+  if (esp_ptr_external_ram(ptr)) return "PSRAM";
+  if (esp_ptr_internal(ptr)) return "internal";
+  return "other";
+}
+
+// Temporary #666 probe: cache frames are full-screen buffers, so stack/static
+// storage is unsuitable. Check their containing heap regions only at cache
+// setup/copy time. A healthy region does not prove that an individual pointer
+// still owns a live allocation; the owner/alias check below covers that case.
+bool logCarouselMemoryDiagnostic(const char* stage, const int slotIdx, const void* source, const void* destination,
+                                 const size_t byteCount) {
+  const auto internal = MemoryBudget::snapshot();
+  const auto psram = MemoryBudget::psramSnapshot();
+  const bool sourceRegionIntact = source && heap_caps_check_integrity_addr(reinterpret_cast<intptr_t>(source), true);
+  const bool destinationRegionIntact =
+      destination && heap_caps_check_integrity_addr(reinterpret_cast<intptr_t>(destination), true);
+  LOG_INF("DIAG666",
+          "%s slot=%d bytes=%u task=%s src=%p(%s region=%d) dst=%p(%s region=%d); internal free=%u max=%u; "
+          "psram free=%u max=%u",
+          stage, slotIdx, static_cast<unsigned>(byteCount), pcTaskGetName(nullptr), source, carouselPointerPool(source),
+          sourceRegionIntact, destination, carouselPointerPool(destination), destinationRegionIntact, internal.freeHeap,
+          internal.maxAllocHeap, psram.freeHeap, psram.maxAllocHeap);
+  return sourceRegionIntact && destinationRegionIntact;
+}
+#endif
 
 void appendHashedFileStateToKey(std::string& key, const std::string& path) {
   FsFile file;
@@ -564,6 +598,10 @@ int getHomeMenuSelectionOffset(const std::vector<RecentBook>& recentBooks) {
 namespace {
 class CarouselCache {
  public:
+  // One frame is 48 KB on current panels. Keep it out of the C3's constrained
+  // internal heap whenever PSRAM is available; the owning buffers are static
+  // because this cache deliberately survives HomeActivity recreation.
+  HeapByteBuffer frameStorage[HomeActivity::kCarouselFrameCount];
   uint8_t* frames[HomeActivity::kCarouselFrameCount] = {};
   int frameBookIdx[HomeActivity::kCarouselFrameCount] = {-1};
   int frameCount = 0;
@@ -580,10 +618,8 @@ class CarouselCache {
 
   void invalidate() {
     for (int i = 0; i < HomeActivity::kCarouselFrameCount; ++i) {
-      if (frames[i]) {
-        free(frames[i]);
-        frames[i] = nullptr;
-      }
+      frameStorage[i].reset();
+      frames[i] = nullptr;
       frameBookIdx[i] = -1;
     }
     frameCount = 0;
@@ -1151,26 +1187,34 @@ void HomeActivity::freeCarouselFrames() {
 
 bool HomeActivity::allocateCarouselFrameSlots(int targetFrameCount) {
   const size_t bufferSize = renderer.getBufferSize();
+  const bool usePsram = psramHeapAvailable();
   int frameCount = 0;
   for (int attemptFrameCount = targetFrameCount; attemptFrameCount >= 1; --attemptFrameCount) {
     bool allocFailed = false;
     for (int i = 0; i < attemptFrameCount; ++i) {
-      gCarouselCache.frames[i] = static_cast<uint8_t*>(malloc(bufferSize));
-      if (!gCarouselCache.frames[i]) {
+      // This is a full framebuffer-sized cache, too large for stack/static
+      // storage. PSRAM keeps the X4 Pro reader-exit path from fragmenting its
+      // internal heap; C3 continues to use the guarded default heap path.
+      auto frame = usePsram ? makePsramByteBufferNoThrow(bufferSize) : makeHeapByteBufferNoThrow(bufferSize);
+      if (!frame) {
         LOG_ERR("HOME", "preRenderCarouselFrames: malloc failed for frame %d while allocating %d frame(s)", i,
                 attemptFrameCount);
         allocFailed = true;
         break;
       }
-      if (!hasHeapForCarouselFrameCache()) {
+      if (!usePsram && !hasHeapForCarouselFrameCache()) {
         LOG_INF("HOME", "carousel: low heap after frame cache alloc (%u free, %u maxAlloc); skipping cache",
                 ESP.getFreeHeap(), ESP.getMaxAllocHeap());
-        free(gCarouselCache.frames[i]);
-        gCarouselCache.frames[i] = nullptr;
         allocFailed = true;
         break;
       }
+      gCarouselCache.frameStorage[i] = std::move(frame);
+      gCarouselCache.frames[i] = gCarouselCache.frameStorage[i].get();
       gCarouselCache.frameBookIdx[i] = -1;
+#if defined(CROSSINK_ISSUE_666_MEMORY_DIAGNOSTICS) && defined(ARDUINO_ARCH_ESP32) && !defined(SIMULATOR)
+      logCarouselMemoryDiagnostic("frame-allocated", i, renderer.getFrameBuffer(), gCarouselCache.frames[i],
+                                  bufferSize);
+#endif
     }
 
     if (!allocFailed) {
@@ -1179,10 +1223,8 @@ bool HomeActivity::allocateCarouselFrameSlots(int targetFrameCount) {
     }
 
     for (int i = 0; i < attemptFrameCount; ++i) {
-      if (gCarouselCache.frames[i]) {
-        free(gCarouselCache.frames[i]);
-        gCarouselCache.frames[i] = nullptr;
-      }
+      gCarouselCache.frameStorage[i].reset();
+      gCarouselCache.frames[i] = nullptr;
       gCarouselCache.frameBookIdx[i] = -1;
     }
   }
@@ -1193,7 +1235,8 @@ bool HomeActivity::allocateCarouselFrameSlots(int targetFrameCount) {
   }
 
   gCarouselCache.frameCount = frameCount;
-  LOG_INF("HOME", "carousel: frame cache capacity %d/%d", frameCount, targetFrameCount);
+  LOG_INF("HOME", "carousel: frame cache capacity %d/%d (%s)", frameCount, targetFrameCount,
+          usePsram ? "PSRAM" : "internal heap");
   return true;
 }
 
@@ -2294,10 +2337,28 @@ void HomeActivity::render(RenderLock&&) {
 }
 
 void HomeActivity::renderCarouselFrame(int bookIdx, int slotIdx) {
+  if (slotIdx < 0 || slotIdx >= kCarouselFrameCount) {
+    LOG_ERR("HOME", "carousel: invalid frame slot %d", slotIdx);
+    return;
+  }
   uint8_t* frameBuffer = renderer.getFrameBuffer();
   if (!frameBuffer || !gCarouselCache.frames[slotIdx]) return;
+#if defined(CROSSINK_ISSUE_666_MEMORY_DIAGNOSTICS) && defined(ARDUINO_ARCH_ESP32) && !defined(SIMULATOR)
+  const uint8_t* const ownedFrame = gCarouselCache.frameStorage[slotIdx].get();
+  if (ownedFrame != gCarouselCache.frames[slotIdx]) {
+    LOG_ERR("DIAG666", "pre-copy slot=%d cache alias=%p owner=%p", slotIdx, gCarouselCache.frames[slotIdx], ownedFrame);
+    return;
+  }
+#endif
   renderCarouselFrameToCurrentBuffer(bookIdx, nullptr, nullptr, nullptr);
 
+#if defined(CROSSINK_ISSUE_666_MEMORY_DIAGNOSTICS) && defined(ARDUINO_ARCH_ESP32) && !defined(SIMULATOR)
+  if (!logCarouselMemoryDiagnostic("pre-copy", slotIdx, frameBuffer, gCarouselCache.frames[slotIdx],
+                                   renderer.getBufferSize())) {
+    LOG_ERR("DIAG666", "pre-copy heap integrity failed; skipping carousel frame copy");
+    return;
+  }
+#endif
   memcpy(gCarouselCache.frames[slotIdx], frameBuffer, renderer.getBufferSize());
   gCarouselCache.frameBookIdx[slotIdx] = bookIdx;
   carouselFrames[slotIdx] = gCarouselCache.frames[slotIdx];
@@ -2311,8 +2372,14 @@ void HomeActivity::updateSlidingWindowCache(int centerIdx, int bookCount) {
 }
 
 void HomeActivity::onSelectBook(const std::string& path) {
-  gCarouselCache.invalidate();
-  freeCarouselFrames();
+  // renderCarouselFrame() uses the same static cache on the render task. Hold
+  // its lock while invalidating so a book selection cannot free a destination
+  // buffer midway through the snapshot copy.
+  {
+    RenderLock lock;
+    gCarouselCache.invalidate();
+    freeCarouselFrames();
+  }
   if (Storage.exists(CAROUSEL_CACHE_TMP_PATH)) {
     Storage.remove(CAROUSEL_CACHE_TMP_PATH);
   }
