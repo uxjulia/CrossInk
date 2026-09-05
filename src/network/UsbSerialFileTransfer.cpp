@@ -377,8 +377,8 @@ void handleMkdir() {
     return;
   }
 
-  const std::string parentPath = FsHelpers::extractFolderPath(path);
-  std::string rollbackBoundary = parentPath;
+  const std::string parentDirectory = FsHelpers::extractFolderPath(path);
+  std::string rollbackBoundary = parentDirectory;
   while (rollbackBoundary != "/" && !Storage.exists(rollbackBoundary.c_str())) {
     rollbackBoundary = FsHelpers::extractFolderPath(rollbackBoundary);
   }
@@ -386,7 +386,7 @@ void handleMkdir() {
   const bool created = Storage.mkdir(path, true);
   if (created || Storage.exists(path)) {
     if (created) {
-      const auto visibility = FsHelpers::directoryEntryVisibility(parentPath.c_str(), path);
+      const auto visibility = FsHelpers::directoryEntryVisibility(parentDirectory.c_str(), path);
       if (visibility != FsHelpers::DirectoryEntryVisibility::Visible) {
         if (visibility == FsHelpers::DirectoryEntryVisibility::Missing) {
           std::string rollbackPath = path;

@@ -348,18 +348,19 @@ void IntervalSelectionActivity::loop() {
 
   int tx = 0;
   int ty = 0;
-  const int screenWidth = renderer.getScreenWidth();
   const Rect touchScreen = UITheme::getInstance().getScreenSafeArea(renderer, !mappedInput.hasTouchHardware(), false);
+#if CROSSINK_APP_CAP_TOUCH
+  const int screenWidth = renderer.getScreenWidth();
   const int barWidth = std::min(360, std::max(0, screenWidth - 40));
   constexpr int barHeight = 16;
   const int barX = std::max(0, (screenWidth - barWidth) / 2);
   const int barY = 140;
-
+  const bool useLegacyTouchBar = !usesReaderSlider();
   // Live drag on the slider: once a touch lands on the bar, the value follows the
   // finger until release. Runs before the Back/Confirm handlers because the release
   // of a drag can also register as a swipe (e.g. the left-edge rightward back
   // gesture) — the drag must consume it so it can't cancel or confirm the dialog.
-  if (!usesReaderSlider() && mappedInput.isScreenTouchHeld(tx, ty)) {
+  if (useLegacyTouchBar && mappedInput.isScreenTouchHeld(tx, ty)) {
     if (draggingBar || (ty >= barY - 20 && ty < barY + barHeight + 20 && tx >= barX && tx < barX + barWidth)) {
       draggingBar = true;
       const int range = std::max(1, maxValue - minValue);
@@ -371,7 +372,7 @@ void IntervalSelectionActivity::loop() {
       }
       return;
     }
-  } else if (!usesReaderSlider() && draggingBar) {
+  } else if (useLegacyTouchBar && draggingBar) {
     // Release frame of a drag: swallow the tap/swipe events it produced.
     draggingBar = false;
     int tapX = 0;
@@ -384,6 +385,7 @@ void IntervalSelectionActivity::loop() {
     }
     return;
   }
+#endif
 
   // Cancel and Confirm act on touch-down. Unlike the adjustment controls, these
   // are terminal actions, so waiting for a release can make a perfectly still
@@ -423,7 +425,8 @@ void IntervalSelectionActivity::loop() {
     return;
   }
 
-  if (!usesReaderSlider() && mappedInput.wasScreenTapped(tx, ty)) {
+#if CROSSINK_APP_CAP_TOUCH
+  if (useLegacyTouchBar && mappedInput.wasScreenTapped(tx, ty)) {
     if (ty >= barY - 20 && ty < barY + barHeight + 20 && tx >= barX && tx < barX + barWidth) {
       const int range = std::max(1, maxValue - minValue);
       value = tappedValue(minValue + (tx - barX) * range / std::max(1, barWidth - 1));
@@ -458,6 +461,7 @@ void IntervalSelectionActivity::loop() {
       return;
     }
   }
+#endif
 
   buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Left}, [this] { adjustValue(-smallStep); });
   buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Right}, [this] { adjustValue(smallStep); });

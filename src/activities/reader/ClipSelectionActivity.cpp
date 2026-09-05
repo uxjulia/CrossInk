@@ -560,26 +560,19 @@ void ClipSelectionActivity::applyWordStyle(const WordRef& word, const ClipWordSt
   const int drawX = word.x + skipX;
   const int drawW = word.w - skipX;
   if (drawW <= 0) return;
-  const bool foregroundBlack = ReaderUtils::readerForegroundBlack();
-
   const bool fill = (style.flags & ClipWordStyle::FILL) != 0;
   if (fill) {
     // Build the highlight from the existing framebuffer instead of redrawing
     // the word, which avoids font-cache work on every selection step.
     for (int y = word.y; y < word.y + word.h; y += 2) {
       for (int x = drawX; x < drawX + drawW; x += 2) {
-        renderer.drawPixel(x, y, foregroundBlack);
+        renderer.drawPixel(x, y, true);
       }
-    }
-    if (!foregroundBlack) {
-      // Dark mode starts with white text on black. Inverting after adding the
-      // dither produces black text on a light-gray highlight.
-      renderer.invertRect(drawX, word.y, drawW, word.h);
     }
   }
 
   if ((style.flags & ClipWordStyle::BORDER) != 0) {
-    renderer.drawRect(drawX, word.y, drawW, word.h, foregroundBlack);
+    renderer.drawRect(drawX, word.y, drawW, word.h, true);
   }
 }
 

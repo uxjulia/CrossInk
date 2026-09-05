@@ -60,7 +60,7 @@ inline bool readerDarkModeEnabled() { return false; }
 
 inline uint8_t readerBackgroundColor() { return readerDarkModeEnabled() ? 0x00 : 0xFF; }
 
-inline bool readerForegroundBlack() { return !readerDarkModeEnabled(); }
+inline bool readerForegroundBlack() { return true; }
 
 inline int getTopClockStatusBarHeight() {
   if (!shouldShowTopClockStatusBar()) {

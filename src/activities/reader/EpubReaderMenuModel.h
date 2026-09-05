@@ -148,8 +148,10 @@ constexpr ReaderDrawerCatalog makeReaderDrawerCatalog(const ReaderDrawerAvailabi
 
   auto& location = catalog[static_cast<size_t>(ReaderDrawerTab::Location)];
   location.add(ReaderDrawerCatalogItem::BookmarkToggle);
-  if (available.hasBookmarks) location.add(ReaderDrawerCatalogItem::ViewBookmarks);
-  if (available.hasBookmarks) location.add(ReaderDrawerCatalogItem::DeleteBookmarks);
+  if (available.hasBookmarks) {
+    location.add(ReaderDrawerCatalogItem::ViewBookmarks);
+    location.add(ReaderDrawerCatalogItem::DeleteBookmarks);
+  }
   location.add(ReaderDrawerCatalogItem::SaveClipping);
   if (available.hasClippings) location.add(ReaderDrawerCatalogItem::ViewClippings);
   location.add(ReaderDrawerCatalogItem::Screenshot);

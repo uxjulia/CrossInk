@@ -33,7 +33,7 @@ uint16_t enabled() {
   if (configured != 0) {
     // URL and credential fields still need a Latin layout even when a settings
     // file was hand-edited to contain only Cyrillic or Hebrew.
-    return configured & LATIN_BITS
+    return (configured & LATIN_BITS) != 0
                ? configured
                : static_cast<uint16_t>(configured | layoutBit(freeink::ui::KeyboardLayoutId::QwertyEn));
   }
