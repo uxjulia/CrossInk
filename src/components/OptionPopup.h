@@ -133,11 +133,6 @@ class OptionPopup {
           if (isDisabled(optionIndex)) break;
           touchDownOptionIndex = optionIndex;
           touchDownTarget = TouchTarget::Option;
-          if (selectedIndex != optionIndex) {
-            selectedIndex = optionIndex;
-            layoutValid = false;
-            requestUpdate();
-          }
           break;
         }
       }

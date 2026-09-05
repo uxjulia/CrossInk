@@ -168,6 +168,30 @@ TEST(OptionPopup, SwipeMovesByAVisiblePage) {
   EXPECT_EQ(selectedIndex, 5);
 }
 
+TEST(OptionPopup, SwipeDoesNotHighlightTheTouchDownOption) {
+  GfxRenderer renderer;
+  HalGPIO gpio;
+  MappedInputManager input(gpio, renderer);
+  OptionPopup popup;
+
+  std::vector<std::string> options;
+  for (int i = 0; i < 25; ++i) options.push_back(std::to_string(i));
+  popup.show("Long popup", options, 0, [](const int) {});
+
+  // The second visible row is a tentative touch target. Do not redraw it as
+  // selected until the contact completes as a tap rather than a swipe.
+  input.injectTouchDown(400, 116);
+  EXPECT_TRUE(popup.handleInput(input, [] {}));
+  popup.render(renderer);
+  EXPECT_EQ(GUI.getLastSelectedIndex(), 0);
+
+  input.injectSwipe(MappedInputManager::SwipeDir::Up);
+  EXPECT_TRUE(popup.handleInput(input, [] {}));
+  popup.render(renderer);
+  EXPECT_EQ(GUI.getLastSelectedIndex(), 0);
+  EXPECT_EQ(GUI.getLastFirstOptionIndex(), 10);
+}
+
 TEST(OptionPopup, SwipeKeepsDisabledDestinationUnselectableWithoutWrapping) {
   GfxRenderer renderer;
   HalGPIO gpio;

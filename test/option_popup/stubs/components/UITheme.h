@@ -9,15 +9,18 @@ class GfxRenderer;
 class ThemeStub {
  public:
   void drawButtonHints(const GfxRenderer&, const char*, const char*, const char*, const char*, bool) const {}
-  void drawOptionPopup(const GfxRenderer&, const char*, const std::vector<std::string>&, int, bool, const char*,
-                       const char*, bool, int, const char*, const char*, const std::vector<bool>&,
+  void drawOptionPopup(const GfxRenderer&, const char*, const std::vector<std::string>&, const int selectedIndex, bool,
+                       const char*, const char*, bool, int, const char*, const char*, const std::vector<bool>&,
                        const int firstOptionIndex) const {
+    lastSelectedIndex = selectedIndex;
     lastFirstOptionIndex = firstOptionIndex;
   }
 
+  int getLastSelectedIndex() const { return lastSelectedIndex; }
   int getLastFirstOptionIndex() const { return lastFirstOptionIndex; }
 
  private:
+  mutable int lastSelectedIndex = -1;
   mutable int lastFirstOptionIndex = -1;
 };
 
