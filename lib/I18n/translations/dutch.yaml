@@ -1,6 +1,8 @@
 _language_name: "Nederlands"
 _language_code: "NL"
 _order: "16"
+STR_SET_AS_BOOT_SCREEN: "Opstartscherm"
+STR_CLEAR_BOOT_SCREEN: "Wis opstartscherm"
 STR_DICTIONARY: "Woordenboek"
 STR_NOT_FOUND: "Niet gevonden"
 

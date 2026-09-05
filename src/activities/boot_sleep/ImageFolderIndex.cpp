@@ -1,4 +1,4 @@
-#include "SleepImageIndex.h"
+#include "ImageFolderIndex.h"
 
 #include <Arduino.h>
 #include <Bitmap.h>
@@ -17,9 +17,13 @@
 
 #include "CrossPointState.h"
 
-namespace SleepImageIndex {
+namespace ImageFolderIndex {
 namespace {
 
+// Shared by sleep-image and boot-screen folders: both are small, infrequently
+// rebuilt rotations, so one cache directory (keyed by a hash of each indexed
+// folder's path) is simpler than splitting per subsystem. The name predates
+// the boot-screen use and is kept to avoid orphaning existing sleep caches.
 constexpr char INDEX_DIR[] = "/.crosspoint/sleep-image-index";
 constexpr char INDEX_MAGIC[] = {'C', 'S', 'I', 'X'};
 constexpr uint8_t INDEX_VERSION = 1;
@@ -29,6 +33,9 @@ constexpr size_t MAX_FILENAME_LENGTH = 255;
 constexpr size_t NAME_BUFFER_SIZE = MAX_FILENAME_LENGTH + 1;
 constexpr size_t MAX_CACHE_PATH = 128;
 constexpr uint16_t MAX_RECORDS = UINT16_MAX;
+// Upper bound for a caller's recent-history window; callers pass their own
+// buffer/capacity, this only sizes chooseIndex()'s scratch array.
+constexpr uint8_t MAX_RECENT_WINDOW = 32;
 
 #pragma pack(push, 1)
 struct IndexHeader {
@@ -51,7 +58,7 @@ struct IndexRecord {
 };
 #pragma pack(pop)
 
-static_assert(sizeof(IndexRecord) == sizeof(uint16_t) + 2 + NAME_BUFFER_SIZE, "sleep index record packing");
+static_assert(sizeof(IndexRecord) == sizeof(uint16_t) + 2 + NAME_BUFFER_SIZE, "image index record packing");
 
 uint64_t fnv1a64(std::string_view value) {
   uint64_t hash = 1469598103934665603ULL;
@@ -78,12 +85,17 @@ bool pathHasPrefix(std::string_view path, std::string_view folder, const bool ig
 
 bool pathsIntersect(std::string_view a, std::string_view b) { return pathHasPrefix(a, b) || pathHasPrefix(b, a); }
 
-bool isSleepFolderPath(std::string_view path) {
+// Folders this module indexes: the configurable sleep-image folder plus the
+// two fixed-name folders (sleep and boot-screen). Boot-screen has no
+// configurable folder, unlike sleep's preferredSleepFolderPath.
+bool isTrackedImageFolderPath(std::string_view path) {
   if (path.empty()) return false;
-  const auto& preferred = APP_STATE.preferredSleepFolderPath;
-  return pathsIntersect(path, preferred) || pathHasPrefix(path, "/.sleep", true) ||
+  const auto& preferredSleep = APP_STATE.preferredSleepFolderPath;
+  return pathsIntersect(path, preferredSleep) || pathHasPrefix(path, "/.sleep", true) ||
          pathHasPrefix("/.sleep", path, true) || pathHasPrefix(path, "/sleep", true) ||
-         pathHasPrefix("/sleep", path, true);
+         pathHasPrefix("/sleep", path, true) || pathHasPrefix(path, "/.bootscreen", true) ||
+         pathHasPrefix("/.bootscreen", path, true) || pathHasPrefix(path, "/bootscreen", true) ||
+         pathHasPrefix("/bootscreen", path, true);
 }
 
 bool makeCachePath(const std::string& directory, const bool includePng, char* output, const size_t outputSize) {
@@ -163,16 +175,17 @@ bool cacheRecordExists(const std::string& directory, const std::string& name) {
   return Storage.exists(path.c_str());
 }
 
-uint16_t chooseIndex(const uint16_t recordCount, const CrossPointState& state, const uint8_t recentWindow) {
+uint16_t chooseIndex(const uint16_t recordCount, const uint16_t* recentIndices, const uint8_t recentCapacity,
+                     const uint8_t recentPos, const uint8_t recentFill, const uint8_t recentWindow) {
   if (recordCount == 0) return 0;
 
-  std::array<uint16_t, CrossPointState::SLEEP_RECENT_COUNT> recent{};
+  std::array<uint16_t, MAX_RECENT_WINDOW> recent{};
   uint8_t recentCount = 0;
-  const uint8_t effectiveWindow = std::min(recentWindow, state.recentSleepFill);
+  const uint8_t effectiveWindow =
+      static_cast<uint8_t>(std::min({recentWindow, recentFill, recentCapacity, MAX_RECENT_WINDOW}));
   for (uint8_t i = 0; i < effectiveWindow; ++i) {
-    const uint8_t slot =
-        (state.recentSleepPos + CrossPointState::SLEEP_RECENT_COUNT - 1 - i) % CrossPointState::SLEEP_RECENT_COUNT;
-    const uint16_t index = state.recentSleepImages[slot];
+    const uint8_t slot = static_cast<uint8_t>((recentPos + recentCapacity - 1 - i) % recentCapacity);
+    const uint16_t index = recentIndices[slot];
     if (index >= recordCount ||
         std::find(recent.begin(), recent.begin() + recentCount, index) != recent.begin() + recentCount) {
       continue;
@@ -198,7 +211,7 @@ uint16_t chooseIndex(const uint16_t recordCount, const CrossPointState& state, c
 bool buildIndex(const std::string& directory, const bool includePng, const bool validateBmpHeaders, char* cachePath,
                 const size_t cachePathSize) {
   if (!Storage.ensureDirectoryExists("/.crosspoint") || !Storage.ensureDirectoryExists(INDEX_DIR)) {
-    LOG_ERR("SLPIDX", "Cannot create sleep index directory");
+    LOG_ERR("IMGIDX", "Cannot create image index directory");
     return false;
   }
 
@@ -210,13 +223,13 @@ bool buildIndex(const std::string& directory, const bool includePng, const bool 
   auto record = makeUniqueNoThrow<IndexRecord>();
   auto nameBuffer = makeUniqueNoThrow<char[]>(NAME_BUFFER_SIZE);
   if (!record || !nameBuffer) {
-    LOG_ERR("SLPIDX", "Index scratch allocation failed");
+    LOG_ERR("IMGIDX", "Index scratch allocation failed");
     return false;
   }
 
   HalFile output;
-  if (!Storage.openFileForWrite("SLPIDX", tempPath, output)) {
-    LOG_ERR("SLPIDX", "Cannot open cache temp file: %s", tempPath);
+  if (!Storage.openFileForWrite("IMGIDX", tempPath, output)) {
+    LOG_ERR("IMGIDX", "Cannot open cache temp file: %s", tempPath);
     return false;
   }
 
@@ -292,7 +305,8 @@ bool buildIndex(const std::string& directory, const bool includePng, const bool 
 }
 
 bool selectFromCache(const std::string& directory, const bool includePng, const bool validateBmpHeaders,
-                     const CrossPointState& state, const uint8_t recentWindow, Selection& selection,
+                     const uint16_t* recentIndices, const uint8_t recentCapacity, const uint8_t recentPos,
+                     const uint8_t recentFill, const uint8_t recentWindow, Selection& selection,
                      const bool allowRebuild) {
   char cachePath[MAX_CACHE_PATH] = {};
   IndexHeader header{};
@@ -304,7 +318,8 @@ bool selectFromCache(const std::string& directory, const bool includePng, const 
       return false;
   }
 
-  const uint16_t selectedIndex = chooseIndex(header.recordCount, state, recentWindow);
+  const uint16_t selectedIndex =
+      chooseIndex(header.recordCount, recentIndices, recentCapacity, recentPos, recentFill, recentWindow);
   std::string filename;
   bool isPng = false;
   if (!readRecordName(cache, header, selectedIndex, filename, isPng)) {
@@ -313,7 +328,8 @@ bool selectFromCache(const std::string& directory, const bool includePng, const 
         !openValidIndex(directory, includePng, validateBmpHeaders, cache, header, cachePath, sizeof(cachePath))) {
       return false;
     }
-    const uint16_t rebuiltIndex = chooseIndex(header.recordCount, state, recentWindow);
+    const uint16_t rebuiltIndex =
+        chooseIndex(header.recordCount, recentIndices, recentCapacity, recentPos, recentFill, recentWindow);
     if (!readRecordName(cache, header, rebuiltIndex, filename, isPng)) {
       cache.close();
       return false;
@@ -338,7 +354,8 @@ bool selectFromCache(const std::string& directory, const bool includePng, const 
     return false;
   }
 
-  const uint16_t rebuiltIndex = chooseIndex(header.recordCount, state, recentWindow);
+  const uint16_t rebuiltIndex =
+      chooseIndex(header.recordCount, recentIndices, recentCapacity, recentPos, recentFill, recentWindow);
   if (!readRecordName(cache, header, rebuiltIndex, filename, isPng)) {
     cache.close();
     return false;
@@ -354,15 +371,29 @@ bool selectFromCache(const std::string& directory, const bool includePng, const 
 
 }  // namespace
 
+bool resolveBootScreenDirectory(std::string& directory) {
+  char resolvedPath[256] = {};  // FAT long filenames are at most 255 bytes.
+  if (!FsHelpers::resolveRootDirectoryIgnoreCase("/.bootscreen", resolvedPath, sizeof(resolvedPath)) &&
+      !FsHelpers::resolveRootDirectoryIgnoreCase("/bootscreen", resolvedPath, sizeof(resolvedPath))) {
+    return false;
+  }
+
+  directory = resolvedPath;
+  return true;
+}
+
 bool select(const std::string& directory, const bool includePng, const bool validateBmpHeaders,
-            const CrossPointState& state, const uint8_t recentWindow, Selection& selection) {
+            const uint16_t* recentIndices, const uint8_t recentCapacity, const uint8_t recentPos,
+            const uint8_t recentFill, const uint8_t recentWindow, Selection& selection) {
   selection = Selection{};
   if (directory.empty() || directory.size() > MAX_FILENAME_LENGTH) return false;
 
   // A normal selection may use an existing index. A missing entry triggers one
   // rebuild, which catches deletions and renames without a directory walk on
-  // every sleep. A second miss falls back to the caller's legacy scan.
-  if (selectFromCache(directory, includePng, validateBmpHeaders, state, recentWindow, selection, true)) return true;
+  // every selection. A second miss falls back to the caller's legacy scan.
+  if (selectFromCache(directory, includePng, validateBmpHeaders, recentIndices, recentCapacity, recentPos, recentFill,
+                      recentWindow, selection, true))
+    return true;
 
   invalidate();
   return false;
@@ -370,12 +401,12 @@ bool select(const std::string& directory, const bool includePng, const bool vali
 
 void invalidate() {
   if (Storage.exists(INDEX_DIR)) {
-    if (!Storage.removeDir(INDEX_DIR)) LOG_ERR("SLPIDX", "Failed to remove sleep image index cache");
+    if (!Storage.removeDir(INDEX_DIR)) LOG_ERR("IMGIDX", "Failed to remove image index cache");
   }
 }
 
 void invalidateForPath(const char* path) {
-  if (path && isSleepFolderPath(path)) invalidate();
+  if (path && isTrackedImageFolderPath(path)) invalidate();
 }
 
-}  // namespace SleepImageIndex
+}  // namespace ImageFolderIndex

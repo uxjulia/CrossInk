@@ -19,6 +19,7 @@ class CrossPointState : public PersistableStore<CrossPointState> {
   std::mutex& getMutex() const { return _mutex; }
 
   static constexpr uint8_t SLEEP_RECENT_COUNT = 16;
+  static constexpr uint8_t BOOT_RECENT_COUNT = 16;
 
   std::string openEpubPath;
   std::string favoriteSleepImagePath;
@@ -26,6 +27,10 @@ class CrossPointState : public PersistableStore<CrossPointState> {
   uint16_t recentSleepImages[SLEEP_RECENT_COUNT] = {};  // circular buffer of recent wallpaper indices
   uint8_t recentSleepPos = 0;                           // next write slot
   uint8_t recentSleepFill = 0;                          // valid entries (0..SLEEP_RECENT_COUNT)
+  std::string favoriteBootImagePath;
+  uint16_t recentBootImages[BOOT_RECENT_COUNT] = {};  // circular buffer of recent boot-screen indices
+  uint8_t recentBootPos = 0;                          // next write slot
+  uint8_t recentBootFill = 0;                         // valid entries (0..BOOT_RECENT_COUNT)
   uint8_t readerActivityLoadCount = 0;
   bool lastSleepFromReader = false;
   bool showBootScreen = true;
@@ -47,6 +52,8 @@ class CrossPointState : public PersistableStore<CrossPointState> {
 
   void pushRecentSleep(uint16_t idx);
   void clearRecentSleepHistory();
+
+  void pushRecentBoot(uint16_t idx);
   ~CrossPointState() = default;
 
   bool saveToFile() const;

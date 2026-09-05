@@ -1,6 +1,8 @@
 _language_name: "Italiano"
 _language_code: "IT"
 _order: "12"
+STR_SET_AS_BOOT_SCREEN: "Schermata avvio"
+STR_CLEAR_BOOT_SCREEN: "Cancella schermo"
 STR_DICTIONARY: "Dizionario"
 STR_NOT_FOUND: "Non trovato"
 

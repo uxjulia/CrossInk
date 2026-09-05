@@ -1,6 +1,8 @@
 _language_name: "Қазақша"
 _language_code: "KK"
 _order: "18"
+STR_SET_AS_BOOT_SCREEN: "Жүктеу экраны"
+STR_CLEAR_BOOT_SCREEN: "Экранды тазалау"
 STR_DICTIONARY: "Сөздік"
 STR_NOT_FOUND: "Табылмады"
 

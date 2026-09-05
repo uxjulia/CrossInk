@@ -1,6 +1,8 @@
 _language_name: "Français"
 _language_code: "FR"
 _order: "2"
+STR_SET_AS_BOOT_SCREEN: "Écran démarrage"
+STR_CLEAR_BOOT_SCREEN: "Effacer écran"
 STR_DICTIONARY: "Dictionnaire"
 STR_NOT_FOUND: "Introuvable"
 

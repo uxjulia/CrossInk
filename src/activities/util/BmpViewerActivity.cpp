@@ -12,7 +12,7 @@
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
 #include "Epub/converters/PngToFramebufferConverter.h"
-#include "activities/boot_sleep/SleepImageIndex.h"
+#include "activities/boot_sleep/ImageFolderIndex.h"
 #include "activities/home/BookActions.h"
 #include "activities/home/FileBrowserActionActivity.h"
 #include "activities/util/ConfirmationActivity.h"
@@ -285,6 +285,24 @@ void BmpViewerActivity::unpinSleepFavorite() {
   LOG_INF("BmpViewer", "Cleared favorite sleep image");
 }
 
+void BmpViewerActivity::pinBootFavorite() {
+  APP_STATE.favoriteBootImagePath = filePath;
+  if (!APP_STATE.saveToFile()) {
+    LOG_ERR("BmpViewer", "Failed to save favorite boot image path: %s", filePath.c_str());
+    return;
+  }
+  LOG_INF("BmpViewer", "Pinned favorite boot image: %s", filePath.c_str());
+}
+
+void BmpViewerActivity::unpinBootFavorite() {
+  APP_STATE.favoriteBootImagePath.clear();
+  if (!APP_STATE.saveToFile()) {
+    LOG_ERR("BmpViewer", "Failed to clear favorite boot image");
+    return;
+  }
+  LOG_INF("BmpViewer", "Cleared favorite boot image");
+}
+
 void BmpViewerActivity::promptDeleteImage() {
   const std::string path = filePath;
   startActivityForResult(
@@ -296,9 +314,12 @@ void BmpViewerActivity::promptDeleteImage() {
           LOG_ERR("BmpViewer", "Failed to delete image: %s", path.c_str());
           return;
         }
-        SleepImageIndex::invalidateForPath(path.c_str());
+        ImageFolderIndex::invalidateForPath(path.c_str());
         if (APP_STATE.favoriteSleepImagePath == path) {
           unpinSleepFavorite();
+        }
+        if (APP_STATE.favoriteBootImagePath == path) {
+          unpinBootFavorite();
         }
         activityManager.goToFileBrowser(path);
       });
@@ -314,6 +335,12 @@ void BmpViewerActivity::showContextMenu() {
     const bool isPinned = APP_STATE.favoriteSleepImagePath == filePath;
     items.push_back({isPinned ? FileBrowserAction::UnpinFavorite : FileBrowserAction::PinFavorite,
                      isPinned ? StrId::STR_UNPIN_AS_FAVORITE : StrId::STR_PIN_AS_FAVORITE});
+  }
+
+  if (FsHelpers::hasBmpExtension(filePath)) {
+    const bool isPinned = APP_STATE.favoriteBootImagePath == filePath;
+    items.push_back({isPinned ? FileBrowserAction::UnpinBootFavorite : FileBrowserAction::PinBootFavorite,
+                     isPinned ? StrId::STR_CLEAR_BOOT_SCREEN : StrId::STR_SET_AS_BOOT_SCREEN});
   }
 
   startActivityForResult(std::make_unique<FileBrowserActionActivity>(renderer, mappedInput, imageDisplayName(filePath),
@@ -344,6 +371,12 @@ void BmpViewerActivity::showContextMenu() {
                                return;
                              case FileBrowserAction::UnpinFavorite:
                                unpinSleepFavorite();
+                               return;
+                             case FileBrowserAction::PinBootFavorite:
+                               pinBootFavorite();
+                               return;
+                             case FileBrowserAction::UnpinBootFavorite:
+                               unpinBootFavorite();
                                return;
                              case FileBrowserAction::DeleteCache:
                              case FileBrowserAction::SetSleepFolder:

@@ -14,7 +14,7 @@
 #include <string>
 
 #include "CrossPointSettings.h"
-#include "activities/boot_sleep/SleepImageIndex.h"
+#include "activities/boot_sleep/ImageFolderIndex.h"
 #include "util/BookCacheUtils.h"
 
 #if defined(FREEINK_DEVICE_X4PRO) && FREEINK_DEVICE_X4PRO && !ARDUINO_USB_MODE && !defined(SIMULATOR)
@@ -398,7 +398,7 @@ void handleMkdir() {
         writeLine("ERR:mkdir_not_visible\n");
         return;
       }
-      SleepImageIndex::invalidateForPath(path);
+      ImageFolderIndex::invalidateForPath(path);
     }
     writeLine("OK\n");
   } else {
@@ -579,7 +579,7 @@ void handleWrite() {
   }
 
   clearCachesForPath(path);
-  SleepImageIndex::invalidateForPath(path);
+  ImageFolderIndex::invalidateForPath(path);
   writeLine("OK\n");
 }
 
@@ -597,7 +597,7 @@ void handleRemove() {
   }
 
   if (removeRecursive(path)) {
-    SleepImageIndex::invalidateForPath(path);
+    ImageFolderIndex::invalidateForPath(path);
     writeLine("OK\n");
   } else {
     writeLine("ERR:remove_failed\n");
@@ -633,8 +633,8 @@ void handleRename() {
   if (Storage.rename(src, dst)) {
     clearCachesForPath(src);
     clearCachesForPath(dst);
-    SleepImageIndex::invalidateForPath(src);
-    SleepImageIndex::invalidateForPath(dst);
+    ImageFolderIndex::invalidateForPath(src);
+    ImageFolderIndex::invalidateForPath(dst);
     writeLine("OK\n");
   } else {
     writeLine("ERR:rename_failed\n");

@@ -1,6 +1,8 @@
 _language_name: "Русский"
 _language_code: "RU"
 _order: "6"
+STR_SET_AS_BOOT_SCREEN: "Экран загрузки"
+STR_CLEAR_BOOT_SCREEN: "Очистить экран"
 STR_DICTIONARY: "Словарь"
 STR_NOT_FOUND: "Не найдено"
 

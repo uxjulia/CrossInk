@@ -22,6 +22,8 @@ class BmpViewerActivity final : public Activity {
   void promptDeleteImage();
   void pinSleepFavorite();
   void unpinSleepFavorite();
+  void pinBootFavorite();
+  void unpinBootFavorite();
 
   std::string filePath;
   std::vector<std::string> siblingImages;

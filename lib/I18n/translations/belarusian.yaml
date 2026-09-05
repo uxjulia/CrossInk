@@ -1,6 +1,8 @@
 _language_name: "Беларуская"
 _language_code: "BE"
 _order: "11"
+STR_SET_AS_BOOT_SCREEN: "Экран загрузкі"
+STR_CLEAR_BOOT_SCREEN: "Ачысціць экран"
 STR_DICTIONARY: "Слоўнік"
 STR_NOT_FOUND: "Не знойдзена"
 

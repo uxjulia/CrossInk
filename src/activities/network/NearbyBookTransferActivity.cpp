@@ -15,7 +15,7 @@
 #include "CrossPointState.h"
 #include "MappedInputManager.h"
 #include "SilentRestart.h"
-#include "activities/boot_sleep/SleepImageIndex.h"
+#include "activities/boot_sleep/ImageFolderIndex.h"
 #include "activities/home/FileBrowserActivity.h"
 #include "components/TouchActionButtons.h"
 #include "components/TouchHeaderBackButton.h"
@@ -513,7 +513,7 @@ bool NearbyBookTransferActivity::finishReceivedFile(const uint64_t expectedBytes
     return false;
   }
   if (replacing) Storage.remove(backupPath_.c_str());
-  SleepImageIndex::invalidateForPath(finalPath_.c_str());
+  ImageFolderIndex::invalidateForPath(finalPath_.c_str());
   return true;
 }
 

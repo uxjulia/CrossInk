@@ -1,6 +1,8 @@
 _language_name: "Română"
 _language_code: "RO"
 _order: "8"
+STR_SET_AS_BOOT_SCREEN: "Ecran pornire"
+STR_CLEAR_BOOT_SCREEN: "Șterge ecranul"
 STR_DICTIONARY: "Dicționar"
 STR_NOT_FOUND: "Nu a fost găsit"
 

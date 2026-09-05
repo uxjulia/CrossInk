@@ -1,6 +1,8 @@
 _language_name: "Tiếng Việt"
 _language_code: "VI"
 _order: "24"
+STR_SET_AS_BOOT_SCREEN: "Màn hình khởi động"
+STR_CLEAR_BOOT_SCREEN: "Xóa màn hình"
 STR_DICTIONARY: "Từ điển"
 STR_NOT_FOUND: "Không tìm thấy"
 

@@ -35,7 +35,8 @@ This guide covers day-to-day device use. For focused reference material, see [Re
     - [3.7 Sleep Screen](#37-sleep-screen)
       - [Cover settings](#cover-settings)
       - [Custom images](#custom-images)
-    - [3.8 Custom Fonts (SD Card)](#38-custom-fonts-sd-card)
+    - [3.8 Boot Screen](#38-boot-screen)
+    - [3.9 Custom Fonts (SD Card)](#39-custom-fonts-sd-card)
   - [4. Reading Mode](#4-reading-mode)
     - [Page Turning](#page-turning)
     - [Chapter Navigation](#chapter-navigation)
@@ -577,7 +578,23 @@ In **Page Overlay** mode, white BMP pixels and transparent PNG pixels let the cu
 
 ---
 
-### 3.8 Custom Fonts (SD Card)
+### 3.8 Boot Screen
+
+You can replace the default CrossInk logo shown during a cold boot with BMP images stored on the SD card. When a custom boot screen is configured, it is also shown after a power-button wake. This is separate from the sleep screen.
+
+Choose one of these options:
+
+- **Rotating images:** Create a `/.bootscreen` folder in the root of the SD card and place BMP files directly inside it. CrossInk randomly selects an image each time it starts and avoids recently used images where possible. A `/bootscreen` folder is also supported. Folder names are case-insensitive; if both folders exist, `/.bootscreen` takes priority.
+- **One fixed image:** In **[Browse Files](#33-browse-files-screen)**, open a BMP image, open its context menu, and choose **Set Boot Screen**. The selected image takes priority over the rotating folder.
+
+To return from a fixed image to the rotating folder or the default logo, open that same image and choose **Clear Boot Screen**. On a cold boot, CrossInk shows the standard logo if there is no selected image and the active boot-screen folder has no usable BMP. A power-button wake remains splashless and keeps the sleep screen visible only when there is neither a selected image nor a boot-screen folder; an empty or unusable boot-screen folder falls back to the standard logo instead.
+
+> [!TIP]
+> Use an uncompressed BMP at your device's screen resolution for the best result: 480x800 pixels on X4 or 528x792 pixels on X3. Images with other dimensions are centered and scaled down as needed.
+
+---
+
+### 3.9 Custom Fonts (SD Card)
 
 CrossInk supports loading additional fonts from the SD card, extending beyond the built-in Lexend Deca and Bitter families. Custom fonts can include extended Unicode coverage, enabling CJK (Chinese, Japanese, Korean) and other scripts.
 

@@ -1,6 +1,8 @@
 _language_name: "Українська"
 _language_code: "UK"
 _order: "10"
+STR_SET_AS_BOOT_SCREEN: "Екран завантаження"
+STR_CLEAR_BOOT_SCREEN: "Очистити екран"
 STR_DICTIONARY: "Словник"
 STR_NOT_FOUND: "Не знайдено"
 

@@ -9,32 +9,37 @@ fixed-size char buffer.
 
 ### Version 1
 
-Sleep screens keep a compact, rebuildable index for the selected sleep-image
-folder. The index avoids walking the directory during every sleep while using
-only one fixed-size record at a time in RAM. `bmp` contains BMP files and
-`all` contains BMP and PNG files for Page Overlay mode. The `validated` header
-flag means BMP headers were checked while rebuilding after a failed render.
+`ImageFolderIndex` (`src/activities/boot_sleep/ImageFolderIndex.{h,cpp}`) keeps
+a compact, rebuildable index per indexed folder. It backs both the sleep-image
+folder and the boot-screen folder (`/bootscreen` or `/.bootscreen`); the
+directory name predates the boot-screen use and was kept as-is so existing
+sleep caches aren't orphaned by an unrelated rename. The index avoids walking
+a folder on every selection while using only one fixed-size record at a time
+in RAM. `bmp` contains BMP files and `all` contains BMP and PNG files (sleep's
+Page Overlay mode only; the boot screen is BMP-only and always uses a `bmp`
+index). The `validated` header flag means BMP headers were checked while
+rebuilding after a failed render.
 
 The index is disposable: a missing, malformed, or stale selected entry causes
-one rebuild and then the sleep renderer falls back to its directory scan. File
+one rebuild and then the caller falls back to its directory scan. File
 transfer, file-browser, and preferred-folder changes invalidate affected
-indexes. Files added or changed directly on the SD card have no notification
-path; they are picked up when a cached entry is found missing or when an index
-is otherwise rebuilt.
+indexes via `ImageFolderIndex::invalidateForPath()`. Files added or changed
+directly on the SD card have no notification path; they are picked up when a
+cached entry is found missing or when an index is otherwise rebuilt.
 
 ```c++
-struct SleepImageIndexHeader {
+struct ImageFolderIndexHeader {
     char magic[4];       // "CSIX"
     u8 version;          // 1
     u8 flags;            // bit 0: BMP+PNG, bit 1: BMP headers validated
     u16 pathLength;
     u16 recordCount;
-    u16 recordSize;      // sizeof(SleepImageIndexRecord)
+    u16 recordSize;      // sizeof(ImageFolderIndexRecord)
     u32 recordsOffset;   // sizeof(header) + pathLength
     char directory[pathLength];
 };
 
-struct SleepImageIndexRecord {
+struct ImageFolderIndexRecord {
     u16 nameLength;
     u8 flags;             // bit 0: PNG (otherwise BMP)
     u8 reserved;

@@ -1,6 +1,8 @@
 _language_name: "Slovenščina"
 _language_code: "SI"
 _order: "21"
+STR_SET_AS_BOOT_SCREEN: "Zagonski zaslon"
+STR_CLEAR_BOOT_SCREEN: "Počisti zaslon"
 STR_DICTIONARY: "Slovar"
 STR_NOT_FOUND: "Ni najdeno"
 

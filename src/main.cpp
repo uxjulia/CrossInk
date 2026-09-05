@@ -90,6 +90,7 @@ inline esp_sleep_wakeup_cause_t esp_sleep_get_wakeup_cause() { return ESP_SLEEP_
 #include "SilentRestart.h"
 #include "activities/Activity.h"
 #include "activities/ActivityManager.h"
+#include "activities/boot_sleep/ImageFolderIndex.h"
 #include "activities/home/BookActions.h"
 #include "activities/reader/KOReaderSyncActivity.h"
 #include "activities/reader/ReadingStatsUtils.h"
@@ -1399,10 +1400,24 @@ void setup() {
     APP_STATE.saveToFile();
     mirrorWakeShortPressToNvs();
   }
-  const BootResume resume = isNetworkResume                            ? BootResume::Network
-                            : isSilentReboot                           ? BootResume::Silent
-                            : isSleepWake && !APP_STATE.showBootScreen ? BootResume::SplashlessWake
-                                                                       : BootResume::Splash;
+  // A boot-screen folder or an explicitly selected BMP opts a reader into
+  // seeing its boot image after a power-button wake as well as a cold boot.
+  // Without either, retain the fast splashless resume path.
+  bool hasBootScreenDirectory = false;
+  bool hasPinnedBootScreen = false;
+  if (isSleepWake && !APP_STATE.showBootScreen) {
+    std::string bootScreenDirectory;
+    hasBootScreenDirectory = ImageFolderIndex::resolveBootScreenDirectory(bootScreenDirectory);
+    hasPinnedBootScreen = !APP_STATE.favoriteBootImagePath.empty() &&
+                          FsHelpers::hasBmpExtension(APP_STATE.favoriteBootImagePath) &&
+                          Storage.exists(APP_STATE.favoriteBootImagePath.c_str());
+  }
+  const bool skipSplashOnWake =
+      isSleepWake && !APP_STATE.showBootScreen && !hasBootScreenDirectory && !hasPinnedBootScreen;
+  const BootResume resume = isNetworkResume    ? BootResume::Network
+                            : isSilentReboot   ? BootResume::Silent
+                            : skipSplashOnWake ? BootResume::SplashlessWake
+                                               : BootResume::Splash;
   bool isUc8279X3 = false;
 #ifndef SIMULATOR
   isUc8279X3 = gpio.deviceIsX3() && BoardConfig::ACTIVE.board == BoardConfig::Board::XteinkX3Uc8279;

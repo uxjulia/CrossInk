@@ -47,6 +47,12 @@ bool CrossPointState::consumePendingOverlayResume(PendingOverlayResume& value) {
   return true;
 }
 
+void CrossPointState::pushRecentBoot(uint16_t idx) {
+  recentBootImages[recentBootPos] = idx;
+  recentBootPos = (recentBootPos + 1) % BOOT_RECENT_COUNT;
+  if (recentBootFill < BOOT_RECENT_COUNT) recentBootFill++;
+}
+
 bool CrossPointState::saveToFile() const {
   std::lock_guard<std::mutex> storeLock(storeMutex);
   std::lock_guard<std::mutex> stateLock(_mutex);
@@ -91,6 +97,11 @@ void CrossPointState::toJson(JsonDocument& doc) const {
   for (int i = 0; i < SLEEP_RECENT_COUNT; i++) recentArr.add(recentSleepImages[i]);
   doc["recentSleepPos"] = recentSleepPos;
   doc["recentSleepFill"] = recentSleepFill;
+  doc["favoriteBootImagePath"] = favoriteBootImagePath;
+  JsonArray recentBootArr = doc["recentBootImages"].to<JsonArray>();
+  for (int i = 0; i < BOOT_RECENT_COUNT; i++) recentBootArr.add(recentBootImages[i]);
+  doc["recentBootPos"] = recentBootPos;
+  doc["recentBootFill"] = recentBootFill;
   doc["readerActivityLoadCount"] = readerActivityLoadCount;
   doc["lastSleepFromReader"] = lastSleepFromReader;
   doc["pendingBookmarkSpine"] = pendingBookmarkSpine;
@@ -132,6 +143,19 @@ bool CrossPointState::fromJson(JsonVariantConst doc) {
     const uint8_t legacy = doc["lastSleepImage"] | static_cast<uint8_t>(UINT8_MAX);
     if (legacy != UINT8_MAX) pushRecentSleep(static_cast<uint16_t>(legacy));
   }
+  favoriteBootImagePath = doc["favoriteBootImagePath"] | "";
+  std::fill_n(recentBootImages, BOOT_RECENT_COUNT, static_cast<uint16_t>(0));
+  JsonArrayConst recentBootArr = doc["recentBootImages"];
+  const int actualBootCount =
+      recentBootArr.isNull() ? 0
+                             : std::min(static_cast<int>(recentBootArr.size()), static_cast<int>(BOOT_RECENT_COUNT));
+  for (int i = 0; i < actualBootCount; i++) recentBootImages[i] = recentBootArr[i] | static_cast<uint16_t>(0);
+  recentBootPos = doc["recentBootPos"] | static_cast<uint8_t>(0);
+  if (recentBootPos >= BOOT_RECENT_COUNT) {
+    recentBootPos = actualBootCount > 0 ? recentBootPos % BOOT_RECENT_COUNT : 0;
+  }
+  recentBootFill = doc["recentBootFill"] | static_cast<uint8_t>(0);
+  recentBootFill = static_cast<uint8_t>(std::min(static_cast<int>(recentBootFill), actualBootCount));
   readerActivityLoadCount = doc["readerActivityLoadCount"] | static_cast<uint8_t>(0);
   lastSleepFromReader = doc["lastSleepFromReader"] | false;
   pendingBookmarkSpine = doc["pendingBookmarkSpine"] | static_cast<uint16_t>(UINT16_MAX);

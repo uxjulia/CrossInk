@@ -1,6 +1,8 @@
 _language_name: "Slovenčina"
 _language_code: "SK"
 _order: "25"
+STR_SET_AS_BOOT_SCREEN: "Úvodná obrazovka"
+STR_CLEAR_BOOT_SCREEN: "Vymazať úvod"
 STR_DICTIONARY: "Slovník"
 STR_NOT_FOUND: "Nenájdené"
 

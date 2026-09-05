@@ -28,9 +28,9 @@
 #include "AppVersion.h"
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
+#include "ImageFolderIndex.h"
 #include "RecentBooksStore.h"
 #include "SleepCoverAssets.h"
-#include "SleepImageIndex.h"
 #include "activities/reader/ReaderUtils.h"
 #include "components/UITheme.h"
 #include "components/themes/dashboard/DashboardTheme.h"
@@ -383,10 +383,11 @@ bool selectRandomSleepImage(SleepImageMode mode, SleepImageSelection& selection,
   if (!resolvePreferredSleepDirectory(sleepDir)) return false;
 
   const bool allowPng = mode == SleepImageMode::Overlay && !bmpOnly;
-  SleepImageIndex::Selection indexedSelection;
-  if (SleepImageIndex::select(sleepDir, allowPng, validateBmpHeaders, APP_STATE,
-                              std::min(APP_STATE.recentSleepFill, CrossPointState::SLEEP_RECENT_COUNT),
-                              indexedSelection)) {
+  ImageFolderIndex::Selection indexedSelection;
+  if (ImageFolderIndex::select(sleepDir, allowPng, validateBmpHeaders, APP_STATE.recentSleepImages,
+                               CrossPointState::SLEEP_RECENT_COUNT, APP_STATE.recentSleepPos, APP_STATE.recentSleepFill,
+                               std::min(APP_STATE.recentSleepFill, CrossPointState::SLEEP_RECENT_COUNT),
+                               indexedSelection)) {
     selection.path = std::move(indexedSelection.path);
     selection.isPng = indexedSelection.isPng;
     APP_STATE.pushRecentSleep(indexedSelection.index);
