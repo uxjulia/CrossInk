@@ -67,9 +67,10 @@ selection opens, drag to the last word, then lift your finger. This is a
 direct shortcut from the reading page, so you do not need to open the reader
 menu first.
 
-When word selection is already open, including selection opened from a
-definition, touch a word to start a selection and drag before releasing to
-look up a phrase. Releasing without dragging looks up the single touched word.
+From a definition, touch and hold a word for about one second to start another
+lookup. Keep holding and drag to select a phrase, then lift your finger to look
+it up. Once word selection is open, touching a word starts the range
+immediately.
 
 ### Quick Lookup
 
@@ -104,8 +105,8 @@ When a word is found, the definition screen shows the headword at the top and th
 
 From a definition screen, you can look up any word within the definition text without returning to the reader.
 
-1. Press **Confirm** (**Look Up Word**) on the definition screen.
-2. A word in the definition becomes highlighted. Navigate to any word and press **Confirm**.
+1. Press **Confirm** (**Look Up Word**) on the definition screen. On a touchscreen, touch and hold the word you want to look up instead.
+2. A word in the definition becomes highlighted. Navigate to any word and press **Confirm**, or lift your finger after the touchscreen selection starts.
 3. A new definition screen opens for that word.
 4. You can chain further by pressing **Look Up Word** again from the new definition.
 5. Short-press **Back** to exit word-select and return to the current definition.

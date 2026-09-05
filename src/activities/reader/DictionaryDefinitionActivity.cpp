@@ -33,6 +33,9 @@
 static constexpr char kBullet[] = "- ";
 static constexpr const char kEtymologyTreeMarker[] = "Etymology tree";
 static constexpr int kDictionarySwitchTouchHeight = 56;
+#if CROSSINK_APP_CAP_TOUCH
+static constexpr unsigned long kTouchDefinitionLookupHoldMs = 1000;
+#endif
 
 class DictionaryDefinitionActivity;
 
@@ -1111,6 +1114,61 @@ bool DictionaryDefinitionActivity::handleLongPressExitAll(bool enabled) {
   return false;
 }
 
+bool DictionaryDefinitionActivity::enterWordSelectMode() {
+  if (!hasSharedHighlightSnapshotStorage_ && !ownedHighlightSnapshotStorage_) {
+    // Fixed 4 KB activity-lifetime buffer: too large for the task stack and
+    // only needed when history-launched definitions enter word selection.
+    ownedHighlightSnapshotStorage_ = makeUniqueNoThrow<WordSelectNavigator::HighlightSnapshotStorage>();
+    if (!ownedHighlightSnapshotStorage_) {
+      LOG_ERR("DICT", "OOM allocating definition highlight snapshot (%u bytes)",
+              static_cast<unsigned>(sizeof(WordSelectNavigator::HighlightSnapshotStorage)));
+    } else {
+      navigator.setHighlightSnapshotStorage(ownedHighlightSnapshotStorage_.get());
+    }
+  }
+  extractWordsFromLayout();
+  if (navigator.isEmpty()) return false;
+
+#if CROSSINK_APP_CAP_TOUCH
+  navigator.setTouchDragCursorVisible(mappedInput.hasTouch());
+#endif
+  isWordSelectMode = true;
+  return true;
+}
+
+#if CROSSINK_APP_CAP_TOUCH
+bool DictionaryDefinitionActivity::handleTouchDictionaryLookup() {
+  if (!showLookupButton || !mappedInput.hasTouch() || RenderLock::peek()) return false;
+
+  int touchX = 0;
+  int touchY = 0;
+  unsigned long heldMs = 0;
+  if (!mappedInput.isScreenTouchTapCandidate(touchX, touchY, heldMs)) {
+    touchDictionaryLookupHandled_ = false;
+    return false;
+  }
+  if (touchDictionaryLookupHandled_ || heldMs < kTouchDefinitionLookupHoldMs) {
+    return false;
+  }
+  touchDictionaryLookupHandled_ = true;
+
+  if (!enterWordSelectMode()) return false;
+
+  bool touchedWord = false;
+  navigator.selectWordAtPoint(touchX, touchY, getLineHeight(), &touchedWord);
+  if (!touchedWord || !navigator.beginTouchMultiSelect()) {
+    isWordSelectMode = false;
+    return false;
+  }
+
+  touchDragLookup_ = true;
+  // Keep the word visibly selected before a release starts the background
+  // lookup, matching the reader-page touch-and-hold flow.
+  requestUpdateAndWait();
+  return true;
+}
+#endif
+
 void DictionaryDefinitionActivity::loop() {
   // Own the complete long-press gesture. Returning to the reader while Back is
   // still held would let the reader fire its configured long-press shortcut.
@@ -1282,6 +1340,10 @@ void DictionaryDefinitionActivity::loop() {
   }
 #endif
 
+#if CROSSINK_APP_CAP_TOUCH
+  if (handleTouchDictionaryLookup()) return;
+#endif
+
   const auto swipe = mappedInput.wasSwipe();
   const bool prevPage =
       DictUtils::dictionaryPageButtonTriggered(mappedInput, true) || swipe == MappedInputManager::SwipeDir::Down;
@@ -1302,22 +1364,7 @@ void DictionaryDefinitionActivity::loop() {
 
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
     if (showLookupButton) {
-      if (!hasSharedHighlightSnapshotStorage_ && !ownedHighlightSnapshotStorage_) {
-        // Fixed 4 KB activity-lifetime buffer: too large for the task stack and
-        // only needed when history-launched definitions enter word selection.
-        ownedHighlightSnapshotStorage_ = makeUniqueNoThrow<WordSelectNavigator::HighlightSnapshotStorage>();
-        if (!ownedHighlightSnapshotStorage_) {
-          LOG_ERR("DICT", "OOM allocating definition highlight snapshot (%u bytes)",
-                  static_cast<unsigned>(sizeof(WordSelectNavigator::HighlightSnapshotStorage)));
-        } else {
-          navigator.setHighlightSnapshotStorage(ownedHighlightSnapshotStorage_.get());
-        }
-      }
-      extractWordsFromLayout();
-      if (!navigator.isEmpty()) {
-        isWordSelectMode = true;
-        requestUpdate();
-      }
+      if (enterWordSelectMode()) requestUpdate();
     } else {
       DictUtils::cancelAndFinish(*this);
     }

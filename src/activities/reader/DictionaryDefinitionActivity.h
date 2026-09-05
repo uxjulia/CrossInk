@@ -187,6 +187,7 @@ class DictionaryDefinitionActivity final : public Activity {
   DictionaryLookupController controller;
 #if CROSSINK_APP_CAP_TOUCH
   bool touchDragLookup_ = false;
+  bool touchDictionaryLookupHandled_ = false;
 #endif
 
   // Differential repaint state for in-definition word-select mode. Only consulted
@@ -197,6 +198,7 @@ class DictionaryDefinitionActivity final : public Activity {
 
   bool skipLoopDelay() override { return controller.skipLoopDelay(); }
 
+  bool enterWordSelectMode();
   void wrapText();
   // Re-parse the definition and lay out ONLY page `page` into layoutLines,
   // discarding other pages as they are produced; also recomputes totalPages.
@@ -230,6 +232,9 @@ class DictionaryDefinitionActivity final : public Activity {
   // Span sink bridge: sanitizes and forwards each streamed span into the DictLayout::Wrapper.
   static void feedSpanToWrapper(void* ctx, const StyledSpan& span);
   bool handleLongPressExitAll(bool enabled);
+#if CROSSINK_APP_CAP_TOUCH
+  bool handleTouchDictionaryLookup();
+#endif
   int getDefinitionFontId(bool isIpa = false) const;
   void useBuiltInDefinitionFontFallback();
   void reflowForDefinitionFontChange();
