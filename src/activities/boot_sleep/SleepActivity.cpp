@@ -493,14 +493,15 @@ bool selectRandomSleepImage(SleepImageMode mode, SleepImageSelection& selection,
 
 void SleepActivity::onEnter() {
   Activity::onEnter();
-  // Sleep screens draw directly, outside ActivityManager's normal render path.
-  // Keep them at normal polarity when Night Mode remains enabled globally.
-  display.setInverted(false);
-
   const bool renderQuickResume =
       SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::QUICK_RESUME ||
       (fromTimeout &&
        SETTINGS.quickResumeSleepScreen == CrossPointSettings::QUICK_RESUME_SLEEP_SCREEN::QUICK_RESUME_AFTER_TIMEOUT);
+
+  // Sleep screens draw directly, outside ActivityManager's normal render path.
+  // Quick Resume retains the current screen, so preserve its Night Mode output;
+  // generated sleep screens continue to use their normal polarity.
+  display.setInverted(renderQuickResume && SETTINGS.screenInverted != 0);
 
   if (renderQuickResume) {
     return renderLastScreenSleepScreen();

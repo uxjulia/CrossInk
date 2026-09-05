@@ -253,7 +253,7 @@ void ActivityManager::renderTaskLoop() {
     if (currentActivity) {
       HalPowerManager::Lock powerLock;  // Ensure we don't go into low-power mode while rendering
       // Apply Night Mode to each activity's normal-polarity frame. SleepActivity
-      // explicitly clears inversion for its normal sleep screen.
+      // preserves it only for Quick Resume and clears it for other sleep screens.
       display.setInverted(SETTINGS.screenInverted != 0);
       currentActivity->render(std::move(lock));
       restoredActivityNeedsRender = false;
