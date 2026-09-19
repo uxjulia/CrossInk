@@ -1406,8 +1406,8 @@ void EpubReaderTouchMenuActivity::showEnumOptions(const RowId row) {
   uint8_t currentRaw = 0;
 
   if (row == RowId::FontSize) {
-    if (draft.sdFontFamilyName[0] != '\0') sdFontSystem.refreshIfDirty();
     if (draft.sdFontFamilyName[0] != '\0') {
+      sdFontSystem.refreshIfDirty();
       if (const auto* family = sdFontSystem.registry().findFamily(draft.sdFontFamilyName.data())) {
         raw = family->availableSizes();
       }

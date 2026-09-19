@@ -426,7 +426,7 @@ import std.mem;
 import std.string;
 import std.core;
 
-#define EXPECTED_VERSION 75
+#define EXPECTED_VERSION 77
 #define MAX_STRING_LENGTH 65535
 #define FOOTNOTE_NUMBER_LEN 32
 #define FOOTNOTE_HREF_LEN 96
@@ -771,11 +771,12 @@ landscape output, and record internal free/largest heap blocks and low-water
 marks. Repeat corrupt sidecars, full/read-only SD, interrupted writes and book
 replacement at the same path on X3/X4, Sticky (SPI SD) and X4 Pro (SDMMC).
 
-### CSS rules cache revision 16
+### CSS rules cache revision 18
 
-Revision 16 retains the existing binary layout and invalidates older CSS caches
-because PSRAM devices now admit streamed stylesheet sources up to 512 KiB
-(previously 128 KiB). C3 retains its 128 KiB limit. Existing rule-count and
+Revision 18 adds the serialized `list-style-type` property used to number
+ordered lists and suppress list markers. It also includes the PSRAM streamed
+stylesheet path introduced in revision 16, which admits sources up to 512 KiB
+on PSRAM readers while C3 retains its 128 KiB limit. Existing rule-count and
 internal-memory guards still apply. Rebuilding an invalid CSS cache also
 invalidates section caches through the existing EPUB-load path, so books that
 previously cached zero rules can restore hidden content and layout rules.

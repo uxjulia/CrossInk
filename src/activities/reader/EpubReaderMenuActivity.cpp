@@ -656,10 +656,15 @@ void EpubReaderMenuActivity::buildMenuScreen(UiApp::ScreenType& screen) {
   const int tabBarHeight = readerMenuTabBarHeight(metrics.tabBarHeight, mappedInput.hasTouch());
 #if CROSSINK_APP_CAP_TOUCH
   const bool tabsAtBottom = readerMenuTabsAtBottom(mappedInput);
+  // Sticky has touch but no frontlight, so this is compile-time false there;
+  // X4 Pro still evaluates the runtime placement check.
   const int contentTop = safe.y + metrics.topPadding + TouchHeaderBackButton::height(metrics, mappedInput) +
-                         metrics.tabBarHeight + (tabsAtBottom ? 0 : tabBarHeight) + metrics.verticalSpacing;
-  const int contentBottom =
-      renderer.getScreenHeight() - (safe.y + safe.height) + (tabsAtBottom ? tabBarHeight + metrics.verticalSpacing : 0);
+                         metrics.tabBarHeight +
+                         // cppcheck-suppress knownConditionTrueFalse
+                         (tabsAtBottom ? 0 : tabBarHeight) + metrics.verticalSpacing;
+  const int contentBottom = renderer.getScreenHeight() - (safe.y + safe.height) +
+                            // cppcheck-suppress knownConditionTrueFalse
+                            (tabsAtBottom ? tabBarHeight + metrics.verticalSpacing : 0);
 #else
   const int contentTop = safe.y + metrics.topPadding + TouchHeaderBackButton::height(metrics, mappedInput) +
                          metrics.tabBarHeight + tabBarHeight + metrics.verticalSpacing;
@@ -748,6 +753,7 @@ void EpubReaderMenuActivity::render(RenderLock&&) {
   const int topTabBarY =
       screen.y + metrics.topPadding + TouchHeaderBackButton::height(metrics, mappedInput) + metrics.tabBarHeight;
 #if CROSSINK_APP_CAP_TOUCH
+  // cppcheck-suppress knownConditionTrueFalse
   const int tabBarY = tabsAtBottom ? screen.y + screen.height - tabBarHeight : topTabBarY;
 #else
   const int tabBarY = topTabBarY;
