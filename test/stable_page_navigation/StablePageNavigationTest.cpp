@@ -80,8 +80,7 @@ TEST(StablePageNavigation, RequiresAtLeastOneUsableSpineRange) {
   const std::array<Span, 2> outOfBoundsSpans = {{{300, 50}, {400, 50}}};
 
   EXPECT_FALSE(EpubNavigation::hasResolvableReferencePageRanges(300, emptySpans.data(), emptySpans.size()));
-  EXPECT_FALSE(
-      EpubNavigation::hasResolvableReferencePageRanges(300, outOfBoundsSpans.data(), outOfBoundsSpans.size()));
+  EXPECT_FALSE(EpubNavigation::hasResolvableReferencePageRanges(300, outOfBoundsSpans.data(), outOfBoundsSpans.size()));
 }
 
 TEST(StablePageNavigation, FallsBackToLastReadableSpineForInconsistentTotals) {
@@ -105,7 +104,6 @@ TEST(StablePageSelection, ClampsStepsAndMapsSliderEndpoints) {
   EXPECT_EQ(stablePageToPermille(1, 300), 0);
   EXPECT_EQ(stablePageToPermille(300, 300), 1000);
 }
-
 
 TEST(StablePageNavigation, UsesSourceOffsetsForUnevenRenderedPages) {
   const std::array<PageStart, 4> pageStarts = {{{0}, {50}, {60}, {300}}};

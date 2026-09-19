@@ -1,7 +1,6 @@
+#include <HalStorage.h>
 #include <PersistableStore.h>
 #include <gtest/gtest.h>
-
-#include <HalStorage.h>
 
 namespace {
 constexpr char STORE_PATH[] = "/.crosspoint/recent.json";

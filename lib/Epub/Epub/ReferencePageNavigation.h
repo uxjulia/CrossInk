@@ -73,8 +73,8 @@ uint16_t resolveReferenceTargetToRenderedPage(const uint32_t spineUnitOffset, co
   if (pageIndex.empty() || spineUnitCount == 0 || visibleTextLength == 0) return 0;
 
   const uint32_t clampedUnitOffset = std::min(spineUnitOffset, spineUnitCount);
-  const uint32_t targetVisibleOffset = static_cast<uint32_t>(
-      (static_cast<uint64_t>(clampedUnitOffset) * visibleTextLength) / spineUnitCount);
+  const uint32_t targetVisibleOffset =
+      static_cast<uint32_t>((static_cast<uint64_t>(clampedUnitOffset) * visibleTextLength) / spineUnitCount);
   uint16_t page = 0;
   for (size_t i = 1; i < pageIndex.size(); ++i) {
     if (pageIndex[i].visibleTextOffset > targetVisibleOffset) break;
