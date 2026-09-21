@@ -14,6 +14,8 @@
 #include <strings.h>
 
 #include <algorithm>
+#include <cerrno>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <iterator>
@@ -236,6 +238,19 @@ const char* getAttribute(const XML_Char** atts, const char* attrName) {
     if (strcmp(atts[i], attrName) == 0) return atts[i + 1];
   }
   return nullptr;
+}
+
+bool parseListValue(const char* value, int32_t& parsed) {
+  if (!value || value[0] == '\0') return false;
+  errno = 0;
+  char* end = nullptr;
+  const long candidate = std::strtol(value, &end, 10);
+  while (end && isWhitespace(*end)) ++end;
+  if (errno == ERANGE || end == value || (end && *end != '\0') || candidate < INT32_MIN || candidate > INT32_MAX) {
+    return false;
+  }
+  parsed = static_cast<int32_t>(candidate);
+  return true;
 }
 
 bool isNonNavigableInlineElement(const char* name) { return strcmp(name, "span") == 0; }
@@ -2757,8 +2772,13 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
           // Marker-free list item.
         } else if (self->listContextCount_ > 0 && self->listContexts_[self->listContextCount_ - 1].ordered) {
           auto& list = self->listContexts_[self->listContextCount_ - 1];
+          int32_t itemValue = 0;
+          if (parseListValue(getAttribute(atts, "value"), itemValue)) {
+            list.nextValue = itemValue;
+          }
           char marker[16];
-          snprintf(marker, sizeof(marker), "%u.", static_cast<unsigned>(++list.counter));
+          snprintf(marker, sizeof(marker), "%ld.", static_cast<long>(list.nextValue));
+          if (list.nextValue < INT32_MAX) ++list.nextValue;
           self->currentTextBlock->addWord(marker, EpdFontFamily::REGULAR, false, false,
                                           self->honorsPublisherDecorations() && self->effectiveBackgroundBlack, 0,
                                           self->visibleTextOffset, self->referenceTextOffset);
@@ -2775,6 +2795,10 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
           auto& list = self->listContexts_[self->listContextCount_++];
           list = {};
           list.ordered = strcmp(name, "ol") == 0;
+          int32_t startValue = 0;
+          if (list.ordered && parseListValue(getAttribute(atts, "start"), startValue)) {
+            list.nextValue = startValue;
+          }
           list.styleNone = cssStyle.hasListStyleType() && cssStyle.listStyleType == CssListStyleType::None;
           list.depth = self->depth;
         } else {

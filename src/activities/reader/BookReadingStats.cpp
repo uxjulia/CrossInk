@@ -72,9 +72,42 @@ std::string statsFileNameForVersion(const uint8_t version) {
   return std::string(buf);
 }
 
+bool openRecoverableStatsFile(const std::string& path, FsFile& f) {
+  if (Storage.openFileForRead("STATS", path, f)) return true;
+
+  for (const char* suffix : {".tmp", ".bak"}) {
+    const std::string recoveryPath = path + suffix;
+    if (!Storage.exists(recoveryPath.c_str())) continue;
+
+    // A temp file is newer than the backup, but it is safe to prefer only
+    // after the complete v5 payload reached storage. A partial temp falls
+    // through to the older, known-good backup.
+    if (strcmp(suffix, ".tmp") == 0) {
+      FsFile candidate;
+      if (!Storage.openFileForRead("STATS", recoveryPath, candidate)) continue;
+      uint8_t data[STATS_FILE_SIZE] = {};
+      const size_t fileSize = candidate.fileSize();
+      const int n = candidate.read(data, STATS_FILE_SIZE);
+      candidate.close();
+      if (fileSize != STATS_FILE_SIZE || n != STATS_FILE_SIZE || data[0] != STATS_FILE_VERSION) continue;
+    }
+
+    if (Storage.rename(recoveryPath.c_str(), path.c_str())) {
+      LOG_INF("STATS", "Recovered interrupted stats save: %s", path.c_str());
+      if (Storage.openFileForRead("STATS", path, f)) return true;
+    }
+
+    if (Storage.openFileForRead("STATS", recoveryPath, f)) {
+      LOG_ERR("STATS", "Could not restore %s; reading recovery file directly", path.c_str());
+      return true;
+    }
+  }
+  return false;
+}
+
 bool openStatsFileForRead(const std::string& cachePath, FsFile& f) {
   const std::string currentName = statsFileNameForVersion(STATS_FILE_VERSION);
-  if (Storage.openFileForRead("STATS", cachePath + "/" + currentName, f)) {
+  if (openRecoverableStatsFile(cachePath + "/" + currentName, f)) {
     return true;
   }
 
@@ -243,6 +276,7 @@ void BookReadingStats::save(const std::string& cachePath) const {
   const std::string statsFileName = statsFileNameForVersion(STATS_FILE_VERSION);
   const std::string statsPath = cachePath + "/" + statsFileName;
   const std::string tmpPath = statsPath + ".tmp";
+  const std::string backupPath = statsPath + ".bak";
 
   uint8_t data[STATS_FILE_SIZE];
   memset(data, 0, sizeof(data));
@@ -306,37 +340,64 @@ void BookReadingStats::save(const std::string& cachePath) const {
     return;
   }
 
-  if (Storage.exists(statsPath.c_str()) && !Storage.remove(statsPath.c_str())) {
-    LOG_ERR("STATS", "Could not replace %s", statsFileName.c_str());
-    Storage.remove(tmpPath.c_str());
-    return;
+  const bool hadOriginal = Storage.exists(statsPath.c_str());
+  if (hadOriginal) {
+    if (Storage.exists(backupPath.c_str()) && !Storage.remove(backupPath.c_str())) {
+      LOG_ERR("STATS", "Could not remove stale stats backup: %s", backupPath.c_str());
+      Storage.remove(tmpPath.c_str());
+      return;
+    }
+    if (!Storage.rename(statsPath.c_str(), backupPath.c_str())) {
+      LOG_ERR("STATS", "Could not back up %s", statsFileName.c_str());
+      Storage.remove(tmpPath.c_str());
+      return;
+    }
   }
 
   if (!Storage.rename(tmpPath.c_str(), statsPath.c_str())) {
     LOG_ERR("STATS", "Could not publish %s", statsFileName.c_str());
-    Storage.remove(tmpPath.c_str());
+    if (hadOriginal && !Storage.rename(backupPath.c_str(), statsPath.c_str())) {
+      LOG_ERR("STATS", "Could not restore stats backup: %s", backupPath.c_str());
+    }
+    if (hadOriginal && Storage.exists(statsPath.c_str())) Storage.remove(tmpPath.c_str());
+    return;
+  }
+
+  if (hadOriginal && Storage.exists(backupPath.c_str()) && !Storage.remove(backupPath.c_str())) {
+    LOG_ERR("STATS", "Could not remove completed stats backup: %s", backupPath.c_str());
   }
 }
 
 bool BookReadingStats::remove(const std::string& cachePath) {
   const std::string statsFileName = statsFileNameForVersion(STATS_FILE_VERSION);
   const std::string statsPath = cachePath + "/" + statsFileName;
-  bool ok = true;
-  if (Storage.exists(statsPath.c_str()) && !Storage.remove(statsPath.c_str())) {
-    LOG_ERR("STATS", "Could not delete %s", statsFileName.c_str());
-    ok = false;
-  }
-
   const std::string previousStatsFileName = statsFileNameForVersion(PREVIOUS_VERSIONED_STATS_FILE_VERSION);
   const std::string previousStatsPath = cachePath + "/" + previousStatsFileName;
+  const std::string legacyStatsPath = cachePath + "/" + LEGACY_STATS_FILE_NAME;
+  bool ok = true;
+
+  // Remove fallback sources from oldest to newest. Keeping the canonical file
+  // until every fallback is gone prevents an interrupted reset from reviving
+  // older stats on the next load.
+  if (Storage.exists(legacyStatsPath.c_str()) && !Storage.remove(legacyStatsPath.c_str())) {
+    LOG_ERR("STATS", "Could not delete %s", LEGACY_STATS_FILE_NAME);
+    ok = false;
+  }
   if (Storage.exists(previousStatsPath.c_str()) && !Storage.remove(previousStatsPath.c_str())) {
     LOG_ERR("STATS", "Could not delete %s", previousStatsFileName.c_str());
     ok = false;
   }
-
-  const std::string legacyStatsPath = cachePath + "/" + LEGACY_STATS_FILE_NAME;
-  if (Storage.exists(legacyStatsPath.c_str()) && !Storage.remove(legacyStatsPath.c_str())) {
-    LOG_ERR("STATS", "Could not delete %s", LEGACY_STATS_FILE_NAME);
+  for (const char* suffix : {".tmp", ".bak"}) {
+    const std::string transactionPath = statsPath + suffix;
+    if (Storage.exists(transactionPath.c_str()) && !Storage.remove(transactionPath.c_str())) {
+      LOG_ERR("STATS", "Could not delete %s", transactionPath.c_str());
+      ok = false;
+    }
+  }
+  // Keep the canonical file when a recovery artifact could not be removed.
+  // Otherwise a later load could restore stats that the user just reset.
+  if (ok && Storage.exists(statsPath.c_str()) && !Storage.remove(statsPath.c_str())) {
+    LOG_ERR("STATS", "Could not delete %s", statsFileName.c_str());
     ok = false;
   }
   return ok;

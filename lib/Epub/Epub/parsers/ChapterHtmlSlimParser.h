@@ -196,7 +196,7 @@ class ChapterHtmlSlimParser {
   struct ListContext {
     bool ordered = false;
     bool styleNone = false;
-    uint32_t counter = 0;
+    int32_t nextValue = 1;
     int depth = 0;
   };
   std::array<ListContext, MAX_BLOCK_STYLE_DEPTH> listContexts_{};

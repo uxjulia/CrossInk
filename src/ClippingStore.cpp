@@ -357,7 +357,8 @@ bool ClippingStore::readFromFile(const std::string& path, std::vector<Clipping>&
   return true;
 }
 
-bool ClippingStore::writeToFile(const std::string* replacementText, const size_t replacementIndex) {
+bool ClippingStore::writeToFile(const std::string* replacementText, const size_t replacementIndex,
+                                const std::string* sourcePathOverride) {
   Storage.mkdir("/.crosspoint");
   Storage.mkdir(CLIPPINGS_DIR);
 
@@ -374,9 +375,10 @@ bool ClippingStore::writeToFile(const std::string* replacementText, const size_t
   if (Storage.exists(backupPath.c_str()) && Storage.exists(storeFilePath.c_str())) Storage.remove(backupPath.c_str());
 
   FsFile source;
-  const bool hasSource = Storage.exists(storeFilePath.c_str());
-  if (hasSource && !Storage.openFileForRead("CLIP", storeFilePath, source)) {
-    LOG_ERR("CLIP", "Failed to open clipping source for rewrite: %s", storeFilePath.c_str());
+  const std::string& sourcePath = sourcePathOverride ? *sourcePathOverride : storeFilePath;
+  const bool hasSource = Storage.exists(sourcePath.c_str());
+  if (hasSource && !Storage.openFileForRead("CLIP", sourcePath, source)) {
+    LOG_ERR("CLIP", "Failed to open clipping source for rewrite: %s", sourcePath.c_str());
     return false;
   }
 
@@ -460,7 +462,8 @@ bool ClippingStore::writeToFile(const std::string* replacementText, const size_t
   f.close();
   if (source) source.close();
 
-  if (hasSource && !Storage.rename(storeFilePath.c_str(), backupPath.c_str())) {
+  const bool replacingDestination = Storage.exists(storeFilePath.c_str());
+  if (replacingDestination && !Storage.rename(storeFilePath.c_str(), backupPath.c_str())) {
     LOG_ERR("CLIP", "Failed to back up clipping file: %s", storeFilePath.c_str());
     Storage.remove(tmpPath.c_str());
     return false;
@@ -468,10 +471,10 @@ bool ClippingStore::writeToFile(const std::string* replacementText, const size_t
   if (!Storage.rename(tmpPath.c_str(), storeFilePath.c_str())) {
     LOG_ERR("CLIP", "Failed to replace clipping file: %s", storeFilePath.c_str());
     Storage.remove(tmpPath.c_str());
-    if (hasSource) Storage.rename(backupPath.c_str(), storeFilePath.c_str());
+    if (replacingDestination) Storage.rename(backupPath.c_str(), storeFilePath.c_str());
     return false;
   }
-  if (hasSource && Storage.exists(backupPath.c_str())) {
+  if (replacingDestination && Storage.exists(backupPath.c_str())) {
     Storage.remove(backupPath.c_str());
   }
   for (uint16_t i = 0; i < count; ++i) {
@@ -568,4 +571,109 @@ bool ClippingStore::migrateForFilePath(const std::string& oldFilePath, const std
     Storage.remove(backupPath.c_str());
   }
   return true;
+}
+
+bool ClippingStore::beginRenameMigration(const std::string& oldFilePath, const std::string& newFilePath,
+                                         const std::string& title, const std::string& author,
+                                         const std::string& bookType, RenameMigration& migration) {
+  migration = {};
+  if (bookType != "epub") {
+    LOG_ERR("CLIP", "Unknown clipping book type for rename migration: %s", bookType.c_str());
+    return false;
+  }
+  if (oldFilePath.empty() || newFilePath.empty() || oldFilePath == newFilePath) return true;
+
+  migration.sourcePath = storeFilePathForBook(oldFilePath, bookType);
+  migration.destinationPath = storeFilePathForBook(newFilePath, bookType);
+  migration.destinationBackupPath = migration.destinationPath + ".rename.bak";
+  if (!Storage.exists(migration.destinationPath.c_str()) && Storage.exists(migration.destinationBackupPath.c_str())) {
+    if (!Storage.rename(migration.destinationBackupPath.c_str(), migration.destinationPath.c_str())) {
+      LOG_ERR("CLIP", "Failed to recover interrupted clipping rename backup: %s",
+              migration.destinationBackupPath.c_str());
+      return false;
+    }
+    LOG_INF("CLIP", "Recovered interrupted clipping rename backup: %s", migration.destinationPath.c_str());
+  }
+  if (!Storage.exists(migration.sourcePath.c_str())) return true;
+  if (migration.sourcePath == migration.destinationPath) {
+    LOG_ERR("CLIP", "Clipping storage hash collision during rename migration");
+    return false;
+  }
+
+  ClippingStore reader;
+  std::vector<Clipping> migratedClippings;
+  if (!reader.readFromFile(migration.sourcePath, migratedClippings)) {
+    LOG_ERR("CLIP", "Failed to load source clippings for rename: %s", migration.sourcePath.c_str());
+    return false;
+  }
+
+  const std::string ordinaryBackupPath = migration.destinationPath + ".bak";
+  if (!Storage.exists(migration.destinationPath.c_str()) && Storage.exists(ordinaryBackupPath.c_str()) &&
+      !Storage.rename(ordinaryBackupPath.c_str(), migration.destinationPath.c_str())) {
+    LOG_ERR("CLIP", "Failed to recover destination clippings before rename: %s", ordinaryBackupPath.c_str());
+    return false;
+  }
+  if (Storage.exists(migration.destinationPath.c_str()) && Storage.exists(ordinaryBackupPath.c_str()) &&
+      !Storage.remove(ordinaryBackupPath.c_str())) {
+    LOG_ERR("CLIP", "Failed to remove stale destination clipping backup: %s", ordinaryBackupPath.c_str());
+    return false;
+  }
+  if (Storage.exists(migration.destinationBackupPath.c_str()) &&
+      !Storage.remove(migration.destinationBackupPath.c_str())) {
+    LOG_ERR("CLIP", "Failed to remove stale clipping rename backup: %s", migration.destinationBackupPath.c_str());
+    return false;
+  }
+  if (Storage.exists(migration.destinationPath.c_str())) {
+    if (!Storage.rename(migration.destinationPath.c_str(), migration.destinationBackupPath.c_str())) {
+      LOG_ERR("CLIP", "Failed to preserve destination clippings: %s", migration.destinationPath.c_str());
+      return false;
+    }
+    migration.destinationBackedUp = true;
+  }
+
+  migration.active = true;
+  ClippingStore writer;
+  writer.bookFilePath = newFilePath;
+  writer.bookTitle = title;
+  writer.bookAuthor = author;
+  writer.storeFilePath = migration.destinationPath;
+  writer.clippings = std::move(migratedClippings);
+  if (!writer.writeToFile(nullptr, SIZE_MAX, &migration.sourcePath)) {
+    LOG_ERR("CLIP", "Failed to write transactional clipping rename: %s", migration.destinationPath.c_str());
+    rollbackRenameMigration(migration);
+    return false;
+  }
+  return true;
+}
+
+bool ClippingStore::commitRenameMigration(RenameMigration& migration) {
+  if (!migration.active) return true;
+  bool ok = true;
+  if (Storage.exists(migration.sourcePath.c_str()) && !Storage.remove(migration.sourcePath.c_str())) {
+    LOG_ERR("CLIP", "Failed to delete renamed clipping source: %s", migration.sourcePath.c_str());
+    ok = false;
+  }
+  if (migration.destinationBackedUp && Storage.exists(migration.destinationBackupPath.c_str()) &&
+      !Storage.remove(migration.destinationBackupPath.c_str())) {
+    LOG_ERR("CLIP", "Failed to delete clipping rename backup: %s", migration.destinationBackupPath.c_str());
+    ok = false;
+  }
+  migration.active = false;
+  return ok;
+}
+
+bool ClippingStore::rollbackRenameMigration(RenameMigration& migration) {
+  if (!migration.active) return true;
+  bool ok = true;
+  if (Storage.exists(migration.destinationPath.c_str()) && !Storage.remove(migration.destinationPath.c_str())) {
+    LOG_ERR("CLIP", "Failed to remove rolled-back clipping destination: %s", migration.destinationPath.c_str());
+    ok = false;
+  }
+  if (migration.destinationBackedUp &&
+      !Storage.rename(migration.destinationBackupPath.c_str(), migration.destinationPath.c_str())) {
+    LOG_ERR("CLIP", "Failed to restore clipping rename backup: %s", migration.destinationBackupPath.c_str());
+    ok = false;
+  }
+  if (ok) migration.active = false;
+  return ok;
 }

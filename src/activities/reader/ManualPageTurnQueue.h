@@ -60,6 +60,15 @@ class ManualPageTurnQueue {
     hasDispatchedTurn = true;
   }
 
+  // A turn may already have changed the logical page while its render is
+  // still finishing. Keep an immediate opposite input as the next queued
+  // turn so it runs after the render lock is released instead of racing it.
+  void queueReversalOfDispatched(const ManualPageTurnRequest request) {
+    turns[0] = request;
+    count.store(1, std::memory_order_release);
+    hasDispatchedTurn = false;
+  }
+
   void finishDispatched() { hasDispatchedTurn = false; }
 
   bool hasDispatched() const { return hasDispatchedTurn; }

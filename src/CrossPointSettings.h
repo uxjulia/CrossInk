@@ -74,7 +74,6 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
     BOOK_PERCENTAGE_TWO_DECIMALS = 2,
     BOOK_PERCENTAGE_FORMAT_COUNT
   };
-  static constexpr const char* bookPercentageFormatLabels[BOOK_PERCENTAGE_FORMAT_COUNT] = {"10%", "10.1%", "10.12%"};
   enum STATUS_BAR_TITLE { BOOK_TITLE = 0, CHAPTER_TITLE = 1, HIDE_TITLE = 2, STATUS_BAR_TITLE_COUNT };
   enum STATUS_BAR_TIME_LEFT {
     TIME_LEFT_HIDE = 0,

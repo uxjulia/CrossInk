@@ -66,24 +66,33 @@ TEST(ManualPageTurnQueue, CancellationBeforeDrainLeavesNothingToDispatch) {
   EXPECT_FALSE(queue.takeNext(request));
 }
 
-TEST(ManualPageTurnQueue, OppositeDirectionCancelsTheLastQueuedTurnWhileItRenders) {
+TEST(ManualPageTurnQueue, QueuesAReversalOfTheDispatchedTurn) {
   ManualPageTurnQueue queue;
   const ManualPageTurnRequest queuedTurn = next();
   queue.markDispatched(queuedTurn);
 
-  EXPECT_EQ(queue.enqueue(previous()), ManualPageTurnQueue::EnqueueResult::Cancelled);
-  EXPECT_FALSE(queue.hasPending());
+  queue.queueReversalOfDispatched(previous("side"));
+
+  EXPECT_TRUE(queue.hasPending());
   EXPECT_FALSE(queue.hasDispatched());
+  ManualPageTurnRequest request;
+  ASSERT_TRUE(queue.takeNext(request));
+  EXPECT_FALSE(request.isForward);
+  EXPECT_STREQ(request.source, "side");
 }
 
-TEST(ManualPageTurnQueue, OppositeDirectionCancelsAQueuedSuccessorWhileItRenders) {
+TEST(ManualPageTurnQueue, ReversalReplacesQueuedSuccessorsOfTheDispatchedTurn) {
   ManualPageTurnQueue queue;
   queue.markDispatched(next());
   queue.enqueue(next());
 
-  EXPECT_EQ(queue.enqueue(previous()), ManualPageTurnQueue::EnqueueResult::Cancelled);
-  EXPECT_FALSE(queue.hasPending());
+  queue.queueReversalOfDispatched(previous());
+
+  EXPECT_EQ(queue.size(), 1U);
   EXPECT_FALSE(queue.hasDispatched());
+  ManualPageTurnRequest request;
+  ASSERT_TRUE(queue.takeNext(request));
+  EXPECT_FALSE(request.isForward);
 }
 
 TEST(QueuedTurnRenderingState, CancellationDuringDecisionKeepsTheCurrentRenderAtFullQuality) {

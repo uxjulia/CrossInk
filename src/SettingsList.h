@@ -876,12 +876,10 @@ inline const std::vector<SettingInfo>& getBaseSettingsList() {
                             StrId::STR_CUSTOMISE_STATUS_BAR));
     add(SettingInfo::Toggle(StrId::STR_BOOK_PROGRESS_PERCENTAGE, &CrossPointSettings::statusBarBookProgressPercentage,
                             "statusBarBookProgressPercentage", StrId::STR_CUSTOMISE_STATUS_BAR));
-    SettingInfo percentageFormat =
-        SettingInfo::Enum(StrId::STR_PERCENTAGE_FORMAT, &CrossPointSettings::statusBarBookPercentageFormat, {},
-                          "statusBarBookPercentageFormat", StrId::STR_CUSTOMISE_STATUS_BAR);
-    percentageFormat.enumStringValues.assign(std::begin(CrossPointSettings::bookPercentageFormatLabels),
-                                             std::end(CrossPointSettings::bookPercentageFormatLabels));
-    add(std::move(percentageFormat));
+    add(SettingInfo::Enum(StrId::STR_PERCENTAGE_FORMAT, &CrossPointSettings::statusBarBookPercentageFormat,
+                          {StrId::STR_PERCENTAGE_FORMAT_WHOLE, StrId::STR_PERCENTAGE_FORMAT_ONE_DECIMAL,
+                           StrId::STR_PERCENTAGE_FORMAT_TWO_DECIMALS},
+                          "statusBarBookPercentageFormat", StrId::STR_CUSTOMISE_STATUS_BAR));
     add(SettingInfo::Enum(StrId::STR_PROGRESS_BAR, &CrossPointSettings::statusBarProgressBar,
                           {StrId::STR_HIDE, StrId::STR_BOOK, StrId::STR_CHAPTER}, "statusBarProgressBar",
                           StrId::STR_CUSTOMISE_STATUS_BAR)

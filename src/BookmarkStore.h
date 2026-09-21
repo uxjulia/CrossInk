@@ -33,6 +33,18 @@ class BookmarkStore {
     LimitReached,
   };
 
+  struct RenameMigration {
+    std::string sourceCurrentPath;
+    std::string sourceLegacyPath;
+    std::string destinationCurrentPath;
+    std::string destinationLegacyPath;
+    std::string destinationCurrentBackupPath;
+    std::string destinationLegacyBackupPath;
+    bool destinationCurrentBackedUp = false;
+    bool destinationLegacyBackedUp = false;
+    bool active = false;
+  };
+
   static BookmarkStore& getInstance() { return instance; }
 
   // Load bookmarks for a book. Returns true even when no file exists yet (empty store).
@@ -65,6 +77,15 @@ class BookmarkStore {
   // oldFilePath and newFilePath must refer to the same logical book.
   static bool migrateForFilePath(const std::string& oldFilePath, const std::string& newFilePath,
                                  const std::string& title, const std::string& author, const std::string& bookType);
+
+  // Transactional variant used by file rename. Source files and destination
+  // backups remain in place until commit, so a later failure can restore both
+  // logical books without reverse-merging their metadata.
+  static bool beginRenameMigration(const std::string& oldFilePath, const std::string& newFilePath,
+                                   const std::string& title, const std::string& author, const std::string& bookType,
+                                   RenameMigration& migration);
+  static bool commitRenameMigration(RenameMigration& migration);
+  static bool rollbackRenameMigration(RenameMigration& migration);
 
   // Scan /.crosspoint/bookmarks/ and populate `out` with one entry per book that has bookmarks.
   // Reads only the file header (does not load full bookmark records).

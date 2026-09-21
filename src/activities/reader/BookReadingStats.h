@@ -26,11 +26,12 @@ struct BookReadingStats {
   // default-constructed stats if no compatible file exists.
   static BookReadingStats load(const std::string& cachePath);
 
-  // Saves stats to cachePath/stats_v5.bin.
+  // Saves stats to cachePath/stats_v5.bin through recoverable .tmp/.bak files.
   void save(const std::string& cachePath) const;
 
-  // Deletes cachePath/stats_v5.bin, the previous versioned filename, and legacy
-  // cachePath/stats.bin. Missing files are treated as success.
+  // Deletes cachePath/stats_v5.bin, its transaction files, the previous
+  // versioned filename, and legacy cachePath/stats.bin. Missing files are
+  // treated as success.
   static bool remove(const std::string& cachePath);
 
   // Updates the running reading pace with one forward page dwell sample.

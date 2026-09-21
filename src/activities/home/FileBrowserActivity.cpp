@@ -900,32 +900,20 @@ void FileBrowserActivity::renameFile(const std::string& oldPath, const std::stri
     }
   }
 
-  if (!Storage.rename(oldPath.c_str(), newPath.c_str())) {
-    LOG_ERR("FileBrowser", "Failed to rename file: %s -> %s", oldPath.c_str(), newPath.c_str());
-    return;
-  }
-
   if (bookType) {
     const auto migration =
         BookMoveUtils::migrateRenamedBookState(oldPath, newPath, oldCachePath, title, author, bookType);
     if (migration == BookMoveUtils::RenameMigrationResult::RolledBack) {
-      LOG_ERR("FileBrowser", "Could not migrate reader state; rolling back file rename: %s -> %s", newPath.c_str(),
-              oldPath.c_str());
-      if (Storage.rename(newPath.c_str(), oldPath.c_str())) return;
-
-      LOG_ERR("FileBrowser", "Failed to roll back file rename: %s -> %s", newPath.c_str(), oldPath.c_str());
-      const auto recovery =
-          BookMoveUtils::migrateRenamedBookState(oldPath, newPath, oldCachePath, title, author, bookType);
-      if (recovery == BookMoveUtils::RenameMigrationResult::RolledBack) {
-        if (Storage.rename(newPath.c_str(), oldPath.c_str())) return;
-        if (Storage.exists(newPath.c_str())) {
-          LOG_ERR("FileBrowser", "Could not recover a consistent path after rename failure: %s", newPath.c_str());
-        }
-      }
+      LOG_ERR("FileBrowser", "Could not rename book while preserving reader state: %s -> %s", oldPath.c_str(),
+              newPath.c_str());
+      return;
     }
     if (migration == BookMoveUtils::RenameMigrationResult::KeepRenamed) {
       LOG_ERR("FileBrowser", "Rename kept new path after incomplete state rollback: %s", newPath.c_str());
     }
+  } else if (!Storage.rename(oldPath.c_str(), newPath.c_str())) {
+    LOG_ERR("FileBrowser", "Failed to rename file: %s -> %s", oldPath.c_str(), newPath.c_str());
+    return;
   }
 
   bool appStateChanged = false;
@@ -943,6 +931,8 @@ void FileBrowserActivity::renameFile(const std::string& oldPath, const std::stri
 
   ImageFolderIndex::invalidateForPath(oldPath.c_str());
   ImageFolderIndex::invalidateForPath(newPath.c_str());
+  sdFontSystem.markRegistryDirtyForPath(oldPath.c_str());
+  sdFontSystem.markRegistryDirtyForPath(newPath.c_str());
   {
     RenderLock lock(*this);
     loadFilesLocked();

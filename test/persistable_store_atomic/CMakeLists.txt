@@ -6,7 +6,6 @@ add_executable(PersistableStoreAtomicTest
 target_include_directories(PersistableStoreAtomicTest PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/stubs
   ${REPO_ROOT}/lib/Serialization
-  ${REPO_ROOT}/.pio/libdeps/simulator/simulator/src
   ${REPO_ROOT}/.pio/libdeps/simulator/ArduinoJson/src
 )
 

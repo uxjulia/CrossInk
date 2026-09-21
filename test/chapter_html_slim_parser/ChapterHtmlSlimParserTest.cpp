@@ -193,6 +193,38 @@ TEST_F(ChapterHtmlSlimParserTest, NumbersOrderedListsAndRestartsNestedCounters) 
   EXPECT_EQ(parser.currentTextBlock->words[0], "2.");
 }
 
+TEST_F(ChapterHtmlSlimParserTest, HonorsOrderedListStartAndItemValue) {
+  const XML_Char* listAttributes[] = {"start", "5", nullptr};
+  ChapterHtmlSlimParser::startElement(&parser, "ol", listAttributes);
+  ChapterHtmlSlimParser::startElement(&parser, "li", nullptr);
+  ASSERT_EQ(parser.currentTextBlock->size(), 1u);
+  EXPECT_EQ(parser.currentTextBlock->words[0], "5.");
+  ChapterHtmlSlimParser::endElement(&parser, "li");
+
+  const XML_Char* itemAttributes[] = {"value", "9", nullptr};
+  ChapterHtmlSlimParser::startElement(&parser, "li", itemAttributes);
+  ASSERT_EQ(parser.currentTextBlock->size(), 1u);
+  EXPECT_EQ(parser.currentTextBlock->words[0], "9.");
+  ChapterHtmlSlimParser::endElement(&parser, "li");
+
+  ChapterHtmlSlimParser::startElement(&parser, "li", nullptr);
+  ASSERT_EQ(parser.currentTextBlock->size(), 1u);
+  EXPECT_EQ(parser.currentTextBlock->words[0], "10.");
+}
+
+TEST_F(ChapterHtmlSlimParserTest, SupportsNegativeOrderedListValues) {
+  const XML_Char* listAttributes[] = {"start", "-2", nullptr};
+  ChapterHtmlSlimParser::startElement(&parser, "ol", listAttributes);
+  ChapterHtmlSlimParser::startElement(&parser, "li", nullptr);
+  ASSERT_EQ(parser.currentTextBlock->size(), 1u);
+  EXPECT_EQ(parser.currentTextBlock->words[0], "-2.");
+  ChapterHtmlSlimParser::endElement(&parser, "li");
+
+  ChapterHtmlSlimParser::startElement(&parser, "li", nullptr);
+  ASSERT_EQ(parser.currentTextBlock->size(), 1u);
+  EXPECT_EQ(parser.currentTextBlock->words[0], "-1.");
+}
+
 TEST_F(ChapterHtmlSlimParserTest, SupportsMarkerFreeListsAndContainerInsets) {
   const XML_Char* listAttributes[] = {"style", "list-style-type: none; margin-left: 10px; padding-left: 5px", nullptr};
   ChapterHtmlSlimParser::startElement(&parser, "ul", listAttributes);

@@ -66,21 +66,51 @@ RenameMigrationResult migrateRenamedBookState(const std::string& oldPath, const 
   if (!getCachePath(newPath, bookType, newCachePath)) return RenameMigrationResult::RolledBack;
 
   bool cacheMoved = false;
-  bool bookmarksTouched = false;
-  bool clippingsTouched = false;
+  bool bookRenamed = false;
   bool recentMoved = false;
+  bool openPathMoved = false;
+  const bool shouldMoveOpenPath = APP_STATE.openEpubPath == oldPath;
+  BookmarkStore::RenameMigration bookmarkMigration;
+  ClippingStore::RenameMigration clippingMigration;
 
-  auto recover = [&]() {
+  const auto commitMetadata = [&]() {
+    if (!BookmarkStore::commitRenameMigration(bookmarkMigration)) {
+      LOG_ERR("BookMove", "Renamed book kept stale bookmark rollback files: %s", newPath.c_str());
+    }
+    if (!ClippingStore::commitRenameMigration(clippingMigration)) {
+      LOG_ERR("BookMove", "Renamed book kept stale clipping rollback files: %s", newPath.c_str());
+    }
+  };
+
+  const auto rollbackMovedReferences = [&]() {
     bool rolledBack = true;
-    if (recentMoved && !RECENT_BOOKS.updatePath(newPath, oldPath, newCachePath, oldCachePath)) {
+    if (openPathMoved) {
+      APP_STATE.openEpubPath = oldPath;
+      if (!APP_STATE.saveToFile()) {
+        LOG_ERR("BookMove", "Failed to restore open book path after rename: %s", oldPath.c_str());
+        rolledBack = false;
+      } else {
+        openPathMoved = false;
+      }
+    }
+    if (recentMoved) {
+      if (!RECENT_BOOKS.updatePath(newPath, oldPath, newCachePath, oldCachePath)) {
+        rolledBack = false;
+      } else {
+        recentMoved = false;
+      }
+    }
+    return rolledBack;
+  };
+
+  const auto rollbackPreparedStorage = [&]() {
+    bool rolledBack = true;
+    if (!ClippingStore::rollbackRenameMigration(clippingMigration)) {
+      LOG_ERR("BookMove", "Failed to restore clipping metadata after rename: %s", newPath.c_str());
       rolledBack = false;
     }
-    if (clippingsTouched && !ClippingStore::migrateForFilePath(newPath, oldPath, title, author, bookType)) {
-      LOG_ERR("BookMove", "Failed to roll back clipping migration %s -> %s", newPath.c_str(), oldPath.c_str());
-      rolledBack = false;
-    }
-    if (bookmarksTouched && !BookmarkStore::migrateForFilePath(newPath, oldPath, title, author, bookType)) {
-      LOG_ERR("BookMove", "Failed to roll back bookmark migration %s -> %s", newPath.c_str(), oldPath.c_str());
+    if (!BookmarkStore::rollbackRenameMigration(bookmarkMigration)) {
+      LOG_ERR("BookMove", "Failed to restore bookmark metadata after rename: %s", newPath.c_str());
       rolledBack = false;
     }
     if (cacheMoved && Storage.exists(newCachePath.c_str()) &&
@@ -88,75 +118,93 @@ RenameMigrationResult migrateRenamedBookState(const std::string& oldPath, const 
       LOG_ERR("BookMove", "Failed to roll back cache migration %s -> %s", newCachePath.c_str(), oldCachePath.c_str());
       rolledBack = false;
     }
-    if (rolledBack) return RenameMigrationResult::RolledBack;
+    return rolledBack;
+  };
 
-    LOG_ERR("BookMove", "State rollback was incomplete; preserving the new book path");
-    if (cacheMoved && Storage.exists(oldCachePath.c_str()) &&
-        !Storage.rename(oldCachePath.c_str(), newCachePath.c_str())) {
-      LOG_ERR("BookMove", "Failed to recover cache at new path %s", newCachePath.c_str());
-    }
-    if (!BookmarkStore::migrateForFilePath(oldPath, newPath, title, author, bookType)) {
-      LOG_ERR("BookMove", "Failed to recover bookmarks at new path %s", newPath.c_str());
-    }
-    if (strcmp(bookType, "epub") == 0 &&
-        !ClippingStore::migrateForFilePath(oldPath, newPath, title, author, bookType)) {
-      LOG_ERR("BookMove", "Failed to recover clippings at new path %s", newPath.c_str());
-    }
+  const auto keepRenamed = [&]() {
+    LOG_ERR("BookMove", "Could not restore the original filename; preserving state at the new path");
+    // Both calls are idempotent when that reference is already at newPath,
+    // and repair a partially completed rollback when it is still at oldPath.
     if (!RECENT_BOOKS.updatePath(oldPath, newPath, oldCachePath, newCachePath)) {
       LOG_ERR("BookMove", "Failed to recover recent book at new path %s", newPath.c_str());
     }
-    if (APP_STATE.openEpubPath == oldPath) {
+    if (shouldMoveOpenPath) {
       APP_STATE.openEpubPath = newPath;
       if (!APP_STATE.saveToFile()) {
         LOG_ERR("BookMove", "Failed to recover open book at new path %s", newPath.c_str());
       }
     }
+    commitMetadata();
     return RenameMigrationResult::KeepRenamed;
   };
 
-  if (!oldCachePath.empty() && Storage.exists(oldCachePath.c_str())) {
-    if (!Storage.rename(oldCachePath.c_str(), newCachePath.c_str())) {
-      LOG_ERR("BookMove", "Failed to rename cache dir %s -> %s", oldCachePath.c_str(), newCachePath.c_str());
-      return RenameMigrationResult::RolledBack;
-    }
-    cacheMoved = true;
-  }
+  const auto recover = [&]() {
+    if (bookRenamed) {
+      if (!Storage.rename(newPath.c_str(), oldPath.c_str())) {
+        return keepRenamed();
+      }
+      bookRenamed = false;
 
-  bookmarksTouched = true;
-  if (!BookmarkStore::migrateForFilePath(oldPath, newPath, title, author, bookType)) {
+      if (!rollbackMovedReferences()) {
+        if (Storage.rename(oldPath.c_str(), newPath.c_str())) {
+          bookRenamed = true;
+          return keepRenamed();
+        }
+        LOG_ERR("BookMove", "Failed to re-establish new book path after incomplete state rollback: %s",
+                newPath.c_str());
+      }
+    }
+
+    if (!rollbackPreparedStorage()) {
+      LOG_ERR("BookMove", "Storage rollback was incomplete; the original book path remains available");
+    }
+    return RenameMigrationResult::RolledBack;
+  };
+
+  // Publish the new-path metadata before the book itself is renamed. Until
+  // the physical rename succeeds, the old book and its source metadata remain
+  // intact; after it succeeds, the new-path metadata is already discoverable.
+  if (!BookmarkStore::beginRenameMigration(oldPath, newPath, title, author, bookType, bookmarkMigration)) {
     LOG_ERR("BookMove", "Failed to migrate bookmarks for renamed book %s -> %s", oldPath.c_str(), newPath.c_str());
     return recover();
   }
 
   if (strcmp(bookType, "epub") == 0) {
-    clippingsTouched = true;
-    if (!ClippingStore::migrateForFilePath(oldPath, newPath, title, author, bookType)) {
+    if (!ClippingStore::beginRenameMigration(oldPath, newPath, title, author, bookType, clippingMigration)) {
       LOG_ERR("BookMove", "Failed to migrate clippings for renamed book %s -> %s", oldPath.c_str(), newPath.c_str());
       return recover();
     }
   }
+
+  if (!oldCachePath.empty() && Storage.exists(oldCachePath.c_str())) {
+    if (!Storage.rename(oldCachePath.c_str(), newCachePath.c_str())) {
+      LOG_ERR("BookMove", "Failed to rename cache dir %s -> %s", oldCachePath.c_str(), newCachePath.c_str());
+      return recover();
+    }
+    cacheMoved = true;
+  }
+
+  if (!Storage.rename(oldPath.c_str(), newPath.c_str())) {
+    LOG_ERR("BookMove", "Failed to rename file: %s -> %s", oldPath.c_str(), newPath.c_str());
+    return recover();
+  }
+  bookRenamed = true;
 
   if (!RECENT_BOOKS.updatePath(oldPath, newPath, oldCachePath, newCachePath)) {
     return recover();
   }
   recentMoved = true;
 
-  if (APP_STATE.openEpubPath == oldPath) {
+  if (shouldMoveOpenPath) {
     APP_STATE.openEpubPath = newPath;
+    openPathMoved = true;
     if (!APP_STATE.saveToFile()) {
       LOG_ERR("BookMove", "Failed to save renamed open book path: %s", newPath.c_str());
-      APP_STATE.openEpubPath = oldPath;
-      if (!APP_STATE.saveToFile()) {
-        LOG_ERR("BookMove", "Failed to restore open book path after rename failure: %s", oldPath.c_str());
-        APP_STATE.openEpubPath = newPath;
-        if (!APP_STATE.saveToFile()) {
-          LOG_ERR("BookMove", "Failed to recover open book at new path %s", newPath.c_str());
-        }
-        return RenameMigrationResult::KeepRenamed;
-      }
       return recover();
     }
   }
+
+  commitMetadata();
 
   return RenameMigrationResult::Success;
 }

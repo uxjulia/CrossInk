@@ -46,6 +46,12 @@ const StrId menuNames[ITEM_COUNT] = {
     StrId::STR_XTC_STATUS_BAR,
 };
 
+const StrId percentageFormatNames[CrossPointSettings::BOOK_PERCENTAGE_FORMAT_COUNT] = {
+    StrId::STR_PERCENTAGE_FORMAT_WHOLE,
+    StrId::STR_PERCENTAGE_FORMAT_ONE_DECIMAL,
+    StrId::STR_PERCENTAGE_FORMAT_TWO_DECIMALS,
+};
+
 constexpr int PROGRESS_BAR_ITEMS = 3;
 const StrId progressBarNames[PROGRESS_BAR_ITEMS] = {StrId::STR_HIDE, StrId::STR_BOOK, StrId::STR_CHAPTER};
 const uint8_t progressBarRawValues[PROGRESS_BAR_ITEMS] = {
@@ -94,7 +100,7 @@ int optionCountForItem(const int item) {
 const char* optionNameForItem(const int item, const int optionIndex) {
   switch (item) {
     case ITEM_BOOK_PERCENTAGE_FORMAT:
-      return CrossPointSettings::bookPercentageFormatLabels[optionIndex];
+      return I18N.get(percentageFormatNames[optionIndex]);
     case ITEM_PROGRESS_BAR:
       return I18N.get(progressBarNames[optionIndex]);
     case ITEM_PROGRESS_BAR_THICKNESS:

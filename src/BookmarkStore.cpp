@@ -683,6 +683,171 @@ bool BookmarkStore::migrateForFilePath(const std::string& oldFilePath, const std
   return true;
 }
 
+bool BookmarkStore::beginRenameMigration(const std::string& oldFilePath, const std::string& newFilePath,
+                                         const std::string& title, const std::string& author,
+                                         const std::string& bookType, RenameMigration& migration) {
+  migration = {};
+  if (bookType != "epub" && bookType != "xtc" && bookType != "txt") {
+    LOG_ERR("BKS", "Unknown book type for bookmark rename migration: %s", bookType.c_str());
+    return false;
+  }
+  if (oldFilePath.empty() || newFilePath.empty() || oldFilePath == newFilePath) return true;
+
+  migration.sourceCurrentPath = currentStoreFilePathForBook(oldFilePath, bookType);
+  migration.sourceLegacyPath = legacyStoreFilePathForBook(oldFilePath, bookType);
+  migration.destinationCurrentPath = currentStoreFilePathForBook(newFilePath, bookType);
+  migration.destinationLegacyPath = legacyStoreFilePathForBook(newFilePath, bookType);
+  migration.destinationCurrentBackupPath = migration.destinationCurrentPath + ".rename.bak";
+  migration.destinationLegacyBackupPath = migration.destinationLegacyPath + ".rename.bak";
+
+  const auto recoverInterruptedDestination = [](const std::string& path, const std::string& backupPath) {
+    if (Storage.exists(path.c_str()) || !Storage.exists(backupPath.c_str())) return true;
+    if (!Storage.rename(backupPath.c_str(), path.c_str())) {
+      LOG_ERR("BKS", "Failed to recover interrupted bookmark rename backup: %s", backupPath.c_str());
+      return false;
+    }
+    LOG_INF("BKS", "Recovered interrupted bookmark rename backup: %s", path.c_str());
+    return true;
+  };
+  if (!recoverInterruptedDestination(migration.destinationCurrentPath, migration.destinationCurrentBackupPath) ||
+      (migration.destinationLegacyPath != migration.destinationCurrentPath &&
+       !recoverInterruptedDestination(migration.destinationLegacyPath, migration.destinationLegacyBackupPath))) {
+    return false;
+  }
+
+  const bool hasSrcCurrent = Storage.exists(migration.sourceCurrentPath.c_str());
+  const bool hasSrcLegacy =
+      migration.sourceLegacyPath != migration.sourceCurrentPath && Storage.exists(migration.sourceLegacyPath.c_str());
+  if (!hasSrcCurrent && !hasSrcLegacy) return true;
+
+  if (migration.sourceCurrentPath == migration.destinationCurrentPath ||
+      migration.sourceCurrentPath == migration.destinationLegacyPath ||
+      migration.sourceLegacyPath == migration.destinationCurrentPath ||
+      migration.sourceLegacyPath == migration.destinationLegacyPath) {
+    LOG_ERR("BKS", "Bookmark storage hash collision during rename migration");
+    return false;
+  }
+
+  BookmarkStore sourceReader;
+  sourceReader.bookFilePath = oldFilePath;
+  std::vector<Bookmark> migratedBookmarks;
+  if (hasSrcCurrent) {
+    bool needsRewrite = false;
+    if (!sourceReader.readFromFile(migration.sourceCurrentPath, migratedBookmarks, needsRewrite)) {
+      LOG_ERR("BKS", "Failed to load source bookmarks for rename: %s", migration.sourceCurrentPath.c_str());
+      return false;
+    }
+  }
+  if (hasSrcLegacy) {
+    bool needsRewrite = false;
+    std::vector<Bookmark> legacyBookmarks;
+    if (!sourceReader.readFromFile(migration.sourceLegacyPath, legacyBookmarks, needsRewrite)) {
+      LOG_ERR("BKS", "Failed to load source legacy bookmarks for rename: %s", migration.sourceLegacyPath.c_str());
+      return false;
+    }
+    mergeBookmarks(migratedBookmarks, legacyBookmarks);
+  }
+
+  BookmarkStore destinationReader;
+  destinationReader.bookFilePath = newFilePath;
+  if (Storage.exists(migration.destinationCurrentPath.c_str())) {
+    bool needsRewrite = false;
+    std::vector<Bookmark> destinationBookmarks;
+    if (!destinationReader.readFromFile(migration.destinationCurrentPath, destinationBookmarks, needsRewrite)) {
+      LOG_ERR("BKS", "Failed to load destination bookmarks for rename: %s", migration.destinationCurrentPath.c_str());
+      return false;
+    }
+    mergeBookmarks(destinationBookmarks, migratedBookmarks);
+    migratedBookmarks = std::move(destinationBookmarks);
+  }
+  if (migration.destinationLegacyPath != migration.destinationCurrentPath &&
+      Storage.exists(migration.destinationLegacyPath.c_str())) {
+    bool needsRewrite = false;
+    std::vector<Bookmark> destinationLegacyBookmarks;
+    if (!destinationReader.readFromFile(migration.destinationLegacyPath, destinationLegacyBookmarks, needsRewrite)) {
+      LOG_ERR("BKS", "Failed to load destination legacy bookmarks for rename: %s",
+              migration.destinationLegacyPath.c_str());
+      return false;
+    }
+    mergeBookmarks(destinationLegacyBookmarks, migratedBookmarks);
+    migratedBookmarks = std::move(destinationLegacyBookmarks);
+  }
+
+  const auto backupDestination = [](const std::string& path, const std::string& backupPath, bool& backedUp) {
+    if (!Storage.exists(path.c_str())) return true;
+    if (Storage.exists(backupPath.c_str()) && !Storage.remove(backupPath.c_str())) {
+      LOG_ERR("BKS", "Failed to remove stale bookmark rename backup: %s", backupPath.c_str());
+      return false;
+    }
+    if (!Storage.rename(path.c_str(), backupPath.c_str())) {
+      LOG_ERR("BKS", "Failed to preserve destination bookmarks: %s", path.c_str());
+      return false;
+    }
+    backedUp = true;
+    return true;
+  };
+
+  migration.active = true;
+  if (!backupDestination(migration.destinationCurrentPath, migration.destinationCurrentBackupPath,
+                         migration.destinationCurrentBackedUp) ||
+      (migration.destinationLegacyPath != migration.destinationCurrentPath &&
+       !backupDestination(migration.destinationLegacyPath, migration.destinationLegacyBackupPath,
+                          migration.destinationLegacyBackedUp))) {
+    rollbackRenameMigration(migration);
+    return false;
+  }
+
+  BookmarkStore writer;
+  writer.bookFilePath = newFilePath;
+  writer.bookTitle = title;
+  writer.bookAuthor = author;
+  writer.storeFilePath = migration.destinationCurrentPath;
+  writer.bookmarks = std::move(migratedBookmarks);
+  if (!writer.bookmarks.empty() && !writer.writeToFile()) {
+    LOG_ERR("BKS", "Failed to write transactional bookmark rename: %s", migration.destinationCurrentPath.c_str());
+    rollbackRenameMigration(migration);
+    return false;
+  }
+  return true;
+}
+
+bool BookmarkStore::commitRenameMigration(RenameMigration& migration) {
+  if (!migration.active) return true;
+  bool ok = deleteBookmarkStorePath(migration.sourceCurrentPath, "renamed source");
+  if (migration.sourceLegacyPath != migration.sourceCurrentPath) {
+    ok = deleteBookmarkStorePath(migration.sourceLegacyPath, "renamed legacy source") && ok;
+  }
+  if (migration.destinationCurrentBackedUp) {
+    ok = deleteBookmarkStorePath(migration.destinationCurrentBackupPath, "rename backup") && ok;
+  }
+  if (migration.destinationLegacyBackedUp) {
+    ok = deleteBookmarkStorePath(migration.destinationLegacyBackupPath, "legacy rename backup") && ok;
+  }
+  migration.active = false;
+  return ok;
+}
+
+bool BookmarkStore::rollbackRenameMigration(RenameMigration& migration) {
+  if (!migration.active) return true;
+  bool ok = deleteBookmarkStorePath(migration.destinationCurrentPath, "rolled-back destination");
+  const auto restoreDestination = [](const std::string& backupPath, const std::string& path, const bool backedUp) {
+    if (!backedUp) return true;
+    if (!Storage.rename(backupPath.c_str(), path.c_str())) {
+      LOG_ERR("BKS", "Failed to restore bookmark rename backup: %s", backupPath.c_str());
+      return false;
+    }
+    return true;
+  };
+  ok = restoreDestination(migration.destinationCurrentBackupPath, migration.destinationCurrentPath,
+                          migration.destinationCurrentBackedUp) &&
+       ok;
+  ok = restoreDestination(migration.destinationLegacyBackupPath, migration.destinationLegacyPath,
+                          migration.destinationLegacyBackedUp) &&
+       ok;
+  if (ok) migration.active = false;
+  return ok;
+}
+
 bool BookmarkStore::hasAnyBookmarks() {
   if (!Storage.exists(BOOKMARKS_DIR)) return false;
   return !Storage.listFiles(BOOKMARKS_DIR).empty();

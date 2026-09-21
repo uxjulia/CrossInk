@@ -5387,19 +5387,14 @@ void EpubReaderActivity::setAutoPageTurnIntervalSeconds(uint16_t seconds) {
 
 void EpubReaderActivity::requestManualPageTurn(const bool isForwardTurn, const char* source) {
   finishManualPageTurnBrakeIfReady();
-  if (pendingManualPageTurns.hasDispatched() && pendingManualPageTurns.dispatchedDirectionOpposes(isForwardTurn)) {
-    // A fast opposite input should undo the last dispatched page turn instead of
-    // silently leaving the page one step too far forward. Capture the already-
-    // dispatched direction before clearing the queue so the reversal is based on
-    // the actual prior movement, not the newly arrived input.
-    const bool dispatchedIsForward = pendingManualPageTurns.dispatchedIsForward();
-    pendingManualPageTurns.clear();
+  const ManualPageTurnRequest request{isForwardTurn, source};
+  if (pendingManualPageTurns.dispatchedDirectionOpposes(isForwardTurn)) {
+    // The previous turn has already changed the page but is still rendering.
+    // Queue the reversal so it executes once the render lock is released.
+    pendingManualPageTurns.queueReversalOfDispatched(request);
     queuedTurnRendering.cancelDeferred();
-    pageTurn(!dispatchedIsForward, source);
     return;
   }
-
-  const ManualPageTurnRequest request{isForwardTurn, source};
   const auto enqueueManualTurn = [this, request]() {
     if (pendingManualPageTurns.enqueue(request) == ManualPageTurnQueue::EnqueueResult::Cancelled) {
       // A reversal needs a redraw only if the render task already committed to
@@ -5702,6 +5697,15 @@ void EpubReaderActivity::render(RenderLock&& lock) {
     };
 
     loadedSection = loadSectionWithFont(readerFontId, selectedRenderMode);
+    if (loadedSection && pendingReferenceUnitOffset) {
+      // A finalized cache knows where rendered pages start, but it does not retain
+      // the source-unit mapping needed to resolve an exact stable-page target.
+      // Rebuild this section with the reference target attached instead of treating
+      // the source fraction as a rendered-page fraction.
+      LOG_DBG("ERS", "Rebuilding cached section %d to resolve stable-page target", currentSpineIndex);
+      section.reset();
+      loadedSection = false;
+    }
     if (loadedSection && !pendingRelayoutReposition) {
       cachedChapterTotalPageCount = 0;
     }
