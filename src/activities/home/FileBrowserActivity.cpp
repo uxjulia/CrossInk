@@ -888,9 +888,9 @@ void FileBrowserActivity::renameFile(const std::string& oldPath, const std::stri
     bookType = "txt";
   }
 
-  std::string title = getFileName(oldEntry);
-  std::string author;
   if (bookType) {
+    std::string title = getFileName(oldEntry);
+    std::string author;
     const auto& recentBooks = RECENT_BOOKS.getBooks();
     const auto recent = std::find_if(recentBooks.begin(), recentBooks.end(),
                                      [&oldPath](const RecentBook& book) { return book.path == oldPath; });
@@ -898,9 +898,6 @@ void FileBrowserActivity::renameFile(const std::string& oldPath, const std::stri
       if (!recent->title.empty()) title = recent->title;
       author = recent->author;
     }
-  }
-
-  if (bookType) {
     const auto migration =
         BookMoveUtils::migrateRenamedBookState(oldPath, newPath, oldCachePath, title, author, bookType);
     if (migration == BookMoveUtils::RenameMigrationResult::RolledBack) {
