@@ -12,6 +12,7 @@
 #include "MappedInputManager.h"
 #include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
+#include "components/icons/keyboardIcons.h"
 #include "fontIds.h"
 #include "util/FrontlightSchedule.h"
 
@@ -26,12 +27,14 @@ constexpr int kFieldGap = 14;
 constexpr int kColonGap = 8;
 constexpr int kKeyboardRows = 4;
 constexpr fui::ActionId kKeyboardAction = 1;
+constexpr int16_t kKeyboardBackspace = -1;
 constexpr int16_t kKeyboardOk = -2;
 
 struct PickerLayout {
   Rect hourRect;
   Rect minuteRect;
   Rect periodRect;
+  Rect backspaceRect;
   int colonX;
   int textY;
 };
@@ -53,8 +56,9 @@ fui::Rect keyboardRect(const GfxRenderer& renderer) {
 
 PickerLayout getPickerLayout(const GfxRenderer& renderer, const MappedInputManager& mappedInput) {
   const int colonWidth = renderer.getTextWidth(UI_12_FONT_ID, ":", EpdFontFamily::BOLD);
-  const int fieldsWidth =
-      kHourWidth + kFieldGap + kColonGap + colonWidth + kColonGap + kMinuteWidth + kFieldGap + kPeriodWidth;
+  const int backspaceWidth = mappedInput.hasTouch() ? kFieldGap + kFieldHeight : 0;
+  const int fieldsWidth = kHourWidth + kFieldGap + kColonGap + colonWidth + kColonGap + kMinuteWidth + kFieldGap +
+                          kPeriodWidth + backspaceWidth;
   const int startX = (renderer.getScreenWidth() - fieldsWidth) / 2;
   int fieldY = renderer.getScreenHeight() / 2 - kFieldHeight / 2;
   if (mappedInput.hasTouch()) {
@@ -72,8 +76,10 @@ PickerLayout getPickerLayout(const GfxRenderer& renderer, const MappedInputManag
   const Rect minuteRect{x, fieldY, kMinuteWidth, kFieldHeight};
   x += kMinuteWidth + kFieldGap;
   const Rect periodRect{x, fieldY, kPeriodWidth, kFieldHeight};
-  return {hourRect, minuteRect, periodRect, colonX,
-          fieldY + (kFieldHeight - renderer.getLineHeight(UI_12_FONT_ID)) / 2};
+  x += kPeriodWidth + kFieldGap;
+  const Rect backspaceRect{x, fieldY, kFieldHeight, kFieldHeight};
+  return {hourRect,      minuteRect, periodRect,
+          backspaceRect, colonX,     fieldY + (kFieldHeight - renderer.getLineHeight(UI_12_FONT_ID)) / 2};
 }
 }  // namespace
 
@@ -89,6 +95,7 @@ void FrontlightTimePickerActivity::onEnter() {
   isPm = time.isPm;
   activeField = Field::Hour;
   clearNumericEntry();
+  keyboardTouchRouter.overrideValue = kKeyboardBackspace;
   keyboardTouchRouter.reset();
   keyboardInteractionsReady.store(false, std::memory_order_release);
   requestUpdate();
@@ -179,6 +186,9 @@ void FrontlightTimePickerActivity::enterDigit(const uint8_t digit) {
 void FrontlightTimePickerActivity::handleKeyboardValue(const int16_t value) {
   if (value >= 0 && value <= 9) {
     enterDigit(static_cast<uint8_t>(value));
+  } else if (value == kKeyboardBackspace) {
+    clearNumericEntry();
+    requestUpdate();
   } else if (value == kKeyboardOk) {
     complete();
   }
