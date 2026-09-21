@@ -25,6 +25,7 @@
 
 ### Fixed
 
+- The web EPUB optimizer now accepts books that use standard Adobe or IDPF font obfuscation, while leaving DRM-protected books unchanged.
 - Frontlight schedule time pickers now use the compact number keypad from Go To screens.
 - X4 Classic's left/right tilt direction labels now match the physical page-turn direction.
 - Touch keyboards no longer show button-only hold and navigation hints.

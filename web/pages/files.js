@@ -4414,6 +4414,7 @@ async function convertEpubFile(file, progressCallback) {
   );
 
   const zip = await JSZip.loadAsync(file);
+  await assertEpubHasNoContentEncryption(zip);
   const renamed = {};
   zip.forEach((p) => {
     const l = p.toLowerCase();
@@ -4861,6 +4862,35 @@ async function convertEpubFile(file, progressCallback) {
   }
 
   return newBlob;
+}
+
+async function assertEpubHasNoContentEncryption(zip) {
+  const encryptionEntry = Object.entries(zip.files).find(
+    ([path, fileObj]) => !fileObj.dir && path.toLowerCase() === "meta-inf/encryption.xml",
+  );
+  if (!encryptionEntry) return;
+
+  const [, encryptionFile] = encryptionEntry;
+  const encryptionXml = await safeReadText(encryptionFile);
+  const document = new DOMParser().parseFromString(encryptionXml, "application/xml");
+  if (document.querySelector("parsererror")) {
+    throw new Error("This EPUB has invalid encryption metadata and cannot be optimized safely.");
+  }
+
+  const fontObfuscationAlgorithms = new Set([
+    "http://www.idpf.org/2008/embedding",
+    "http://ns.adobe.com/pdf/enc#RC",
+  ]);
+  for (const encryptedData of document.getElementsByTagNameNS("*", "EncryptedData")) {
+    const method = encryptedData.getElementsByTagNameNS("*", "EncryptionMethod")[0];
+    const algorithm = method?.getAttribute("Algorithm");
+
+    // Publishers often store obfuscated fonts as .dat files, so the algorithm
+    // is the reliable signal; their filename is not.
+    if (!fontObfuscationAlgorithms.has(algorithm)) {
+      throw new Error("This EPUB is DRM-protected. Please remove DRM before optimizing it.");
+    }
+  }
 }
 
 // Get WebSocket URL based on current page location

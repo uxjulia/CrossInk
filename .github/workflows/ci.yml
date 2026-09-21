@@ -5,6 +5,11 @@ on:
     branches: [main]
   pull_request:
 
+# A newer commit supersedes older PR validation; keep main pushes independent.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
   contents: read
 
@@ -67,11 +72,14 @@ jobs:
         run: pio check --fail-on-defect low --fail-on-defect medium --fail-on-defect high
 
   build:
+    # Firmware artifacts are validated on pull requests; release builds stay
+    # in the dedicated release workflow.
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        environment: [default, x4-pro, x4-classic, sticky]
+        environment: [default, x4-pro]
     steps:
       - uses: actions/checkout@v6
         with:
@@ -112,39 +120,6 @@ jobs:
             echo "## ${{ matrix.environment }} firmware build stats"
             grep -E "RAM:\s|Flash:\s" pio-${{ matrix.environment }}.log | while read -r line; do echo "- ${line}"; done
           } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Upload firmware artifacts
-        if: matrix.environment == 'default'
-        uses: actions/upload-artifact@v7
-        with:
-          name: firmware-x3-x4
-          path: |
-            .pio/build/default/firmware-x3-x4.bin
-          if-no-files-found: error
-
-      - name: Upload X4 Pro firmware artifact
-        if: matrix.environment == 'x4-pro'
-        uses: actions/upload-artifact@v7
-        with:
-          name: firmware-x4-pro
-          path: .pio/build/x4-pro/firmware-x4-pro.bin
-          if-no-files-found: error
-
-      - name: Upload X4 Classic firmware artifact
-        if: matrix.environment == 'x4-classic'
-        uses: actions/upload-artifact@v7
-        with:
-          name: firmware-x4-classic
-          path: .pio/build/x4-classic/firmware-x4-classic.bin
-          if-no-files-found: error
-
-      - name: Upload Sticky firmware artifact
-        if: matrix.environment == 'sticky'
-        uses: actions/upload-artifact@v7
-        with:
-          name: firmware-sticky
-          path: .pio/build/sticky/firmware-sticky.bin
-          if-no-files-found: error
 
   # This job is used as the PR required actions check, allows for changes to other steps in the future without breaking
   # PR requirements.
