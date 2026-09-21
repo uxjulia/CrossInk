@@ -613,7 +613,7 @@ void SettingsActivity::openWordSpacingPicker() {
 }
 
 void SettingsActivity::openLanguagePicker() {
-  const int languageCount = static_cast<int>(getLanguageCount());
+  const int languageCount = static_cast<int>(sizeof(SORTED_LANGUAGE_INDICES) / sizeof(SORTED_LANGUAGE_INDICES[0]));
 
   std::vector<std::string> options;
   options.reserve(languageCount);
@@ -628,7 +628,7 @@ void SettingsActivity::openLanguagePicker() {
   int currentIndex = (it != end) ? static_cast<int>(std::distance(begin, it)) : 0;
 
   optionPopup.show(StrId::STR_LANGUAGE, options, currentIndex, [this](int selectedIndex) {
-    const int languageCount = static_cast<int>(getLanguageCount());
+    const int languageCount = static_cast<int>(sizeof(SORTED_LANGUAGE_INDICES) / sizeof(SORTED_LANGUAGE_INDICES[0]));
     if (selectedIndex < 0 || selectedIndex >= languageCount) {
       requestUpdate();
       return;

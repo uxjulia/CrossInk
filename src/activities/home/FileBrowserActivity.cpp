@@ -1295,12 +1295,16 @@ std::string getFileName(std::string filename) {
   if (filename.back() == '/') {
     filename.pop_back();
     if (!UITheme::getInstance().getTheme().showsFileIcons()) {
-      return "[" + filename + "]";
+      filename = "[" + filename + "]";
     }
-    return filename;
+  } else {
+    const auto pos = filename.rfind('.');
+    if (pos != std::string::npos) filename.resize(pos);
   }
-  const auto pos = filename.rfind('.');
-  return filename.substr(0, pos);
+  // Compose only the display copy; filesystem lookup needs the raw entry bytes.
+  utf8ComposeNfcInPlace(filename.data());
+  filename.resize(strlen(filename.c_str()));
+  return filename;
 }
 
 std::string getFileExtension(const std::string& filename) {

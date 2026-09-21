@@ -425,6 +425,13 @@ void IntervalSelectionActivity::loop() {
     return;
   }
 
+  // Back cancels on release, but a front-button remap can also expose its
+  // press as a directional input. Let the pending cancel own the entire hold
+  // so it cannot adjust the value before the release exits.
+  if (mappedInput.isPressed(MappedInputManager::Button::Back)) {
+    return;
+  }
+
 #if CROSSINK_APP_CAP_TOUCH
   if (useLegacyTouchBar && mappedInput.wasScreenTapped(tx, ty)) {
     if (ty >= barY - 20 && ty < barY + barHeight + 20 && tx >= barX && tx < barX + barWidth) {

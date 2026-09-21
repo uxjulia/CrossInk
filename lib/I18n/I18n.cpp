@@ -7,6 +7,16 @@
 
 using namespace i18n_strings;
 
+namespace {
+bool isBuiltinLanguage(const Language language) {
+  const auto raw = static_cast<uint8_t>(language);
+  for (const uint8_t builtin : SORTED_LANGUAGE_INDICES) {
+    if (builtin == raw) return true;
+  }
+  return false;
+}
+}  // namespace
+
 I18n& I18n::getInstance() {
   static I18n instance;
   return instance;
@@ -31,7 +41,9 @@ void I18n::setLanguage(Language lang) {
   if (lang >= Language::_COUNT) {
     return;
   }
-  _language = lang;
+  // Keep persisted settings untouched, but make every runtime language-dependent
+  // behavior agree with the English string fallback in reduced-language builds.
+  _language = isBuiltinLanguage(lang) ? lang : Language::EN;
 }
 
 const char* I18n::getLanguageName(Language lang) const {

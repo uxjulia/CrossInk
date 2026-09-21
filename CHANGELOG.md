@@ -8,6 +8,7 @@
 - Two-finger Screen Rotation can be turned off in Settings > Controls > Taps & Gestures on multi-touch devices.
 - Go to % and Go to Stable Page use a numeric keypad for typing an exact destination, including decimal percentages. Touch devices use the keypad exclusively; button-only devices keep the slider by default and hold Confirm/Select to switch to the keypad.
 - Files can be renamed from the File Browser action menu while keeping reading progress, bookmarks, clippings, and recent-book entries linked to the new name.
+- Firmware builds can include only selected UI languages to reduce flash usage while preserving English fallback.
 
 ### Changed
 
@@ -61,6 +62,8 @@
 - Sync Progress from the reader menu opens KOReader setup when credentials have not been configured.
 - Button-combo settings no longer offer Sleep because the same combo cannot wake the reader.
 - EPUB variation selectors no longer appear as missing-glyph boxes after otherwise supported symbols.
+- Cancelling Word Spacing on button readers no longer briefly changes the slider value.
+- The File Browser now displays decomposed Hangul and accented filenames copied from macOS correctly.
 
 ## [v1.5.1] - 2026-09-10
 

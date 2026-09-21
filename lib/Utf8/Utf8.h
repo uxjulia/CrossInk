@@ -12,11 +12,14 @@ size_t utf8RemoveLastChar(std::string& str);
 // Truncate string by removing N UTF-8 codepoints from the end.
 void utf8TruncateChars(std::string& str, size_t numChars);
 
-// Canonical composition (NFC) for the Latin / Vietnamese range: precomposes a
-// base letter followed by combining diacritical mark(s) into a single codepoint.
-// Needed because the device fonts have no combining-mark positioning, so text
-// stored in NFD (e.g. some EPUB chapter titles) otherwise renders broken.
+// Canonical composition (NFC) for Latin / Vietnamese combining marks and modern
+// Hangul jamo. Needed because the device fonts have no combining-mark positioning
+// or decomposed Hangul glyphs, so NFD text otherwise renders broken or blank.
 std::string utf8ComposeNfc(const std::string& in);
+
+// Compose a null-terminated display buffer without allocating or growing it.
+// Uncomposed bytes (including malformed UTF-8) are preserved unchanged.
+void utf8ComposeNfcInPlace(char* buffer);
 
 // Returns true when text contains at least one Unicode letter/number-like
 // codepoint that can be sent to dictionary lookup. Punctuation, symbols,
