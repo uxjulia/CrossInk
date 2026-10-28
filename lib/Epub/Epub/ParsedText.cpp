@@ -200,38 +200,36 @@ std::vector<Hyphenator::BreakInfo> hangulLineEndBreaks(const std::string& word) 
 }
 
 std::vector<size_t> cjkCharacterBreakByteOffsets(const std::string& text) {
-  struct CodepointBoundary {
-    uint32_t cp;
-    size_t endOffset;
-  };
-
-  std::vector<CodepointBoundary> codepoints;
-  codepoints.reserve(text.size());
-  bool hasCjkBreakable = false;
-
-  const auto* ptr = reinterpret_cast<const unsigned char*>(text.c_str());
-  const auto* const start = ptr;
-  while (*ptr) {
-    const uint32_t cp = utf8NextCodepoint(&ptr);
-    if (cp == 0) break;
-    if (utf8IsCjkBreakable(cp) || TokenBoundary::allowsBreakAfterExplicitHyphen(cp)) {
-      hasCjkBreakable = true;
+  // Count first: most Latin and Hangul words have no accepted boundaries and
+  // need no allocation. The second pass stores only the returned offsets.
+  const auto scan = [&](std::vector<size_t>* offsets) {
+    const auto* ptr = reinterpret_cast<const unsigned char*>(text.c_str());
+    const auto* const start = ptr;
+    uint32_t previous = utf8NextCodepoint(&ptr);
+    if (previous == 0) return size_t{0};
+    bool hasBreakable = utf8IsCjkBreakable(previous) || TokenBoundary::allowsBreakAfterExplicitHyphen(previous);
+    bool hasLeadingContent = false;
+    size_t count = 0;
+    while (*ptr) {
+      const size_t offset = static_cast<size_t>(ptr - start);
+      const uint32_t current = utf8NextCodepoint(&ptr);
+      if (current == 0) break;
+      hasBreakable |= utf8IsCjkBreakable(current) || TokenBoundary::allowsBreakAfterExplicitHyphen(current);
+      const bool dash = TokenBoundary::allowsBreakAfterExplicitHyphen(previous);
+      if (!dash) hasLeadingContent = true;
+      if ((!dash || hasLeadingContent) && hasCjkBreakOpportunityBetween(previous, current)) {
+        ++count;
+        if (offsets) offsets->push_back(offset);
+      }
+      previous = current;
     }
-    codepoints.push_back({cp, static_cast<size_t>(ptr - start)});
-  }
-
-  if (!hasCjkBreakable || codepoints.size() < 2) return {};
-
+    return hasBreakable ? count : size_t{0};
+  };
+  const size_t count = scan(nullptr);
+  if (count == 0) return {};
   std::vector<size_t> allowedOffsets;
-  allowedOffsets.reserve(codepoints.size() - 1);
-  bool hasLeadingContent = false;
-  for (size_t i = 0; i + 1 < codepoints.size(); ++i) {
-    const bool dash = TokenBoundary::allowsBreakAfterExplicitHyphen(codepoints[i].cp);
-    if (!dash) hasLeadingContent = true;
-    if (dash && !hasLeadingContent) continue;
-    if (!hasCjkBreakOpportunityBetween(codepoints[i].cp, codepoints[i + 1].cp)) continue;
-    allowedOffsets.push_back(codepoints[i].endOffset);
-  }
+  allowedOffsets.reserve(count);
+  scan(&allowedOffsets);
   return allowedOffsets;
 }
 

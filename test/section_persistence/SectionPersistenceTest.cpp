@@ -23,7 +23,9 @@ extern uint32_t testHyphenationIdentity;
 extern std::vector<BookMetadataCache::TocEntry> testTocEntries;
 
 namespace {
-constexpr uint8_t kFullVersion = 100;
+constexpr uint8_t kFullVersion = 101;
+constexpr uint8_t kPreRoundingFullVersion = 100;
+constexpr uint8_t kPreRoundingPartialVersion = 0xD5;
 constexpr uint8_t kStablePageFullVersion = 99;
 constexpr uint8_t kStablePagePartialVersion = 0xD4;
 constexpr uint8_t kPreDropCapFullVersion = 98;
@@ -33,7 +35,7 @@ constexpr uint8_t kPreImageAlignmentPartialVersion = 0xCF;
 constexpr uint8_t kPreFieldsetFullVersion = 93;
 constexpr uint8_t kPreFieldsetPartialVersion = 0xCE;
 constexpr uint8_t kS3BitmapFullVersion = 90;
-constexpr uint8_t kPartialVersion = 0xD5;
+constexpr uint8_t kPartialVersion = 0xD6;
 constexpr uint8_t kS3BitmapPartialVersion = 0xCB;
 constexpr uint8_t kC3BitmapFullVersion = 89;
 constexpr uint8_t kC3BitmapPartialVersion = 0xCA;
@@ -189,7 +191,9 @@ TEST_F(SectionPersistenceTest, FailedCommitKeepsThePreviousReadableCache) {
 }
 
 TEST_F(SectionPersistenceTest, RejectsCachesFromPreviousLayoutRevisions) {
-  for (const uint8_t staleVersion : {kStablePageFullVersion,
+  for (const uint8_t staleVersion : {kPreRoundingFullVersion,
+                                     kPreRoundingPartialVersion,
+                                     kStablePageFullVersion,
                                      kStablePagePartialVersion,
                                      kPreDropCapFullVersion,
                                      kPreDropCapPartialVersion,

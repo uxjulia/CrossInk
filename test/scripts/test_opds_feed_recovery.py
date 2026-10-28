@@ -198,7 +198,7 @@ with tempfile.TemporaryDirectory(prefix="crossink-opds-recovery-") as temp:
         "bool OpdsBookBrowserActivity::appendEntry(",
     )) + main)
     flags = ["-fsanitize=address,undefined", "-fno-omit-frame-pointer", "-g",
-             "-DXML_CONTEXT_BYTES=1024", "-DXML_GE=0"]
+             "-DXML_CONTEXT_BYTES=0", "-DXML_GE=0"]
     includes = ["-I" + str(root / p) for p in (
         "test/opds_parser/stubs", "lib/OpdsParser", "lib/XmlParserUtils", "lib/expat", "src")]
     objects = []

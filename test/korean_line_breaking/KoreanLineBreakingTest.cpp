@@ -271,3 +271,27 @@ TEST(EmDashLineBreaking, CjkBoundariesStillJustify) {
   ASSERT_EQ(lines.size(), 2u);
   EXPECT_EQ(lines[0].xpos, (std::vector<int16_t>{0, 10, 20, 30}));
 }
+
+TEST(KoreanLineBreaking, MixedScriptsKeepBoundariesTouchingHangulTogether) {
+  const auto lines = layout({"ab中가나國cd文"}, false, 300);
+  const std::vector<std::vector<std::string>> expected{{"ab", "中가나國", "cd", "文"}};
+  EXPECT_EQ(wordsOf(lines), expected);
+}
+
+TEST(KoreanLineBreaking, ExplicitHyphensBeforeFirstCjkCharacterRemainBreaks) {
+  const auto lines = layout({"ab-cd가-나中"}, false, 300);
+  const std::vector<std::vector<std::string>> expected{{"ab-", "cd가-", "나中"}};
+  EXPECT_EQ(wordsOf(lines), expected);
+}
+
+TEST(KoreanLineBreaking, LatinHyphenRunsKeepTheNonCjkPath) {
+  const auto lines = layout({"ab--cd"}, false, 300);
+  const std::vector<std::vector<std::string>> expected{{"ab--", "cd"}};
+  EXPECT_EQ(wordsOf(lines), expected);
+}
+
+TEST(KoreanLineBreaking, CombiningMarksAndCjkPunctuationStayAttached) {
+  const auto lines = layout({"（中）文\xCC\x81字"}, false, 300);
+  const std::vector<std::vector<std::string>> expected{{"（中）", "文\xCC\x81", "字"}};
+  EXPECT_EQ(wordsOf(lines), expected);
+}

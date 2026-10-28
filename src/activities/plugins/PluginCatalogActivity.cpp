@@ -405,8 +405,10 @@ std::string PluginCatalogActivity::substituted(std::string tpl, const Item* item
   substituteAll(tpl, "{plugin_api}", num);
   snprintf(num, sizeof(num), "%d", page);
   substituteAll(tpl, "{page}", num);
-  snprintf(num, sizeof(num), "%d", manifest.pageSize + 1);
+  snprintf(num, sizeof(num), "%d", plugincatalogpaging::limitFor(browsePaging(), manifest.pageSize));
   substituteAll(tpl, "{limit}", num);
+  snprintf(num, sizeof(num), "%d", std::max(0, page - 1) * manifest.pageSize);
+  substituteAll(tpl, "{offset}", num);
   substituteAll(tpl, "{query}", urlEncodeQuery(searchQuery));
   substituteAll(tpl, "{query_raw}", searchQuery);
   if (item) {
@@ -414,6 +416,15 @@ std::string PluginCatalogActivity::substituted(std::string tpl, const Item* item
     substituteAll(tpl, "{title}", item->title);
     substituteAll(tpl, "{author}", item->author);
     substituteAll(tpl, "{url}", item->url);
+    // Encoded forms for URL query values and paths, built only when used: a
+    // field can be KBs and its encoded copy three times that.
+    const std::pair<const char*, const std::string*> encoded[] = {{"{id_enc}", &item->id},
+                                                                  {"{title_enc}", &item->title},
+                                                                  {"{author_enc}", &item->author},
+                                                                  {"{url_enc}", &item->url}};
+    for (const auto& [key, value] : encoded) {
+      if (tpl.find(key) != std::string::npos) substituteAll(tpl, key, urlEncodeQuery(*value));
+    }
   }
   return tpl;
 }
@@ -827,6 +838,10 @@ const std::string& PluginCatalogActivity::activeBrowseBody() const {
   return pick(manifest.browseLists[currentList].body, manifest.browseReq.body);
 }
 
+plugincatalogpaging::Paging PluginCatalogActivity::browsePaging() const {
+  return plugincatalogpaging::pagingOf(activeBrowseUrl(), activeBrowseBody(), manifest.browseReq.headers);
+}
+
 void PluginCatalogActivity::fetchPageNow(const int newPage) {
   if (!manifest.isXmlList()) page = newPage;
   if (!fetchBrowseResponse() || !parseBrowseResponse()) return;
@@ -840,28 +855,28 @@ bool PluginCatalogActivity::parseBrowseResponse() {
   session.reset();
   if (manifest.isXmlList()) return parseXmlList();
 
-  // Compatibility is opt-in. If the manifest does not map compatibility
-  // fields, the normal single streaming pass is unchanged. When it does, make
-  // a bounded first pass that remembers compatible indexes only from the
-  // displayed page. The extra titled row remains pagination lookahead.
-  // Catalog entries that omit compatibility values match by default; explicit
-  // restrictions must match this firmware.
+  const auto paging = browsePaging();
+  const bool localPaging = paging == plugincatalogpaging::Paging::Static;
+  const size_t pageOffset = localPaging ? static_cast<size_t>(std::max(0, page - 1)) * manifest.pageSize : 0;
+  // Static feeds count only compatible entries. Server pages retain their raw boundaries.
   std::array<int, MAX_PAGE_SIZE> compatibleRows{};
   size_t compatibleCount = 0;
   bool rawHasMore = false;
   if (manifest.filtersCompatibility()) {
     int rowIndex = 0;
-    int titledRows = 0;
+    plugincatalogpaging::PageWindow filteredWindow(pageOffset, manifest.pageSize);
+    plugincatalogpaging::PageWindow serverWindow(0, manifest.pageSize);
     const std::string unused;
     auto selectCompatible = [&](JsonListParser::Row& row) {
       const int thisRow = rowIndex++;
       if (row.field[JsonListParser::F_TITLE].empty()) return;
-      if (++titledRows > manifest.pageSize) {
-        rawHasMore = true;
-        return;
-      }
-      if (catalogEntryCompatible(row.field[COMPAT_FAMILY], row.field[COMPAT_API_MIN], row.field[COMPAT_REQUIRES]))
+      const bool compatible =
+          catalogEntryCompatible(row.field[COMPAT_FAMILY], row.field[COMPAT_API_MIN], row.field[COMPAT_REQUIRES]);
+      if (localPaging) {
+        if (filteredWindow.take(compatible)) compatibleRows[compatibleCount++] = thisRow;
+      } else if (serverWindow.take() && compatible) {
         compatibleRows[compatibleCount++] = thisRow;
+      }
     };
     const std::string* compatibilityFields[JsonListParser::F_COUNT] = {};
     for (auto& field : compatibilityFields) field = &unused;
@@ -877,21 +892,22 @@ bool PluginCatalogActivity::parseBrowseResponse() {
       fail(StrId::STR_PARSE_FEED_FAILED);
       return false;
     }
+    rawHasMore = localPaging ? filteredWindow.hasMore(paging) : serverWindow.hasMore(paging);
   }
 
   releaseRows();
-  if (!allocateItems(manifest.pageSize + 1)) return false;
+  if (!allocateItems(manifest.pageSize)) return false;
   int rowIndex = 0;
   size_t compatibleIndex = 0;
-  // The unfiltered extra row controls server pagination; compatibility only
-  // controls which rows from this page are displayed.
+  plugincatalogpaging::PageWindow visibleWindow(pageOffset, manifest.pageSize);
   auto append = [&](JsonListParser::Row& row) {
     const int thisRow = rowIndex++;
     if (manifest.filtersCompatibility()) {
       if (compatibleIndex >= compatibleCount || compatibleRows[compatibleIndex] != thisRow) return;
-      compatibleIndex++;
+      ++compatibleIndex;
+    } else if (!visibleWindow.take(!row.field[JsonListParser::F_TITLE].empty())) {
+      return;
     }
-    if (row.field[JsonListParser::F_TITLE].empty() || static_cast<int>(itemCount) > manifest.pageSize) return;
     Item item;
     item.title = std::move(row.field[JsonListParser::F_TITLE]);
     item.author = std::move(row.field[JsonListParser::F_AUTHOR]);
@@ -902,8 +918,6 @@ bool PluginCatalogActivity::parseBrowseResponse() {
     item.files = std::move(row.files);
     items[itemCount++] = std::move(item);
   };
-  // Streamed straight from the SD temp file: neither the raw response nor a
-  // parsed document occupies DRAM, only the rows kept.
   const std::string* const fields[] = {&manifest.titlePath, &manifest.authorPath,  &manifest.idPath,
                                        &manifest.urlPath,   &manifest.versionPath, &manifest.bundleBasePath};
   auto parser = makeUniqueNoThrow<JsonListParser>(
@@ -914,11 +928,7 @@ bool PluginCatalogActivity::parseBrowseResponse() {
     fail(StrId::STR_PARSE_FEED_FAILED);
     return false;
   }
-  hasMore = manifest.filtersCompatibility() ? rawHasMore : static_cast<int>(itemCount) > manifest.pageSize;
-  if (static_cast<int>(itemCount) > manifest.pageSize) {
-    items[manifest.pageSize] = {};
-    itemCount = manifest.pageSize;
-  }
+  hasMore = manifest.filtersCompatibility() ? rawHasMore : visibleWindow.hasMore(paging);
   computeInstallStatus();
   return true;
 }
@@ -1076,11 +1086,13 @@ HttpDownloader::DownloadError PluginCatalogActivity::downloadBundle(const Item& 
         relative.find('\\') != std::string::npos)
       return HttpDownloader::FILE_ERROR;
     const std::string dest = stage + '/' + relative;
-    if (!protectedpaths::isPluginPath(dest) || !pluginhttp::validRequest(base + relative, "GET"))
+    if (base.size() + relative.size() > 2048) return HttpDownloader::HTTP_ERROR;
+    const std::string fileUrl = pluginhttp::escapeUrl(base + relative);
+    if (!protectedpaths::isPluginPath(dest) || !pluginhttp::validRequest(fileUrl, "GET"))
       return HttpDownloader::FILE_ERROR;
     const auto slash = dest.rfind('/');
     if (!Storage.ensureDirectoryExists(dest.substr(0, slash).c_str())) return HttpDownloader::FILE_ERROR;
-    const auto result = downloadFile(base + relative, dest);
+    const auto result = downloadFile(fileUrl, dest);
     if (result != HttpDownloader::OK) return result;
   }
   if (!PluginBundle::publish(directory)) return HttpDownloader::FILE_ERROR;
@@ -1112,6 +1124,9 @@ HttpDownloader::DownloadError PluginCatalogActivity::downloadBook(const Item& it
   if (fileUrl.empty()) {
     return HttpDownloader::FILE_ERROR;
   }
+
+  if (fileUrl.size() > 2048) return HttpDownloader::HTTP_ERROR;
+  fileUrl = pluginhttp::escapeUrl(fileUrl);
 
   const std::string folderDir = downloadDir();
   const char* folder = folderDir.c_str();

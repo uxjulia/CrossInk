@@ -19,9 +19,10 @@ namespace {
 constexpr size_t MAX_TOKEN_FILE_SIZE = 2 * 1024;
 
 // Resolves the caller's reused TLS session (or `tmp`) into a configured,
-// connected client, or nullptr if begin() failed.
+// connected client, or nullptr if initialization or the connection failed.
 freeink::SecureHttpClient* openClient(freeink::SecureHttpClient* session, freeink::SecureHttpClient& tmp,
-                                      const std::string& url, const pluginhttp::Headers& headers, uint32_t timeoutMs) {
+                                      const std::string& url, const pluginhttp::Headers& headers, uint32_t timeoutMs,
+                                      const std::function<bool()>& shouldAbort) {
   freeink::SecureHttpClient& http = session ? *session : tmp;
   if (!pluginhttp::validHeaders(headers)) return nullptr;
   http.setUserAgent("CrossInk");
@@ -29,7 +30,11 @@ freeink::SecureHttpClient* openClient(freeink::SecureHttpClient* session, freein
   // with the transport, so verification is skipped; traffic stays encrypted.
   http.setInsecure();
   http.setTimeout(timeoutMs);
-  if (!http.begin(url)) return nullptr;
+  if (!http.begin(url) || !http.connect(shouldAbort)) {
+    LOG_ERR("PHTP", "Plugin connection failed");
+    return nullptr;
+  }
+  // Copy headers only after TLS setup has released its temporary allocations.
   for (const auto& h : headers) http.addHeader(h.first, h.second);
   return &http;
 }
@@ -130,6 +135,24 @@ std::string urlEncodeQuery(const std::string& s) {
   return out;
 }
 
+std::string escapeUrl(const std::string& url) {
+  const auto kept = [](const unsigned char c) { return c > 0x20 && c < 0x7F; };
+  const size_t escaped =
+      std::count_if(url.begin(), url.end(), [&](const char c) { return !kept(static_cast<unsigned char>(c)); });
+  std::string out;
+  out.reserve(url.size() + 2 * escaped);
+  for (const unsigned char c : url) {
+    if (kept(c)) {
+      out += static_cast<char>(c);
+    } else {
+      char buf[4];
+      snprintf(buf, sizeof(buf), "%%%02X", c);
+      out += buf;
+    }
+  }
+  return out;
+}
+
 std::string inPluginDir(const std::string& pluginDir, const char* path) {
   if (!path || !path[0] || path[0] == '/') return path ? path : "";
   return pluginDir + "/" + path;
@@ -204,7 +227,13 @@ void loadConfigFile(const std::string& file, Headers& out) {
 int request(freeink::SecureHttpClient* session, const std::string& url, const std::string& method,
             const std::string& body, const Headers& headers, String& out, const size_t maxResponse,
             Headers* responseHeaders, const std::function<bool()>& shouldAbort, uint32_t timeoutMs) {
-  if (!validRequest(url, method) || !validHeaders(headers)) {
+  // Bound the input before encoding, and validate the actual outgoing URL.
+  if (url.size() > 2048) {
+    LOG_ERR("PHTP", "Plugin URL exceeds request limit");
+    return -1;
+  }
+  const std::string escapedUrl = escapeUrl(url);
+  if (!validRequest(escapedUrl, method) || !validHeaders(headers)) {
     LOG_ERR("PHTP", "Invalid plugin request");
     return -1;
   }
@@ -215,7 +244,7 @@ int request(freeink::SecureHttpClient* session, const std::string& url, const st
   };
   WifiPowerSaveGuard psGuard;
   freeink::SecureHttpClient tmp;
-  freeink::SecureHttpClient* httpPtr = openClient(session, tmp, url, headers, timeoutMs);
+  freeink::SecureHttpClient* httpPtr = openClient(session, tmp, escapedUrl, headers, timeoutMs, abort);
   if (!httpPtr) return -1;
   freeink::SecureHttpClient& http = *httpPtr;
 
@@ -253,7 +282,13 @@ int request(freeink::SecureHttpClient* session, const std::string& url, const st
 int requestToFile(freeink::SecureHttpClient* session, const std::string& url, const std::string& method,
                   const std::string& body, const Headers& headers, const char* destPath, const size_t maxResponse,
                   const std::function<bool()>& shouldAbort, uint32_t timeoutMs) {
-  if (!validRequest(url, method) || !validHeaders(headers)) {
+  // Bound the input before encoding, and validate the actual outgoing URL.
+  if (url.size() > 2048) {
+    LOG_ERR("PHTP", "Plugin URL exceeds request limit");
+    return -1;
+  }
+  const std::string escapedUrl = escapeUrl(url);
+  if (!validRequest(escapedUrl, method) || !validHeaders(headers)) {
     LOG_ERR("PHTP", "Invalid plugin request");
     return -1;
   }
@@ -264,7 +299,7 @@ int requestToFile(freeink::SecureHttpClient* session, const std::string& url, co
   };
   WifiPowerSaveGuard psGuard;
   freeink::SecureHttpClient tmp;
-  freeink::SecureHttpClient* httpPtr = openClient(session, tmp, url, headers, timeoutMs);
+  freeink::SecureHttpClient* httpPtr = openClient(session, tmp, escapedUrl, headers, timeoutMs, abort);
   if (!httpPtr) return -1;
   freeink::SecureHttpClient& http = *httpPtr;
 

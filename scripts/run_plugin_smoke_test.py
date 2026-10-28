@@ -59,7 +59,11 @@ def main():
                 archive.writestr('META-INF/encryption.xml', manifest)
                 archive.writestr('chapter.xhtml', iv + cipher)
                 archive.writestr('plain.txt', 'plain resource')
+        tilt_preferences = {'tiltPageTurn': 1, 'tiltPageTurnDirection': 2, 'tiltNextPageOnly': 1}
+        if args.env == 'simulator':
+            write('/.crosspoint/crossink-settings.json', tilt_preferences)
         event_attempts = []
+        encoded_downloads = set()
         class Fixture(http.server.BaseHTTPRequestHandler):
             protocol_version = 'HTTP/1.1'
             def log_message(self, *args):
@@ -95,7 +99,7 @@ def main():
                              'requires': 'catalog.missing', 'description': 'wrong' * 380,
                              'author': 'a' * 1900, 'repository': 'r' * 1900,
                              'details': {'url': url + '/wrong-details', 'format': 'html'}}]
-                    rows += [{'title': title, 'id': str(i), 'version': '1', 'url': url + '/book',
+                    rows += [{'title': title, 'id': str(i), 'version': '1', 'url': url + '/book/Café stories',
                               'description': 'selected' + 'x' * 1890, 'author': 'a' * 1900,
                               'repository': 'r' * 1900,
                               'details': {'url': url + '/details', 'format': 'html'}}
@@ -110,9 +114,12 @@ def main():
                                                 for i in range(200)) + '</files>').encode()
                 elif self.path == '/bundles':
                     data = json.dumps([{'id': 'installed', 'title': 'Example plugin',
-                                        'base': url + '/bundle', 'files': ['plugin.js']}]).encode()
+                                        'base': url + '/bundle/Café scripts', 'files': ['plugin.js']}]).encode()
                 elif self.path == '/missing':
                     self.send_response(404); self.send_header('Content-Length', '0'); self.end_headers(); return
+                elif self.path in ('/book/Caf%C3%A9%20stories', '/bundle/Caf%C3%A9%20scripts/plugin.js'):
+                    encoded_downloads.add(self.path)
+                    data = b'fixture book contents\n'
                 elif self.path == '/echo':
                     data = json.dumps({'authorization': self.headers.get('Authorization')}).encode()
                 else:
@@ -200,9 +207,36 @@ def main():
                     except (urllib.error.URLError, ConnectionError):
                         if time.monotonic() >= deadline: raise TimeoutError(log.read_text()[-5000:])
                         time.sleep(.1)
+                if args.env == 'simulator':
+                    settings_body, _ = request('/api/settings')
+                    settings = {row['key']: row for row in json.loads(settings_body)}
+                    assert not tilt_preferences.keys() & settings.keys(), settings.keys()
+                    for key in ('shortPwrBtn', 'longPwrBtn', 'longPressMenuAction', 'longPressBackAction'):
+                        assert not any('tilt' in option.lower() for option in settings[key]['options'])
+                    last_action = len(settings['shortPwrBtn']['options']) - 1
+                    request('/api/settings', {'shortPwrBtn': last_action} | dict.fromkeys(tilt_preferences, 0))
+                    settings_body, _ = request('/api/settings')
+                    settings = {row['key']: row for row in json.loads(settings_body)}
+                    assert settings['shortPwrBtn']['value'] == last_action
+                    saved = json.loads((sd / '.crosspoint/crossink-settings.json').read_text())
+                    assert all(saved[key] == value for key, value in tilt_preferences.items()), saved
                 assert len(event_attempts) >= 6 and event_attempts[0] == event_attempts[1], event_attempts
                 assert any(p['name'] == 'json' for p in json.loads(plugins))
-                script, _ = request('/plugin?name=json&file=plugin.js'); assert b'registerPlugin' in script
+                script, script_headers = request('/plugin?name=json&file=plugin.js')
+                assert b'registerPlugin' in script
+                etag = script_headers['ETag']
+                assert etag == '"' + hashlib.md5(script).hexdigest() + '"'
+                assert script_headers['Cache-Control'] == 'no-cache'
+                unchanged, cached_headers = request('/plugin?name=json&file=plugin.js', expected=304,
+                                                    headers={'If-None-Match': etag})
+                assert unchanged == b'' and cached_headers['ETag'] == etag
+                # Same-size edits must invalidate the validator even without a clock.
+                updated = script.replace(b'registerPlugin', b'registerPlugiN', 1)
+                write('/plugins/json/plugin.js', updated.decode())
+                changed, changed_headers = request('/plugin?name=json&file=plugin.js',
+                                                   headers={'If-None-Match': etag})
+                assert changed == updated and changed_headers['ETag'] != etag
+                write('/plugins/json/plugin.js', script.decode())
                 host, _ = request('/plugin-host.js'); assert b'registerPlugin' in host
                 runner, _ = request('/plugins-run'); assert b'plugin-host.js' in runner
                 relay, headers = request('/api/relay', {'plugin': 'json', 'url': origin + '/echo',
@@ -249,6 +283,9 @@ def main():
                 status, _ = request(f'/api/plugin-jobs/status?id={job}'); assert json.loads(status)['state'] == 'done'
                 write('/plugin-web-done', 'done')
                 assert process.wait(timeout=10) == 0
+                assert encoded_downloads == {
+                    "/book/Caf%C3%A9%20stories", "/bundle/Caf%C3%A9%20scripts/plugin.js"
+                }, encoded_downloads
                 other_env = env | {'CROSSINK_VERIFY_COPIED_KEYS': '1',
                                    'CROSSINK_DEVICE_SECRET_PATH': str(work / 'second-device-secret')}
                 copied = subprocess.run([str(ROOT / '.pio/build' / args.env / 'program')], cwd=work,

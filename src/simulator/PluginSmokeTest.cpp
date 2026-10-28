@@ -505,6 +505,22 @@ struct PluginCatalogSmokeTest {
         {
           RenderLock lock;
           require(activity.itemCount == 3, "JSON row count");
+          const auto pageSize = activity.manifest.pageSize;
+          const auto lastId = activity.items[2].id;
+          activity.manifest.pageSize = 2;
+          require(activity.parseBrowseResponse() && activity.itemCount == 2 && activity.hasMore,
+                  "Static compatibility page did not fill two slots");
+          activity.page = 2;
+          require(activity.parseBrowseResponse() && activity.itemCount == 1 && !activity.hasMore &&
+                      activity.items[0].id == lastId,
+                  "Static compatibility page skipped or repeated a row");
+          activity.page = 1;
+          activity.manifest.pageSize = pageSize;
+          require(activity.parseBrowseResponse() && activity.itemCount == 3, "Could not restore catalog fixture");
+          PluginCatalogActivity::Item encoded;
+          encoded.title = "a &/é";
+          require(activity.substituted("{title_enc}", &encoded) == "a%20%26%2F%C3%A9", "Encoded item field mismatch");
+          require(activity.substituted("{title}", &encoded) == encoded.title, "Raw item field changed");
           auto& target = activity.items[0];
           const auto savedTitle = target.title;
           const auto savedId = target.id;

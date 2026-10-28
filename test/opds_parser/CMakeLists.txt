@@ -13,7 +13,7 @@ target_include_directories(OpdsParserTest PRIVATE
   ${REPO_ROOT}/lib/expat
 )
 
-target_compile_definitions(OpdsParserTest PRIVATE XML_CONTEXT_BYTES=1024 XML_GE=0)
+target_compile_definitions(OpdsParserTest PRIVATE XML_CONTEXT_BYTES=0 XML_GE=0)
 
 target_link_libraries(OpdsParserTest PRIVATE
   crosspoint_test_common

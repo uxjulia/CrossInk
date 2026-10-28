@@ -1457,9 +1457,35 @@ struct ScreenCalibrationSmokeTest {
     UITheme::getInstance().reload();
     renderer.setOrientation(GfxRenderer::Portrait);
     renderer.setViewableInsets(ScreenInsets{{{32, 32, 32, 32}}});
+    {
+      auto download = makeUniqueNoThrow<FontDownloadActivity>(renderer, mappedInputManager);
+      if (!download) return false;
+      download->manifestFamilies_ = makeUniqueNoThrow<FontDownloadActivity::ManifestFamily[]>(1);
+      if (!download->manifestFamilies_) return false;
+      download->manifestFamilyCount_ = 1;
+      download->manifestFamilies_[0].name = "Installed font";
+      download->manifestFamilies_[0].installed = true;
+      download->state_ = FontDownloadActivity::FAMILY_LIST;
+      applySharedUiTheme(download->app_, download->uiTarget_);
+      download->app_.setScreen(&FontDownloadActivity::listScreen, download.get());
+      valid &= download->rebuildListItems();
+      if (download->listItemCount_ != 1) return false;
+      valid &= !(download->listItems_[0].state & freeink::ui::StateDisabled);
+      download->render(std::move(lock));
+      capture("upstream-installed-font-selection");
+    }
     auto keyboard =
         std::make_unique<KeyboardEntryActivity>(renderer, mappedInputManager, "Password", "", 64, InputType::Password);
     keyboard->onEnter();
+    keyboard->text = "café";
+    keyboard->cursorPos = keyboard->text.size();
+    keyboard->passwordVisible = false;
+    keyboard->cursorMode = false;
+    valid &= keyboard->displayTextForCurrentState() == "***é";
+    keyboard->render(std::move(lock));
+    capture("upstream-password-utf8");
+    keyboard->text.clear();
+    keyboard->cursorPos = 0;
     keyboard->render(std::move(lock));
     const auto keys = keyboard->keyboardRect();
     const auto safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
@@ -2946,7 +2972,19 @@ class SimulatorSmokeTest {
     verifyRows(all);
     verifyRows(controls);
     if (!QuickActions::supportsTiltPageTurn()) {
-      LOG_INF("SMOKE", "Simulator smoke test passed: tilt settings hidden without a gyroscope");
+      SETTINGS.tiltPageTurn = 1;
+      SETTINGS.tiltPageTurnDirection = 2;
+      SETTINGS.tiltNextPageOnly = 1;
+      if (!SETTINGS.saveToFile()) fail("Cannot save tilt settings without a gyroscope");
+      SETTINGS.tiltPageTurn = 0;
+      SETTINGS.tiltPageTurnDirection = 0;
+      SETTINGS.tiltNextPageOnly = 0;
+      if (!SETTINGS.loadFromFile() || SETTINGS.tiltPageTurn != 1 || SETTINGS.tiltPageTurnDirection != 2 ||
+          SETTINGS.tiltNextPageOnly != 1)
+        fail("Failed IMU probe lost saved tilt settings");
+      SETTINGS.fromJson(original.as<JsonVariantConst>());
+      if (!SETTINGS.saveToFile()) fail("Cannot restore tilt settings after persistence check");
+      LOG_INF("SMOKE", "Simulator smoke test passed: tilt settings persist and remain hidden without a gyroscope");
       return;
     }
     if (SETTINGS.tiltNextPageOnly != 0) fail("Tilt Next Page Only must default to Off");

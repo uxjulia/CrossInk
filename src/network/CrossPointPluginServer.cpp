@@ -16,6 +16,7 @@
 #include <LibraryBuilder.h>
 #include <LibraryFileTypes.h>
 #include <Logging.h>
+#include <MD5Builder.h>
 #include <Memory.h>
 #include <ResumableFetch.h>
 #include <SecureHttpClient.h>
@@ -163,6 +164,34 @@ void CrossPointWebServer::handlePluginFile() const {
     return;
   }
 
+  // Hash served bytes: timestamps and file sizes can stay unchanged after an update.
+  MD5Builder md5;
+  md5.begin();
+  uint8_t chunk[128];
+  const size_t expected = f.size();
+  size_t hashed = 0;
+  int got;
+  while ((got = f.read(chunk, sizeof(chunk))) > 0) {
+    md5.add(chunk, static_cast<size_t>(got));
+    hashed += static_cast<size_t>(got);
+    resetTaskWatchdogIfSubscribed();
+  }
+  if (got < 0 || hashed != expected || !f.seek(0)) {
+    f.close();
+    LOG_ERR("WEB", "Plugin file read failed");
+    server->send(500, "text/plain", "Failed to read file");
+    return;
+  }
+  md5.calculate();
+  const String etag = "\"" + md5.toString() + "\"";
+  server->sendHeader("ETag", etag);
+  server->sendHeader("Cache-Control", "no-cache");
+  if (server->header("If-None-Match") == etag) {
+    f.close();
+    server->setContentLength(0);
+    server->send(304);
+    return;
+  }
   server->setContentLength(f.size());
   server->send(200, pluginContentType(file), "");
   streamFileToClient(f);
@@ -558,6 +587,11 @@ void CrossPointWebServer::handleFetch() {
     written = 0;
     return Storage.openFileForWrite("PLG", part, file);
   };
+  const auto shouldAbort = [&] {
+    resetTaskWatchdogIfSubscribed();
+    keepBrowserAlive();
+    return static_cast<uint32_t>(millis() - fetchStartedAt) >= 300000 || dropUploadIfCancelled();
+  };
   const freeink::FetchResult result = freeink::fetchResumable(
       url, options,
       [&](freeink::SecureHttpClient& http, const bool sameOrigin) {
@@ -571,19 +605,13 @@ void CrossPointWebServer::handleFetch() {
         http.setTimeout(60000);
         // The plugin's headers (typically its Authorization) stay with the
         // starting origin; a redirect to another server gets none of them.
-        if (sameOrigin) {
+        if (sameOrigin && !requestHeaders.empty()) {
+          // Do not retain the client's header copies during the TLS handshake.
+          http.connect(shouldAbort);
           for (const auto& header : requestHeaders) http.addHeader(header.first, header.second);
         }
       },
-      sink,
-      // The write callback only runs when bytes arrive; with the 60s no-data
-      // timeout a server stall would starve this task's WDT subscription.
-      // shouldAbort is polled in every wait loop.
-      [&] {
-        resetTaskWatchdogIfSubscribed();
-        keepBrowserAlive();
-        return static_cast<uint32_t>(millis() - fetchStartedAt) >= 300000 || dropUploadIfCancelled();
-      });
+      sink, shouldAbort);
   if (file.isOpen()) {
     if (!file.close()) sdFull = true;
   }

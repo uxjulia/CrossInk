@@ -104,8 +104,26 @@ credential protection as browser file operations.
 Field selectors use dotted JSON paths, including array indexes such as
 `authors.0.name`. `browse.items` is empty for a root array. Requests support
 `method`, `headers`, and `body`. Templates support `{token}`, `{cfg.KEY}`, `{page}`,
-`{limit}`, `{query}` (URL encoded), and `{query_raw}`. Download templates also
-support `{id}`, `{title}`, `{author}`, and `{url}`.
+`{offset}`, `{limit}`, `{query}` (URL encoded), and `{query_raw}`. Download and
+item-details templates also support `{id}`, `{title}`, `{author}`, and `{url}`.
+The `_enc` forms (`{id_enc}`, `{title_enc}`, `{author_enc}`, `{url_enc}`) encode
+those values for a URL query value or path segment. This is advertised as
+`catalog.encoded_item_fields`; existing raw forms remain unchanged.
+
+Outgoing plugin URLs escape spaces, control bytes, and non-ASCII bytes, while
+preserving URL separators and existing percent escapes. Use `_enc` when a field
+contains separators such as `&`, `?`, `#`, or `/` that belong to the value itself.
+Request-size, header, and destination protections still apply.
+
+JSON pagination is selected from the URL, body, and header templates:
+
+- `{page}` with `{limit}`: limit equals `page_size`; a full page enables Next.
+  An exactly full final page can lead to one empty page.
+- `{offset}`: offset equals `(page - 1) * page_size`, and limit equals
+  `page_size + 1` for lookahead. Offset takes precedence over page.
+- `{page}` without `{limit}`: each page needs an extra row to advertise Next.
+- Neither: the firmware pages through the static response locally, counting
+  compatible entries rather than letting incompatible entries consume slots.
 
 Optional `browse.lists` contains named `{title, url, body}` views.
 `browse.search` overrides `url` and/or `body` for search. A `download.url_path`
@@ -219,3 +237,10 @@ Native simulator builds require `wolfssl` and `openssl` discoverable by
 `pkg-config`. The simulator stores its device secret in `.crossink-device-secret`
 outside `fs_`, or at `CROSSINK_DEVICE_SECRET_PATH`, with owner-only permissions.
 Never copy that file when testing access from a second simulated device.
+
+### Plugin file cache validation
+
+`GET /plugin?name=<plugin>&file=<file>` returns a quoted content-MD5 `ETag` and
+`Cache-Control: no-cache`. Matching `If-None-Match` requests receive `304` with
+no body. Same-size file changes produce a new tag; read failures return `500`.
+The digest is a cache validator, not an authenticity check.

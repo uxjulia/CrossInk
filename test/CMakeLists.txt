@@ -161,6 +161,7 @@ add_subdirectory(reading_session_checkpoint)
 
 add_subdirectory(protected_paths)
 add_subdirectory(plugin_manifest_classification)
+add_subdirectory(plugin_catalog_paging)
 add_subdirectory(plugin_http_policy)
 add_subdirectory(plugin_bundle)
 
@@ -186,3 +187,6 @@ add_test(NAME BookmarkListMemoryRegression
   COMMAND ${Python3_EXECUTABLE} ${REPO_ROOT}/test/scripts/test_bookmark_list_memory.py)
 
 add_subdirectory(bookmark_store)
+
+add_test(NAME UpstreamPortRegressions
+  COMMAND ${Python3_EXECUTABLE} ${REPO_ROOT}/test/scripts/test_upstream_ports.py)

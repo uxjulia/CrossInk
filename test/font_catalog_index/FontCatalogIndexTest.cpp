@@ -34,12 +34,15 @@ int main() {
   put("/fonts/AfterEmpty/AfterEmpty_18.cpfont", "after-empty");
   SdCardFontRegistry registry;
   assert(registry.loadNames());
+  // Discovery releases its 128-entry scratch reservation before returning.
+  assert(registry.getFamilies().capacity() == registry.getFamilies().size());
   assert(Storage.exists(fontcatalog::Path));
   assert(!registry.needsRefresh());
   const auto steps = directorySteps;
   registry.clear();
   assert(registry.loadNames());
   assert(directorySteps == steps);
+  assert(registry.getFamilies().capacity() == registry.getFamilies().size());
   // A catalog written before CFF support must be rescanned even when the
   // directory names and file sizes have not changed.
   {

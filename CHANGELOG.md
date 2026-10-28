@@ -124,6 +124,11 @@
 - Reserve the retained TLS input buffer after sending bulk HTTPS requests, including OPDS book downloads, to avoid later full-record allocation failures when a server ignores the small-record request (adapted from Eszter Schuffert, FreeInk SDK #154 and #155 via CrossPoint #4167).
 - Use full refreshes on SSD2677 Sticky displays when previous-frame memory is unavailable, preventing stale black pixels.
 - Reduce memory used by OPDS book feeds with long descriptions, release partial catalogs after failed requests, and stop transfers promptly when parsing fails.
+- Keep saved tilt preferences when the sensor fails its startup check, while hiding unavailable controls (CrossPoint #4078).
+- Fix skipped and repeated plugin catalog entries, including compatibility-filtered static lists, and support encoded item fields in plugin URLs (CrossPoint #4170, #4195, #4196).
+- Connect plugin HTTPS requests before copying custom headers to reduce memory pressure during connection setup (CrossPoint #4167).
+- Align SD-font text-width measurements with drawing while preserving character spacing; existing EPUB layouts rebuild automatically (CrossPoint #3985).
+- Preserve complete non-English characters in Wi-Fi names and masked password previews, and keep installed font rows visibly selectable (CrossPoint #4079, #4106, #4101).
 
 ### Changed
 
@@ -156,6 +161,8 @@
 - Move OPDS Browser into File Transfer, keeping room for Plugins and Settings on Home.
 - Save periodic reading-stat checkpoints every five minutes of accepted reading instead of every minute, while keeping session-end, sleep, and restart saves.
 - Match menu button directions and front Up/Down labels to screen orientation on X3, X4 Pro, and X4 Classic while preserving tab navigation and reader page-turn preferences. Slider side buttons follow the screen orientation, with the upper button increasing values and the lower button decreasing them.
+- Reduce temporary allocations while finding EPUB line breaks and disable unused XML parser input-context buffering (CrossPoint #4126, #4118).
+- Revalidate plugin files with content-based ETags so unchanged files do not need to be transferred again (CrossPoint #4193).
 
 ## [v1.6.1] - 2026-10-03
 

@@ -50,11 +50,12 @@ constexpr uint32_t SECTION_CACHE_MAGIC = 0x535843FF;  // bytes: 0xFF, "CXS"
 // v98: Flush buffered words before nested block layout and font changes.
 // v99: Preserve normalized reference-text offsets for stable-page reading pace.
 // v100: Leave words below drop caps unsplit until full-width layout.
-constexpr uint8_t SECTION_FILE_VERSION = 100;
+// v101: Round SD-font glyph advances individually to match drawing.
+constexpr uint8_t SECTION_FILE_VERSION = 101;
 // Suspended incremental build: valid pages plus LUTs and a parse-watermark trailer.
 // Change this with layout or payload changes so stale partial pages cannot resume
 // under a different layout contract.
-constexpr uint8_t SECTION_FILE_PARTIAL_VERSION = 0xD5;
+constexpr uint8_t SECTION_FILE_PARTIAL_VERSION = 0xD6;
 constexpr uint32_t HEADER_SIZE =
     4 * sizeof(uint32_t) + sizeof(PublisherFonts) + sizeof(SECTION_CACHE_MAGIC) + sizeof(uint8_t) + sizeof(int) +
     sizeof(float) + sizeof(bool) + sizeof(bool) + sizeof(uint8_t) + sizeof(uint16_t) + sizeof(uint16_t) + sizeof(bool) +
