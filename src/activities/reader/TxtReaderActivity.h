@@ -91,7 +91,6 @@ class TxtReaderActivity final : public Activity {
   void cycleReaderFont();
   // Font changes and layout invalidation share the caller's RenderLock.
   void rebuildTextLayout();
-  void openReaderMenu();
   bool applyReaderOrientation(uint8_t orientation);
 #if CROSSINK_APP_CAP_TOUCH
   bool handlePinchFontResize();

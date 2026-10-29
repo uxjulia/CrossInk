@@ -20,7 +20,6 @@
 #include "RecentBooksStore.h"
 #include "SdCardFontSystem.h"
 #include "activities/boot_sleep/SleepCoverAssets.h"
-#include "activities/home/FileBrowserActionActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 
@@ -178,27 +177,6 @@ void TxtReaderActivity::onExit() {
   txt.reset();
 }
 
-void TxtReaderActivity::openReaderMenu() {
-  if (!txt) return;
-  std::vector<FileBrowserActionActivity::MenuItem> items;
-  items.push_back({FileBrowserAction::SendNearby, StrId::STR_SEND_NEARBY_BOOK});
-  auto menu = makeUniqueNoThrow<FileBrowserActionActivity>(renderer, mappedInput, txt->getTitle(), std::move(items));
-  if (!menu) {
-    LOG_ERR("NBOOK", "OOM: TXT nearby transfer menu");
-    return;
-  }
-  startActivityForResult(std::move(menu), [this](const ActivityResult& result) {
-    const auto* action = std::get_if<FileBrowserActionResult>(&result.data);
-    if (!result.isCancelled && action &&
-        static_cast<FileBrowserAction>(action->action) == FileBrowserAction::SendNearby) {
-      saveProgress(currentPage);
-      activityManager.goToNearbyBookSend(txt ? txt->getPath() : std::string{}, true);
-    } else {
-      requestUpdate();
-    }
-  });
-}
-
 bool TxtReaderActivity::handleFrontlightPanelResult(const FrontlightPanelResult& result) {
   if (result.action != FrontlightPanelAction::SendNearbyBook || !txt) return false;
   saveProgress(currentPage);
@@ -209,6 +187,11 @@ void TxtReaderActivity::loop() {
   pluginEvents.pollWhenIdle(getCurrentBookPath());
   if (quickActionsPopup.handleInput(mappedInput, [this] { requestUpdate(); })) return;
 #if CROSSINK_APP_CAP_TOUCH
+  // TXT has no reader drawer: the bottom edge exits directly on every touch device.
+  if (mappedInput.wasBottomEdgeUpSwipe()) {
+    onGoHome();
+    return;
+  }
   if (handlePinchFontResize()) return;
 #endif
   const auto touch = ReaderUtils::detectTouchPageTurn(renderer, mappedInput);
@@ -258,11 +241,6 @@ void TxtReaderActivity::loop() {
     longPressMenuHandled = mappedInput.isPressed(MappedInputManager::Button::Confirm);
     mappedInput.suppressNextConfirmRelease();
     if (!ReaderUtils::dispatchNavigationLongPressAction(SETTINGS.longPressMenuAction)) activityManager.goToLibrary();
-    return;
-  }
-
-  if (confirmReleased) {
-    openReaderMenu();
     return;
   }
 

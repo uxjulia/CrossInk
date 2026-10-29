@@ -8782,8 +8782,21 @@ class SimulatorSmokeTest {
       swipe(height / 3, height * 3 / 4);
       inputScript.push_back(assertActivity(screens[screen]));
       swipe(height - 8, height * 2 / 3);
-      inputScript.push_back(assertActivity("Home"));
+      // Release Notes reserves vertical swipes for paging, including its bottom actions.
+      inputScript.push_back(assertActivity(screen == 3 ? "ReleaseNotes" : "Home"));
     }
+    if (!Storage.writeFile("/books/home-swipe.txt", "TXT bottom-edge Home swipe regression.\n"))
+      fail("Failed to write TXT Home swipe fixture");
+    inputScript.push_back({ScriptActionType::OpenHomeSwipeScreen, MappedInputManager::Button::Back, nullptr, 0, 6, 0});
+    inputScript.push_back(render("TXT before Home swipe regression", 12));
+    inputScript.push_back(assertActivity("TxtReader"));
+    addTap(MappedInputManager::Button::Confirm);
+    inputScript.push_back(render("TXT without sharing popup", 4));
+    inputScript.push_back(assertActivity("TxtReader"));
+    swipe(height * 3 / 4, height / 3);
+    inputScript.push_back(assertActivity("TxtReader"));
+    swipe(height - 8, height * 2 / 3);
+    inputScript.push_back(assertActivity("Home"));
     inputScript.push_back(openSmokeBook());
     inputScript.push_back(render("Reader before Home swipe regression", 12));
     inputScript.push_back(assertActivity("EpubReader"));
@@ -9594,6 +9607,9 @@ class SimulatorSmokeTest {
           case 5:
             activityManager.pushActivity(std::make_unique<SettingsActivity>(renderer, mappedInputManager, false, true,
                                                                             SettingsActivity::View::FileBrowser));
+            break;
+          case 6:
+            activityManager.goToReader("/books/home-swipe.txt", true);
             break;
         }
         break;
