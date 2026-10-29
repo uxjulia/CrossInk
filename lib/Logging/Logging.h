@@ -2,6 +2,9 @@
 
 #include <Arduino.h>
 #include <BoardConfig.h>
+#if defined(ARDUINO_ARCH_ESP32) && !defined(SIMULATOR)
+#include <SerialTransport.h>
+#endif
 
 #include <string>
 
@@ -30,6 +33,12 @@ serial transport and won't trigger deprecation warnings.
 
 static auto& logSerial = BoardConfig::serialTransport();
 #define LOG_SERIAL_HAS_TX_TIMEOUT FREEINK_SERIAL_HAS_TX_TIMEOUT
+
+inline void serviceSerialTx() {
+#if defined(ARDUINO_ARCH_ESP32) && !defined(SIMULATOR)
+  BoardConfig::serviceSerialTx();
+#endif
+}
 
 void logPrintf(const char* level, const char* origin, const char* format, ...);
 
