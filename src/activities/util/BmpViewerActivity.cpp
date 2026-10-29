@@ -5,6 +5,7 @@
 #include <GfxRenderer.h>
 #include <HalStorage.h>
 #include <I18n.h>
+#include <Memory.h>
 #include <SdCardFontSystem.h>
 
 #include <algorithm>
@@ -267,6 +268,28 @@ void BmpViewerActivity::onExit() {
   renderer.displayBuffer(HalDisplay::HALF_REFRESH);
 }
 
+void BmpViewerActivity::confirmSetSleepCover() {
+  std::string subject = imageDisplayName(filePath);
+  if (FsHelpers::hasPngExtension(filePath) && SETTINGS.sleepScreen != CrossPointSettings::OVERLAY &&
+      SETTINGS.sleepScreen != CrossPointSettings::COVER_OVERLAY) {
+    subject += "\n";
+    subject += tr(STR_PIN_PNG_WARNING);
+  }
+  auto confirmation =
+      makeUniqueNoThrow<ConfirmationActivity>(renderer, mappedInput, tr(STR_SET_SLEEP_COVER_CONFIRM), subject);
+  if (!confirmation) {
+    LOG_ERR("BmpViewer", "OOM: sleep image confirmation");
+    return;
+  }
+  needsImageRedraw.store(true, std::memory_order_release);
+  startActivityForResult(std::move(confirmation), [this](const ActivityResult& result) {
+    if (!result.isCancelled)
+      doSetSleepCover();
+    else
+      requestImageRedraw();
+  });
+}
+
 void BmpViewerActivity::doSetSleepCover() {
   // The popups draw from this task; wait for any image redraw on the render task.
   RenderLock lock(*this);
@@ -276,10 +299,11 @@ void BmpViewerActivity::doSetSleepCover() {
   if (APP_STATE.saveToFile()) {
     LOG_INF("BmpViewer", "Pinned favorite sleep image: %s", filePath.c_str());
 
-    // PNG covers only render in Page Overlay sleep mode; other modes silently skip them (see
+    // PNG covers render in the overlay sleep modes; other modes silently skip them (see
     // selectPinnedSleepImage() in SleepActivity.cpp), so switch the setting for the user.
     if (FsHelpers::hasPngExtension(filePath) &&
-        SETTINGS.sleepScreen != CrossPointSettings::SLEEP_SCREEN_MODE::OVERLAY) {
+        SETTINGS.sleepScreen != CrossPointSettings::SLEEP_SCREEN_MODE::OVERLAY &&
+        SETTINGS.sleepScreen != CrossPointSettings::COVER_OVERLAY) {
       SETTINGS.sleepScreen = CrossPointSettings::SLEEP_SCREEN_MODE::OVERLAY;
       if (SETTINGS.saveToFile()) {
         LOG_INF("BmpViewer", "Switched sleep wallpaper mode to Page Overlay for PNG cover");
@@ -297,24 +321,6 @@ void BmpViewerActivity::doSetSleepCover() {
 
   delay(1000);
   requestImageRedraw();
-}
-
-void BmpViewerActivity::pinSleepFavorite() {
-  APP_STATE.favoriteSleepImagePath = filePath;
-  if (!APP_STATE.saveToFile()) {
-    LOG_ERR("BmpViewer", "Failed to save favorite sleep image path: %s", filePath.c_str());
-    return;
-  }
-  LOG_INF("BmpViewer", "Pinned favorite sleep image: %s", filePath.c_str());
-
-  // Keep the context-menu action consistent with Confirm: PNG sleep images
-  // only render in Page Overlay mode.
-  if (FsHelpers::hasPngExtension(filePath) && SETTINGS.sleepScreen != CrossPointSettings::SLEEP_SCREEN_MODE::OVERLAY) {
-    SETTINGS.sleepScreen = CrossPointSettings::SLEEP_SCREEN_MODE::OVERLAY;
-    if (!SETTINGS.saveToFile()) {
-      LOG_ERR("BmpViewer", "Failed to save Page Overlay mode for PNG sleep image");
-    }
-  }
 }
 
 void BmpViewerActivity::unpinSleepFavorite() {
@@ -401,15 +407,7 @@ void BmpViewerActivity::showContextMenu() {
                                activityManager.goToNearbyBookSend(filePath, false);
                                return;
                              case FileBrowserAction::PinFavorite:
-                               if (FsHelpers::hasPngExtension(filePath)) {
-                                 startActivityForResult(std::make_unique<ConfirmationActivity>(
-                                                            renderer, mappedInput, "", tr(STR_PIN_PNG_WARNING)),
-                                                        [this](const ActivityResult& confirmation) {
-                                                          if (!confirmation.isCancelled) pinSleepFavorite();
-                                                        });
-                               } else {
-                                 pinSleepFavorite();
-                               }
+                               confirmSetSleepCover();
                                return;
                              case FileBrowserAction::UnpinFavorite:
                                unpinSleepFavorite();
@@ -498,7 +496,7 @@ void BmpViewerActivity::loop() {
 
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
     if (isViewableImageFile(filePath)) {
-      doSetSleepCover();
+      confirmSetSleepCover();
     }
     return;
   }

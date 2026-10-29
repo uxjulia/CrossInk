@@ -22,7 +22,8 @@ constexpr int kDashboardSleepCoverWidth = DashboardMetrics::homeCoverImageWidth;
 
 bool shouldPrepareFullCover() {
   return SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::COVER ||
-         SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::COVER_CUSTOM;
+         SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::COVER_CUSTOM ||
+         SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::COVER_OVERLAY;
 }
 
 bool shouldPrepareMinimalCover() {

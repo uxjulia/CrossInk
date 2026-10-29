@@ -10,7 +10,8 @@
 #include <LibraryBuilder.h>
 #include <Logging.h>
 #include <Memory.h>
-#include <OpdsStream.h>
+#include <OpdsFeedParser.h>
+#include <OpdsSearchTemplate.h>
 #include <WiFi.h>
 #include <ZipFile.h>
 
@@ -138,15 +139,10 @@ void OpdsBookBrowserActivity::onExit() {
 
 void OpdsBookBrowserActivity::activateSelected() {
   if (!entries || entryCount == 0 || selectorIndex < 0 || selectorIndex >= static_cast<int>(entryCount)) return;
-  const auto& entry = entries[selectorIndex];
+  auto& entry = entries[selectorIndex];
   if (entry.type == OpdsEntryType::BOOK) {
-    if (entry.description[0]) {
-      RenderLock lock;
-      descriptionLines.clear();
-      descriptionWidth = descriptionTop = 0;
-      state = BrowserState::DESCRIPTION;
-      uiReady = false;
-      requestUpdate();
+    if (entry.description[0] || !entry.selfHref.empty() || entry.indirect || entry.unsupportedAcquisition) {
+      openPublication(entry);
     } else {
       requestDownload(entry);
     }
@@ -481,7 +477,11 @@ void OpdsBookBrowserActivity::buildDescriptionScreen(UiApp::ScreenType& screen) 
   const fui::Rect actions = screen.takeBottom(theme.rowHeight, gap);
   const fui::Rect body = screen.body().inset(fui::Insets{0, gap, 0, gap});
   if (descriptionWidth != body.width) {
-    descriptionLines = renderer.wrappedText(uiScaleSpec().bodyFontId, book.description.data(), body.width, 64);
+    descriptionLines = renderer.wrappedText(uiScaleSpec().bodyFontId,
+                                            (book.unsupportedAcquisition || book.href.empty()) && !book.description[0]
+                                                ? tr(STR_NOT_SUPPORTED)
+                                                : book.description.data(),
+                                            body.width, 64);
     descriptionWidth = body.width;
   }
   descriptionRows = std::max(1, static_cast<int>(body.height / lh));
@@ -497,8 +497,9 @@ void OpdsBookBrowserActivity::buildDescriptionScreen(UiApp::ScreenType& screen) 
     button.label = labels[i];
     button.action = ACTION_DESCRIPTION;
     button.value = i - 1;
-    button.enabled = i == 1 || (i == 0 ? descriptionTop > 0
-                                       : descriptionTop + descriptionRows < static_cast<int>(descriptionLines.size()));
+    button.enabled = i == 1 ? (!book.unsupportedAcquisition && !book.href.empty())
+                            : (i == 0 ? descriptionTop > 0
+                                      : descriptionTop + descriptionRows < static_cast<int>(descriptionLines.size()));
     screen.button(button, fui::Rect{static_cast<int16_t>(actions.x + i * width), actions.y, width, actions.height});
   }
 }
@@ -567,7 +568,8 @@ void OpdsBookBrowserActivity::render(RenderLock&&) {
   switch (state) {
     case BrowserState::BROWSING: {
       const char* confirmLabel = (entryCount > 0 && entries[selectorIndex].type == OpdsEntryType::BOOK &&
-                                  !entries[selectorIndex].description[0])
+                                  !entries[selectorIndex].description[0] && entries[selectorIndex].selfHref.empty() &&
+                                  !entries[selectorIndex].indirect && !entries[selectorIndex].unsupportedAcquisition)
                                      ? tr(STR_DOWNLOAD)
                                      : tr(STR_OPEN);
       const char* searchLabel = (!searchTemplate.empty() && selectorIndex == 0) ? tr(STR_SEARCH) : tr(STR_DIR_UP);
@@ -662,18 +664,19 @@ void OpdsBookBrowserActivity::fetchFeed(const std::string& path) {
   // HttpDownloader can scope Basic auth even for legacy scheme-less entries.
   const std::string authorizationOrigin = UrlUtils::ensureProtocol(server.url);
   LOG_DBG("OPDS", "Fetching: %s", UrlUtils::forLog(url).c_str());
-  OpdsParser parser(entries.get(), MAX_OPDS_FEED_ENTRIES);
+  OpdsFeedParser parser(entries.get(), MAX_OPDS_FEED_ENTRIES);
+  parser.setPreferredLanguage(I18n::getInstance().getCode());
   HttpRequestDiagnostics diagnostics;
   auto result = HttpDownloader::OK;
   if (parser) {
-    OpdsParserStream stream{parser};
     HttpDownloader::DownloadOptions downloadOptions;
     downloadOptions.transport = HttpDownloader::Transport::WOLFSSL;
     downloadOptions.authorizationOrigin = authorizationOrigin;
     result = HttpDownloader::streamUrl(
-        url, [&stream](const uint8_t* data, const size_t len) { return stream.write(data, len) == len; }, nullptr,
+        url, [&parser](const uint8_t* data, const size_t len) { return parser.write(data, len) == len; }, nullptr,
         server.username, server.password, std::move(downloadOptions), &diagnostics);
-  }  // Finalize the parser before deciding whether to publish or discard entries.
+  }
+  parser.flush();  // Finalize before publishing or discarding the bounded entry array.
 
   // A parser rejection is the cause of a callback-aborted download, rather
   // than a server/connectivity error. Do not hide it behind the HTTP result.
@@ -783,7 +786,7 @@ void OpdsBookBrowserActivity::navigateToEntry(const OpdsEntry& entry, const bool
   if (!pageLink) navigationHistory.push_back(currentPath);
   // Resolve to a full URL so sub-sub-navigation retains parent path context
   const std::string feedUrl = UrlUtils::buildUrl(server.url, currentPath);
-  currentPath = UrlUtils::buildUrl(feedUrl, entry.href);
+  currentPath = UrlUtils::resolveReference(feedUrl, entry.href);
 
   showLoadingBeforeFetch();
   fetchFeed(currentPath);
@@ -801,7 +804,97 @@ void OpdsBookBrowserActivity::navigateBack() {
   }
 }
 
-void OpdsBookBrowserActivity::requestDownload(const OpdsEntry& book) {
+bool OpdsBookBrowserActivity::loadPublication(OpdsEntry& book, const std::string& url) {
+  auto detail = makeUniqueNoThrow<OpdsEntry>();
+  auto parser = detail ? makeUniqueNoThrow<OpdsJsonParser>(detail.get(), 1, true) : nullptr;
+  if (!parser) {
+    LOG_ERR("OPDS", "Cannot allocate publication parser");
+    return false;
+  }
+  parser->setPreferredLanguage(I18n::getInstance().getCode());
+  HttpDownloader::DownloadOptions options;
+  options.transport = HttpDownloader::Transport::WOLFSSL;
+  const std::string authorizationOrigin = UrlUtils::ensureProtocol(server.url);
+  options.authorizationOrigin = authorizationOrigin;
+  size_t received = 0;
+  const auto result = HttpDownloader::streamUrl(
+      url,
+      [&](const uint8_t* data, size_t length) {
+        // A metadata document is small; do not accept an unbounded mistaken download.
+        if (length > 256 * 1024 - received) return false;
+        received += length;
+        return parser->write(data, length) == length;
+      },
+      nullptr, server.username, server.password, std::move(options));
+  parser->flush();
+  if (result != HttpDownloader::OK || parser->error() || parser->getEntryCount() != 1) {
+    LOG_ERR("OPDS", "Failed to load publication details");
+    return false;
+  }
+  if (!detail->title.empty()) book.title = std::move(detail->title);
+  if (!detail->author.empty()) book.author = std::move(detail->author);
+  if (detail->description[0]) book.description = detail->description;
+  if (!detail->href.empty()) {
+    book.href = UrlUtils::resolveReference(url, detail->href);
+    book.indirect = detail->indirect;
+    book.unsupportedAcquisition = detail->unsupportedAcquisition;
+  }
+  book.selfHref.clear();
+  return true;
+}
+
+void OpdsBookBrowserActivity::openPublication(OpdsEntry& book) {
+  if (!book.selfHref.empty()) {
+    const std::string url = UrlUtils::resolveReference(UrlUtils::buildUrl(server.url, currentPath), book.selfHref);
+    {
+      RenderLock lock;
+      state = BrowserState::LOADING;
+      statusMessage = tr(STR_LOADING);
+      uiReady = false;
+    }
+    requestUpdateAndWait();
+    RenderLock lock;
+    loadPublication(book, url);
+  }
+  RenderLock lock;
+  descriptionLines.clear();
+  descriptionWidth = descriptionTop = 0;
+  state = BrowserState::DESCRIPTION;
+  uiReady = false;
+  requestUpdate();
+}
+
+void OpdsBookBrowserActivity::requestDownload(const OpdsEntry& selectedBook) {
+  if (selectedBook.unsupportedAcquisition || selectedBook.href.empty()) return;
+  auto resolved = makeUniqueNoThrow<OpdsEntry>();
+  if (!resolved) {
+    LOG_ERR("OPDS", "Cannot allocate selected publication");
+    return;
+  }
+  *resolved = selectedBook;
+  if (resolved->indirect) {
+    {
+      RenderLock lock;
+      state = BrowserState::LOADING;
+      statusMessage = tr(STR_LOADING);
+      uiReady = false;
+    }
+    requestUpdateAndWait();
+    RenderLock lock;
+    std::string baseUrl = UrlUtils::buildUrl(server.url, currentPath);
+    for (int hop = 0; resolved->indirect && hop < 4; ++hop) {
+      const std::string url = UrlUtils::resolveReference(baseUrl, resolved->href);
+      if (!loadPublication(*resolved, url)) break;
+      baseUrl = url;
+    }
+    if (resolved->indirect || resolved->unsupportedAcquisition || resolved->href.empty()) {
+      state = BrowserState::ERROR;
+      errorMessage = tr(STR_NOT_SUPPORTED);
+      requestUpdate();
+      return;
+    }
+  }
+  const auto& book = *resolved;
   std::string path;
   if (!OpdsDownloadFolder::normalize(OpdsDownloadFolder::effective(server.downloadFolder, SETTINGS.opdsDownloadFolder),
                                      path)) {
@@ -816,7 +909,7 @@ void OpdsBookBrowserActivity::requestDownload(const OpdsEntry& book) {
   path += StringUtils::sanitizeFilename(buildBookFilenameBase(book, server.filenameFormat));
   path += ".epub";
   const std::string feedUrl = UrlUtils::buildUrl(server.url, currentPath);
-  DownloadRequest request{UrlUtils::buildUrl(feedUrl, book.href), book.title, std::move(path)};
+  DownloadRequest request{UrlUtils::resolveReference(feedUrl, book.href), book.title, std::move(path)};
   if (server.filenameFormat == OpdsFilenameFormat::SERVER_FILENAME) {
     downloadBook(std::move(request));
     return;
@@ -1034,25 +1127,9 @@ void OpdsBookBrowserActivity::performSearch(const std::string& query) {
     return;
   }
 
-  auto urlEncode = [](const std::string& s) {
-    std::string out;
-    out.reserve(s.size() * 3);
-    for (unsigned char c : s) {
-      if (isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~')
-        out += static_cast<char>(c);
-      else {
-        char buf[4];
-        snprintf(buf, sizeof(buf), "%%%02X", c);
-        out += buf;
-      }
-    }
-    return out;
-  };
-
-  std::string url = searchTemplate;
-  const std::string placeholder = "{searchTerms}";
-  const size_t pos = url.find(placeholder);
-  if (pos != std::string::npos) url.replace(pos, placeholder.length(), urlEncode(query));
+  const std::string expanded = expandOpdsSearchTemplate(searchTemplate, opdsPercentEncode(query));
+  const std::string feedUrl = UrlUtils::buildUrl(UrlUtils::ensureProtocol(server.url), currentPath);
+  const std::string url = UrlUtils::resolveReference(feedUrl, expanded);
 
   navigationHistory.push_back(currentPath);
   currentPath = url;

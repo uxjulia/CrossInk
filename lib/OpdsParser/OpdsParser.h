@@ -35,6 +35,9 @@ struct OpdsEntry {
   // A bounded preview, stored in the caller's fallibly allocated entry array.
   // 257 bytes per entry, no per-description heap allocations (13 KB / feed).
   std::array<char, MAX_OPDS_DESCRIPTION_BYTES + 1> description{};
+  std::string selfHref;  // OPDS 2 publication metadata document
+  bool indirect = false;
+  bool unsupportedAcquisition = false;  // Purchase or LCP service required
 };
 
 // Legacy alias for backward compatibility

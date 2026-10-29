@@ -29,6 +29,7 @@
 #include "ReadingUploadSmokeTest.h"
 #include "SilentRestart.h"
 #include "StatsUploadSmokeTest.h"
+#include "UpstreamFeatureSmokeTest.h"
 #include "util/WordSelectNavigator.h"
 #if CROSSINK_SCALABLE_FONTS
 #include <HalScalableFont.h>
@@ -6892,6 +6893,7 @@ class SimulatorSmokeTest {
       tickFilenameFont();
       return;
     }
+    if (tickUpstreamFeatureSmokeTest()) return;
     if (tickAssetDownloadSmokeTest()) return;
     if (tickOpdsCatalogSmokeTest()) return;
     if (tickBookmarkListSmokeTest()) return;

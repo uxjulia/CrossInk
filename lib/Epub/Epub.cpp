@@ -3,6 +3,9 @@
 #include <ArduinoJson.h>
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
+#include <GifImageLayout.h>
+#include <GifLimitedWriter.h>
+#include <GifToBmpConverter.h>
 #include <HalStorage.h>
 #include <JpegToBmpConverter.h>
 #include <Logging.h>
@@ -11,6 +14,8 @@
 #include <PngToBmpConverter.h>
 #include <Utf8.h>
 #include <ZipFile.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
 
 #include <algorithm>
 #include <cctype>
@@ -1242,6 +1247,82 @@ std::string Epub::getCoverBmpPath(bool cropped, bool imageLevels) const {
   return cachePath + "/" + coverFileName + ".bmp";
 }
 
+namespace {
+// One process-lifetime mutex serializes the converter callback and temporary files.
+const SemaphoreHandle_t gifGenerationMutex = xSemaphoreCreateMutex();
+
+void removeGifTemporaryFile(const std::string& path) {
+  if (!Storage.remove(path.c_str()) && Storage.exists(path.c_str())) {
+    LOG_ERR("EBP", "Failed to remove GIF temporary file: %s", path.c_str());
+  }
+}
+
+bool extractGifCover(const Epub& epub, const std::string& href, const std::string& path) {
+  FsFile file;
+  bool success = false;
+  const ScopedCleanup cleanup{[&]() {
+    file.close();
+    if (!success) removeGifTemporaryFile(path);
+  }};
+  if (!Storage.openFileForWrite("EBP", path, file)) {
+    LOG_ERR("EBP", "Failed to create GIF extraction file: %s", path.c_str());
+    return false;
+  }
+  GifLimitedWriter limited(file, GifCommon::MAX_FILE_BYTES);
+  success = epub.readItemContentsToStream(href, limited, 1024);
+  const bool closed = file.close();
+  success = success && closed;
+  if (!success) LOG_ERR("EBP", "GIF extraction failed, exceeded byte limit, or could not close: %s", path.c_str());
+  return success;
+}
+
+template <typename Convert>
+bool generateGifBmp(const Epub& epub, const std::string& href, const std::string& bmpPath, Convert convert) {
+  if (!gifGenerationMutex || xSemaphoreTake(gifGenerationMutex, portMAX_DELAY) != pdTRUE) {
+    LOG_ERR("EBP", "Failed to lock GIF cache generation");
+    return false;
+  }
+  const ScopedCleanup unlock{[]() { xSemaphoreGive(gifGenerationMutex); }};
+
+  const auto gifTempPath = epub.getCachePath() + "/.cover.gif";
+  const auto bmpTempPath = bmpPath + ".tmp";
+  if (!extractGifCover(epub, href, gifTempPath)) return false;
+
+  FsFile gifFile;
+  if (!Storage.openFileForRead("EBP", gifTempPath, gifFile)) {
+    LOG_ERR("EBP", "Failed to open extracted GIF: %s", gifTempPath.c_str());
+    removeGifTemporaryFile(gifTempPath);
+    return false;
+  }
+  FsFile bmpFile;
+  if (!Storage.openFileForWrite("EBP", bmpTempPath, bmpFile)) {
+    LOG_ERR("EBP", "Failed to create GIF BMP: %s", bmpPath.c_str());
+    gifFile.close();
+    removeGifTemporaryFile(gifTempPath);
+    removeGifTemporaryFile(bmpTempPath);
+    return false;
+  }
+
+  bool success = convert(gifFile, bmpFile);
+  const bool sourceClosed = gifFile.close();
+  const bool outputClosed = bmpFile.close();
+  success = success && sourceClosed && outputClosed;
+  removeGifTemporaryFile(gifTempPath);
+  // SdFat cannot rename over an existing file. Only discard the rejected cache
+  // after its replacement has been converted and closed successfully.
+  if (success && Storage.exists(bmpPath.c_str()) && !Storage.remove(bmpPath.c_str())) {
+    LOG_ERR("EBP", "Failed to replace invalid GIF BMP: %s", bmpPath.c_str());
+    success = false;
+  }
+  if (success && !Storage.rename(bmpTempPath.c_str(), bmpPath.c_str())) {
+    LOG_ERR("EBP", "Failed to publish GIF BMP: %s", bmpPath.c_str());
+    success = false;
+  }
+  if (!success) removeGifTemporaryFile(bmpTempPath);
+  return success;
+}
+}  // namespace
+
 bool Epub::generateCoverBmp(bool cropped, const GfxRenderer* renderer, const int readerFontId, bool imageLevels) const {
   if (!decryptor && !openProtection()) return false;
   // Already generated, return true
@@ -1316,6 +1397,14 @@ bool Epub::generateCoverBmp(bool cropped, const GfxRenderer* renderer, const int
       Storage.remove(getCoverBmpPath(cropped, imageLevels).c_str());
     }
     return success;
+  }
+
+  if (FsHelpers::hasGifExtension(coverImageHref)) {
+    releaseReaderSdFontCachesBeforeCoverDecode(renderer, readerFontId, "cover GIF decode");
+    return generateGifBmp(*this, coverImageHref, getCoverBmpPath(cropped, imageLevels),
+                          [cropped, imageLevels](FsFile& gif, Print& bmp) {
+                            return GifToBmpConverter::gifFileToBmpStream(gif, bmp, cropped, imageLevels);
+                          });
   }
 
   LOG_ERR("EBP", "Cover image is not a supported format, skipping");
@@ -1506,6 +1595,11 @@ bool Epub::generateThumbBmpInternal(int width, int height, const bool adaptiveCo
       Storage.remove(thumbPath.c_str());
     }
     return success;
+  } else if (FsHelpers::hasGifExtension(coverImageHref)) {
+    releaseReaderSdFontCachesBeforeCoverDecode(renderer, readerFontId, "thumbnail GIF decode");
+    return generateGifBmp(*this, coverImageHref, thumbPath, [width, height, adaptiveContain](FsFile& gif, Print& bmp) {
+      return GifToBmpConverter::gifFileTo1BitBmpStreamWithSize(gif, bmp, width, height, adaptiveContain);
+    });
   } else {
     LOG_ERR("EBP", "Cover image is not a supported format, skipping thumbnail");
   }

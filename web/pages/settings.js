@@ -275,7 +275,7 @@ let allSettings = [];
     });
 
     if (Object.prototype.hasOwnProperty.call(changes, 'koMatchMethod') &&
-        !confirm('Change Document Matching? Books get new ids, so the next sync checks every book again. ' +
+        !await showWebConfirm('Change Document Matching? Books get new ids, so the next sync checks every book again. ' +
                  'Progress already uploaded stays under the old ids until you merge books in the web app.')) {
       delete changes.koMatchMethod;
       setControlValue('koMatchMethod', originalValues.koMatchMethod);
@@ -584,7 +584,7 @@ let allSettings = [];
   }
 
   async function deleteWifiNetwork(idx) {
-    if (!confirm('Delete this Wi-Fi network?')) return;
+    if (!await showWebConfirm('Delete this Wi-Fi network?')) return;
     try {
       const resp = await fetch('/api/wifi/delete', {
         method: 'POST',
@@ -774,7 +774,7 @@ let allSettings = [];
   }
 
   async function deleteOpdsServer(idx) {
-    if (!confirm('Delete this OPDS server?')) return;
+    if (!await showWebConfirm('Delete this OPDS server?')) return;
     try {
       const resp = await fetch('/api/opds/delete', {
         method: 'POST',

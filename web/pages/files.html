@@ -34,10 +34,10 @@
   </div>
 </div>
 <!-- Upload Modal -->
-<div class="modal-overlay" id="uploadModal">
+<dialog class="modal-overlay" id="uploadModal" aria-labelledby="uploadModalTitle">
   <div class="modal">
-    <button class="modal-close" id="uploadModalClose" onclick="closeUploadModal()">&times;</button>
-    <h3>📤 Upload file</h3>
+    <button class="modal-close" aria-label="Close dialog" id="uploadModalClose" onclick="closeUploadModal()">&times;</button>
+    <h3 id="uploadModalTitle">📤 Upload file</h3>
     <div class="upload-form">
       <p class="file-info">Select a file to upload to <strong id="uploadPathDisplay"></strong></p>
       <div class="drop-zone" id="dropZone">
@@ -308,13 +308,13 @@
       </div>
     </div>
   </div>
-</div>
+</dialog>
 
 <!-- New Folder Modal -->
-<div class="modal-overlay" id="folderModal">
+<dialog class="modal-overlay" id="folderModal" aria-labelledby="folderModalTitle">
   <div class="modal">
-    <button class="modal-close" onclick="closeFolderModal()">&times;</button>
-    <h3>📁 New Folder</h3>
+    <button class="modal-close" aria-label="Close dialog" onclick="closeFolderModal()">&times;</button>
+    <h3 id="folderModalTitle">📁 New Folder</h3>
     <div class="folder-form">
       <p class="file-info">Create a new folder in <strong id="folderPathDisplay"></strong></p>
       <input
@@ -328,13 +328,13 @@
       <button class="delete-btn-cancel" onclick="closeFolderModal()">Cancel</button>
     </div>
   </div>
-</div>
+</dialog>
 
 <!-- Delete Confirmation Modal -->
-<div class="modal-overlay" id="deleteModal">
+<dialog class="modal-overlay" id="deleteModal" aria-labelledby="deleteModalTitle">
   <div class="modal">
-    <button class="modal-close" onclick="closeDeleteModal()">&times;</button>
-    <h3>🗑️ Delete Item(s)</h3>
+    <button class="modal-close" aria-label="Close dialog" onclick="closeDeleteModal()">&times;</button>
+    <h3 id="deleteModalTitle">🗑️ Delete Item(s)</h3>
     <div class="folder-form">
       <p class="delete-warning">⚠️ This action cannot be undone. Folders and everything inside them will be deleted.</p>
       <p class="file-info">Are you sure you want to delete the following item(s)?</p>
@@ -343,13 +343,13 @@
       <button class="delete-btn-cancel" onclick="closeDeleteModal()">Cancel</button>
     </div>
   </div>
-</div>
+</dialog>
 
 <!-- Rename Modal -->
-<div class="modal-overlay" id="renameModal">
+<dialog class="modal-overlay" id="renameModal" aria-labelledby="renameModalTitle">
   <div class="modal">
-    <button class="modal-close" onclick="closeRenameModal()">&times;</button>
-    <h3>✏️ Rename File</h3>
+    <button class="modal-close" aria-label="Close dialog" onclick="closeRenameModal()">&times;</button>
+    <h3 id="renameModalTitle">✏️ Rename File</h3>
     <div class="folder-form">
       <p class="file-info">Renaming <strong id="renameItemName"></strong></p>
       <input type="text" id="renameNewName" class="folder-input" placeholder="New file name..." />
@@ -358,13 +358,13 @@
       <button class="delete-btn-cancel" onclick="closeRenameModal()">Cancel</button>
     </div>
   </div>
-</div>
+</dialog>
 
 <!-- Move Modal -->
-<div class="modal-overlay" id="moveModal">
+<dialog class="modal-overlay" id="moveModal" aria-labelledby="moveModalTitle">
   <div class="modal">
-    <button class="modal-close" onclick="closeMoveModal()">&times;</button>
-    <h3>📂 Move File</h3>
+    <button class="modal-close" aria-label="Close dialog" onclick="closeMoveModal()">&times;</button>
+    <h3 id="moveModalTitle">📂 Move File</h3>
     <div class="folder-form">
       <p class="file-info">Moving <strong id="moveItemName"></strong></p>
       <input
@@ -380,13 +380,13 @@
       <button class="delete-btn-cancel" onclick="closeMoveModal()">Cancel</button>
     </div>
   </div>
-</div>
+</dialog>
 
 <!-- Image Preview Modal -->
-<div class="modal-overlay" id="imagePreviewModal">
+<dialog class="modal-overlay" id="imagePreviewModal" aria-labelledby="imagePreviewModalTitle">
   <div class="modal image-preview-mode">
-    <button class="modal-close" onclick="closeImagePreview()">&times;</button>
-    <h3>🖼️ Preview</h3>
+    <button class="modal-close" aria-label="Close dialog" onclick="closeImagePreview()">&times;</button>
+    <h3 id="imagePreviewModalTitle">🖼️ Preview</h3>
     <div class="folder-form">
       <p class="file-info"><strong id="imagePreviewName"></strong><br /><span id="imagePreviewMeta"></span></p>
       <div class="image-preview-stage">
@@ -401,6 +401,6 @@
       </div>
     </div>
   </div>
-</div>
+</dialog>
 
 <div id="plugin-container"></div>

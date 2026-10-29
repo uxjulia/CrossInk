@@ -17,6 +17,8 @@ bool ImageDimsProbe::feed(const uint8_t byte) {
         state = State::JpegSoi;
       } else if (byte == PNG_SIGNATURE[0]) {
         state = State::PngHeader;
+      } else if (byte == 'G') {
+        state = State::GifHeader;
       } else {
         state = State::Failed;
         return false;
@@ -47,6 +49,23 @@ bool ImageDimsProbe::feed(const uint8_t byte) {
         }
       }
       position++;
+      return true;
+
+    case State::GifHeader:
+      if ((position < 4 && byte != "GIF8"[position]) || (position == 4 && byte != '7' && byte != '9') ||
+          (position == 5 && byte != 'a')) {
+        state = State::Failed;
+        return false;
+      }
+      if (position == 6 || position == 7) {
+        width |= static_cast<uint32_t>(byte) << ((position - 6) * 8);
+      } else if (position == 8 || position == 9) {
+        height |= static_cast<uint32_t>(byte) << ((position - 8) * 8);
+      }
+      if (position++ == 9) {
+        state = State::Done;
+        return false;
+      }
       return true;
 
     case State::JpegSoi:

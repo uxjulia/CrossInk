@@ -68,7 +68,7 @@ function formatSize(bytes) {
     }
 
     async function deleteFamily(name) {
-      if (!confirm('Delete font family "' + name + '"?')) return;
+      if (!await showWebConfirm('Delete font family "' + name + '"?')) return;
       const status = document.getElementById('status');
       status.className = '';
       showFontStatus(status, 'Deleting ' + name + '...');

@@ -130,6 +130,8 @@ class OpdsBookBrowserActivity final : public Activity {
   bool appendEntry(OpdsEntry&& entry);
   void navigateToEntry(const OpdsEntry& entry, bool pageLink);
   void navigateBack();
+  bool loadPublication(OpdsEntry& book, const std::string& url);
+  void openPublication(OpdsEntry& book);
   void requestDownload(const OpdsEntry& book);
   void confirmDownload(DownloadRequest request, const std::string& destination);
   void downloadBook(DownloadRequest request, const std::string& approvedPath = "");

@@ -83,21 +83,13 @@ h2 {
       background-color: rgba(231, 76, 60, 0.05);
     }
 /* Upload modal */
-    .modal-overlay {
-      display: none;
-      position: fixed;
-      top: 0;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      background: rgba(0, 0, 0, 0.5);
-      z-index: 200;
-      justify-content: center;
-      align-items: center;
-    }
-.modal-overlay.open {
-      display: flex;
-    }
+dialog.modal-overlay {
+  position: fixed; inset: 0; width: 100%; height: 100%; max-width: none; max-height: none;
+  margin: auto; padding: 0; border: 0; background: transparent; color: inherit;
+  overflow: visible; justify-content: center; align-items: center;
+}
+.modal-overlay[open] { display: flex; }
+.modal-overlay::backdrop { background: rgba(0, 0, 0, 0.5); backdrop-filter: blur(8px); }
 .modal {
       background: var(--card-bg);
       border-radius: var(--radius-sm);

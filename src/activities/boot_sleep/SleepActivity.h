@@ -21,6 +21,9 @@ class SleepActivity final : public Activity {
   bool rendersBeforeExit() const;
 
  private:
+#ifdef SIMULATOR
+  friend struct UpstreamFeatureSmokeTest;
+#endif
   void renderDefaultSleepScreen() const;
   void renderCustomSleepScreen() const;
   void renderCoverSleepScreen() const;
@@ -28,10 +31,16 @@ class SleepActivity final : public Activity {
   void renderMinimalSleepScreen() const;
   void renderMinimalStatsSleepScreen() const;
   void renderDashboardSleepScreen() const;
+  struct BitmapPlacement {
+    int x, y, width, height;
+    float cropX, cropY;
+  };
+  BitmapPlacement prepareSleepBitmap(Bitmap& bitmap) const;
+  bool drawSleepBitmap(Bitmap& bitmap, const BitmapPlacement& placement) const;
   bool renderBitmapSleepScreen(Bitmap& bitmap) const;
   void renderLastScreenSleepScreen() const;
   void renderBlankSleepScreen() const;
-  void renderOverlaySleepScreen() const;
+  void renderOverlaySleepScreen(Bitmap* cover = nullptr) const;
   bool canSnapshotOverlayBackground = false;
   bool overlayBackgroundBufferStored = false;
   std::string currentBookPath;

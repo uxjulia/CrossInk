@@ -63,6 +63,7 @@ constexpr uint8_t SLEEP_SCREEN_STORAGE_ORDER[] = {
     static_cast<uint8_t>(CrossPointSettings::QUICK_RESUME),
     static_cast<uint8_t>(CrossPointSettings::MINIMAL_STATS_SLEEP),
     static_cast<uint8_t>(CrossPointSettings::DASHBOARD_SLEEP),
+    static_cast<uint8_t>(CrossPointSettings::COVER_OVERLAY),
 };
 constexpr uint8_t SLEEP_SCREEN_STORAGE_ORDER_COUNT =
     sizeof(SLEEP_SCREEN_STORAGE_ORDER) / sizeof(SLEEP_SCREEN_STORAGE_ORDER[0]);
@@ -1376,6 +1377,7 @@ bool CrossPointSettings::verifySleepScreenMigrationContract() {
          sleepScreenModeToStorage(MINIMAL_STATS_SLEEP) == minimalStatsStorageValue &&
          sleepScreenStorageToMode(dashboardSleepStorageValue) == DASHBOARD_SLEEP &&
          sleepScreenModeToStorage(DASHBOARD_SLEEP) == dashboardSleepStorageValue &&
+         sleepScreenStorageToMode(12) == COVER_OVERLAY && sleepScreenModeToStorage(COVER_OVERLAY) == 12 &&
          sleepScreenStorageToMode(UINT8_MAX) == DARK;
 }
 #endif

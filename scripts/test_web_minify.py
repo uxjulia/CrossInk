@@ -43,6 +43,6 @@ class WebMinifyTest(unittest.TestCase):
                     if call in {"if", "confirm", "alert", "parseInt", "parseFloat", "Number", "String"}: continue
                     self.assertIn(call, names, (path.name, handler))
             checked += 1
-        self.assertEqual(checked, 4)
+        self.assertEqual(checked, len(list((ROOT / "web/pages").glob("*.html"))))
 
 if __name__ == "__main__": unittest.main()

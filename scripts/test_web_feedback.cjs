@@ -14,14 +14,14 @@ function asset(name) {
 }
 for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 }, { width: 320, height: 568 }]) {
   test(`generated portal feedback and interruption at ${viewport.width}px`, { timeout: 60000 }, async () => {
-    const browser = await chromium.launch({ headless: true });
+    const browser = await chromium.launch({ headless: true, executablePath: process.env.CHROMIUM_PATH });
     try {
       const page = await browser.newPage({ viewport, isMobile: viewport.width < 600, hasTouch: viewport.width < 600 });
       page.setDefaultTimeout(10000);
       const errors = [];
       page.on('pageerror', e => errors.push(e.message));
-      let outcome = 'success', calls = 0, accept = true, release;
-      page.on('dialog', dialog => accept ? dialog.accept() : dialog.dismiss());
+      let outcome = 'success', calls = 0, release;
+      page.on('dialog', dialog => { errors.push('Unexpected native dialog'); dialog.dismiss(); });
       await page.route('http://reader.test/**', async route => {
         const path = new URL(route.request().url()).pathname;
         const names = { '/files': 'FilesPageHtml', '/settings': 'SettingsPageHtml', '/fonts': 'FontsPageHtml', '/style.css': 'StyleCss' };
@@ -33,6 +33,7 @@ for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 
           if (outcome === 'network') return route.abort();
           return route.fulfill({ status: outcome === 'failure' ? 500 : 200, json: { ok: outcome !== 'failure', error: 'SD full' } });
         }
+        if (path === '/plugin-host.js') return route.fulfill({ body: 'function loadPlugins() {}', contentType: 'application/javascript' });
         if (path.startsWith('/api/')) return route.fulfill({ json: path === '/api/status' ? {} : path === '/api/files' ? [{ name: 'Books', isDirectory: true, size: 0 }] : [] });
         return route.fulfill({ body: '', contentType: 'application/javascript' });
       });
@@ -45,18 +46,20 @@ for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 
         const b = await feedback.boundingBox();
         assert.ok(b.x >= 0 && b.y >= 0 && b.x + b.width <= viewport.width + 1 && b.y + b.height <= viewport.height + 1, JSON.stringify(b));
       }
-      accept = false;
       await page.locator('.family button').first().click();
+      await page.locator('#webDialogCancel').click();
       await page.waitForTimeout(30);
       assert.equal(calls, 0, 'cancelled deletion must not call API');
-      accept = true;
       await page.locator('.family button').first().click();
+      await page.locator('#webDialogConfirm').click();
       await visible('Deleted "Family_0"');
       outcome = 'failure';
       await page.locator('.family button').last().click();
+      await page.locator('#webDialogConfirm').click();
       await visible('Failed to delete');
       outcome = 'network';
       await page.locator('.family button').last().click();
+      await page.locator('#webDialogConfirm').click();
       await visible('Delete error:');
       async function submit(names) {
         await page.evaluate(names => {
@@ -110,6 +113,22 @@ for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 
       await page.getByRole('button', { name: 'Dismiss font notification' }).click();
       assert.equal(await feedback.isVisible(), false);
       await page.goto('http://reader.test/settings');
+      await page.evaluate(() => {
+        window.dialogResults = [];
+        showWebConfirm('<img src=x onerror=alert(1)>').then(value => dialogResults.push(value));
+        showWebAlert('Second message').then(() => dialogResults.push('closed'));
+      });
+      await page.waitForSelector('#webMessageDialog[open]');
+      assert.equal(await page.locator('#webDialogMessage').textContent(), '<img src=x onerror=alert(1)>');
+      assert.equal(await page.locator('#webDialogMessage img').count(), 0);
+      assert.equal(await page.evaluate(() => document.activeElement.id), 'webDialogCancel');
+      if (screenshots) await page.screenshot({ path: join(screenshots, `confirmation-${viewport.width}.png`) });
+      await page.keyboard.press('Escape');
+      await page.waitForFunction(() => document.getElementById('webDialogMessage').textContent === 'Second message');
+      assert.equal(await page.locator('#webDialogCancel').isVisible(), false);
+      await page.locator('#webDialogConfirm').click();
+      await page.waitForFunction(() => dialogResults.length === 2);
+      assert.deepEqual(await page.evaluate(() => dialogResults), [false, 'closed']);
       console.log(viewport.width, 'settings timers');
       await page.evaluate(() => showMessage('first', false));
       await page.clock.fastForward(3900);

@@ -23,9 +23,9 @@ class BmpViewerActivity final : public Activity {
   void loadSiblingImages();
   bool renderPngImage();
   void doSetSleepCover();
+  void confirmSetSleepCover();
   void showContextMenu();
   void promptDeleteImage();
-  void pinSleepFavorite();
   void unpinSleepFavorite();
   void pinBootFavorite();
   void unpinBootFavorite();

@@ -38,6 +38,8 @@ class Element {
     for (const callback of this.listeners.get(type) || []) callback(event);
   }
   removeAttribute(name) { delete this[name]; }
+  showModal() { this.open = true; }
+  close() { this.open = false; }
   focus() {}
   select() {}
   setSelectionRange() {}
@@ -53,9 +55,9 @@ function portal({ entries = [], fallback = false } = {}) {
   const overlays = ['uploadModal', 'folderModal', 'deleteModal', 'renameModal', 'moveModal', 'imagePreviewModal'].map(element);
   const document = new Element('document');
   document.getElementById = element;
-  document.querySelectorAll = selector => selector === '.modal-overlay' ? overlays : [];
+  document.querySelectorAll = selector => ['.modal-overlay', 'dialog.modal-overlay'].includes(selector) ? overlays : [];
   document.querySelector = selector => selector === '.modal-overlay.open'
-    ? overlays.find(overlay => overlay.classList.contains('open'))
+    ? overlays.find(overlay => overlay.open)
     : element(selector);
   const uploads = [];
   const requests = [];
@@ -100,7 +102,7 @@ function portal({ entries = [], fallback = false } = {}) {
     window: { location: { search: '?path=%2Fbooks', hostname: 'reader.test', port: '', reload() {} }, addEventListener() {} },
     URLSearchParams, File, Blob, FormData, WebSocket, XMLHttpRequest,
     console: { log: (...args) => logs.push(args.join(' ')), warn() {}, error() {} },
-    alert: message => { throw new Error(message); },
+    showWebAlert: message => { throw new Error(message); },
     localStorage: { getItem: key => storage.get(key), setItem: (key, value) => storage.set(key, value), removeItem: key => storage.delete(key) },
     fetch: async url => {
       requests.push(url);
@@ -111,8 +113,8 @@ function portal({ entries = [], fallback = false } = {}) {
     clearTimeout() {},
   });
   // The test controls when hydration occurs, after installing its fixtures.
-  assert.match(source, /hydrate\(\);?\s*$/);
-  vm.runInContext(source.replace(/hydrate\(\);?\s*$/, ''), context);
+  assert.match(source, /hydrate\(\);?\s*(?:loadPlugins\("files"\);)?\s*$/);
+  vm.runInContext(source.replace(/hydrate\(\);?\s*(?:loadPlugins\("files"\);)?\s*$/, ''), context);
   return { context, element, overlays, document, uploads, requests, logs, storage,
     run: code => vm.runInContext(code, context) };
 }
@@ -216,25 +218,25 @@ test('dialog drags and inside interactions stay open; actual backdrop clicks cle
   const page = portal();
   await page.context.hydrate();
   for (const overlay of page.overlays) {
-    overlay.classList.add('open');
+    overlay.showModal();
     const inside = new Element('dialog text');
     overlay.emit('mousedown', inside);
     overlay.emit('click', overlay);
-    assert.ok(overlay.classList.contains('open'), `${overlay.id}: selection drag closed dialog`);
+    assert.ok(overlay.open, `${overlay.id}: selection drag closed dialog`);
     overlay.emit('mousedown', inside);
     overlay.emit('click', inside);
-    assert.ok(overlay.classList.contains('open'), `${overlay.id}: inside click closed dialog`);
+    assert.ok(overlay.open, `${overlay.id}: inside click closed dialog`);
     overlay.emit('mousedown');
     overlay.emit('click', inside);
-    assert.ok(overlay.classList.contains('open'), `${overlay.id}: backdrop-to-inside drag closed dialog`);
+    assert.ok(overlay.open, `${overlay.id}: backdrop-to-inside drag closed dialog`);
     overlay.emit('mousedown');
     overlay.emit('click');
-    assert.equal(overlay.classList.contains('open'), false, `${overlay.id}: backdrop click failed`);
-    overlay.classList.add('open');
+    assert.equal(overlay.open, false, `${overlay.id}: backdrop click failed`);
+    overlay.showModal();
     // A prior close must not leave a stale mousedown target when reopened.
     overlay.emit('click');
-    assert.ok(overlay.classList.contains('open'), `${overlay.id}: stale target dismissed reopened dialog`);
-    overlay.classList.remove('open');
+    assert.ok(overlay.open, `${overlay.id}: stale target dismissed reopened dialog`);
+    overlay.close();
   }
 });
 
@@ -242,43 +244,43 @@ test('backdrop and close icon cannot interrupt uploads; Cancel and Escape still 
   const page = portal();
   await page.context.hydrate();
   const overlay = page.element('uploadModal');
-  overlay.classList.add('open');
+  overlay.showModal();
   page.run('isUploadInProgress = true');
   let aborts = 0;
   page.context.activeXhr = { abort() { aborts++; } };
   page.run('currentUploadXhr = activeXhr');
   overlay.emit('mousedown');
   overlay.emit('click');
-  assert.ok(overlay.classList.contains('open'));
+  assert.ok(overlay.open);
   assert.equal(page.run('operationCancelled'), false);
   assert.equal(aborts, 0);
   page.context.closeUploadModal();
-  assert.ok(overlay.classList.contains('open'));
+  assert.ok(overlay.open);
   assert.equal(aborts, 0);
   page.context.handleCancelUploadModal();
   assert.equal(page.run('operationCancelled'), true);
   assert.equal(aborts, 1);
-  assert.ok(overlay.classList.contains('open'));
+  assert.ok(overlay.open);
   page.run('operationCancelled = false; currentUploadXhr = activeXhr');
-  page.document.emit('keydown', page.document, { key: 'Escape' });
+  overlay.emit('cancel');
   assert.equal(page.run('operationCancelled'), true);
   assert.equal(aborts, 2);
   page.run('isUploadInProgress = false');
   page.context.closeUploadModal();
-  assert.equal(overlay.classList.contains('open'), false);
+  assert.equal(overlay.open, false);
 });
 
 test('normal close, Cancel and Escape still close idle dialogs', async () => {
   const page = portal();
   await page.context.hydrate();
   for (const name of ['closeUploadModal', 'handleCancelUploadModal']) {
-    page.element('uploadModal').classList.add('open');
+    page.element('uploadModal').showModal();
     page.context[name]();
-    assert.equal(page.element('uploadModal').classList.contains('open'), false);
+    assert.equal(page.element('uploadModal').open, false);
   }
   for (const overlay of page.overlays) {
-    overlay.classList.add('open');
-    page.document.emit('keydown', page.document, { key: 'Escape' });
-    assert.equal(overlay.classList.contains('open'), false, overlay.id);
+    overlay.showModal();
+    overlay.emit('cancel');
+    assert.equal(overlay.open, false, overlay.id);
   }
 });

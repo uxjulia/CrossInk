@@ -526,7 +526,7 @@ void FileBrowserActivity::promptDeleteFile(const std::string& fullPath, const st
     requestUpdate(true);
   };
 
-  const std::string heading = tr(STR_DELETE) + std::string("? ");
+  const std::string heading = tr(STR_DELETE_ITEM_CONFIRM);
   startActivityForResult(std::make_unique<ConfirmationActivity>(renderer, mappedInput, heading, entry), handler);
 }
 
@@ -581,7 +581,7 @@ void FileBrowserActivity::promptDeleteDirectory(const std::string& fullPath, con
     requestUpdate(true);
   };
 
-  const std::string heading = tr(STR_DELETE) + std::string("? ");
+  const std::string heading = tr(STR_DELETE_ITEM_CONFIRM);
   startActivityForResult(
       std::make_unique<ConfirmationActivity>(renderer, mappedInput, heading, entry, ignoreInitialConfirmRelease),
       handler);
@@ -659,7 +659,8 @@ void FileBrowserActivity::pinSleepFavorite(const std::string& fullPath) {
 
   // PNG sleep images only render in Page Overlay mode, so make selecting one
   // from the File Browser immediately usable.
-  if (FsHelpers::hasPngExtension(fullPath) && SETTINGS.sleepScreen != CrossPointSettings::SLEEP_SCREEN_MODE::OVERLAY) {
+  if (FsHelpers::hasPngExtension(fullPath) && SETTINGS.sleepScreen != CrossPointSettings::SLEEP_SCREEN_MODE::OVERLAY &&
+      SETTINGS.sleepScreen != CrossPointSettings::COVER_OVERLAY) {
     SETTINGS.sleepScreen = CrossPointSettings::SLEEP_SCREEN_MODE::OVERLAY;
     if (!SETTINGS.saveToFile()) {
       LOG_ERR("FileBrowser", "Failed to save Page Overlay mode for PNG sleep image");

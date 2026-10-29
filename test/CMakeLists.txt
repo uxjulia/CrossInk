@@ -191,3 +191,5 @@ add_subdirectory(bookmark_store)
 
 add_test(NAME UpstreamPortRegressions
   COMMAND ${Python3_EXECUTABLE} ${REPO_ROOT}/test/scripts/test_upstream_ports.py)
+
+add_subdirectory(gif_support)

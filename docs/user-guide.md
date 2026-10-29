@@ -117,6 +117,11 @@ Upon turning the device on for the first time, you will be placed on the **[Home
 
 The Home screen is the main menu. It shows the book you are reading and these entries: **[Browse Files](#33-browse-files-screen)**, **[Library](#34-library-screen)**, **OPDS Browser** (once you have added an OPDS server), **Reading Stats** and **Bookmarks**/**Clippings** (when there is something to show), **[File Transfer](#35-file-transfer-screen)**, and **[Settings](#36-settings)**. The layout depends on your **UI Theme**. To start reading, see **[Reading Mode](#4-reading-mode)**.
 
+When Plugins is enabled in Settings → System, open **Plugins** from Home. In
+its installed-plugin picker, hold **Confirm** for one second or long-press a
+plugin row on a touch device. Choose **Uninstall** to remove that installed
+plugin folder and all of its files, or **Cancel** to keep it.
+
 ### 3.2 Reading Mode
 
 See [Reading Mode](#4-reading-mode) below for more information.
@@ -428,6 +433,13 @@ The web portal offers the same choices and previews the destination. Save the sh
 
 Folder paths may contain up to 63 UTF-8 bytes, including the leading slash. Relative input gains a leading slash; repeated/trailing slashes are removed. Parent-directory components (`..`), control characters, FAT-reserved characters and components ending in a dot or space are rejected.
 
+OPDS catalogs may use Atom or OPDS 2 JSON. JSON navigation, groups, facets,
+search, pagination, publication descriptions, and indirect EPUB links are
+supported. The reader keeps up to 50 entries per feed and follows server page
+links. Descriptions are bounded previews. Basic-auth credentials remain scoped
+to the configured server. OAuth sign-in, purchases, and LCP service fulfillment
+are not included.
+
 #### 3.6.6 Web Settings (Wi-Fi + OPDS)
 
 While in **File Transfer** mode, the web settings page includes management cards for both **Wi-Fi Networks** and **OPDS Servers**.
@@ -597,6 +609,7 @@ The sleep screen is what the display shows while the device sleeps. To change it
 | **Custom**         | A custom image from the SD card (see below). Falls back to **Dark** if no custom image is found.                                                       |
 | **Cover**          | The cover of the currently open book. Falls back to **Dark** if no book is open.                                                                       |
 | **Cover + Custom** | The cover of the currently open book, shown only while actively reading. Falls back to **Custom** behavior when not reading.                           |
+| **Cover Overlay** | Draws a transparent sleep image over the current book cover. Uses the cover alone if no overlay is available, or a white background if no cover is available. |
 | **Page Overlay**   | Keeps the current reader page visible and draws a sleep wallpaper over it. If no wallpaper is available, the page remains visible while reading.       |
 | **Reading Stats**  | Recent reading stats. Falls back to **Minimal** while tracking is off for the device or recent book. Hidden while **Track Reading Stats** is off.      |
 | **Minimal**        | A compact sleep screen based on the Minimal home layout.                                                                                               |
@@ -608,19 +621,19 @@ The same screen also has **Quick Resume on Timeout**. When it is on, the device 
 
 #### Cover settings
 
-When using **Cover** or **Cover + Custom**, two more settings apply:
+When using **Cover**, **Cover + Custom**, or **Cover Overlay**, two more settings apply:
 
 - **Cover Mode**: **Fit** (default; scales the cover to fit, with white borders) or **Crop** (scales and crops the cover to fill the screen).
 - **Cover Filter**: **None** (default; grayscale), **Contrast** (black and white), or **Inverted** (inverted black and white).
 
 #### Custom images
 
-To use custom sleep images, set the sleep screen to **Custom**, **Cover + Custom**, or **Page Overlay**, then place images on the SD card:
+To use custom sleep images, set the sleep screen to **Custom**, **Cover + Custom**, **Page Overlay**, or **Cover Overlay**, then place images on the SD card:
 
-- **Multiple Images (recommended):** Create a `.sleep` directory in the root of the SD card and place any number of `.bmp` images inside. In **Page Overlay** mode, `.png` images are also supported. One image will be randomly selected each time the device sleeps. (A directory named `sleep` is also accepted as a fallback.)
-- **Single Image:** Place a file named `sleep.bmp` in the root directory. In **Page Overlay** mode, `sleep.png` is also supported. These files are used as fallbacks if no valid image is found in the `.sleep`/`sleep` directory.
+- **Multiple Images (recommended):** Create a `.sleep` directory in the root of the SD card and place any number of `.bmp` images inside. In **Page Overlay** and **Cover Overlay** modes, `.png` images are also supported. One image will be randomly selected each time the device sleeps. (A directory named `sleep` is also accepted as a fallback.)
+- **Single Image:** Place a file named `sleep.bmp` in the root directory. In **Page Overlay** and **Cover Overlay** modes, `sleep.png` is also supported. These files are used as fallbacks if no valid image is found in the `.sleep`/`sleep` directory.
 
-In **Page Overlay** mode, white BMP pixels and transparent PNG pixels let the current reader page show through; the remaining wallpaper pixels are drawn over the page. PNG wallpapers are supported only in this mode.
+In **Page Overlay** mode, white BMP pixels and transparent PNG pixels let the current reader page show through; the remaining wallpaper pixels are drawn over the page. **Cover Overlay** uses the same image selection over the current book cover. PNG alpha transparency preserves cover grayscale on supported panels; BMP white pixels are transparent and other pixels form a black mask.
 
 > [!TIP]
 > For best results:
@@ -630,7 +643,7 @@ In **Page Overlay** mode, white BMP pixels and transparent PNG pixels let the cu
 > - X3: Use a resolution of 528x792 pixels to match the device's screen resolution.
 
 > [!TIP]
-> You can set an image as the sleep screen cover directly from the BMP image viewer in the **[Browse Files](#33-browse-files-screen)** screen.
+> You can set an image as the sleep screen cover from the image viewer in **[Browse Files](#33-browse-files-screen)**. The viewer asks for confirmation before saving your selection.
 
 ---
 
@@ -901,7 +914,7 @@ CrossInk is in active development. These are the current limits:
   seconds to convert for the sleep screen and Home-screen thumbnail. If a book
   is slow to open, use the built-in [EPUB optimization](./webserver.md#epub-optimization)
   before uploading it.
-- **Image formats:** Most JPG and PNG images in EPUBs display correctly. GIFs and progressive JPEGs are not supported and show an `[Image]` placeholder instead.
+- **Image formats:** Most JPG, PNG, and non-interlaced GIF images in EPUBs display correctly. GIF covers and thumbnails are supported; animated GIFs show their first frame. Damaged, oversized, interlaced GIFs and progressive JPEGs are not supported. Existing EPUB page caches rebuild automatically after this update.
 - **Built-in reader fonts:** Chinese, Japanese, Korean, Arabic, Greek, Hebrew, and Farsi need a custom SD card font; see [Supported Languages](#supported-languages).
 
 ---

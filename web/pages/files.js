@@ -122,21 +122,16 @@ async function hydrate() {
       if (clickedBackdrop) {
         const closeFn = MODAL_OUTSIDE_CLICK_FNS[overlay.id];
         if (closeFn) return closeFn();
-        overlay.classList.remove("open");
+        overlay.close();
       }
     });
   });
 
-  // Escape cancels whichever modal is currently open
-  document.addEventListener("keydown", function (e) {
-    if (e.key !== "Escape" || e.repeat || e.isComposing) return;
-    const openOverlay = document.querySelector(".modal-overlay.open");
-    if (!openOverlay) return;
-    const closeFn = MODAL_CANCEL_FNS[openOverlay.id];
-    if (closeFn) {
-      e.preventDefault();
-      closeFn();
-    }
+  document.querySelectorAll("dialog.modal-overlay").forEach((modal) => {
+    modal.addEventListener("cancel", (event) => {
+      event.preventDefault();
+      MODAL_CANCEL_FNS[modal.id]();
+    });
   });
 
   // Enter confirms the rename/move text inputs
@@ -326,6 +321,16 @@ function downloadUrl(filePath) {
   return `/download?path=${encodeURIComponent(filePath)}`;
 }
 
+function openWebModal(id) {
+  const modal = document.getElementById(id);
+  if (!modal.open) modal.showModal();
+}
+
+function closeWebModal(id) {
+  const modal = document.getElementById(id);
+  if (modal.open) modal.close();
+}
+
 function openImagePreview(link) {
   const url = link.getAttribute("href");
   const name = link.textContent;
@@ -348,13 +353,13 @@ function openImagePreview(link) {
   img.alt = name;
   document.getElementById("imagePreviewDownload").href = url;
   document.getElementById("imagePreviewNav").classList.toggle("single", links.length < 2);
-  document.getElementById("imagePreviewModal").classList.add("open");
+  openWebModal("imagePreviewModal");
 }
 
 // Image navigation is independent of the file-dialog shortcuts.
 document.addEventListener("keydown", (e) => {
   if (e.repeat || e.isComposing || (e.key !== "ArrowLeft" && e.key !== "ArrowRight")) return;
-  if (!document.getElementById("imagePreviewModal").classList.contains("open")) return;
+  if (!document.getElementById("imagePreviewModal").open) return;
   e.preventDefault();
   stepImagePreview(e.key === "ArrowLeft" ? -1 : 1);
 });
@@ -372,7 +377,7 @@ function stepImagePreview(dir) {
 }
 
 function closeImagePreview() {
-  document.getElementById("imagePreviewModal").classList.remove("open");
+  closeWebModal("imagePreviewModal");
   const img = document.getElementById("imagePreviewImg");
   img.onload = img.onerror = null;
   img.removeAttribute("src");
@@ -410,7 +415,7 @@ function openUploadModal() {
   if (logContainer) logContainer.innerHTML = "";
 
   document.getElementById("uploadPathDisplay").textContent = currentPath === "/" ? "/ 🏠" : currentPath;
-  document.getElementById("uploadModal").classList.add("open");
+  openWebModal("uploadModal");
 }
 
 function handleCancelUploadModal() {
@@ -453,7 +458,7 @@ function closeUploadModal() {
   if (isUploadInProgress) {
     return;
   }
-  document.getElementById("uploadModal").classList.remove("open");
+  closeWebModal("uploadModal");
   const fileInput = document.getElementById("fileInput");
   fileInput.value = "";
   fileInput.classList.remove("has-files");
@@ -971,7 +976,7 @@ async function showImagePicker(file) {
   // Check if JSZip is available
   if (typeof JSZip === "undefined") {
     console.error("JSZip not loaded");
-    alert("JSZip library not available. Conversion will proceed without image picker.");
+    showWebAlert("JSZip library not available. Conversion will proceed without image picker.");
     startConversionWithImageStates();
     return;
   }
@@ -1022,7 +1027,7 @@ async function showImagePicker(file) {
     document.getElementById("pickerColumns").classList.add("picker-active");
   } catch (error) {
     console.error("Failed to extract images:", error);
-    alert("Failed to preview images: " + error.message + "\n\nConversion will proceed normally.");
+    showWebAlert("Failed to preview images: " + error.message + "\n\nConversion will proceed normally.");
     // Fallback: start conversion directly
     startConversionWithImageStates();
   }
@@ -1267,7 +1272,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
 function openFolderModal() {
   document.getElementById("folderPathDisplay").textContent = currentPath === "/" ? "/ 🏠" : currentPath;
-  document.getElementById("folderModal").classList.add("open");
+  openWebModal("folderModal");
   document.getElementById("folderName").value = "";
   setTimeout(() => document.getElementById("folderName").focus(), 50);
   document.getElementById("folderName").onkeydown = (e) => {
@@ -1276,7 +1281,7 @@ function openFolderModal() {
 }
 
 function closeFolderModal() {
-  document.getElementById("folderModal").classList.remove("open");
+  closeWebModal("folderModal");
 }
 
 // Toggle select-all checkbox
@@ -1303,7 +1308,7 @@ function getSelectedItems() {
 function openDeleteSelectedModal() {
   const items = getSelectedItems();
   if (items.length === 0) {
-    alert("Please select at least one item to delete.");
+    showWebAlert("Please select at least one item to delete.");
     return;
   }
   openDeleteModalForItems(items);
@@ -1326,11 +1331,11 @@ function openDeleteModalForItems(items) {
     div.textContent = (it.isFolder ? "📁 " : "📄 ") + it.path;
     listEl.appendChild(div);
   });
-  document.getElementById("deleteModal").classList.add("open");
+  openWebModal("deleteModal");
 }
 
 function closeDeleteModal() {
-  document.getElementById("deleteModal").classList.remove("open");
+  closeWebModal("deleteModal");
 }
 
 async function confirmDelete() {
@@ -1373,7 +1378,7 @@ async function confirmDelete() {
 
     const shown = failed.slice(0, 3).join("\n");
     const hiddenCount = failed.length - 3;
-    alert(
+    showWebAlert(
       "Failed to delete " +
         failed.length +
         " item" +
@@ -1384,7 +1389,7 @@ async function confirmDelete() {
     );
     closeDeleteModal();
   } catch (_) {
-    alert("Failed to delete - network error");
+    showWebAlert("Failed to delete - network error");
     closeDeleteModal();
   } finally {
     if (deleteBtn) {
@@ -5339,7 +5344,7 @@ async function uploadFile() {
   const convertEnabled = document.getElementById("convertBeforeUpload").checked;
 
   if (files.length === 0) {
-    alert("Please select at least one file!");
+    showWebAlert("Please select at least one file!");
     return;
   }
 
@@ -5349,7 +5354,7 @@ async function uploadFile() {
     usedFileNames = await fetchExistingUploadNames();
   } catch (error) {
     isUploadInProgress = false;
-    alert(`Failed to check existing files: ${error.message}`);
+    showWebAlert(`Failed to check existing files: ${error.message}`);
     return;
   }
 
@@ -5711,12 +5716,12 @@ function createFolder() {
   const folderName = document.getElementById("folderName").value.trim();
 
   if (!folderName) {
-    alert("Please enter a folder name!");
+    showWebAlert("Please enter a folder name!");
     return;
   }
 
   if (!isSafeFileName(folderName)) {
-    alert("Folder name " + SAFE_FILE_NAME_RULE_MESSAGE);
+    showWebAlert("Folder name " + SAFE_FILE_NAME_RULE_MESSAGE);
     return;
   }
 
@@ -5731,12 +5736,12 @@ function createFolder() {
     if (xhr.status === 200) {
       window.location.reload();
     } else {
-      alert("Failed to create folder: " + xhr.responseText);
+      showWebAlert("Failed to create folder: " + xhr.responseText);
     }
   };
 
   xhr.onerror = function () {
-    alert("Failed to create folder - network error");
+    showWebAlert("Failed to create folder - network error");
   };
 
   xhr.send(formData);
@@ -5747,7 +5752,7 @@ function openRenameModal(name, path) {
   document.getElementById("renameItemName").textContent = "📄 " + name;
   document.getElementById("renameItemPath").value = path;
   document.getElementById("renameNewName").value = name;
-  document.getElementById("renameModal").classList.add("open");
+  openWebModal("renameModal");
   setTimeout(() => {
     const input = document.getElementById("renameNewName");
     input.focus();
@@ -5761,7 +5766,7 @@ function openRenameModal(name, path) {
 }
 
 function closeRenameModal() {
-  document.getElementById("renameModal").classList.remove("open");
+  closeWebModal("renameModal");
 }
 
 function confirmRename() {
@@ -5769,11 +5774,11 @@ function confirmRename() {
   const newName = document.getElementById("renameNewName").value.trim();
 
   if (!newName) {
-    alert("Please enter a new name.");
+    showWebAlert("Please enter a new name.");
     return;
   }
   if (!isSafeFileName(newName)) {
-    alert("File name " + SAFE_FILE_NAME_RULE_MESSAGE);
+    showWebAlert("File name " + SAFE_FILE_NAME_RULE_MESSAGE);
     return;
   }
 
@@ -5788,13 +5793,13 @@ function confirmRename() {
     if (xhr.status === 200) {
       window.location.reload();
     } else {
-      alert("Failed to rename: " + xhr.responseText);
+      showWebAlert("Failed to rename: " + xhr.responseText);
     }
     closeRenameModal();
   };
 
   xhr.onerror = function () {
-    alert("Failed to rename - network error");
+    showWebAlert("Failed to rename - network error");
     closeRenameModal();
   };
 
@@ -5869,7 +5874,7 @@ function openMoveModal(name, path) {
   document.getElementById("moveItemName").textContent = "📄 " + name;
   document.getElementById("moveItemPath").value = path;
   document.getElementById("moveDestPath").value = currentPath === "/" ? "/" : currentPath;
-  document.getElementById("moveModal").classList.add("open");
+  openWebModal("moveModal");
   loadMoveFolderOptions();
   setTimeout(() => {
     document.getElementById("moveDestPath").focus();
@@ -5877,7 +5882,7 @@ function openMoveModal(name, path) {
 }
 
 function closeMoveModal() {
-  document.getElementById("moveModal").classList.remove("open");
+  closeWebModal("moveModal");
 }
 
 function confirmMove() {
@@ -5885,7 +5890,7 @@ function confirmMove() {
   const destPath = normalizePath(document.getElementById("moveDestPath").value);
 
   if (!destPath) {
-    alert("Please enter a destination folder.");
+    showWebAlert("Please enter a destination folder.");
     return;
   }
 
@@ -5900,13 +5905,13 @@ function confirmMove() {
     if (xhr.status === 200) {
       window.location.reload();
     } else {
-      alert("Failed to move: " + xhr.responseText);
+      showWebAlert("Failed to move: " + xhr.responseText);
     }
     closeMoveModal();
   };
 
   xhr.onerror = function () {
-    alert("Failed to move - network error");
+    showWebAlert("Failed to move - network error");
     closeMoveModal();
   };
 
