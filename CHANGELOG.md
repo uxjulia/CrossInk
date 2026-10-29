@@ -129,6 +129,7 @@
 - Connect plugin HTTPS requests before copying custom headers to reduce memory pressure during connection setup (CrossPoint #4167).
 - Align SD-font text-width measurements with drawing while preserving character spacing; existing EPUB layouts rebuild automatically (CrossPoint #3985).
 - Preserve complete non-English characters in Wi-Fi names and masked password previews, and keep installed font rows visibly selectable (CrossPoint #4079, #4106, #4101).
+- Load Adobe-obfuscated publisher fonts in EPUBs on devices with scalable font support.
 
 ### Changed
 

@@ -195,6 +195,8 @@ class Epub {
                                    bool trailingNullByte = false) const;
   bool readItemContentsToStream(const std::string& itemHref, Print& out, size_t chunkSize,
                                 bool allowEarlyStop = false) const;
+  // Publisher-font access also reverses declared Adobe font obfuscation.
+  bool readFontContentsToStream(const std::string& itemHref, Print& out, size_t chunkSize) const;
   bool extractItemToFile(const std::string& itemHref, const std::string& destPath, size_t chunkSize = 4096) const;
   bool getItemSize(const std::string& itemHref, size_t* size) const;
   bool getOptimizerImageDimensions(const std::string& itemHref, uint16_t& width, uint16_t& height) const;
