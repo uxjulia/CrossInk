@@ -30,6 +30,9 @@ class HalDisplay {
   // (~770ms each on X3).
   void begin(bool seamless = false);
 
+  // Selected SDK driver identity; nullptr before display initialization.
+  const char* getControllerName() const;
+
   // Display dimensions
   static constexpr uint16_t DISPLAY_WIDTH = EInkDisplay::DISPLAY_WIDTH;
   static constexpr uint16_t DISPLAY_HEIGHT = EInkDisplay::DISPLAY_HEIGHT;

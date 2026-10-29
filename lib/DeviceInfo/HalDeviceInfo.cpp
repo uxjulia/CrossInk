@@ -17,27 +17,6 @@
 namespace HalDeviceInfo {
 namespace {
 #ifndef SIMULATOR
-const char* displayName(BoardConfig::DisplayController controller) {
-  switch (controller) {
-    case BoardConfig::DisplayController::SSD1677:
-      return "SSD1677";
-    case BoardConfig::DisplayController::UC8253:
-      return "UC8253";
-    case BoardConfig::DisplayController::ED2208:
-      return "ED2208";
-    case BoardConfig::DisplayController::LgfxEpd:
-      return "LovyanGFX EPD";
-    case BoardConfig::DisplayController::IT8951:
-      return "IT8951";
-    case BoardConfig::DisplayController::UC8279:
-      return "UC8279";
-    case BoardConfig::DisplayController::UC8179:
-      return "UC8179";
-    case BoardConfig::DisplayController::UC8279C:
-      return "UC8279C";
-  }
-  return nullptr;
-}
 const char* touchName(BoardConfig::TouchController controller) {
   switch (controller) {
     case BoardConfig::TouchController::None:
@@ -81,7 +60,7 @@ Snapshot capture() {
 #else
   if (info.sdReady) info.sdBytes = Storage.totalBytes();  // No expensive FAT free-space scan.
   const auto& board = BoardConfig::ACTIVE;
-  info.displayController = displayName(board.displayController);
+  info.displayController = display.getControllerName();
   info.touchController = touchName(board.touch.controller);
   info.sdmmc = board.sdmmc.busWidth != 0;
   info.touch = presence(board.touch.controller != BoardConfig::TouchController::None, gpio.hasTouch());
