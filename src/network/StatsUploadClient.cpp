@@ -7,12 +7,16 @@
 #include <Logging.h>
 #include <Memory.h>
 #include <SecureHttpClient.h>
+#include <mbedtls/base64.h>
 #ifndef SIMULATOR
 #endif
 
 #include <cstdio>
 #include <cstring>
 #include <string>
+
+#include "CrossPointSettings.h"
+#include "activities/reader/GlobalReadingStats.h"
 
 namespace {
 // Only definitive answers update the persisted capability; transient failures keep it.
@@ -166,6 +170,82 @@ StatsUploadClient::Result StatsUploadClient::probe(const bool trustHtml) {
   }
   KOREADER_STORE.setServerSupport(SyncServerSupport::SUPPORTED);
   return Result::Ok;
+}
+
+StatsUploadClient::Result StatsUploadClient::downloadStreak() {
+  if (!impl) {
+    LOG_ERR("StatsSync", "Cannot allocate streak HTTP client");
+    return Result::LowMemory;
+  }
+  auto& http = impl->http;
+  // Release a reused TLS session before checking room for the next handshake.
+  if (ESP.getFreeHeap() < 35000 || ESP.getMaxAllocHeap() < 20000) http.end();
+  if (ESP.getFreeHeap() < 35000 || ESP.getMaxAllocHeap() < 20000) {
+    LOG_ERR("StatsSync", "Insufficient memory for streak download");
+    return Result::LowMemory;
+  }
+  char endpoint[48];
+  const int tz = -(int(SETTINGS.clockUtcOffsetQ) - 48) * 15;
+  snprintf(endpoint, sizeof(endpoint), "/api/v1/stats/streak?tz=%d", tz);
+  http.setInsecure();
+  http.setTimeout(15000);
+  if (!http.begin(KOREADER_STORE.getBaseUrl() + endpoint)) {
+    LOG_ERR("StatsSync", "Invalid streak server URL");
+    http.end();
+    return Result::Network;
+  }
+  http.addHeader("Accept", "application/json");
+  applyCustomHttpHeaders(http, KOREADER_STORE.getCustomHeaders());
+  http.addHeader("x-auth-user", KOREADER_STORE.getUsername());
+  http.addHeader("x-auth-key", KOREADER_STORE.getMd5Password());
+  size_t size = 0;
+  bool complete = true;
+#ifdef SIMULATOR
+  const int status = http.GET();
+  const auto body = http.getString();
+  size = body.length();
+  complete = size < sizeof(impl->response);
+  if (complete) memcpy(impl->response, body.c_str(), size);
+#else
+  const int status = http.GET([&](const uint8_t* data, size_t length) {
+    if (length >= sizeof(impl->response) - size) return false;
+    memcpy(impl->response + size, data, length);
+    size += length;
+    return true;
+  });
+  complete = http.responseComplete();
+#endif
+  http.end();
+  LOG_INF("StatsSync", "Streak download: HTTP %d", status);
+  // Do not downgrade the existing stats API when just the new endpoint is absent.
+  if (status == 404 || status == 405) return Result::Skipped;
+  if (status <= 0) return Result::Network;
+  if (status == 401) return Result::Auth;
+  if (status != 200) return Result::Server;
+  const auto invalid = []() {
+    LOG_ERR("StatsSync", "Invalid server reading calendar");
+    return Result::InvalidResponse;
+  };
+  if (!complete) return invalid();
+  impl->response[size] = '\0';
+  JsonDocument reply;
+  if (deserializeJson(reply, impl->response) || reply["v"] != 1 || !reply["anchor_day"].is<uint32_t>() ||
+      reply["anchor_day"].as<uint32_t>() == 0 || reply["anchor_day"].as<uint32_t>() > 36524 ||
+      !reply["streak"].is<uint16_t>() || !reply["history_b64"].is<const char*>()) {
+    return invalid();
+  }
+  const char* encoded = reply["history_b64"].as<const char*>();
+  if (strlen(encoded) != 124 || encoded[123] != '=') return invalid();
+  GlobalReadingStats streak;
+  size_t decoded = 0;
+  if (mbedtls_base64_decode(streak.readingHistoryBits.data(), READING_HISTORY_BYTES, &decoded,
+                            reinterpret_cast<const unsigned char*>(encoded), 124) != 0 ||
+      decoded != READING_HISTORY_BYTES || (streak.readingHistoryBits.back() & 0xfc) != 0) {
+    return invalid();
+  }
+  streak.readingHistoryAnchorDay = reply["anchor_day"].as<uint32_t>();
+  streak.longestReadingStreak = reply["streak"].as<uint16_t>();
+  return GlobalReadingStats::saveServerStreak(streak) ? Result::Ok : Result::InvalidResponse;
 }
 
 const char* StatsUploadClient::resultString(Result result) {

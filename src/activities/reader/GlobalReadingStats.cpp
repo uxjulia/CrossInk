@@ -1,7 +1,9 @@
 #include "GlobalReadingStats.h"
 
 #include <HalStorage.h>
+#include <KOReaderCredentialStore.h>
 #include <Logging.h>
+#include <MD5Builder.h>
 #include <esp_mac.h>
 
 #include <array>
@@ -10,6 +12,7 @@
 #include <string>
 
 #include "DailyReadingStats.h"
+#include "sync/SyncFiles.h"
 #include "util/FileContentEquals.h"
 
 namespace {
@@ -55,6 +58,29 @@ static constexpr char GLOBAL_STATS_PATH[] = "/.crosspoint/global_stats.bin";
 static constexpr char GLOBAL_STATS_BAK_PATH[] = "/.crosspoint/global_stats.bin.bak";
 static constexpr char SYNCED_STATS_DIR[] = "/.crosspoint/synced_stats";
 static bool s_blockDestructiveSave = false;
+
+// Bind the cached calendar to the selected server/account without storing credentials.
+std::string serverStreakPath() {
+  MD5Builder md5;
+  md5.begin();
+  md5.add(KOREADER_STORE.getBaseUrl().c_str());
+  md5.add("\n");
+  md5.add(KOREADER_STORE.getUsername().c_str());
+  md5.calculate();
+  return std::string("/.crosspoint/server_streak_") + md5.toString().c_str() + ".bin";
+}
+
+bool loadServerStreak(GlobalReadingStats& out) {
+  if (!KOREADER_STORE.hasCredentials() || !KOREADER_STORE.getSyncStats()) return false;
+  SyncFiles::Reader reader(serverStreakPath().c_str());
+  uint8_t version = 0;
+  const bool loaded = reader.open() != SyncFiles::Reader::Source::None && reader.pod(version) && version == 1 &&
+                      reader.pod(out.readingHistoryAnchorDay) &&
+                      reader.read(out.readingHistoryBits.data(), READING_HISTORY_BYTES) &&
+                      reader.pod(out.longestReadingStreak) && reader.atEnd();
+  reader.close();
+  return loaded;
+}
 
 uint32_t readLe32(const uint8_t* data, const int offset) {
   return static_cast<uint32_t>(data[offset]) | (static_cast<uint32_t>(data[offset + 1]) << 8) |
@@ -411,10 +437,33 @@ void GlobalReadingStats::recordReadingSpan(const ReadingStatsDateTime& localStar
 }
 
 uint16_t GlobalReadingStats::currentReadingStreak(const ReadingStatsDate* today) const {
+  GlobalReadingStats server;
+  if (loadServerStreak(server)) {
+    mergeReadingHistory(server.readingHistoryAnchorDay, server.readingHistoryBits, readingHistoryAnchorDay,
+                        readingHistoryBits);
+    return computeReadingHistoryCurrentStreak(server.readingHistoryAnchorDay, server.readingHistoryBits, today);
+  }
   return computeReadingHistoryCurrentStreak(readingHistoryAnchorDay, readingHistoryBits, today);
 }
 
 uint16_t GlobalReadingStats::displayLongestReadingStreak() const {
+  GlobalReadingStats server;
+  if (loadServerStreak(server)) {
+    mergeReadingHistory(server.readingHistoryAnchorDay, server.readingHistoryBits, readingHistoryAnchorDay,
+                        readingHistoryBits);
+    return std::max(std::max(longestReadingStreak, server.longestReadingStreak),
+                    computeReadingHistoryLongestStreak(server.readingHistoryAnchorDay, server.readingHistoryBits));
+  }
   return std::max(longestReadingStreak,
                   computeReadingHistoryLongestStreak(readingHistoryAnchorDay, readingHistoryBits));
+}
+
+bool GlobalReadingStats::saveServerStreak(const GlobalReadingStats& streak) {
+  SyncFiles::Writer writer(serverStreakPath().c_str());
+  constexpr uint8_t version = 1;
+  const bool saved = writer.open() && writer.pod(version) && writer.pod(streak.readingHistoryAnchorDay) &&
+                     writer.write(streak.readingHistoryBits.data(), READING_HISTORY_BYTES) &&
+                     writer.pod(streak.longestReadingStreak) && writer.commit();
+  if (!saved) LOG_ERR("GSTATS", "Cannot save server reading calendar");
+  return saved;
 }

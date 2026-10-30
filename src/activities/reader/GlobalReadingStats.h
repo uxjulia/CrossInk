@@ -54,4 +54,7 @@ struct GlobalReadingStats {
   void recordReadingSpan(const ReadingStatsDateTime& localStart, uint32_t seconds);
   uint16_t currentReadingStreak(const ReadingStatsDate* today) const;
   uint16_t displayLongestReadingStreak() const;
+
+  // Separate server calendar; never included in loadForUpload() or nearby exports.
+  static bool saveServerStreak(const GlobalReadingStats& streak);
 };

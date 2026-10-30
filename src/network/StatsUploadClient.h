@@ -14,6 +14,8 @@ class StatsUploadClient {
   // A non-JSON 200 (captive portal, proxy page) is only persisted when
   // `trustHtml` is set, i.e. right after the server accepted our credentials.
   Result probe(bool trustHtml = false);
+  // Bounded calendar download. Old servers may omit this endpoint.
+  Result downloadStreak();
   static const char* errorString(Result result);
   // A server without the extension API is not an upload failure: progress-only
   // servers simply have nothing to receive stats or clippings.

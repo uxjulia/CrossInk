@@ -44,6 +44,7 @@
 - Render non-interlaced GIF images, covers, and thumbnails in EPUBs, using the first frame of animated files (CrossPoint #2299).
 - Uninstall an installed plugin after holding Confirm for one second or long-pressing its row, with confirmation before its files are removed (CrossPoint #4100).
 - Choose Cover Overlay to place a transparent sleep image over the current book cover (CrossPoint #3770).
+- Sync combined reading streaks back from CrossPoint Sync, including reading on other devices, while keeping local reading and upload totals separate.
 
 ### Fixed
 

@@ -449,22 +449,18 @@ uint16_t computeReadingHistoryLongestStreak(const uint32_t anchorDay,
 
 uint16_t computeReadingHistoryCurrentStreak(uint32_t anchorDay, const std::array<uint8_t, READING_HISTORY_BYTES>& bits,
                                             const ReadingStatsDate* today) {
-  if (anchorDay == 0 && !isBitSet(bits, 0)) {
-    return 0;
-  }
-  if (!isBitSet(bits, 0)) {
-    return 0;
-  }
-
+  int64_t offset = 0;
   if (today && today->isValid()) {
-    const uint32_t todayDay = readingStatsDayIndex(*today);
-    if (anchorDay + 1u < todayDay) {
-      return 0;
-    }
+    offset = int64_t(anchorDay) - readingStatsDayIndex(*today);
   }
+  // A downloaded calendar is anchored to today even before any reading today.
+  // Start from the actual local day (or yesterday), excluding future bits.
+  if (offset < -1 || offset >= int64_t(READING_HISTORY_DAYS)) return 0;
+  size_t first = offset < 0 ? 0 : size_t(offset);
+  if (offset >= 0 && !isBitSet(bits, first)) ++first;
 
   uint16_t streak = 0;
-  for (size_t bitIndex = 0; bitIndex < READING_HISTORY_DAYS; ++bitIndex) {
+  for (size_t bitIndex = first; bitIndex < READING_HISTORY_DAYS; ++bitIndex) {
     if (!isBitSet(bits, bitIndex)) {
       break;
     }

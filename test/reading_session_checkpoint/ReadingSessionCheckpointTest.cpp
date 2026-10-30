@@ -23,6 +23,32 @@ bool GlobalReadingStats::loadForUpload(GlobalReadingStats& out) {
 }
 GlobalReadingStats GlobalReadingStats::load() { return savedGlobal; }
 uint32_t GlobalReadingStats::localResetRevision() { return 0; }
+
+TEST(ReadingStreak, AnchoredCalendarAllowsTodayToBeUnreadAndExpiresAfterAGap) {
+  std::array<uint8_t, READING_HISTORY_BYTES> bits{};
+  bits[0] = 14;  // yesterday and the two days before it
+  const ReadingStatsDate today{2026, 10, 30};
+  const auto anchor = readingStatsDayIndex(today);
+  EXPECT_EQ(computeReadingHistoryCurrentStreak(anchor, bits, &today), 3);
+  const ReadingStatsDate tomorrow{2026, 10, 31};
+  EXPECT_EQ(computeReadingHistoryCurrentStreak(anchor, bits, &tomorrow), 0);
+  bits[0] = 15;
+  EXPECT_EQ(computeReadingHistoryCurrentStreak(anchor, bits, &today), 4);
+  EXPECT_EQ(computeReadingHistoryCurrentStreak(anchor, bits, &tomorrow), 4);
+}
+
+TEST(ReadingStreak, IgnoresFutureBitsAndStopsAtTheWindowBoundary) {
+  std::array<uint8_t, READING_HISTORY_BYTES> bits{};
+  bits[0] = 13;  // future day, gap, today and yesterday
+  const ReadingStatsDate today{2026, 10, 30};
+  const auto anchor = readingStatsDayIndex(today);
+  EXPECT_EQ(computeReadingHistoryCurrentStreak(anchor + 2, bits, &today), 2);
+  bits.fill(255);
+  EXPECT_EQ(computeReadingHistoryCurrentStreak(anchor, bits, &today), 730);
+  EXPECT_EQ(computeReadingHistoryCurrentStreak(anchor + 729, bits, &today), 1);
+  EXPECT_EQ(computeReadingHistoryCurrentStreak(anchor + 730, bits, &today), 0);
+}
+
 TEST(SessionCheckpoint, OverlayPreviewsNeverConsumeOrDoubleCountTheLiveSession) {
   BookReadingStats book;
   GlobalReadingStats global;

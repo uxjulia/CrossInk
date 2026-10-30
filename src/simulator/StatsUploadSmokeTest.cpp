@@ -94,6 +94,60 @@ void verifyStatsUploadContract() {
     StatsUploadClient client;
     char id[32];
     require(StatsUploadClient::deviceId(id, sizeof(id)), "simulator identity");
+    if (const char* mode = std::getenv("CROSSINK_STATS_TEST_STREAK")) {
+      SETTINGS.trackReadingStats = 1;
+      SETTINGS.clockUtcOffsetQ = 48;
+      KOREADER_STORE.setSyncStats(true);
+      const char* fixtureDay = std::getenv("CROSSINK_STATS_TEST_STREAK_DAY");
+      require(fixtureDay, "streak fixture day required");
+      const uint32_t todayDay = std::strtoul(fixtureDay, nullptr, 10);
+      ReadingStatsDate today;
+      require(readingStatsDateFromDayIndex(todayDay, today), "streak fixture date");
+      if (strcmp(mode, "empty") == 0) {
+        require(ReadingSyncUpload::globalStats() == StatsUploadClient::Result::Ok, "empty reader downloads streak");
+        require(!GlobalReadingStats::loadForUpload(loaded), "download does not create local upload stats");
+        require(loaded.currentReadingStreak(&today) == 3, "empty reader displays remote streak");
+        std::_Exit(0);
+      }
+      global = {};
+      global.totalReadingSeconds = 60;
+      global.totalSessions = 1;
+      global.readingHistoryAnchorDay = todayDay;
+      global.readingHistoryBits[0] = 1;
+      require(global.save(), "local streak fixture");
+      require(ReadingSyncUpload::globalStats() == StatsUploadClient::Result::Ok, "two-way stats sync");
+      require(KOREADER_STORE.getServerSupport() == SyncServerSupport::SUPPORTED, "download retains stats support");
+      const bool old = strcmp(mode, "old-server") == 0;
+      require(GlobalReadingStats::loadForUpload(loaded), "local snapshot after download");
+      require(loaded.currentReadingStreak(&today) == (old ? 1 : 4), "combined streak displayed");
+      require(loaded.readingHistoryBits[0] == 1 && loaded.totalReadingSeconds == 60, "download stays out of uploads");
+      require(loaded.displayLongestReadingStreak() == (old ? 1 : 4), "combined longest streak");
+      if (!old) {
+        const auto second = strcmp(mode, "ok") == 0 ? ReadingSyncUpload::globalStats() : client.downloadStreak();
+        const bool ok = strcmp(mode, "ok") == 0;
+        const auto wanted = ok                            ? StatsUploadClient::Result::Ok
+                            : strcmp(mode, "auth") == 0   ? StatsUploadClient::Result::Auth
+                            : strcmp(mode, "server") == 0 ? StatsUploadClient::Result::Server
+                                                          : StatsUploadClient::Result::InvalidResponse;
+        require(second == wanted, "download error classification");
+        require(loaded.currentReadingStreak(&today) == (ok ? 2 : 4), "replace calendar or retain on failure");
+        // Local reading after a download extends the streak offline; uploads remain device-only.
+        ReadingStatsDate tomorrow = today;
+        addDaysToReadingStatsDate(tomorrow, 1);
+        markReadingHistoryDay(loaded.readingHistoryAnchorDay, loaded.readingHistoryBits, todayDay + 1);
+        require(loaded.currentReadingStreak(&tomorrow) == (ok ? 3 : 5), "offline streak extension");
+        KOREADER_STORE.setSyncStats(false);
+        require(loaded.currentReadingStreak(&today) == 1, "disabled stats ignores cached calendar");
+        KOREADER_STORE.setSyncStats(true);
+        KOREADER_STORE.setServerUrl(std::string(server) + "/other");
+        require(loaded.currentReadingStreak(&today) == 1, "cache is scoped to server");
+        KOREADER_STORE.setServerUrl(server);
+        KOREADER_STORE.setCredentials("other-fixture", password);
+        require(loaded.currentReadingStreak(&today) == 1, "cache is scoped to account");
+      }
+      LOG_INF("SMOKE", "Two-way streak download smoke passed");
+      std::_Exit(0);
+    }
     // Zero snapshots make an explicitly requested live test non-inflating.
     global = {};
     book = {};
