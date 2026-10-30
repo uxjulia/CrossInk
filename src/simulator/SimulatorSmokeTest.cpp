@@ -7367,8 +7367,8 @@ class SimulatorSmokeTest {
         if (std::getenv("CROSSINK_SIMULATOR_SMOKE_FRONTLIGHT_LAYOUT")) {
           if (!mappedInputManager.hasHomeKey() || !mappedInputManager.hasTouchHardware())
             fail("Frontlight layout regression requires the X4 Pro simulator");
-          activityManager.replaceActivity(std::make_unique<HomeActivity>(renderer, mappedInputManager));
-          queueStep("Frontlight layout Home", SmokeStep::FrontlightLayout, 4);
+          activityManager.goToReader(std::getenv("CROSSINK_SIMULATOR_SMOKE_BOOK"), true);
+          queueStep("Frontlight layout reader", SmokeStep::FrontlightLayout, 12);
           break;
         }
         if (std::getenv("CROSSINK_SIMULATOR_SMOKE_TILT_SETTINGS")) {
@@ -8478,18 +8478,27 @@ class SimulatorSmokeTest {
 
       case SmokeStep::FrontlightLayout: {
         // Both scales, all four orientations, and all eight themes, with and
-        // without the additional reader progress row.
-        if (frontlightLayoutPass == 128) {
-          LOG_INF("SMOKE", "Frontlight layout: 128 scale/orientation/theme/context combinations passed");
-          step = SmokeStep::Done;
+        // without the reader progress row. Exercise both handle swipes and taps.
+        if (frontlightLayoutPass == 256) {
+          LOG_INF("SMOKE", "Frontlight layout: 256 layout and dismissal combinations passed");
+          FrontlightPanelContext context;
+          context.activeReaderBook = true;
+          activityManager.pushActivity(
+              std::make_unique<FrontlightPanelActivity>(renderer, mappedInputManager, std::move(context)));
+          inputScript = {render("Frontlight before explicit Home", 4), homeTap(), render("Frontlight explicit Home", 8),
+                         assertActivity("Home")};
+          scriptIndex = 0;
+          inputCompletionStep = SmokeStep::Done;
+          step = SmokeStep::ReaderInput;
           break;
         }
+        const unsigned layoutCase = frontlightLayoutPass % 128;
         {
           RenderLock lock;
           SETTINGS.uiScale =
-              (frontlightLayoutPass / 64) ? CrossPointSettings::UI_SCALE_LARGE : CrossPointSettings::UI_SCALE_SMALL;
-          SETTINGS.uiTheme = (frontlightLayoutPass / 8) % 8;
-          renderer.setOrientation(static_cast<GfxRenderer::Orientation>((frontlightLayoutPass / 2) % 4));
+              (layoutCase / 64) ? CrossPointSettings::UI_SCALE_LARGE : CrossPointSettings::UI_SCALE_SMALL;
+          SETTINGS.uiTheme = (layoutCase / 8) % 8;
+          renderer.setOrientation(static_cast<GfxRenderer::Orientation>((layoutCase / 2) % 4));
           UITheme::getInstance().reload();
         }
         FrontlightPanelContext context;
@@ -8539,8 +8548,14 @@ class SimulatorSmokeTest {
         }
         const int x = handle.x + handle.width / 2;
         const int y = handle.y + handle.height / 2;
-        inputScript = {touchDown(x, y), touchRelease(x, y), render("Frontlight closed by visible handle", 4),
-                       assertActivity("Home")};
+        if (frontlightLayoutPass < 128) {
+          const int endY = std::max(0, y - renderer.getScreenHeight() / 3);
+          inputScript = {touchDown(x, y), touchMove(x, endY), touchRelease(x, endY),
+                         render("Frontlight closed by handle swipe", 4), assertActivity("EpubReader")};
+        } else {
+          inputScript = {touchDown(x, y), touchRelease(x, y), render("Frontlight closed by visible handle", 4),
+                         assertActivity("EpubReader")};
+        }
         scriptIndex = 0;
         ++frontlightLayoutPass;
         inputCompletionStep = SmokeStep::FrontlightLayout;
