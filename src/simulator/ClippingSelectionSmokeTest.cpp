@@ -9,6 +9,7 @@
 #include <filesystem>
 
 #include "ClippingStore.h"
+#include "Epub/Section.h"
 #include "activities/ActivityManager.h"
 #include "activities/reader/DictionaryWordSelectActivity.h"
 #include "activities/reader/EpubReaderActivity.h"
@@ -113,6 +114,75 @@ void verifyOverlayBounds() {
   renderer.setOrientation(orientation);
 }
 }  // namespace
+
+void ClippingSelectionSmokeTest::verifySavedHighlightSpacing(EpubReaderActivity& reader) {
+  const auto oldSpacing = SETTINGS.lineHeightPercent;
+  const int fontId = SETTINGS.getReaderFontId();
+  const int fontHeight = renderer.getLineHeight(fontId);
+  const size_t clippingIndex = CLIPPINGS.clippingCount();
+  require(reader.section && reader.section->pageCount > 0, "Missing highlight test section");
+  const auto currentPage = static_cast<uint16_t>(reader.section->currentPage);
+  require(CLIPPINGS.addClipping(reader.currentSpineIndex, currentPage, currentPage, reader.section->pageCount, 4, 10, 7,
+                                "", UINT16_MAX, "Synthetic spacing regression", UINT16_MAX,
+                                clippingWordLayoutSignature(reader.section->layoutSignature())) ==
+              ClippingStore::AddResult::Added,
+          "Could not save highlight test range");
+  for (const uint8_t spacing : {70, 100, 200}) {
+    for (const bool explicitHeight : {false, true}) {
+      size_t erasedPixels = 0;
+      {
+        RenderLock lock;
+        SETTINGS.lineHeightPercent = spacing;
+        const int lineHeight = std::max(1, (fontHeight * spacing + 50) / 100);
+        Page page;
+        page.elements.reserve(4);
+        BlockStyle style;
+        if (explicitHeight) style.lineHeight = lineHeight;
+        const std::vector<std::string> words{"gyp", "spacing", "Ag", "test"};
+        const std::vector<EpdFontFamily::Style> styles(4, EpdFontFamily::REGULAR);
+        std::vector<int16_t> positions;
+        positions.reserve(words.size());
+        int x = 0;
+        for (const auto& word : words) {
+          positions.push_back(x);
+          x += renderer.getTextAdvanceX(fontId, word.c_str(), EpdFontFamily::REGULAR) + 12;
+        }
+        for (int row = 0; row < 4; ++row) {
+          auto block =
+              std::make_shared<TextBlock>(words, positions, styles, std::vector<uint8_t>{}, std::vector<uint16_t>{},
+                                          std::vector<uint16_t>{}, std::vector<uint8_t>{}, std::vector<bool>{}, style);
+          page.elements.push_back(std::make_unique<PageLine>(std::move(block), 24, 40 + row * lineHeight));
+        }
+        renderer.clearScreen();
+        page.renderText(renderer, fontId, 0, 0, true);
+        const int width = renderer.getScreenWidth(), height = renderer.getScreenHeight();
+        // Host-only snapshot: prove that neither selected letters nor adjacent
+        // unselected ascenders/descenders are erased by later marker rows.
+        std::vector<uint8_t> ink(static_cast<size_t>(width) * height);
+        for (int y = 0; y < height; ++y)
+          for (int px = 0; px < width; ++px) ink[y * width + px] = renderer.isPixelBlack(px, y);
+        reader.drawClippingHighlights(page, fontId, 0, 0);
+        size_t markerPixels = 0;
+        for (int y = 0; y < height; ++y) {
+          for (int px = 0; px < width; ++px) {
+            const bool black = renderer.isPixelBlack(px, y);
+            if (ink[y * width + px] && !black) ++erasedPixels;
+            if (!ink[y * width + px] && black) ++markerPixels;
+          }
+        }
+        require(markerPixels > 100, "Saved highlight was not drawn");
+      }
+      char name[64];
+      std::snprintf(name, sizeof(name), "clip-spacing-%u-%s", spacing, explicitHeight ? "explicit" : "default");
+      capture(name);
+      LOG_INF("SMOKE", "%s: erased text pixels=%u", name, static_cast<unsigned>(erasedPixels));
+      require(erasedPixels == 0, "Saved highlight erased a text pixel");
+    }
+  }
+  require(CLIPPINGS.removeClippingAt(clippingIndex), "Could not remove highlight test range");
+  SETTINGS.lineHeightPercent = oldSpacing;
+  reader.requestUpdate();
+}
 
 bool ClippingSelectionSmokeTest::tick() {
   static int stage = 0;
@@ -281,6 +351,7 @@ bool ClippingSelectionSmokeTest::tick() {
       }
       require(CLIPPINGS.clippingCount() == initialCount + 1, "Clip was not saved exactly once");
       capture("clip-actions-saved-highlight");
+      verifySavedHighlightSpacing(*reader);
       reader->openWordSelect(false);
       stage = 40;
       break;

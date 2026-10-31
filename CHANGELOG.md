@@ -135,8 +135,8 @@
 - Align SD-font text-width measurements with drawing while preserving character spacing; existing EPUB layouts rebuild automatically (CrossPoint #3985).
 - Preserve complete non-English characters in Wi-Fi names and masked password previews, and keep installed font rows visibly selectable (CrossPoint #4079, #4106, #4101).
 - Load Adobe-obfuscated publisher fonts in EPUBs on devices with scalable font support.
-
 - Ask before setting a sleep cover from the image viewer, and use complete translated delete and sleep-cover questions (CrossPoint #3994, #4097).
+- Keep saved EPUB highlights aligned at tight line spacing and preserve letters on adjacent lines (#893).
 
 ### Changed
 
