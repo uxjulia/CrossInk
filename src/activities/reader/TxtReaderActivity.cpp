@@ -3,6 +3,7 @@
 #include <BidiUtils.h>
 #include <FontCacheManager.h>
 #include <GfxRenderer.h>
+#include <HalPowerManager.h>
 #include <HalStorage.h>
 #include <I18n.h>
 #include <Memory.h>
@@ -912,6 +913,10 @@ void TxtReaderActivity::renderStatusBar() const {
     title = txt->getTitle();
   }
   ReaderStatusBarContent content;
+  if (SETTINGS.readerStatusBar(ReaderStatusBarPosition::Top).contains(ReaderStatusBarItem::Battery) ||
+      SETTINGS.readerStatusBar(ReaderStatusBarPosition::Bottom).contains(ReaderStatusBarItem::Battery)) {
+    content.batteryPercentage = powerManager.getBatteryPercentage();
+  }
   content.bookProgress = progress;
   content.chapterPage = currentPage + 1;
   content.chapterPageCount = totalPages;

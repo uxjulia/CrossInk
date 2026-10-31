@@ -29,6 +29,7 @@ class HalPowerManager {
   mutable int _batteryCachedPercent = 0;  // Last read battery percentage * 10 (0-1000); callers divide by 10 (ADC/X4
                                           // path only — I2C/X3 path stores 0-100 directly)
   mutable unsigned long _batteryLastPollMs = 0;  // Timestamp of last battery read in milliseconds
+  mutable bool _batteryPollStarted = false;      // Zero percent and millis() == 0 are valid samples.
 
   uint32_t lockCount = 0;                 // Overlapping jobs keep full speed until the last lock ends.
   SemaphoreHandle_t modeMutex = nullptr;  // Protect access to lockCount and CPU mode

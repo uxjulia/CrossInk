@@ -52,7 +52,7 @@ bool HalPowerManager::updateBatteryCalibration() {
   const bool wasPending = batteryCalibrationPending;
   batteryCalibrationPending = BatteryMonitor::loadDesignCapacity();
   if (wasPending && !batteryCalibrationPending) {
-    _batteryLastPollMs = 0;  // Sample the corrected gauge on the next battery read.
+    _batteryPollStarted = false;  // Sample the corrected gauge on the next battery read.
     LOG_INF("PWR", "X3 battery capacity check finished");
   }
   return batteryCalibrationPending;
@@ -170,13 +170,15 @@ void HalPowerManager::startDeepSleep(HalGPIO& gpio) const {
 
 uint16_t HalPowerManager::getBatteryPercentage() const {
   static const BatteryMonitor battery;
-  if (BoardConfig::ACTIVE.batteryGauge.gaugeAddr != 0) {
-    const unsigned long now = millis();
-    if (_batteryLastPollMs != 0 && (now - _batteryLastPollMs) < BATTERY_POLL_MS) {
-      return _batteryCachedPercent;
-    }
+  const bool hasGauge = BoardConfig::ACTIVE.batteryGauge.gaugeAddr != 0;
+  const unsigned long now = millis();
+  if (_batteryPollStarted && (now - _batteryLastPollMs) < BATTERY_POLL_MS) {
+    return hasGauge ? _batteryCachedPercent : _batteryCachedPercent / 10;
+  }
 
-    _batteryLastPollMs = now;
+  _batteryLastPollMs = now;
+  if (hasGauge) {
+    _batteryPollStarted = true;
     uint16_t percent = 0;
     if (!battery.readPercentageChecked(percent)) {
       return _batteryCachedPercent;
@@ -185,12 +187,14 @@ uint16_t HalPowerManager::getBatteryPercentage() const {
     return _batteryCachedPercent;
   }
 
-  // smooth the battery %.
-  if (_batteryCachedPercent == 0) {
-    _batteryCachedPercent = 10 * battery.readPercentage();
+  // Smooth once per poll, independent of how many times the UI measures or draws it.
+  const uint16_t percent = battery.readPercentage();
+  if (!_batteryPollStarted) {
+    _batteryCachedPercent = 10 * percent;
   } else {
-    _batteryCachedPercent = (_batteryCachedPercent * 9 + battery.readPercentage() * 10) / 10;
+    _batteryCachedPercent = (_batteryCachedPercent * 9 + percent * 10) / 10;
   }
+  _batteryPollStarted = true;
   return _batteryCachedPercent / 10;
 }
 

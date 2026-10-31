@@ -82,7 +82,8 @@ class XtcReaderActivity final : public Activity {
   };
 
   void renderPage(uint32_t pageToRender);
-  void renderStatusBarOverlay(StatusBarOverlayPosition position, uint32_t pageToRender, bool drawContent) const;
+  void renderStatusBarOverlay(StatusBarOverlayPosition position, uint32_t pageToRender, bool drawContent,
+                              int batteryPercentage) const;
   StatusBarInfo getStatusBarInfo(uint32_t pageToRender, bool includeTitle = false) const;
   bool saveProgress(uint32_t page);
   bool queueProgressSave(uint32_t pageToRender);

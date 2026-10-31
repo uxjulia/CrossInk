@@ -3857,6 +3857,42 @@ class SimulatorSmokeTest {
     const auto capture = [&](const std::string& name) { captureStatusBarScreen(name.c_str()); };
     const char* longTitle = "Les paramètres globaux très longs avec descendantes gypsy jumping";
     {
+      // A frame keeps its sample even if a new poll becomes due between its two bars.
+      renderer.setOrientation(GfxRenderer::Portrait);
+      ReaderStatusBarConfig batteryBar;
+      batteryBar.slots.fill(ReaderStatusBarItem::Empty);
+      batteryBar.slots[ReaderStatusBarConfig::CENTER] = ReaderStatusBarItem::Battery;
+      batteryBar.progressBar = CrossPointSettings::HIDE_PROGRESS;
+      ReaderStatusBarContent content;
+      for (const auto style : {ReaderStatusBarBatteryStyle::IconAndPercent, ReaderStatusBarBatteryStyle::IconOnly,
+                               ReaderStatusBarBatteryStyle::PercentOnly}) {
+        batteryBar.batteryStyle = style;
+        for (const auto position : {ReaderStatusBarPosition::Top, ReaderStatusBarPosition::Bottom}) {
+          const auto drawSample = [&](const int percent) {
+            content.batteryPercentage = percent;
+            renderer.clearScreen();
+            GUI.drawReaderStatusBar(renderer, position, content, &batteryBar);
+            return hashBytes(renderer.getFrameBuffer(), renderer.getBufferSize());
+          };
+          const auto low = drawSample(10);
+          const auto high = drawSample(90);
+          // USB icons intentionally show a fixed lightning bolt, independent of percentage.
+          const bool showsPercentage = style != ReaderStatusBarBatteryStyle::IconOnly || !gpio.isUsbConnected();
+          if ((showsPercentage && low == high) || drawSample(10) != low) {
+            fail("Reader bar ignored its frame's battery snapshot (style=%d, position=%d)", static_cast<int>(style),
+                 static_cast<int>(position));
+          }
+        }
+      }
+      content.batteryPercentage = 13;
+      batteryBar.batteryStyle = ReaderStatusBarBatteryStyle::IconAndPercent;
+      renderer.clearScreen();
+      GUI.drawReaderStatusBar(renderer, ReaderStatusBarPosition::Top, content, &batteryBar);
+      GUI.drawReaderStatusBar(renderer, ReaderStatusBarPosition::Bottom, content, &batteryBar);
+      capture("battery-shared-snapshot-13");
+      LOG_INF("SMOKE", "Battery frame snapshots verified across both bars and all styles");
+    }
+    {
       // Centered bars: every separator, then a long title on a bookmarked page.
       renderer.setOrientation(GfxRenderer::Portrait);
       ReaderStatusBarContent content;

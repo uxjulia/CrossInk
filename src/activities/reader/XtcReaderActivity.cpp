@@ -9,6 +9,7 @@
 
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
+#include <HalPowerManager.h>
 #include <HalStorage.h>
 #include <I18n.h>
 #include <Memory.h>
@@ -1314,7 +1315,7 @@ XtcReaderActivity::StatusBarInfo XtcReaderActivity::getStatusBarInfo(const uint3
 }
 
 void XtcReaderActivity::renderStatusBarOverlay(const StatusBarOverlayPosition position, const uint32_t pageToRender,
-                                               const bool drawContent) const {
+                                               const bool drawContent, const int batteryPercentage) const {
   const bool drawBottom = (SETTINGS.xtcStatusBarMode == CrossPointSettings::XTC_STATUS_BAR_BOTTOM ||
                            SETTINGS.xtcStatusBarMode == CrossPointSettings::XTC_STATUS_BAR_BOTH) &&
                           position == StatusBarOverlayPosition::Bottom;
@@ -1374,6 +1375,7 @@ void XtcReaderActivity::renderStatusBarOverlay(const StatusBarOverlayPosition po
   char chapterTime[24] = {};
   const std::string bookTitle = config.contains(ReaderStatusBarItem::TitleBook) ? xtc->getTitle() : "";
   ReaderStatusBarContent content;
+  content.batteryPercentage = batteryPercentage;
   content.bookProgress = progress;
   content.chapterPage = pageInfo.currentPage;
   content.chapterPageCount = pageInfo.pageCount;
@@ -1395,8 +1397,14 @@ void XtcReaderActivity::renderPage(const uint32_t pageToRender) {
   const uint16_t pageHeight = xtc->getPageHeight();
   const uint8_t bitDepth = xtc->getBitDepth();
   const auto renderOverlays = [this, pageToRender](const bool drawContent) {
-    renderStatusBarOverlay(StatusBarOverlayPosition::Top, pageToRender, drawContent);
-    renderStatusBarOverlay(StatusBarOverlayPosition::Bottom, pageToRender, drawContent);
+    int batteryPercentage = -1;
+    if (drawContent && statusBarVisible &&
+        (SETTINGS.readerStatusBar(ReaderStatusBarPosition::Top).contains(ReaderStatusBarItem::Battery) ||
+         SETTINGS.readerStatusBar(ReaderStatusBarPosition::Bottom).contains(ReaderStatusBarItem::Battery))) {
+      batteryPercentage = powerManager.getBatteryPercentage();
+    }
+    renderStatusBarOverlay(StatusBarOverlayPosition::Top, pageToRender, drawContent, batteryPercentage);
+    renderStatusBarOverlay(StatusBarOverlayPosition::Bottom, pageToRender, drawContent, batteryPercentage);
   };
 
   if (bitDepth == 2) {

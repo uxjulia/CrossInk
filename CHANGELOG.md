@@ -137,6 +137,7 @@
 - Load Adobe-obfuscated publisher fonts in EPUBs on devices with scalable font support.
 - Ask before setting a sleep cover from the image viewer, and use complete translated delete and sleep-cover questions (CrossPoint #3994, #4097).
 - Keep saved EPUB highlights aligned at tight line spacing and preserve letters on adjacent lines (#893).
+- Stabilize X4 battery percentages across page turns and status bars, and keep the percentage visible while the battery reading changes (#904).
 
 ### Changed
 

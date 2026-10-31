@@ -84,10 +84,9 @@ void BaseTheme::fillBatteryIcon(const GfxRenderer& renderer, Rect rect, uint16_t
   }
 }
 
-void BaseTheme::drawBatteryLeft(const GfxRenderer& renderer, Rect rect, const bool showPercentage,
-                                const bool foregroundBlack, const int fontId) const {
+void BaseTheme::drawBatteryLeft(const GfxRenderer& renderer, Rect rect, const uint16_t percentage,
+                                const bool showPercentage, const bool foregroundBlack, const int fontId) const {
   // Left aligned: icon on left, percentage on right (reader mode)
-  const uint16_t percentage = powerManager.getBatteryPercentage();
   // The icon's nub makes its visual center sit slightly below its bounding
   // box. Lift it one pixel to center it with the percentage text.
   const int y = rect.y + 5 + (renderer.getLineHeight(fontId) - renderer.getLineHeight(SMALL_FONT_ID)) / 2;
@@ -103,11 +102,10 @@ void BaseTheme::drawBatteryLeft(const GfxRenderer& renderer, Rect rect, const bo
   fillBatteryIcon(renderer, iconRect, percentage, foregroundBlack);
 }
 
-void BaseTheme::drawBatteryRight(const GfxRenderer& renderer, Rect rect, const bool showPercentage,
-                                 const bool foregroundBlack, const int fontId) const {
+void BaseTheme::drawBatteryRight(const GfxRenderer& renderer, Rect rect, const uint16_t percentage,
+                                 const bool showPercentage, const bool foregroundBlack, const int fontId) const {
   // Right aligned: percentage on left, icon on right (UI headers)
   // rect.x is already positioned for the icon (drawHeader calculated it)
-  const uint16_t percentage = powerManager.getBatteryPercentage();
   const int y = rect.y + 5 + (renderer.getLineHeight(fontId) - renderer.getLineHeight(SMALL_FONT_ID)) / 2;
 
   if (showPercentage) {
@@ -899,6 +897,11 @@ void BaseTheme::drawReaderStatusBar(const GfxRenderer& renderer, const ReaderSta
 
   const bool batteryIcon = config.batteryStyle != ReaderStatusBarBatteryStyle::PercentOnly;
   const bool batteryPercent = config.batteryStyle != ReaderStatusBarBatteryStyle::IconOnly;
+  // Measure and draw the same value even when the battery poll interval expires mid-render.
+  const uint16_t batteryPercentage =
+      content.batteryPercentage >= 0
+          ? static_cast<uint16_t>(content.batteryPercentage)
+          : (config.contains(ReaderStatusBarItem::Battery) ? powerManager.getBatteryPercentage() : 0);
   const auto itemText = [&](const ReaderStatusBarItem item, char* scratch, const size_t len) -> const char* {
     switch (item) {
       case ReaderStatusBarItem::Date:
@@ -911,7 +914,7 @@ void BaseTheme::drawReaderStatusBar(const GfxRenderer& renderer, const ReaderSta
                    : nullptr;
       case ReaderStatusBarItem::Battery:
         // Icon styles are drawn separately; percentage-only renders as plain text.
-        snprintf(scratch, len, "%u%%", static_cast<unsigned>(powerManager.getBatteryPercentage()));
+        snprintf(scratch, len, "%u%%", static_cast<unsigned>(batteryPercentage));
         return scratch;
       case ReaderStatusBarItem::TimeLeftBook:
         return content.timeLeftBook;
@@ -947,7 +950,7 @@ void BaseTheme::drawReaderStatusBar(const GfxRenderer& renderer, const ReaderSta
       int width = metrics.batteryWidth;
       if (batteryPercent) {
         char percent[8];
-        snprintf(percent, sizeof(percent), "%u%%", static_cast<unsigned>(powerManager.getBatteryPercentage()));
+        snprintf(percent, sizeof(percent), "%u%%", static_cast<unsigned>(batteryPercentage));
         width += batteryPercentSpacing + renderer.getTextWidth(fontId, percent);
       }
       return width;
@@ -961,16 +964,16 @@ void BaseTheme::drawReaderStatusBar(const GfxRenderer& renderer, const ReaderSta
     if (item == ReaderStatusBarItem::Battery && batteryIcon) {
       if (allowedWidth < metrics.batteryWidth) return;
       char percent[8];
-      snprintf(percent, sizeof(percent), "%u%%", static_cast<unsigned>(powerManager.getBatteryPercentage()));
+      snprintf(percent, sizeof(percent), "%u%%", static_cast<unsigned>(batteryPercentage));
       const bool showPercent = batteryPercent && allowedWidth >= metrics.batteryWidth + batteryPercentSpacing +
                                                                      renderer.getTextWidth(fontId, percent);
       if (top && alignRight) {
         drawBatteryRight(
             renderer, Rect{x + allowedWidth - metrics.batteryWidth, textY, metrics.batteryWidth, metrics.batteryHeight},
-            showPercent, foregroundBlack, fontId);
+            batteryPercentage, showPercent, foregroundBlack, fontId);
       } else {
-        drawBatteryLeft(renderer, Rect{x, textY, metrics.batteryWidth, metrics.batteryHeight}, showPercent,
-                        foregroundBlack, fontId);
+        drawBatteryLeft(renderer, Rect{x, textY, metrics.batteryWidth, metrics.batteryHeight}, batteryPercentage,
+                        showPercent, foregroundBlack, fontId);
       }
       return;
     }
