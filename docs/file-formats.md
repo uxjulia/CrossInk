@@ -749,7 +749,7 @@ folder already exists.
 | hasId | `uint8` | `1` when `id` is valid |
 | method | `uint8` | `DocumentMatchMethod` the id was computed with |
 | id | 16 bytes | raw KOReader document MD5 |
-| fileSize | `uint32` | book size when `id` was computed; a different size recomputes it |
+| fileSize | `uint32` | book size when `id` was recorded; binary matching samples the current file at lookup |
 | statsStamp | `uint32` | stats catch-up id that last sent this book |
 | clippingsStamp | `uint32` | clippings catch-up id that last sent this book |
 | walkStamp | `uint32` | version 2: first-walk id that finished this book |

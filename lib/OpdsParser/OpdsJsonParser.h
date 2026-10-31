@@ -157,7 +157,6 @@ class OpdsJsonParser final : public Print {
   }
   OpdsEntry currentEntry;
   bool currentLcp = false;
-  bool currentPurchase = false;
 
   // Accumulator for the link object currently being parsed (feed, navigation,
   // group, facet or publication link — the scope on commit tells which).

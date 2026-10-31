@@ -64,6 +64,16 @@ bool Writer::commit(const bool trailingChecksum) {
   // recovering from the backup) the backup is kept, and a crash before the
   // final rename leaves a complete .tmp that Reader::open() also accepts.
   const std::string backupPath = path + ".bak";
+  if (trailingChecksum && Storage.exists(path.c_str()) && Storage.exists(backupPath.c_str())) {
+    Reader reader(path.c_str());
+    const auto source = reader.open();
+    reader.close();
+    // A corrupt primary must never displace the backup we recovered from.
+    if (source == Reader::Source::Backup && !Storage.remove(path.c_str())) {
+      LOG_ERR("SYNC", "Cannot remove corrupt primary: %s", path.c_str());
+      return false;
+    }
+  }
   if (!Storage.exists(path.c_str())) {
     if (Storage.rename(tmpPath.c_str(), path.c_str())) return true;
     LOG_ERR("SYNC", "Cannot place %s", path.c_str());

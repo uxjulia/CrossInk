@@ -124,3 +124,18 @@ TEST_F(SyncFilesTest, RecoveringFromTheBackupKeepsItUntilTheNewFileIsInPlace) {
   ASSERT_TRUE(readValue(value, text));
   EXPECT_EQ(value, 3u);
 }
+
+TEST_F(SyncFilesTest, FailedReplacementOfCorruptMainRetainsReadableBackup) {
+  ASSERT_TRUE(writeValue(1, "kept"));
+  ASSERT_TRUE(writeValue(2, "damaged"));
+  (*Storage.bytes(PATH))[2] ^= 0xff;
+  Storage.failNextRenameFrom(std::string(PATH) + ".tmp");
+  EXPECT_FALSE(writeValue(3, "replacement"));
+  uint32_t value = 0;
+  std::string text;
+  ASSERT_TRUE(readValue(value, text));
+  EXPECT_EQ(text, "kept");
+  ASSERT_TRUE(writeValue(3, "replacement"));
+  ASSERT_TRUE(readValue(value, text));
+  EXPECT_EQ(text, "replacement");
+}

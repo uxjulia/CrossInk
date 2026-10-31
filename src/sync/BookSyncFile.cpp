@@ -31,19 +31,6 @@ bool parseHex(const std::string& hex, uint8_t (&out)[16]) {
   return true;
 }
 
-std::string toHex(const uint8_t (&id)[16]) {
-  char hex[33];
-  for (size_t i = 0; i < 16; ++i) std::snprintf(hex + i * 2, 3, "%02x", id[i]);
-  return std::string(hex, 32);
-}
-
-bool bookSize(const std::string& bookPath, uint32_t& size) {
-  FsFile file;
-  if (!Storage.openFileForRead("SYNC", bookPath, file)) return false;
-  size = static_cast<uint32_t>(file.fileSize());
-  file.close();
-  return true;
-}
 }  // namespace
 
 std::string BookSyncFile::cachePathFor(const std::string& bookPath) {
@@ -99,23 +86,18 @@ std::string BookSyncFile::documentId(const std::string& bookPath) {
     // Filename matching hashes the name only: nothing to read or cache.
     id = KOReaderDocumentId::calculateFromFilename(bookPath);
   } else {
+    // An SD card can be edited outside CrossInk, even preserving size and timestamps.
     uint32_t size = 0;
-    const bool sized = bookSize(bookPath, size);
-    if (known && record.hasId && record.method == method && sized && record.fileSize == size) {
-      id = toHex(record.id);
-    } else {
-      id = KOReaderDocumentId::calculate(bookPath);
-      uint8_t fresh[16];
-      if (!id.empty() && sized && parseHex(id, fresh)) {
-        // A replaced file (new edition, same path) has a new id: the map must
-        // stop pointing the old document at it.
-        idChanged = !record.hasId || memcmp(record.id, fresh, sizeof(fresh)) != 0;
-        memcpy(record.id, fresh, sizeof(fresh));
-        record.hasId = true;
-        record.method = method;
-        record.fileSize = size;
-        changed = true;
-      }
+    id = KOReaderDocumentId::calculate(bookPath, &size);
+    uint8_t fresh[16];
+    if (!parseHex(id, fresh)) return {};
+    idChanged = !known || !record.hasId || record.method != method || memcmp(record.id, fresh, sizeof(fresh)) != 0;
+    if (idChanged || record.fileSize != size) {
+      memcpy(record.id, fresh, sizeof(fresh));
+      record.hasId = true;
+      record.method = method;
+      record.fileSize = size;
+      changed = true;
     }
   }
   if (id.empty()) return id;

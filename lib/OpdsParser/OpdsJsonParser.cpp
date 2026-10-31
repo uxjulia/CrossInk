@@ -278,7 +278,7 @@ void OpdsJsonParser::onContainerStart(const bool isObject) {
       break;
     case Scope::PUB:
       currentEntry = OpdsEntry{};
-      currentLcp = currentPurchase = false;
+      currentLcp = false;
       pubAcqRank = -1;
       pubHasPlainEpub = false;
       break;
@@ -500,15 +500,14 @@ void OpdsJsonParser::commitPubLink() {
   // Preference order: higher acquisition rank (open-access > acquisition >
   // borrow > buy); at equal rank a direct EPUB beats an indirect link; among
   // direct EPUBs a plain .epub path beats a derived format (kepub etc.).
-  bool better = currentEntry.href.empty() || link.acqRank > pubAcqRank;
-  if (!better && link.acqRank == pubAcqRank) {
-    if (link.typeEpub && (currentEntry.indirect || currentLcp)) {
-      better = true;  // a direct EPUB beats both an indirect hop and an LCP license
-    } else if (link.typeEpub && !currentEntry.indirect && isPlainEpub && !pubHasPlainEpub) {
-      better = true;
-    } else if (link.typeLcp && currentEntry.indirect && !currentLcp) {
-      better = true;  // a fulfillable LCP license beats an opaque indirect hop
-    }
+  const bool unsupported = link.typeLcp || link.acqRank == 0;
+  bool better = currentEntry.href.empty();
+  if (!better && unsupported != currentEntry.unsupportedAcquisition) {
+    better = !unsupported;
+  } else if (!better && link.acqRank != pubAcqRank) {
+    better = link.acqRank > pubAcqRank;
+  } else if (!better && link.typeEpub) {
+    better = currentEntry.indirect || currentLcp || (isPlainEpub && !pubHasPlainEpub);
   }
   if (!better) return;
 
@@ -517,8 +516,7 @@ void OpdsJsonParser::commitPubLink() {
   currentEntry.indirect = !link.typeEpub && !link.typeLcp;
   pubAcqRank = link.acqRank;
   pubHasPlainEpub = isPlainEpub;
-  currentPurchase = link.acqRank == 0;
-  currentEntry.unsupportedAcquisition = currentLcp || currentPurchase;
+  currentEntry.unsupportedAcquisition = unsupported;
 }
 void OpdsJsonParser::commitPublication() {
   // A publication is listable if it has a title and either a download href or a

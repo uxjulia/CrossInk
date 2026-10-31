@@ -118,4 +118,16 @@ TEST_F(OpdsJsonTest, BoundsCombinedStringsAndRetainsPagination) {
     bytes += largeEntries[i].title.size() + largeEntries[i].href.size();
   EXPECT_LE(bytes, 24u * 1024u);
 }
+TEST_F(OpdsJsonTest, SupportedAcquisitionWinsInEitherOrder) {
+  const std::string epub = R"({"rel":"acquisition","type":"application/epub+zip","href":"book.epub"})";
+  const std::string license =
+      R"({"rel":"open-access","type":"application/vnd.readium.lcp.license.v1.0+json","href":"license"})";
+  for (const auto& links : {epub + "," + license, license + "," + epub}) {
+    OpdsFeedParser parser(entries, 4);
+    ASSERT_TRUE(feed(parser, R"({"publications":[{"metadata":{"title":"Book"},"links":[)" + links + "]}]}"));
+    ASSERT_EQ(parser.getEntryCount(), 1u);
+    EXPECT_EQ(entries[0].href, "book.epub");
+    EXPECT_FALSE(entries[0].unsupportedAcquisition);
+  }
+}
 }  // namespace

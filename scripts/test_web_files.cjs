@@ -284,3 +284,18 @@ test('normal close, Cancel and Escape still close idle dialogs', async () => {
     assert.equal(overlay.open, false, overlay.id);
   }
 });
+
+test('image picker escapes EPUB filenames in every preview style', () => {
+  const { document, element, run } = portal();
+  const rows = [];
+  document.createElement = () => ({});
+  element('imageGrid').appendChild = item => rows.push(item.innerHTML);
+  run(`epubImagesCache = [{isCover:true},{isSeparator:true},{}].map(img =>
+    ({...img, name:'cover"><img src=x onerror=alert(1)>.jpg', dataUrl:'blob:preview'}));
+    renderImageGrid();`);
+  assert.equal(rows.length, 3);
+  for (const html of rows) {
+    assert.equal((html.match(/<img /g) || []).length, 1);
+    assert.match(html, /cover&quot;&gt;&lt;img/);
+  }
+});

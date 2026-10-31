@@ -41,7 +41,6 @@ constexpr size_t STATS_BATCH_CAPACITY = 4096;
 // applied, so keep pages small on the C3.
 constexpr uint8_t PAGE_LIMIT = 10;
 
-// Cached in the book's cache folder, so binary matching reads the book once.
 std::string documentIdFor(const std::string& bookPath) { return BookSyncFile::documentId(bookPath); }
 }  // namespace
 
@@ -1222,6 +1221,15 @@ KOReaderProgress progressFromChange(const KOReaderProgressChange& change, const 
 
 void StatsUploadActivity::syncEpub(std::string&& bookPath, const KOReaderProgressChange* remote) {
   setCurrentBook(bookPath);
+  if (remote) {
+    // The pull map can predate an external SD edit. Check the current book (including aliases)
+    // before supplying a remote position to the child activity.
+    uint8_t id[16];
+    if (!parseId(documentIdFor(bookPath), id) || !changeMatches(*remote, id)) {
+      keepRemote(*remote);
+      return;
+    }
+  }
   {
     // Rebuild missing metadata (for example after moving a book into Read),
     // but release it before the child makes TLS requests.

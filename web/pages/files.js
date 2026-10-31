@@ -1050,6 +1050,7 @@ function renderImageGrid() {
     const state = imageStates[img.path] || 0;
 
     const item = document.createElement("div");
+    const imageName = escapeHtml(img.name);
 
     if (isCover) {
       // Cover image - locked, cannot be split
@@ -1057,8 +1058,8 @@ function renderImageGrid() {
       item.title = `${img.width}×${img.height} - Cover image (locked)`;
       item.innerHTML = `
           <span class="image-state-badge cover-badge">🔒</span>
-          <img src="${img.dataUrl}" alt="${img.name}" loading="lazy">
-          <div class="image-name">${img.name}</div>
+          <img src="${img.dataUrl}" alt="${imageName}" loading="lazy">
+          <div class="image-name">${imageName}</div>
         `;
     } else if (isSeparator) {
       // Separator/ornament - locked, cannot be split
@@ -1066,8 +1067,8 @@ function renderImageGrid() {
       item.title = `${img.width}×${img.height} - Separator (locked)`;
       item.innerHTML = `
           <span class="image-state-badge separator-badge">✦</span>
-          <img src="${img.dataUrl}" alt="${img.name}" loading="lazy">
-          <div class="image-name">${img.name}</div>
+          <img src="${img.dataUrl}" alt="${imageName}" loading="lazy">
+          <div class="image-name">${imageName}</div>
         `;
     } else {
       // All other images are selectable - all modes allowed
@@ -1121,8 +1122,8 @@ function renderImageGrid() {
           <div class="image-preview-overlay">
             ${splitLinesHtml}
           </div>
-          <img src="${img.dataUrl}" alt="${img.name}" loading="lazy">
-          <div class="image-name">${img.name}</div>
+          <img src="${img.dataUrl}" alt="${imageName}" loading="lazy">
+          <div class="image-name">${imageName}</div>
         `;
     }
 
@@ -1867,7 +1868,7 @@ function logImage(
       "SPLIT",
     );
     if (partsDetail) {
-      log(`<span class="log-detail" style="margin-left: 20px;">↳ ${partsDetail}</span>`, "", "");
+      log(`<span class="log-detail" style="margin-left: 20px;">↳ ${escapeHtml(partsDetail)}</span>`, "", "");
     }
   } else {
     conversionStats.images++;
@@ -1884,7 +1885,7 @@ function logImage(
 // Log fix applied
 function logFix(type, detail) {
   conversionStats.fixes++;
-  log(`${type}: <span class="log-detail">${detail}</span>`, "success", "FIX");
+  log(`${type}: <span class="log-detail">${escapeHtml(detail)}</span>`, "success", "FIX");
 }
 
 // Log skipped item
@@ -1896,7 +1897,7 @@ function logSkip(name, reason) {
 // Log error
 function logError(message) {
   conversionStats.errors++;
-  log(message, "error", "ERROR");
+  log(escapeHtml(message), "error", "ERROR");
 }
 
 // Log summary table
@@ -2242,7 +2243,7 @@ function scrubBlankCodepoints(text) {
 function scrubEpubTextResource(path, text) {
   const scrubbed = scrubBlankCodepoints(text);
   if (scrubbed.count > 0) {
-    logFix("Blank codepoints", `${escapeHtml(path.split("/").pop())} (${scrubbed.count} removed)`);
+    logFix("Blank codepoints", `${path.split("/").pop()} (${scrubbed.count} removed)`);
   }
   return scrubbed.text;
 }
@@ -4688,7 +4689,7 @@ async function convertEpubFile(file, progressCallback) {
   // Initialize logging
   clearLog();
   showLog();
-  log(`<strong>${file.name}</strong> <span class="log-detail">(${formatBytes(originalSize)})</span>`, "", "INFO");
+  log(`<strong>${escapeHtml(file.name)}</strong> <span class="log-detail">(${formatBytes(originalSize)})</span>`, "", "INFO");
   log(
     `Quality: ${JPEG_QUALITY}% | Overlap: ${OVERLAP_PERCENT}% | Rotation: ${HANDEDNESS === "right" ? "CW" : "CCW"} | Grayscale: ${ENABLE_GRAYSCALE ? "ON" : "OFF"}`,
     "",
@@ -4744,7 +4745,7 @@ async function convertEpubFile(file, progressCallback) {
       } catch (imageError) {
         // Log error but continue with original image
         console.error(`Failed to process image ${path}:`, imageError);
-        log(`Warning: Failed to process ${path.split("/").pop()}, using original`, "warning", "IMG-ERR");
+        log(`Warning: Failed to process ${escapeHtml(path.split("/").pop())}, using original`, "warning", "IMG-ERR");
         delete renamed[path];
         out.file(path, data, { compression: "STORE", createFolders: false });
         if (progressCallback) progressCallback((i / entries.length) * 60);

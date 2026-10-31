@@ -16,9 +16,10 @@
 // Stub only the content hash and completion peek; persistence and sync tracking
 // use the production implementations below.
 unsigned documentHashCalls = 0;
-std::string KOReaderDocumentId::calculate(const std::string& path) {
+std::string KOReaderDocumentId::calculate(const std::string& path, uint32_t* sampledSize) {
   ++documentHashCalls;
   const auto& bytes = fake::files.at(path)->bytes;
+  if (sampledSize) *sampledSize = bytes.size();
   return std::string(32, bytes.empty() ? '0' : static_cast<char>(bytes[0]));
 }
 std::string KOReaderDocumentId::calculateFromFilename(const std::string&) { return std::string(32, 'f'); }
@@ -175,7 +176,7 @@ TEST_F(BookCacheUtilsTest, SameSizeReplacementRecalculatesBinaryIdAndQueuesSaved
   KOREADER_STORE.method = DocumentMatchMethod::BINARY;
   seedSyncHistory();
   ASSERT_EQ(BookSyncFile::documentId("/a.epub"), std::string(32, 'a'));
-  ASSERT_EQ(documentHashCalls, 0u);
+  ASSERT_EQ(documentHashCalls, 1u);
   // Web deletion removes the file and its pending/map entries, keeping user state.
   ASSERT_TRUE(SyncPending::mark("/a.epub", SyncPending::STATS_BIT));
   ASSERT_TRUE(Storage.remove("/a.epub"));
@@ -210,7 +211,7 @@ TEST_F(BookCacheUtilsTest, SameSizeReplacementRecalculatesBinaryIdAndQueuesSaved
   fake::add(cachePath + "/sync.bin");
   fake::files.at(cachePath + "/sync.bin")->bytes = main;
   EXPECT_EQ(BookSyncFile::documentId("/a.epub"), std::string(32, 'b'));
-  EXPECT_EQ(documentHashCalls, 1u);
+  EXPECT_EQ(documentHashCalls, 2u);
   EXPECT_TRUE(expectSyncHistoryIntact().hasId);
   expectUserStateIntact();
 }
@@ -266,7 +267,7 @@ TEST_F(BookCacheUtilsTest, DirectSameSizeReplacementDropsOldIdMapBeforeRehashing
   EXPECT_EQ(documentHashCalls, 1u);
   ASSERT_TRUE(clearBookCachePreservingUserState("/a.epub"));
   EXPECT_EQ(BookSyncFile::documentId("/a.epub"), std::string(32, 'b'));
-  EXPECT_EQ(documentHashCalls, 1u);  // ordinary layout clears keep the cached id
+  EXPECT_EQ(documentHashCalls, 2u);
   EXPECT_TRUE(expectSyncHistoryIntact().hasId);
 }
 
@@ -343,3 +344,19 @@ TEST_F(BookCacheUtilsTest, MovingNewBytesOntoDeletedPathPreservesDestinationHist
 }
 
 }  // namespace
+
+TEST_F(BookCacheUtilsTest, ExternalSameSizeReplacementUpdatesTheMappedId) {
+  KOREADER_STORE.method = DocumentMatchMethod::BINARY;
+  seedSyncHistory();
+  fake::add("/a.epub", "bbbb");
+  ASSERT_EQ(BookSyncFile::documentId("/a.epub"), std::string(32, 'b'));
+  unsigned count = 0;
+  ASSERT_TRUE(SyncIds::forEach(
+      [](const uint8_t (&id)[16], const std::string&, void* context) {
+        EXPECT_TRUE(std::all_of(std::begin(id), std::end(id), [](uint8_t byte) { return byte == 0xbb; }));
+        ++*static_cast<unsigned*>(context);
+        return true;
+      },
+      &count));
+  EXPECT_EQ(count, 1u);
+}
