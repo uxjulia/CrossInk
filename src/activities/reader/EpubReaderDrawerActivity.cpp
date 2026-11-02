@@ -605,14 +605,15 @@ void EpubReaderDrawerActivity::rebuildTtfRenderingRows() {
   state.paneTopIndex = std::min<int16_t>(state.paneTopIndex, static_cast<int16_t>(paneRows.size() - 1));
 }
 
-void EpubReaderDrawerActivity::saveTtfRenderingProfile() {
+bool EpubReaderDrawerActivity::saveTtfRenderingProfile() {
   const char* const family = draft.sdFontFamilyName.data();
-  if (ttfRenderProfile == TTF_RENDER_PROFILES.profileFor(family)) return;
+  if (ttfRenderProfile == TTF_RENDER_PROFILES.profileFor(family)) return true;
   if (!TTF_RENDER_PROFILES.setProfile(family, ttfRenderProfile)) {
     LOG_ERR("ERDM", "Failed to save TTF rendering profile for %s", family);
-    return;
+    return false;
   }
   ttfRenderingChanged = ttfRenderProfile != initialTtfRenderProfile;
+  return true;
 }
 
 void EpubReaderDrawerActivity::finishTtfRenderingEdit() {
@@ -1783,12 +1784,17 @@ void EpubReaderDrawerActivity::activateRow(const RowId row) {
       saveTtfRenderingProfile();
       requestUpdate();
       return;
-    case RowId::TtfReset:
+    case RowId::TtfReset: {
+      const TtfRenderProfile previous = ttfRenderProfile;
       ttfRenderProfile = {};
+      const bool saved = saveTtfRenderingProfile();
+      if (!saved) ttfRenderProfile = previous;
       rebuildTtfRenderingRows();
-      saveTtfRenderingProfile();
+      static constexpr StrId options[] = {StrId::STR_OK};
+      ttfResetPopup.show(saved ? StrId::STR_TTF_DEFAULTS_RESET : StrId::STR_TTF_RESET_FAILED, options, 1, 0, nullptr);
       requestUpdate();
       return;
+    }
 #endif
     case RowId::FontFamily:
       discoverFonts();
@@ -2772,6 +2778,17 @@ void EpubReaderDrawerActivity::renderPreviewWithAntiAliasing(const int previewFo
 }
 
 void EpubReaderDrawerActivity::loop() {
+#if CROSSINK_SCALABLE_FONTS
+  if (ttfResetPopup.handleInput(mappedInput, [this] { requestUpdate(); })) {
+    if (!ttfResetPopup.isActive()) {
+      // The centered popup can cover reader pixels above the drawer. Restore
+      // the book backdrop as well as any draft preview before repainting.
+      activityManager.restoreBackdropBehindCurrentOverlay();
+      previewDirty = true;
+    }
+    return;
+  }
+#endif
   if (mappedInput.wasBottomEdgeUpSwipe()) {
     closeAndReturn(false, EpubReaderMenuAction::GO_HOME, false);
     return;
@@ -2986,6 +3003,9 @@ void EpubReaderDrawerActivity::loop() {
 }
 
 void EpubReaderDrawerActivity::render(RenderLock&&) {
+#if CROSSINK_SCALABLE_FONTS
+  if (ttfResetPopup.processRender(renderer, mappedInput)) return;
+#endif
   const bool buttonDevice = !mappedInput.hasTouchHardware();
   const int16_t drawerEdge =
       buttonDevice ? drawerHeight() : static_cast<int16_t>(renderer.getScreenHeight() - drawerHeight());

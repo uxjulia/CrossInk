@@ -21,6 +21,7 @@
 #include "util/ButtonNavigator.h"
 #if CROSSINK_SCALABLE_FONTS
 #include "TtfRenderProfileStore.h"
+#include "components/OptionPopup.h"
 #endif
 
 class EpubReaderDrawerActivity final : public Activity {
@@ -288,13 +289,14 @@ class EpubReaderDrawerActivity final : public Activity {
   void discoverFonts();
   void refreshTtfRenderingRow();
 #if CROSSINK_SCALABLE_FONTS
+  OptionPopup ttfResetPopup;
   TtfRenderProfile ttfRenderProfile{};
   TtfRenderProfile initialTtfRenderProfile{};
   bool ttfRenderingChanged = false;
 
   void rebuildTtfRenderingRows();
   void showTtfRenderingOptions(RowId row);
-  void saveTtfRenderingProfile();
+  bool saveTtfRenderingProfile();
   void finishTtfRenderingEdit();
 #endif
   void discoverDictionaries();

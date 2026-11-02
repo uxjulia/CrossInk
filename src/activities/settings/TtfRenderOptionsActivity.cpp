@@ -140,7 +140,7 @@ const char* TtfRenderOptionsActivity::rowLabel(const Row row) {
 
 const char* TtfRenderOptionsActivity::rowValue(const Row row, const TtfRenderProfile& profile) {
   if (row == Row::StemDarkening) return profile.stemDarkening ? tr(STR_ON) : tr(STR_OFF);
-  if (row == Row::Reset) return ">";
+  if (row == Row::Reset) return "";
   const auto* options = optionLabels(row);
   if (options == nullptr || options->empty()) return "";
   const size_t index = std::min<size_t>(selectedOption(profile, row), options->size() - 1);
@@ -175,13 +175,14 @@ void TtfRenderOptionsActivity::rebuildRows() {
   selectedIndex_ = std::clamp(selectedIndex_, 0, static_cast<int>(rows_.size()) - 1);
 }
 
-void TtfRenderOptionsActivity::save() {
-  if (profile_ == TTF_RENDER_PROFILES.profileFor(family_.c_str())) return;
+bool TtfRenderOptionsActivity::save() {
+  if (profile_ == TTF_RENDER_PROFILES.profileFor(family_.c_str())) return true;
   if (!TTF_RENDER_PROFILES.setProfile(family_.c_str(), profile_)) {
     LOG_ERR("TTFUI", "Failed to save rendering profile for %s", family_.c_str());
-    return;
+    return false;
   }
   changed_ = profile_ != initialProfile_;
+  return true;
 }
 
 void TtfRenderOptionsActivity::finishWithResult() {
@@ -209,9 +210,13 @@ void TtfRenderOptionsActivity::activateSelected() {
     profile_.stemDarkening = !profile_.stemDarkening;
     save();
   } else if (row == Row::Reset) {
+    const TtfRenderProfile previous = profile_;
     profile_ = {};
+    const bool saved = save();
+    if (!saved) profile_ = previous;
     rebuildRows();
-    save();
+    static constexpr StrId options[] = {StrId::STR_OK};
+    optionPopup_.show(saved ? StrId::STR_TTF_DEFAULTS_RESET : StrId::STR_TTF_RESET_FAILED, options, 1, 0, nullptr);
   } else {
     showOptions(row);
   }

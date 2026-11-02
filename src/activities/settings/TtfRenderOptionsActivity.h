@@ -50,7 +50,7 @@ class TtfRenderOptionsActivity final : public Activity {
   void rebuildRows();
   void activateSelected();
   void showOptions(Row row);
-  void save();
+  bool save();
   void finishWithResult();
   static void optionsScreen(UiApp::ScreenType& screen, void* user);
   static void onRowEvent(const freeink::ui::ActionEvent& event, void* user);

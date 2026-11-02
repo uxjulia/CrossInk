@@ -142,6 +142,7 @@
 - Keep saved EPUB highlights aligned at tight line spacing and preserve letters on adjacent lines (#893).
 - Stabilize X4 battery percentages across page turns and status bars, and keep the percentage visible while the battery reading changes (#904).
 - Explain UI fallback font loading failures in the picker, keep unusable font families visible with a reason, and preserve the previous selection when a new font cannot load.
+- Remove the misleading submenu arrow from Reset TTF Defaults and show a popup confirming the reset or reporting a save failure.
 
 ### Changed
 
