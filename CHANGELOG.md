@@ -143,6 +143,7 @@
 - Stabilize X4 battery percentages across page turns and status bars, and keep the percentage visible while the battery reading changes (#904).
 - Explain UI fallback font loading failures in the picker, keep unusable font families visible with a reason, and preserve the previous selection when a new font cannot load.
 - Remove the misleading submenu arrow from Reset TTF Defaults and show a popup confirming the reset or reporting a save failure.
+- Fix slanted and wrapped EPUB covers from progressive JPEGs on Home and sleep screens (#907).
 
 ### Changed
 

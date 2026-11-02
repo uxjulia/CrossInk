@@ -1,0 +1,30 @@
+Subject: [PATCH] fix: decode non-interleaved progressive luma on its own block grid
+
+A luma-only progressive scan stores one 8x8 block per MCU, even when the
+frame uses 4:2:2 or 4:2:0 chroma subsampling. Decoding the scan on the frame's
+interleaved MCU grid consumes extra edge blocks and shifts successive rows.
+Use the single-luma geometry for grayscale output, then restore the frame
+sampling for subsequent decoder use. Interleaved scans are unchanged.
+
+--- a/src/jpeg.inl
++++ b/src/jpeg.inl
+@@ -5001,6 +5001,12 @@
+     if (pJPEG->iOptions & JPEG_LUMA_ONLY && pJPEG->ucPixelType < EIGHT_BIT_GRAYSCALE) {
+         pJPEG->ucPixelType = EIGHT_BIT_GRAYSCALE; // switch to grayscale output
+     }
++    const uint8_t ucFrameSubSample = pJPEG->ucSubSample;
++    // A single-component progressive luma scan has one 8x8 block per MCU,
++    // without the frame's interleaved chroma padding at the right/bottom edge.
++    if (pJPEG->ucMode == 0xc2 && pJPEG->ucPixelType >= EIGHT_BIT_GRAYSCALE &&
++        pJPEG->ucComponentsInScan == 1 && pJPEG->JPCI[0].component_needed)
++        pJPEG->ucSubSample = 0x00;
+     // reorder and fix the quantization table for decoding
+     JPEGFixQuantD(pJPEG);
+     pJPEG->bb.ulBits = MOTOLONG(&pJPEG->ucFileBuf[0]); // preload first 4/8 bytes
+@@ -5370,5 +5376,6 @@
+     } // for y
+     if (iErr != 0)
+         pJPEG->iError = JPEG_DECODE_ERROR;
++    pJPEG->ucSubSample = ucFrameSubSample;
+     return (iErr == 0);
+ } /* DecodeJPEG() */
