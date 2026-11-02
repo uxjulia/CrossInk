@@ -305,6 +305,8 @@ def run_smoke(args: argparse.Namespace) -> int:
             shutil.copytree(Path(args.filename_font_dir), temp_root / "fs_" / ".crosspoint" / "languages" / "fonts", dirs_exist_ok=True)
         if args.filename_font_family:
             env["CROSSINK_SIMULATOR_SMOKE_FILENAME_FONT"] = args.filename_font_family
+        if args.filename_font_error_family:
+            env["CROSSINK_SIMULATOR_SMOKE_FILENAME_FONT_ERROR"] = args.filename_font_error_family
         if args.filename_font_captures:
             env["CROSSINK_SIMULATOR_SMOKE_STATUS_BAR_CAPTURES"] = str(Path(args.filename_font_captures).resolve())
         if args.screen_calibration:
@@ -519,6 +521,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--font-dir", help="Font fixtures copied into isolated /fonts")
     parser.add_argument("--filename-font-dir", help="TTF family fixtures copied into /.crosspoint/languages/fonts")
     parser.add_argument("--filename-font-family", help="Check filename font picker, mixed glyphs and storage lifecycle (S3)")
+    parser.add_argument("--filename-font-error-family", help="Family that must remain visible with a load error and preserve the previous choice")
     parser.add_argument("--filename-font-captures", help="Directory for filename font framebuffer captures (PGM)")
     parser.add_argument("--font-recovery", action="store_true", help="Check reader selection recovery after font catalog memory pressure")
     parser.add_argument("--font-family", help="Exercise custom-font size and dictionary lifecycle")

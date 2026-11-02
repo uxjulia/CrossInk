@@ -8,15 +8,23 @@
 #include <utility>
 inline std::string testRoot;
 inline bool failDirectoryScan = false;
+inline bool failFontRead = false;
+inline bool failDirectoryWrapperAlloc = false;
+inline bool failOpenWrapperAlloc = false;
 inline unsigned directorySteps = 0;
 class HalFile {
   std::string path_;
   FILE* file_ = nullptr;
   std::filesystem::directory_iterator iterator_, end_;
-  bool directory_ = false, failed_ = false;
+  bool directory_ = false, failed_ = false, allocationFailed_ = false;
 
  public:
   HalFile() = default;
+  static HalFile wrapperAllocationFailure() {
+    HalFile failed;
+    failed.allocationFailed_ = true;
+    return failed;
+  }
   explicit HalFile(std::string path, bool write = false) : path_(std::move(path)) {
     directory_ = std::filesystem::is_directory(path_);
     if (directory_)
@@ -32,6 +40,8 @@ class HalFile {
     path_ = std::move(other.path_);
     file_ = std::exchange(other.file_, nullptr);
     directory_ = std::exchange(other.directory_, false);
+    failed_ = std::exchange(other.failed_, false);
+    allocationFailed_ = std::exchange(other.allocationFailed_, false);
     iterator_ = std::move(other.iterator_);
     return *this;
   }
@@ -40,14 +50,21 @@ class HalFile {
     if (file_) std::fclose(file_);
     file_ = nullptr;
     directory_ = false;
+    failed_ = false;
+    allocationFailed_ = false;
     return true;
   }
   explicit operator bool() const { return file_ || directory_; }
   bool isDirectory() const { return directory_; }
-  bool allocationFailed() const { return failed_; }
+  bool allocationFailed() const { return allocationFailed_; }
   bool iterationFailed() const { return failed_; }
   HalFile openNextFile() {
     ++directorySteps;
+    allocationFailed_ = false;
+    if (failDirectoryWrapperAlloc) {
+      allocationFailed_ = true;
+      return {};
+    }
     if (failDirectoryScan) {
       failed_ = true;
       return {};
@@ -73,13 +90,15 @@ class HalFile {
   }
   bool seekSet(size_t offset) { return seek(offset); }
   bool seek(size_t offset) { return file_ && offset <= size() && std::fseek(file_, offset, SEEK_SET) == 0; }
-  int read(void* data, size_t length) { return file_ ? std::fread(data, 1, length, file_) : 0; }
+  int read(void* data, size_t length) { return file_ && !failFontRead ? std::fread(data, 1, length, file_) : 0; }
   size_t write(const void* data, size_t length) { return file_ ? std::fwrite(data, 1, length, file_) : 0; }
   bool sync() { return file_ && std::fflush(file_) == 0; }
 };
 class TestStorage {
  public:
-  HalFile open(const char* path) { return HalFile(testRoot + path); }
+  HalFile open(const char* path) {
+    return failOpenWrapperAlloc ? HalFile::wrapperAllocationFailure() : HalFile(testRoot + path);
+  }
   bool exists(const char* path) { return std::filesystem::exists(testRoot + path); }
   bool mkdir(const char* path, bool = true) {
     return std::filesystem::create_directories(testRoot + path) || exists(path);

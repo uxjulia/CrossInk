@@ -141,10 +141,13 @@ Copy your file into `.crosspoint/languages` on SD and select it through
 **Settings > System > Device > Language**. Select it again after each edit to
 apply the changes. Creating a translation does not require rebuilding firmware.
 
-## Add missing characters with UI Font
+<a id="add-missing-characters-with-ui-font"></a>
 
-On devices with PSRAM such as the X4 Classic, X4 Pro, and Sticky, **UI Font** can fill in characters missing
-from the built-in font, such as Chinese characters in menu text or book titles.
+## Add missing characters with UI Fallback Font
+
+On devices with PSRAM such as the X4 Classic, X4 Pro, and Sticky, **UI Fallback Font**
+can fill in characters missing from the built-in font, such as Chinese characters
+in menu text or book titles.
 It also applies to filenames, dialogs, keyboards, chapter lists, bookmarks, and
 other interface text. It keeps characters the built-in font already supports
 and does not change your reading font. This option is unavailable on the X3 and
@@ -155,10 +158,20 @@ X4.
 2. Include one regular face and, optionally, one bold face. Each file can be up
    to **32 MiB**. Italic faces, variable fonts, font collections, and bitmap
    `.cpfont` files are not supported here.
-3. Open **Settings > System > Device > UI Font** and select the folder's name.
+3. Open **Settings > System > Device > UI Fallback Font** and select the folder's name.
    Select **None** to turn this fallback off.
 
-Keep fonts for book text in `/fonts` or `/.fonts`. A UI font's first use can take
+The picker also lists families it cannot load. Highlight a family to see the
+reason, such as insufficient font memory, unsupported font data, or a folder
+with no regular face or duplicate styles. Selecting it retries the load; if it
+still fails, your previous choice is kept. Empty folders and folders containing
+only bitmap fonts or macOS metadata files are not listed.
+
+The 32 MiB file limit does not guarantee a font will fit in the font workspace.
+Some large CJK OTF fonts need more working memory than the reader allows. If the
+picker reports insufficient font memory, try a smaller or prepared static font.
+
+Keep fonts for book text in `/fonts` or `/.fonts`. A UI fallback font's first use can take
 longer than later redraws. If a font is missing or unreadable, CrossInk uses its
 built-in font while keeping your saved choice. After changing font files on a
 computer, select the family again or restart the reader.

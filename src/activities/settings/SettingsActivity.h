@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "CrossPointSettings.h"
+#include "FilenameFontSystem.h"
 #include "activities/Activity.h"
 #include "components/MenuNavigationNote.h"
 #include "components/OptionPopup.h"
@@ -303,7 +304,7 @@ class SettingsActivity final : public Activity {
   mutable char languageDownloadLabel[256] = {};
   char languageRuntimeNote[96] = {};
 #if CROSSINK_SCALABLE_FONTS
-  std::vector<std::string> filenameFontNames;
+  std::vector<FilenameFontSystem::Family> filenameFontNames;
   char pendingFilenameFont[64] = {};
   bool filenameFontSelectionPending = false;
 #endif
@@ -373,7 +374,7 @@ class SettingsActivity final : public Activity {
   int simulatorSelectedIndex() const { return selectedSettingIndex; }
   bool simulatorOptionPopupActive() const { return optionPopup.isActive(); }
 #if CROSSINK_SCALABLE_FONTS
-  const std::vector<std::string>& simulatorFilenameFontNames() const { return filenameFontNames; }
+  const std::vector<FilenameFontSystem::Family>& simulatorFilenameFontNames() const { return filenameFontNames; }
 #endif
   freeink::ui::Rect simulatorSafeRect() const { return app.device().safeRect(); }
   SettingAction simulatorActiveSubmenu() const { return activeSubmenu; }

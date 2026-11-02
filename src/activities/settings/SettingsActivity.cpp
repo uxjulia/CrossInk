@@ -70,6 +70,23 @@ namespace {
 constexpr fui::ActionId ACTION_ROW = 1;
 constexpr fui::ActionId ACTION_TAB = 2;
 constexpr int16_t TOUCH_TAB_BAR_HEIGHT = 50;
+#if CROSSINK_SCALABLE_FONTS
+StrId uiFontErrorString(const FontLoadError error) {
+  switch (error) {
+    case FontLoadError::Memory:
+      return StrId::STR_UI_FONT_MEMORY_ERROR;
+    case FontLoadError::Unsupported:
+      return StrId::STR_UI_FONT_UNSUPPORTED;
+    case FontLoadError::TooLarge:
+      return StrId::STR_UI_FONT_TOO_LARGE;
+    case FontLoadError::InvalidFamily:
+    case FontLoadError::NoFont:
+      return StrId::STR_UI_FONT_FAMILY_ERROR;
+    default:
+      return StrId::STR_FONT_DATA_UNREADABLE;
+  }
+}
+#endif
 }  // namespace
 
 const StrId SettingsActivity::categoryNames[categoryCount] = {StrId::STR_CAT_DISPLAY, StrId::STR_CAT_READER,
@@ -704,29 +721,38 @@ void SettingsActivity::openFilenameFontPicker() {
   if (!filenameFontSystem.discover(filenameFontNames)) {
     optionPopup.show(
         StrId::STR_FILENAME_FALLBACK_FONT, {tr(STR_OK)}, 0, [this](int) { requestUpdate(); },
-        OptionPopup::Note(tr(STR_FONT_DATA_UNREADABLE), tr(STR_FILENAME_FONT_HINT)));
+        OptionPopup::Note(I18N.get(uiFontErrorString(filenameFontSystem.lastError())), tr(STR_FILENAME_FONT_HINT)));
     requestUpdate();
     return;
   }
-  filenameFontNames.insert(filenameFontNames.begin(), tr(STR_NONE_OPT));
+  filenameFontNames.insert(filenameFontNames.begin(), {tr(STR_NONE_OPT), FontLoadError::None});
   int selected = 0;
   for (size_t i = 1; i < filenameFontNames.size(); ++i) {
-    if (filenameFontNames[i] == SETTINGS.filenameFallbackFont) selected = static_cast<int>(i);
+    if (filenameFontNames[i].name == SETTINGS.filenameFallbackFont) selected = static_cast<int>(i);
   }
   optionPopup.showBorrowed(
       StrId::STR_FILENAME_FALLBACK_FONT,
       OptionLabels(&filenameFontNames, filenameFontNames.size(),
                    [](const void* owner, size_t i) {
-                     return (*static_cast<const std::vector<std::string>*>(owner))[i].c_str();
+                     return (*static_cast<const std::vector<FilenameFontSystem::Family>*>(owner))[i].name.c_str();
                    }),
       selected,
       [this](int index) {
         if (index < 0 || static_cast<size_t>(index) >= filenameFontNames.size()) return;
-        std::strncpy(pendingFilenameFont, index ? filenameFontNames[index].c_str() : "",
+        std::strncpy(pendingFilenameFont, index ? filenameFontNames[index].name.c_str() : "",
                      sizeof(pendingFilenameFont) - 1);
         filenameFontSelectionPending = true;
       },
       OptionPopup::Note("", tr(STR_FILENAME_FONT_HINT)));
+  // At most 65 borrowed-text notes (~2 KiB), allocated once on this cold path
+  // and owned/reused by the popup; too large for the render-task stack.
+  std::vector<OptionPopup::Note> notes;
+  notes.reserve(filenameFontNames.size());
+  for (const auto& family : filenameFontNames) {
+    notes.emplace_back(family.error == FontLoadError::None ? "" : I18N.get(uiFontErrorString(family.error)),
+                       family.error == FontLoadError::None ? tr(STR_FILENAME_FONT_HINT) : "");
+  }
+  optionPopup.setOptionNotes(std::move(notes));
   requestUpdate();
 #endif
 }
@@ -1125,14 +1151,17 @@ void SettingsActivity::loop() {
     std::strcpy(SETTINGS.filenameFallbackFont, pendingFilenameFont);
     filenameFontSystem.invalidate();
     if (pendingFilenameFont[0]) GUI.drawPopup(renderer, tr(STR_LOADING), true);
-    if (filenameFontSystem.ensureLoaded(renderer) && SETTINGS.saveToFile()) {
+    const bool loaded = filenameFontSystem.ensureLoaded(renderer);
+    if (loaded && SETTINGS.saveToFile()) {
       // The selected font and persisted setting are ready together.
     } else {
+      // Restoring the previous family resets the loader's last failure.
+      const StrId error = loaded ? StrId::STR_UI_FONT_SAVE_ERROR : uiFontErrorString(filenameFontSystem.lastError());
       std::strcpy(SETTINGS.filenameFallbackFont, previous);
       filenameFontSystem.ensureLoaded(renderer);
       optionPopup.show(
           StrId::STR_FILENAME_FALLBACK_FONT, {tr(STR_OK)}, 0, [this](int) { requestUpdate(); },
-          OptionPopup::Note(tr(STR_FONT_DATA_UNREADABLE), tr(STR_FILENAME_FONT_HINT)));
+          OptionPopup::Note(I18N.get(error), ""));
     }
     requestUpdate();
     return;

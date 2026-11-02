@@ -16,8 +16,15 @@ class GfxRenderer;
 // The persisted filename-font choice fills missing characters in shared UI fonts.
 class FilenameFontSystem {
  public:
+#if CROSSINK_SCALABLE_FONTS
+  struct Family {
+    std::string name;
+    FontLoadError error = FontLoadError::None;
+  };
+  bool discover(std::vector<Family>& families);
+  FontLoadError lastError() const { return lastError_; }
+#endif
   static constexpr const char* FONT_DIR = "/.crosspoint/languages/fonts";
-  bool discover(std::vector<std::string>& names);
   bool ensureLoaded(GfxRenderer& renderer);
   void release(GfxRenderer& renderer);
   // File-transfer screens can replace fonts or hand the SD card to the host.
@@ -35,7 +42,8 @@ class FilenameFontSystem {
   char attemptedFamily_[64] = {};
   std::unique_ptr<HalScalableFont> regular_, bold_;
   std::string regularPath_, boldPath_;
-  bool scanFamily(const char* name, SdCardFontFamilyInfo& family);
+  FontLoadError lastError_ = FontLoadError::None;
+  FontLoadError scanFamily(const char* name, SdCardFontFamilyInfo& family);
 #endif
 };
 

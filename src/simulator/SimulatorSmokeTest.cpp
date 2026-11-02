@@ -1900,6 +1900,7 @@ class SimulatorSmokeTest {
   unsigned supportPhase = 0;
   std::string priorSupportExport;
   unsigned filenameFontPhase = 0;
+  unsigned filenameFontErrorPhase = 0;
   unsigned hyphenationPhase = 0;
   unsigned aboutPhase = 0;
   unsigned aboutPass = 0;
@@ -5015,12 +5016,16 @@ class SimulatorSmokeTest {
               return setting.action == SettingAction::FilenameFallbackFont;
             }))
           fail("Filename setting missing from Device settings");
-        std::vector<std::string> names;
-        if (!filenameFontSystem.discover(names) || std::find(names.begin(), names.end(), family) == names.end())
+        std::vector<FilenameFontSystem::Family> names;
+        if (!filenameFontSystem.discover(names) || std::none_of(names.begin(), names.end(), [&](const auto& entry) {
+              return entry.name == family && entry.error == FontLoadError::None;
+            }))
           fail("Filename fixture family missing");
-        for (const auto& name : names)
-          if (name == "Variable Only" || name == "Bitmap Only" || name == "Corrupt Only")
-            fail("Unsupported filename font offered");
+        for (const auto& entry : names) {
+          if (entry.name == "Bitmap Only") fail("Bitmap filename font offered");
+          if ((entry.name == "Variable Only" || entry.name == "Corrupt Only") && entry.error == FontLoadError::None)
+            fail("Unsupported filename font lacks a failure reason");
+        }
         activityManager.replaceActivity(std::make_unique<SettingsActivity>(renderer, mappedInputManager));
         queueStep("Filename Settings entry", SmokeStep::Start, 4);
         break;
@@ -5052,7 +5057,39 @@ class SimulatorSmokeTest {
         const auto* settings = dynamic_cast<SettingsActivity*>(activityManager.simulatorCurrentActivity());
         if (!settings || !settings->simulatorOptionPopupActive()) fail("Filename picker did not open");
         const auto& names = settings->simulatorFilenameFontNames();
-        const auto found = std::find(names.begin(), names.end(), family);
+        const char* failedFamily = std::getenv("CROSSINK_SIMULATOR_SMOKE_FILENAME_FONT_ERROR");
+        if (!failedFamily) failedFamily = "Corrupt Only";
+        const auto unavailable =
+            std::find_if(names.begin(), names.end(), [&](const auto& entry) { return entry.name == failedFamily; });
+        if (std::getenv("CROSSINK_SIMULATOR_SMOKE_FILENAME_FONT_ERROR") && unavailable == names.end())
+          fail("Expected failing family is missing from picker");
+        if (unavailable != names.end() && filenameFontErrorPhase < 3) {
+          if (unavailable->error == FontLoadError::None) fail("Unavailable picker family lacks a failure reason");
+          switch (filenameFontErrorPhase++) {
+            case 0:
+              for (int i = 0; i < std::distance(names.begin(), unavailable); ++i)
+                addTap(MappedInputManager::Button::Down);
+              inputScript.push_back(render("Unavailable UI font highlighted", 4));
+              break;
+            case 1:
+              captureStatusBarScreen("filename-font-unavailable");
+              addTap(MappedInputManager::Button::Confirm);
+              inputScript.push_back(render("Unavailable UI font selected", 4));
+              break;
+            case 2:
+              if (SETTINGS.filenameFallbackFont[0] || renderer.filenameFontId(UI_10_FONT_ID) != UI_10_FONT_ID)
+                fail("Failed font selection changed the previous None choice");
+              captureStatusBarScreen("filename-font-load-error");
+              addTap(MappedInputManager::Button::Confirm);  // Dismiss the error.
+              addTap(MappedInputManager::Button::Confirm);  // Reopen the picker.
+              inputScript.push_back(render("UI font picker retry", 4));
+              break;
+          }
+          --filenameFontPhase;
+          break;
+        }
+        const auto found =
+            std::find_if(names.begin(), names.end(), [&](const auto& entry) { return entry.name == family; });
         if (found == names.end()) fail("Filename picker lacks selected family");
         captureStatusBarScreen("filename-font-picker");
         for (int i = 0; i < std::distance(names.begin(), found); ++i) addTap(MappedInputManager::Button::Down);

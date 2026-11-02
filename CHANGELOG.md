@@ -18,7 +18,6 @@
 - Sync Books from the new Sync Server section in File Transfer to sync progress, reading stats, and clippings for every book on the SD card in one pass, without needing a Library refresh. Sync Reading Stats and Sync Clippings, shown there when that data is turned on under What to Sync, upload only stats or only clippings without touching reading positions; after a one-time catch-up they send only books changed since the last sync.
 - Render publisher drop caps, bordered and shaded blocks, preserved whitespace, and more CSS selectors in EPUBs; scalable fonts also support mixed sizes within a line (CrossPoint #3891).
 - Install and edit interface languages from SD files, including community languages, with English fallback for missing translations. Browser translation editors and release downloads use an automatically generated, versioned English template and compatibility catalog.
-- Choose a UI Font on ESP32-S3 devices to display missing characters in book titles and filenames while retaining the built-in font for supported text.
 - Install, update, and remove EPUB hyphenation packs from SD; English remains built in, and book layouts refresh when their packs change.
 - Show the current chapter title under the book title in the reader menu on button devices and in the X4 Pro pull-down drawer; the drawer tightens its spacing to keep the handle on screen in landscape.
 - Tighten or widen Word Spacing with a -4 to +4 slider and live preview.
@@ -32,7 +31,7 @@
 - Choose a download folder for each OPDS server on the device or web portal, with options to use the shared default or SD root.
 - Choose a sync server type and custom authentication headers; compatible servers can receive ISBN, ASIN, and series metadata when sharing metadata is enabled.
 - Swipe left on File Browser, Library list, and bookmark rows to reveal a delete button, with confirmation before removal (adapted from Uri Tauber, CrossPoint #3712).
-- Fill missing characters throughout the UI, including translated menu labels and dialogs, using the selected UI Font while preserving built-in characters and the reading font.
+- Fill missing characters throughout the UI, including translated menu labels and dialogs, using the selected UI Fallback Font while preserving built-in characters and the reading font.
 - Assign Rotate Page 180° to Power, Home, front-button long presses, and button chords as well as side buttons, from device or web settings.
 - Assign separate front Left and Right long-press shortcuts, with the same actions as side buttons. Existing shared assignments migrate automatically.
 - Pause and resume page-turn taps and swipes with the Disable Page Turn Gestures shortcut, without changing menu access or other touch gestures.
@@ -45,6 +44,10 @@
 - Uninstall an installed plugin after holding Confirm for one second or long-pressing its row, with confirmation before its files are removed (CrossPoint #4100).
 - Choose Cover Overlay to place a transparent sleep image over the current book cover (CrossPoint #3770).
 - Sync combined reading streaks back from CrossPoint Sync, including reading on other devices, while keeping local reading and upload totals separate.
+
+### Changed
+
+- Rename the UI Font setting to UI Fallback Font to clarify that it only supplies missing interface characters.
 
 ### Fixed
 
@@ -138,6 +141,7 @@
 - Ask before setting a sleep cover from the image viewer, and use complete translated delete and sleep-cover questions (CrossPoint #3994, #4097).
 - Keep saved EPUB highlights aligned at tight line spacing and preserve letters on adjacent lines (#893).
 - Stabilize X4 battery percentages across page turns and status bars, and keep the percentage visible while the battery reading changes (#904).
+- Explain UI fallback font loading failures in the picker, keep unusable font families visible with a reason, and preserve the previous selection when a new font cannot load.
 
 ### Changed
 
