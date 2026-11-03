@@ -1040,3 +1040,7 @@ STR_UI_FONT_UNSUPPORTED: "Nieobsługiwana czcionka. Użyj statycznej TTF lub OTF
 STR_UI_FONT_TOO_LARGE: "Czcionki interfejsu mogą mieć najwyżej 32 MiB."
 STR_UI_FONT_FAMILY_ERROR: "Jedna zwykła odmiana na folder, bez powielonych stylów."
 STR_UI_FONT_SAVE_ERROR: "Nie udało się zapisać wyboru czcionki. Spróbuj ponownie."
+STR_SYNC_STATS_SETUP: "Przygotowanie"
+STR_SYNC_STATS_TOTALS: "Podsumowanie"
+STR_SYNC_STATS_DAILY: "Historia dzienna"
+STR_SYNC_STATS_STEP_STATUS_FORMAT: "%s: %s"

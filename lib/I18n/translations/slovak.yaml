@@ -1040,3 +1040,7 @@ STR_UI_FONT_UNSUPPORTED: "Nepodporované písmo. Použite statické TTF alebo OT
 STR_UI_FONT_TOO_LARGE: "Písma rozhrania môžu mať najviac 32 MiB."
 STR_UI_FONT_FAMILY_ERROR: "V každom priečinku jedno bežné písmo, bez duplicitných štýlov."
 STR_UI_FONT_SAVE_ERROR: "Výber písma sa nepodarilo uložiť. Skúste to znova."
+STR_SYNC_STATS_SETUP: "Príprava"
+STR_SYNC_STATS_TOTALS: "Súhrn"
+STR_SYNC_STATS_DAILY: "Denná história"
+STR_SYNC_STATS_STEP_STATUS_FORMAT: "%s: %s"

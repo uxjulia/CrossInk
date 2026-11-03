@@ -9,7 +9,7 @@
 #include "PendingOverlayResume.h"
 #include "activities/Activity.h"
 #include "activities/reader/StatsUploadPayload.h"
-#include "network/StatsUploadClient.h"
+#include "network/ReadingSyncUpload.h"
 #include "sync/SyncPending.h"
 #include "sync/SyncState.h"
 #include "util/FolderBookIterator.h"
@@ -154,6 +154,7 @@ class StatsUploadActivity final : public Activity {
   bool progressBatchUnsupported = false;  // the server has no batch route: one PUT per book
   uint32_t pulledApplied = 0;
   uint32_t pulledParked = 0;
+  ReadingSyncUpload::GlobalStatsStep globalFailedStep = ReadingSyncUpload::GlobalStatsStep::None;
   StatsUploadClient::Result globalResult = StatsUploadClient::Result::Skipped;
   std::unique_ptr<FolderBookIterator> folderBooks;
   bool globalAttempted = false;

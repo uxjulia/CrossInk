@@ -1040,3 +1040,7 @@ STR_UI_FONT_UNSUPPORTED: "Шрифт не підтримується. Викор
 STR_UI_FONT_TOO_LARGE: "Шрифти інтерфейсу мають бути не більшими за 32 МіБ."
 STR_UI_FONT_FAMILY_ERROR: "Один звичайний шрифт на теку, без повторюваних накреслень."
 STR_UI_FONT_SAVE_ERROR: "Не вдалося зберегти вибір шрифту. Спробуйте ще раз."
+STR_SYNC_STATS_SETUP: "Підготовка"
+STR_SYNC_STATS_TOTALS: "Загальні підсумки"
+STR_SYNC_STATS_DAILY: "Історія за днями"
+STR_SYNC_STATS_STEP_STATUS_FORMAT: "%s: %s"

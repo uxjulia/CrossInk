@@ -1040,3 +1040,7 @@ STR_UI_FONT_UNSUPPORTED: "Шрифт не поддерживается. Испо
 STR_UI_FONT_TOO_LARGE: "Шрифты интерфейса должны быть не больше 32 МиБ."
 STR_UI_FONT_FAMILY_ERROR: "Один обычный шрифт на папку, без повторяющихся начертаний."
 STR_UI_FONT_SAVE_ERROR: "Не удалось сохранить выбор шрифта. Повторите попытку."
+STR_SYNC_STATS_SETUP: "Подготовка"
+STR_SYNC_STATS_TOTALS: "Общие итоги"
+STR_SYNC_STATS_DAILY: "История по дням"
+STR_SYNC_STATS_STEP_STATUS_FORMAT: "%s: %s"

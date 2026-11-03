@@ -1040,3 +1040,7 @@ STR_UI_FONT_UNSUPPORTED: "Phông không được hỗ trợ. Dùng TTF hoặc OT
 STR_UI_FONT_TOO_LARGE: "Phông giao diện không được lớn hơn 32 MiB."
 STR_UI_FONT_FAMILY_ERROR: "Mỗi thư mục chỉ có một kiểu thường, không trùng kiểu."
 STR_UI_FONT_SAVE_ERROR: "Không lưu được phông đã chọn. Hãy thử lại."
+STR_SYNC_STATS_SETUP: "Chuẩn bị"
+STR_SYNC_STATS_TOTALS: "Tổng cộng"
+STR_SYNC_STATS_DAILY: "Lịch sử hằng ngày"
+STR_SYNC_STATS_STEP_STATUS_FORMAT: "%s: %s"

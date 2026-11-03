@@ -94,6 +94,67 @@ void verifyStatsUploadContract() {
     StatsUploadClient client;
     char id[32];
     require(StatsUploadClient::deviceId(id, sizeof(id)), "simulator identity");
+    if (const char* mode = std::getenv("CROSSINK_STATS_TEST_STEP")) {
+      using Step = ReadingSyncUpload::GlobalStatsStep;
+      using Result = StatsUploadClient::Result;
+      SETTINGS.trackReadingStats = 1;
+      KOREADER_STORE.setSyncStats(true);
+      global = {};
+      require(global.save(), "step fixture totals");
+      if (strcmp(mode, "daily") == 0)
+        require(DailyReadingStats::record(9769, 61) && DailyReadingStats::flush(), "step fixture daily history");
+      if (strcmp(mode, "sessions") == 0 || strcmp(mode, "corrupt-session") == 0) {
+        ReadingSessionJournal::Record record;
+        strcpy(record.id, "0123456789abcdef0123456789abcdef");
+        strcpy(record.document, DOCUMENT);
+        record.startedAt = 1609502400;
+        record.endedAt = 1609503000;
+        record.seconds = 600;
+        require(ReadingSessionJournal::save(record), "step fixture session");
+        if (strcmp(mode, "corrupt-session") == 0)
+          require(Storage.writeFile("/.crosspoint/reading_sessions/0123456789abcdef0123456789abcdef.bin", "bad"),
+                  "step fixture corrupt session");
+      }
+      if (strcmp(mode, "empty-streak") == 0) {
+        Storage.remove("/.crosspoint/global_stats.bin");
+        Storage.remove("/.crosspoint/global_stats.bin.bak");
+      }
+      Step failedStep = Step::Setup;  // Success must clear stale failure details.
+      const bool skipped = strncmp(mode, "old-streak", 10) == 0 || strcmp(mode, "ok") == 0;
+      const bool streak = strcmp(mode, "streak") == 0 || strcmp(mode, "empty-streak") == 0;
+      const Step expectedStep = skipped                       ? Step::None
+                                : strcmp(mode, "totals") == 0 ? Step::Totals
+                                : strcmp(mode, "daily") == 0  ? Step::Daily
+                                : streak                      ? Step::Streak
+                                                              : Step::Sessions;
+      const auto expectedResult = skipped                       ? Result::Ok
+                                  : strcmp(mode, "totals") == 0 ? Result::Server
+                                                                : Result::InvalidResponse;
+      require(ReadingSyncUpload::globalStats(&failedStep) == expectedResult, "failed step result");
+      require(failedStep == expectedStep, "failed step attribution");
+      char status[128];
+      const char* label = ReadingSyncUpload::globalStatusLabel(status, sizeof(status), expectedResult, failedStep);
+      const char* part = expectedStep == Step::Totals   ? "Totals"
+                         : expectedStep == Step::Daily  ? "Daily history"
+                         : expectedStep == Step::Streak ? "Reading Streak"
+                                                        : "Sessions";
+      require(skipped ? strcmp(label, "Done") == 0 : strstr(label, part) != nullptr, "failed step UI label");
+      KOREADER_STORE.setSyncStats(false);
+      require(
+          strcmp(ReadingSyncUpload::globalStatusLabel(status, sizeof(status), expectedResult, failedStep), "OFF") == 0,
+          "disabled stats keeps OFF label");
+      KOREADER_STORE.setSyncStats(true);
+      // The buffer-reusing overload must report local serialization failures too.
+      require(global.save(), "restore totals for buffer test");
+      require(ReadingSyncUpload::globalStats(client, payload.data(), 20, id, &failedStep) == Result::InvalidResponse &&
+                  failedStep == Step::Totals,
+              "small payload buffer attribution");
+      SETTINGS.trackReadingStats = 0;
+      require(ReadingSyncUpload::globalStats(&failedStep) == Result::Skipped && failedStep == Step::None,
+              "skipped attempt clears stale failure");
+      LOG_INF("SMOKE", "All-time stats failed-step smoke passed");
+      std::_Exit(0);
+    }
     if (const char* mode = std::getenv("CROSSINK_STATS_TEST_STREAK")) {
       SETTINGS.trackReadingStats = 1;
       SETTINGS.clockUtcOffsetQ = 48;

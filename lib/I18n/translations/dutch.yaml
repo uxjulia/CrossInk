@@ -1040,3 +1040,7 @@ STR_UI_FONT_UNSUPPORTED: "Niet-ondersteund lettertype. Gebruik een statische TTF
 STR_UI_FONT_TOO_LARGE: "Interfacelettertypen mogen maximaal 32 MiB zijn."
 STR_UI_FONT_FAMILY_ERROR: "Gebruik één normaal lettertype per map, zonder dubbele stijlen."
 STR_UI_FONT_SAVE_ERROR: "Lettertypekeuze opslaan mislukt. Probeer opnieuw."
+STR_SYNC_STATS_SETUP: "Voorbereiding"
+STR_SYNC_STATS_TOTALS: "Totalen"
+STR_SYNC_STATS_DAILY: "Daggeschiedenis"
+STR_SYNC_STATS_STEP_STATUS_FORMAT: "%s: %s"

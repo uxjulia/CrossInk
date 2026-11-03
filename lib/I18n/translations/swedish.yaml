@@ -1040,3 +1040,7 @@ STR_UI_FONT_UNSUPPORTED: "Teckensnittet stöds inte. Använd en statisk TTF elle
 STR_UI_FONT_TOO_LARGE: "Gränssnittsteckensnitt får vara högst 32 MiB."
 STR_UI_FONT_FAMILY_ERROR: "Använd en normal stil per mapp, utan dubbletter."
 STR_UI_FONT_SAVE_ERROR: "Kunde inte spara teckensnittsvalet. Försök igen."
+STR_SYNC_STATS_SETUP: "Förberedelse"
+STR_SYNC_STATS_TOTALS: "Totalsummor"
+STR_SYNC_STATS_DAILY: "Daglig historik"
+STR_SYNC_STATS_STEP_STATUS_FORMAT: "%s: %s"

@@ -1040,3 +1040,7 @@ STR_UI_FONT_UNSUPPORTED: "Nem támogatott betűtípus. Használjon statikus TTF-
 STR_UI_FONT_TOO_LARGE: "A felület betűtípusai legfeljebb 32 MiB méretűek lehetnek."
 STR_UI_FONT_FAMILY_ERROR: "Mappánként egy normál változatot használjon, ismétlődő stílusok nélkül."
 STR_UI_FONT_SAVE_ERROR: "A betűtípus választása nem menthető. Próbálja újra."
+STR_SYNC_STATS_SETUP: "Előkészítés"
+STR_SYNC_STATS_TOTALS: "Összesítés"
+STR_SYNC_STATS_DAILY: "Napi előzmények"
+STR_SYNC_STATS_STEP_STATUS_FORMAT: "%s: %s"

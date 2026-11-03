@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 DOCUMENT = "01b729228ded144417191bebc5a17445"
 
 
-def run(program, server, credentials, error=None, empty_library=False):
+def run(program, server, credentials, error=None, empty_library=False, step=None):
     with tempfile.TemporaryDirectory(prefix="crossink-stats-smoke-") as directory:
         (Path(directory) / "fs_").mkdir()
         env = os.environ.copy()
@@ -31,12 +31,17 @@ def run(program, server, credentials, error=None, empty_library=False):
         env.pop("CROSSINK_STATS_TEST_EMPTY_LIBRARY", None)
         if empty_library:
             env["CROSSINK_STATS_TEST_EMPTY_LIBRARY"] = "1"
+        if step is not None:
+            env["CROSSINK_STATS_TEST_STEP"] = step
+        else:
+            env.pop("CROSSINK_STATS_TEST_STEP", None)
         if error is not None:
             env["CROSSINK_STATS_TEST_ERROR"] = str(error)
         else:
             env.pop("CROSSINK_STATS_TEST_ERROR", None)
         result = subprocess.run([str(program)], cwd=directory, env=env, capture_output=True, text=True, timeout=120)
-        if result.returncode or "Stats upload transport smoke passed" not in result.stdout + result.stderr:
+        marker = "All-time stats failed-step smoke passed" if step else "Stats upload transport smoke passed"
+        if result.returncode or marker not in result.stdout + result.stderr:
             # Log only diagnostics; never dump request headers or credentials.
             lines = [line for line in (result.stdout + result.stderr).splitlines() if "StatsSync" in line or "SMOKE" in line]
             raise RuntimeError(f"Simulator upload failed (exit {result.returncode}):\n" + "\n".join(lines) + result.stderr[-1000:])
@@ -50,6 +55,19 @@ def local_tests(program):
         def log_message(self, *_):
             pass
 
+        def do_GET(self):
+            status = 404 if mode == "old-streak-404" else 405 if mode == "old-streak-405" else 200
+            reply = {"v": 1, "anchor_day": 9769, "streak": 1,
+                     "history_b64": base64.b64encode(bytes([1]) + bytes(91)).decode()}
+            if mode in ("streak", "empty-streak"):
+                reply = {"v": 1}  # HTTP success, invalid calendar.
+            data = json.dumps(reply).encode()
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
         def do_PUT(self):
             body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
             assert self.headers["x-auth-user"] == "smoke"
@@ -57,7 +75,13 @@ def local_tests(program):
             assert "Authorization" not in self.headers
             requests.append((self.path, body))
             status = {"auth": 401, "unsupported": 404, "server": 500}.get(mode, 200)
-            reply = {"until": 1, "accepted": 1}
+            if mode == "totals":
+                status = 500
+            reply = {"until": 1, "accepted": 1, "accepted_daily": 1}
+            if "daily" in body and mode == "daily":
+                reply.pop("accepted_daily")
+            if self.path == "/api/v1/stats/sessions" and mode != "sessions":
+                reply["accepted_session_ids"] = [body["items"][0]["session_id"]]
             if mode == "invalid":
                 reply = {"until": "not a timestamp"}
             elif mode == "oversize":
@@ -90,6 +114,10 @@ def local_tests(program):
         run(program, url, {"username": "smoke", "password": "smoke-password"}, empty_library=True)
         assert len(requests) == 1 and requests[0][0] == "/api/v1/stats/global"
         print("PASS: confirmed activity uploads overall stats with an empty Library")
+        for mode in ("totals", "daily", "sessions", "corrupt-session", "streak", "empty-streak",
+                     "old-streak-404", "old-streak-405", "ok"):
+            run(program, url, {"username": "smoke", "password": "smoke-password"}, step=mode)
+            print(f"PASS: all-time failed-step attribution: {mode}")
     finally:
         server.shutdown()
         server.server_close()

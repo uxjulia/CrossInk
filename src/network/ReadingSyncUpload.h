@@ -19,9 +19,12 @@ struct ExtrasResult {
   StatsUploadClient::Result clippings = StatsUploadClient::Result::Skipped;
   bool success() const { return !StatsUploadClient::failed(stats) && !StatsUploadClient::failed(clippings); }
 };
-StatsUploadClient::Result globalStats();
+enum class GlobalStatsStep : uint8_t { None, Setup, Totals, Daily, Sessions, Streak };
+// Reports the step that could not finish; success/skipped clears any previous failure.
+StatsUploadClient::Result globalStats(GlobalStatsStep* failedStep = nullptr);
 // Reuse the explicit stats activity's existing buffer/client rather than allocating a second pair.
-StatsUploadClient::Result globalStats(StatsUploadClient& client, char* payload, size_t capacity, const char* deviceId);
+StatsUploadClient::Result globalStats(StatsUploadClient& client, char* payload, size_t capacity, const char* deviceId,
+                                      GlobalStatsStep* failedStep = nullptr);
 StatsUploadClient::Result stats(const std::string& path, const std::string& document);
 // A book's saved stats when there are any to send (stats tracking on for it).
 // Only a stats-file existence check and one small read; never loads the book.
@@ -35,6 +38,8 @@ ExtrasResult extras(const std::string& path, const std::string& document);
 // Shared result wording for every sync screen: "Not supported" on a progress-only
 // server, "OFF" when the user turned that data off, otherwise the upload result.
 const char* statusLabel(StatsUploadClient::Result result, bool clippings);
+// All-time result includes the failed step, using caller-owned bounded storage.
+const char* globalStatusLabel(char* buffer, size_t capacity, StatsUploadClient::Result result, GlobalStatsStep step);
 // Bulk variant: "3" or "3 (1 failed)", with the same OFF / Not supported states.
 const char* countLabel(char* buffer, size_t capacity, uint32_t ok, uint32_t failed, bool clippings);
 // Heading for a book that failed to sync: names the part that failed

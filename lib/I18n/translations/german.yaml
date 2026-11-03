@@ -1040,3 +1040,7 @@ STR_UI_FONT_UNSUPPORTED: "Schrift nicht unterstützt. Statische TTF oder OTF ver
 STR_UI_FONT_TOO_LARGE: "UI-Schriften dürfen höchstens 32 MiB groß sein."
 STR_UI_FONT_FAMILY_ERROR: "Pro Ordner eine normale Schrift, keine doppelten Stile."
 STR_UI_FONT_SAVE_ERROR: "Schriftauswahl konnte nicht gespeichert werden. Erneut versuchen."
+STR_SYNC_STATS_SETUP: "Vorbereitung"
+STR_SYNC_STATS_TOTALS: "Gesamtwerte"
+STR_SYNC_STATS_DAILY: "Tagesverlauf"
+STR_SYNC_STATS_STEP_STATUS_FORMAT: "%s: %s"

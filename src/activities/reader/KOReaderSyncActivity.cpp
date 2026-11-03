@@ -818,7 +818,11 @@ void KOReaderSyncActivity::drawExtrasResults(const Rect textArea, int y, const b
     if (!extrasAttempted) return;
   }
   // Folder runs report overall stats once in their own summary, not per book.
-  if (includeGlobalStats) drawRow(tr(STR_ALL_TIME_STATS), ReadingSyncUpload::statusLabel(globalStatsResult, false));
+  if (includeGlobalStats) {
+    char status[128];
+    drawRow(tr(STR_ALL_TIME_STATS),
+            ReadingSyncUpload::globalStatusLabel(status, sizeof(status), globalStatsResult, globalStatsFailedStep));
+  }
   drawRow(tr(STR_READING_STATS), ReadingSyncUpload::statusLabel(extrasResult.stats, false));
   drawRow(tr(STR_CLIPPINGS), ReadingSyncUpload::statusLabel(extrasResult.clippings, true));
 }
@@ -841,7 +845,13 @@ bool KOReaderSyncActivity::uploadExtras() {
   if (requestUpdateAndWait() != RequestUpdateResult::Rendered) {
     LOG_ERR("KOSync", "Cannot render extras upload screen");
   }
-  if (includeGlobalStats && KOREADER_STORE.getSyncStats()) globalStatsResult = ReadingSyncUpload::globalStats();
+  if (includeGlobalStats && KOREADER_STORE.getSyncStats()) {
+    ReadingSyncUpload::GlobalStatsStep failedStep = ReadingSyncUpload::GlobalStatsStep::None;
+    const auto result = ReadingSyncUpload::globalStats(&failedStep);
+    RenderLock lock(*this);
+    globalStatsResult = result;
+    globalStatsFailedStep = failedStep;
+  }
   extrasResult = ReadingSyncUpload::extras(epubPath, documentHash);
   if (!StatsUploadClient::failed(globalStatsResult) && extrasResult.success()) return true;
   if (!folderSync) wifiOff();

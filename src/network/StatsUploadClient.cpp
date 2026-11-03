@@ -86,7 +86,7 @@ StatsUploadClient::Result StatsUploadClient::put(const char* endpoint, const cha
                                       });
   complete = http.responseComplete();
 #endif
-  LOG_INF("StatsSync", "Upload response: HTTP %d", status);
+  LOG_INF("StatsSync", "PUT %s: HTTP %d", endpoint, status);
   // A missing sessions endpoint on an older Sync server does not invalidate
   // support for the existing stats endpoints. Keep the outbox for an upgrade.
   if (!sessionId) recordMissingApi(status);

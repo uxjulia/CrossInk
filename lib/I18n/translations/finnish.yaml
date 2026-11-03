@@ -1040,3 +1040,7 @@ STR_UI_FONT_UNSUPPORTED: "Fonttia ei tueta. Käytä staattista TTF- tai OTF-font
 STR_UI_FONT_TOO_LARGE: "Käyttöliittymän fontti saa olla enintään 32 MiB."
 STR_UI_FONT_FAMILY_ERROR: "Käytä kansiossa yhtä normaalia tyyliä ilman päällekkäisiä tyylejä."
 STR_UI_FONT_SAVE_ERROR: "Fonttivalinnan tallennus epäonnistui. Yritä uudelleen."
+STR_SYNC_STATS_SETUP: "Valmistelu"
+STR_SYNC_STATS_TOTALS: "Yhteensä"
+STR_SYNC_STATS_DAILY: "Päivähistoria"
+STR_SYNC_STATS_STEP_STATUS_FORMAT: "%s: %s"

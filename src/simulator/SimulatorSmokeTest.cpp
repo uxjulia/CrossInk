@@ -7307,6 +7307,8 @@ class SimulatorSmokeTest {
           inputScript.push_back(render("Empty Library stats upload confirmation", 5));
           addTap(MappedInputManager::Button::Confirm);
           inputScript.push_back(render("Empty Library stats upload result", 100));
+          inputScript.push_back({ScriptActionType::CaptureMenuNavigation, MappedInputManager::Button::Down,
+                                 "all-time-stats-result", 0, 0, 0});
           addTap(MappedInputManager::Button::Back);
           inputScript.push_back(assertActivity("Home"));
           step = SmokeStep::ReaderInput;

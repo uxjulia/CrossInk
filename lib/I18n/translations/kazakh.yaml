@@ -1040,3 +1040,7 @@ STR_UI_FONT_UNSUPPORTED: "Қаріп қолдау таппайды. Статик
 STR_UI_FONT_TOO_LARGE: "Интерфейс қарпі 32 МиБ-тан аспауы керек."
 STR_UI_FONT_FAMILY_ERROR: "Әр қалтада бір қалыпты қаріп болсын, стильдер қайталанбасын."
 STR_UI_FONT_SAVE_ERROR: "Қаріп таңдауын сақтау мүмкін болмады. Қайталап көріңіз."
+STR_SYNC_STATS_SETUP: "Дайындау"
+STR_SYNC_STATS_TOTALS: "Жалпы көрсеткіштер"
+STR_SYNC_STATS_DAILY: "Күнделікті тарих"
+STR_SYNC_STATS_STEP_STATUS_FORMAT: "%s: %s"

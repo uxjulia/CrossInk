@@ -1040,3 +1040,7 @@ STR_UI_FONT_UNSUPPORTED: "Šriftas nepalaikomas. Naudokite statinį TTF arba OTF
 STR_UI_FONT_TOO_LARGE: "Sąsajos šriftai negali būti didesni nei 32 MiB."
 STR_UI_FONT_FAMILY_ERROR: "Vienas įprastas šriftas aplanke, be pasikartojančių stilių."
 STR_UI_FONT_SAVE_ERROR: "Nepavyko išsaugoti šrifto pasirinkimo. Bandykite dar kartą."
+STR_SYNC_STATS_SETUP: "Paruošimas"
+STR_SYNC_STATS_TOTALS: "Suvestinė"
+STR_SYNC_STATS_DAILY: "Dienų istorija"
+STR_SYNC_STATS_STEP_STATUS_FORMAT: "%s: %s"

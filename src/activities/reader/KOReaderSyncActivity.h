@@ -131,6 +131,7 @@ class KOReaderSyncActivity final : public Activity {
   bool extrasAttempted = false;
   bool exitingBatch = false;
   ReadingSyncUpload::ExtrasResult extrasResult;
+  ReadingSyncUpload::GlobalStatsStep globalStatsFailedStep = ReadingSyncUpload::GlobalStatsStep::None;
   StatsUploadClient::Result globalStatsResult = StatsUploadClient::Result::Skipped;
   ProgressSyncResult syncResult() const;
   // The reader can use a book-specific orientation that its teardown restores

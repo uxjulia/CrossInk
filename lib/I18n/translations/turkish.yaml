@@ -1040,3 +1040,7 @@ STR_UI_FONT_UNSUPPORTED: "Yazı tipi desteklenmiyor. Statik TTF veya OTF kullan�
 STR_UI_FONT_TOO_LARGE: "Arayüz yazı tipleri en fazla 32 MiB olmalıdır."
 STR_UI_FONT_FAMILY_ERROR: "Her klasörde yinelenen stiller olmadan bir normal stil kullanın."
 STR_UI_FONT_SAVE_ERROR: "Yazı tipi seçimi kaydedilemedi. Yeniden deneyin."
+STR_SYNC_STATS_SETUP: "Hazırlık"
+STR_SYNC_STATS_TOTALS: "Toplamlar"
+STR_SYNC_STATS_DAILY: "Günlük geçmiş"
+STR_SYNC_STATS_STEP_STATUS_FORMAT: "%s: %s"

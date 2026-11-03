@@ -1040,3 +1040,7 @@ STR_UI_FONT_UNSUPPORTED: "Шрыфт не падтрымліваецца. Вык
 STR_UI_FONT_TOO_LARGE: "Шрыфты інтэрфейсу павінны быць не большымі за 32 МіБ."
 STR_UI_FONT_FAMILY_ERROR: "Адзін звычайны шрыфт на папку, без паўторных напісанняў."
 STR_UI_FONT_SAVE_ERROR: "Не ўдалося захаваць выбар шрыфту. Паспрабуйце яшчэ раз."
+STR_SYNC_STATS_SETUP: "Падрыхтоўка"
+STR_SYNC_STATS_TOTALS: "Агульныя вынікі"
+STR_SYNC_STATS_DAILY: "Гісторыя па днях"
+STR_SYNC_STATS_STEP_STATUS_FORMAT: "%s: %s"

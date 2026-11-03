@@ -1040,3 +1040,7 @@ STR_UI_FONT_UNSUPPORTED: "الخط غير مدعوم. استخدم TTF أو OTF 
 STR_UI_FONT_TOO_LARGE: "يجب ألا يتجاوز خط الواجهة 32 MiB."
 STR_UI_FONT_FAMILY_ERROR: "استخدم نمطًا عاديًا واحدًا بكل مجلد دون أنماط مكررة."
 STR_UI_FONT_SAVE_ERROR: "تعذر حفظ اختيار الخط. حاول مجددًا."
+STR_SYNC_STATS_SETUP: "التهيئة"
+STR_SYNC_STATS_TOTALS: "الإجماليات"
+STR_SYNC_STATS_DAILY: "السجل اليومي"
+STR_SYNC_STATS_STEP_STATUS_FORMAT: "%s: %s"

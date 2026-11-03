@@ -1040,3 +1040,7 @@ STR_UI_FONT_UNSUPPORTED: "הגופן אינו נתמך. השתמשו ב-TTF או
 STR_UI_FONT_TOO_LARGE: "גופני הממשק חייבים להיות בגודל 32 MiB לכל היותר."
 STR_UI_FONT_FAMILY_ERROR: "גופן רגיל אחד בכל תיקייה, ללא סגנונות כפולים."
 STR_UI_FONT_SAVE_ERROR: "לא ניתן לשמור את בחירת הגופן. נסו שוב."
+STR_SYNC_STATS_SETUP: "הכנה"
+STR_SYNC_STATS_TOTALS: "סיכומים"
+STR_SYNC_STATS_DAILY: "היסטוריה יומית"
+STR_SYNC_STATS_STEP_STATUS_FORMAT: "%s: %s"

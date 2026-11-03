@@ -1040,3 +1040,7 @@ STR_UI_FONT_UNSUPPORTED: "Police non prise en charge. Utilisez une TTF ou OTF st
 STR_UI_FONT_TOO_LARGE: "Les polices d’interface ne doivent pas dépasser 32 Mio."
 STR_UI_FONT_FAMILY_ERROR: "Une police normale par dossier, sans styles en double."
 STR_UI_FONT_SAVE_ERROR: "Impossible d’enregistrer la police choisie. Réessayez."
+STR_SYNC_STATS_SETUP: "Préparation"
+STR_SYNC_STATS_TOTALS: "Totaux"
+STR_SYNC_STATS_DAILY: "Historique quotidien"
+STR_SYNC_STATS_STEP_STATUS_FORMAT: "%s: %s"

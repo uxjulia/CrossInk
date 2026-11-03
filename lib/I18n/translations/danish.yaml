@@ -1040,3 +1040,7 @@ STR_UI_FONT_UNSUPPORTED: "Skrifttypen understøttes ikke. Brug en statisk TTF el
 STR_UI_FONT_TOO_LARGE: "Brugerfladens skrifttyper må højst fylde 32 MiB."
 STR_UI_FONT_FAMILY_ERROR: "Brug én normal skrifttype pr. mappe uden dublerede stilarter."
 STR_UI_FONT_SAVE_ERROR: "Kunne ikke gemme skrifttypevalget. Prøv igen."
+STR_SYNC_STATS_SETUP: "Forberedelse"
+STR_SYNC_STATS_TOTALS: "Samlede tal"
+STR_SYNC_STATS_DAILY: "Daglig historik"
+STR_SYNC_STATS_STEP_STATUS_FORMAT: "%s: %s"
