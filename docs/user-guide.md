@@ -303,7 +303,7 @@ individual global changes. **Delete Book Cache** does not reset these choices.
 
 - **Publisher Page Numbers**: Show page numbers supplied by the EPUB when the book includes them. This reserves 5 pixels of left margin for the numbers, which is only noticeable when your left/right margin is 5. If a page has no publisher page number, your margins may look uneven.
 
-- **Embedded Style**, **Images**, **Image Grayscale**, **Focus Reading**, **Guide Dots**, **Dictionary**, and **Indexing Method** are also in the Reader settings. See [Reader Features](./reader-features.md) for what they do, including the [Focus Reading](./reader-features.md#focus-reading) guide.
+- **Embedded Style**, **Images** (including **Display (B&W)**), **Focus Reading**, **Guide Dots**, **Dictionary**, and **Indexing Method** are also in the Reader settings. See [Reader Features](./reader-features.md) for what they do, including the [Focus Reading](./reader-features.md#focus-reading) guide.
 
 - **Disable Touchscreen** (touch devices): Block screen-touch input while a book is open, while leaving touch available in reader menus so you can turn it back on. To disable only touch page turns, use **Next Page** and **Previous Page** in **Settings > Controls > Taps & Gestures**.
 

@@ -612,7 +612,7 @@ struct ReaderSettingsBin {
     u8 embeddedStyle;
     u8 hyphenationEnabled;
     u8 textAntiAliasing;
-    u8 imageRendering;
+    u8 imageRendering; // 0 = display, 1 = placeholder, 2 = hide
     u8 extraParagraphSpacing;
     u8 forceParagraphIndents;
     u8 focusReadingEnabled;
@@ -627,6 +627,11 @@ struct ReaderSettingsBin {
     u8 characterSpacing; // 0..10 encodes -5..+5; override bit 20
 };
 ```
+
+The Images UI combines `imageRendering` and `imageGrayscale` without changing
+these stored fields or override bits. **Display** uses `(0, 1)` and
+**Display (B&W)** uses `(0, 0)`. The global settings JSON retains the same pair;
+web settings expose the combined choices in display order.
 
 ## Sync files
 

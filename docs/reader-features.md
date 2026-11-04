@@ -197,13 +197,18 @@ provided by the book itself.
 
 ## Images And Grayscale
 
-EPUB images can be shown, replaced with a placeholder, or hidden. Choose
-**Images** in **Settings > Reader**, or on the Reader Menu's **Layout** tab.
+Choose **Images** in **Settings > Reader**, or on the Reader Menu's **Layout**
+tab for one EPUB book:
 
-**Image Grayscale** controls whether pictures are drawn in shades of gray (on
-by default) or in plain black and white. Gray usually looks better for photos. It is separate from **Text Anti-Aliasing**, which only
-smooths text. Turn it on or off for all books in **Settings > Reader > Image
-Grayscale**, or for one book from the Reader Menu's **Layout** tab.
+- **Display** shows pictures in shades of gray (the default).
+- **Display (B&W)** shows pictures in plain black and white, equivalent to the
+  former **Image Grayscale** setting being off.
+- **Placeholder** replaces pictures with their alternative text.
+- **Suppress** removes pictures.
+
+Gray usually looks better for photos. These options are separate from
+**Text Anti-Aliasing**, which only smooths text. Existing global and per-book
+image preferences are preserved.
 
 ## Select Chapter
 

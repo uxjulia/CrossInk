@@ -844,7 +844,6 @@ inline std::vector<SettingInfo> buildReaderSettingsParentList(const std::vector<
   addSettingByName(readerSettings, allSettings, StrId::STR_DISABLE_TOUCHSCREEN);
   addSettingByName(readerSettings, allSettings, StrId::STR_EMBEDDED_STYLE);
   addSettingByName(readerSettings, allSettings, StrId::STR_IMAGES);
-  addSettingByName(readerSettings, allSettings, StrId::STR_IMAGE_GRAYSCALE);
   addSettingByName(readerSettings, allSettings, StrId::STR_FOCUS_READING);
   addSettingByName(readerSettings, allSettings, StrId::STR_GUIDE_READING);
   addSettingByName(readerSettings, allSettings, StrId::STR_DICTIONARY);

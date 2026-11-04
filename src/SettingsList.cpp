@@ -1,6 +1,7 @@
 #include "SettingsList.h"
 
 #include "sync/DocumentMatching.h"
+#include "util/ImageDisplayMode.h"
 
 const std::vector<SettingInfo>& getBaseSettingsList() {
   static const std::vector<SettingInfo> baseList = [] {
@@ -118,11 +119,13 @@ const std::vector<SettingInfo>& getBaseSettingsList() {
                             StrId::STR_CAT_READER));
     add(SettingInfo::Toggle(StrId::STR_TEXT_AA, &CrossPointSettings::textAntiAliasing, "textAntiAliasing",
                             StrId::STR_CAT_READER));
-    add(SettingInfo::Enum(StrId::STR_IMAGES, &CrossPointSettings::imageRendering,
-                          {StrId::STR_IMAGES_DISPLAY, StrId::STR_IMAGES_PLACEHOLDER, StrId::STR_IMAGES_SUPPRESS},
-                          "imageRendering", StrId::STR_CAT_READER));
-    add(SettingInfo::Toggle(StrId::STR_IMAGE_GRAYSCALE, &CrossPointSettings::imageGrayscale, "imageGrayscale",
-                            StrId::STR_CAT_READER));
+    add(SettingInfo::DynamicEnum(
+        StrId::STR_IMAGES,
+        {StrId::STR_IMAGES_DISPLAY, StrId::STR_IMAGES_DISPLAY_BW, StrId::STR_IMAGES_PLACEHOLDER,
+         StrId::STR_IMAGES_SUPPRESS},
+        [] { return ImageDisplayMode::selected(SETTINGS.imageRendering, SETTINGS.imageGrayscale); },
+        [](const uint8_t mode) { ImageDisplayMode::apply(mode, SETTINGS.imageRendering, SETTINGS.imageGrayscale); },
+        "imageRendering", StrId::STR_CAT_READER));
     add(SettingInfo::Toggle(StrId::STR_DISABLE_TOUCHSCREEN, &CrossPointSettings::disableReaderTouchscreen,
                             "disableReaderTouchscreen", StrId::STR_CAT_READER));
     add(SettingInfo::Toggle(StrId::STR_EXTRA_SPACING, &CrossPointSettings::extraParagraphSpacing,

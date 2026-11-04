@@ -10,7 +10,7 @@
 - Sync a selected EPUB’s progress or an XTC book’s reading stats from its Library or File Browser context menu; Sync Folder and Sync Books include XTC stats too.
 - Use server filenames for OPDS downloads to match reading progress across devices; missing or unsafe names fall back to Author - Title.
 - View device hardware, firmware/build identity, storage, and memory diagnostics in Settings → System → About without exposing network or device identifiers. Export allowlisted diagnostics and global preferences as local support JSON after confirming the scope; optional EPUB overrides are anonymous, and network/device identifiers, credentials, and reading history are excluded.
-- Turn image grayscale on or off globally or for individual EPUB books, independently of text anti-aliasing.
+- Choose Display or Display (B&W) in Images globally or for individual EPUB books, independently of text anti-aliasing.
 - Use Home/Reader shortcuts on touch devices.
 - Customize reader and global status bars: choose Small, Medium, or Large text for each reader bar, set a separate global text size, choose battery display (Icon + %, Icon Only, or % Only) independently for the top, bottom, and global bars, and hide either reader bar without clearing its assigned slots.
 - Finished EPUB and XTC books show a checkmarked book icon in the File Browser and Library list.

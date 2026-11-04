@@ -112,7 +112,6 @@ enum class ReaderDrawerCatalogItem : uint8_t {
   EmbeddedStyle,
   PublisherFonts,
   Images,
-  ImageGrayscale,
   SelectChapter,
   GoToPercent,
   GoToStablePage,
@@ -195,7 +194,6 @@ constexpr ReaderDrawerCatalog makeReaderDrawerCatalog(const ReaderDrawerAvailabi
   layout.add(ReaderDrawerCatalogItem::Orientation);
   layout.add(ReaderDrawerCatalogItem::Alignment);
   layout.add(ReaderDrawerCatalogItem::Images);
-  layout.add(ReaderDrawerCatalogItem::ImageGrayscale);
   layout.add(ReaderDrawerCatalogItem::Hyphenation);
   layout.add(ReaderDrawerCatalogItem::PublisherPages);
   layout.add(ReaderDrawerCatalogItem::ExtraSpacing);

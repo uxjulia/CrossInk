@@ -109,10 +109,10 @@ TEST(ReaderDrawerModel, CatalogOrderAndConditionalRowsMatchTouchDesign) {
   EXPECT_EQ(font.items[5], ReaderDrawerCatalogItem::GuideDots);
 
   const auto& layout = minimal[static_cast<size_t>(ReaderDrawerTab::Layout)];
-  EXPECT_EQ(layout.count, 10);
+  EXPECT_EQ(layout.count, 9);
   EXPECT_EQ(layout.items[0], ReaderDrawerCatalogItem::Margins);
   EXPECT_EQ(layout.items[3], ReaderDrawerCatalogItem::Images);
-  EXPECT_EQ(layout.items[4], ReaderDrawerCatalogItem::ImageGrayscale);
+  EXPECT_EQ(layout.items[4], ReaderDrawerCatalogItem::Hyphenation);
 
   const auto& minimalMore = minimal[static_cast<size_t>(ReaderDrawerTab::More)];
   EXPECT_EQ(minimalMore.count, 3);

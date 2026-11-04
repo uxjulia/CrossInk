@@ -477,6 +477,10 @@ void CrossPointSettings::toJson(JsonDocument& doc) const {
     }
   }
 
+  // Images is a combined UI choice; retain the original persisted pair for compatibility.
+  doc["imageRendering"] = imageRendering;
+  doc["imageGrayscale"] = imageGrayscale;
+
   JsonArray displaySlots = doc["displayStatusBar"].to<JsonArray>();
   for (const auto item : displayStatusBar.slots) displaySlots.add(static_cast<uint8_t>(item));
   doc["displayBatteryStyle"] = static_cast<uint8_t>(displayStatusBar.batteryStyle);
@@ -648,6 +652,10 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc, bool importingCrossPoint
     }
     this->*(info.valuePtr) = value;
   }
+
+  // The dynamic Images setting is intentionally absent from the generic field loop.
+  imageRendering = clamp(doc["imageRendering"] | imageRendering, IMAGE_RENDERING_COUNT, imageRendering);
+  imageGrayscale = clamp(doc["imageGrayscale"] | imageGrayscale, 2, imageGrayscale);
 
   // Retire the old blanket touch gate. Its saved value must not leave hidden restrictions.
   disablePageTurnGestures = clamp(doc["disablePageTurnGestures"] | uint8_t{0}, 2, 0);

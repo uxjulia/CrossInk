@@ -30,6 +30,7 @@
 #include "SilentRestart.h"
 #include "StatsUploadSmokeTest.h"
 #include "UpstreamFeatureSmokeTest.h"
+#include "util/ImageDisplayMode.h"
 #include "util/WordSelectNavigator.h"
 #if CROSSINK_SCALABLE_FONTS
 #include <HalScalableFont.h>
@@ -463,6 +464,91 @@ struct SliderOrientationSmokeTest {
 };
 
 struct ReaderDrawerLayoutSmokeTest {
+  template <typename Capture>
+  static bool verifyImageDisplay(const Capture& capture) {
+    JsonDocument original;
+    SETTINGS.toJson(original);
+    bool valid = true;
+    const SettingInfo* images = nullptr;
+    for (const auto& setting : getBaseSettingsList()) {
+      if (settingKeyIs(setting, "imageGrayscale")) return false;
+      if (settingKeyIs(setting, "imageRendering")) images = &setting;
+    }
+    if (!images || images->enumValues.size() != ImageDisplayMode::Count || !images->valueGetter || !images->valueSetter)
+      return false;
+
+    // Released global settings, including hidden/placeholder with grayscale off.
+    for (uint8_t rendering = 0; rendering < 3; ++rendering) {
+      for (uint8_t grayscale = 0; grayscale < 2; ++grayscale) {
+        JsonDocument legacy;
+        legacy["imageRendering"] = rendering;
+        legacy["imageGrayscale"] = grayscale;
+        SETTINGS.fromJson(legacy.as<JsonVariantConst>());
+        valid &= images->valueGetter() == ImageDisplayMode::selected(rendering, grayscale);
+        JsonDocument saved;
+        SETTINGS.toJson(saved);
+        valid &= saved["imageRendering"].as<int>() == rendering && saved["imageGrayscale"].as<int>() == grayscale;
+        valid &= SETTINGS.saveToFile();
+        SETTINGS.imageRendering = 0;
+        SETTINGS.imageGrayscale = 1;
+        SETTINGS.loadFromFile();
+        valid &= SETTINGS.imageRendering == rendering && SETTINGS.imageGrayscale == grayscale;
+      }
+    }
+    for (uint8_t mode = 0; mode < ImageDisplayMode::Count; ++mode) {
+      images->valueSetter(mode);
+      valid &= images->valueGetter() == mode;
+      const uint8_t rendering = mode == ImageDisplayMode::Placeholder ? 1 : mode == ImageDisplayMode::Hidden ? 2 : 0;
+      valid &= SETTINGS.imageRendering == rendering;
+      if (rendering == 0) valid &= SETTINGS.imageGrayscale == (mode == ImageDisplayMode::Grayscale);
+    }
+    images->valueSetter(ImageDisplayMode::BlackAndWhite);
+    {
+      RenderLock lock;
+      SettingsActivity menu(renderer, mappedInputManager);
+      menu.onEnter();
+      menu.selectedCategoryIndex = 1;
+      menu.setCurrentSettingsForCategory();
+      const auto it = std::find_if(menu.currentSettings->begin(), menu.currentSettings->end(),
+                                   [](const SettingInfo& setting) { return settingKeyIs(setting, "imageRendering"); });
+      valid &= it != menu.currentSettings->end();
+      if (it != menu.currentSettings->end()) {
+        menu.selectedSettingIndex = 1 + static_cast<int>(std::distance(menu.currentSettings->begin(), it));
+        menu.render(std::move(lock));
+        menu.toggleCurrentSetting();
+        valid &= menu.optionPopup.isActive() && menu.optionPopup.simulatorSelectedIndex() == 1 &&
+                 std::strcmp(menu.optionPopup.simulatorOptionLabel(1), tr(STR_IMAGES_DISPLAY_BW)) == 0;
+        menu.render(std::move(lock));
+        capture("image-display-settings");
+      }
+      menu.onExit();
+
+      EpubReaderDrawerActivity drawer(renderer, mappedInputManager, {}, nullptr, 0.0f, 0, 0, false, false, false, false,
+                                      false, false, false, false, true, true, 0, 0, 5, false);
+      drawer.onEnter();
+      drawer.state.tab = ReaderDrawerTab::Layout;
+      for (int mode = 0; mode < ImageDisplayMode::Count; ++mode) {
+        drawer.showEnumOptions(ReaderDrawerCatalogItem::Images);
+        valid &= drawer.enumOptionValues.size() == ImageDisplayMode::Count;
+        drawer.selectEnumOption(mode);
+        valid &= ImageDisplayMode::selected(drawer.draft.imageRendering, drawer.draft.imageGrayscale) == mode;
+      }
+      drawer.showEnumOptions(ReaderDrawerCatalogItem::Images);
+      drawer.selectEnumOption(ImageDisplayMode::BlackAndWhite);
+      drawer.showEnumOptions(ReaderDrawerCatalogItem::Images);
+      valid &= drawer.enumOptionSelectedIndex == 1;
+      char label[32];
+      valid &= std::strcmp(drawer.rowValue(ReaderDrawerCatalogItem::Images, label, sizeof(label)),
+                           tr(STR_IMAGES_DISPLAY_BW)) == 0;
+      drawer.render(std::move(lock));
+      capture("image-display-reader");
+      drawer.onExit();
+    }
+    SETTINGS.fromJson(original.as<JsonVariantConst>());
+    valid &= SETTINGS.saveToFile();
+    return valid;
+  }
+
   template <typename Capture>
   static bool verifyPreview(const Capture& capture) {
 #if CROSSINK_APP_READER_SAMPLE_PREVIEW
@@ -7594,6 +7680,12 @@ class SimulatorSmokeTest {
         }
         if (std::getenv("CROSSINK_SIMULATOR_SMOKE_WIFI_POWER")) {
           verifyWifiTransmitPowerSettings();
+          std::_Exit(0);
+        }
+        if (std::getenv("CROSSINK_SIMULATOR_SMOKE_IMAGE_DISPLAY")) {
+          if (!ReaderDrawerLayoutSmokeTest::verifyImageDisplay(captureStatusBarScreen))
+            fail("Combined image display settings, reader choices or persistence failed");
+          LOG_INF("SMOKE", "Simulator smoke test passed: combined image display settings and persistence");
           std::_Exit(0);
         }
         if (std::getenv("CROSSINK_SIMULATOR_SMOKE_TILT_SETTINGS")) {

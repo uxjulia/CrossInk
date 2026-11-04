@@ -361,6 +361,8 @@ def run_smoke(args: argparse.Namespace) -> int:
         env["CROSSINK_SIMULATOR_SMOKE_TEST"] = "1"
         if args.wifi_transmit_power:
             env["CROSSINK_SIMULATOR_SMOKE_WIFI_POWER"] = "1"
+        if args.image_display:
+            env["CROSSINK_SIMULATOR_SMOKE_IMAGE_DISPLAY"] = "1"
         if args.tilt_settings:
             env["CROSSINK_SIMULATOR_SMOKE_TILT_SETTINGS"] = "1"
         if args.receive_folder:
@@ -503,6 +505,7 @@ def parse_args() -> argparse.Namespace:
                         help="PlatformIO simulator environment to build and run")
     parser.add_argument("--status-bar-lifecycle", action="store_true", help="Exercise reader settings return and reflow")
     parser.add_argument("--wifi-transmit-power", action="store_true", help="Check Wi-Fi power defaults, device picker and persistence")
+    parser.add_argument("--image-display", action="store_true", help="Check combined image choices and saved preference compatibility")
     parser.add_argument("--tilt-settings", action="store_true", help="Check tilt preference visibility, device editing and persistence")
     parser.add_argument("--chapter-percentage", action="store_true", help="Check chapter percentage slot selection, removal, reload and rendered formats")
     parser.add_argument("--centered-status-bar", action="store_true", help="Check Center Status Bar and Separator rows, popups and persistence")

@@ -30,6 +30,7 @@
 #include "StablePageSelectionModel.h"
 #include "activities/reader/ControlsOptionsActivity.h"
 #include "activities/settings/StatusBarSettingsActivity.h"
+#include "util/ImageDisplayMode.h"
 #if CROSSINK_SCALABLE_FONTS
 #include "activities/settings/TtfRenderOptionsActivity.h"
 #endif
@@ -1877,7 +1878,6 @@ void EpubReaderDrawerActivity::activateRow(const RowId row) {
       closeAndReturn(false, EpubReaderMenuAction::RESET_BOOK_READER_SETTINGS);
       return;
     case RowId::TextAa:
-    case RowId::ImageGrayscale:
     case RowId::Focus:
     case RowId::GuideDots:
     case RowId::Hyphenation:
@@ -1960,9 +1960,6 @@ void EpubReaderDrawerActivity::activateRow(const RowId row) {
 
 void EpubReaderDrawerActivity::toggleSetting(const RowId row) {
   switch (row) {
-    case RowId::ImageGrayscale:
-      draft.imageGrayscale = !draft.imageGrayscale;
-      break;
     case RowId::TextAa:
       draft.textAntiAliasing = !draft.textAntiAliasing;
       break;
@@ -1994,8 +1991,6 @@ void EpubReaderDrawerActivity::toggleSetting(const RowId row) {
     // Anti-aliasing changes pixels only. Rebuilding the EPUB section here
     // makes the in-drawer preview appear to zoom while the page reflows.
     markSettingChanged(ReaderSettingsChangeMask::Preview | ReaderSettingsChangeMask::NonLayout);
-  } else if (row == RowId::ImageGrayscale) {
-    markSettingChanged(ReaderSettingsChangeMask::NonLayout);
   } else {
     const bool previews = row == RowId::Focus || row == RowId::GuideDots;
     markSettingChanged(previews ? ReaderSettingsChangeMask::Preview | ReaderSettingsChangeMask::Relayout
@@ -2058,9 +2053,10 @@ void EpubReaderDrawerActivity::showEnumOptions(const RowId row) {
       break;
     case RowId::Images:
       title = StrId::STR_IMAGES;
-      labels = {tr(STR_IMAGES_DISPLAY), tr(STR_IMAGES_PLACEHOLDER), tr(STR_IMAGES_SUPPRESS)};
-      raw = {0, 1, 2};
-      currentRaw = draft.imageRendering;
+      labels = {tr(STR_IMAGES_DISPLAY), tr(STR_IMAGES_DISPLAY_BW), tr(STR_IMAGES_PLACEHOLDER), tr(STR_IMAGES_SUPPRESS)};
+      raw = {ImageDisplayMode::Grayscale, ImageDisplayMode::BlackAndWhite, ImageDisplayMode::Placeholder,
+             ImageDisplayMode::Hidden};
+      currentRaw = ImageDisplayMode::selected(draft.imageRendering, draft.imageGrayscale);
       break;
     case RowId::RenderMode:
       title = StrId::STR_EPUB_RENDER_MODE;
@@ -2190,7 +2186,7 @@ void EpubReaderDrawerActivity::selectEnumOption(const int index) {
       markSettingChanged(ReaderSettingsChangeMask::Relayout);
       break;
     case RowId::Images:
-      draft.imageRendering = value;
+      ImageDisplayMode::apply(value, draft.imageRendering, draft.imageGrayscale);
       markSettingChanged(ReaderSettingsChangeMask::NonLayout);
       break;
     case RowId::RenderMode:
@@ -3165,8 +3161,6 @@ const char* EpubReaderDrawerActivity::rowLabel(const RowId row) const {
       return tr(STR_EMBEDDED_STYLE);
     case RowId::Images:
       return tr(STR_IMAGES);
-    case RowId::ImageGrayscale:
-      return tr(STR_IMAGE_GRAYSCALE);
     case RowId::SelectChapter:
       return tr(STR_SELECT_CHAPTER);
     case RowId::GoToPercent:
@@ -3302,9 +3296,10 @@ const char* EpubReaderDrawerActivity::rowValue(const RowId row, char* buffer, co
       return I18N.get(labels[std::min<size_t>(draft.publisherFonts, labels.size() - 1)]);
     }
     case RowId::Images: {
-      static const std::array<StrId, 3> labels = {StrId::STR_IMAGES_DISPLAY, StrId::STR_IMAGES_PLACEHOLDER,
-                                                  StrId::STR_IMAGES_SUPPRESS};
-      return I18N.get(labels[std::min<size_t>(draft.imageRendering, labels.size() - 1)]);
+      static constexpr std::array<StrId, ImageDisplayMode::Count> labels = {
+          StrId::STR_IMAGES_DISPLAY, StrId::STR_IMAGES_DISPLAY_BW, StrId::STR_IMAGES_PLACEHOLDER,
+          StrId::STR_IMAGES_SUPPRESS};
+      return I18N.get(labels[ImageDisplayMode::selected(draft.imageRendering, draft.imageGrayscale)]);
     }
     case RowId::RenderMode: {
       static const std::array<StrId, 3> labels = {StrId::STR_RENDER_MODE_CROSSINK_DEFAULT,
@@ -3337,7 +3332,6 @@ bool EpubReaderDrawerActivity::rowIsToggle(const RowId row) const {
   switch (row) {
     case RowId::TrackBookStats:
     case RowId::TextAa:
-    case RowId::ImageGrayscale:
     case RowId::Focus:
     case RowId::GuideDots:
     case RowId::Hyphenation:
@@ -3385,8 +3379,6 @@ bool EpubReaderDrawerActivity::rowToggleValue(const RowId row) const {
       return bookStatsEnabled;
     case RowId::TextAa:
       return draft.textAntiAliasing;
-    case RowId::ImageGrayscale:
-      return draft.imageGrayscale;
     case RowId::Focus:
       return draft.focusReadingEnabled;
     case RowId::GuideDots:

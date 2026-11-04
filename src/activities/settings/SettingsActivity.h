@@ -237,6 +237,7 @@ inline bool settingShowsNavigationCaret(const SettingInfo& setting) {
 class SettingsActivity final : public Activity {
 #ifdef SIMULATOR
   friend struct ScreenCalibrationSmokeTest;
+  friend struct ReaderDrawerLayoutSmokeTest;
 #endif
 #ifdef SIMULATOR
   friend struct AssetDownloadSmokeTest;
