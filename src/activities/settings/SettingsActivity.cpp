@@ -1021,6 +1021,7 @@ void SettingsActivity::openStringEditor(const SettingInfo& setting) {
 
 void SettingsActivity::onEnter() {
   Activity::onEnter();
+  if (touchscreenRecovery) mappedInput.setTouchscreenRecoveryOverride(true);
 
   // Reapply the orientation captured before the activity being replaced (for
   // example, a landscape reader) performs its normal portrait reset.
@@ -1092,6 +1093,7 @@ void SettingsActivity::onRowEvent(const fui::ActionEvent& event, void* user) {
 }
 
 void SettingsActivity::onExit() {
+  if (touchscreenRecovery) mappedInput.setTouchscreenRecoveryOverride(false);
   if (!isFileBrowserView()) {
     dictionaryRegistry.clear();
     sdFontSystem.releaseRegistry();

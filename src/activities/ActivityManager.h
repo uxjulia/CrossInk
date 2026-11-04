@@ -161,7 +161,8 @@ class ActivityManager {
   void goToNearbyStatsSync();
   bool goToNearbyBookSend(std::string path, bool returnToReader);
   void goToNearbyBookReceive();
-  void goToSettings(bool dismissOnUpSwipe = false, bool openLanguageDownloads = false);
+  void goToSettings(bool dismissOnUpSwipe = false, bool openLanguageDownloads = false,
+                    bool touchscreenRecovery = false);
   void markReleaseNotesShown() { releaseNotesShown = true; }
   void goToFileBrowser(std::string path = {});
   void goToLibrary();

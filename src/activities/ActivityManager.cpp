@@ -1038,7 +1038,8 @@ void ActivityManager::goToNearbyStatsSync() {
   replaceActivity(std::make_unique<NearbyStatsSyncActivity>(renderer, mappedInput));
 }
 
-void ActivityManager::goToSettings(const bool dismissOnUpSwipe, const bool openLanguageDownloads) {
+void ActivityManager::goToSettings(const bool dismissOnUpSwipe, const bool openLanguageDownloads,
+                                   const bool touchscreenRecovery) {
   preferredHomeBookPath.clear();
   returningHomeThroughSettings = false;
   if (currentActivity && currentActivity->isHomeActivity()) {
@@ -1050,6 +1051,7 @@ void ActivityManager::goToSettings(const bool dismissOnUpSwipe, const bool openL
   }
   auto settings = std::make_unique<SettingsActivity>(renderer, mappedInput, dismissOnUpSwipe);
   if (openLanguageDownloads) settings->openLanguageDownloadsOnEnter();
+  if (touchscreenRecovery) settings->enableTouchscreenRecovery();
   replaceActivity(std::move(settings));
 }
 
@@ -1250,8 +1252,9 @@ bool ActivityManager::openReaderSettingsForTouchscreenEscapeHatch() {
   }
 
   if (!currentActivity->openReaderSettingsMenu()) {
-    // TXT has no reader menu, so keep a reliable global Settings fallback.
-    goToSettings();
+    // TXT has no reader menu. Keep its Settings fallback usable while touch
+    // is locked without changing the persisted touchscreen preference.
+    goToSettings(false, false, true);
   }
   return true;
 }
