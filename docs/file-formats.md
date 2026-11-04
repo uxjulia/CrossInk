@@ -983,6 +983,13 @@ Binary layout:
 
 ## `section.bin`
 
+### Version 103
+
+Complete caches use `103`; suspended partial caches use `0xD8`. Missing Unicode
+spaces now retain font-relative blank advances in normal and scaled text.
+Both cache types rebuild automatically so cached word positions and line wraps
+match rendering. The binary payload is unchanged; reading progress is preserved.
+
 ### Version 102
 
 Complete caches use `102`; suspended partial caches use `0xD7`. GIF images now

@@ -126,3 +126,105 @@ TEST(FilenameFallback, SupportsNonCjkGlyphsWithoutAProbeList) {
   composite.getTextDimensions("ԱԲ", &width, &height);
   EXPECT_EQ(width, 38);
 }
+
+namespace {
+// A small face with no Unicode spaces, and a visible replacement box.
+constexpr EpdUnicodeInterval spacingIntervals[] = {{0x20, 0x20, 0}, {'.', '.', 1}, {'0', '0', 2},
+                                                   {'A', 'A', 3},   {'M', 'M', 4}, {0xFFFD, 0xFFFD, 5}};
+constexpr EpdGlyph spacingGlyphs[] = {{0, 0, 80, 0, 0, 0, 0},     {2, 2, 48, 0, 2, 0, 0},
+                                      {8, 12, 128, 0, 12, 0, 0},  {9, 12, 160, 0, 12, 0, 0},
+                                      {16, 12, 320, 0, 12, 0, 0}, {10, 12, 192, 0, 12, 0, 0}};
+EpdFontData spacingData() {
+  EpdFontData data{};
+  data.glyph = spacingGlyphs;
+  data.intervals = spacingIntervals;
+  data.intervalCount = sizeof(spacingIntervals) / sizeof(spacingIntervals[0]);
+  data.ascender = 12;
+  return data;
+}
+const auto spacingFontData = spacingData();
+const EpdFont spacingFont(&spacingFontData);
+const EpdFontFamily spacingFamily(&spacingFont);
+}  // namespace
+
+TEST(UnicodeSpaces, MissingSpacesHaveDistinctWidthsWithoutReplacementInk) {
+  struct Sample {
+    uint32_t cp;
+    uint16_t advance;
+  };
+  const Sample samples[] = {{0x00A0, 80},  {0x1680, 80},  {0x2000, 160}, {0x2001, 320}, {0x2002, 160},
+                            {0x2003, 320}, {0x2004, 107}, {0x2005, 80},  {0x2006, 53},  {0x2007, 128},
+                            {0x2008, 48},  {0x2009, 64},  {0x200A, 32},  {0x202F, 64},  {0x205F, 71},
+                            {0x3000, 320}, {0x0085, 80},  {0x2028, 80},  {0x2029, 80}};
+  for (const auto sample : samples) {
+    SCOPED_TRACE(sample.cp);
+    EXPECT_EQ(spacingFamily.getFallbackCodepoint(sample.cp), sample.cp);
+    EXPECT_EQ(spacingFamily.getSpaceAdvanceX(sample.cp), sample.advance);
+    char text[12] = "A";
+    char* end = utf8AppendCodepoint(text + 1, sample.cp);
+    *end++ = 'A';
+    *end = 0;
+    int width = 0, height = 0;
+    spacingFamily.getTextDimensions(text, &width, &height);
+    EXPECT_EQ(width, 10 + fp4::toPixel(sample.advance) + 9);
+    EXPECT_EQ(height, 12);
+    spacingFamily.getTextDimensions(text + 1, &width, &height);
+    EXPECT_EQ(width, fp4::toPixel(sample.advance) + 9);
+  }
+}
+
+TEST(UnicodeSpaces, ControlsStayZeroWidthAndUnrelatedMissingCharactersStillUseABox) {
+  for (uint32_t cp :
+       {0x180Eu, 0x200Bu, 0x200Cu, 0x200Du, 0x200Eu, 0x200Fu, 0x2060u, 0x2061u, 0x2062u, 0x2063u, 0x2064u, 0xFEFFu}) {
+    EXPECT_EQ(spacingFamily.getFallbackCodepoint(cp), cp);
+    EXPECT_EQ(spacingFamily.getSpaceAdvanceX(cp), 0);
+  }
+  for (uint32_t cp = 9; cp <= 13; ++cp) EXPECT_EQ(spacingFamily.getSpaceAdvanceX(cp), 80);
+  EXPECT_EQ(spacingFamily.getFallbackCodepoint(0x2603), REPLACEMENT_GLYPH);
+  EXPECT_EQ(spacingFamily.getGlyphData(0x2603).glyph, &spacingGlyphs[5]);
+}
+
+TEST(UnicodeSpaces, PreservesNativeBlankWidthsAndScalesWithFontStyle) {
+  for (auto style : {EpdFontFamily::REGULAR, EpdFontFamily::BOLD}) {
+    const auto native = small.findGlyphData(0x2009, style).glyph;
+    ASSERT_NE(native, nullptr);
+    EXPECT_EQ(small.getSpaceAdvanceX(0x2009, style), native->advanceX);
+  }
+  EXPECT_LT(spacingFamily.getSpaceAdvanceX(0x200A), spacingFamily.getSpaceAdvanceX(0x2009));
+  EXPECT_LT(spacingFamily.getSpaceAdvanceX(0x2009), spacingFamily.getSpaceAdvanceX(0x2002));
+  EXPECT_LT(spacingFamily.getSpaceAdvanceX(0x2002), spacingFamily.getSpaceAdvanceX(0x2003));
+}
+
+TEST(UnicodeSpaces, VisiblePlaceholderInSpaceSlotStillMeasuresAsBlankSpacing) {
+  constexpr EpdUnicodeInterval intervals[] = {{0x2009, 0x2009, 0}};
+  constexpr EpdGlyph glyphs[] = {{8, 12, 192, 0, 12, 0, 0}};
+  auto data = spacingData();
+  data.intervals = intervals;
+  data.glyph = glyphs;
+  data.intervalCount = 1;
+  const EpdFont face(&data);
+  const EpdFontFamily family(&face);
+  int width = 0, height = 0;
+  family.getTextDimensions("\xE2\x80\x89", &width, &height);
+  EXPECT_EQ(width, 0);
+  EXPECT_EQ(height, 0);
+  EXPECT_GT(family.getSpaceAdvanceX(0x2009), 0);
+}
+
+TEST(UnicodeSpaces, PreservesNativeOghamStemlineInkAndWidth) {
+  constexpr EpdUnicodeInterval intervals[] = {{0x1680, 0x1680, 0}};
+  constexpr EpdGlyph glyphs[] = {{8, 2, 160, 0, 2, 0, 0}};
+  auto data = spacingData();
+  data.intervals = intervals;
+  data.glyph = glyphs;
+  data.intervalCount = 1;
+  const EpdFont face(&data);
+  const EpdFontFamily family(&face);
+  EXPECT_FALSE(syntheticGlyph::isBlankSpace(0x1680, true));
+  EXPECT_TRUE(syntheticGlyph::isBlankSpace(0x1680, false));
+  EXPECT_EQ(family.getSpaceAdvanceX(0x1680), 160);
+  int width = 0, height = 0;
+  family.getTextDimensions("\xE1\x9A\x80", &width, &height);
+  EXPECT_EQ(width, 8);
+  EXPECT_EQ(height, 2);
+}

@@ -12,6 +12,7 @@
 #include <LibraryIndexFile.h>
 #include <Logging.h>
 #include <SDL.h>
+#include <Utf8.h>
 #include <WiFi.h>
 
 #include <algorithm>
@@ -1953,6 +1954,11 @@ class SimulatorSmokeTest {
     if (!enabled()) return;
 
     try {
+      static bool checkedSpaces = false;
+      if (!checkedSpaces && std::getenv("CROSSINK_SIMULATOR_SMOKE_UNICODE_SPACES")) {
+        checkedSpaces = true;
+        verifyUnicodeSpaces();
+      }
       tickImpl();
     } catch (const std::exception& e) {
       fail("Unhandled exception: %s", e.what());
@@ -1962,6 +1968,79 @@ class SimulatorSmokeTest {
   }
 
  private:
+  static void verifyUnicodeSpaces() {
+    RenderLock lock;
+    // Deliberately omit every special space while providing a visible replacement.
+    static const EpdUnicodeInterval intervals[] = {{0x20, 0x20, 0}, {'M', 'M', 1}, {0xFFFD, 0xFFFD, 2}};
+    static const EpdGlyph glyphs[] = {{0, 0, 80, 0, 0, 0, 0}, {8, 8, 320, 0, 8, 8, 0}, {8, 8, 160, 0, 8, 8, 0}};
+    static const uint8_t bitmap[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+    static const EpdFontData data = [] {
+      EpdFontData value{};
+      value.bitmap = bitmap;
+      value.glyph = glyphs;
+      value.intervals = intervals;
+      value.intervalCount = 3;
+      value.ascender = 8;
+      return value;
+    }();
+    static const EpdFont face(&data);
+    constexpr int fontId = -2009;
+    const EpdFontFamily family(&face);
+    renderer.insertFont(fontId, family);
+    const auto blank = [&] {
+      const auto* buffer = renderer.getFrameBuffer();
+      return std::all_of(buffer, buffer + renderer.getBufferSize(), [](uint8_t byte) { return byte == 0xFF; });
+    };
+    for (const uint32_t cp :
+         {0x00A0u, 0x1680u, 0x2000u, 0x2001u, 0x2002u, 0x2003u, 0x2004u, 0x2005u, 0x2006u, 0x2007u, 0x2008u,
+          0x2009u, 0x200Au, 0x200Bu, 0x2028u, 0x2029u, 0x202Fu, 0x205Fu, 0x2060u, 0x2063u, 0x3000u, 0xFEFFu}) {
+      char text[5]{};
+      *utf8AppendCodepoint(text, cp) = 0;
+      int32_t advance = 0;
+      int top = -1;
+      const int expected = fp4::toPixel(family.getSpaceAdvanceX(cp));
+      if (!renderer.getCodepointMetrics(fontId, cp, EpdFontFamily::REGULAR, advance, top) ||
+          advance != family.getSpaceAdvanceX(cp) || top != 0 ||
+          renderer.getTextAdvanceX(fontId, text, EpdFontFamily::REGULAR) != expected)
+        fail("Unicode space metrics mismatch U+%04X", cp);
+      renderer.clearScreen();
+      renderer.drawText(fontId, 40, 40, text);
+      renderer.drawTextRotated90CW(fontId, 40, 200, text);
+      const int scaled = renderer.drawScaledCodepoint(fontId, cp, EpdFontFamily::REGULAR, 40, 80, 512);
+      if (scaled != fp4::toPixel(advance * 2) || !blank()) fail("Unicode space painted ink U+%04X", cp);
+      // A following glyph must land exactly after the measured blank advance.
+      char followed[8]{};
+      char* end = utf8AppendCodepoint(followed, cp);
+      *end++ = 'M';
+      *end = 0;
+      renderer.drawText(fontId, 40, 40, followed);
+      if (!renderer.isPixelBlack(40 + expected, 40)) fail("Unicode space cursor mismatch U+%04X", cp);
+    }
+    renderer.clearScreen();
+    renderer.drawScaledCodepoint(fontId, 0x2603, EpdFontFamily::REGULAR, 40, 80, 256);
+    if (blank()) fail("Unicode spaces suppressed an unrelated missing-glyph box");
+    static const EpdUnicodeInterval oghamInterval[] = {{0x1680, 0x1680, 1}};
+    static const EpdFontData oghamData = [] {
+      auto value = data;
+      value.intervals = oghamInterval;
+      value.intervalCount = 1;
+      return value;
+    }();
+    static const EpdFont oghamFace(&oghamData);
+    renderer.removeFont(fontId);
+    renderer.insertFont(fontId, EpdFontFamily(&oghamFace));
+    renderer.clearScreen();
+    renderer.drawText(fontId, 40, 40, "\xE1\x9A\x80");
+    if (blank() || renderer.getTextAdvanceX(fontId, "\xE1\x9A\x80", EpdFontFamily::REGULAR) != 20)
+      fail("Native Ogham stemline or advance was lost");
+    renderer.clearScreen();
+    renderer.drawScaledCodepoint(fontId, 0x1680, EpdFontFamily::REGULAR, 40, 80, 512);
+    if (blank()) fail("Scaled native Ogham stemline was lost");
+    renderer.removeFont(fontId);
+    renderer.clearScreen();
+    LOG_INF("SMOKE", "Unicode space metrics, blank rendering, rotation and scaling passed");
+  }
+
   enum class ScriptActionType : uint8_t {
     Press,
     Release,
@@ -7231,6 +7310,13 @@ class SimulatorSmokeTest {
     switch (step) {
       case SmokeStep::Start:
         LOG_INF("SMOKE", "Starting simulator smoke test");
+        if (std::getenv("CROSSINK_SIMULATOR_SMOKE_UNICODE_SPACES")) {
+          const char* book = std::getenv("CROSSINK_SIMULATOR_SMOKE_BOOK");
+          if (!book || !Storage.exists(book)) fail("Unicode space fixture is missing");
+          activityManager.goToReader(book, true);
+          queueStep("Unicode space EPUB", SmokeStep::Reader, 8);
+          break;
+        }
         if (std::getenv("CROSSINK_SIMULATOR_SMOKE_HOME_SWIPE")) {
           buildHomeSwipeScript();
           step = SmokeStep::ReaderInput;
@@ -8713,6 +8799,12 @@ class SimulatorSmokeTest {
         }
 #endif
         if (!activityManager.isCurrentActivityNamed("EpubReader")) fail("Completion test requires EPUB reader");
+        if (std::getenv("CROSSINK_SIMULATOR_SMOKE_UNICODE_SPACES")) {
+          RenderLock lock;
+          captureStatusBarScreen("unicode-spaces-reader");
+          LOG_INF("SMOKE", "Simulator smoke test passed: Unicode spaces and EPUB rendering");
+          std::_Exit(0);
+        }
 #if !CROSSINK_SCALABLE_FONTS
         if (!EpubReaderCompletionSmokeTest::fontReload(
                 *static_cast<EpubReaderActivity*>(activityManager.simulatorCurrentActivity())))

@@ -11,6 +11,12 @@ This fixture covers the synthetic glyph paths added in commit `c4357d06e81e836c1
 - `U+03C9` GREEK SMALL OMEGA
 - `U+02BB` MODIFIER LETTER TURNED COMMA, aliased to `U+2018`
 
+Unicode spacing coverage includes the reported nested quotation, thin/hair/en/em
+spaces, fractional em spaces, figure/punctuation/mathematical/ideographic spaces,
+non-breaking spaces, and invisible spacing controls. Test with built-in fonts and
+an SD font lacking these characters; widths should differ without boxes. Section
+caches rebuild automatically after installing this fix.
+
 Quick manual verification:
 
 1. Flash or run the build you want to test.

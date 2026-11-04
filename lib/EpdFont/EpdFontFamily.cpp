@@ -63,10 +63,10 @@ void EpdFontFamily::getTextDimensions(const char* string, int* w, int* h, const 
 
     const bool hasRealGlyph = findGlyphData(cp, style).glyph != nullptr;
 
-    if (!isCombining && !hasRealGlyph && syntheticGlyph::isSpaceFallback(cp)) {
+    if (!isCombining && syntheticGlyph::isBlankSpace(cp, hasRealGlyph)) {
       lastBaseX += fp4::toPixel(prevAdvanceFP);
-      prevCp = 0;
-      prevAdvanceFP = 0;
+      prevCp = cp;
+      prevAdvanceFP = getSpaceAdvanceX(cp, style);
       lastBaseLeft = 0;
       lastBaseWidth = 0;
       lastBaseTop = 0;
@@ -237,13 +237,31 @@ const EpdGlyph* EpdFontFamily::getGlyph(const uint32_t cp, const Style style) co
   return getGlyphData(cp, style).glyph;
 }
 
+uint16_t EpdFontFamily::getSpaceAdvanceX(const uint32_t cp, const Style style) const {
+  if (syntheticGlyph::isZeroWidthSpace(cp)) return 0;
+  const auto native = findGlyphData(cp, style).glyph;
+  if (native && native->advanceX > 0) return native->advanceX;
+
+  // Copy each metric before the next lookup: dynamic fonts can reuse glyph slots.
+  const auto advance = [&](uint32_t codepoint) -> uint16_t {
+    const auto glyph = findGlyphData(codepoint, style).glyph;
+    return glyph ? glyph->advanceX : 0;
+  };
+  const uint16_t space = advance(' ');
+  uint16_t em = advance('M');
+  if (!em) em = syntheticGlyph::solidAdvanceX(getData(style), nullptr);
+  const uint16_t figure = cp == 0x2007 ? advance('0') : 0;
+  const uint16_t punctuation = cp == 0x2008 ? advance('.') : 0;
+  return syntheticGlyph::spaceAdvanceX(cp, em, space, figure, punctuation);
+}
+
 uint32_t EpdFontFamily::getFallbackCodepoint(const uint32_t cp, const Style style) const {
+  if (syntheticGlyph::isSpaceFallback(cp)) return cp;
   if (findGlyphData(cp, style).glyph) return cp;
   const uint32_t aliasCp = syntheticGlyph::aliasCodepoint(cp);
   if (aliasCp != cp) {
     return findGlyphData(aliasCp, style).glyph ? aliasCp : REPLACEMENT_GLYPH;
   }
-  if (syntheticGlyph::isSpaceFallback(cp)) return cp;
   if (syntheticGlyph::isSolid(cp) || syntheticGlyph::isGreekFallback(cp)) return cp;
   return REPLACEMENT_GLYPH;
 }
@@ -255,6 +273,7 @@ bool EpdFontFamily::hasCodepoint(const uint32_t cp, const Style style) const {
 }
 
 int8_t EpdFontFamily::getKerning(const uint32_t leftCp, const uint32_t rightCp, const Style style) const {
+  if (syntheticGlyph::isSpaceFallback(leftCp) || syntheticGlyph::isSpaceFallback(rightCp)) return 0;
   const auto primary = getFont(style);
   if (!fallbackRegular) return primary->getKerning(leftCp, rightCp);
   // Never apply a kerning pair across different faces in a mixed-script filename.

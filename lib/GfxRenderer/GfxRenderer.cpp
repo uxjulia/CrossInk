@@ -34,13 +34,17 @@ uint8_t resolveSdCardStyle(const SdCardFont& font, const EpdFontFamily::Style st
 int32_t resolveSdCardAdvanceFP(const SdCardFont& sdFont, const EpdFontFamily& font, const uint32_t cp,
                                const EpdFontFamily::Style style, const uint8_t styleIdx) {
   if (utf8IsVariationSelector(cp)) return 0;
+  if (syntheticGlyph::isZeroWidthSpace(cp)) return 0;
+  // Missing codepoints may have a replacement advance in the table. Native
+  // spaces keep the metadata-only fast path rather than loading glyph bitmaps.
+  if (syntheticGlyph::isSpaceFallback(cp) && !font.hasCodepoint(cp, style)) return font.getSpaceAdvanceX(cp, style);
 
   uint16_t advanceFP = sdFont.getAdvance(cp, styleIdx);
   if (advanceFP != 0 || utf8IsCombiningMark(cp)) {
     return advanceFP;
   }
   if (sdFont.readAdvance(cp, styleIdx, &advanceFP)) {
-    return advanceFP;
+    return advanceFP || !syntheticGlyph::isSpaceFallback(cp) ? advanceFP : font.getSpaceAdvanceX(cp, style);
   }
 
   const EpdGlyph* glyph = font.getGlyph(cp, style);
@@ -49,8 +53,8 @@ int32_t resolveSdCardAdvanceFP(const SdCardFont& sdFont, const EpdFontFamily& fo
 
 bool characterSpacingBoundary(const uint32_t left, const uint32_t right) {
   const auto base = [](const uint32_t cp) {
-    return cp > 0x20 && cp != 0xa0 && !(cp >= 0x2000 && cp <= 0x200b) && cp != 0x202f && cp != 0x3000 &&
-           !utf8IsCombiningMark(cp) && !utf8IsVariationSelector(cp) && !BidiUtils::isTransparentMark(cp);
+    return cp > 0x20 && !syntheticGlyph::isSpaceFallback(cp) && !utf8IsCombiningMark(cp) &&
+           !utf8IsVariationSelector(cp) && !BidiUtils::isTransparentMark(cp);
   };
   return base(left) && base(right);
 }
@@ -1209,12 +1213,13 @@ void GfxRenderer::drawText(const int fontId, const int x, const int y, const cha
       lastBaseX += fp4::toPixel(prevAdvanceFP + kernFP);  // snap 12.4 fixed-point to nearest pixel
     }
 
-    if (!hasRealGlyph && syntheticGlyph::isSpaceFallback(cp)) {
-      prevAdvanceFP = 0;
+    if (syntheticGlyph::isBlankSpace(cp, hasRealGlyph)) {
+      prevAdvanceFP = font.getSpaceAdvanceX(cp, style);
+      if ((style & (EpdFontFamily::SUP | EpdFontFamily::SUB)) != 0) prevAdvanceFP = halfAdvanceFP(prevAdvanceFP);
       lastBaseLeft = 0;
       lastBaseWidth = 0;
       lastBaseTop = 0;
-      prevCp = 0;
+      prevCp = cp;
       prevScaledSmallCap = false;
       continue;
     }
@@ -2922,9 +2927,10 @@ int GfxRenderer::getTextAdvanceX(const int fontId, const char* text, const EpdFo
       widthPx += fp4::toPixel(prevAdvanceFP + kernFP);  // snap 12.4 fixed-point to nearest pixel
     }
 
-    if (!hasRealGlyph && syntheticGlyph::isSpaceFallback(cp)) {
-      prevAdvanceFP = 0;
-      prevCp = 0;
+    if (syntheticGlyph::isBlankSpace(cp, hasRealGlyph)) {
+      prevAdvanceFP = font.getSpaceAdvanceX(cp, style);
+      if ((style & (EpdFontFamily::SUP | EpdFontFamily::SUB)) != 0) prevAdvanceFP = halfAdvanceFP(prevAdvanceFP);
+      prevCp = cp;
       prevScaledSmallCap = false;
       continue;
     }
@@ -2989,6 +2995,11 @@ bool GfxRenderer::getCodepointMetrics(const int fontId, const uint32_t cp, const
 #endif
   const auto fontIt = fontMap.find(fontId);
   if (fontIt == fontMap.end()) return false;
+  if (syntheticGlyph::isBlankSpace(cp, cp == 0x1680 && fontIt->second.findGlyphData(cp, style).glyph)) {
+    advanceFP = fontIt->second.getSpaceAdvanceX(cp, style);
+    top = 0;
+    return true;
+  }
   const EpdGlyph* glyph = fontIt->second.getGlyph(cp, style);
   if (!glyph) return false;
   advanceFP = glyph->advanceX;
@@ -3011,6 +3022,9 @@ int GfxRenderer::drawScaledCodepoint(const int fontId, const uint32_t cp, const 
   const auto fontIt = fontMap.find(fontId);
   if (fontIt == fontMap.end()) return 0;
   const EpdFontFamily& font = fontIt->second;
+  if (syntheticGlyph::isBlankSpace(cp, cp == 0x1680 && font.findGlyphData(cp, style).glyph)) {
+    return fp4::toPixel(static_cast<int32_t>(font.getSpaceAdvanceX(cp, style)) * scale256 / 256);
+  }
   const EpdGlyph* glyph = font.getGlyph(cp, style);
   if (!glyph) return 0;
   const int advance = fp4::toPixel(static_cast<int32_t>(glyph->advanceX) * scale256 / 256);
@@ -3150,12 +3164,13 @@ void GfxRenderer::drawTextRotated90CW(const int fontId, const int x, const int y
       lastBaseY -= fp4::toPixel(prevAdvanceFP + kernFP);       // snap 12.4 fixed-point to nearest pixel
     }
 
-    if (!hasRealGlyph && syntheticGlyph::isSpaceFallback(cp)) {
-      prevAdvanceFP = 0;
+    if (syntheticGlyph::isBlankSpace(cp, hasRealGlyph)) {
+      prevAdvanceFP = font.getSpaceAdvanceX(cp, style);
+      if ((style & (EpdFontFamily::SUP | EpdFontFamily::SUB)) != 0) prevAdvanceFP = halfAdvanceFP(prevAdvanceFP);
       lastBaseLeft = 0;
       lastBaseWidth = 0;
       lastBaseTop = 0;
-      prevCp = 0;
+      prevCp = cp;
       continue;
     }
 

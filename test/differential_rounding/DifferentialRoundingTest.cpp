@@ -452,21 +452,19 @@ void testFamilyMissingGlyphUsesReplacementFallback() {
 void testFamilySpaceGlyphsStayBlank() {
   printf("testFamilySpaceGlyphsStayBlank...\n");
 
-  // EPUB paragraph indentation uses U+2003 EM SPACE. If the selected reading font
-  // lacks that exact glyph, it should stay blank/null like upstream, not become the
-  // visible missing-glyph marker or an ASCII space with its own extra width.
+  // Missing em spaces retain a font-relative blank advance, with no visible box.
   ASSERT_EQ(testFontFamily.getFallbackCodepoint(0x2003), 0x2003);
 
   int w = 0, h = 0;
   testFontFamily.getTextDimensions("\xE2\x80\x83", &w, &h);
   printf("  family dimensions(U+2003) = %d x %d\n", w, h);
 
-  ASSERT_EQ(w, 0);
+  ASSERT_EQ(w, 0);  // No ink in a space by itself.
   ASSERT_EQ(h, 0);
 
   testFontFamily.getTextDimensions("o\xE2\x80\x83o", &w, &h);
   printf("  family width(\"o U+2003 o\") = %d\n", w);
-  ASSERT_EQ(w, textWidth("oo"));
+  ASSERT_EQ(w, 26);  // o advance (9) + synthetic em (9) + o ink (8).
 
   printf("  Unicode space fallbacks stay blank\n");
   PASS();

@@ -148,6 +148,7 @@
 - Show TXT and Markdown reading progress on Home after opening books with character spacing support.
 - Keep protected EPUBs readable after renaming or moving them, including moves to the Read folder.
 - Retry queuing a reading change after an SD write fails.
+- Render Unicode spaces, including thin and hair spaces around nested quotes, without missing-character boxes; preserve font-relative spacing and invisible zero-width controls.
 
 ### Changed
 

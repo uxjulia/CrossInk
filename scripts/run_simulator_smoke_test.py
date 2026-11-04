@@ -230,6 +230,8 @@ def run_smoke(args: argparse.Namespace) -> int:
         if args.font_dir:
             shutil.copytree(Path(args.font_dir), temp_root / "fs_" / "fonts", dirs_exist_ok=True)
         env = os.environ.copy()
+        if args.unicode_spaces:
+            env["CROSSINK_SIMULATOR_SMOKE_UNICODE_SPACES"] = "1"
         factory_flash = None
         if args.factory_flash:
             factory_flash = temp_root / "language-flash.bin"
@@ -498,6 +500,7 @@ def run_smoke(args: argparse.Namespace) -> int:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--unicode-spaces", action="store_true", help="Check native Unicode spacing metrics and blank normal, rotated and scaled rendering")
     parser.add_argument("--factory-flash", action="store_true",
                         help="Use the reported 80 KiB factory partition; verify it remains unchanged (S3 profiles)")
     parser.add_argument("--book", default=str(DEFAULT_BOOK), help="EPUB fixture to copy into the isolated simulator fs_")
