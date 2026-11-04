@@ -23,7 +23,7 @@ constexpr uint32_t EPUB_PERCENT_CACHE_MAGIC = 0x45505250;  // "EPRP"
 constexpr uint8_t EPUB_PERCENT_CACHE_VERSION = 1;
 constexpr char EPUB_PERCENT_CACHE_FILE[] = "/progress_percent.bin";
 constexpr uint32_t TXT_CACHE_MAGIC = 0x54585449;  // "TXTI"
-constexpr uint8_t TXT_CACHE_VERSION = 4;
+constexpr uint8_t TXT_CACHE_VERSION = 5;
 
 float clampProgressPercent(const float progress) { return std::clamp(progress, 0.0f, 100.0f); }
 
@@ -196,6 +196,7 @@ float loadTxtProgressPercent(const RecentBook& book) {
   uint32_t magic = 0;
   uint8_t version = 0;
   uint32_t fileSize = 0;
+  int8_t characterSpacing = 0;
   int32_t cachedWidth = 0;
   int32_t cachedLines = 0;
   int32_t fontId = 0;
@@ -205,14 +206,16 @@ float loadTxtProgressPercent(const RecentBook& book) {
   uint32_t totalPages = 0;
   const bool readOk =
       serialization::tryReadPod(indexFile, magic) && serialization::tryReadPod(indexFile, version) &&
-      serialization::tryReadPod(indexFile, fileSize) && serialization::tryReadPod(indexFile, cachedWidth) &&
-      serialization::tryReadPod(indexFile, cachedLines) && serialization::tryReadPod(indexFile, fontId) &&
-      serialization::tryReadPod(indexFile, verticalMargin) && serialization::tryReadPod(indexFile, horizontalMargin) &&
-      serialization::tryReadPod(indexFile, alignment) && serialization::tryReadPod(indexFile, totalPages);
+      serialization::tryReadPod(indexFile, fileSize) && serialization::tryReadPod(indexFile, characterSpacing) &&
+      serialization::tryReadPod(indexFile, cachedWidth) && serialization::tryReadPod(indexFile, cachedLines) &&
+      serialization::tryReadPod(indexFile, fontId) && serialization::tryReadPod(indexFile, verticalMargin) &&
+      serialization::tryReadPod(indexFile, horizontalMargin) && serialization::tryReadPod(indexFile, alignment) &&
+      serialization::tryReadPod(indexFile, totalPages);
   indexFile.close();
   if (!readOk) {
     return -1.0f;
   }
+  (void)characterSpacing;
   (void)cachedWidth;
   (void)cachedLines;
   (void)fontId;

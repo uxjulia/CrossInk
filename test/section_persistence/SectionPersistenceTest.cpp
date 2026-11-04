@@ -23,35 +23,16 @@ extern uint32_t testHyphenationIdentity;
 extern std::vector<BookMetadataCache::TocEntry> testTocEntries;
 
 namespace {
-constexpr uint8_t kFullVersion = 103;
-constexpr uint8_t kPreRoundingFullVersion = 100;
-constexpr uint8_t kPreRoundingPartialVersion = 0xD5;
-constexpr uint8_t kStablePageFullVersion = 99;
-constexpr uint8_t kStablePagePartialVersion = 0xD4;
-constexpr uint8_t kPreDropCapFullVersion = 98;
-constexpr uint8_t kPreDropCapPartialVersion = 0xD3;
-constexpr uint8_t kPreImageAlignmentFullVersion = 94;
-constexpr uint8_t kPreImageAlignmentPartialVersion = 0xCF;
-constexpr uint8_t kPreFieldsetFullVersion = 93;
-constexpr uint8_t kPreFieldsetPartialVersion = 0xCE;
-constexpr uint8_t kS3BitmapFullVersion = 90;
-constexpr uint8_t kPartialVersion = 0xD8;
-constexpr uint8_t kS3BitmapPartialVersion = 0xCB;
-constexpr uint8_t kC3BitmapFullVersion = 89;
-constexpr uint8_t kC3BitmapPartialVersion = 0xCA;
-constexpr uint8_t kPreviousFullVersion = 87;
-constexpr uint8_t kParagraphSpacingFullVersion = 85;
-constexpr uint8_t kBorderSuppressionFullVersion = 84;
-constexpr uint8_t kPreviousPartialVersion = 0xC8;
-constexpr uint8_t kParagraphSpacingPartialVersion = 0xC6;
-constexpr uint8_t kBorderSuppressionPartialVersion = 0xC5;
-constexpr uint8_t kOlderFullVersion = 79;
-constexpr uint8_t kOlderPartialVersion = 0xF4;
-constexpr uint8_t kEarlierFullVersion = 78;
-constexpr uint8_t kEarlierPartialVersion = 0xF2;
-constexpr uint8_t kLastReleaseFullVersion = 77;
-constexpr uint8_t kLastReleasePartialVersion = 0xF3;
-constexpr uint8_t kPreviousReleasePrepPartialVersion = 0x80;
+constexpr uint8_t kFullVersion = 84;
+constexpr uint8_t kPartialVersion = 0xC5;
+constexpr uint8_t kLastReleaseFullVersion = 83;
+constexpr uint8_t kLastReleasePartialVersion = 0xC4;
+constexpr uint8_t kReleaseCandidateFullVersion = 80;
+constexpr uint8_t kReleaseCandidatePartialVersion = 0xC1;
+constexpr uint8_t kDevelopmentFullVersion = 102;
+constexpr uint8_t kDevelopmentPartialVersion = 0xD7;
+constexpr uint8_t kUnicodeDevelopmentFullVersion = 103;
+constexpr uint8_t kUnicodeDevelopmentPartialVersion = 0xD8;
 
 ReaderRenderSpec renderSpec() {
   ReaderRenderSpec spec;
@@ -191,43 +172,10 @@ TEST_F(SectionPersistenceTest, FailedCommitKeepsThePreviousReadableCache) {
 }
 
 TEST_F(SectionPersistenceTest, RejectsCachesFromPreviousLayoutRevisions) {
-  for (const uint8_t staleVersion : {uint8_t{102},
-                                     uint8_t{0xD7},
-                                     uint8_t{101},
-                                     uint8_t{0xD6},
-                                     kPreRoundingFullVersion,
-                                     kPreRoundingPartialVersion,
-                                     kStablePageFullVersion,
-                                     kStablePagePartialVersion,
-                                     kPreDropCapFullVersion,
-                                     kPreDropCapPartialVersion,
-                                     uint8_t{97},
-                                     uint8_t{0xD2},
-                                     uint8_t{96},
-                                     uint8_t{0xD1},
-                                     uint8_t{95},
-                                     uint8_t{0xD0},
-                                     kPreImageAlignmentFullVersion,
-                                     kPreImageAlignmentPartialVersion,
-                                     kPreFieldsetFullVersion,
-                                     kPreFieldsetPartialVersion,
-                                     kS3BitmapFullVersion,
-                                     kS3BitmapPartialVersion,
-                                     kC3BitmapFullVersion,
-                                     kC3BitmapPartialVersion,
-                                     kPreviousFullVersion,
-                                     kPreviousPartialVersion,
-                                     kParagraphSpacingFullVersion,
-                                     kParagraphSpacingPartialVersion,
-                                     kBorderSuppressionFullVersion,
-                                     kBorderSuppressionPartialVersion,
-                                     kOlderFullVersion,
-                                     kOlderPartialVersion,
-                                     kEarlierFullVersion,
-                                     kEarlierPartialVersion,
-                                     kLastReleaseFullVersion,
-                                     kLastReleasePartialVersion,
-                                     kPreviousReleasePrepPartialVersion}) {
+  for (const uint8_t staleVersion :
+       {kLastReleaseFullVersion, kLastReleasePartialVersion, kReleaseCandidateFullVersion,
+        kReleaseCandidatePartialVersion, kDevelopmentFullVersion, kDevelopmentPartialVersion,
+        kUnicodeDevelopmentFullVersion, kUnicodeDevelopmentPartialVersion}) {
     SectionHarness harness;
     harness.begin();
     harness.appendPages(1);

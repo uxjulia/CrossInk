@@ -64,7 +64,7 @@ class CssParser {
 
   // Bump when CSS cache format or rules change; section caches are invalidated when this changes
   static constexpr uint32_t CSS_CACHE_MAGIC = 0x435843FF;  // bytes: 0xFF, "CXC"
-  static constexpr uint8_t CSS_CACHE_VERSION = 23;
+  static constexpr uint8_t CSS_CACHE_VERSION = 21;
 
   // Source text is streamed, never loaded as one allocation. PSRAM readers
   // can admit larger publisher stylesheets; rule-count and internal-heap

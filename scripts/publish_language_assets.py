@@ -25,9 +25,14 @@ def parse_args():
     parser.add_argument('--bucket', default=os.environ.get('LANGUAGE_S3_BUCKET', 'crossink-languages'))
     parser.add_argument('--region', default=os.environ.get('AWS_REGION', 'us-east-1'))
     parser.add_argument('--prefix', default='v1')
-    parser.add_argument('--release-tag', help='Build from this published GitHub release and its exact checked-out tag')
+    release = parser.add_mutually_exclusive_group()
+    release.add_argument('--release-tag', help='Build from this published GitHub release and its exact checked-out tag')
+    release.add_argument('--prepare-release', help='Prepare downloads before this firmware release is published')
+    parser.add_argument('--source-commit', help='Exact full source commit required with --prepare-release')
     parser.add_argument('--repository', default=os.environ.get('GITHUB_REPOSITORY'), help='GitHub owner/repository for --release-tag')
     args = parser.parse_args()
+    if bool(args.prepare_release) != bool(args.source_commit):
+        parser.error('--prepare-release and --source-commit must be used together')
     if not re.fullmatch(r'[a-z0-9][a-z0-9.-]+', args.bucket) or not re.fullmatch(r'[a-z0-9-]+', args.region):
         parser.error('invalid bucket or region')
     if not re.fullmatch(r'[A-Za-z0-9_-]+(?:/[A-Za-z0-9_-]+)*', args.prefix):
@@ -36,31 +41,59 @@ def parse_args():
     return args
 
 
-def release_identity(tag, repository, commit, channel=None):
-    """Fail before S3 access unless this is the clean source of a published release."""
-    if not repository or not re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', repository):
-        raise RuntimeError('--release-tag requires a GitHub owner/repository')
+def tag_identity(tag, channel=None):
     is_rc = bool(re.fullmatch(r'rc-[A-Za-z0-9._-]+-[0-9a-f]{7}', tag))
     if not is_rc and not re.fullmatch(r'v[0-9]+(?:\.[0-9]+){2,3}', tag):
         raise RuntimeError('unsupported firmware release tag: ' + tag)
-    tag_commit = subprocess.check_output(
-        ['git', '-C', str(root), 'rev-parse', '--verify', f'refs/tags/{tag}^{{commit}}'], text=True).strip()
-    if tag_commit != commit:
-        raise RuntimeError('checked-out source does not match release tag')
-    dirty = subprocess.check_output(
-        ['git', '-C', str(root), 'status', '--porcelain', '--untracked-files=no'], text=True).strip()
-    if dirty:
-        raise RuntimeError('release publication requires clean tracked source files and submodules')
-    release = json.loads(subprocess.check_output(
-        ['gh', 'api', f'repos/{repository}/releases/tags/{quote(tag, safe="")}'], text=True))
-    if (release.get('tag_name') != tag or release.get('draft') is not False
-            or not release.get('published_at') or release.get('prerelease') is not is_rc):
-        raise RuntimeError('release must be published and its prerelease flag must match the tag')
     expected_channel = 'rc' if is_rc else 'stable'
     if channel is not None and channel != expected_channel:
         raise RuntimeError('release tag does not match requested channel')
     # Match package_languages.py in the RC and stable release workflows.
     return (tag if is_rc else tag[1:]), expected_channel
+
+
+def require_clean_source():
+    dirty = subprocess.check_output(
+        ['git', '-C', str(root), 'status', '--porcelain', '--untracked-files=no'], text=True).strip()
+    if dirty:
+        raise RuntimeError('release publication requires clean tracked source files and submodules')
+
+
+def prepared_release_identity(tag, source_commit, commit, channel=None):
+    """Validate a release build before its tag or GitHub draft exists."""
+    identity = tag_identity(tag, channel)
+    if not re.fullmatch(r'[0-9a-f]{40}', source_commit or '') or source_commit != commit:
+        raise RuntimeError('preparing a release requires its exact full source commit')
+    if identity[1] == 'rc' and not tag.endswith('-' + commit[:7]):
+        raise RuntimeError('release candidate tag does not match source commit')
+    require_clean_source()
+    # A retry may already have a tag; never prepare another commit under it.
+    ref = subprocess.run(['git', '-C', str(root), 'rev-parse', '--verify', '--quiet',
+                          f'refs/tags/{tag}^{{commit}}'], capture_output=True, text=True)
+    if ref.returncode == 0:
+        if ref.stdout.strip() != commit:
+            raise RuntimeError('checked-out source does not match existing release tag')
+    elif ref.returncode != 1:
+        raise RuntimeError('could not verify release tag: ' + ref.stderr.strip())
+    return identity
+
+
+def release_identity(tag, repository, commit, channel=None):
+    """Fail before S3 access unless this is the clean source of a published release."""
+    if not repository or not re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', repository):
+        raise RuntimeError('--release-tag requires a GitHub owner/repository')
+    identity = tag_identity(tag, channel)
+    tag_commit = subprocess.check_output(
+        ['git', '-C', str(root), 'rev-parse', '--verify', f'refs/tags/{tag}^{{commit}}'], text=True).strip()
+    if tag_commit != commit:
+        raise RuntimeError('checked-out source does not match release tag')
+    require_clean_source()
+    release = json.loads(subprocess.check_output(
+        ['gh', 'api', f'repos/{repository}/releases/tags/{quote(tag, safe="")}'], text=True))
+    if (release.get('tag_name') != tag or release.get('draft') is not False
+            or not release.get('published_at') or release.get('prerelease') is not (identity[1] == 'rc')):
+        raise RuntimeError('release must be published and its prerelease flag must match the tag')
+    return identity
 
 
 def encode(value):
@@ -115,8 +148,10 @@ def validate_companions(catalog, files):
 
 def build_languages(version, commit):
     from generate_language_template import generate
-    released = bool(args.release_tag)
-    provenance = 'published-release' if released else 'local-working-files'
+    prepared = bool(getattr(args, 'prepare_release', None))
+    released = bool(args.release_tag or prepared)
+    # Preparing and retrying after publication must produce identical snapshots.
+    provenance = 'release-build' if released else 'local-working-files'
     artifacts = generate(version if released else version + '-local', commit,
                          'release-build' if released else 'local-fixture')
     template = json.loads(artifacts['language-template.json'])
@@ -252,6 +287,8 @@ def main():
     version = re.search(r'^version\s*=\s*(\S+)', (root / 'platformio.ini').read_text(), re.M).group(1)
     if args.release_tag:
         version, args.channel = release_identity(args.release_tag, args.repository, commit, args.channel)
+    elif args.prepare_release:
+        version, args.channel = prepared_release_identity(args.prepare_release, args.source_commit, commit, args.channel)
     elif args.channel is None:
         args.channel = 'rc' if os.environ.get('CROSSINK_RC_HASH') or version.endswith('-RC') else 'stable'
     bundles = []

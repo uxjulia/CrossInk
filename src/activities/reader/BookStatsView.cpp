@@ -793,8 +793,8 @@ void renderEditBookDatesPage(GfxRenderer& renderer, const MappedInputManager* ma
   drawStatsHeader(renderer, mappedInput, tr(STR_READING_STATS), showButtonHints);
   const auto& metrics = UITheme::getInstance().getMetrics();
   const auto safe = statsSafeArea(renderer, showButtonHints);
-  const bool landscape = statsLandscape(renderer);
 #if CROSSINK_APP_CAP_TOUCH
+  const bool landscape = statsLandscape(renderer);
   const bool showTouchControls = mappedInput && mappedInput->hasTouch();
   const int actionTotalHeight =
       showTouchControls ? (landscape ? TouchActionButtons::kDefaultHeight

@@ -10,6 +10,9 @@ jobs:
   build-release-candidate:
     if: startsWith(github.ref_name, 'release/')
     runs-on: ubuntu-latest
+    # Every matrix member builds the same source and computes the same tag.
+    outputs:
+      rc_tag: ${{ steps.metadata.outputs.rc_tag }}
     strategy:
       fail-fast: false
       matrix:
@@ -56,12 +59,14 @@ jobs:
         run: uv pip install --system -U https://github.com/pioarduino/platformio-core/archive/refs/tags/v6.1.19.zip
 
       - name: Resolve release-candidate metadata
+        id: metadata
         shell: bash
         run: |
           branch_without_prefix="${RC_BRANCH#release/}"
           branch_safe=$(printf '%s\n' "$branch_without_prefix" | sed -E 's/[^A-Za-z0-9._-]+/-/g; s/^-+//; s/-+$//')
           hash_short="${RC_HASH::7}"
           rc_tag="rc-${branch_safe}-${hash_short}"
+          echo "rc_tag=$rc_tag" >> "$GITHUB_OUTPUT"
           echo "RC_BRANCH_RAW=$branch_without_prefix" >> "$GITHUB_ENV"
           echo "RC_BRANCH_SAFE=$branch_safe" >> "$GITHUB_ENV"
           echo "RC_HASH_SHORT=$hash_short" >> "$GITHUB_ENV"
@@ -92,9 +97,29 @@ jobs:
           path: .pio/build/${{ matrix.environment }}/${{ matrix.firmware }}-${{ env.RC_BRANCH_SAFE }}-${{ env.RC_HASH_SHORT }}-RC.bin
           if-no-files-found: error
 
+  prepare-language-assets:
+    needs: build-release-candidate
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      RELEASE_TAG: ${{ needs.build-release-candidate.outputs.rc_tag }}
+      SOURCE_COMMIT: ${{ github.sha }}
+      GH_TOKEN: ${{ secrets.RELEASE_PAT }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Prepare and wait for release downloads
+        run: python3 scripts/prepare_release_downloads.py --tag "$RELEASE_TAG" --source-commit "$SOURCE_COMMIT"
+
   publish-release-candidate:
     if: startsWith(github.ref_name, 'release/')
-    needs: build-release-candidate
+    needs:
+      - build-release-candidate
+      - prepare-language-assets
     runs-on: ubuntu-latest
     env:
       RC_BRANCH: ${{ github.ref_name }}

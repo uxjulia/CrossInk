@@ -385,6 +385,8 @@ void SettingsActivity::rebuildSettingsLists() {
   const size_t expectedSideButtonCount =
       controlsSideButtonBaseCount + (hasSideButtonChordSetting(allSettings) ? 1u : 0u);
   const bool hasFrontButtons = deviceHasFrontButtons();
+  // Capability is constant for a given target; keep both device paths.
+  // cppcheck-suppress knownConditionTrueFalse
   if (hasFrontButtons) {
     controlsFrontButtonSettings = buildControlsFrontButtonSettingsList(allSettings);
   }
@@ -392,11 +394,13 @@ void SettingsActivity::rebuildSettingsLists() {
 
   // Front Buttons and Menu Navigation are both absent from touch-device menus.
   const size_t expectedControlsCount = controlsParentBaseCount + SLIDE_SWITCH_SETTINGS_COUNT +
+                                       // cppcheck-suppress knownConditionTrueFalse
                                        (hasFrontButtons ? 2u : 0u) + (gpio.hasHomeKey() ? 1u : 0u) +
                                        (hasSettingByName(allSettings, StrId::STR_TILT_PAGE_TURN) ? 1u : 0u) +
                                        (hasSettingByName(allSettings, StrId::STR_TILT_PAGE_TURN_DIRECTION) ? 1u : 0u) +
                                        (hasSettingByName(allSettings, StrId::STR_TILT_NEXT_PAGE_ONLY) ? 1u : 0u) +
                                        (hasSettingByName(allSettings, StrId::STR_NEXT_PAGE) ? 1u : 0u);
+  // cppcheck-suppress knownConditionTrueFalse
   const size_t expectedFrontButtonCount = hasFrontButtons ? controlsFrontButtonCount : 0u;
   if (controlsSettings.size() != expectedControlsCount ||
       (gpio.hasHomeKey() && controlsHomeButtonSettings.size() != controlsHomeButtonCount) ||

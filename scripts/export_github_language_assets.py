@@ -43,16 +43,24 @@ def write_files(output, files):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', required=True, type=Path, help='crossink-assets assets/ directory')
-    parser.add_argument('--release-tag', help='Published firmware release tag; omit for local fixtures')
+    release = parser.add_mutually_exclusive_group()
+    release.add_argument('--release-tag', help='Published firmware release tag; omit for local fixtures')
+    release.add_argument('--prepare-release', help='Prepare downloads before this firmware release is published')
+    parser.add_argument('--source-commit', help='Exact full source commit required with --prepare-release')
     parser.add_argument('--repository', default=os.environ.get('GITHUB_REPOSITORY'))
     parser.add_argument('--channel', choices=['stable', 'rc'])
     args = parser.parse_args()
+    if bool(args.prepare_release) != bool(args.source_commit):
+        parser.error('--prepare-release and --source-commit must be used together')
     commit = subprocess.check_output(['git', '-C', str(publisher.root), 'rev-parse', 'HEAD'], text=True).strip()
     version = re.search(r'^version\s*=\s*(\S+)', (publisher.root / 'platformio.ini').read_text(), re.M).group(1)
     channel = args.channel or 'stable'
     if args.release_tag:
         version, channel = publisher.release_identity(args.release_tag, args.repository, commit, args.channel)
-    publisher.args = SimpleNamespace(channel=channel, release_tag=args.release_tag)
+    elif args.prepare_release:
+        version, channel = publisher.prepared_release_identity(args.prepare_release, args.source_commit, commit,
+                                                              args.channel)
+    publisher.args = SimpleNamespace(channel=channel, release_tag=args.release_tag, prepare_release=args.prepare_release)
     files = github_files([publisher.build_languages(version, commit), publisher.build_hyphenation()])
     write_files(args.output, files)
     print(f'Exported {len(files)} GitHub files for {channel} to {args.output}; no upload performed')

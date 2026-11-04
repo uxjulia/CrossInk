@@ -130,7 +130,7 @@ class ButtonInputBuffer {
     frame.state = stable;
     frame.heldMs = stable ? (raw ? now : emptyAt) - pressedAt : lastHeldMs;
     frame.powerHeldMs =
-        stable & POWER_MASK ? ((raw & POWER_MASK) ? now : candidates[6]) - powerPressedAt : lastPowerHeldMs;
+        (stable & POWER_MASK) ? ((raw & POWER_MASK) ? now : candidates[6]) - powerPressedAt : lastPowerHeldMs;
     return frame;
   }
   bool pending() const { return count || overflow; }

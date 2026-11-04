@@ -49,14 +49,14 @@ bool copyTree(const std::string& from, const std::string& to, uint8_t* buffer, u
     } else {
       HalFile dest;
       ok = Storage.openFileForWrite("PLUG", output, dest);
-      const size_t length = file.size();
+      const size_t fileBytes = file.size();
       size_t copied = 0;
-      while (ok && copied < length) {
+      while (ok && copied < fileBytes) {
         if (cancel && cancel(context)) {
           ok = false;
           break;
         }
-        const auto read = file.read(buffer, std::min(COPY_BUFFER, length - copied));
+        const auto read = file.read(buffer, std::min(COPY_BUFFER, fileBytes - copied));
         if (read <= 0 || dest.write(buffer, read) != static_cast<size_t>(read)) {
           ok = false;
           break;

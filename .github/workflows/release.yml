@@ -116,10 +116,33 @@ jobs:
           path: .pio/build/${{ matrix.environment }}/${{ matrix.firmware }}-v${{ needs.prepare-release.outputs.release_version }}.bin
           if-no-files-found: error
 
+  prepare-language-assets:
+    needs:
+      - prepare-release
+      - build-release
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      RELEASE_TAG: v${{ needs.prepare-release.outputs.release_version }}
+      SOURCE_COMMIT: ${{ github.sha }}
+      GH_TOKEN: ${{ secrets.RELEASE_PAT }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      # Run on the release tag so the language-assets environment retains its
+      # existing tag/branch deployment restrictions, including for main builds.
+      - name: Prepare and wait for release downloads
+        run: python3 scripts/prepare_release_downloads.py --tag "$RELEASE_TAG" --source-commit "$SOURCE_COMMIT"
+
   publish-release:
     needs:
       - prepare-release
       - build-release
+      - prepare-language-assets
     runs-on: ubuntu-latest
     env:
       RELEASE_VERSION: ${{ needs.prepare-release.outputs.release_version }}

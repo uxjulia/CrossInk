@@ -1,6 +1,8 @@
 #pragma once
 
+#include <algorithm>
 #include <cstdint>
+#include <iterator>
 
 // Matches order of PARAGRAPH_ALIGNMENT in CrossPointSettings
 enum class CssTextAlign : uint8_t { Justify = 0, Left = 1, Center = 2, Right = 3, None = 4 };
@@ -201,9 +203,8 @@ struct CssStyle {
   bool floatLeft = false;
   uint8_t initialLetter = 0;
   bool hasVisibleBorder() const {
-    for (const auto& side : borders)
-      if (side.visible()) return true;
-    return false;
+    return std::any_of(std::begin(borders), std::end(borders),
+                       [](const CssBorderSide& side) { return side.visible(); });
   }
   bool preserveWhitespace = false;
   bool backgroundBlack = false;                                 // Simple black inline/block background support

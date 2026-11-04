@@ -12,7 +12,11 @@ constexpr AssetCatalog::Channel channelForVersion([[maybe_unused]] std::string_v
 #ifdef ASSET_DOWNLOAD_CHANNEL
   constexpr std::string_view channel = ASSET_DOWNLOAD_CHANNEL;
   static_assert(channel == "rc" || channel == "stable", "ASSET_DOWNLOAD_CHANNEL must be \"rc\" or \"stable\"");
-  return channel == "rc" ? AssetCatalog::Channel::Rc : AssetCatalog::Channel::Stable;
+  if constexpr (channel == "rc") {
+    return AssetCatalog::Channel::Rc;
+  } else {
+    return AssetCatalog::Channel::Stable;
+  }
 #else
   return version.size() >= 3 && version.substr(version.size() - 3) == "-RC" ? AssetCatalog::Channel::Rc
                                                                             : AssetCatalog::Channel::Stable;

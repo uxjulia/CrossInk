@@ -269,7 +269,6 @@ void LookedUpWordsActivity::render(RenderLock&&) {
   renderer.clearScreen();
   if (controller.render()) return;
 
-  const int pageWidth = renderer.getScreenWidth();
   const int pageHeight = renderer.getScreenHeight();
   const auto& metrics = UITheme::getInstance().getMetrics();
 

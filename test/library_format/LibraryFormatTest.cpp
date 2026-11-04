@@ -31,7 +31,7 @@ TEST(LibraryFormat, StructSizesAreFrozen) {
   EXPECT_EQ(sizeof(ClixRecord), 128u);
   EXPECT_EQ(sizeof(ClixFolderHeader), 1u);
   // Version 6 appends each book's series position to its name blob.
-  EXPECT_EQ(CLIX_FORMAT_VERSION, 8u);
+  EXPECT_EQ(CLIX_FORMAT_VERSION, 7u);
 }
 
 TEST(LibraryFormat, RecordsTileSectorsExactly) {

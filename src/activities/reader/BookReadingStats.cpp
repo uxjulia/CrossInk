@@ -119,8 +119,8 @@ bool openRecoverableStatsFile(const std::string& path, FsFile& f, const uint8_t 
 
     if (Storage.rename(recoveryPath.c_str(), path.c_str())) {
       LOG_INF("STATS", "Recovered interrupted stats save: %s", path.c_str());
-      const std::string selected = two_slot::preferredPath("STATS", path, statsSizeForVersion(version), true);
-      if (Storage.openFileForRead("STATS", selected, f)) return true;
+      const std::string restoredPath = two_slot::preferredPath("STATS", path, statsSizeForVersion(version), true);
+      if (Storage.openFileForRead("STATS", restoredPath, f)) return true;
     }
 
     if (Storage.openFileForRead("STATS", recoveryPath, f)) {

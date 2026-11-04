@@ -143,7 +143,7 @@ TEST_F(LibraryBuilderTest, SkipsOnlyExactSystemDirectoriesInAnyFatCasing) {
 
 TEST_F(LibraryBuilderTest, PreviousScanPolicyRebuildPreservesArrivalAndSourceFiles) {
   // Build the old index with an included folder, then give its on-disk folder
-  // entry the system name. V7 and V8 share the same layout.
+  // entry the system name. V6 and V7 share the same layout.
   fake::add("/ZTCache/fontPos.txt");
   initial();
   LibraryIndexFile index;
@@ -156,7 +156,7 @@ TEST_F(LibraryBuilderTest, PreviousScanPolicyRebuildPreservesArrivalAndSourceFil
   auto folder = std::search(bytes.begin(), bytes.end(), oldFolder.begin(), oldFolder.end());
   ASSERT_NE(folder, bytes.end());
   *(folder + 1) = 'X';
-  bytes[offsetof(ClixHeader, formatVersion)] = 7;
+  bytes[offsetof(ClixHeader, formatVersion)] = 6;
   for (const char* suffix : {"", "/fontPos.txt"}) {
     const std::string oldPath = oldFolder + suffix;
     fake::files[std::string("/XTCache") + suffix] = fake::files[oldPath];
@@ -167,7 +167,8 @@ TEST_F(LibraryBuilderTest, PreviousScanPolicyRebuildPreservesArrivalAndSourceFil
   index.close();
   ASSERT_TRUE(buildLibraryIndex("/", stats, true));
   EXPECT_TRUE(stats.indexReplaced);
-  EXPECT_EQ(stats.metadataReused, 2u);
+  // Prior release metadata must be refreshed as part of this rebuild.
+  EXPECT_EQ(stats.metadataReused, 0u);
   ASSERT_TRUE(index.open(INDEX));
   ClixRecord after{};
   ASSERT_TRUE(recordAtPath(index, "/a.epub", after));

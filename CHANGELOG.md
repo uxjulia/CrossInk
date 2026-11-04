@@ -1,8 +1,7 @@
-## [Unreleased]
+## [v2.0.0] - 2026-11-04
 
 ### Added
 
-- BOOX Picco Support
 - Discover and upload static `.otf` fonts on ESP32-S3 readers, including OpenType CFF fonts and CFF files named `.ttf`, from SD or the Fonts web upload. Variable fonts and font collections remain unsupported (CrossPoint #3646, #3717).
 - Assign Select Chapter to shortcuts, Quick Actions, or touch gestures to open the chapter list directly in EPUB and XTC books.
 - Track active reading seconds by local day, sync daily reading time to CrossPoint Sync, and show today's total and 7-day average on the This Device reading stats page.
@@ -16,18 +15,15 @@
 - Finished EPUB and XTC books show a checkmarked book icon in the File Browser and Library list.
 - Calibrate each screen edge in Settings → Display → Screen Calibration to keep text and status bars clear of the bezel. Calibration stays on the device when changing SD cards.
 - Choose Directional or Legacy menu navigation in Controls to restore the previous button behavior in Settings and the reader menu.
-- Sync Books from the new Sync Server section in File Transfer to sync progress, reading stats, and clippings for every book on the SD card in one pass, without needing a Library refresh. Sync Reading Stats and Sync Clippings, shown there when that data is turned on under What to Sync, upload only stats or only clippings without touching reading positions; reading stats use a one-time catch-up and then send only changed books, while clippings sync both ways across local EPUBs.
-- Render publisher drop caps, bordered and shaded blocks, preserved whitespace, and more CSS selectors in EPUBs; scalable fonts also support mixed sizes within a line (CrossPoint #3891).
+- Sync Books from the new Sync Server section in File Transfer to sync progress, reading stats, and clippings for every book on the SD card in one pass, without needing a Library refresh. Compatible servers batch folder requests. Sync Reading Stats and Sync Clippings, shown there when that data is turned on under What to Sync, upload only stats or only clippings without touching reading positions; reading stats use a one-time catch-up and then send only changed books, while clippings sync both ways across local EPUBs.
+- Render publisher drop caps, bordered and shaded blocks, fieldsets continuing across pages, preserved whitespace, and more CSS selectors in EPUBs; scalable fonts also support mixed sizes within a line (CrossPoint #3891).
 - Install and edit interface languages from SD files, including community languages, with English fallback for missing translations. Browser translation editors and release downloads use an automatically generated, versioned English template and compatibility catalog.
 - Install, update, and remove EPUB hyphenation packs from SD; English remains built in, and book layouts refresh when their packs change.
 - Show the current chapter title under the book title in the reader menu on button devices and in the X4 Pro pull-down drawer; the drawer tightens its spacing to keep the handle on screen in landscape.
-- Tighten or widen Word Spacing with a -4 to +4 slider and live preview.
-- Adjust Character Spacing from -5 to +5 with a live preview in Reader settings and the in-book Reader Font menu.
+- Adjust Word Spacing from -4 to +4 and Character Spacing from -5 to +5, with live previews in Reader settings and the in-book Reader Font menu.
 - On touch devices, adjust EPUB text selection with draggable handles and use the floating Look Up and Clip toolbar. Clipping remains available without an installed dictionary.
-- Adds batched folder syncing for book progress, reading stats, and clippings when servers support it
 - Render EPUB headings and CSS font sizes on X3/X4 using available bitmap sizes; optional SD sizes stay within a small memory budget and fall back safely when memory is tight.
 - Choose whether the built-in EPUB upload optimizer removes embedded fonts; removal is on by default and can be remembered in the browser.
-- Render EPUB fieldsets as outlined boxes with padding, honoring publisher border styles and continuing across pages.
 - Show a one-time What's New screen after updating, with a one-click Update for an outdated language pack; reopen it anytime in Settings → System → Release Notes.
 - Choose a download folder for each OPDS server on the device or web portal, with options to use the shared default or SD root.
 - Choose a sync server type and custom authentication headers; compatible servers can receive ISBN, ASIN, and series metadata when sharing metadata is enabled.
@@ -46,6 +42,7 @@
 - Choose Cover Overlay to place a transparent sleep image over the current book cover (CrossPoint #3770).
 - Sync combined reading streaks back from CrossPoint Sync, including reading on other devices, while keeping local reading and upload totals separate.
 - Advanced Wi-Fi transmit-power setting with a per-device limit; Default preserves existing radio behavior.
+- Support BOOX Picco readers, including frontlight controls, the slide switch, touchscreen locking, USB Drive, tilt page turns, and firmware downloads.
 
 ### Fixed
 
@@ -140,7 +137,7 @@
 - Keep saved EPUB highlights aligned at tight line spacing and preserve letters on adjacent lines (#893).
 - Stabilize X4 battery percentages across page turns and status bars, and keep the percentage visible while the battery reading changes (#904).
 - Remove the misleading submenu arrow from Reset TTF Defaults and show a popup confirming the reset or reporting a save failure.
-- Fix slanted and wrapped EPUB covers from progressive JPEGs on Home and sleep screens (#907).
+- Fix slanted and wrapped EPUB covers from progressive JPEGs on Home and sleep screens; existing decoded images and thumbnails regenerate automatically (#907).
 - Preserve saved clippings after corrupt or incomplete store loads, recover interrupted replacements before editing, and report clipping-index allocation failures safely.
 - Keep File Transfer responsive after stalled browser replies, malformed uploads, oversized discovery packets, and abandoned upload connections; hotspot captive-portal checks now reach the home page without intercepting WebDAV writes.
 - Retry a failed font catalog download from either touch or buttons, and show font/settings load errors instead of accepting incomplete lists.
@@ -149,14 +146,14 @@
 - Keep protected EPUBs readable after renaming or moving them, including moves to the Read folder.
 - Retry queuing a reading change after an SD write fails.
 - Render Unicode spaces, including thin and hair spaces around nested quotes, without missing-character boxes; preserve font-relative spacing and invisible zero-width controls.
+- Prepare and verify language and hyphenation downloads before the release workflow creates its firmware draft, so download failures are caught before publication.
 
 ### Changed
 
 - SD fonts containing both BMP and supplementary Unicode ranges use less resident lookup-table memory, and TTF fonts validate faster while preserving font integrity checks.
 - English is the only built-in interface language. Other languages are included in a separate release download and installed through Language settings.
 - Display → Hide Battery % is replaced by the Battery option in each status bar's settings; existing choices carry over.
-- Home appears faster after waking, closing a book, or leaving a menu by reducing the number of screen refreshes.
-- Dictionary lookups and cover thumbnail generation respond sooner.
+- Home appears faster after waking, closing a book, or leaving a menu with fewer screen refreshes; dictionary lookups and cover thumbnail generation also respond sooner.
 - Index, open, and resume large EPUBs faster with larger SD writes, quicker SD font preparation (especially for CJK books), and faster chapter, image, and stylesheet discovery. Percentage jumps no longer scan every preceding chapter.
 - Monochrome covers and sleep images decode faster while preserving image quality. Large custom sleep and boot images skip rows that are not shown, and oversized boot images are dithered at screen size, matching sleep images.
 - Avoid writing reading-percentage caches while browsing Home, Library, or sleep screens.
@@ -165,14 +162,13 @@
 - Settings → System → KOReader Sync is now Sync Server, grouped into account, What to Sync, and Sync Options sections.
 - Reading Stats and Clippings sync stay off until you turn them on under What to Sync. Servers that cannot receive them are detected when you authenticate.
 - Rename sync actions to Sync Book and Sync Folder to reflect stats and clippings support, and File Transfer → Sync Stats to Nearby Stats Sync. Upload Stats becomes Sync Books and follows your What to Sync choices; the Reading Stats page's sync button uploads reading stats only.
-- Every sync result, including a successful single-book sync, lists overall stats, reading stats, and clippings as Done, OFF, or Not supported.
+- Every sync result, including a successful single-book sync, lists overall stats, reading stats, and clippings as Done, OFF, or Not supported. Single-book failures show the book title and identify which part failed.
 - Syncing from Reading Stats inside a book returns to that book afterwards instead of Home.
 - Use consistent labels for cover options, date/time syncing, shortcuts, and status messages, including "Loading..." across loading screens.
 - Sync Behavior's Ask every time is now Ask on conflicts: every sync uploads without asking when the server has no position for the book, reports Already synced when positions match, and asks only when they differ.
 - On CrossPoint Sync servers, each CrossInk reader now sends reading progress under its own device id instead of one shared id, so the server can tell your readers apart. Other KOSync servers still receive the shared id.
 - Changing Document Matching on the reader or the web settings page now warns first: books get new ids, so the next Sync Books or Sync Folder checks every book again.
 - Sync Books and Sync Folder stay on one screen with the current book, a progress bar, and the running counts, instead of flashing a screen for every book. Failed books no longer stop the sync: the final screen lists each one with what failed ("Progress sync failed", "Stats sync failed", or "Clippings sync failed") and why. Use Up and Down to scroll a long list. In Ask on conflicts, choices wait until every book is done and are then shown one after another.
-- Sync Book on a single book shows which part failed with the book's title underneath and a result line for its progress, reading stats, and clippings.
 - Reduce repeated SD reads when opening EPUBs, browsing Library rows, and preserving reading position through layout changes; reuse temporary TXT indexing scratch without retaining it while reading.
 - Exclude unused Arduino libraries and Bluetooth/Zigbee components from tuned firmware builds (adapted from Uri Tauber, CrossPoint #3857).
 - Install SD languages and hyphenation packs on PSRAM-equipped readers with small factory data partitions, including X4 Pro, using an SD cache loaded into PSRAM. Startup reuses an open cache file for sequential validation reads. The bootloader, partition table, and firmware slots remain unchanged.

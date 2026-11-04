@@ -47,8 +47,8 @@ void HyphenationManagerActivity::showLanguages() {
   int builtInIndex = -1;
   for (size_t i = 0; i < languages.size; ++i) {
     const auto& entry = languages.data[i];
-    char uiCode[] = {static_cast<char>(entry.primaryTag[0] - 'a' + 'A'),
-                     static_cast<char>(entry.primaryTag[1] - 'a' + 'A'), '\0'};
+    const char uiCode[] = {static_cast<char>(entry.primaryTag[0] - 'a' + 'A'),
+                           static_cast<char>(entry.primaryTag[1] - 'a' + 'A'), '\0'};
     const char* name = I18N.getLanguageName(I18n::languageFromCode(uiCode));
     const char* status = entry.hyphenator                                      ? tr(STR_HYPHENATION_BUILT_IN)
                          : HyphenationPackStore::isInstalled(entry.primaryTag) ? tr(STR_INSTALLED)

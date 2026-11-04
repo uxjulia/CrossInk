@@ -193,16 +193,18 @@ bool park(const KOReaderProgressChange& change) {
   // A merged document can share hashes with several older slots; the first is
   // replaced and the rest cleared, so no stale copy outlives it.
   int32_t target = -1;
-  int32_t empty = -1;
+  int32_t emptySlot = -1;
   int32_t oldest = -1;
   int64_t oldestTimestamp = INT64_MAX;
   uint32_t slots = 0;
   uint32_t duplicates = 0;  // bit per slot index (MAX_ENTRIES <= 32)
+  // Compile-time bound protects the duplicate bitmask.
+  // cppcheck-suppress knownConditionTrueFalse
   static_assert(MAX_ENTRIES <= 32, "duplicate mask");
   forEachSlot([&](const uint32_t index, const bool valid, const Entry& stored) {
     ++slots;
     if (!valid) {
-      if (empty < 0) empty = static_cast<int32_t>(index);
+      if (emptySlot < 0) emptySlot = static_cast<int32_t>(index);
       return true;
     }
     if (sharesHash(entry, stored)) {
@@ -218,7 +220,7 @@ bool park(const KOReaderProgressChange& change) {
     }
     return true;
   });
-  if (target < 0) target = empty;
+  if (target < 0) target = emptySlot;
   if (target < 0 && slots < MAX_ENTRIES) target = static_cast<int32_t>(slots);
   if (target < 0) {
     target = oldest;

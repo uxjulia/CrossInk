@@ -303,11 +303,11 @@ void releaseReaderSdFontCachesBeforeCoverDecode(const GfxRenderer* renderer, con
 }
 
 std::string getThumbBmpPathForDimensions(const std::string& cachePath, int width, int height) {
-  return cachePath + "/thumb_" + std::to_string(width) + "x" + std::to_string(height) + ".bmp";
+  return cachePath + "/thumb_" + std::to_string(width) + "x" + std::to_string(height) + "_v2.bmp";
 }
 
 std::string getAdaptiveThumbBmpPathForDimensions(const std::string& cachePath, int width, int height) {
-  return cachePath + "/thumb_" + std::to_string(width) + "x" + std::to_string(height) + "_fit.bmp";
+  return cachePath + "/thumb_" + std::to_string(width) + "x" + std::to_string(height) + "_fit_v2.bmp";
 }
 
 std::string legacyCachePathForFilePath(const std::string& filepath, const std::string& cacheDir) {
@@ -1246,7 +1246,7 @@ bool Epub::hasCoverImage() const {
 
 std::string Epub::getCoverBmpPath(bool cropped, ImageToneProfile toneProfile) const {
   const auto coverFileName = std::string("cover") + (cropped ? "_crop" : "") + coverToneSuffix(toneProfile);
-  return cachePath + "/" + coverFileName + ".bmp";
+  return cachePath + "/" + coverFileName + "_v2.bmp";
 }
 
 namespace {
@@ -1414,19 +1414,11 @@ bool Epub::generateCoverBmp(bool cropped, const GfxRenderer* renderer, const int
   return false;
 }
 
-std::string Epub::getThumbBmpPath() const { return cachePath + "/thumb_[WIDTH]x[HEIGHT].bmp"; }
+std::string Epub::getThumbBmpPath() const { return cachePath + "/thumb_[WIDTH]x[HEIGHT]_v2.bmp"; }
 std::string Epub::getThumbBmpPath(int height) const { return getThumbBmpPath(0, height); }
 std::string Epub::getThumbBmpPath(int width, int height) const {
   normalizeThumbDimensions(width, height);
-  const std::string newPath = getThumbBmpPathForDimensions(cachePath, width, height);
-  if (Storage.exists(newPath.c_str())) {
-    return newPath;
-  }
-  const std::string legacyPath = cachePath + "/thumb_" + std::to_string(height) + ".bmp";
-  if (Storage.exists(legacyPath.c_str())) {
-    return legacyPath;
-  }
-  return newPath;
+  return getThumbBmpPathForDimensions(cachePath, width, height);
 }
 
 std::string Epub::getAdaptiveThumbBmpPath(int width, int height) const {
