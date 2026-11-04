@@ -489,7 +489,8 @@ static void convertScanlineToGray(const PngDecodeContext& ctx, uint8_t* grayRow)
 }
 
 bool PngToBmpConverter::pngFileToBmpStreamInternal(FsFile& pngFile, Print& bmpOut, int targetWidth, int targetHeight,
-                                                   bool oneBit, bool crop, bool adaptiveContain, bool imageLevels) {
+                                                   bool oneBit, bool crop, bool adaptiveContain,
+                                                   ImageToneProfile toneProfile) {
   // Verify PNG signature
   uint8_t sig[8];
   if (pngFile.read(sig, 8) != 8 || memcmp(sig, PNG_SIGNATURE, 8) != 0) {
@@ -701,13 +702,13 @@ bool PngToBmpConverter::pngFileToBmpStreamInternal(FsFile& pngFile, Print& bmpOu
     }
   } else if (!USE_8BIT_OUTPUT) {
     if (USE_ATKINSON) {
-      atkinsonDitherer = makeUniqueNoThrow<AtkinsonDitherer>(outWidth, imageLevels);
+      atkinsonDitherer = makeUniqueNoThrow<AtkinsonDitherer>(outWidth, toneProfile);
       if (!atkinsonDitherer || !atkinsonDitherer->isValid()) {
         LOG_ERR("PNG", "OOM: AtkinsonDitherer or row buffers");
         return false;
       }
     } else if (USE_FLOYD_STEINBERG) {
-      fsDitherer = makeUniqueNoThrow<FloydSteinbergDitherer>(outWidth, imageLevels);
+      fsDitherer = makeUniqueNoThrow<FloydSteinbergDitherer>(outWidth, toneProfile);
       if (!fsDitherer || !fsDitherer->isValid()) {
         LOG_ERR("PNG", "OOM: FloydSteinbergDitherer or row buffers");
         return false;
@@ -888,11 +889,11 @@ bool PngToBmpConverter::pngFileToBmpStreamInternal(FsFile& pngFile, Print& bmpOu
   return success;
 }
 
-bool PngToBmpConverter::pngFileToBmpStream(FsFile& pngFile, Print& bmpOut, bool crop, bool imageLevels) {
+bool PngToBmpConverter::pngFileToBmpStream(FsFile& pngFile, Print& bmpOut, bool crop, ImageToneProfile toneProfile) {
   // Use runtime display dimensions (swapped for portrait cover sizing)
   const int targetWidth = display.getDisplayHeight();
   const int targetHeight = display.getDisplayWidth();
-  return pngFileToBmpStreamInternal(pngFile, bmpOut, targetWidth, targetHeight, false, crop, false, imageLevels);
+  return pngFileToBmpStreamInternal(pngFile, bmpOut, targetWidth, targetHeight, false, crop, false, toneProfile);
 }
 
 bool PngToBmpConverter::pngFileTo1BitBmpStreamWithSize(FsFile& pngFile, Print& bmpOut, int targetMaxWidth,

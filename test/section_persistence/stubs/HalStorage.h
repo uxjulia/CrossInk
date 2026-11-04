@@ -15,6 +15,7 @@
 using oflag_t = uint8_t;
 inline constexpr oflag_t O_RDONLY = 0;
 inline constexpr oflag_t O_RDWR = 1;
+inline constexpr oflag_t O_CREAT = 2;
 
 struct HostFileData {
   std::vector<uint8_t> bytes;
@@ -117,8 +118,14 @@ class HalStorage {
     return true;
   }
 
-  HalFile open(const char* path, oflag_t) {
+  HalFile open(const char* path, oflag_t flags) {
+    if (!files_.contains(path) && (flags & O_CREAT)) files_[path] = std::make_shared<HostFileData>();
     const auto found = files_.find(path);
+    if (found != files_.end() && (flags & O_RDWR)) {
+      ++writeOpens;
+      found->second->failAt = failWrite ? 0 : std::numeric_limits<size_t>::max();
+      failWrite = false;
+    }
     return found == files_.end() ? HalFile{} : HalFile(found->second);
   }
   bool openFileForRead(const char*, const std::string& path, HalFile& file) {

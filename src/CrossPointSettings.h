@@ -601,6 +601,8 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   uint8_t paragraphAlignment = JUSTIFIED;
   // Auto-sleep timeout setting (default 10 minutes). Legacy sleepTimeout enum values are migration-only.
   uint8_t sleepTimeoutMinutes = 10;
+  // Quarter-dBm ceiling; 0 preserves the driver's default transmit power.
+  uint8_t wifiTransmitPower = 0;
   // E-ink refresh frequency (default 15 pages)
   uint8_t refreshFrequency = REFRESH_15;
   uint8_t hyphenationEnabled = 0;
@@ -704,6 +706,10 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   uint8_t frontlightBrightness = 60;
   uint8_t frontlightWarmth = 50;  // 0 = cool .. 100 = warm
   uint8_t frontlightOn = 0;
+#if FREEINK_DEVICE_PICCO
+  enum class SlideSwitchAction : uint8_t { Light, NightMode, TouchControls, TiltPageTurn };
+  uint8_t slideSwitchAction = static_cast<uint8_t>(SlideSwitchAction::Light);
+#endif
   // When enabled, restore a previously-on light after sleep. A previous off
   // state falls through to a complete schedule.
   uint8_t frontlightRestoreOnWake = 1;
@@ -831,6 +837,7 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
  public:
   float getReaderLineCompression() const;
   unsigned long getSleepTimeoutMs() const;
+  static bool isRefreshNeverAvailable();
   int getRefreshFrequency() const;
 };
 

@@ -32,13 +32,12 @@ class FrontlightPanelActivity final : public Activity {
 
   uint8_t brightness = 60;
   uint8_t warmth = 50;
-  bool lightOn = false;
+  bool observedLightOn = false;  // redraw tracking only; the HAL owns live on/off state
   FrontlightPanelContext context;
   FrontlightDrawerState drawerState{};
   OptionPopup optionPopup;
   bool initialInversion = false;
   bool initialTouchscreenDisabled = false;
-  bool pendingTouchscreenDisabled = false;
   bool ttfRenderingChanged = false;
   // Swallow the swipe/tap fallout of a slider drag so its release can't
   // trigger the back gesture and close the panel mid-adjustment.

@@ -186,17 +186,17 @@ BmpReaderError Bitmap::parseHeaders() {
   //  - Native palette → direct mapping, no processing needed
   //  - High-color + dithering enabled → error-diffusion dithering (Atkinson or Floyd-Steinberg)
   //  - High-color + dithering disabled → simple quantization (no error diffusion)
-  const bool highColor = !nativePalette;
-  if (highColor && dithering) {
+  const bool convertSourceLevels = toneProfile == ImageToneProfile::PiccoCover && bpp > 1;
+  if (dithering && (!nativePalette || convertSourceLevels)) {
     if (USE_ATKINSON) {
-      atkinsonDitherer = new (std::nothrow) AtkinsonDitherer(width, imageLevels);
+      atkinsonDitherer = new (std::nothrow) AtkinsonDitherer(width, toneProfile);
       if (!atkinsonDitherer || !atkinsonDitherer->isValid()) {
         delete atkinsonDitherer;
         atkinsonDitherer = nullptr;
         return BmpReaderError::OomRowBuffer;
       }
     } else {
-      fsDitherer = new (std::nothrow) FloydSteinbergDitherer(width, imageLevels);
+      fsDitherer = new (std::nothrow) FloydSteinbergDitherer(width, toneProfile);
       if (!fsDitherer || !fsDitherer->isValid()) {
         delete fsDitherer;
         fsDitherer = nullptr;
@@ -217,7 +217,7 @@ bool Bitmap::setDitheredOutputSize(const int targetWidth, const int targetHeight
 
   // The error buffers must use final-screen coordinates. Recreating this tiny
   // helper costs about 3 KiB for an X3-wide custom sleep image, not a full BMP.
-  auto resizedDitherer = makeUniqueNoThrow<AtkinsonDitherer>(targetWidth, imageLevels);
+  auto resizedDitherer = makeUniqueNoThrow<AtkinsonDitherer>(targetWidth, toneProfile);
   // One reusable output row, not a framebuffer: 4 * targetWidth bytes (at most
   // 8192 under the BMP width limit). Dynamic width and task stack limits rule
   // out stack/static storage. Allocation failure preserves the existing path.

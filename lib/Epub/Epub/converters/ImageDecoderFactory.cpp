@@ -67,3 +67,7 @@ bool ImageDecoderFactory::isFormatSupported(const std::string& imagePath) {
   return FsHelpers::hasJpgExtension(imagePath) || FsHelpers::hasPngExtension(imagePath) ||
          FsHelpers::hasGifExtension(imagePath);
 }
+
+bool ImageDecoderFactory::supportsMemorySource(const std::string& imagePath) {
+  return FsHelpers::hasJpgExtension(imagePath) || FsHelpers::hasPngExtension(imagePath);
+}

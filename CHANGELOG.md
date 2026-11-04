@@ -2,6 +2,7 @@
 
 ### Added
 
+- BOOX Picco Support
 - Discover and upload static `.otf` fonts on ESP32-S3 readers, including OpenType CFF fonts and CFF files named `.ttf`, from SD or the Fonts web upload. Variable fonts and font collections remain unsupported (CrossPoint #3646, #3717).
 - Assign Select Chapter to shortcuts, Quick Actions, or touch gestures to open the chapter list directly in EPUB and XTC books.
 - Track active reading seconds by local day, sync daily reading time to CrossPoint Sync, and show today's total and 7-day average on the This Device reading stats page.
@@ -15,7 +16,7 @@
 - Finished EPUB and XTC books show a checkmarked book icon in the File Browser and Library list.
 - Calibrate each screen edge in Settings → Display → Screen Calibration to keep text and status bars clear of the bezel. Calibration stays on the device when changing SD cards.
 - Choose Directional or Legacy menu navigation in Controls to restore the previous button behavior in Settings and the reader menu.
-- Sync Books from the new Sync Server section in File Transfer to sync progress, reading stats, and clippings for every book on the SD card in one pass, without needing a Library refresh. Sync Reading Stats and Sync Clippings, shown there when that data is turned on under What to Sync, upload only stats or only clippings without touching reading positions; after a one-time catch-up they send only books changed since the last sync.
+- Sync Books from the new Sync Server section in File Transfer to sync progress, reading stats, and clippings for every book on the SD card in one pass, without needing a Library refresh. Sync Reading Stats and Sync Clippings, shown there when that data is turned on under What to Sync, upload only stats or only clippings without touching reading positions; reading stats use a one-time catch-up and then send only changed books, while clippings sync both ways across local EPUBs.
 - Render publisher drop caps, bordered and shaded blocks, preserved whitespace, and more CSS selectors in EPUBs; scalable fonts also support mixed sizes within a line (CrossPoint #3891).
 - Install and edit interface languages from SD files, including community languages, with English fallback for missing translations. Browser translation editors and release downloads use an automatically generated, versioned English template and compatibility catalog.
 - Install, update, and remove EPUB hyphenation packs from SD; English remains built in, and book layouts refresh when their packs change.
@@ -44,11 +45,7 @@
 - Uninstall an installed plugin after holding Confirm for one second or long-pressing its row, with confirmation before its files are removed (CrossPoint #4100).
 - Choose Cover Overlay to place a transparent sleep image over the current book cover (CrossPoint #3770).
 - Sync combined reading streaks back from CrossPoint Sync, including reading on other devices, while keeping local reading and upload totals separate.
-
-### Changed
-
-- Rename the UI Font setting to UI Fallback Font to clarify that it only supplies missing interface characters.
-- Match Nearby Position Sync to the progress sync comparison design, with progress cards, bars, chapter details, and an Ahead badge.
+- Advanced Wi-Fi transmit-power setting with a per-device limit; Default preserves existing radio behavior.
 
 ### Fixed
 
@@ -182,8 +179,10 @@
 - Match menu button directions and front Up/Down labels to screen orientation on X3, X4 Pro, and X4 Classic while preserving tab navigation and reader page-turn preferences. Slider side buttons follow the screen orientation, with the upper button increasing values and the lower button decreasing them.
 - Reduce temporary allocations while finding EPUB line breaks and disable unused XML parser input-context buffering (CrossPoint #4126, #4118).
 - Revalidate plugin files with content-based ETags so unchanged files do not need to be transferred again (CrossPoint #4193).
-
 - Use themed web confirmations and alerts, accessible file dialogs, and clearer dropdown arrows; preserve upload cancellation and feedback timers (CrossPoint #3984, #4090).
+- Open EPUB chapters sooner by deferring optional SD-font preparation until pages are ready. On PSRAM readers, reuse ZIP directories and decode JPEG/PNG sources without temporary SD extraction when memory permits.
+- Reduce SD writes for EPUB progress and reading statistics.
+- Match Nearby Position Sync to the progress sync comparison design, with progress cards, bars, chapter details, and an Ahead badge.
 
 ## [v1.6.1] - 2026-10-03
 

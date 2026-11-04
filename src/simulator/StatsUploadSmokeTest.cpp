@@ -46,6 +46,20 @@ void verifyStatsUploadContract() {
   require(strlen(json["history_b64"].as<const char*>()) == 124 &&
               std::strncmp(json["history_b64"].as<const char*>(), "BwAA", 4) == 0,
           "calendar bit order");
+  // A v3 save interrupted halfway through its trailer must leave the other slot usable.
+  ++global.totalSessions;
+  require(global.save(), "create second global stats slot");
+  FsFile torn;
+  std::array<uint8_t, GlobalReadingStats::CURRENT_FILE_SIZE + 5> partial{GlobalReadingStats::CURRENT_FILE_VERSION};
+  require(Storage.openFileForWrite("SMOKE", "/.crosspoint/global_stats.bin", torn) &&
+              torn.write(partial.data(), partial.size()) == partial.size() && torn.close(),
+          "truncate primary trailer");
+  loaded = GlobalReadingStats::load();
+  require(loaded.totalSessions == global.totalSessions && loaded.totalReadingSeconds == 3456,
+          "recover backup after torn trailer");
+  ++loaded.totalSessions;
+  require(loaded.save() && GlobalReadingStats::load().totalSessions == loaded.totalSessions,
+          "resume saving after recovery");
   // Every count at its maximum still fits the fixed request budget.
   global.totalSessions = global.totalReadingSeconds = global.totalPagesTurned = global.completedBooks = UINT32_MAX;
   global.timeOfDaySeconds.fill(UINT32_MAX);

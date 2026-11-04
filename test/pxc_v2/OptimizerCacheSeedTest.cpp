@@ -29,8 +29,9 @@ struct PxcV2 : Print {
   size_t write(uint8_t) override { return 0; }
   bool finish() { return false; }
 };
+struct ZipDirectoryCache {};
 struct ZipFile {
-  explicit ZipFile(const std::string&) {}
+  ZipFile(const std::string&, ZipDirectoryCache*) {}
   bool readStoredFileToStream(const std::string&, Print&) { return false; }
 };
 template <class T>
@@ -39,6 +40,7 @@ std::unique_ptr<T> makeUniqueNoThrow() {
 }
 struct Epub {
   std::string filepath;
+  mutable ZipDirectoryCache zipDirectoryCache;
   mutable std::unique_ptr<PxcV2Workspace> optimizerWorkspace;
   Entry optimizerLastHit;
   std::vector<uint8_t> source = {8, 0, 4, 0, 0x1b, 0xe4, 0x55, 0xaa, 0x33, 0xcc, 0, 255};

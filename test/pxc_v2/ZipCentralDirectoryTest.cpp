@@ -1,4 +1,5 @@
 #include <ZipFile.h>
+#include <esp_heap_caps.h>
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -111,6 +112,7 @@ struct CountingOutput : Print {
 class ZipCentralDirectory : public testing::Test {
  protected:
   void SetUp() override {
+    fakeheap::reset(true);
     Storage.reset();
     entries = makeEntries();
     Storage.put(path, buildZip(entries));
@@ -282,4 +284,54 @@ TEST_F(ZipCentralDirectory, IdentityLookupDistinguishesAbsentFromUnreadable) {
   EXPECT_EQ(ZipFile(path).fillEntryIdentities(&target, 1, &identity, 1), 1);
   EXPECT_TRUE(identity.found);
   EXPECT_EQ(identity.crc32, 123u);
+}
+
+TEST_F(ZipCentralDirectory, RetainedDirectoryAvoidsFurtherSdReadsAndChecksExactNames) {
+  ZipDirectoryCache cache;
+  size_t size = 0;
+  ASSERT_TRUE(ZipFile(path, &cache).getInflatedFileSize(entries[0].name.c_str(), &size));
+  ASSERT_NE(cache.bytes.get(), nullptr);
+  const auto reads = Storage.readCalls(path);
+  for (const auto& entry : entries) {
+    ASSERT_TRUE(ZipFile(path, &cache).getInflatedFileSize(entry.name.c_str(), &size));
+    EXPECT_EQ(size, entry.data.size());
+  }
+  EXPECT_FALSE(ZipFile(path, &cache).getInflatedFileSize("OEBPS/Text/chapter-600.xhtml", &size));
+  EXPECT_EQ(Storage.readCalls(path), reads);
+}
+
+TEST_F(ZipCentralDirectory, ReplacementInvalidatesEvenWhenFileSizeIsUnchanged) {
+  ZipDirectoryCache cache;
+  size_t size = 0;
+  ASSERT_TRUE(ZipFile(path, &cache).getInflatedFileSize(entries[0].name.c_str(), &size));
+  const auto oldName = entries[0].name;
+  entries[0].name[0] = 'X';
+  const auto originalSize = Storage.bytes(path).size();
+  Storage.put(path, buildZip(entries));
+  ASSERT_EQ(Storage.bytes(path).size(), originalSize);
+  EXPECT_FALSE(ZipFile(path, &cache).getInflatedFileSize(oldName.c_str(), &size));
+  EXPECT_TRUE(ZipFile(path, &cache).getInflatedFileSize(entries[0].name.c_str(), &size));
+}
+
+TEST_F(ZipCentralDirectory, AllocationFailureAndC3FallBackToBufferedScan) {
+  for (const bool psram : {true, false}) {
+    fakeheap::reset(psram);
+    fakeheap::external.failOnAttempt = 1;
+    ZipDirectoryCache cache;
+    size_t size = 0;
+    ASSERT_TRUE(ZipFile(path, &cache).getInflatedFileSize(entries[0].name.c_str(), &size));
+    EXPECT_EQ(cache.bytes.get(), nullptr);
+    EXPECT_EQ(size, entries[0].data.size());
+  }
+}
+
+TEST_F(ZipCentralDirectory, InvalidLastEntryNeverInstallsPartialCache) {
+  auto zip = buildZip(entries);
+  const size_t end = zip.size() - 22;
+  zip[end + 10]++;  // EOCD claims one more entry than the complete directory.
+  Storage.put(path, std::move(zip));
+  ZipDirectoryCache cache;
+  size_t size = 0;
+  ZipFile(path, &cache).getInflatedFileSize(entries[0].name.c_str(), &size);
+  EXPECT_EQ(cache.bytes.get(), nullptr);
 }

@@ -168,8 +168,7 @@ float loadRecentBookProgress(const RecentBook& book) {
 std::string loadEpubHighlightedChapterTitle(const RecentBook& book) {
   const std::string cachePath = getRecentBookCachePath(book);
   EpubReaderUtils::Progress progress;
-  if (!EpubReaderUtils::readProgressFile("HOME", cachePath + "/progress.bin", progress) &&
-      !EpubReaderUtils::readProgressFile("HOME", cachePath + "/progress.bin.bak", progress)) {
+  if (!EpubReaderUtils::loadProgressPath(cachePath + "/progress.bin", progress, "HOME")) {
     return {};
   }
 

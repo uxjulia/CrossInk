@@ -35,8 +35,8 @@ struct BookReadingStats {
   // Checked export: false for missing, malformed, or unsupported snapshots.
   static bool loadForUpload(const std::string& cachePath, BookReadingStats& stats);
 
-  // Saves stats to cachePath/stats_v6.bin through recoverable .tmp/.bak files.
-  // Returns false if the new stats file could not be published.
+  // Alternates checksum-checked stats_v6.bin and .bak snapshots in place.
+  // Returns false if the new snapshot could not be saved.
   bool save(const std::string& cachePath) const;
 
   // Deletes all supported versioned snapshots and transaction files,

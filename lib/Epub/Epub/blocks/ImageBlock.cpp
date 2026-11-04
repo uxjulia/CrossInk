@@ -27,7 +27,10 @@ void* ImageBlock::extractContext = nullptr;
 ImageBlock::ExtractFn ImageBlock::extractFn = nullptr;
 ImageBlock::SeedCacheFn ImageBlock::seedCacheFn = nullptr;
 
-void ImageBlock::setExtractor(void* context, ExtractFn extract, SeedCacheFn seedCache) {
+ImageBlock::LoadFn ImageBlock::loadFn = nullptr;
+
+void ImageBlock::setExtractor(void* context, ExtractFn extract, SeedCacheFn seedCache, LoadFn load) {
+  loadFn = load;
   extractContext = context;
   extractFn = extract;
   seedCacheFn = seedCache;
@@ -438,6 +441,8 @@ void ImageBlock::prepareCache() const {
   Storage.remove((cache + ".optimizer.tmp").c_str());
   Storage.remove((cache + ".optimizer.source").c_str());
   if (seedCacheFn && seedCacheFn(extractContext, sourcePath.c_str(), width, height, cache.c_str())) return;
+  // JPEG/PNG may decode straight from PSRAM in render(); GIF keeps its file path.
+  if (loadFn && psramHeapAvailable() && ImageDecoderFactory::supportsMemorySource(imagePath)) return;
   if (extractFn && !Storage.exists(imagePath.c_str()) &&
       !extractFn(extractContext, sourcePath.c_str(), imagePath.c_str())) {
     LOG_ERR("IMG", "Image preflight extraction failed: %s", sourcePath.c_str());
@@ -521,26 +526,35 @@ void ImageBlock::render(GfxRenderer& renderer, const int x, const int y, const b
     return;  // Successfully rendered from cache
   }
 
-  // No cache - need to decode the image
-  // Check if image file exists
-  FsFile file;
-  if (!Storage.openFileForRead("IMG", imagePath, file)) {
-    LOG_ERR("IMG", "Image file not found: %s", imagePath.c_str());
-    rememberImageFailure(imagePath);
-    renderPlaceholder(renderer, x, y, foregroundBlack);
-    return;
+  // Retain only this image's compressed source until its decoder returns.
+  HeapByteBuffer source;
+  size_t sourceSize = 0;
+  if (!sourcePath.empty() && !Storage.exists(imagePath.c_str())) {
+    if (loadFn && ImageDecoderFactory::supportsMemorySource(imagePath))
+      source = loadFn(extractContext, sourcePath.c_str(), sourceSize);
+    if (!source && extractFn && !extractFn(extractContext, sourcePath.c_str(), imagePath.c_str())) {
+      LOG_ERR("IMG", "Image extraction failed: %s", sourcePath.c_str());
+      rememberImageFailure(imagePath);
+      renderPlaceholder(renderer, x, y, foregroundBlack);
+      return;
+    }
   }
-  size_t fileSize = file.size();
-  file.close();
-
-  if (fileSize == 0) {
-    LOG_ERR("IMG", "Image file is empty: %s", imagePath.c_str());
-    rememberImageFailure(imagePath);
-    renderPlaceholder(renderer, x, y, foregroundBlack);
-    return;
+  if (!source) {
+    FsFile file;
+    const bool opened = Storage.openFileForRead("IMG", imagePath, file);
+    const size_t fileSize = opened ? file.size() : 0;
+    file.close();
+    if (fileSize == 0) {
+      LOG_ERR("IMG", "Missing or empty image: %s", imagePath.c_str());
+      rememberImageFailure(imagePath);
+      renderPlaceholder(renderer, x, y, foregroundBlack);
+      return;
+    }
   }
 
   RenderConfig config;
+  config.sourceData = source.get();
+  config.sourceSize = sourceSize;
   config.x = x;
   config.y = y;
   config.maxWidth = width;

@@ -48,6 +48,40 @@ std::vector<uint8_t> create24BitBmp(const int width, const int height, const boo
 
 }  // namespace
 
+TEST(BitmapResample, PiccoConvertsNativeSourceGraysOnceAtOutputSize) {
+  constexpr int width = 128, height = 128, header = 70;
+  std::vector<uint8_t> bytes(header + width / 4 * height, 0xaa);  // Native light gray.
+  std::fill_n(bytes.begin(), header, 0);
+  bytes[0] = 'B';
+  bytes[1] = 'M';
+  writeLe32(bytes, 2, bytes.size());
+  writeLe32(bytes, 10, header);
+  writeLe32(bytes, 14, 40);
+  writeLe32(bytes, 18, width);
+  writeLe32(bytes, 22, height);
+  writeLe16(bytes, 26, 1);
+  writeLe16(bytes, 28, 2);
+  for (int level = 0; level < 4; ++level) std::fill_n(bytes.begin() + 54 + level * 4, 3, level * 85);
+  for (auto profile : {ImageToneProfile::Even, ImageToneProfile::PiccoCover}) {
+    HalFile file(bytes);
+    Bitmap bitmap(file, true, profile);
+    ASSERT_EQ(bitmap.parseHeaders(), BmpReaderError::Ok);
+    const bool source = profile == ImageToneProfile::PiccoCover;
+    EXPECT_EQ(bitmap.setDitheredOutputSize(64, 64), source);
+    std::vector<uint8_t> scratch(bitmap.getRowBytes()), row(bitmap.getWidth() / 4);
+    int whites = 0;
+    for (int y = 0; y < bitmap.getHeight(); ++y) {
+      ASSERT_EQ(bitmap.readNextRow(row.data(), scratch.data()), BmpReaderError::Ok);
+      for (int x = 0; x < bitmap.getWidth(); ++x) {
+        const int shade = row[x / 4] >> (6 - 2 * (x % 4)) & 3;
+        ASSERT_GE(shade, 2);
+        whites += shade == 3;
+      }
+    }
+    EXPECT_EQ(whites, 0);
+  }
+}
+
 TEST(BitmapResample, DownsamplesBeforeDitheringAndRewindsDeterministically) {
   HalFile file(create24BitBmp(480, 800));
   Bitmap bitmap(file, true);
@@ -88,7 +122,7 @@ TEST(BitmapResample, AveragesThinStripesInsteadOfDroppingThem) {
         }
       }
       HalFile file(bytes);
-      Bitmap bitmap(file, true, true);
+      Bitmap bitmap(file, true, ImageToneProfile::Even);
       ASSERT_EQ(bitmap.parseHeaders(), BmpReaderError::Ok);
       ASSERT_TRUE(bitmap.setDitheredOutputSize(2, 2));
       std::vector<uint8_t> row(1), scratch(bitmap.getRowBytes());
@@ -112,7 +146,7 @@ TEST(BitmapResample, FractionalFootprintsShareSourcePixels) {
       }
     }
     HalFile file(bytes);
-    Bitmap bitmap(file, true, true);
+    Bitmap bitmap(file, true, ImageToneProfile::Even);
     ASSERT_EQ(bitmap.parseHeaders(), BmpReaderError::Ok);
     ASSERT_TRUE(bitmap.setDitheredOutputSize(2, 2));
     std::vector<uint8_t> row(1), scratch(bitmap.getRowBytes());
@@ -134,7 +168,7 @@ TEST(BitmapResample, RejectsTruncatedSourceRowsDuringAveraging) {
   auto bytes = create24BitBmp(4, 4);
   bytes.pop_back();
   HalFile file(bytes);
-  Bitmap bitmap(file, true, true);
+  Bitmap bitmap(file, true, ImageToneProfile::Even);
   ASSERT_EQ(bitmap.parseHeaders(), BmpReaderError::Ok);
   ASSERT_TRUE(bitmap.setDitheredOutputSize(2, 2));
   std::vector<uint8_t> row(1), scratch(bitmap.getRowBytes());
@@ -176,7 +210,7 @@ TEST(BitmapResample, HeightOnlyAveragingSupportsHighColorBmpDepths) {
     auto referenceBytes = create24BitBmp(width, 2);
     std::fill(referenceBytes.begin() + 54, referenceBytes.end(), (low + high) / 2);
     HalFile file(bytes), referenceFile(referenceBytes);
-    Bitmap bitmap(file, true, true), reference(referenceFile, true, true);
+    Bitmap bitmap(file, true, ImageToneProfile::Even), reference(referenceFile, true, ImageToneProfile::Even);
     ASSERT_EQ(bitmap.parseHeaders(), BmpReaderError::Ok);
     ASSERT_EQ(reference.parseHeaders(), BmpReaderError::Ok);
     ASSERT_TRUE(bitmap.setDitheredOutputSize(width, 2));
@@ -193,7 +227,7 @@ TEST(BitmapResample, MaximumImageCanBeAveragedIntoOnePixelWithoutOverflow) {
   auto bytes = create24BitBmp(2048, 3072);
   std::fill(bytes.begin() + 54, bytes.end(), 255);
   HalFile file(std::move(bytes));
-  Bitmap bitmap(file, true, true);
+  Bitmap bitmap(file, true, ImageToneProfile::Even);
   ASSERT_EQ(bitmap.parseHeaders(), BmpReaderError::Ok);
   ASSERT_TRUE(bitmap.setDitheredOutputSize(1, 1));
   std::vector<uint8_t> scratch(bitmap.getRowBytes());
@@ -233,7 +267,7 @@ TEST(BitmapResample, ResizingKeepsImageQuantizationSeparateFromTextOverlayLevels
   std::fill(bytes.begin() + 54, bytes.end(), 85);
   for (bool imageLevels : {false, true}) {
     HalFile file(bytes);
-    Bitmap bitmap(file, true, imageLevels);
+    Bitmap bitmap(file, true, imageToneProfile(imageLevels));
     ASSERT_EQ(bitmap.parseHeaders(), BmpReaderError::Ok);
     ASSERT_TRUE(bitmap.setDitheredOutputSize(2, 2));
     std::vector<uint8_t> row(1), scratch(bitmap.getRowBytes());
@@ -283,7 +317,7 @@ TEST(BitmapResample, PaletteStartsAfterFullInfoHeader) {
         SCOPED_TRACE(::testing::Message() << "header=" << infoHeaderSize << " index=" << static_cast<int>(pixelIndex)
                                           << " imageLevels=" << imageLevels);
         HalFile file(data);
-        Bitmap bitmap(file, true, imageLevels);
+        Bitmap bitmap(file, true, imageToneProfile(imageLevels));
         ASSERT_EQ(bitmap.parseHeaders(), BmpReaderError::Ok);
         std::vector<uint8_t> row((kWidth + 3) / 4);
         std::vector<uint8_t> sourceRow(bitmap.getRowBytes());

@@ -22,6 +22,9 @@ struct SectionBuildOptions {
   bool (*shouldCancel)(void* context) = nullptr;
   void* cancelContext = nullptr;
   bool* cancellationObserved = nullptr;
+  // Leave the whole-section font advance prewarm out of the first chunk so the first
+  // page lays out sooner; the caller then runs it with prewarmSomeMore().
+  bool deferAdvancePrewarm = false;
   // Stable-page coordinates stay in the manifest's word/character units until
   // the parser knows the spine's source-text length. This avoids treating page
   // density as uniform when selecting the rendered screen.
@@ -127,6 +130,8 @@ class Section {
   bool startBuild(const ReaderRenderSpec& spec, SectionBuildOptions buildOptions = {},
                   const std::function<void()>& popupFn = nullptr);
   bool buildSomeMore(int maxPages);
+  // One slice of the build's deferred font advance prewarm; false when none is left.
+  bool prewarmSomeMore();
   void releaseBuildFile();
   bool lastBuildImagesWereSuppressed() const { return lastImagesWereSuppressed_; }
   bool lastBuildLayoutAbortedForLowMemory() const { return lastLayoutAbortedForLowMemory_; }

@@ -778,6 +778,8 @@ void LibraryActivity::queueInput(const LibraryInputBuffer::Type type, const int 
 
 void LibraryActivity::latchInput() {
   using Type = LibraryInputBuffer::Type;
+  // A raw release still cancels row feedback, but must not finish a locked drag.
+  if (!mappedInput.hasTouch()) touchTracking = false;
   const bool confirmHeld = mappedInput.isPressed(MappedInputManager::Button::Confirm);
   if (ignoreConfirmRelease || confirmLongPressCaptured) {
     (void)mappedInput.wasReleased(MappedInputManager::Button::Confirm);

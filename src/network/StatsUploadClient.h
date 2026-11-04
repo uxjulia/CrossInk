@@ -5,10 +5,13 @@
 // App-facing transport for the CrossPoint stats snapshot API.
 class StatsUploadClient {
  public:
-  enum class Result { Ok, Network, Auth, Unsupported, InvalidResponse, LowMemory, Server, Skipped };
+  enum class Result { Ok, Network, Auth, Unsupported, InvalidResponse, LowMemory, Server, Skipped, Cancelled };
   StatsUploadClient();
   ~StatsUploadClient();
+  void close();
   Result put(const char* endpoint, const char* payload, bool book, bool daily = false, const char* sessionId = nullptr);
+  // Bounded extension download; releases TLS before the caller parses/applies it.
+  Result get(const char* endpoint, char* response, size_t capacity);
   // Read-only capability check against the stats summary endpoint. Records the
   // answer in the credential store; Unsupported means a KOSync-only server.
   // A non-JSON 200 (captive portal, proxy page) is only persisted when

@@ -1,6 +1,9 @@
 #pragma once
+
 #include <ContentProtection.h>
+#include <Memory.h>
 #include <Print.h>
+#include <ZipDirectoryCache.h>
 
 #include <cstdint>
 #include <memory>
@@ -8,6 +11,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "../GfxRenderer/ImageToneProfile.h"
 #include "Epub/BookMetadataCache.h"
 #include "Epub/css/CssParser.h"
 #include "Epub/image/PxcV2.h"
@@ -103,6 +107,7 @@ class Epub {
   uint32_t totalReferencePages = 0;
   bool referencePagesUseCharacters = false;
   bool xLocationsLoaded = false;
+  mutable ZipDirectoryCache zipDirectoryCache;
   OpenFailure lastLoadFailure = OpenFailure::None;
   bool sourceSpineMapDeclared = false;
   enum class CssParseStatus : uint8_t {
@@ -162,9 +167,9 @@ class Epub {
   const std::string& getLanguage() const;
   // True when parsed EPUB metadata identifies a cover image. Requires load().
   bool hasCoverImage() const;
-  std::string getCoverBmpPath(bool cropped = false, bool imageLevels = false) const;
+  std::string getCoverBmpPath(bool cropped = false, ImageToneProfile toneProfile = ImageToneProfile::Legacy) const;
   bool generateCoverBmp(bool cropped = false, const GfxRenderer* renderer = nullptr, int readerFontId = 0,
-                        bool imageLevels = false) const;
+                        ImageToneProfile toneProfile = ImageToneProfile::Legacy) const;
   std::string getThumbBmpPath() const;
   // Deprecated compatibility wrapper; forwards to getThumbBmpPath(0, height).
   [[deprecated("use getThumbBmpPath(int width, int height)")]]
@@ -198,6 +203,8 @@ class Epub {
   // Publisher-font access also reverses declared Adobe font obfuscation.
   bool readFontContentsToStream(const std::string& itemHref, Print& out, size_t chunkSize) const;
   bool extractItemToFile(const std::string& itemHref, const std::string& destPath, size_t chunkSize = 4096) const;
+  // Transient image source, PSRAM only; an empty result uses the SD fallback.
+  HeapByteBuffer readItemToPsram(const std::string& itemHref, size_t& size) const;
   bool getItemSize(const std::string& itemHref, size_t* size) const;
   bool getOptimizerImageDimensions(const std::string& itemHref, uint16_t& width, uint16_t& height) const;
   // Seeds the normal local cache from an exact optimizer sidecar, or streams a

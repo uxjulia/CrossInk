@@ -34,7 +34,8 @@ bool loadBookStats(const std::string& path, BookReadingStats& stats);
 // or a first upload), and the matching What to Sync toggle on.
 bool canSyncReadingStats();
 bool canSyncClippings();
-ExtrasResult extras(const std::string& path, const std::string& document);
+ExtrasResult extras(const std::string& path, const std::string& document, bool (*cancel)(void*) = nullptr,
+                    void* context = nullptr);
 // Shared result wording for every sync screen: "Not supported" on a progress-only
 // server, "OFF" when the user turned that data off, otherwise the upload result.
 const char* statusLabel(StatsUploadClient::Result result, bool clippings);

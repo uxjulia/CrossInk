@@ -17,6 +17,7 @@
 #include "activities/reader/BookReadingStats.h"
 #include "activities/reader/EpubReaderUtils.h"
 #include "activities/reader/GlobalReadingStats.h"
+#include "clippings/ClippingIdentity.h"
 #include "network/ClippingsUpload.h"
 #include "network/ReadingSyncUpload.h"
 #include "util/FolderBookIterator.h"
@@ -204,7 +205,7 @@ bool prepareReadingUploadSmokeTest() {
       ClippingStore::readForUpload("/read/first.epub", 0, saved, quote, done) && !done && saved.timestamp >= 946684800U,
       "new clipping uses calendar time");
   char id[17];
-  require(ClippingsUpload::identity(1752300000, "hello", id) && std::strcmp(id, "00dd471ed33eb756") == 0,
+  require(clippingSyncIdentity(1752300000, "hello", id) && std::strcmp(id, "00dd471ed33eb756") == 0,
           "SHA256 server identity vector");
   // Persisted history is independent of whether a saved position can be mapped.
   if (const char* variant = std::getenv("CROSSINK_READING_TEST_PROGRESS_VARIANT")) {

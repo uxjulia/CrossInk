@@ -10,6 +10,7 @@
 #include "Epub/converters/DirectPixelWriter.h"
 #include "lib/Epub/Epub/blocks/ImageBlock.cpp"
 
+bool ImageDecoderFactory::supportsMemorySource(const std::string&) { return false; }
 ImageToFramebufferDecoder* ImageDecoderFactory::getDecoder(const std::string&) { return nullptr; }
 
 namespace {

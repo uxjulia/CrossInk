@@ -255,7 +255,20 @@ const std::vector<SettingInfo>& getBaseSettingsList() {
                           {StrId::STR_MENU_DIRECTIONAL, StrId::STR_MENU_CLASSIC}, "menuNavigation",
                           StrId::STR_CAT_CONTROLS));
 
+#if FREEINK_DEVICE_PICCO
+    add(SettingInfo::Enum(
+        StrId::STR_SLIDE_SWITCH, &CrossPointSettings::slideSwitchAction,
+        {StrId::STR_FRONTLIGHT, StrId::STR_READER_DARK_MODE, StrId::STR_TOGGLE_TOUCHSCREEN, StrId::STR_TILT_PAGE_TURN},
+        "slideSwitchAction", StrId::STR_CAT_CONTROLS));
+#endif
+
     // --- System ---
+    add(SettingInfo::Enum(StrId::STR_WIFI_TRANSMIT_POWER, &CrossPointSettings::wifiTransmitPower,
+                          {StrId::STR_DEFAULT_VALUE, StrId::STR_WIFI_TX_POWER_15, StrId::STR_WIFI_TX_POWER_8_5,
+                           StrId::STR_WIFI_TX_POWER_5, StrId::STR_WIFI_TX_POWER_2},
+                          "wifiTransmitPower", StrId::STR_CAT_SYSTEM)
+            .withEnumRawValues(std::vector<uint8_t>(std::begin(WifiTransmitPower::TRANSMIT_POWER_LEVELS),
+                                                    std::end(WifiTransmitPower::TRANSMIT_POWER_LEVELS))));
     add(SettingInfo::String(StrId::STR_DEVICE_NAME, SETTINGS.deviceName, sizeof(SETTINGS.deviceName), "deviceName",
                             StrId::STR_CAT_SYSTEM));
     add(SettingInfo::Value(

@@ -6,6 +6,7 @@
 #include <HalTiltSensor.h>
 #include <I18n.h>
 #include <SdCardFontRegistry.h>
+#include <WifiTransmitPower.h>
 
 #include <algorithm>
 #include <cstring>
@@ -633,7 +634,15 @@ inline constexpr size_t BASE_SETTINGS_CAPACITY = 111 + (CROSSINK_APP_CAP_TOUCH ?
 inline constexpr size_t BASE_SETTINGS_CAPACITY = 110 + (CROSSINK_APP_CAP_TOUCH ? 4 : 0);
 #endif
 
-inline size_t getBaseSettingsCapacity() { return BASE_SETTINGS_CAPACITY + 3; }
+#if FREEINK_DEVICE_PICCO
+inline constexpr size_t SLIDE_SWITCH_SETTINGS_COUNT = 1;
+#else
+inline constexpr size_t SLIDE_SWITCH_SETTINGS_COUNT = 0;
+#endif
+
+inline size_t getBaseSettingsCapacity() {
+  return BASE_SETTINGS_CAPACITY + (QuickActions::supportsTiltPageTurn() ? 3 : 0) + SLIDE_SWITCH_SETTINGS_COUNT;
+}
 
 const std::vector<SettingInfo>& getBaseSettingsList();
 
@@ -781,7 +790,7 @@ inline std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* regist
       }
     }
   }
-  if (!Frontlight.present()) {
+  if (!CrossPointSettings::isRefreshNeverAvailable()) {
     for (auto& setting : v) {
       if (setting.nameId == StrId::STR_REFRESH_FREQ) {
         removeEnumRawValue(setting, CrossPointSettings::REFRESH_NEVER);
@@ -917,9 +926,9 @@ inline std::vector<SettingInfo> buildControlsSettingsParentList(const std::vecto
   const bool hasHomeKey = gpio.hasHomeKey();
 
   std::vector<SettingInfo> settings;
-  settings.reserve(3 + (hasHomeKey ? 1u : 0u) + (hasFrontButtons ? 2u : 0u) + (hasTiltPageTurnSetting ? 1u : 0u) +
-                   (hasTiltPageTurnDirectionSetting ? 1u : 0u) + (hasTiltNextPageOnlySetting ? 1u : 0u) +
-                   (hasTapsGestures ? 1u : 0u));
+  settings.reserve(3 + SLIDE_SWITCH_SETTINGS_COUNT + (hasHomeKey ? 1u : 0u) + (hasFrontButtons ? 2u : 0u) +
+                   (hasTiltPageTurnSetting ? 1u : 0u) + (hasTiltPageTurnDirectionSetting ? 1u : 0u) +
+                   (hasTiltNextPageOnlySetting ? 1u : 0u) + (hasTapsGestures ? 1u : 0u));
   if (hasHomeKey) {
     settings.push_back(SettingInfo::Submenu(StrId::STR_HOME_BUTTON, SettingAction::ControlsHomeButton));
   }
@@ -936,6 +945,9 @@ inline std::vector<SettingInfo> buildControlsSettingsParentList(const std::vecto
   if (hasTiltPageTurnDirectionSetting) addSettingByName(settings, allSettings, StrId::STR_TILT_PAGE_TURN_DIRECTION);
   if (hasTiltNextPageOnlySetting) addSettingByName(settings, allSettings, StrId::STR_TILT_NEXT_PAGE_ONLY);
   if (hasFrontButtons) addSettingByKey(settings, allSettings, "menuNavigation");
+#if FREEINK_DEVICE_PICCO
+  addSettingByKey(settings, allSettings, "slideSwitchAction");
+#endif
   return settings;
 }
 
@@ -1112,19 +1124,30 @@ inline std::vector<SettingInfo> buildDisplaySleepSettingsList(const std::vector<
 
 inline std::vector<SettingInfo> buildSystemSettingsParentList(const std::vector<SettingInfo>& allSettings) {
   std::vector<SettingInfo> systemSettings;
-  systemSettings.reserve(10);
+  systemSettings.reserve(12);
   systemSettings.push_back(SettingInfo::Submenu(StrId::STR_SYSTEM_DEVICE, SettingAction::SystemDevice));
   systemSettings.push_back(SettingInfo::Submenu(StrId::STR_SYSTEM_FILES_CACHE, SettingAction::SystemFilesCache));
   systemSettings.push_back(SettingInfo::Submenu(StrId::STR_READING_STATS, SettingAction::SystemReadingStats));
+  systemSettings.push_back(SettingInfo::Submenu(StrId::STR_SYSTEM_ADVANCED, SettingAction::SystemAdvanced));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_WIFI_NETWORKS, SettingAction::Network));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_SYNC_SERVER, SettingAction::KOReaderSync));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_OPDS_SERVERS, SettingAction::OPDSBrowser));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_PLUGINS, SettingAction::Plugins));
+#if !FREEINK_DEVICE_PICCO
+  // Picco retains the vendor recovery slot and has no spare application slot.
   systemSettings.push_back(SettingInfo::Action(StrId::STR_CHECK_UPDATES, SettingAction::CheckForUpdates));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_SD_FIRMWARE_UPDATE, SettingAction::SdFirmwareUpdate));
+#endif
   systemSettings.push_back(SettingInfo::Action(StrId::STR_RELEASE_NOTES, SettingAction::ReleaseNotes));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_ABOUT, SettingAction::About));
   return systemSettings;
+}
+
+inline std::vector<SettingInfo> buildSystemAdvancedSettingsList(const std::vector<SettingInfo>& allSettings) {
+  std::vector<SettingInfo> settings;
+  settings.reserve(1);
+  addSettingByKey(settings, allSettings, "wifiTransmitPower");
+  return settings;
 }
 
 inline std::vector<SettingInfo> buildSystemDeviceSettingsList(const std::vector<SettingInfo>& allSettings) {

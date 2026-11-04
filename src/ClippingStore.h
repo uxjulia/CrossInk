@@ -53,6 +53,10 @@ struct Clipping {
   // Session-only migration state, intentionally omitted from the on-disk
   // record.
   uint8_t resolvedLayoutBoundaries = 0;
+  // Sync keys stay on SD. Their length locates them relative to textOffset.
+  uint8_t syncKeyLength = 0;
+  bool uploaded = false;
+  bool scoped = false;
   char chapterTitle[CLIPPING_CHAPTER_TITLE_MAX] = {};
 };
 
@@ -176,7 +180,13 @@ class ClippingStore {
   // Read a single saved record for upload without loading the book's full index.
   // Missing files/end of records are successful with done=true; corrupt data fails.
   static bool readForUpload(const std::string& filePath, size_t ordinal, Clipping& clipping, std::string& text,
-                            bool& done);
+                            bool& done, std::string* key = nullptr);
+  static bool readDeletionForUpload(const std::string& path, size_t ordinal, std::string& id, bool& done);
+  static std::string syncStatePath(const std::string& path);
+  static bool prepareUploads(const std::string& path, const std::string& scope);
+  static bool acknowledgeDeletions(const std::string& path, const std::string& scope);
+  static bool mergeFromSync(const std::string& path, const Clipping& clipping, const std::string& text,
+                            const std::string& key, bool deleted, bool* full = nullptr);
   static bool hasAnyClippings();
   static bool getAllClippedBooks(std::vector<ClippedBookEntry>& out);
   enum class ClippedBookStep : uint8_t { Book, Skip, Done, Error };
@@ -203,14 +213,27 @@ class ClippingStore {
   std::string bookAuthor;
   std::string storeFilePath;
   bool dirty = false;
-  bool loaded = false;  // Failed or partial loads must never authorize writes.
+  std::vector<std::string> deletedIds;  // At most 256 pending deletions, persisted with the live records.
+  bool loaded = false;                  // Failed or partial loads must never authorize writes.
   // Queues the book for the next Sync Clippings, once per load.
   SyncPending::SessionMarker pendingSync;
 
+  bool readKey(const Clipping& clip, std::string& key) const;
+  static bool loadForSync(const std::string& path, ClippingStore& store);
   bool readFromFile();
-  bool readFromFile(const std::string& path, ClippingRecords& out, size_t onlyIndex = SIZE_MAX) const;
-  bool writeToFile(const std::string* replacementText = nullptr, size_t replacementIndex = SIZE_MAX,
-                   const std::string* sourcePathOverride = nullptr);
+  bool readFromFile(const std::string& path, ClippingRecords& out, size_t onlyIndex = SIZE_MAX);
+  struct UploadBinding {
+    const std::string& scope;
+    std::vector<std::string> legacyIds;
+  };
+  struct Rewrite {
+    size_t index = SIZE_MAX;
+    const std::string* text = nullptr;
+    const std::string* key = nullptr;
+    const std::string* sourcePath = nullptr;
+    UploadBinding* binding = nullptr;
+  };
+  bool writeToFile(const Rewrite& rewrite);
 };
 
 inline bool clippingStoredRangeMatchesLayout(const Clipping& clipping, const uint16_t currentPageCount,

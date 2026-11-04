@@ -590,7 +590,7 @@ void ActivityManager::loop() {
       }
 #endif
 
-      // Frontlight quick panel: top-edge down-swipe on home-key boards, except
+      // Frontlight quick panel: top-edge down-swipe on drawer-layout boards, except
       // that the open EPUB reader exposes the same action across the whole page.
       // Pushed, so it returns to whatever was underneath — including mid-book.
       const bool lightPanelGesture = currentActivity->usesFullScreenReaderVerticalSwipes()
@@ -1484,15 +1484,16 @@ RenderLock::RenderLock(const Mode mode) {
 
 RenderLock::RenderLock([[maybe_unused]] Activity&, const Mode mode) : RenderLock(mode) {}
 
-RenderLock::~RenderLock() {
-  if (isLocked) {
-    xSemaphoreGive(activityManager.renderingMutex);
-    isLocked = false;
-  }
-}
+RenderLock::~RenderLock() { unlock(); }
 
 void RenderLock::unlock() {
   if (isLocked) {
+#if FREEINK_DEVICE_PICCO
+    // A drawing transaction includes all async/grayscale passes. Shut down
+    // only when its owner releases the lock, including direct toast, screenshot
+    // and Quick Lock updates that bypass the activity render task.
+    display.powerOffBetweenFrames();
+#endif
     xSemaphoreGive(activityManager.renderingMutex);
     isLocked = false;
   }

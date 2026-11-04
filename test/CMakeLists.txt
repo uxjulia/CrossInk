@@ -128,6 +128,7 @@ add_subdirectory(log_retention)
 add_subdirectory(screen_calibration)
 add_subdirectory(keyboard_tips)
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
+add_subdirectory(frontlight_settings_boot)
 add_test(NAME TransferReliabilityRegression
   COMMAND ${Python3_EXECUTABLE} ${REPO_ROOT}/test/scripts/test_transfer_reliability.py)
 add_test(NAME WebDavGetRegression
@@ -179,6 +180,8 @@ add_subdirectory(reader_session)
 add_subdirectory(reader_plugin_events)
 
 add_subdirectory(hal_power_manager)
+add_subdirectory(hal_frontlight)
+add_subdirectory(picco_slide_switch)
 add_subdirectory(input_wake)
 add_subdirectory(button_navigation)
 add_subdirectory(button_capture)
@@ -198,3 +201,8 @@ add_test(NAME UpstreamPortRegressions
   COMMAND ${Python3_EXECUTABLE} ${REPO_ROOT}/test/scripts/test_upstream_ports.py)
 
 add_subdirectory(gif_support)
+
+add_subdirectory(clipping_sync)
+add_subdirectory(progress_slots)
+add_test(NAME PiccoDisplayIdleRegression
+  COMMAND ${Python3_EXECUTABLE} ${REPO_ROOT}/test/scripts/test_picco_display_idle.py)

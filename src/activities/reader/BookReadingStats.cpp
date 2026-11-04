@@ -8,7 +8,7 @@
 #include <cstring>
 #include <optional>
 
-#include "util/FileContentEquals.h"
+#include "TwoSlotFile.h"
 
 namespace {
 // Binary layout v1 (11 bytes):
@@ -95,7 +95,8 @@ bool validPaceFraction(const uint8_t* data) {
 }
 
 bool openRecoverableStatsFile(const std::string& path, FsFile& f, const uint8_t version = STATS_FILE_VERSION) {
-  if (Storage.openFileForRead("STATS", path, f)) return true;
+  const std::string selected = two_slot::preferredPath("STATS", path, statsSizeForVersion(version), true);
+  if (Storage.openFileForRead("STATS", selected, f)) return true;
 
   for (const char* suffix : {".tmp", ".bak"}) {
     const std::string recoveryPath = path + suffix;
@@ -118,7 +119,8 @@ bool openRecoverableStatsFile(const std::string& path, FsFile& f, const uint8_t 
 
     if (Storage.rename(recoveryPath.c_str(), path.c_str())) {
       LOG_INF("STATS", "Recovered interrupted stats save: %s", path.c_str());
-      if (Storage.openFileForRead("STATS", path, f)) return true;
+      const std::string selected = two_slot::preferredPath("STATS", path, statsSizeForVersion(version), true);
+      if (Storage.openFileForRead("STATS", selected, f)) return true;
     }
 
     if (Storage.openFileForRead("STATS", recoveryPath, f)) {
@@ -195,7 +197,7 @@ bool BookReadingStats::peekCompleted(const std::string& cachePath) {
     FsFile f;
     if (!Storage.openFileForRead("STATS", path, f)) return false;
     uint8_t data[STATS_FILE_SIZE] = {};
-    const size_t fileSize = f.fileSize();
+    const size_t fileSize = two_slot::payloadLength(f, statsSizeForVersion(version));
     const int n = f.read(data, STATS_FILE_SIZE);
     f.close();
     const bool complete = n >= 0 && static_cast<size_t>(n) == fileSize;
@@ -209,8 +211,9 @@ bool BookReadingStats::peekCompleted(const std::string& cachePath) {
   };
   for (uint8_t version = STATS_FILE_VERSION; version >= OLDEST_VERSIONED_STATS_FILE_VERSION; --version) {
     const std::string path = cachePath + "/" + statsFileNameForVersion(version);
+    const std::string selected = two_slot::preferredPath("STATS", path, statsSizeForVersion(version), true);
     for (const char* suffix : {"", ".tmp", ".bak"}) {
-      const auto completed = inspect(path + suffix, version, strcmp(suffix, ".tmp") == 0);
+      const auto completed = inspect(suffix[0] == 0 ? selected : path + suffix, version, strcmp(suffix, ".tmp") == 0);
       if (completed.has_value()) return *completed;
     }
   }
@@ -230,7 +233,7 @@ bool BookReadingStats::loadForUpload(const std::string& cachePath, BookReadingSt
     return false;
   }
   uint8_t data[STATS_FILE_SIZE] = {};
-  const size_t fileSize = f.fileSize();
+  const size_t fileSize = two_slot::payloadLength(f, STATS_FILE_SIZE);
   const int n = f.read(data, STATS_FILE_SIZE);
   f.close();
   if (n < 0 || static_cast<size_t>(n) != fileSize) {
@@ -356,7 +359,6 @@ void BookReadingStats::formatDuration(uint32_t seconds, char* buf, size_t len) {
 bool BookReadingStats::save(const std::string& cachePath) const {
   const std::string statsFileName = statsFileNameForVersion(STATS_FILE_VERSION);
   const std::string statsPath = cachePath + "/" + statsFileName;
-  const std::string tmpPath = statsPath + ".tmp";
   const std::string backupPath = statsPath + ".bak";
 
   uint8_t data[STATS_FILE_SIZE];
@@ -384,75 +386,10 @@ bool BookReadingStats::save(const std::string& cachePath) const {
   writeLe32(data, 69, estimatedTimeLeftSeconds);
   writeLe16(data, 73, paceFractionMillis);
 
-  // Reader exit saves unconditionally; a quick open-and-close changes nothing.
-  const bool unchanged = fileContentEquals("STATS", statsPath.c_str(), data, sizeof(data));
-  if (unchanged) return true;
-
-  // Write to a temp file and rename into place so a save interrupted mid-write
-  // (silent restart, SD contention, power loss) can never leave stats_v6.bin
-  // truncated; load() treats any short read as "no stats" and would otherwise
-  // silently wipe the book's history.
-  if (Storage.exists(tmpPath.c_str()) && !Storage.remove(tmpPath.c_str())) {
-    LOG_ERR("STATS", "Could not remove stale stats temp file: %s", tmpPath.c_str());
-    return false;
-  }
-
-  FsFile f;
-  if (!Storage.openFileForWrite("STATS", tmpPath, f)) {
-    LOG_ERR("STATS", "Could not write %s", tmpPath.c_str());
-    return false;
-  }
-
-  const size_t written = f.write(data, STATS_FILE_SIZE);
-  if (written != STATS_FILE_SIZE) {
-    LOG_ERR("STATS", "Short write for %s: %u/%u bytes", tmpPath.c_str(), static_cast<unsigned>(written),
-            static_cast<unsigned>(STATS_FILE_SIZE));
-    f.close();
-    Storage.remove(tmpPath.c_str());
-    return false;
-  }
-
-  f.flush();
-  if (!f.sync()) {
-    LOG_ERR("STATS", "Failed to sync %s", tmpPath.c_str());
-    f.close();
-    Storage.remove(tmpPath.c_str());
-    return false;
-  }
-
-  if (!f.close()) {
-    LOG_ERR("STATS", "Failed to close %s", tmpPath.c_str());
-    Storage.remove(tmpPath.c_str());
-    return false;
-  }
-
-  const bool hadOriginal = Storage.exists(statsPath.c_str());
-  if (hadOriginal) {
-    if (Storage.exists(backupPath.c_str()) && !Storage.remove(backupPath.c_str())) {
-      LOG_ERR("STATS", "Could not remove stale stats backup: %s", backupPath.c_str());
-      Storage.remove(tmpPath.c_str());
-      return false;
-    }
-    if (!Storage.rename(statsPath.c_str(), backupPath.c_str())) {
-      LOG_ERR("STATS", "Could not back up %s", statsFileName.c_str());
-      Storage.remove(tmpPath.c_str());
-      return false;
-    }
-  }
-
-  if (!Storage.rename(tmpPath.c_str(), statsPath.c_str())) {
-    LOG_ERR("STATS", "Could not publish %s", statsFileName.c_str());
-    if (hadOriginal && !Storage.rename(backupPath.c_str(), statsPath.c_str())) {
-      LOG_ERR("STATS", "Could not restore stats backup: %s", backupPath.c_str());
-    }
-    if (hadOriginal && Storage.exists(statsPath.c_str())) Storage.remove(tmpPath.c_str());
-    return false;
-  }
-
-  if (hadOriginal && Storage.exists(backupPath.c_str()) && !Storage.remove(backupPath.c_str())) {
-    LOG_ERR("STATS", "Could not remove completed stats backup: %s", backupPath.c_str());
-  }
-  return true;
+  return two_slot::write("STATS", statsPath.c_str(), backupPath.c_str(), data, sizeof(data),
+                         [](const uint8_t* bytes, size_t size) {
+                           return size == STATS_FILE_SIZE && bytes[0] == STATS_FILE_VERSION && validPaceFraction(bytes);
+                         });
 }
 
 bool BookReadingStats::remove(const std::string& cachePath) {
@@ -479,17 +416,17 @@ bool BookReadingStats::remove(const std::string& cachePath) {
       }
     }
   }
-  for (const char* suffix : {".tmp", ".bak"}) {
-    const std::string transactionPath = statsPath + suffix;
-    if (Storage.exists(transactionPath.c_str()) && !Storage.remove(transactionPath.c_str())) {
-      LOG_ERR("STATS", "Could not delete %s", transactionPath.c_str());
+  const std::string newest = two_slot::preferredPath("STATS", statsPath, STATS_FILE_SIZE, true);
+  const std::string older = newest == statsPath ? statsPath + ".bak" : statsPath;
+  for (const auto& path : {statsPath + ".tmp", older}) {
+    if (Storage.exists(path.c_str()) && !Storage.remove(path.c_str())) {
+      LOG_ERR("STATS", "Could not delete %s", path.c_str());
       ok = false;
     }
   }
-  // Keep the canonical file when a recovery artifact could not be removed.
-  // Otherwise a later load could restore stats that the user just reset.
-  if (ok && Storage.exists(statsPath.c_str()) && !Storage.remove(statsPath.c_str())) {
-    LOG_ERR("STATS", "Could not delete %s", statsFileName.c_str());
+  // Keep the newest valid slot until all fallbacks are gone.
+  if (ok && Storage.exists(newest.c_str()) && !Storage.remove(newest.c_str())) {
+    LOG_ERR("STATS", "Could not delete %s", newest.c_str());
     ok = false;
   }
   return ok;

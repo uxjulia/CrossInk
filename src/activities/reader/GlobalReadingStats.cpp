@@ -12,8 +12,8 @@
 #include <string>
 
 #include "DailyReadingStats.h"
+#include "TwoSlotFile.h"
 #include "sync/SyncFiles.h"
-#include "util/FileContentEquals.h"
 
 namespace {
 enum class StatsLoadResult : uint8_t { Ok, Invalid, NewerFormat };
@@ -163,13 +163,18 @@ void serializeStats(const GlobalReadingStats& stats, uint8_t* data) {
 
 StatsLoadOutcome loadFromOpenFile(FsFile& f, GlobalReadingStats& out) {
   StatsLoadOutcome outcome;
-  outcome.fileSize = f.fileSize();
+  outcome.fileSize = two_slot::payloadLength(f, GLOBAL_STATS_FILE_SIZE);
 
   uint8_t data[GLOBAL_STATS_FILE_SIZE] = {};
   const size_t bytesToRead = std::min(outcome.fileSize, static_cast<size_t>(GLOBAL_STATS_FILE_SIZE));
   const int n = f.read(data, bytesToRead);
   if (n <= 0 || static_cast<size_t>(n) != bytesToRead) return outcome;
   outcome.version = data[0];
+
+  // A partial trailer on a current-version payload is a torn slot. Try the other save.
+  if (outcome.version == GLOBAL_STATS_VERSION && outcome.fileSize > GLOBAL_STATS_FILE_SIZE &&
+      outcome.fileSize < GLOBAL_STATS_FILE_SIZE + two_slot::TRAILER_BYTES)
+    return outcome;
 
   if (outcome.fileSize > static_cast<size_t>(GLOBAL_STATS_FILE_SIZE) || outcome.version > GLOBAL_STATS_VERSION) {
     outcome.result = StatsLoadResult::NewerFormat;
@@ -215,90 +220,17 @@ std::string localSyncedStatsFileName() {
   return name;
 }
 
-bool verifyFileSize(const char* path, const size_t expectedSize) {
-  FsFile file;
-  if (!Storage.openFileForRead("GSTATS", path, file)) return false;
-  const size_t actualSize = file.fileSize();
-  file.close();
-  return actualSize == expectedSize;
-}
-
 bool saveToFile(const GlobalReadingStats& stats, const char* path, const char* backupPath) {
   uint8_t data[GLOBAL_STATS_FILE_SIZE];
   serializeStats(stats, data);
 
-  // Reader exit saves unconditionally; a quick open-and-close changes nothing.
-  const bool unchanged = fileContentEquals("GSTATS", path, data, sizeof(data));
-  if (unchanged) return true;
-
-  const std::string tmpPath = std::string(path) + ".tmp";
-  if (Storage.exists(tmpPath.c_str()) && !Storage.remove(tmpPath.c_str())) {
-    LOG_ERR("GSTATS", "Could not remove stale stats temp file: %s", tmpPath.c_str());
-    return false;
-  }
-
-  FsFile f;
-  if (!Storage.openFileForWrite("GSTATS", tmpPath.c_str(), f)) {
-    LOG_ERR("GSTATS", "Could not write stats temp file: %s", tmpPath.c_str());
-    return false;
-  }
-
-  const size_t bytesWritten = f.write(data, GLOBAL_STATS_FILE_SIZE);
-  if (bytesWritten != GLOBAL_STATS_FILE_SIZE) {
-    LOG_ERR("GSTATS", "Short write for stats temp file %s: %u/%u bytes", tmpPath.c_str(),
-            static_cast<unsigned>(bytesWritten), static_cast<unsigned>(GLOBAL_STATS_FILE_SIZE));
-    f.close();
-    Storage.remove(tmpPath.c_str());
-    return false;
-  }
-
-  f.flush();
-  if (!f.sync()) {
-    LOG_ERR("GSTATS", "Failed to sync stats temp file: %s", tmpPath.c_str());
-    f.close();
-    Storage.remove(tmpPath.c_str());
-    return false;
-  }
-
-  if (!f.close()) {
-    LOG_ERR("GSTATS", "Failed to close stats temp file after save: %s", tmpPath.c_str());
-    Storage.remove(tmpPath.c_str());
-    return false;
-  }
-
-  if (!verifyFileSize(tmpPath.c_str(), GLOBAL_STATS_FILE_SIZE)) {
-    LOG_ERR("GSTATS", "Stats temp file has unexpected size: %s", tmpPath.c_str());
-    Storage.remove(tmpPath.c_str());
-    return false;
-  }
-
-  if (backupPath != nullptr) {
-    if (Storage.exists(backupPath) && !Storage.remove(backupPath)) {
-      LOG_ERR("GSTATS", "Could not remove old stats backup: %s", backupPath);
-      Storage.remove(tmpPath.c_str());
-      return false;
-    }
-    if (Storage.exists(path) && !Storage.rename(path, backupPath)) {
-      LOG_ERR("GSTATS", "Could not rotate stats backup: %s", path);
-      Storage.remove(tmpPath.c_str());
-      return false;
-    }
-  } else if (Storage.exists(path) && !Storage.remove(path)) {
-    LOG_ERR("GSTATS", "Could not replace stats file: %s", path);
-    Storage.remove(tmpPath.c_str());
-    return false;
-  }
-
-  if (!Storage.rename(tmpPath.c_str(), path)) {
-    LOG_ERR("GSTATS", "Could not replace stats file: %s", path);
-    if (backupPath != nullptr && Storage.exists(backupPath) && !Storage.exists(path)) {
-      Storage.rename(backupPath, path);
-    }
-    Storage.remove(tmpPath.c_str());
-    return false;
-  }
-  return true;
+  return two_slot::write("GSTATS", path, backupPath, data, sizeof(data), [](const uint8_t* bytes, size_t size) {
+    return (size == GLOBAL_STATS_FILE_SIZE && bytes[0] == GLOBAL_STATS_VERSION) ||
+           (size == GLOBAL_STATS_FILE_SIZE_V1 && bytes[0] == GLOBAL_STATS_VERSION_V1) ||
+           (size == GLOBAL_STATS_FILE_SIZE_V2 && bytes[0] == GLOBAL_STATS_VERSION_V2);
+  });
 }
+
 }  // namespace
 
 static StatsLoadOutcome loadFromFile(const char* path, GlobalReadingStats& out) {
@@ -307,6 +239,13 @@ static StatsLoadOutcome loadFromFile(const char* path, GlobalReadingStats& out) 
   if (!Storage.openFileForRead("GSTATS", path, f)) return outcome;
   outcome = loadFromOpenFile(f, out);
   f.close();
+  if (strcmp(path, GLOBAL_STATS_PATH) == 0 && outcome.result != StatsLoadResult::NewerFormat) {
+    const std::string selected = two_slot::preferredPath("GSTATS", path, GLOBAL_STATS_FILE_SIZE);
+    if (selected != path && Storage.openFileForRead("GSTATS", selected, f)) {
+      outcome = loadFromOpenFile(f, out);
+      f.close();
+    }
+  }
   return outcome;
 }
 
@@ -317,6 +256,13 @@ bool GlobalReadingStats::loadForUpload(GlobalReadingStats& stats) {
   if (primary.result == StatsLoadResult::NewerFormat) return false;
   const auto backup = loadFromFile(GLOBAL_STATS_BAK_PATH, stats);
   return backup.result == StatsLoadResult::Ok;
+}
+
+bool GlobalReadingStats::exportLocal(uint8_t* data, size_t capacity) {
+  GlobalReadingStats stats;
+  if (!data || capacity < CURRENT_FILE_SIZE || !loadForUpload(stats)) return false;
+  serializeStats(stats, data);
+  return true;
 }
 
 GlobalReadingStats GlobalReadingStats::load() {
@@ -419,7 +365,7 @@ bool GlobalReadingStats::save() const {
 static uint32_t s_localResetRevision = 0;
 
 bool GlobalReadingStats::resetLocal() {
-  if (!saveToFile(GlobalReadingStats{}, GLOBAL_STATS_PATH, nullptr)) return false;
+  if (!saveToFile(GlobalReadingStats{}, GLOBAL_STATS_PATH, GLOBAL_STATS_BAK_PATH)) return false;
   s_localResetRevision++;
   return true;
 }

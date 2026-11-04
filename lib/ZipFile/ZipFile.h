@@ -7,6 +7,8 @@
 #include <string_view>
 #include <unordered_map>
 
+#include "ZipDirectoryCache.h"
+
 enum class ZipStreamStatus {
   More,
   Done,
@@ -28,7 +30,8 @@ class ZipFileStreamReader {
   ZipFileStreamReader(const ZipFileStreamReader&) = delete;
   ZipFileStreamReader& operator=(const ZipFileStreamReader&) = delete;
 
-  bool begin(const std::string& zipPath, const char* filename, size_t chunkSize);
+  bool begin(const std::string& zipPath, const char* filename, size_t chunkSize,
+             ZipDirectoryCache* directoryCache = nullptr);
   ZipStreamStatus pump(Print& out, size_t maxOutputBytes = 0);
   void abort();
   size_t produced() const { return totalProduced; }
@@ -61,6 +64,7 @@ class ZipFile {
 
   struct ZipDetails {
     uint32_t centralDirOffset;
+    uint32_t centralDirSize;
     uint16_t totalEntries;
     bool isSet;
   };
@@ -102,7 +106,9 @@ class ZipFile {
  private:
   const std::string& filePath;
   HalFile file;
-  ZipDetails zipDetails = {0, 0, false};
+  ZipDetails zipDetails = {};
+  ZipDirectoryCache* directoryCache = nullptr;
+  bool prepareDirectoryCache();
   std::unordered_map<std::string, FileStatSlim> fileStatSlimCache;
 
   // Cursor for sequential central-dir scanning optimization
@@ -115,7 +121,8 @@ class ZipFile {
   bool enumerateFilePathsImpl(void* context, void (*callback)(void*, std::string_view));
 
  public:
-  explicit ZipFile(const std::string& filePath) : filePath(filePath) {}
+  explicit ZipFile(const std::string& filePath, ZipDirectoryCache* cache = nullptr)
+      : filePath(filePath), directoryCache(cache) {}
   ~ZipFile() = default;
   // Zip file can be opened and closed by hand in order to allow for quick calculation of inflated file size
   // It is NOT recommended to pre-open it for any kind of inflation due to memory constraints

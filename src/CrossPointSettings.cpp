@@ -11,6 +11,7 @@
 #include <PersistableStore.h>
 #include <ScalableBuiltins.h>
 #include <Serialization.h>
+#include <WifiTransmitPower.h>
 
 #include <algorithm>
 #include <cstring>
@@ -532,6 +533,8 @@ void CrossPointSettings::toJson(JsonDocument& doc) const {
 
 bool CrossPointSettings::fromJson(JsonVariantConst doc, bool importingCrossPoint) {
   std::lock_guard<std::mutex> lock(_mutex);
+  // Old settings files must not retain a previously selected runtime override.
+  wifiTransmitPower = 0;
   bool needsResave = false;
   auto clamp = [](const uint8_t value, const uint8_t maxValue, const uint8_t fallback) {
     return value < maxValue ? value : fallback;
@@ -766,7 +769,7 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc, bool importingCrossPoint
     screenInverted = clamp(doc["readerDarkMode"] | static_cast<uint8_t>(0), 2, 0);
     needsResave = true;
   }
-  if (refreshFrequency == REFRESH_NEVER && !Frontlight.present()) {
+  if (refreshFrequency == REFRESH_NEVER && !isRefreshNeverAvailable()) {
     refreshFrequency = REFRESH_15;
     needsResave = true;
   }
@@ -1009,6 +1012,7 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc, bool importingCrossPoint
   }
   pluginHubPromptHidden = clamp(doc["pluginHubPromptHidden"] | uint8_t{0}, 2, 0);
   if (needsResave) requestResave();
+  WifiTransmitPower::setLimit(wifiTransmitPower);
   LOG_DBG("CPS", "Settings loaded from file");
   return true;
 }
@@ -1017,6 +1021,7 @@ bool CrossPointSettings::saveToFile() const {
   std::lock_guard<std::mutex> lock(storeMutex);
   JsonDocument doc;
   toJson(doc);
+  WifiTransmitPower::setLimit(doc["wifiTransmitPower"] | uint8_t{0});
   return PersistableStoreBase::writeDocToFileAtomic(SETTINGS_FILE_JSON, doc);
 }
 
@@ -1382,6 +1387,15 @@ bool CrossPointSettings::verifySleepScreenMigrationContract() {
 }
 #endif
 
+bool CrossPointSettings::isRefreshNeverAvailable() {
+#if defined(FREEINK_DEVICE_PICCO) && FREEINK_DEVICE_PICCO
+  // Keep periodic cleanup on Picco until its panels are validated without it.
+  return false;
+#else
+  return Frontlight.present();
+#endif
+}
+
 int CrossPointSettings::getRefreshFrequency() const {
   switch (refreshFrequency) {
     case REFRESH_1:
@@ -1396,9 +1410,9 @@ int CrossPointSettings::getRefreshFrequency() const {
     case REFRESH_30:
       return 30;
     case REFRESH_NEVER:
-      // Never is available only on frontlit boards. Persisted settings can be
-      // shared between devices, so retain a safe cadence everywhere else.
-      return Frontlight.present() ? std::numeric_limits<int>::max() : 15;
+      // Persisted settings can be shared between devices. Keep a safe cadence
+      // on boards where Never is unavailable, including Picco.
+      return isRefreshNeverAvailable() ? std::numeric_limits<int>::max() : 15;
   }
 }
 

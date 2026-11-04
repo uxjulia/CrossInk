@@ -54,6 +54,8 @@ jobs:
             firmware: firmware-x4-pro
           - environment: x4-classic
             firmware: firmware-x4-classic
+          - environment: picco
+            firmware: firmware-picco
     steps:
       - uses: actions/checkout@v6
         with:
@@ -147,6 +149,7 @@ jobs:
             --firmware "release-firmware/firmware-sticky-v${{ env.RELEASE_VERSION }}.bin" \
             --firmware "release-firmware/firmware-x4-pro-v${{ env.RELEASE_VERSION }}.bin" \
             --firmware "release-firmware/firmware-x4-classic-v${{ env.RELEASE_VERSION }}.bin" \
+            --firmware "release-firmware/firmware-picco-v${{ env.RELEASE_VERSION }}.bin" \
             --output ".pio/build/catalog"
 
       - name: Package SD language files and editor template
@@ -207,3 +210,4 @@ jobs:
             release-firmware/firmware-sticky-v${{ env.RELEASE_VERSION }}.bin
             release-firmware/firmware-x4-pro-v${{ env.RELEASE_VERSION }}.bin
             release-firmware/firmware-x4-classic-v${{ env.RELEASE_VERSION }}.bin
+            release-firmware/firmware-picco-v${{ env.RELEASE_VERSION }}.bin

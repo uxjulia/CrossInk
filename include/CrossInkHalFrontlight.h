@@ -13,6 +13,7 @@ class HalFrontlight {
     return instance;
   }
 
+  void initializeHardware() {}
   void begin(const uint8_t brightness, const uint8_t warmth, const bool on) {
     lastBrightness = brightness > 100 ? 100 : brightness;
     lastWarmth = warmth > 100 ? 100 : warmth;

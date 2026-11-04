@@ -72,13 +72,23 @@ TEST(AbsoluteGrayscale, OverlayStillLeavesBlackAndWhiteToTheBase) {
 
 TEST(AbsoluteGrayscale, ImageQuantizersRetainFourEvenLevels) {
   for (uint8_t level = 0; level < 4; ++level) {
-    AtkinsonDitherer atkinson(1, true);
-    FloydSteinbergDitherer floyd(1, true);
+    AtkinsonDitherer atkinson(1, ImageToneProfile::Even);
+    FloydSteinbergDitherer floyd(1, ImageToneProfile::Even);
     EXPECT_EQ(atkinson.processPixel(level * 85, 0), level);
     EXPECT_EQ(floyd.processPixel(level * 85, 0), level);
   }
   AtkinsonDitherer overlay(1);
   EXPECT_EQ(overlay.processPixel(85, 0), 2);
+}
+
+TEST(AbsoluteGrayscale, PiccoImageMatchesAbsoluteCoverAcrossTheRamp) {
+  AtkinsonDitherer picco(256, ImageToneProfile::PiccoCover), reference(256, ImageToneProfile::Even);
+  for (int y = 0; y < 8; ++y) {
+    for (int x = 0; x < 256; ++x) ASSERT_EQ(picco.processPixel(x, x), reference.processPixel(x, x));
+    picco.nextRow();
+    reference.nextRow();
+  }
+  EXPECT_STREQ(coverToneSuffix(ImageToneProfile::PiccoCover), "_picco_image");
 }
 
 TEST(AbsoluteGrayscale, NonDitheredPngQuantizationUsesFourEvenLevels) {

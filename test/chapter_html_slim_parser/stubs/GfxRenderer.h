@@ -57,9 +57,16 @@ class GfxRenderer {
   int getSpaceWidth(int, EpdFontFamily::Style) const { return 0; }
   int getKerning(int, uint32_t, uint32_t, EpdFontFamily::Style, int8_t = 0) const { return 0; }
   int getSpaceAdvance(int, uint32_t, uint32_t, EpdFontFamily::Style) const { return 0; }
-  bool isSdCardFont(int) const { return false; }
+  bool sdFont = false;
+  mutable size_t prewarmCalls = 0;
+  mutable std::vector<uint32_t> prewarmed;
+  bool isSdCardFont(int) const { return sdFont; }
   bool releaseSdCardFontForLowMemory(int, bool = false) { return false; }
-  bool ensureSdCardFontReady(int, const uint32_t*, size_t, bool, bool, uint8_t) const { return true; }
+  bool ensureSdCardFontReady(int, const uint32_t* codepoints, size_t count, bool, bool, uint8_t) const {
+    ++prewarmCalls;
+    prewarmed.insert(prewarmed.end(), codepoints, codepoints + count);
+    return true;
+  }
   bool ensureSdCardFontReady(int, const std::deque<std::string>&, bool, uint8_t) const { return true; }
   bool ensureSdCardFontReady(int, const char*, uint8_t) const { return true; }
   std::vector<std::string> wrappedText(int, const char*, int, int,

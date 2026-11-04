@@ -8,6 +8,15 @@
 // so a failed touch probe on another device cannot advertise front buttons.
 inline constexpr bool deviceHasFrontButtons() { return !CROSSINK_APP_CAP_TOUCH; }
 
+// Picco's physical slide switch locks screen input across the whole app.
+inline constexpr bool deviceUsesGlobalTouchscreenLock() {
+#if FREEINK_DEVICE_PICCO
+  return true;
+#else
+  return false;
+#endif
+}
+
 inline bool deviceHasEdgeSideButtons(const HalGPIO& gpio) {
 #ifdef SIMULATOR
   return gpio.deviceIsX3();

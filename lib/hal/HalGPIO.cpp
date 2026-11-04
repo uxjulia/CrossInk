@@ -184,6 +184,12 @@ uint32_t HalGPIO::buttonSampleTime() const { return InputWake::capturing() ? but
 
 bool HalGPIO::hasPendingButtonInput() const { return InputWake::hasPendingButtons() || inputMgr.isDebouncePending(); }
 
+bool HalGPIO::prepareForDeepSleep() { return inputMgr.prepareForDeepSleep(); }
+
+bool HalGPIO::hasToggleSwitch() const { return inputMgr.hasToggleSwitch(); }
+
+bool HalGPIO::isToggleSwitchOn() const { return inputMgr.isToggleSwitchOn(); }
+
 void HalGPIO::update() {
   if (InputWake::capturing()) {
 #if CROSSINK_APP_CAP_TOUCH
@@ -415,21 +421,29 @@ bool HalGPIO::isUsbConnected() const {
     return digitalRead(BoardConfig::ACTIVE.usbDetect) == HIGH;
   }
 #if FREEINK_MCU_S3
-  // Without a VBUS pin, prefer native-USB host traffic, then use charging as a
-  // fallback for power-only adapters that do not emit USB frames. Charge
-  // termination at 100% can still report disconnected.
+#if !FREEINK_DEVICE_PICCO
+  // Native-USB host traffic is cheap to sample; charging is the fallback for
+  // power-only adapters on boards without input-rail telemetry.
   if (usbHostSofActive()) return true;
+#endif
   static const BatteryMonitor battery;
   static bool sampled = false;
-  static bool charging = false;
+  static bool powerPresent = false;
   static unsigned long lastSampleMs = 0;
   const unsigned long now = millis();
   if (!sampled || now - lastSampleMs >= 500) {
-    charging = battery.isCharging();
+#if FREEINK_DEVICE_PICCO
+    // Rate-limit shared-I2C charger reads, including when the battery is full.
+    bool known = false;
+    powerPresent = battery.isExternalPowerPresent(&known);
+    if (!known) powerPresent = usbHostSofActive() || battery.isCharging();
+#else
+    powerPresent = battery.isCharging();
+#endif
     lastSampleMs = now;
     sampled = true;
   }
-  return charging;
+  return powerPresent;
 #else
   return false;
 #endif

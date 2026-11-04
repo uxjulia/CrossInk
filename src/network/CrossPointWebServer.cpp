@@ -113,6 +113,12 @@ bool isWebEnumOptionAvailable(const SettingInfo& setting, size_t optionIndex) {
   }
   if (option == StrId::STR_TOGGLE_TOUCHSCREEN && !gpio.hasTouch()) return false;
 
+  if (setting.nameId == StrId::STR_REFRESH_FREQ && optionIndex < setting.enumRawValues.size() &&
+      setting.enumRawValues[optionIndex] == CrossPointSettings::REFRESH_NEVER &&
+      !CrossPointSettings::isRefreshNeverAvailable()) {
+    return false;
+  }
+
   if (!Frontlight.present()) {
     if (option == StrId::STR_TOGGLE_FRONTLIGHT ||
         (isSwipeActionSetting(setting) &&
@@ -120,8 +126,7 @@ bool isWebEnumOptionAvailable(const SettingInfo& setting, size_t optionIndex) {
           option == StrId::STR_INCREASE_WARMTH || option == StrId::STR_DECREASE_WARMTH))) {
       return false;
     }
-    return setting.nameId != StrId::STR_REFRESH_FREQ || optionIndex >= setting.enumRawValues.size() ||
-           setting.enumRawValues[optionIndex] != CrossPointSettings::REFRESH_NEVER;
+    return true;
   }
 
   return Frontlight.hasColorTemperature() || !isSwipeActionSetting(setting) ||

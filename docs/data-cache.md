@@ -98,6 +98,6 @@ This is for people who browse the SD card on a computer. You do not need it for 
 └── txt_12471232/           # TXT progress, page index, and generated cover image
 ```
 
-The `_absolute.bmp` cover files are the four-tone versions used for sleep screens on supported displays. They are created when needed and kept apart from the regular covers.
+The `_absolute.bmp` cover files use evenly spaced gray levels. For unfiltered book-cover sleep screens, the Picco SSD2677 generates `cover_picco_image.bmp` (Fit) or `cover_crop_picco_image.bmp` (Crop) from the source artwork on first use. The separate names allow existing caches to upgrade automatically.
 
 For binary file layout details, see [File Formats](./file-formats.md).

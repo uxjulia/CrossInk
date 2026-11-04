@@ -3018,6 +3018,82 @@ class SimulatorSmokeTest {
     LOG_INF("SMOKE", "Simulator smoke test passed: Rotate Page 180 shortcut pickers and EPUB/TXT handlers");
   }
 
+  static void verifyWifiTransmitPowerSettings() {
+    JsonDocument original;
+    SETTINGS.toJson(original);
+    JsonDocument saved;
+    SETTINGS.toJson(saved);
+    const auto all = getSettingsList();
+    const auto advanced = buildSystemAdvancedSettingsList(all);
+    if (advanced.size() != 1 || advanced[0].valuePtr != &CrossPointSettings::wifiTransmitPower ||
+        advanced[0].enumRawValues != std::vector<uint8_t>({0, 60, 34, 20, 8}))
+      fail("Wi-Fi power menu does not expose the supported driver limits");
+
+    for (const uint8_t power : WifiTransmitPower::TRANSMIT_POWER_LEVELS) {
+      saved["wifiTransmitPower"] = power;
+      if (!SETTINGS.fromJson(saved.as<JsonVariantConst>()) || SETTINGS.wifiTransmitPower != power ||
+          WifiTransmitPower::getLimit() != power)
+        fail("Wi-Fi transmit power did not survive JSON import");
+      if (!SETTINGS.saveToFile()) fail("Cannot save Wi-Fi transmit power");
+      SETTINGS.wifiTransmitPower = 255;
+      WifiTransmitPower::setLimit(0);
+      if (!SETTINGS.loadFromFile() || SETTINGS.wifiTransmitPower != power || WifiTransmitPower::getLimit() != power)
+        fail("Wi-Fi transmit power did not survive a settings reload");
+    }
+    saved.remove("wifiTransmitPower");
+    SETTINGS.wifiTransmitPower = 34;
+    SETTINGS.fromJson(saved.as<JsonVariantConst>());
+    if (SETTINGS.wifiTransmitPower != 0 || WifiTransmitPower::getLimit() != 0)
+      fail("Old settings must leave Wi-Fi transmit power at Default");
+    saved["wifiTransmitPower"] = 255;
+    SETTINGS.fromJson(saved.as<JsonVariantConst>());
+    if (SETTINGS.wifiTransmitPower != 0 || WifiTransmitPower::getLimit() != 0)
+      fail("Invalid Wi-Fi transmit power did not fall back to Default");
+
+    SETTINGS.menuNavigation = CrossPointSettings::MENU_NAV_DIRECTIONAL;
+    RenderLock lock;
+    applyRequestedTheme();
+    SettingsActivity editor(renderer, mappedInputManager);
+    editor.onEnter();
+    const auto press = [&](MappedInputManager::Button button) {
+      mappedInputManager.simulatorInjectRelease(button);
+      editor.loop();
+      mappedInputManager.simulatorClearInputFrame();
+    };
+    for (int i = 0; i < 3; ++i) press(MappedInputManager::Button::Confirm);
+    if (editor.simulatorCategoryIndex() != 3) fail("Cannot reach System settings");
+    const auto system = buildSystemSettingsParentList(all);
+    const auto row = std::find_if(system.begin(), system.end(), [](const SettingInfo& setting) {
+      return setting.action == SettingAction::SystemAdvanced;
+    });
+    if (row == system.end()) fail("Advanced settings submenu is missing");
+    for (size_t i = 0; i <= static_cast<size_t>(row - system.begin()); ++i)
+      press(mappedInputManager.menuButton(MappedInputManager::Button::Down));
+    press(MappedInputManager::Button::Confirm);
+    if (editor.simulatorActiveSubmenu() != SettingAction::SystemAdvanced) fail("Cannot open Advanced settings");
+    editor.render(std::move(lock));
+    captureStatusBarScreen("wifi-power-advanced");
+    press(MappedInputManager::Button::Confirm);
+    if (!editor.simulatorOptionPopupActive()) fail("Wi-Fi power picker did not open");
+    editor.render(std::move(lock));
+    captureStatusBarScreen("wifi-power-options");
+    for (int i = 0; i < 2; ++i) press(mappedInputManager.menuButton(MappedInputManager::Button::Down));
+    mappedInputManager.simulatorInjectPress(MappedInputManager::Button::Confirm);
+    editor.loop();
+    mappedInputManager.simulatorClearInputFrame();
+    if (editor.simulatorOptionPopupActive() || SETTINGS.wifiTransmitPower != 34 || WifiTransmitPower::getLimit() != 34)
+      fail("Wi-Fi power picker did not select 8.5 dBm");
+    SETTINGS.wifiTransmitPower = 0;
+    if (!SETTINGS.loadFromFile() || SETTINGS.wifiTransmitPower != 34)
+      fail("Wi-Fi power picker did not persist its selection");
+    editor.render(std::move(lock));
+    captureStatusBarScreen("wifi-power-selected");
+    editor.onExit();
+    SETTINGS.fromJson(original.as<JsonVariantConst>());
+    if (!SETTINGS.saveToFile()) fail("Cannot restore Wi-Fi power test settings");
+    LOG_INF("SMOKE", "Simulator smoke test passed: Wi-Fi transmit power defaults, validation, persistence and picker");
+  }
+
   static void verifyTiltPageTurnSettings() {
     JsonDocument original;
     SETTINGS.toJson(original);
@@ -7515,6 +7591,10 @@ class SimulatorSmokeTest {
           activityManager.goToReader(std::getenv("CROSSINK_SIMULATOR_SMOKE_BOOK"), true);
           queueStep("Frontlight layout reader", SmokeStep::FrontlightLayout, 12);
           break;
+        }
+        if (std::getenv("CROSSINK_SIMULATOR_SMOKE_WIFI_POWER")) {
+          verifyWifiTransmitPowerSettings();
+          std::_Exit(0);
         }
         if (std::getenv("CROSSINK_SIMULATOR_SMOKE_TILT_SETTINGS")) {
           verifyTiltPageTurnSettings();

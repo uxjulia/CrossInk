@@ -245,20 +245,25 @@ inline PageTurnResult detectPageTurn(const MappedInputManager& input) {
   return {tilt.prev || frontPrev, tilt.next || frontNext, false, tilt.prev || tilt.next};
 }
 
+enum class PageRefresh { Blocking, Async, GrayscaleBase };
+
 // One helper, blocking or deferred: the async form starts the refresh and
 // returns so the caller can overlap CPU work with the panel's refresh time.
 // Async callers must not touch the framebuffer until
 // renderer.waitRefreshComplete() and must rebuild the differential baseline
 // before the next page turn (the tiled grayscale cleanup does).
-inline void displayWithRefreshCycle(const GfxRenderer& renderer, int& pagesUntilFullRefresh, bool async = false) {
+inline void displayWithRefreshCycle(const GfxRenderer& renderer, int& pagesUntilFullRefresh,
+                                    PageRefresh request = PageRefresh::Blocking) {
   // A negative countdown is reserved for the explicit Refresh Screen shortcut.
   // Regular cadence cleanup remains a HALF refresh at 1. The X4 retains its
   // prior clean HALF waveform; other panels use their full waveform.
   const auto mode = pagesUntilFullRefresh < 0    ? manualScreenRefreshMode()
                     : pagesUntilFullRefresh <= 1 ? HalDisplay::HALF_REFRESH
                                                  : HalDisplay::FAST_REFRESH;
-  if (async) {
+  if (request == PageRefresh::Async) {
     renderer.displayBufferAsync(mode);
+  } else if (request == PageRefresh::GrayscaleBase) {
+    renderer.displayGrayscaleBase(mode);
   } else {
     renderer.displayBuffer(mode);
   }

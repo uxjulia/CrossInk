@@ -69,6 +69,7 @@ class FixtureImageDecoder final : public ImageToFramebufferDecoder {
   const char* getFormatName() const override { return "JPEG"; }
 };
 }  // namespace
+bool ImageDecoderFactory::supportsMemorySource(const std::string&) { return false; }
 ImageToFramebufferDecoder* ImageDecoderFactory::getDecoder(const std::string&) {
   static FixtureImageDecoder decoder;
   return &decoder;

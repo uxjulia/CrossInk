@@ -95,7 +95,7 @@ const StrId SettingsActivity::categoryNames[categoryCount] = {StrId::STR_CAT_DIS
 namespace {
 constexpr int systemVersionFooterSideMargin = 20;
 constexpr int systemVersionFooterBottomInset = 15;
-constexpr size_t controlsParentBaseCount = 5;
+constexpr size_t controlsParentBaseCount = 3;
 constexpr size_t controlsHomeButtonCount = 4;
 constexpr size_t controlsPowerMinCount = 2;
 constexpr size_t controlsPowerMaxCount = 3;
@@ -326,6 +326,7 @@ void SettingsActivity::rebuildSettingsLists() {
   controlsEdgeGestureSettings.clear();
   systemSettings.clear();
   systemDeviceSettings.clear();
+  systemAdvancedSettings.clear();
   systemFilesCacheSettings.clear();
   fileBrowserSettings.clear();
   systemReadingStatsSettings.clear();
@@ -371,6 +372,7 @@ void SettingsActivity::rebuildSettingsLists() {
   readerScreenMarginSettings = buildReaderScreenMarginSettingsList(allSettings);
   systemSettings = buildSystemSettingsParentList(allSettings);
   systemDeviceSettings = buildSystemDeviceSettingsList(allSettings);
+  systemAdvancedSettings = buildSystemAdvancedSettingsList(allSettings);
   systemFilesCacheSettings = buildSystemFilesCacheSettingsList(allSettings);
   systemReadingStatsSettings = buildSystemReadingStatsSettingsList(allSettings);
   systemGlobalStatsSettings = buildSystemGlobalStatsSettingsList(allSettings);
@@ -382,31 +384,20 @@ void SettingsActivity::rebuildSettingsLists() {
   controlsEdgeGestureSettings = buildControlsEdgeGestureSettingsList(allSettings);
   const size_t expectedSideButtonCount =
       controlsSideButtonBaseCount + (hasSideButtonChordSetting(allSettings) ? 1u : 0u);
-#if CROSSINK_APP_CAP_TOUCH
-  if (!gpio.hasTouch()) {
+  const bool hasFrontButtons = deviceHasFrontButtons();
+  if (hasFrontButtons) {
     controlsFrontButtonSettings = buildControlsFrontButtonSettingsList(allSettings);
   }
   controlsSideButtonSettings = buildControlsSideButtonSettingsList(allSettings);
 
-  const bool hasTouch = gpio.hasTouch();
-  const bool hasHomeKey = gpio.hasHomeKey();
-  const size_t expectedControlsCount = controlsParentBaseCount - (hasTouch ? 1u : 0u) + (hasHomeKey ? 1u : 0u) +
+  // Front Buttons and Menu Navigation are both absent from touch-device menus.
+  const size_t expectedControlsCount = controlsParentBaseCount + SLIDE_SWITCH_SETTINGS_COUNT +
+                                       (hasFrontButtons ? 2u : 0u) + (gpio.hasHomeKey() ? 1u : 0u) +
                                        (hasSettingByName(allSettings, StrId::STR_TILT_PAGE_TURN) ? 1u : 0u) +
                                        (hasSettingByName(allSettings, StrId::STR_TILT_PAGE_TURN_DIRECTION) ? 1u : 0u) +
                                        (hasSettingByName(allSettings, StrId::STR_TILT_NEXT_PAGE_ONLY) ? 1u : 0u) +
                                        (hasSettingByName(allSettings, StrId::STR_NEXT_PAGE) ? 1u : 0u);
-  const size_t expectedFrontButtonCount = hasTouch ? 0u : controlsFrontButtonCount;
-#else
-  controlsFrontButtonSettings = buildControlsFrontButtonSettingsList(allSettings);
-  controlsSideButtonSettings = buildControlsSideButtonSettingsList(allSettings);
-
-  const size_t expectedControlsCount = controlsParentBaseCount + (gpio.hasHomeKey() ? 1u : 0u) +
-                                       (hasSettingByName(allSettings, StrId::STR_TILT_PAGE_TURN) ? 1u : 0u) +
-                                       (hasSettingByName(allSettings, StrId::STR_TILT_PAGE_TURN_DIRECTION) ? 1u : 0u) +
-                                       (hasSettingByName(allSettings, StrId::STR_TILT_NEXT_PAGE_ONLY) ? 1u : 0u) +
-                                       (hasSettingByName(allSettings, StrId::STR_NEXT_PAGE) ? 1u : 0u);
-  constexpr size_t expectedFrontButtonCount = controlsFrontButtonCount;
-#endif
+  const size_t expectedFrontButtonCount = hasFrontButtons ? controlsFrontButtonCount : 0u;
   if (controlsSettings.size() != expectedControlsCount ||
       (gpio.hasHomeKey() && controlsHomeButtonSettings.size() != controlsHomeButtonCount) ||
       controlsPowerSettings.size() < controlsPowerMinCount || controlsPowerSettings.size() > controlsPowerMaxCount ||
@@ -489,6 +480,9 @@ void SettingsActivity::setCurrentSettingsForCategory() {
         case SettingAction::SystemDevice:
           currentSettings = &systemDeviceSettings;
           break;
+        case SettingAction::SystemAdvanced:
+          currentSettings = &systemAdvancedSettings;
+          break;
         case SettingAction::SystemFilesCache:
           currentSettings = &systemFilesCacheSettings;
           break;
@@ -543,6 +537,8 @@ StrId SettingsActivity::activeSubmenuTitleId() const {
       return StrId::STR_EDGE_GESTURES;
     case SettingAction::SystemDevice:
       return StrId::STR_SYSTEM_DEVICE;
+    case SettingAction::SystemAdvanced:
+      return StrId::STR_SYSTEM_ADVANCED;
     case SettingAction::SystemFilesCache:
       return StrId::STR_SYSTEM_FILES_CACHE;
     case SettingAction::SystemReadingStats:
@@ -615,9 +611,12 @@ void SettingsActivity::openEnumOptionPicker(const SettingInfo& setting) {
   if (currentIndex >= optionCount) currentIndex = 0;
 
   const SettingInfo selectedSetting = setting;
-  const auto note = setting.valuePtr == &CrossPointSettings::sideButtonChordAction && mappedInput.hasTouchHardware()
-                        ? OptionPopup::Note{tr(STR_NOTE), tr(STR_TOUCHSCREEN_ESCAPE_HATCH_NOTE)}
-                        : OptionPopup::Note{};
+  OptionPopup::Note note;
+  if (setting.valuePtr == &CrossPointSettings::wifiTransmitPower) {
+    note = {tr(STR_NOTE), tr(STR_WIFI_TRANSMIT_POWER_HELP)};
+  } else if (setting.valuePtr == &CrossPointSettings::sideButtonChordAction && mappedInput.hasTouchHardware()) {
+    note = {tr(STR_NOTE), tr(STR_TOUCHSCREEN_ESCAPE_HATCH_NOTE)};
+  }
   optionPopup.show(
       setting.nameId, options, currentIndex,
       [this, selectedSetting](int selectedIndex) {
@@ -1673,6 +1672,7 @@ void SettingsActivity::toggleCurrentSetting() {
       case SettingAction::ControlsTwoFingerSwipe:
       case SettingAction::ControlsEdgeGestures:
       case SettingAction::SystemDevice:
+      case SettingAction::SystemAdvanced:
       case SettingAction::SystemFilesCache:
       case SettingAction::SystemReadingStats:
       case SettingAction::SystemGlobalStats:

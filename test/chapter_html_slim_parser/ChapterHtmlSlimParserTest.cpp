@@ -1,6 +1,7 @@
 #include <Epub/Page.h>
 #include <Epub/converters/ImageDimsProbe.h>
 #include <GfxRenderer.h>
+#include <UniqueCodepointSet.h>
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -41,6 +42,7 @@ class ChapterHtmlSlimParserTest : public ::testing::TestWithParam<const char*> {
   std::array<BlockStyle, ChapterHtmlSlimParser::MAX_BLOCK_STYLE_DEPTH> blockStyles{};
 
   void SetUp() override {
+    Storage.files.clear();
     GfxRenderer::loanActive = false;
     GfxRenderer::fileProbeHadLoan = false;
     MemoryBudget::imageAllowed = true;
@@ -2206,4 +2208,26 @@ TEST(ImageDimsProbe, GifSignaturesAndLittleEndianDimensions) {
   invalid.write(bytes, sizeof(bytes));
   ImageDimensions dims{};
   EXPECT_FALSE(invalid.getDimensions(dims));
+}
+
+TEST_F(ChapterHtmlSlimParserTest, DeferredPrewarmDoesNotDelayBeginAndRestoresParserPosition) {
+  renderer.sdFont = true;
+  Storage.files[filepath] = "<html><body><p>" + std::string(2048, 'a') + " é字 </p></body></html>";
+  parser.setDeferAdvancePrewarm(true);
+  ASSERT_TRUE(parser.beginParse());
+  EXPECT_EQ(renderer.prewarmCalls, 0u);
+  ASSERT_TRUE(parser.parseFile_.seek(19));
+  const auto resume = parser.parseFile_.position();
+  int slices = 0;
+  while (parser.prewarmSectionAdvanceStep()) {
+    EXPECT_EQ(parser.parseFile_.position(), resume);
+    ASSERT_LT(++slices, 100);
+  }
+  EXPECT_GT(renderer.prewarmCalls, 0u);
+  EXPECT_TRUE(std::is_sorted(renderer.prewarmed.begin(), renderer.prewarmed.end()));
+  EXPECT_EQ(std::count(renderer.prewarmed.begin(), renderer.prewarmed.end(), 'a'), 1);
+  EXPECT_EQ(std::count(renderer.prewarmed.begin(), renderer.prewarmed.end(), 0xE9), 1);
+  EXPECT_EQ(std::count(renderer.prewarmed.begin(), renderer.prewarmed.end(), 0x5B57), 1);
+  parser.abortParse();
+  EXPECT_FALSE(parser.prewarmSectionAdvanceStep());
 }

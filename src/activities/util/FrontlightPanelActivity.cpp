@@ -81,10 +81,9 @@ void FrontlightPanelActivity::onEnter() {
   // The HAL is the live source of truth; SETTINGS only mirrors it for boot.
   brightness = Frontlight.brightness();
   warmth = Frontlight.warmth();
-  lightOn = Frontlight.isOn();
+  observedLightOn = Frontlight.isOn();
   initialInversion = SETTINGS.screenInverted;
   initialTouchscreenDisabled = SETTINGS.disableReaderTouchscreen;
-  pendingTouchscreenDisabled = initialTouchscreenDisabled;
   mappedInput.setReaderTouchscreenOverride(true);
 
   uiReady = false;
@@ -104,16 +103,15 @@ void FrontlightPanelActivity::onEnter() {
 void FrontlightPanelActivity::onExit() {
   // Debounced persistence: one SPIFFS write on close, never per slider tick.
   const bool inversionChanged = initialInversion != static_cast<bool>(SETTINGS.screenInverted);
-  const bool touchscreenChanged = initialTouchscreenDisabled != pendingTouchscreenDisabled;
-  SETTINGS.disableReaderTouchscreen = pendingTouchscreenDisabled ? 1 : 0;
-  const bool frontlightChanged =
-      !context.showReaderDetails && (SETTINGS.frontlightBrightness != brightness ||
-                                     SETTINGS.frontlightWarmth != warmth || SETTINGS.frontlightOn != (lightOn ? 1 : 0));
+  const bool touchscreenChanged = initialTouchscreenDisabled != static_cast<bool>(SETTINGS.disableReaderTouchscreen);
+  const bool frontlightChanged = !context.showReaderDetails &&
+                                 (SETTINGS.frontlightBrightness != brightness || SETTINGS.frontlightWarmth != warmth ||
+                                  SETTINGS.frontlightOn != (Frontlight.isOn() ? 1 : 0));
   if (frontlightChanged || inversionChanged || touchscreenChanged) {
     if (!context.showReaderDetails) {
       SETTINGS.frontlightBrightness = brightness;
       SETTINGS.frontlightWarmth = warmth;
-      SETTINGS.frontlightOn = lightOn ? 1 : 0;
+      SETTINGS.frontlightOn = Frontlight.isOn() ? 1 : 0;
     }
     // The drawer can be opened over a dictionary or another reader child.
     // Find the owning reader so its per-book values stay out of the global file.
@@ -126,7 +124,7 @@ void FrontlightPanelActivity::onExit() {
 void FrontlightPanelActivity::onExternalFrontlightChange() {
   brightness = Frontlight.brightness();
   warmth = Frontlight.warmth();
-  lightOn = Frontlight.isOn();
+  observedLightOn = Frontlight.isOn();
   requestUpdate();
 }
 
@@ -136,10 +134,8 @@ void FrontlightPanelActivity::onBrightnessEvent(const fui::ActionEvent& event, v
   self->brightness = percentFromPermille(event.dragPermille);
   Frontlight.setBrightness(self->brightness);
   // Adjusting brightness while off is an obvious "I want light" intent.
-  if (!self->lightOn) {
-    self->lightOn = true;
-    Frontlight.setOn(true);
-  }
+  Frontlight.setOn(true);
+  self->observedLightOn = true;
 }
 
 void FrontlightPanelActivity::onWarmthEvent(const fui::ActionEvent& event, void* user) {
@@ -176,10 +172,8 @@ void FrontlightPanelActivity::adjustBrightness(const int delta) {
   if (next == brightness) return;
   brightness = static_cast<uint8_t>(next);
   Frontlight.setBrightness(brightness);
-  if (!lightOn) {
-    lightOn = true;
-    Frontlight.setOn(true);
-  }
+  Frontlight.setOn(true);
+  observedLightOn = true;
   requestUpdate();
 }
 
@@ -194,17 +188,17 @@ void FrontlightPanelActivity::adjustWarmth(const int delta) {
 }
 
 void FrontlightPanelActivity::toggleLight() {
-  lightOn = !lightOn;
-  Frontlight.setOn(lightOn);
+  Frontlight.setOn(!Frontlight.isOn());
+  observedLightOn = Frontlight.isOn();
   requestUpdate();
 }
 
 void FrontlightPanelActivity::toggleReaderTouchscreen() {
-  pendingTouchscreenDisabled = !pendingTouchscreenDisabled;
+  SETTINGS.disableReaderTouchscreen = SETTINGS.disableReaderTouchscreen ? 0 : 1;
   {
     RenderLock lock;
-    BookActions::drawToast(renderer,
-                           pendingTouchscreenDisabled ? tr(STR_TOUCHSCREEN_DISABLED) : tr(STR_TOUCHSCREEN_ENABLED));
+    BookActions::drawToast(
+        renderer, SETTINGS.disableReaderTouchscreen ? tr(STR_TOUCHSCREEN_DISABLED) : tr(STR_TOUCHSCREEN_ENABLED));
   }
   delay(1000);
   requestUpdate();
@@ -315,8 +309,8 @@ void FrontlightPanelActivity::loop() {
 
   // A power-button shortcut can change the light globally while this panel is
   // open. Keep the panel's state and eventual persistence in sync.
-  if (!context.showReaderDetails && lightOn != Frontlight.isOn()) {
-    lightOn = Frontlight.isOn();
+  if (!context.showReaderDetails && observedLightOn != Frontlight.isOn()) {
+    observedLightOn = Frontlight.isOn();
     requestUpdate();
   }
 
@@ -500,7 +494,7 @@ void FrontlightPanelActivity::buildPanelScreen(UiApp::ScreenType& screen) {
   const std::array<fui::BitmapRef, 5> icons = {
       fui::bitmapFromIcon(icon_reading_stats_24), fui::bitmapFromIcon(icon_transfer_24),
       fui::bitmapFromIcon(icon_tabler_moon_filled_24), fui::bitmapFromIcon(icon_sliders_horizontal_24),
-      fui::bitmapFromIcon(pendingTouchscreenDisabled ? icon_device_tablet_off_24 : icon_device_tablet_24)};
+      fui::bitmapFromIcon(SETTINGS.disableReaderTouchscreen ? icon_device_tablet_off_24 : icon_device_tablet_24)};
   for (int16_t slotIndex = 0; slotIndex < slotCount; ++slotIndex) {
     const int16_t i = showStats ? slotIndex : slotIndex + 1;
     const int16_t x = static_cast<int16_t>(actionBar.x + slotIndex * slotWidth);
@@ -529,7 +523,7 @@ void FrontlightPanelActivity::buildPanelScreen(UiApp::ScreenType& screen) {
   // whole bottom toggle row, shrinking the panel.
   const fui::Rect headerRow = screen.takeTop(rowH, panelSpaceSm).inset(sideInset);
   snprintf(line, sizeof(line), "%s  %u%%", tr(STR_BRIGHTNESS), static_cast<unsigned>(brightness));
-  const fui::BitmapRef lightIcon = fui::bitmapFromIcon(lightOn ? icon_lightbulb_28 : icon_lightbulb_off_28);
+  const fui::BitmapRef lightIcon = fui::bitmapFromIcon(Frontlight.isOn() ? icon_lightbulb_28 : icon_lightbulb_off_28);
   const int16_t iconW = static_cast<int16_t>(lightIcon.width);
   const int16_t iconH = static_cast<int16_t>(lightIcon.height);
   const fui::Rect iconRect{static_cast<int16_t>(headerRow.x + headerRow.width - iconW),

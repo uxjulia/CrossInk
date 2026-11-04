@@ -98,7 +98,7 @@ struct Progress {
   bool hasPageCount = true;
   int pageCount = 10, pageNumber = 4, spineIndex = 0;
 };
-bool readProgressFile(const char*, const std::string&, Progress&) { return true; }
+bool loadProgressPath(const std::string&, Progress&, const char*) { return true; }
 bool loadProgress(Epub&, Progress&, const char*) { return true; }
 }  // namespace EpubReaderUtils
 #include "Production.inc"

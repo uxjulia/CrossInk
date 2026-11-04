@@ -94,6 +94,9 @@ class HalGPIO {
   void update();
   void startButtonCapture();
   void stopButtonCapture();
+  bool prepareForDeepSleep();
+  bool hasToggleSwitch() const;
+  bool isToggleSwitchOn() const;
   uint32_t buttonSampleTime() const;
   bool hasPendingButtonInput() const;
   // Returns early on a hardware input edge; retains timed polling as fallback.

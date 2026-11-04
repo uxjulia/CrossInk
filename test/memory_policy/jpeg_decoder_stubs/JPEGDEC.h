@@ -58,6 +58,8 @@ class JPEGDEC {
     return jpegdec_test::openResult;
   }
 
+  int openRAM(uint8_t*, int, JPEG_DRAW_CALLBACK*) { return jpegdec_test::openResult; }
+
   void close() {
     ++jpegdec_test::closeCalls;
     if (closeCallback_) (*closeCallback_)(handle_);

@@ -724,7 +724,20 @@ bool KOReaderSyncActivity::uploadExtras() {
     globalStatsResult = result;
     globalStatsFailedStep = failedStep;
   }
-  extrasResult = ReadingSyncUpload::extras(epubPath, documentHash);
+  extrasResult = ReadingSyncUpload::extras(
+      epubPath, documentHash,
+      [](void* context) {
+        auto& self = *static_cast<KOReaderSyncActivity*>(context);
+        self.mappedInput.update();
+        return self.mappedInput.isPressed(MappedInputManager::Button::Back) ||
+               self.mappedInput.wasPressed(MappedInputManager::Button::Back) ||
+               TouchHeaderBackButton::wasTapped(self.mappedInput, self.renderer);
+      },
+      this);
+  if (extrasResult.clippings == StatsUploadClient::Result::Cancelled) {
+    exitBatch();
+    return false;
+  }
   if (!StatsUploadClient::failed(globalStatsResult) && extrasResult.success()) return true;
   if (!folderSync) wifiOff();
   {

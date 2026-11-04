@@ -3476,3 +3476,20 @@ int GfxRenderer::getFontIdForSize(const int fontId, const uint8_t points) const 
   }
   return chosenId;
 }
+
+bool GfxRenderer::supportsDeferredGrayscaleBase() const {
+  return !fadingFix && display.supportsDeferredGrayscaleBase();
+}
+
+bool GfxRenderer::displayGrayscaleBaseAsync(HalDisplay::RefreshMode fallback) const {
+  absoluteGrayPlanes = false;
+  if (fadingFix) {
+    displayGrayscaleBase(fallback);
+    return false;
+  }
+  return display.displayGrayscaleBaseAsync(fallback);
+}
+
+void GfxRenderer::copyGrayscalePlanes(const uint8_t* lsb, const uint8_t* msb) const {
+  display.copyGrayscaleBuffers(lsb, msb);
+}

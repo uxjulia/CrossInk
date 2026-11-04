@@ -357,6 +357,8 @@ def run_smoke(args: argparse.Namespace) -> int:
         if args.font_recovery:
             env["CROSSINK_SIMULATOR_SMOKE_FONT_RECOVERY"] = "1"
         env["CROSSINK_SIMULATOR_SMOKE_TEST"] = "1"
+        if args.wifi_transmit_power:
+            env["CROSSINK_SIMULATOR_SMOKE_WIFI_POWER"] = "1"
         if args.tilt_settings:
             env["CROSSINK_SIMULATOR_SMOKE_TILT_SETTINGS"] = "1"
         if args.receive_folder:
@@ -441,6 +443,10 @@ def run_smoke(args: argparse.Namespace) -> int:
         print("Simulator did not complete bookmark checks", file=sys.stderr)
         return 2
 
+    if args.wifi_transmit_power and "Simulator smoke test passed: Wi-Fi transmit power" not in proc.stdout:
+        print("Simulator did not complete Wi-Fi transmit-power checks", file=sys.stderr)
+        return 2
+
     if args.menu_orientation and "Simulator smoke test passed: menu orientation" not in proc.stdout:
         print("Simulator did not complete the menu orientation checks", file=sys.stderr)
         return 2
@@ -494,6 +500,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--env", choices=("simulator", "simulator-X3", "x4-classic-simulator", "sticky-simulator", "x4-pro-simulator"), default="simulator",
                         help="PlatformIO simulator environment to build and run")
     parser.add_argument("--status-bar-lifecycle", action="store_true", help="Exercise reader settings return and reflow")
+    parser.add_argument("--wifi-transmit-power", action="store_true", help="Check Wi-Fi power defaults, device picker and persistence")
     parser.add_argument("--tilt-settings", action="store_true", help="Check tilt preference visibility, device editing and persistence")
     parser.add_argument("--chapter-percentage", action="store_true", help="Check chapter percentage slot selection, removal, reload and rendered formats")
     parser.add_argument("--centered-status-bar", action="store_true", help="Check Center Status Bar and Separator rows, popups and persistence")

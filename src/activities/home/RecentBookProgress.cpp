@@ -84,8 +84,7 @@ void saveCachedEpubPercentToCachePath(const std::string& cachePath, const float 
 
 float loadEpubSizeProgressPercentFromCachePath(const std::string& cachePath) {
   EpubReaderUtils::Progress progress;
-  if (!EpubReaderUtils::readProgressFile("RBPR", cachePath + "/progress.bin", progress) &&
-      !EpubReaderUtils::readProgressFile("RBPR", cachePath + "/progress.bin.bak", progress)) {
+  if (!EpubReaderUtils::loadProgressPath(cachePath + "/progress.bin", progress, "RBPR")) {
     return -1.0f;
   }
   if (!progress.hasPageCount || progress.pageCount <= 0) {

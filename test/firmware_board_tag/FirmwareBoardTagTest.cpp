@@ -12,7 +12,8 @@ constexpr char prefix[] = "CROSSPOINT-BOARD-V1:";
 TEST(FirmwareBoardTag, MatchesRunningBoardAcrossChunkBoundaries) {
   board_tag::Scanner scanner;
   scanner.feed(reinterpret_cast<const uint8_t*>(prefix), sizeof(prefix) - 1);
-  scanner.feed(reinterpret_cast<const uint8_t*>("sticky;"), strlen("sticky;"));
+  scanner.feed(reinterpret_cast<const uint8_t*>(board_tag::boardName()), board_tag::boardNameLen());
+  scanner.feed(reinterpret_cast<const uint8_t*>(";"), 1);
 
   EXPECT_FALSE(scanner.mismatch());
 }

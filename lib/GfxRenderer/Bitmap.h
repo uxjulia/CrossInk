@@ -65,8 +65,8 @@ class Bitmap {
  public:
   static const char* errorToString(BmpReaderError err);
 
-  explicit Bitmap(HalFile& file, bool dithering = false, bool imageLevels = false)
-      : file(file), dithering(dithering), imageLevels(imageLevels) {}
+  explicit Bitmap(HalFile& file, bool dithering = false, ImageToneProfile toneProfile = ImageToneProfile::Legacy)
+      : file(file), dithering(dithering), toneProfile(toneProfile) {}
   ~Bitmap();
   BmpReaderError parseHeaders();
   BmpReaderError readNextRow(uint8_t* data, uint8_t* rowBuffer) const;
@@ -74,6 +74,7 @@ class Bitmap {
   // Downsample high-color images before error diffusion. This is intentionally
   // limited to smaller output dimensions; the renderer still handles upscale.
   bool setDitheredOutputSize(int targetWidth, int targetHeight);
+  ImageToneProfile getToneProfile() const { return toneProfile; }
   int getWidth() const { return outputWidth; }
   int getHeight() const { return outputHeight; }
   bool isTopDown() const { return topDown; }
@@ -90,7 +91,7 @@ class Bitmap {
 
   HalFile& file;
   bool dithering = false;
-  bool imageLevels = false;
+  ImageToneProfile toneProfile = ImageToneProfile::Legacy;
   int width = 0;
   int height = 0;
   bool topDown = false;

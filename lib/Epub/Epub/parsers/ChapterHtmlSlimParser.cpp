@@ -48,6 +48,13 @@ constexpr size_t COMBINED_READING_AID_BUFFERED_WORDS_BEFORE_LAYOUT = 175;
 constexpr uint16_t COMBINED_READING_AID_TEXT_RUN_BYTES_BEFORE_LAYOUT = 1024;
 constexpr size_t SECTION_ADVANCE_PREWARM_READ_BUFFER_SIZE = 512;
 constexpr uint32_t SECTION_ADVANCE_PREWARM_MAX_CODEPOINTS = 4096;
+// Deferred prewarm slices: scan HTML, or load advances in small batches, for up to
+// this long per background build tick, so a tick never blocks input for long.
+constexpr uint32_t SECTION_ADVANCE_PREWARM_STEP_MS = 8;
+constexpr uint32_t SECTION_ADVANCE_PREWARM_FEED_BATCH = 8;
+// SdCardFont::ADVANCE_CACHE_LIMIT: the per-style table holds this many, and a miss on a
+// full table clears it, so feeding more in batches would only churn it.
+constexpr uint32_t SECTION_ADVANCE_PREWARM_FEED_LIMIT = 254;  // Leave room for space and hyphen.
 // The whole-section advance prewarm is a batch-I/O optimization, not a requirement:
 // layout falls back to per-paragraph advance loads (ParsedText loads glyph metrics per
 // block, masked to the styles that block uses). Running it costs a 16KB contiguous
@@ -4281,89 +4288,118 @@ void XMLCALL ChapterHtmlSlimParser::endElement(void* userData, const XML_Char* n
   }
 }
 
-void ChapterHtmlSlimParser::prewarmSectionAdvanceTable(FsFile& file) const {
+std::unique_ptr<ChapterHtmlSlimParser::AdvancePrewarm> ChapterHtmlSlimParser::startAdvancePrewarm() const {
   if (!renderer.isSdCardFont(fontId) || isPreviewBuild()) {
-    return;
+    return nullptr;
   }
 
   const auto heap = MemoryBudget::snapshot();
-  if (!MemoryBudget::hasHeap(heap, MIN_FREE_HEAP_FOR_SECTION_PREWARM, MIN_MAX_ALLOC_FOR_SECTION_PREWARM)) {
-    LOG_DBG("EHP", "Skipping section advance prewarm: low heap (free=%u, maxAlloc=%u, need %u/%u)", heap.freeHeap,
-            heap.maxAllocHeap, MIN_FREE_HEAP_FOR_SECTION_PREWARM, MIN_MAX_ALLOC_FOR_SECTION_PREWARM);
-    return;
+  const uint32_t needFree = MIN_FREE_HEAP_FOR_SECTION_PREWARM;
+  const uint32_t needBlock = MIN_MAX_ALLOC_FOR_SECTION_PREWARM;
+  if (!MemoryBudget::hasHeap(heap, needFree, needBlock)) {
+    LOG_DBG("EHP", "Skipping section advance prewarm: low heap (free=%lu, maxAlloc=%lu, need %lu/%lu)", heap.freeHeap,
+            heap.maxAllocHeap, needFree, needBlock);
+    return nullptr;
   }
 
-  std::unique_ptr<uint32_t[]> codepoints(new (std::nothrow) uint32_t[SECTION_ADVANCE_PREWARM_MAX_CODEPOINTS]);
-  std::unique_ptr<uint8_t[]> buffer(new (std::nothrow) uint8_t[SECTION_ADVANCE_PREWARM_READ_BUFFER_SIZE]);
-  if (!codepoints || !buffer) {
+  auto state = makeUniqueNoThrow<AdvancePrewarm>();
+  if (state) {
+    state->codepoints = makeUniqueNoThrow<uint32_t[]>(SECTION_ADVANCE_PREWARM_MAX_CODEPOINTS);
+    state->buffer = makeUniqueNoThrow<uint8_t[]>(SECTION_ADVANCE_PREWARM_READ_BUFFER_SIZE);
+    state->unique =
+        makeUniqueNoThrow<UniqueCodepointSet>(state->codepoints.get(), SECTION_ADVANCE_PREWARM_MAX_CODEPOINTS);
+  }
+  if (!state || !state->codepoints || !state->buffer || !state->unique) {
     LOG_ERR("EHP", "Failed to allocate section advance prewarm buffers");
+    return nullptr;
+  }
+  return state;
+}
+
+// Scans one buffer of HTML from `file`'s current position (state.offset).
+void ChapterHtmlSlimParser::scanAdvancePrewarmChunk(AdvancePrewarm& state, FsFile& file) const {
+  const int read = file.read(state.buffer.get(), SECTION_ADVANCE_PREWARM_READ_BUFFER_SIZE);
+  const size_t len = read > 0 ? static_cast<size_t>(read) : 0;
+  if (len == 0 && file.available() > 0) {
+    LOG_DBG("EHP", "Section advance prewarm stopped after short read");
+  }
+
+  for (size_t i = 0; i < len && !state.hitCap; ++i) {
+    const uint8_t byte = state.buffer[i];
+    const char c = static_cast<char>(byte);
+
+    if (state.inTag) {
+      if (c == '>') {
+        state.inTag = false;
+      }
+      continue;
+    }
+
+    if (state.inEntity) {
+      if (c == ';' || isWhitespace(c)) {
+        state.inEntity = false;
+      } else if (c == '<') {
+        state.inEntity = false;
+        state.inTag = true;
+      }
+      continue;
+    }
+
+    if (c == '<') {
+      state.inTag = true;
+      resetPrewarmUtf8(state.utf8Accumulator, state.utf8Remaining);
+      continue;
+    }
+    if (c == '&') {
+      state.inEntity = true;
+      resetPrewarmUtf8(state.utf8Accumulator, state.utf8Remaining);
+      state.hitCap = state.unique->add(' ');
+      continue;
+    }
+    if (isWhitespace(c)) {
+      resetPrewarmUtf8(state.utf8Accumulator, state.utf8Remaining);
+      state.hitCap = state.unique->add(' ');
+      continue;
+    }
+
+    state.hitCap = feedPrewarmUtf8Byte(byte, *state.unique, state.utf8Accumulator, state.utf8Remaining);
+  }
+  state.offset += len;
+
+  if (len > 0 && !state.hitCap && file.available() > 0) {
+    return;
+  }
+  state.scanned = true;
+  if (state.utf8Remaining != 0 && !state.hitCap) {
+    state.hitCap = state.unique->add(REPLACEMENT_GLYPH);
+  }
+  state.cpCount = state.unique->finish();
+  state.unique.reset();
+  if (state.hitCap) {
+    LOG_DBG("EHP", "Section advance prewarm hit unique codepoint cap (%u)",
+            static_cast<unsigned>(SECTION_ADVANCE_PREWARM_MAX_CODEPOINTS));
+  }
+}
+
+void ChapterHtmlSlimParser::feedAdvancePrewarm(AdvancePrewarm& state, const uint32_t maxCount) const {
+  const uint32_t count = std::min(maxCount, state.cpCount - state.fedCount);
+  if (count == 0) return;
+  const bool first = state.fedCount == 0;
+  renderer.ensureSdCardFontReady(fontId, state.codepoints.get() + state.fedCount, count, /*includeSpace=*/first,
+                                 first && hyphenationEnabled, /*styleMask=*/0x0F);
+  state.fedCount += count;
+}
+
+void ChapterHtmlSlimParser::prewarmSectionAdvanceTable(FsFile& file) const {
+  const auto state = startAdvancePrewarm();
+  if (!state) {
     file.seekSet(0);
     return;
   }
 
   const uint32_t startMs = millis();
-  UniqueCodepointSet uniqueCodepoints(codepoints.get(), SECTION_ADVANCE_PREWARM_MAX_CODEPOINTS);
-  uint32_t utf8Accumulator = 0;
-  uint8_t utf8Remaining = 0;
-  bool inTag = false;
-  bool inEntity = false;
-  bool hitCap = false;
-
-  while (file.available() > 0 && !hitCap) {
-    const size_t len = file.read(buffer.get(), SECTION_ADVANCE_PREWARM_READ_BUFFER_SIZE);
-    if (len == 0) {
-      LOG_DBG("EHP", "Section advance prewarm stopped after short read");
-      break;
-    }
-
-    for (size_t i = 0; i < len && !hitCap; ++i) {
-      const uint8_t byte = buffer[i];
-      const char c = static_cast<char>(byte);
-
-      if (inTag) {
-        if (c == '>') {
-          inTag = false;
-        }
-        continue;
-      }
-
-      if (inEntity) {
-        if (c == ';' || isWhitespace(c)) {
-          inEntity = false;
-        } else if (c == '<') {
-          inEntity = false;
-          inTag = true;
-        }
-        continue;
-      }
-
-      if (c == '<') {
-        inTag = true;
-        resetPrewarmUtf8(utf8Accumulator, utf8Remaining);
-        continue;
-      }
-      if (c == '&') {
-        inEntity = true;
-        resetPrewarmUtf8(utf8Accumulator, utf8Remaining);
-        hitCap = uniqueCodepoints.add(' ');
-        continue;
-      }
-      if (isWhitespace(c)) {
-        resetPrewarmUtf8(utf8Accumulator, utf8Remaining);
-        hitCap = uniqueCodepoints.add(' ');
-        continue;
-      }
-
-      hitCap = feedPrewarmUtf8Byte(byte, uniqueCodepoints, utf8Accumulator, utf8Remaining);
-    }
-  }
-
-  if (utf8Remaining != 0 && !hitCap) {
-    hitCap = uniqueCodepoints.add(REPLACEMENT_GLYPH);
-  }
-  if (hitCap) {
-    LOG_DBG("EHP", "Section advance prewarm hit unique codepoint cap (%u)",
-            static_cast<unsigned>(SECTION_ADVANCE_PREWARM_MAX_CODEPOINTS));
+  while (!state->scanned) {
+    scanAdvancePrewarmChunk(*state, file);
   }
 
   if (!file.seekSet(0)) {
@@ -4371,15 +4407,73 @@ void ChapterHtmlSlimParser::prewarmSectionAdvanceTable(FsFile& file) const {
     return;
   }
 
-  const uint32_t cpCount = uniqueCodepoints.finish();
-  if (cpCount == 0) {
+  if (state->cpCount == 0) {
     return;
   }
 
-  renderer.ensureSdCardFontReady(fontId, codepoints.get(), cpCount, /*includeSpace=*/true, hyphenationEnabled,
-                                 /*styleMask=*/0x0F);
+  feedAdvancePrewarm(*state, state->cpCount);
   LOG_DBG("EHP", "Section advance prewarm: codepoints=%u time=%lu ms free=%u maxAlloc=%u",
-          static_cast<unsigned>(cpCount), millis() - startMs, ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+          static_cast<unsigned>(state->cpCount), millis() - startMs, ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+}
+
+bool ChapterHtmlSlimParser::prewarmSectionAdvanceStep() {
+  if (!advancePrewarmPending_ || !activeParser) {
+    return false;
+  }
+  if (!advancePrewarm_) {
+    advancePrewarm_ = startAdvancePrewarm();
+    if (!advancePrewarm_) {
+      advancePrewarmPending_ = false;
+      return false;
+    }
+  }
+
+  AdvancePrewarm& state = *advancePrewarm_;
+  const uint32_t startMs = millis();
+  if (!state.scanned) {
+    if (!ensureInputFileOpen()) {
+      LOG_ERR("EHP", "Deferred advance prewarm: parser input unavailable");
+      advancePrewarm_.reset();
+      advancePrewarmPending_ = false;
+      return false;
+    }
+    // Scan from the prewarm's own offset, then put the parser back where it was.
+    const size_t resume = parseFile_.position();
+    if (parseFile_.seek(state.offset)) {
+      do {
+        scanAdvancePrewarmChunk(state, parseFile_);
+      } while (!state.scanned && millis() - startMs < SECTION_ADVANCE_PREWARM_STEP_MS);
+    } else {
+      LOG_ERR("EHP", "Deferred advance prewarm: seek to %u failed", static_cast<unsigned>(state.offset));
+      state.scanned = true;
+      state.cpCount = 0;
+    }
+    if (!parseFile_.seek(resume)) {
+      // Reopen at the parser's offset on the next parse step rather than parse from here.
+      LOG_ERR("EHP", "Deferred advance prewarm: failed to restore parser input to %u", static_cast<unsigned>(resume));
+      parseFile_.close();
+      parseFileOffset_ = resume;
+    }
+    if (state.scanned) {
+      // Lowest codepoints first, as the one-shot prewarm leaves them in a full table.
+      std::sort(state.codepoints.get(), state.codepoints.get() + state.cpCount);
+      state.cpCount = std::min(state.cpCount, SECTION_ADVANCE_PREWARM_FEED_LIMIT);
+    }
+  } else {
+    do {
+      feedAdvancePrewarm(state, SECTION_ADVANCE_PREWARM_FEED_BATCH);
+    } while (state.fedCount < state.cpCount && millis() - startMs < SECTION_ADVANCE_PREWARM_STEP_MS);
+  }
+  state.busyMs += millis() - startMs;
+
+  if (state.scanned && state.fedCount >= state.cpCount) {
+    LOG_DBG("EHP", "Deferred section advance prewarm: codepoints=%u busy=%lu ms free=%u maxAlloc=%u",
+            static_cast<unsigned>(state.cpCount), static_cast<unsigned long>(state.busyMs), ESP.getFreeHeap(),
+            ESP.getMaxAllocHeap());
+    advancePrewarm_.reset();
+    advancePrewarmPending_ = false;
+  }
+  return true;
 }
 
 ChapterHtmlSlimParser::~ChapterHtmlSlimParser() { abortParse(); }
@@ -4542,7 +4636,9 @@ bool ChapterHtmlSlimParser::beginParse() {
 
   // Compute the time taken to parse and build pages
   parseStartTime_ = millis();
-  prewarmSectionAdvanceTable(parseFile_);
+  advancePrewarm_.reset();
+  advancePrewarmPending_ = deferAdvancePrewarm_;
+  if (!deferAdvancePrewarm_) prewarmSectionAdvanceTable(parseFile_);
   return true;
 }
 
@@ -4597,6 +4693,8 @@ ChapterHtmlSlimParser::ParseStatus ChapterHtmlSlimParser::parseStep() {
 }
 
 void ChapterHtmlSlimParser::abortParse() {
+  advancePrewarm_.reset();
+  advancePrewarmPending_ = false;
   pendingInlineImages.clear();
   if (activeParser) {
     destroyXmlParser(activeParser);
@@ -4615,6 +4713,8 @@ void ChapterHtmlSlimParser::abortParse() {
 }
 
 bool ChapterHtmlSlimParser::finishParse() {
+  advancePrewarm_.reset();
+  advancePrewarmPending_ = false;
   if (activeParser) {
     LOG_DBG("EHP", "Time to parse and build pages: %lu ms (free=%u, maxAlloc=%u)", millis() - parseStartTime_,
             ESP.getFreeHeap(), ESP.getMaxAllocHeap());

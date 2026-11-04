@@ -8,6 +8,9 @@ struct Profile {
   Board board = Board::XteinkX3;
   int batteryAdc = -1;
   struct {
+    int8_t power = 2;
+  } input;
+  struct {
     int gaugeAddr = 1;
   } batteryGauge;
   struct {

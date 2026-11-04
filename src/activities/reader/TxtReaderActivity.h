@@ -6,6 +6,7 @@
 
 #include "BookLoadingFeedback.h"
 #include "CrossPointSettings.h"
+#include "DeferredGrayscale.h"
 #include "PluginReaderEvents.h"
 #include "ReaderButtonShortcuts.h"
 #include "ReaderProgressSaveDebouncer.h"
@@ -17,6 +18,7 @@
 
 class TxtReaderActivity final : public Activity {
   PluginReaderEvents pluginEvents;
+  ReaderUtils::DeferredGrayscalePlanes deferredGrayscalePlanes;
 #ifdef SIMULATOR
   friend struct ReaderMenuOrientationSmokeTest;
   friend struct StatusBarFeatureSmokeTest;
@@ -132,7 +134,7 @@ class TxtReaderActivity final : public Activity {
   bool isBookReaderActivity() const override { return true; }
   bool usesMenuButtonOrientation() const override { return quickActionsPopup.isActive(); }
   bool usesFullScreenReaderVerticalSwipes() const override {
-#if defined(FREEINK_DEVICE_STICKY) && FREEINK_DEVICE_STICKY
+#if (defined(FREEINK_DEVICE_STICKY) && FREEINK_DEVICE_STICKY) || (defined(FREEINK_DEVICE_PICCO) && FREEINK_DEVICE_PICCO)
     return true;
 #else
     return false;

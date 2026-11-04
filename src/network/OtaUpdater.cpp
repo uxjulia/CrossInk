@@ -394,7 +394,7 @@ OtaUpdater::OtaUpdaterError OtaUpdater::installUpdate(ProgressCallback onProgres
   processedSize = 0;
 
   const esp_partition_t* updatePartition = esp_ota_get_next_update_partition(nullptr);
-  if (updatePartition == nullptr) {
+  if (updatePartition == nullptr || updatePartition == esp_ota_get_running_partition()) {
     LOG_ERR("OTA", "No OTA update partition found");
     return INTERNAL_UPDATE_ERROR;
   }

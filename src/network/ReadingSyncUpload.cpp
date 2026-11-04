@@ -212,13 +212,14 @@ StatsUploadClient::Result ReadingSyncUpload::stats(const std::string& path, cons
   return client.put("/api/v1/stats/books", payload.get(), true);
 }
 
-ReadingSyncUpload::ExtrasResult ReadingSyncUpload::extras(const std::string& path, const std::string& document) {
+ReadingSyncUpload::ExtrasResult ReadingSyncUpload::extras(const std::string& path, const std::string& document,
+                                                          bool (*cancel)(void*), void* context) {
   ExtrasResult result;
   if (KOREADER_STORE.getSyncStats()) result.stats = stats(path, document);
   // These independent snapshots must still be attempted after a stats failure.
   // Clippings are EPUB-only; XTC books never save any.
   if (KOREADER_STORE.getSyncClippings() && FsHelpers::hasEpubExtension(path))
-    result.clippings = ClippingsUpload::upload(path, document);
+    result.clippings = ClippingsUpload::sync(path, document, cancel, context);
   LOG_INF("ReadingSync", "Extras: stats=%d clippings=%d", static_cast<int>(result.stats),
           static_cast<int>(result.clippings));
   return result;

@@ -22,89 +22,86 @@ class BookReadingStatsAtomicTest : public testing::Test {
   void SetUp() override { Storage.reset(); }
 };
 
-TEST_F(BookReadingStatsAtomicTest, RestoresOriginalWhenReplacementRenameFails) {
-  statsWithSeconds(123).save(CACHE_PATH);
+TEST_F(BookReadingStatsAtomicTest, SavesAlternateWithoutRename) {
+  ASSERT_TRUE(statsWithSeconds(123).save(CACHE_PATH));
+  const auto first = Storage.data(statsPath).bytes;
   Storage.failNextRenameFrom(statsPath + ".tmp");
-
-  EXPECT_FALSE(statsWithSeconds(999).save(CACHE_PATH));
-
-  EXPECT_EQ(BookReadingStats::load(CACHE_PATH).totalReadingSeconds, 123U);
-  EXPECT_TRUE(Storage.exists(statsPath.c_str()));
-  EXPECT_FALSE(Storage.exists((statsPath + ".tmp").c_str()));
-  EXPECT_FALSE(Storage.exists((statsPath + ".bak").c_str()));
-}
-
-TEST_F(BookReadingStatsAtomicTest, RecoversBackupAfterInterruptedReplacement) {
-  statsWithSeconds(456).save(CACHE_PATH);
-  ASSERT_TRUE(Storage.rename(statsPath.c_str(), (statsPath + ".bak").c_str()));
-
+  ASSERT_TRUE(statsWithSeconds(456).save(CACHE_PATH));
+  EXPECT_EQ(Storage.data(statsPath).bytes, first);
   EXPECT_EQ(BookReadingStats::load(CACHE_PATH).totalReadingSeconds, 456U);
-  EXPECT_TRUE(Storage.exists(statsPath.c_str()));
-  EXPECT_FALSE(Storage.exists((statsPath + ".bak").c_str()));
-}
-
-TEST_F(BookReadingStatsAtomicTest, PrefersCompleteTempFileOverOlderBackup) {
-  statsWithSeconds(123).save(CACHE_PATH);
-  ASSERT_TRUE(Storage.rename(statsPath.c_str(), (statsPath + ".bak").c_str()));
-  statsWithSeconds(456).save(CACHE_PATH);
-  ASSERT_TRUE(Storage.rename(statsPath.c_str(), (statsPath + ".tmp").c_str()));
-
-  EXPECT_EQ(BookReadingStats::load(CACHE_PATH).totalReadingSeconds, 456U);
-  EXPECT_TRUE(Storage.exists(statsPath.c_str()));
   EXPECT_FALSE(Storage.exists((statsPath + ".tmp").c_str()));
-}
-
-TEST_F(BookReadingStatsAtomicTest, IgnoresPartialTempFileAndRecoversBackup) {
-  statsWithSeconds(123).save(CACHE_PATH);
-  ASSERT_TRUE(Storage.rename(statsPath.c_str(), (statsPath + ".bak").c_str()));
-  FsFile tempFile;
-  ASSERT_TRUE(Storage.openFileForWrite("TEST", statsPath + ".tmp", tempFile));
-  ASSERT_EQ(tempFile.write(static_cast<uint8_t>(5)), 1U);
-  ASSERT_TRUE(tempFile.close());
-
-  EXPECT_EQ(BookReadingStats::load(CACHE_PATH).totalReadingSeconds, 123U);
-  EXPECT_TRUE(Storage.exists(statsPath.c_str()));
-  EXPECT_TRUE(Storage.exists((statsPath + ".tmp").c_str()));
-  EXPECT_FALSE(Storage.exists((statsPath + ".bak").c_str()));
-}
-
-TEST_F(BookReadingStatsAtomicTest, RecoversTempWhenPublishAndBackupRestoreFail) {
-  statsWithSeconds(123).save(CACHE_PATH);
-  Storage.failNextRenameFrom(statsPath + ".tmp");
-  Storage.failNextRenameFrom(statsPath + ".bak");
-
-  statsWithSeconds(999).save(CACHE_PATH);
-
-  EXPECT_FALSE(Storage.exists(statsPath.c_str()));
-  EXPECT_TRUE(Storage.exists((statsPath + ".tmp").c_str()));
-  EXPECT_TRUE(Storage.exists((statsPath + ".bak").c_str()));
-  EXPECT_EQ(BookReadingStats::load(CACHE_PATH).totalReadingSeconds, 999U);
-  EXPECT_TRUE(Storage.exists(statsPath.c_str()));
-  EXPECT_FALSE(Storage.exists((statsPath + ".tmp").c_str()));
-}
-
-TEST_F(BookReadingStatsAtomicTest, SuccessfulReplacementRemovesTransactionFiles) {
-  statsWithSeconds(123).save(CACHE_PATH);
-  EXPECT_TRUE(statsWithSeconds(789).save(CACHE_PATH));
-
+  ASSERT_TRUE(statsWithSeconds(789).save(CACHE_PATH));
   EXPECT_EQ(BookReadingStats::load(CACHE_PATH).totalReadingSeconds, 789U);
-  EXPECT_FALSE(Storage.exists((statsPath + ".tmp").c_str()));
-  EXPECT_FALSE(Storage.exists((statsPath + ".bak").c_str()));
+}
+
+TEST_F(BookReadingStatsAtomicTest, TornSavePreservesNewestCompleteSlot) {
+  ASSERT_TRUE(statsWithSeconds(123).save(CACHE_PATH));
+  ASSERT_TRUE(statsWithSeconds(456).save(CACHE_PATH));
+  Storage.data(statsPath).writeLimit = 20;
+  EXPECT_FALSE(statsWithSeconds(999).save(CACHE_PATH));
+  EXPECT_EQ(BookReadingStats::load(CACHE_PATH).totalReadingSeconds, 456U);
+}
+
+TEST_F(BookReadingStatsAtomicTest, FirstUpgradePreservesSoleLegacyCopy) {
+  ASSERT_TRUE(statsWithSeconds(123).save(CACHE_PATH));
+  Storage.data(statsPath).bytes.resize(75);  // legacy v6, no slot trailer
+  auto backup = Storage.open((statsPath + ".bak").c_str(), O_RDWR | O_CREAT);
+  backup.close();
+  Storage.data(statsPath + ".bak").writeLimit = 20;
+  EXPECT_FALSE(statsWithSeconds(456).save(CACHE_PATH));
+  EXPECT_EQ(BookReadingStats::load(CACHE_PATH).totalReadingSeconds, 123U);
+  Storage.data(statsPath + ".bak").writeLimit = SIZE_MAX;
+  ASSERT_TRUE(statsWithSeconds(456).save(CACHE_PATH));
+  EXPECT_EQ(Storage.data(statsPath).bytes.size(), 75u);
+  EXPECT_EQ(BookReadingStats::load(CACHE_PATH).totalReadingSeconds, 456U);
+}
+
+TEST_F(BookReadingStatsAtomicTest, CrcFailureFallsBackAndCompletionPeekUsesNewest) {
+  auto stats = statsWithSeconds(123);
+  ASSERT_TRUE(stats.save(CACHE_PATH));
+  stats.isCompleted = true;
+  ASSERT_TRUE(stats.save(CACHE_PATH));
+  EXPECT_TRUE(BookReadingStats::peekCompleted(CACHE_PATH));
+  Storage.data(statsPath + ".bak").bytes[3] ^= 1;
+  EXPECT_EQ(BookReadingStats::load(CACHE_PATH).totalReadingSeconds, 123U);
+  EXPECT_FALSE(BookReadingStats::peekCompleted(CACHE_PATH));
+}
+
+TEST_F(BookReadingStatsAtomicTest, LegacyCompleteTempStillRecoversBeforeBackup) {
+  ASSERT_TRUE(statsWithSeconds(123).save(CACHE_PATH));
+  Storage.data(statsPath).bytes.resize(75);
+  ASSERT_TRUE(Storage.rename(statsPath.c_str(), (statsPath + ".bak").c_str()));
+  auto temp = Storage.open((statsPath + ".tmp").c_str(), O_RDWR | O_CREAT);
+  auto bytes = Storage.data(statsPath + ".bak").bytes;
+  bytes[3] = 42;
+  ASSERT_EQ(temp.write(bytes.data(), bytes.size()), bytes.size());
+  temp.close();
+  EXPECT_EQ(BookReadingStats::load(CACHE_PATH).totalReadingSeconds, 42U);
+}
+
+TEST_F(BookReadingStatsAtomicTest, FailedSyncDoesNotTouchPreviousSlot) {
+  ASSERT_TRUE(statsWithSeconds(123).save(CACHE_PATH));
+  const auto previous = Storage.data(statsPath).bytes;
+  auto backup = Storage.open((statsPath + ".bak").c_str(), O_RDWR | O_CREAT);
+  backup.close();
+  Storage.data(statsPath + ".bak").failSync = true;
+  EXPECT_FALSE(statsWithSeconds(456).save(CACHE_PATH));
+  EXPECT_EQ(Storage.data(statsPath).bytes, previous);
 }
 
 TEST_F(BookReadingStatsAtomicTest, IdenticalSaveSkipsWrite) {
   statsWithSeconds(123).save(CACHE_PATH);
-  // The write path always clears a stale backup, so a surviving marker proves it did not run.
+  // An unchanged payload must leave even an invalid inactive slot untouched.
   FsFile marker;
   ASSERT_TRUE(Storage.openFileForWrite("TEST", statsPath + ".bak", marker));
   ASSERT_EQ(marker.write(static_cast<uint8_t>(7)), 1U);
   ASSERT_TRUE(marker.close());
 
   statsWithSeconds(123).save(CACHE_PATH);
-  EXPECT_TRUE(Storage.exists((statsPath + ".bak").c_str()));
+  EXPECT_EQ(Storage.data(statsPath + ".bak").bytes, std::vector<uint8_t>{7});
 
   statsWithSeconds(124).save(CACHE_PATH);
-  EXPECT_FALSE(Storage.exists((statsPath + ".bak").c_str()));
+  EXPECT_EQ(Storage.data(statsPath + ".bak").bytes.size(), 83u);
   EXPECT_EQ(BookReadingStats::load(CACHE_PATH).totalReadingSeconds, 124U);
 }
 

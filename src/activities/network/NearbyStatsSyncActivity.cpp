@@ -89,7 +89,6 @@ namespace {
 
 constexpr const char* LOG_TAG = "NSYNC";
 constexpr const char* CROSSPOINT_ROOT = "/.crosspoint";
-constexpr const char* GLOBAL_STATS_PATH = "/.crosspoint/global_stats.bin";
 constexpr const char* SYNCED_STATS_DIR = "/.crosspoint/synced_stats";
 constexpr uint8_t ESPNOW_CHANNEL = 1;
 constexpr uint8_t PROTOCOL_VERSION = 1;
@@ -325,11 +324,12 @@ bool NearbyStatsSyncActivity::prepareLocalStats() {
   // Ensure a valid local stats payload exists before exchanging stats.
   GlobalReadingStats::load().save();
 
-  if (!readSmallFile(GLOBAL_STATS_PATH, localStats_, localStatsSize_)) {
+  if (!GlobalReadingStats::exportLocal(localStats_.data(), localStats_.size())) {
     setError("local stats unavailable");
     return false;
   }
 
+  localStatsSize_ = static_cast<uint8_t>(GlobalReadingStats::CURRENT_FILE_SIZE);
   localStatsReady_ = true;
   return true;
 }

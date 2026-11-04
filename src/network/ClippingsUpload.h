@@ -8,7 +8,11 @@
 struct Clipping;
 
 namespace ClippingsUpload {
-// Server identity: first 16 lowercase hex characters of SHA256(decimal timestamp + exact UTF-8 text).
-bool identity(uint32_t timestamp, const std::string& text, char (&id)[17]);
-StatsUploadClient::Result upload(const std::string& path, const std::string& document);
+using Cancel = bool (*)(void*);
+StatsUploadClient::Result sync(const std::string& path, const std::string& document, Cancel cancel = nullptr,
+                               void* context = nullptr);
+StatsUploadClient::Result download(const std::string& path, const std::string& document, Cancel cancel = nullptr,
+                                   void* context = nullptr);
+StatsUploadClient::Result upload(const std::string& path, const std::string& document, Cancel cancel = nullptr,
+                                 void* context = nullptr);
 }  // namespace ClippingsUpload

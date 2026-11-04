@@ -41,7 +41,7 @@ struct UpstreamFeatureSmokeTest {
     require(CrossPointSettings::verifySleepScreenMigrationContract(), "sleep settings migration");
     Epub book("/port.epub", "/.crosspoint");
     require(book.load(), "GIF EPUB load");
-    require(book.generateCoverBmp(false, &renderer, 0, false), "GIF cover conversion");
+    require(book.generateCoverBmp(false, &renderer, 0), "GIF cover conversion");
     FsFile invalidThumbnail;
     require(Storage.openFileForWrite("PORTTEST", book.getThumbBmpPath(120, 160), invalidThumbnail),
             "invalid thumbnail fixture");
@@ -91,7 +91,7 @@ struct UpstreamFeatureSmokeTest {
     // not panel waveform behavior.
     FsFile overlayFile, coverFile;
     require(Storage.openFileForRead("PORTTEST", "/overlay.bmp", overlayFile), "gray mask fixture open");
-    require(Storage.openFileForRead("PORTTEST", book.getCoverBmpPath(false, false), coverFile), "gray cover open");
+    require(Storage.openFileForRead("PORTTEST", book.getCoverBmpPath(false), coverFile), "gray cover open");
     Bitmap overlay(overlayFile), cover(coverFile);
     require(overlay.parseHeaders() == BmpReaderError::Ok && cover.parseHeaders() == BmpReaderError::Ok,
             "gray bitmap headers");

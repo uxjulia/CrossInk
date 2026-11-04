@@ -18,6 +18,7 @@ inline constexpr oflag_t O_RDWR = 1;
 
 struct HostFileData {
   std::vector<uint8_t> bytes;
+  uint32_t modified = 0;
   bool failClose = false;
   size_t readCalls = 0;
   size_t seekCalls = 0;
@@ -32,6 +33,7 @@ class HalFile : public Print {
 
   void flush() {}
   size_t size() const { return data_ ? data_->bytes.size() : 0; }
+  uint32_t modificationTime() const { return data_ ? data_->modified : 0; }
   size_t fileSize() const { return size(); }
   int available() const { return data_ && cursor_ < data_->bytes.size(); }
   size_t position() const { return cursor_; }
@@ -90,6 +92,7 @@ class HalStorage {
     return storage;
   }
 
+  uint32_t revision_ = 0;
   std::string failRenameFrom;
   std::string failRemovePath;
   bool failAllRenames = false;
@@ -134,6 +137,7 @@ class HalStorage {
   const std::vector<uint8_t>& bytes(const std::string& path) const { return files_.at(path)->bytes; }
   void put(const std::string& path, std::vector<uint8_t> bytes) {
     auto data = std::make_shared<HostFileData>();
+    data->modified = ++revision_;
     data->bytes = std::move(bytes);
     files_[path] = std::move(data);
   }

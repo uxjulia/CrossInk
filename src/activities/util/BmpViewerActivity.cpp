@@ -177,7 +177,7 @@ void BmpViewerActivity::drawImage() {
 
   // 1. Open the file
   if (Storage.openFileForRead("BMP", filePath, file)) {
-    Bitmap bitmap(file, true, renderer.supportsAbsoluteGrayscale());
+    Bitmap bitmap(file, true, imageToneProfile(renderer.supportsAbsoluteGrayscale()));
 
     // 2. Parse headers to get dimensions
     if (bitmap.parseHeaders() == BmpReaderError::Ok) {

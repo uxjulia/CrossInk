@@ -101,6 +101,54 @@ TEST_F(BookCacheUtilsTest, RetryRecoversStatsAfterFailedRestore) {
   EXPECT_FALSE(Storage.exists((cachePath + ".upload_preserve_stats_pending").c_str()));
 }
 
+TEST_F(BookCacheUtilsTest, CacheClearPreservesBothStatsSlotsAndLegacyRecovery) {
+  fake::add(cachePath + "/stats_v6.bin.bak", "latest checkpoint");
+  fake::add(cachePath + "/stats_v5.bin.tmp", "legacy recovery");
+  for (const bool directoryClear : {false, true}) {
+    ASSERT_TRUE(directoryClear ? clearBookCacheDirectoryPreservingStats(cachePath)
+                               : clearBookCachePreservingUserState("/a.epub"));
+    ASSERT_TRUE(Storage.exists((cachePath + "/stats_v6.bin.bak").c_str()));
+    const auto& latest = fake::files.at(cachePath + "/stats_v6.bin.bak")->bytes;
+    EXPECT_EQ(std::string(latest.begin(), latest.end()), "latest checkpoint");
+    EXPECT_TRUE(Storage.exists((cachePath + "/stats_v5.bin.tmp").c_str()));
+  }
+}
+
+TEST_F(BookCacheUtilsTest, RetryRecoversSoleValidStatsBackupAfterFailedRestore) {
+  Storage.remove((cachePath + "/stats_v6.bin").c_str());
+  fake::add(cachePath + "/stats_v6.bin.bak", "only checkpoint");
+  fake::failRenameToPath = cachePath + "/stats_v6.bin.bak";
+  ASSERT_FALSE(clearBookCacheDirectoryPreservingStats(cachePath));
+  ASSERT_TRUE(Storage.exists((cachePath + ".clear_preserve_stats_v6.bin.bak").c_str()));
+  ASSERT_TRUE(Storage.exists((cachePath + ".clear_preserve_stats_pending").c_str()));
+  ASSERT_TRUE(clearBookCacheDirectoryPreservingStats(cachePath));
+  ASSERT_TRUE(Storage.exists((cachePath + "/stats_v6.bin.bak").c_str()));
+  const auto& latest = fake::files.at(cachePath + "/stats_v6.bin.bak")->bytes;
+  EXPECT_EQ(std::string(latest.begin(), latest.end()), "only checkpoint");
+  EXPECT_FALSE(Storage.exists((cachePath + ".clear_preserve_stats_pending").c_str()));
+}
+
+TEST_F(BookCacheUtilsTest, CapacityKeepsAllSlotsForTheNewestEightStatsVersions) {
+  for (int version = 1; version <= 9; ++version)
+    for (const char* suffix : {"", ".bak", ".tmp"})
+      fake::add(cachePath + "/stats_v" + std::to_string(version) + ".bin" + suffix, "checkpoint");
+  ASSERT_TRUE(clearBookCachePreservingUserState("/a.epub"));
+  for (int version = 2; version <= 9; ++version)
+    for (const char* suffix : {"", ".bak", ".tmp"})
+      EXPECT_TRUE(Storage.exists((cachePath + "/stats_v" + std::to_string(version) + ".bin" + suffix).c_str()));
+  EXPECT_FALSE(Storage.exists((cachePath + "/stats_v1.bin.bak").c_str()));
+}
+
+TEST_F(BookCacheUtilsTest, SourceReplacementKeepsNewestStatsSlot) {
+  seedSyncHistory();
+  fake::add(cachePath + "/stats_v6.bin.bak", "newest");
+  fake::add("/a.epub", "updated content");
+  ASSERT_TRUE(clearBookCachePreservingUserState("/a.epub", true));
+  ASSERT_TRUE(Storage.exists((cachePath + "/stats_v6.bin.bak").c_str()));
+  const auto& latest = fake::files.at(cachePath + "/stats_v6.bin.bak")->bytes;
+  EXPECT_EQ(std::string(latest.begin(), latest.end()), "newest");
+}
+
 TEST_F(BookCacheUtilsTest, RetryRecoversProgressAfterFailedRestore) {
   fake::failRenameToPath = cachePath + "/progress.bin";
   ASSERT_FALSE(clearBookCachePreservingUserState("/a.epub"));

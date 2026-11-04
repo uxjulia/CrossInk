@@ -12,6 +12,7 @@ class GifToFramebufferConverter;
 class ImageDecoderFactory {
  public:
   // Returns non-owning pointer - factory owns the decoder lifetime
+  static bool supportsMemorySource(const std::string& imagePath);
   static ImageToFramebufferDecoder* getDecoder(const std::string& imagePath);
   static bool isFormatSupported(const std::string& imagePath);
 

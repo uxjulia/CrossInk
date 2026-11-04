@@ -228,6 +228,9 @@ class GfxRenderer {
   // scaffolding (e.g. whole-plane grayscale buffers) when false.
   bool supportsAsyncRefresh() const;
   bool supportsAsyncGrayscaleBase() const;
+  bool supportsDeferredGrayscaleBase() const;
+  bool displayGrayscaleBaseAsync(HalDisplay::RefreshMode fallback) const;
+  void copyGrayscalePlanes(const uint8_t* lsb, const uint8_t* msb) const;
   // EXPERIMENTAL: Windowed update - display only a rectangular region
   // void displayWindow(int x, int y, int width, int height) const;
   void invertScreen() const;

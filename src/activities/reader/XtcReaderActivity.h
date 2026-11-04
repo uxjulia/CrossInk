@@ -16,6 +16,7 @@
 #include "BookLoadingFeedback.h"
 #include "BookReadingStats.h"
 #include "DailyReadingStats.h"
+#include "DeferredGrayscale.h"
 #include "EndOfBookOptions.h"
 #include "GlobalReadingStats.h"
 #include "PluginReaderEvents.h"
@@ -29,6 +30,7 @@
 
 class XtcReaderActivity final : public Activity {
   PluginReaderEvents pluginEvents;
+  ReaderUtils::DeferredGrayscalePlanes deferredGrayscalePlanes;
 #ifdef SIMULATOR
   friend struct ReaderMenuOrientationSmokeTest;
   friend struct StatusBarFeatureSmokeTest;
@@ -155,7 +157,7 @@ class XtcReaderActivity final : public Activity {
   bool isBookReaderActivity() const override { return true; }
   bool usesMenuButtonOrientation() const override;
   bool usesFullScreenReaderVerticalSwipes() const override {
-#if defined(FREEINK_DEVICE_STICKY) && FREEINK_DEVICE_STICKY
+#if (defined(FREEINK_DEVICE_STICKY) && FREEINK_DEVICE_STICKY) || (defined(FREEINK_DEVICE_PICCO) && FREEINK_DEVICE_PICCO)
     return true;
 #else
     return false;

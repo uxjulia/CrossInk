@@ -766,7 +766,7 @@ the replacement has the same file size. No binary format version changes.
 
 ## `/.crosspoint/clippings/<bookType>_<crc32(path)>.bin`
 
-### Versions 1-4
+### Versions 1-5
 
 Clipping files store the per-book EPUB clipping list used by the reader. A
 saved clipping is also what CrossInk renders as an in-reader highlight; there is
@@ -784,11 +784,14 @@ example:
 
 Binary layout:
 
-- `[0]` version (`1`, `2`, `3`, or current version `4`)
+- `[0]` version (`1`, `2`, `3`, `4`, `5`, or current version `6`)
 - `[1-2]` clipping count (`uint16_t` LE, maximum `256`)
 - book title (`String`)
 - book author (`String`)
 - book path (`String`)
+- version 5: pending deletion count (`uint16_t` LE, maximum `256`), then that
+  many server clipping IDs (`String`, 1–64 printable ASCII bytes each)
+- version 6 uses the same deletion list with a 16-byte scope prefix on each ID
 - repeated clipping records:
   - `spineIndex` (`uint16_t` LE)
   - `startPage` (`uint16_t` LE)
@@ -798,14 +801,19 @@ Binary layout:
   - `endWordIndex` (`uint16_t` LE)
   - `wordCount` (`uint16_t` LE)
   - `paragraphIndex` (`uint16_t` LE, `UINT16_MAX` when unavailable)
-  - `timestamp` (`uint32_t` LE, seconds since firmware boot when saved)
-  - versions 3-4: reader layout signature (`uint32_t` LE; font, spacing,
+  - `timestamp` (`uint32_t` LE, Unix UTC seconds; `0` when no valid clock is
+    available; older records may contain boot-relative seconds)
+  - versions 3–6: reader layout signature (`uint32_t` LE; font, spacing,
     viewport, and other section-layout inputs)
-  - version 4: table selection (`uint16_t` LE; `UINT16_MAX` for non-table text)
+  - versions 4–6: table selection (`uint16_t` LE; `UINT16_MAX` for non-table text)
+  - version 5: server clipping ID (`String`, maximum 64 bytes; empty for a
+    local selection that has never been prepared for upload), then a local
+    upload marker (`uint8_t`, `0` or `1`; imported records retain `0`)
+  - version 6 uses the same ID and flag fields. Bit 0 marks a local upload and bit 1 indicates a 16-byte scope prefix on the stored ID.
   - `chapterTitle` (`char[48]`, null-terminated/truncated)
   - version 1: selected text (`String`; legacy files were written with a
     `512`-byte in-app limit)
-  - versions 2-4: selected-text length (`uint16_t` LE) followed by that many
+  - versions 2–6: selected-text length (`uint16_t` LE) followed by that many
     UTF-8 bytes (the current in-app limit is `4096` bytes, defined by
     `CLIPPING_TEXT_MAX`)
 
@@ -827,17 +835,94 @@ same total page count. Legacy records without a layout signature use text
 matching rather than trusting ambiguous numeric ranges. Version 4 adds the
 table selection field; versions 1-3 remain readable.
 
+Version 6 binds each selection to its server, account and document when first
+prepared for upload or imported. A new local selection gets a random 128-bit
+ID before its first upload. The reader keeps the ID on SD alongside the text.
+Two selections of identical text have independent IDs. A deletion travels only
+to its original destination and stays queued across account switches and book
+moves until that destination accepts it. A book can hold up to 256 pending deletions.
+
+Versions 1–5 remain readable. For previously uploaded local selections,
+migration preserves the recorded ID or the legacy timestamp/text hash. If
+multiple old selections share that ID, the first keeps it and the others get
+new IDs. An unscoped v5 import can be bound by a matching live ID and passage.
+V5 deletion records contain no destination, so upgrading skips these entries.
+A remote highlight deleted offline before the upgrade may reappear on replay.
+
+Two-way sync exchanges these per-book records, including tombstones, through
+`/api/v1/clippings/:document?cursor=…&limit=1&format=reader`. The v2 revision
+cursor pages even changes made in the same second. Each applied page checkpoints a cursor in a CRC-protected
+`/.crosspoint/clipping-sync/epub_<crc32(path)>.bin` sidecar (version `uint8_t=2`, 16 ASCII hex bytes of scope
+fingerprint, `uint64_t` revision, trailing CRC32). Its scope hashes the server
+URL, username and document ID; changed accounts/servers/documents or lost sidecars
+restart at zero. Failed writes replay safely by ID; Back is checked between
+requests. A full book defers additions and replays once after later deletions,
+without skipping an unhandled addition. Sidecars are optional download caches;
+losing one only repeats the merge. Bulk Sync Books,
+Sync Folder and Sync Clippings check local EPUBs even if they have no clippings
+yet. Downloads are applied one record at a time after TLS is released, retain
+local selections, respect the 256 live-selection limit and resolve highlights
+against saved text when device layouts differ. Imported selections are not
+uploaded again, preserving server-only notes, colors and source offsets.
+
 Creating a clipping also appends a Kindle-style export entry to
 `/My Clippings.txt` on the SD-card root. That text export can keep up to `2000`
 bytes of the selected text and is append-only. Removing a clipping from the
 reader deletes or rewrites only the binary clipping file; it does not remove
-previous entries from `/My Clippings.txt`.
+previous entries from `/My Clippings.txt`. Downloading or deleting synced
+clippings never reads, appends to, rewrites or imports that text export.
 
 When CrossInk moves an EPUB through its built-in move-to-Read flow, it rewrites
 the clipping file under the new path-derived name and removes the old one. If a
 book is renamed or moved outside CrossInk, the path hash changes, so the old
 clipping file may no longer be associated with the book until the file is moved
 back or the clipping store is migrated.
+
+## EPUB `progress.bin` and alternating save slots
+
+EPUB progress uses `progress.bin` and `progress.bin.bak` as alternating slots.
+The newest valid sequence wins. A save overwrites only the other slot, without
+truncating an existing same-size file or rotating directory entries. A short
+write or CRC failure leaves the preceding complete slot readable. Unchanged
+progress is not written; existing progress-save debounce remains in effect.
+
+Each new record is 20 bytes, little-endian:
+
+| Offset | Bytes | Value |
+| --- | --- | --- |
+| 0 | 2 | Spine index |
+| 2 | 2 | Page index |
+| 4 | 2 | Page count |
+| 6 | 4 | Visible-text offset, zero if absent |
+| 10 | 1 | Marker `0xC5` |
+| 11 | 1 | Flags: bit 0 means visible-text offset is present |
+| 12 | 4 | Sequence, compared modulo 2^32 |
+| 16 | 4 | IEEE CRC-32 of bytes 0–15 |
+
+Legacy 4-, 6-, and 10-byte records remain readable. Migration writes the other
+slot first so an interrupted first save cannot destroy the only legacy copy.
+Versioned records take precedence over legacy records. Downgrading firmware
+can expose a position one save behind; after a downgrade, legacy writes do not
+override a surviving versioned slot on re-upgrade. Export or back up both slots
+before switching firmware. This change does not invalidate EPUB layout caches.
+TXT and XTC progress formats are unchanged.
+
+## Reading-stat save slots
+
+Local `global_stats.bin` and per-book `stats_v6.bin` use the same alternating
+primary/`.bak` policy. Their existing payloads remain 159 and 75 bytes,
+respectively; each slot appends a 4-byte sequence and a 4-byte IEEE CRC-32 of
+the payload plus sequence. Thus stored records are 167 and 83 bytes. Readers
+validate the entire record before choosing its sequence. The first migration
+preserves the legacy primary. Previous per-book versions and recoverable
+legacy `.tmp` files are still accepted by the migration loader.
+
+Nearby sharing and stats backups export the original payload without the slot
+trailer, preserving their wire/file contracts. Both local slots must be included
+in raw SD backups. Older firmware may not understand the new local envelopes;
+use exported stats backups when transferring to an older version. Reset deletes
+older per-book fallback files before deleting the newest slot. Global reset
+writes an empty newest snapshot through the same interruption-safe save path.
 
 ## `stats_v6.bin`
 
@@ -855,8 +940,8 @@ at that cap. Fractional precision is preserved across updates and reopen.
 The whole-second field and sync payload retain their existing units.
 
 When absent, reads try `stats_v5.bin`, `stats_v4.bin`, then legacy `stats.bin`.
-Older payloads start with a zero fractional part. Saves write only version 6;
-older canonical snapshots remain available to older firmware. Reset removes
+Older payloads start with a zero fractional part. Saves write version 6 inside the checksum envelope described above;
+older versioned snapshots remain migration sources. Reset removes
 all supported versioned snapshots and recovery files to avoid restoring old
 history. This stats-only change does not invalidate EPUB layout caches.
 
@@ -1929,3 +2014,30 @@ with a fixed 16-byte content key.
 Writes use `.tmp` staging and `.old` recovery. The device secret is not stored on
 the SD card. Existing EPUB cache formats are unchanged; those caches may contain
 decoded content and are usable by the reader only after its book-open access check.
+
+## Optional battery diagnostic log (CSV v3)
+
+`/battery_log.csv` is enabled only with `CROSSINK_BATTERY_DIAG_LOG=1` and appends
+one row at the existing wake and sleep events. There are no periodic log writes.
+The v3 header is:
+
+```text
+timestamp,uptime_ms,soc,mv,charging,event,version,git_sha,git_dirty,device,wake_route,display_soc,usb,charge_done,charger_status,estimate_state,settle_ms,sample_age_ms,resumed
+```
+
+`soc` is a fresh backend estimate; `display_soc` is the most recent displayed
+estimate and may be empty before the first UI sample. Picco `mv` is the median
+of three immediate ADC conversions. `usb` and `charge_done` report charger
+observations, and `charger_status` is its raw status register in decimal.
+`estimate_state` is 0 unknown, 1 battery, 2 charging, 3 external idle, or 4 full.
+The percentage is an estimate: 100% can appear while the charger is topping
+off. Only `charge_done=1` / `estimate_state=4` indicates observed charger completion.
+`settle_ms` is the remaining transition settling interval. `sample_age_ms` is
+the age of the UI sample, including sleep on Picco; `resumed` marks successful
+restoration of its estimator from RTC memory. Unsupported/failed readings are
+empty, not zero. Logging does not advance or force-refresh the UI estimate.
+
+Existing v1/v2 files are preserved as `/battery_log_v1.csv` or
+`/battery_log_v2.csv`, adding a numbered suffix if needed. Unknown headers are
+left untouched. Appending stops at the existing 128 KiB cap. RTC estimate state
+is versioned and validated in retained RAM; it adds no SD/NVS file format.

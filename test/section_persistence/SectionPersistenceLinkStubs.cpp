@@ -31,6 +31,7 @@ uint32_t Hyphenator::patternIdentity(const std::string&) { return testHyphenatio
 void Hyphenator::setPreferredLanguage(const std::string&) {}
 
 ChapterHtmlSlimParser::~ChapterHtmlSlimParser() = default;
+bool ChapterHtmlSlimParser::prewarmSectionAdvanceStep() { return false; }
 bool ChapterHtmlSlimParser::beginParse() { return false; }
 ChapterHtmlSlimParser::ParseStatus ChapterHtmlSlimParser::parseStep() { return ParseStatus::Error; }
 bool ChapterHtmlSlimParser::finishParse() { return true; }

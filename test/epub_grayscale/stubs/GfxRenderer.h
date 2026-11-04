@@ -17,6 +17,7 @@ class GfxRenderer {
   int width, height, stride;
   Orientation orientation = Portrait;
   RenderMode mode = BW;
+  bool deferredSupported = true;
   bool supported = true, inverted = false, active = false;
   int origin = 0, rows = 0, placeholders = 0;
   uint8_t* target = nullptr;
@@ -52,6 +53,13 @@ class GfxRenderer {
     origin = rows = 0;
   }
   void clearScreen(uint8_t c) { memset(getWriteTarget(), c, size_t(stride) * getWriteRows()); }
+  bool supportsDeferredGrayscaleBase() const { return deferredSupported && !inverted; }
+  void displayGrayscaleBaseAsync(int) { events.push_back("base"); }
+  void copyGrayscalePlanes(const uint8_t* low, const uint8_t* high) {
+    events.push_back("copy");
+    memcpy(lsb.data(), low, lsb.size());
+    memcpy(msb.data(), high, msb.size());
+  }
   void waitRefreshComplete() { events.push_back("wait"); }
   void writeGrayscalePlaneStrip(bool low, const uint8_t* p, int y, int count) {
     assert(!active);

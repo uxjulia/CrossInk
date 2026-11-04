@@ -73,10 +73,10 @@ class GifBmpTest : public ::testing::Test {
 };
 
 TEST_F(GifBmpTest, WritesCroppedAndFitCoverHeaders) {
-  for (const bool thresholds : {false, true}) {
+  for (auto profile : {ImageToneProfile::Legacy, ImageToneProfile::Even, ImageToneProfile::PiccoCover}) {
     for (const bool crop : {false, true}) {
       Output out;
-      ASSERT_TRUE(GifToBmpConverter::gifFileToBmpStream(file, out, crop, thresholds));
+      ASSERT_TRUE(GifToBmpConverter::gifFileToBmpStream(file, out, crop, profile));
       checkBmp(out, 40, crop ? 64 : 20, 2);
     }
   }

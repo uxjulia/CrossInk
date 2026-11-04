@@ -19,9 +19,9 @@
 // progress change feed, Sync Books and Sync Folder are incremental: a scope's
 // first sync walks it once, later syncs pull only changed positions and push
 // only books on the pending list. Stock KOSync servers keep the per-book walk.
-// The ReadingStats and Clippings scopes upload
-// only that data and never touch progress: a one-time catch-up of everything
-// saved (resumable), then only books on the pending-push list. Every upload
+// ReadingStats uploads saved stats; Clippings exchanges per-book highlights
+// across all EPUBs, including books without local selections. Neither changes
+// reading progress. Every upload
 // clears the pending bits it settled. Only entered from an explicit user
 // action; no reader/background hooks.
 class StatsUploadActivity final : public Activity {
@@ -31,7 +31,7 @@ class StatsUploadActivity final : public Activity {
     Folder,        // A File Browser folder and its subfolders ("Sync Folder").
     Book,          // One book without a KOReader position (XTC): stats only.
     ReadingStats,  // Overall stats plus every book's saved stats, found by walking the card.
-    Clippings,     // Every book's clippings, found by listing the clippings folder.
+    Clippings,     // Two-way clippings for every EPUB on the card.
   };
   // Sync Books.
   StatsUploadActivity(GfxRenderer& renderer, MappedInputManager& input)
@@ -158,6 +158,10 @@ class StatsUploadActivity final : public Activity {
   StatsUploadClient::Result globalResult = StatsUploadClient::Result::Skipped;
   std::unique_ptr<FolderBookIterator> folderBooks;
   bool globalAttempted = false;
+  bool clippingPullStarted = false;
+  bool clippingPullFinished = false;
+  bool clippingCancelled = false;
+  static bool cancelClippings(void* context);
   bool singleBookTaken = false;
   bool ownsWifi = false;
   bool initialConfirm = false;

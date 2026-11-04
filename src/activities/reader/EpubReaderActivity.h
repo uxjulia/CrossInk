@@ -17,6 +17,7 @@
 #include "BookReadingStats.h"
 #include "BookmarkStore.h"
 #include "DailyReadingStats.h"
+#include "DeferredGrayscale.h"
 #include "EndOfBookOptions.h"
 #include "EpubLinkReturnState.h"
 #include "EpubReaderMenuModel.h"
@@ -101,6 +102,7 @@ class EpubReaderActivity final : public Activity {
   };
 
  private:
+  ReaderUtils::DeferredGrayscalePlanes deferredGrayscalePlanes;
   // The on-disk settings record also carries the dictionary family. Keeping it
   // out of the long-lived reader object matters on the C3: this activity is
   // allocated immediately before an EPUB section needs its largest block.

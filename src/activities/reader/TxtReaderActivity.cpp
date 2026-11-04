@@ -887,9 +887,21 @@ void TxtReaderActivity::renderPage() {
   renderLines();
   renderStatusBar();
 
-  ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh);
+  const bool deferred =
+      SETTINGS.textAntiAliasing &&
+      ReaderUtils::displayDeferredGrayscale(renderer, pagesUntilFullRefresh, deferredGrayscalePlanes, [&]() {
+        renderLines();
+        return true;
+      });
+  if (!deferred) {
+    auto request = ReaderUtils::PageRefresh::Blocking;
+#if FREEINK_DEVICE_PICCO || FREEINK_DEVICE_STICKY
+    if (SETTINGS.textAntiAliasing) request = ReaderUtils::PageRefresh::GrayscaleBase;
+#endif
+    ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh, request);
+  }
 
-  if (SETTINGS.textAntiAliasing) {
+  if (SETTINGS.textAntiAliasing && !deferred) {
     ReaderUtils::renderAntiAliased(renderer, [&renderLines]() { renderLines(); });
   }
   pluginEvents.rendered(totalPages > 0 ? static_cast<int>((currentPage + 1LL) * 10000 / totalPages) : 0);

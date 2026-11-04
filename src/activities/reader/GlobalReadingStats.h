@@ -26,6 +26,7 @@ struct GlobalReadingStats {
   static GlobalReadingStats load();
 
   // Checked local export, never includes nearby-device snapshots.
+  static bool exportLocal(uint8_t* data, size_t capacity);
   static bool loadForUpload(GlobalReadingStats& stats);
 
   // Returns true when the optional synced stats directory exists.
@@ -43,8 +44,7 @@ struct GlobalReadingStats {
   // Saves global and pending daily stats. False means either save needs retrying.
   bool save() const;
 
-  // Replaces /.crosspoint/global_stats.bin with a fresh empty file without
-  // rotating or deleting any backup files.
+  // Saves an empty newest snapshot through the same alternating-slot policy.
   static bool resetLocal();
   // Advances after each successful resetLocal(), so an open reader knows its
   // in-memory copy was replaced on disk. Any new path that replaces the file

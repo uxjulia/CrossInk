@@ -6,6 +6,7 @@
 #include <new>
 
 #include "ClippingStore.h"
+#include "activities/reader/ReadingStatsUtils.h"
 
 namespace {
 bool failArray = false;
@@ -16,6 +17,8 @@ void* operator new[](size_t size, const std::nothrow_t&) noexcept {
 }
 void operator delete[](void* bytes) noexcept { std::free(bytes); }
 void operator delete[](void* bytes, const std::nothrow_t&) noexcept { std::free(bytes); }
+bool ReadingStatsDate::isValid() const { return false; }
+uint32_t readingStatsDayIndex(const ReadingStatsDate&) { return 0; }
 void SyncPending::SessionMarker::mark(const std::string&, uint8_t) {}
 
 namespace {
@@ -36,19 +39,27 @@ std::string bytes(const std::string& name) {
   const auto& v = fake::files.at(name)->bytes;
   return {v.begin(), v.end()};
 }
-std::string fixture(uint8_t version = 4, uint16_t count = 2) {
+std::string fixture(uint8_t version = 6, uint16_t count = 2) {
   std::string out;
   pod(out, version);
   pod(out, count);
   string(out, "Title");
   string(out, "Author");
   string(out, BOOK);
+  if (version >= 5) {
+    pod(out, uint16_t(1));
+    string(out, version == 6 ? "0123456789abcdefdeleted" : "legacy-deleted");
+  }
   for (uint16_t i = 0; i < count; ++i) {
     for (uint16_t x : {i, uint16_t(0), uint16_t(0), uint16_t(1), uint16_t(0), uint16_t(2), uint16_t(3), uint16_t(0)})
       pod(out, x);
     pod(out, uint32_t(0));
     if (version >= 3) pod(out, uint32_t(123));
     if (version >= 4) pod(out, uint16_t(UINT16_MAX));
+    if (version >= 5) {
+      string(out, version == 6 ? "0123456789abcdefexisting" : "legacy");
+      pod(out, uint8_t(version == 6 ? 3 : 1));
+    }
     out.append(CLIPPING_CHAPTER_TITLE_MAX, '\0');
     if (version == 1)
       pod(out, uint32_t(7));
@@ -77,8 +88,8 @@ void cannotMutate(const std::string& original) {
 }
 }  // namespace
 int main() {
-  // Every readable version still loads and rewrites in CrossInk's v4 format.
-  for (uint8_t version = 1; version <= 4; ++version) {
+  // Every readable version still loads and rewrites in CrossInk's v6 format.
+  for (uint8_t version = 1; version <= 6; ++version) {
     reset();
     fake::add(path(), fixture(version));
     assert(load());
@@ -91,14 +102,17 @@ int main() {
     assert(store.clippingCount() == 3);
   }
   // Every truncation boundary, including a complete first record and partial second.
-  const std::string good = fixture();
-  for (size_t cut = 0; cut < good.size(); ++cut) {
-    reset();
-    const auto truncated = good.substr(0, cut);
-    fake::add(path(), truncated);
-    assert(!load());
-    cannotMutate(truncated);
+  for (uint8_t version = 1; version <= 6; ++version) {
+    const std::string good = fixture(version);
+    for (size_t cut = 0; cut < good.size(); ++cut) {
+      reset();
+      const auto truncated = good.substr(0, cut);
+      fake::add(path(), truncated);
+      assert(!load());
+      cannotMutate(truncated);
+    }
   }
+  const std::string good = fixture();
   reset();
   std::string huge;
   pod(huge, uint8_t(4));

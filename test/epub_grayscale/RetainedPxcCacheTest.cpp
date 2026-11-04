@@ -2,7 +2,12 @@
 
 #include "lib/Epub/Epub/blocks/ImageBlock.cpp"
 
-ImageToFramebufferDecoder* ImageDecoderFactory::getDecoder(const std::string&) { return nullptr; }
+bool ImageDecoderFactory::supportsMemorySource(const std::string& path) {
+  return path.ends_with(".jpg") || path.ends_with(".png");
+}
+
+static ImageToFramebufferDecoder* testDecoder = nullptr;
+ImageToFramebufferDecoder* ImageDecoderFactory::getDecoder(const std::string&) { return testDecoder; }
 
 namespace {
 
@@ -35,6 +40,7 @@ class RetainedPxcCacheTest : public testing::Test {
   void SetUp() override {
     ImageBlock::clearSessionRenderFailures();
     ImageBlock::setExtractor(nullptr, nullptr, nullptr);
+    testDecoder = nullptr;
     fakeheap::reset(true);
     Storage.reset();
   }
@@ -227,3 +233,72 @@ TEST_F(RetainedPxcCacheTest, ChangedDimensionsBypassThePreviousPathEntry) {
 }
 
 }  // namespace
+
+namespace {
+struct SourceDecoder : ImageToFramebufferDecoder {
+  bool memory = false;
+  int calls = 0;
+  bool decodeToFramebuffer(const std::string&, GfxRenderer&, const RenderConfig& config) override {
+    ++calls;
+    memory = config.sourceData != nullptr;
+    if (memory) {
+      EXPECT_EQ(config.sourceSize, 8u);
+      EXPECT_EQ(config.sourceData[0], 42);
+    }
+    return true;
+  }
+  bool getDimensions(const std::string&, ImageDimensions&) const override { return false; }
+  const char* getFormatName() const override { return "test"; }
+};
+struct SourceContext {
+  int loaded = 0, extracted = 0;
+  bool fail = false;
+};
+bool extractSource(void* context, const char*, const char* path) {
+  ++static_cast<SourceContext*>(context)->extracted;
+  Storage.put(path, std::vector<uint8_t>(8, 42));
+  return true;
+}
+HeapByteBuffer loadSource(void* context, const char*, size_t& size) {
+  auto& state = *static_cast<SourceContext*>(context);
+  ++state.loaded;
+  if (state.fail) return {};
+  auto source = makePsramByteBufferNoThrow(8);
+  if (source) {
+    memset(source.get(), 42, 8);
+    size = 8;
+  }
+  return source;
+}
+}  // namespace
+TEST_F(RetainedPxcCacheTest, MemoryImageSourceAvoidsTemporarySdFile) {
+  SourceContext context;
+  SourceDecoder decoder;
+  testDecoder = &decoder;
+  ImageBlock::setExtractor(&context, extractSource, nullptr, loadSource);
+  ImageBlock block("source.jpg", "chapter/image.jpg", 20, 20);
+  block.prepareCache();
+  EXPECT_EQ(context.extracted, 0);
+  GfxRenderer renderer;
+  block.render(renderer, 0, 0, true);
+  EXPECT_EQ(context.loaded, 1);
+  EXPECT_EQ(context.extracted, 0);
+  EXPECT_TRUE(decoder.memory);
+  EXPECT_FALSE(Storage.exists("source.jpg"));
+  EXPECT_TRUE(fakeheap::live.empty());
+}
+TEST_F(RetainedPxcCacheTest, MemoryImageFailureFallsBackToSdExtraction) {
+  SourceContext context;
+  context.fail = true;
+  SourceDecoder decoder;
+  testDecoder = &decoder;
+  ImageBlock::setExtractor(&context, extractSource, nullptr, loadSource);
+  ImageBlock block("source.png", "chapter/image.png", 20, 20);
+  block.prepareCache();
+  GfxRenderer renderer;
+  block.render(renderer, 0, 0, true);
+  EXPECT_EQ(context.loaded, 1);
+  EXPECT_EQ(context.extracted, 1);
+  EXPECT_FALSE(decoder.memory);
+  EXPECT_EQ(decoder.calls, 1);
+}

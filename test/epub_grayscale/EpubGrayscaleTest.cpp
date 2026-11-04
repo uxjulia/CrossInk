@@ -21,6 +21,10 @@ void* rasterMalloc(size_t n) {
 #define malloc rasterMalloc
 #include "lib/Epub/Epub/blocks/ImageBlock.cpp"
 #undef malloc
+bool ImageDecoderFactory::supportsMemorySource(const std::string& path) {
+  return path.ends_with(".jpg") || path.ends_with(".png");
+}
+
 ImageToFramebufferDecoder* ImageDecoderFactory::getDecoder(const std::string&) { return nullptr; }
 
 namespace {

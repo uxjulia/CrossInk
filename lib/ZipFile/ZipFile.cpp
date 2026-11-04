@@ -219,13 +219,14 @@ size_t zipStreamFillCallback(void* vctx, const uint8_t** data) {
 
 ZipFileStreamReader::~ZipFileStreamReader() { abort(); }
 
-bool ZipFileStreamReader::begin(const std::string& zipPathIn, const char* filename, const size_t chunkSizeIn) {
+bool ZipFileStreamReader::begin(const std::string& zipPathIn, const char* filename, const size_t chunkSizeIn,
+                                ZipDirectoryCache* directoryCache) {
   abort();
   if (!filename || filename[0] == '\0' || chunkSizeIn == 0) {
     return false;
   }
 
-  ZipFile zip(zipPathIn);
+  ZipFile zip(zipPathIn, directoryCache);
   const ScopedOpenClose zipOpen{zip};
   if (!zipOpen) return false;
 
@@ -462,6 +463,69 @@ bool ZipFile::loadAllFileStatSlims() {
   return true;
 }
 
+namespace {
+uint16_t directoryU16(const uint8_t* p) { return static_cast<uint16_t>(p[0]) | (static_cast<uint16_t>(p[1]) << 8); }
+uint32_t directoryU32(const uint8_t* p) {
+  return static_cast<uint32_t>(directoryU16(p)) | (static_cast<uint32_t>(directoryU16(p + 2)) << 16);
+}
+}  // namespace
+
+bool ZipFile::prepareDirectoryCache() {
+  if (!directoryCache || !psramHeapAvailable()) return false;
+  auto& cache = *directoryCache;
+  // Each Epub::load starts a new cache lifetime. Also reject observable changes
+  // within that lifetime, including same-size replacements with a new timestamp.
+  const uint32_t modified = file.modificationTime();
+  if (cache.attempted && (cache.path != filePath || cache.fileSize != file.size() || cache.modified != modified)) {
+    cache.clear();
+    zipDetails.isSet = false;
+  }
+  if (cache.attempted) return !!cache.bytes;
+  cache.attempted = true;
+  cache.path = filePath;
+  cache.fileSize = file.size();
+  cache.modified = modified;
+  if (!loadZipDetails()) return false;
+  cache.offset = zipDetails.centralDirOffset;
+  cache.length = zipDetails.centralDirSize;
+  cache.count = zipDetails.totalEntries;
+  constexpr size_t maxDirectoryBytes = 1024 * 1024;
+  constexpr size_t reserveBytes = 1024 * 1024;
+  const auto heap = byteHeapSnapshot(MemoryPool::Psram);
+  if (!cache.count || cache.count == UINT16_MAX || cache.length > maxDirectoryBytes ||
+      cache.length < static_cast<size_t>(cache.count) * 46 || cache.offset > cache.fileSize ||
+      cache.length > cache.fileSize - cache.offset || heap.free < reserveBytes + cache.length ||
+      heap.largest < cache.length)
+    return false;
+  auto bytes = makePsramByteBufferNoThrow(cache.length);
+  if (!bytes) {
+    LOG_ERR("ZIP", "Directory cache allocation failed; using SD scan");
+    return false;
+  }
+  if (!file.seek(cache.offset) || file.read(bytes.get(), cache.length) != static_cast<int>(cache.length)) {
+    LOG_ERR("ZIP", "Directory cache read failed; using SD scan");
+    return false;
+  }
+  size_t offset = 0;
+  for (uint32_t i = 0; i < cache.count; ++i) {
+    if (offset > cache.length || cache.length - offset < 46 || directoryU32(bytes.get() + offset) != 0x02014b50) {
+      LOG_ERR("ZIP", "Invalid directory cache entry; using SD scan");
+      return false;
+    }
+    const uint8_t* entry = bytes.get() + offset;
+    const size_t length = 46u + directoryU16(entry + 28) + directoryU16(entry + 30) + directoryU16(entry + 32);
+    if (length > cache.length - offset || directoryU16(entry + 34) != 0 || directoryU32(entry + 20) == UINT32_MAX ||
+        directoryU32(entry + 24) == UINT32_MAX || directoryU32(entry + 42) >= cache.offset)
+      return false;
+    offset += length;
+  }
+  // Never install a partially parsed directory, or unsupported trailing records.
+  if (offset != cache.length) return false;
+  LOG_DBG("ZIP", "PSRAM directory: %u entries, %u bytes", cache.count, cache.length);
+  cache.bytes = std::move(bytes);
+  return true;
+}
+
 bool ZipFile::loadFileStatSlim(const char* filename, FileStatSlim* fileStat) {
   if (!fileStatSlimCache.empty()) {
     const auto it = fileStatSlimCache.find(filename);
@@ -475,6 +539,22 @@ bool ZipFile::loadFileStatSlim(const char* filename, FileStatSlim* fileStat) {
   const ScopedOpenClose zip{*this};
   if (!zip) return false;
 
+  if (prepareDirectoryCache()) {
+    const auto& cache = *directoryCache;
+    const std::string_view wanted(filename);
+    size_t offset = 0;
+    for (uint32_t i = 0; i < cache.count; ++i) {
+      const uint8_t* entry = cache.bytes.get() + offset;
+      const uint16_t nameLength = directoryU16(entry + 28);
+      if (wanted == std::string_view(reinterpret_cast<const char*>(entry + 46), nameLength)) {
+        *fileStat = {directoryU16(entry + 10), directoryU32(entry + 20), directoryU32(entry + 24),
+                     directoryU32(entry + 42)};
+        return true;
+      }
+      offset += 46u + nameLength + directoryU16(entry + 30) + directoryU16(entry + 32);
+    }
+    return false;
+  }
   if (!loadZipDetails()) return false;
 
   // Phase 1: Try scanning from cursor position first
@@ -600,6 +680,7 @@ bool ZipFile::loadZipDetails() {
   // Offset 16: Offset of start of central directory with respect to the starting disk number (4 bytes)
   memcpy(&zipDetails.totalEntries, buffer + foundOffset + 10, sizeof(zipDetails.totalEntries));
   memcpy(&zipDetails.centralDirOffset, buffer + foundOffset + 16, sizeof(zipDetails.centralDirOffset));
+  memcpy(&zipDetails.centralDirSize, buffer + foundOffset + 12, sizeof(zipDetails.centralDirSize));
   zipDetails.isSet = true;
 
   free(buffer);
@@ -1029,7 +1110,7 @@ std::unique_ptr<ZipFileStreamReader> ZipFile::openFileStream(const char* filenam
     LOG_ERR("ZIP", "Failed to allocate cooperative stream reader");
     return nullptr;
   }
-  if (!reader->begin(filePath, filename, chunkSize)) {
+  if (!reader->begin(filePath, filename, chunkSize, directoryCache)) {
     return nullptr;
   }
   return reader;

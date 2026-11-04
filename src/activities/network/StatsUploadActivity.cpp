@@ -223,7 +223,10 @@ void StatsUploadActivity::start() {
       return;
     }
   } else if (scope == Scope::Clippings && KOREADER_STORE.getSyncClippings()) {
-    if (!startTargeted(false)) {
+    // Check every EPUB on every run, even if it has no saved clippings here.
+    phase = Phase::CatchUp;
+    folderBooks = makeUniqueNoThrow<FolderBookIterator>("/");
+    if (!folderBooks) {
       fail(tr(STR_SYNC_FAILED_MSG));
       return;
     }
@@ -284,6 +287,21 @@ void StatsUploadActivity::finishUpload() {
     reviewStarted = true;
     LOG_INF("StatsSync", "Reviewing %u kept conflict(s)", static_cast<unsigned>(deferredBooks.size()));
     reviewNext();
+    return;
+  }
+  if ((scope == Scope::Library || scope == Scope::Folder) && KOREADER_STORE.getSyncClippings() &&
+      KOREADER_STORE.getServerSupport() == SyncServerSupport::SUPPORTED && !clippingPullStarted) {
+    // The progress feed cannot announce a new clipping. Walk all local EPUBs
+    // after the incremental progress work, including never-opened books.
+    pending.end();
+    folderBooks = makeUniqueNoThrow<FolderBookIterator>(scopePath());
+    if (!folderBooks) {
+      fail(tr(STR_KOREADER_SYNC_LOW_MEMORY));
+      return;
+    }
+    clippingPullStarted = true;
+    progressDone = progressTotal = 0;
+    requestUpdate();
     return;
   }
   LOG_INF("StatsSync", "Finished: synced=%u skipped=%u failed=%u", static_cast<unsigned>(uploaded),
@@ -893,6 +911,7 @@ void StatsUploadActivity::pushStep() {
   // Stats and clippings first: a parked comparison continues in a child activity.
   if ((mask & SyncPending::STATS_BIT) && KOREADER_STORE.getSyncStats()) addBookStats(bookPath);
   if ((mask & SyncPending::CLIPPINGS_BIT) && KOREADER_STORE.getSyncClippings()) uploadClippings(bookPath);
+  if (clippingCancelled) return;
   if ((mask & SyncPending::PROGRESS_BIT) && FsHelpers::hasEpubExtension(bookPath) && pushProgress(bookPath)) return;
   requestUpdate();
 }
@@ -920,29 +939,24 @@ StatsUploadActivity::NextBook StatsUploadActivity::nextPending(std::string& book
 
 StatsUploadActivity::NextBook StatsUploadActivity::nextBook(std::string& bookPath) {
   switch (scope) {
-    case Scope::ReadingStats:
     case Scope::Clippings: {
-      const bool stats = scope == Scope::ReadingStats;
-      if (phase == Phase::Pending)
-        return nextPending(bookPath, stats ? SyncPending::STATS_BIT : SyncPending::CLIPPINGS_BIT);
-      if (phase != Phase::CatchUp) return NextBook::Done;  // toggle off: overall stats only
-      NextBook next = NextBook::Done;
-      if (stats) {
-        const auto step = folderBooks->next(bookPath);
-        next = step == FolderBookIterator::Result::Book    ? NextBook::Book
-               : step == FolderBookIterator::Result::Entry ? NextBook::Skip
-               : step == FolderBookIterator::Result::Error ? NextBook::Error
-                                                           : NextBook::Done;
-      } else {
-        const auto step = ClippingStore::nextClippedEpub(clippingsPosition, bookPath);
-        next = step == ClippingStore::ClippedBookStep::Book    ? NextBook::Book
-               : step == ClippingStore::ClippedBookStep::Skip  ? NextBook::Skip
-               : step == ClippingStore::ClippedBookStep::Error ? NextBook::Error
-                                                               : NextBook::Done;
+      if (!folderBooks) return NextBook::Done;
+      const auto step = folderBooks->next(bookPath);
+      if (step == FolderBookIterator::Result::Done) return NextBook::Done;
+      if (step == FolderBookIterator::Result::Error) return NextBook::Error;
+      return step == FolderBookIterator::Result::Book && FsHelpers::hasEpubExtension(bookPath) ? NextBook::Book
+                                                                                               : NextBook::Skip;
+    }
+    case Scope::ReadingStats: {
+      if (phase == Phase::Pending) return nextPending(bookPath, SyncPending::STATS_BIT);
+      if (phase != Phase::CatchUp) return NextBook::Done;
+      const auto step = folderBooks->next(bookPath);
+      if (step == FolderBookIterator::Result::Done) {
+        finishCatchup();
+        return NextBook::Skip;
       }
-      if (next != NextBook::Done) return next;
-      finishCatchup();
-      return NextBook::Skip;  // continue with the pending list
+      if (step == FolderBookIterator::Result::Error) return NextBook::Error;
+      return step == FolderBookIterator::Result::Book ? NextBook::Book : NextBook::Skip;
     }
     case Scope::Folder:
     case Scope::Library: {
@@ -961,6 +975,29 @@ StatsUploadActivity::NextBook StatsUploadActivity::nextBook(std::string& bookPat
 }
 
 void StatsUploadActivity::uploadNext() {
+  if (clippingPullStarted && !clippingPullFinished) {
+    std::string bookPath;
+    const auto step = folderBooks->next(bookPath);
+    if (step == FolderBookIterator::Result::Error) {
+      fail(tr(STR_FOLDER_SYNC_READ_FAILED));
+    } else if (step == FolderBookIterator::Result::Done) {
+      clippingPullFinished = true;
+      folderBooks.reset();
+      finishUpload();
+    } else if (step == FolderBookIterator::Result::Book && FsHelpers::hasEpubExtension(bookPath)) {
+      setCurrentBook(bookPath);
+      const auto document = documentIdFor(bookPath);
+      std::string deletion;
+      bool noDeletions = false;
+      const bool readable = ClippingStore::readDeletionForUpload(bookPath, 0, deletion, noDeletions);
+      const auto result = document.empty() || !readable ? StatsUploadClient::Result::InvalidResponse
+                          : noDeletions ? ClippingsUpload::download(bookPath, document, cancelClippings, this)
+                                        : ClippingsUpload::sync(bookPath, document, cancelClippings, this);
+      recordExtras(false, result == StatsUploadClient::Result::Ok, false, StatsUploadClient::failed(result));
+      requestUpdate();
+    }
+    return;
+  }
   if (!globalAttempted && scope == Scope::Clippings) {
     // Sync Clippings sends clippings only.
     globalAttempted = true;
@@ -1118,7 +1155,7 @@ bool StatsUploadActivity::uploadBookExtras(const std::string& bookPath, bool* se
     extrasFailureReason = tr(STR_HASH_FAILED);
     return false;
   }
-  const auto result = ReadingSyncUpload::extras(bookPath, document);
+  const auto result = ReadingSyncUpload::extras(bookPath, document, cancelClippings, this);
   extrasFailedParts = (StatsUploadClient::failed(result.stats) ? SyncPending::STATS_BIT : 0) |
                       (StatsUploadClient::failed(result.clippings) ? SyncPending::CLIPPINGS_BIT : 0);
   if (extrasFailedParts)
@@ -1192,18 +1229,18 @@ bool StatsUploadActivity::flushBookStats() {
 }
 
 void StatsUploadActivity::uploadClippings(const std::string& bookPath) {
-  if (phase == Phase::CatchUp && BookSyncFile::stamped(bookPath, false, catchupStamp)) return;
+  if (phase == Phase::CatchUp && catchupStamp && BookSyncFile::stamped(bookPath, false, catchupStamp)) return;
   if (!FsHelpers::hasEpubExtension(bookPath)) {  // only EPUBs keep clippings
     SyncPending::clear(bookPath, SyncPending::CLIPPINGS_BIT);
     return;
   }
   const auto document = documentIdFor(bookPath);
-  const auto result =
-      document.empty() ? StatsUploadClient::Result::InvalidResponse : ClippingsUpload::upload(bookPath, document);
+  const auto result = document.empty() ? StatsUploadClient::Result::InvalidResponse
+                                       : ClippingsUpload::sync(bookPath, document, cancelClippings, this);
   if (document.empty()) LOG_ERR("StatsSync", "Cannot compute document id: %s", bookPath.c_str());
   if (StatsUploadClient::settled(result)) {
     SyncPending::clear(bookPath, SyncPending::CLIPPINGS_BIT);
-    if (phase == Phase::CatchUp) BookSyncFile::stamp(bookPath, false, catchupStamp);
+    if (phase == Phase::CatchUp && catchupStamp) BookSyncFile::stamp(bookPath, false, catchupStamp);
   }
   recordExtras(false, result == StatsUploadClient::Result::Ok, false, StatsUploadClient::failed(result));
   requestUpdate();
@@ -1397,7 +1434,21 @@ void StatsUploadActivity::reviewNext() {
   finishUpload();
 }
 
+bool StatsUploadActivity::cancelClippings(void* context) {
+  auto& self = *static_cast<StatsUploadActivity*>(context);
+  self.mappedInput.update();
+  self.clippingCancelled = self.clippingCancelled || self.mappedInput.isPressed(MappedInputManager::Button::Back) ||
+                           self.mappedInput.wasPressed(MappedInputManager::Button::Back) ||
+                           TouchHeaderBackButton::wasTapped(self.mappedInput, self.renderer);
+  return self.clippingCancelled;
+}
+
 void StatsUploadActivity::loop() {
+  if (clippingCancelled) {
+    mappedInput.suppressNextBackRelease();
+    leave();
+    return;
+  }
   if (InputReleaseGuard::consumeInitialRelease(mappedInput, MappedInputManager::Button::Confirm, initialConfirm))
     return;
   // A single book, or a bulk sync the caller already confirmed: nothing to ask.

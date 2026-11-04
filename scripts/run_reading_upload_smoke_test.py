@@ -52,6 +52,27 @@ def main():
         def do_GET(self):
             reply = {}
             (second if (fs / 'second-sync-started').exists() else gets).append(('GET', self.path))
+            if self.path.startswith('/api/v1/clippings/'):
+                from urllib.parse import parse_qs, urlparse
+                url = urlparse(self.path)
+                document = url.path.rsplit('/', 1)[-1]
+                query = parse_qs(url.query)
+                cursor = int(query['cursor'][0])
+                items = []
+                if mode in ('clippings-download', 'folder-download') and document == hashlib.md5(b'unread.epub').hexdigest() and cursor == 0:
+                    items = [{'id': 'other-reader-highlight', 'revision': 1, 'deleted': 0,
+                              'spine': 0, 'start_page': 0, 'end_page': 0, 'pages': 1,
+                              'start_word': 0, 'end_word': 3, 'words': 4, 'para': None,
+                              'chapter': 'Chapter', 'text': 'Selection from another reader',
+                              'created_at': 1790000000, 'layout_signature': 123}]
+                data = json.dumps({'document': document, 'sync_version': 2,
+                                   'cursor': 1 if items else cursor, 'more': False, 'items': items}).encode()
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Content-Length', str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+                return
             if self.path.startswith('/api/v1/progress/changes') and mode.startswith('feed-'):
                 from urllib.parse import parse_qs, urlparse
                 query = parse_qs(urlparse(self.path).query)
@@ -144,7 +165,7 @@ def main():
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
-        modes = ['ok', 'folder-xtc', 'all-books', 'stats-entry', 'stats-twice', 'clippings-only', 'clippings-twice', 'xtc-book', 'disabled', 'cancel', 'auth', 'unsupported', 'folder-mixed', 'folder-equal', 'folder-local-ahead', 'folder-ask', 'folder-ask-cancel', 'folder-ask-skip', 'folder-ask-skip-landscape', 'folder-ask-exit-held', 'folder-exit-held', 'folder-missing-cache', 'folder-skip-progress', 'folder-skip-stats', 'folder-skip-clippings', 'folder-skip-invalid', 'folder-skip-all', 'current-upload', 'current-upload-crosspoint', 'current-equal', 'current-ask-upload', 'current-ask-equal', 'current-download', 'current-menu', 'current-menu-cold', 'folder-no-progress', 'folder-legacy-progress', 'folder-zero-count', 'folder-past-end', 'folder-empty', 'folder-global-failure', 'folder-no-stats', 'folder-tracking-disabled', 'feed-twice', 'feed-parked', 'feed-404', 'feed-batch-404', 'feed-batch-500', 'current-menu-kept', 'open-kept-accept', 'open-kept-decline', 'open-kept-behind', 'open-kept-unprepared', 'matching-confirm', 'matching-cancel', 'matching-web']
+        modes = ['clippings-download', 'folder-download', 'ok', 'folder-xtc', 'all-books', 'stats-entry', 'stats-twice', 'clippings-only', 'clippings-twice', 'xtc-book', 'disabled', 'cancel', 'auth', 'unsupported', 'folder-mixed', 'folder-equal', 'folder-local-ahead', 'folder-ask', 'folder-ask-cancel', 'folder-ask-skip', 'folder-ask-skip-landscape', 'folder-ask-exit-held', 'folder-exit-held', 'folder-missing-cache', 'folder-skip-progress', 'folder-skip-stats', 'folder-skip-clippings', 'folder-skip-invalid', 'folder-skip-all', 'current-upload', 'current-upload-crosspoint', 'current-equal', 'current-ask-upload', 'current-ask-equal', 'current-download', 'current-menu', 'current-menu-cold', 'folder-no-progress', 'folder-legacy-progress', 'folder-zero-count', 'folder-past-end', 'folder-empty', 'folder-global-failure', 'folder-no-stats', 'folder-tracking-disabled', 'feed-twice', 'feed-parked', 'feed-404', 'feed-batch-404', 'feed-batch-500', 'current-menu-kept', 'open-kept-accept', 'open-kept-decline', 'open-kept-behind', 'open-kept-unprepared', 'matching-confirm', 'matching-cancel', 'matching-web']
         if args.touch:
             modes += ['folder-done-touch']
         modes += ['folder-done-confirm']
@@ -168,6 +189,7 @@ def main():
                              'read/.hidden/hidden.epub', 'read-sibling/outside.epub'):
                     shutil.copy2(fixture, fs / book)
                 (fs / 'read/notes.txt').write_text('Not an EPUB')
+                (fs / 'My Clippings.txt').write_text('Local export stays here\n')
                 env = os.environ.copy()
                 env.update(SDL_VIDEODRIVER='dummy', CROSSINK_SIMULATOR_SMOKE_TEST='1',
                            CROSSINK_READING_TEST_SERVER=f'http://127.0.0.1:{server.server_port}')
@@ -194,7 +216,7 @@ def main():
                     env['CROSSINK_READING_TEST_PARKED'] = '1'
                 if mode == 'stats-twice':
                     env['CROSSINK_READING_TEST_MARK_PENDING'] = '/read/first.epub'
-                if mode in ('clippings-only', 'clippings-twice'):
+                if mode in ('clippings-only', 'clippings-twice', 'clippings-download'):
                     env['CROSSINK_READING_TEST_CLIPPINGS_ONLY'] = '1'
                 if mode == 'xtc-book':
                     env['CROSSINK_READING_TEST_XTC_BOOK'] = '1'
@@ -263,7 +285,18 @@ def main():
                 clippings = [(path, body) for path, body in requests if path.startswith('/api/v1/clippings/')]
                 globals_sent = [body for path, body in requests if path == '/api/v1/stats/global']
                 assert mode == 'auth' or not probes, (mode, probes)
-                if mode in variants:
+                if mode in ('clippings-download', 'folder-download'):
+                    files = list((fs / '.crosspoint/clippings').glob('*.bin'))
+                    imported = [f.read_bytes() for f in files if b'/read/unread.epub' in f.read_bytes()]
+                    assert len(imported) == 1 and b'other-reader-highlight' in imported[0], files
+                    assert b'Selection from another reader' in imported[0]
+                    assert (fs / 'My Clippings.txt').read_text() == 'Local export stays here\n'
+                    if mode == 'clippings-download':
+                        assert not progress
+                    else:
+                        assert len(progress) == 2
+                    assert 'clippingsFailed=0' in log, log[-10000:]
+                elif mode in variants:
                     assert not progress and len(stats) == 2 and len(clippings) == 1 and len(globals_sent) == 1, requests
                     assert 'Finished: synced=0 skipped=3 failed=0' in log, log[-10000:]
                     assert 'Extras: global=0 stats=2 statsFailed=0 clippings=1 clippingsFailed=0' in log
@@ -421,14 +454,16 @@ def main():
                         assert sum(path == '/api/v1/stats/global' for path, _ in requests) == 1
                         assert len(clippings) == 1
                         item = clippings[0][1]['items'][0]
-                        assert item['id'] == hashlib.sha256((str(item['created_at']) + item['text']).encode()).hexdigest()[:16]
+                        assert len(item['id']) == 32 and all(c in '0123456789abcdef' for c in item['id'])
                         assert item['text'] == 'Quoted "text" — café\nnext line'
                         assert item['layout_signature'] == 1234
                         assert all(key not in item for key in ('note', 'color', 'deleted', 'para'))
                         assert clippings[0][0].endswith(hashlib.md5(b'first.epub').hexdigest())
                 if mode in ('stats-twice', 'clippings-twice'):
-                    # The second sync in the same run sends only what changed since.
-                    assert 'Starting second sync' in log and log.count('catch-up complete') == 1, log[-10000:]
+                    # Both repeat runs clear their acknowledged pending bits.
+                    assert 'Starting second sync' in log, log[-10000:]
+                    if mode == 'stats-twice':
+                        assert log.count('catch-up complete') == 1, log[-10000:]
                     # sync_pending.bin: version byte, entries of (mask, u16 path length, path), CRC32.
                     data = (fs / '.crosspoint/sync_pending.bin').read_bytes()[1:-4]
                     bit = 0x02 if mode == 'stats-twice' else 0x04

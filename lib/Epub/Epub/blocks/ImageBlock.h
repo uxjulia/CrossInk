@@ -1,5 +1,6 @@
 #pragma once
 #include <HalStorage.h>
+#include <Memory.h>
 
 #include <memory>
 #include <string>
@@ -28,7 +29,8 @@ class ImageBlock final : public Block {
   using ExtractFn = bool (*)(void* context, const char* sourcePath, const char* destinationPath);
   using SeedCacheFn = bool (*)(void* context, const char* sourcePath, int width, int height,
                                const char* destinationPath);
-  static void setExtractor(void* context, ExtractFn extract, SeedCacheFn seedCache);
+  using LoadFn = HeapByteBuffer (*)(void*, const char*, size_t&);
+  static void setExtractor(void* context, ExtractFn extract, SeedCacheFn seedCache, LoadFn load = nullptr);
 
   BlockType getType() override { return IMAGE_BLOCK; }
   bool isEmpty() override { return false; }
@@ -46,4 +48,5 @@ class ImageBlock final : public Block {
   static void* extractContext;
   static ExtractFn extractFn;
   static SeedCacheFn seedCacheFn;
+  static LoadFn loadFn;
 };

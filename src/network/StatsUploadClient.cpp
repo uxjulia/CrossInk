@@ -33,6 +33,9 @@ struct StatsUploadClient::Impl {
 // Keep the client and bounded reply buffer off the small main-task stack.
 StatsUploadClient::StatsUploadClient() : impl(makeUniqueNoThrow<Impl>()) {}
 StatsUploadClient::~StatsUploadClient() = default;
+void StatsUploadClient::close() {
+  if (impl) impl->http.end();
+}
 
 bool StatsUploadClient::deviceId(char* out, const size_t capacity) {
   if (KOReaderSyncClient::readerId(out, capacity)) return true;
@@ -111,6 +114,49 @@ StatsUploadClient::Result StatsUploadClient::put(const char* endpoint, const cha
   }
   // Only a valid extension reply proves support; a catch-all 200 page does not.
   KOREADER_STORE.setServerSupport(SyncServerSupport::SUPPORTED);
+  return Result::Ok;
+}
+
+StatsUploadClient::Result StatsUploadClient::get(const char* endpoint, char* response, const size_t capacity) {
+  if (!impl) return Result::LowMemory;
+  auto& http = impl->http;
+  http.end();
+  if (ESP.getFreeHeap() < 35000 || ESP.getMaxAllocHeap() < 20000) {
+    LOG_ERR("StatsSync", "Insufficient memory for download");
+    return Result::LowMemory;
+  }
+  http.setInsecure();
+  http.setTimeout(15000);
+  if (!http.begin(KOREADER_STORE.getBaseUrl() + endpoint)) return Result::Network;
+  http.addHeader("Accept", "application/json");
+  applyCustomHttpHeaders(http, KOREADER_STORE.getCustomHeaders());
+  http.addHeader("x-auth-user", KOREADER_STORE.getUsername());
+  http.addHeader("x-auth-key", KOREADER_STORE.getMd5Password());
+  size_t size = 0;
+  bool complete;
+#ifdef SIMULATOR
+  const int status = http.GET();
+  const auto body = http.getString();
+  size = body.length();
+  complete = size < capacity;
+  if (complete) memcpy(response, body.c_str(), size);
+#else
+  const int status = http.GET([&](const uint8_t* data, size_t length) {
+    if (length >= capacity - size) return false;
+    memcpy(response + size, data, length);
+    size += length;
+    return true;
+  });
+  complete = http.responseComplete();
+#endif
+  http.end();
+  LOG_INF("StatsSync", "Download response: HTTP %d", status);
+  if (status <= 0) return Result::Network;
+  if (status == 401) return Result::Auth;
+  if (status == 404 || status == 405) return Result::Unsupported;
+  if (status != 200) return Result::Server;
+  if (!complete) return Result::InvalidResponse;
+  response[size] = '\0';
   return Result::Ok;
 }
 

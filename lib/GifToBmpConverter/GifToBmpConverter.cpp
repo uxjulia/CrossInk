@@ -252,7 +252,7 @@ constexpr size_t MIN_FREE_HEAP = GIF_DECODER_APPROX_SIZE + 32 * 1024;
 }  // namespace
 
 bool GifToBmpConverter::gifFileToBmpStreamInternal(FsFile& gifFile, Print& bmpOut, int targetWidth, int targetHeight,
-                                                   bool oneBit, bool crop, bool originalThresholds,
+                                                   bool oneBit, bool crop, ImageToneProfile toneProfile,
                                                    bool adaptiveContain) {
   LOG_DBG("GIF", "Converting GIF to %s BMP (target: %dx%d)", oneBit ? "1-bit" : "2-bit", targetWidth, targetHeight);
 
@@ -351,7 +351,7 @@ bool GifToBmpConverter::gifFileToBmpStreamInternal(FsFile& gifFile, Print& bmpOu
       return false;
     }
   } else {
-    ctx.atkinsonDitherer = makeUniqueNoThrow<AtkinsonDitherer>(ctx.dstWidth, originalThresholds);
+    ctx.atkinsonDitherer = makeUniqueNoThrow<AtkinsonDitherer>(ctx.dstWidth, toneProfile);
     if (!ctx.atkinsonDitherer || !ctx.atkinsonDitherer->isValid()) {
       LOG_ERR("GIF", "OOM: AtkinsonDitherer");
       return false;
@@ -391,14 +391,14 @@ bool GifToBmpConverter::gifFileToBmpStreamInternal(FsFile& gifFile, Print& bmpOu
   return true;
 }
 
-bool GifToBmpConverter::gifFileToBmpStream(FsFile& gifFile, Print& bmpOut, bool crop, bool originalThresholds) {
+bool GifToBmpConverter::gifFileToBmpStream(FsFile& gifFile, Print& bmpOut, bool crop, ImageToneProfile toneProfile) {
   const int targetWidth = display.getDisplayHeight();
   const int targetHeight = display.getDisplayWidth();
-  return gifFileToBmpStreamInternal(gifFile, bmpOut, targetWidth, targetHeight, false, crop, originalThresholds);
+  return gifFileToBmpStreamInternal(gifFile, bmpOut, targetWidth, targetHeight, false, crop, toneProfile);
 }
 
 bool GifToBmpConverter::gifFileTo1BitBmpStreamWithSize(FsFile& gifFile, Print& bmpOut, int targetMaxWidth,
                                                        int targetMaxHeight, bool adaptiveContain) {
-  return gifFileToBmpStreamInternal(gifFile, bmpOut, targetMaxWidth, targetMaxHeight, true, true, false,
-                                    adaptiveContain);
+  return gifFileToBmpStreamInternal(gifFile, bmpOut, targetMaxWidth, targetMaxHeight, true, true,
+                                    ImageToneProfile::Legacy, adaptiveContain);
 }

@@ -7,6 +7,7 @@
 #include <cstdio>
 #include <cstring>
 #include <string>
+#include <unordered_map>
 
 class HalFile : public Print {
   std::string contents_;
@@ -31,7 +32,7 @@ class HalFile : public Print {
     offset_ = offset;
     return true;
   }
-  bool seekSet(size_t) { return false; }
+  bool seekSet(size_t offset) { return seek(offset); }
   bool close() { return true; }
   bool isOpen() const { return false; }
   operator bool() const { return !contents_.empty(); }
@@ -47,7 +48,13 @@ class HalStorage {
     static HalStorage instance;
     return instance;
   }
-  bool openFileForRead(const char*, const std::string&, HalFile&) { return false; }
+  std::unordered_map<std::string, std::string> files;
+  bool openFileForRead(const char*, const std::string& path, HalFile& file) {
+    auto it = files.find(path);
+    if (it == files.end()) return false;
+    file.setContents(it->second);
+    return true;
+  }
   bool openFileForWrite(const char*, const std::string&, HalFile&) { return false; }
   bool remove(const char*) { return false; }
   bool exists(const char*) const { return false; }
