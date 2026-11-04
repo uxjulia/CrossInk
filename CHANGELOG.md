@@ -48,6 +48,7 @@
 ### Changed
 
 - Rename the UI Font setting to UI Fallback Font to clarify that it only supplies missing interface characters.
+- Match Nearby Position Sync to the progress sync comparison design, with progress cards, bars, chapter details, and an Ahead badge.
 
 ### Fixed
 
