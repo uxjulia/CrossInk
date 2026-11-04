@@ -51,6 +51,7 @@ add_subdirectory(preview_block_locator)
 add_subdirectory(text_pool)
 add_subdirectory(clip_word_store)
 add_subdirectory(clipping_preview)
+add_subdirectory(clipping_store)
 add_subdirectory(dict_layout)
 add_subdirectory(reader_progress_save_debouncer)
 add_subdirectory(reader_tilt_page_turn)
@@ -127,6 +128,8 @@ add_subdirectory(log_retention)
 add_subdirectory(screen_calibration)
 add_subdirectory(keyboard_tips)
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
+add_test(NAME TransferReliabilityRegression
+  COMMAND ${Python3_EXECUTABLE} ${REPO_ROOT}/test/scripts/test_transfer_reliability.py)
 add_test(NAME WebDavGetRegression
   COMMAND ${Python3_EXECUTABLE} ${REPO_ROOT}/scripts/test_webdav_get.py)
 add_test(NAME ImageProbeFramebufferRegression

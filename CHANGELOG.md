@@ -144,6 +144,10 @@
 - Remove the misleading submenu arrow from Reset TTF Defaults and show a popup confirming the reset or reporting a save failure.
 - Fix slanted and wrapped EPUB covers from progressive JPEGs on Home and sleep screens (#907).
 
+- Preserve saved clippings after corrupt or incomplete store loads, recover interrupted replacements before editing, and report clipping-index allocation failures safely.
+- Keep File Transfer responsive after stalled browser replies, malformed uploads, oversized discovery packets, and abandoned upload connections; hotspot captive-portal checks now reach the home page without intercepting WebDAV writes.
+- Retry a failed font catalog download from either touch or buttons, and show font/settings load errors instead of accepting incomplete lists.
+
 ### Changed
 
 - SD fonts containing both BMP and supplementary Unicode ranges use less resident lookup-table memory, and TTF fonts validate faster while preserving font integrity checks.

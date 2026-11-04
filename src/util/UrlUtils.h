@@ -37,4 +37,7 @@ std::string buildUrl(const std::string& serverUrl, const std::string& path);
 // Unlike buildUrl's directory join, a relative link replaces the base filename.
 std::string resolveReference(const std::string& baseUrl, const std::string& reference);
 
+// Captive-portal checks use a foreign DNS host; IP, .local and single-label hosts stay local.
+bool isForeignHost(const char* hostHeader);
+
 }  // namespace UrlUtils

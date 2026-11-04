@@ -1,8 +1,12 @@
 #pragma once
 
+#include <Memory.h>
+
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "sync/SyncPending.h"
@@ -52,6 +56,75 @@ struct Clipping {
   char chapterTitle[CLIPPING_CHAPTER_TITLE_MAX] = {};
 };
 
+// Checked, bounded index storage: vector::reserve aborts on allocation failure
+// in firmware builds with exceptions disabled. Text remains on the SD card.
+class ClippingRecords {
+ public:
+  ClippingRecords() = default;
+  ClippingRecords(ClippingRecords&& other) noexcept { *this = std::move(other); }
+  ClippingRecords& operator=(ClippingRecords&& other) noexcept {
+    if (this != &other) {
+      records = std::move(other.records);
+      count = std::exchange(other.count, 0);
+      reserved = std::exchange(other.reserved, 0);
+    }
+    return *this;
+  }
+  bool reserve(size_t capacity) {
+    if (capacity <= reserved) return true;
+    if (capacity > CLIPPING_MAX_PER_BOOK) return false;
+    // At most 256 records, about 24 KiB: runtime-sized and too large for stack.
+    auto next = makeUniqueNoThrow<Clipping[]>(capacity);
+    if (!next) return false;
+    if (count) std::copy_n(records.get(), count, next.get());
+    records = std::move(next);
+    reserved = capacity;
+    return true;
+  }
+  bool push_back(const Clipping& clipping) {
+    if (count == reserved && !reserve(std::min<size_t>(CLIPPING_MAX_PER_BOOK, std::max<size_t>(4, count * 2))))
+      return false;
+    if (count == reserved) return false;
+    records[count++] = clipping;
+    return true;
+  }
+  void pop_back() {
+    if (count) --count;
+  }
+  void erase(const Clipping* position) {
+    const size_t index = position - records.get();
+    std::move(records.get() + index + 1, records.get() + count, records.get() + index);
+    --count;
+  }
+  void insert(const Clipping* position, const Clipping& clipping) {
+    // Only used to restore an erased record; capacity is already available.
+    const size_t index = position - records.get();
+    std::move_backward(records.get() + index, records.get() + count, records.get() + count + 1);
+    records[index] = clipping;
+    ++count;
+  }
+  void clear() { count = 0; }
+  void release() {
+    records.reset();
+    count = reserved = 0;
+  }
+  size_t size() const { return count; }
+  size_t capacity() const { return reserved; }
+  bool empty() const { return count == 0; }
+  Clipping* begin() { return records.get(); }
+  const Clipping* begin() const { return records.get(); }
+  Clipping* end() { return count ? records.get() + count : records.get(); }
+  const Clipping* end() const { return count ? records.get() + count : records.get(); }
+  Clipping& front() { return records[0]; }
+  Clipping& operator[](size_t i) { return records[i]; }
+  const Clipping& operator[](size_t i) const { return records[i]; }
+
+ private:
+  std::unique_ptr<Clipping[]> records;
+  size_t count = 0;
+  size_t reserved = 0;
+};
+
 struct ClippedBookEntry {
   std::string bookTitle;
   std::string bookAuthor;
@@ -93,7 +166,7 @@ class ClippingStore {
   bool hasClippings() const { return !clippings.empty(); }
   size_t clippingCount() const { return clippings.size(); }
   const Clipping* clippingAt(size_t index) const;
-  const std::vector<Clipping>& getClippings() const { return clippings; }
+  const ClippingRecords& getClippings() const { return clippings; }
   bool cacheResolvedLayoutRange(size_t index, uint16_t page, uint16_t startWord, uint16_t endWord,
                                 uint32_t layoutSignature);
   bool readClippingText(size_t index, std::string& out) const;
@@ -124,17 +197,18 @@ class ClippingStore {
  private:
   static ClippingStore instance;
 
-  std::vector<Clipping> clippings;
+  ClippingRecords clippings;
   std::string bookFilePath;
   std::string bookTitle;
   std::string bookAuthor;
   std::string storeFilePath;
   bool dirty = false;
+  bool loaded = false;  // Failed or partial loads must never authorize writes.
   // Queues the book for the next Sync Clippings, once per load.
   SyncPending::SessionMarker pendingSync;
 
   bool readFromFile();
-  bool readFromFile(const std::string& path, std::vector<Clipping>& out, size_t onlyIndex = SIZE_MAX) const;
+  bool readFromFile(const std::string& path, ClippingRecords& out, size_t onlyIndex = SIZE_MAX) const;
   bool writeToFile(const std::string* replacementText = nullptr, size_t replacementIndex = SIZE_MAX,
                    const std::string* sourcePathOverride = nullptr);
 };

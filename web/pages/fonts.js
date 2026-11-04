@@ -15,6 +15,7 @@ function formatSize(bytes) {
       const el = document.getElementById('families');
       try {
         const res = await fetch('/api/fonts');
+        if (!res.ok) throw new Error('HTTP ' + res.status);
         const data = await res.json();
         ttfSupported = data.ttfSupported === true;
         document.getElementById('formatHelp').textContent = ttfSupported

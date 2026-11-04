@@ -2,7 +2,6 @@
 
 #include <ArduinoJson.h>
 #include <HalStorage.h>
-#include <NetworkUdp.h>
 #include <WebServer.h>
 #include <WebSocketsServer.h>
 
@@ -83,8 +82,10 @@ class CrossPointWebServer {
   bool apMode = false;  // true when running in AP mode, false for STA mode
   uint16_t port = 80;
   uint16_t wsPort = 81;  // WebSocket port
-  NetworkUDP udp;
-  bool udpActive = false;
+  int discoverySocket = -1;
+  void openDiscoverySocket();
+  void closeDiscoverySocket();
+  void answerDiscovery() const;
   UploadCancelCheck uploadCancelCheck = nullptr;
   void* uploadCancelContext = nullptr;
   bool dropUploadIfCancelled() const;
