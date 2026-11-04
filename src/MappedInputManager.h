@@ -132,7 +132,6 @@ class MappedInputManager {
   bool wasScreenTapped(int& x, int& y, unsigned long& heldMs) const;
   bool isScreenTouchLongPress(int& x, int& y, unsigned long thresholdMs) const;
   bool wasScreenLongPress(int& x, int& y) const;
-  bool isInVerticalEdgeGestureZone(int y) const;
   bool wasScreenTouchDown(int& x, int& y) const;
   bool isScreenTouchTapCandidate(int& x, int& y, unsigned long& heldMs) const;
   bool isScreenTouchHeld(int& x, int& y) const;
@@ -207,7 +206,6 @@ class MappedInputManager {
   constexpr bool wasScreenTapped(int&, int&, unsigned long&) const { return false; }
   constexpr bool isScreenTouchLongPress(int&, int&, unsigned long) const { return false; }
   constexpr bool wasScreenLongPress(int&, int&) const { return false; }
-  constexpr bool isInVerticalEdgeGestureZone(int) const { return false; }
   constexpr bool wasScreenTouchDown(int&, int&) const { return false; }
   constexpr bool isScreenTouchTapCandidate(int&, int&, unsigned long&) const { return false; }
   constexpr bool isScreenTouchHeld(int&, int&) const { return false; }

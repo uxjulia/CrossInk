@@ -185,11 +185,8 @@ inline TouchPageTurn detectTouchPageTurn(const GfxRenderer& renderer, const Mapp
   result.x = x;
   result.y = y;
   result.heldMs = input.getHeldTime();
-  // Reserve the top/bottom gesture bands for vertical edge swipes. If the touch
-  // controller loses part of a short edge swipe, do not reinterpret it as a page tap.
-  if (input.isInVerticalEdgeGestureZone(y)) {
-    return result;
-  }
+  // wasScreenTapped() already rejects swipe motion. Stationary edge taps stay
+  // available for page turns; readers reserve only enabled status-bar targets.
 
   // Give the entire page tap area to the sole tap-enabled direction. When
   // both accept taps, RTL books and Inverted Tap each swap their shared zones.

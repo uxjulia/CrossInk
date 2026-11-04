@@ -144,10 +144,10 @@
 - Stabilize X4 battery percentages across page turns and status bars, and keep the percentage visible while the battery reading changes (#904).
 - Remove the misleading submenu arrow from Reset TTF Defaults and show a popup confirming the reset or reporting a save failure.
 - Fix slanted and wrapped EPUB covers from progressive JPEGs on Home and sleep screens (#907).
-
 - Preserve saved clippings after corrupt or incomplete store loads, recover interrupted replacements before editing, and report clipping-index allocation failures safely.
 - Keep File Transfer responsive after stalled browser replies, malformed uploads, oversized discovery packets, and abandoned upload connections; hotspot captive-portal checks now reach the home page without intercepting WebDAV writes.
 - Retry a failed font catalog download from either touch or buttons, and show font/settings load errors instead of accepting incomplete lists.
+- Allow page-turn taps near the top and bottom screen edges, including over reader status bars when Tap to Hide Status Bar is off.
 
 ### Changed
 

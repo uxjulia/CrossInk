@@ -439,14 +439,6 @@ bool MappedInputManager::wasScreenLongPress(int& x, int& y) const {
   return true;
 }
 
-bool MappedInputManager::isInVerticalEdgeGestureZone(const int y) const {
-  const int screenHeight = renderer.getScreenHeight();
-  if (screenHeight <= 0) return false;
-  const int topEdgeBottom = static_cast<int>(screenHeight * TOP_EDGE_MENU_GESTURE_FRAC_Y);
-  const int bottomEdgeTop = screenHeight - static_cast<int>(screenHeight * bottomEdgeHomeGestureFraction(readerMode));
-  return y <= topEdgeBottom || y >= bottomEdgeTop;
-}
-
 bool MappedInputManager::wasScreenTouchDown(int& x, int& y) const {
   if (!touchInputEnabled()) return false;
 #ifdef SIMULATOR

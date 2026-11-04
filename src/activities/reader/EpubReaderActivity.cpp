@@ -3115,14 +3115,12 @@ void EpubReaderActivity::loop() {
           ? std::max(UITheme::getStatusBarHeight(renderer),
                      UITheme::getProgressBarHeight() + UITheme::getReaderStatusBarTextHeight(renderer))
           : UITheme::getStatusBarHeight(renderer);
-  if (touch.tapped &&
+  if (SETTINGS.tapToHideStatusBar && touch.tapped &&
       (ReaderUtils::isBottomStatusBarTap(renderer, touch.y, bottomTapHeight) ||
        ReaderUtils::isTopStatusBarTap(renderer, touch.y,
                                       UITheme::getReaderStatusBarHeight(ReaderStatusBarPosition::Top, renderer)))) {
-    if (SETTINGS.tapToHideStatusBar) {
-      statusBarVisible = !statusBarVisible;
-      requestUpdate();
-    }
+    statusBarVisible = !statusBarVisible;
+    requestUpdate();
     return;
   }
   // A popup selection suppresses the Confirm release that follows its press.

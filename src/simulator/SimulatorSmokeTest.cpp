@@ -954,6 +954,54 @@ struct StatusBarFeatureSmokeTest {
     SETTINGS.bottomReaderStatusBar.batteryStyle = readerBottomBattery;
     return true;
   }
+  static bool tapRouting() {
+#if CROSSINK_APP_CAP_TOUCH
+    if (!mappedInputManager.hasTouchHardware()) return true;
+    SETTINGS.disableReaderTouchscreen = 0;
+    SETTINGS.disablePageTurnGestures = 0;
+    SETTINGS.pageTurnGesture = CrossPointSettings::TAP_ONLY;
+    SETTINGS.previousPageGesture = CrossPointSettings::TAP_ONLY;
+    SETTINGS.topReaderStatusBar.hidden = false;
+    SETTINGS.bottomReaderStatusBar.hidden = false;
+    SETTINGS.topReaderStatusBar.slots.fill(ReaderStatusBarItem::Battery);
+    SETTINGS.bottomReaderStatusBar.slots.fill(ReaderStatusBarItem::Battery);
+    mappedInputManager.setReaderMode(true);
+    for (int orientation = 0; orientation < 4; ++orientation) {
+      renderer.setOrientation(static_cast<GfxRenderer::Orientation>(orientation));
+      // A known page count isolates input routing from TXT pagination and SD caches.
+      TxtReaderActivity reader(renderer, mappedInputManager,
+                               std::make_unique<Txt>("/books/tap-routing.txt", "/.crosspoint"), 1);
+      reader.totalPages = 20;
+      int top, right, bottom, left;
+      renderer.getOrientedViewableTRBL(&top, &right, &bottom, &left);
+      const int topY = UITheme::getTopStatusBarY(renderer);
+      const int bottomY = renderer.getScreenHeight() - bottom - 1;
+      for (const bool hideOnTap : {false, true}) {
+        SETTINGS.tapToHideStatusBar = hideOnTap;
+        for (const int y : {topY, bottomY}) {
+          for (const bool previous : {false, true}) {
+            reader.currentPage = 5;
+            reader.statusBarVisible = true;
+            const int x = renderer.getScreenWidth() * (previous ? 1 : 5) / 6;
+            // Tapping again must also restore bars hidden by the first tap.
+            for (int tap = 0; tap < 2; ++tap) {
+              mappedInputManager.simulatorInjectTouchDown(x, y);
+              mappedInputManager.simulatorInjectTouchRelease(x, y);
+              reader.loop();
+              mappedInputManager.simulatorClearInputFrame();
+              const int expectedPage = hideOnTap ? 5 : 5 + (tap + 1) * (previous ? -1 : 1);
+              if (reader.currentPage != expectedPage || reader.statusBarVisible != (!hideOnTap || tap == 1))
+                return false;
+            }
+          }
+        }
+      }
+    }
+    mappedInputManager.setReaderMode(false);
+    LOG_INF("SMOKE", "Reader status-bar tap setting and page routing passed in all orientations");
+#endif
+    return true;
+  }
   static bool txt(RenderLock& lock, const Capture& capture) {
     const char* path = "/books/status-feature.txt";
     auto file = Storage.open(path, O_WRONLY | O_CREAT | O_TRUNC);
@@ -2174,7 +2222,8 @@ class SimulatorSmokeTest {
     const uint8_t savedNext = SETTINGS.pageTurnGesture;
     const uint8_t savedPrevious = SETTINGS.previousPageGesture;
     const int width = renderer.getScreenWidth();
-    const int y = renderer.getScreenHeight() / 2;
+    const int height = renderer.getScreenHeight();
+    const int y = height / 2;
     mappedInputManager.setReaderMode(true);
     for (uint8_t next = 0; next < CrossPointSettings::PAGE_TURN_GESTURE_COUNT; ++next) {
       for (uint8_t previous = 0; previous < CrossPointSettings::PAGE_TURN_GESTURE_COUNT; ++previous) {
@@ -2186,17 +2235,19 @@ class SimulatorSmokeTest {
         const bool previousTap = previous == CrossPointSettings::TAP_AND_SWIPE ||
                                  previous == CrossPointSettings::TAP_ONLY ||
                                  previous == CrossPointSettings::INVERTED_TAP;
-        for (const int x : {0, width / 3 - 1, width / 3, width * 2 / 3 - 1, width * 2 / 3, width - 1}) {
-          mappedInputManager.simulatorInjectTouchDown(x, y);
-          mappedInputManager.simulatorInjectTouchRelease(x, y);
-          const auto result = ReaderUtils::detectTouchPageTurn(renderer, mappedInputManager);
-          const bool nextZone = inverted ? x < width * 2 / 3 : x >= width / 3;
-          const bool expectedNext = nextTap && (!previousTap || nextZone);
-          const bool expectedPrevious = previousTap && (!nextTap || !nextZone);
-          if (!result.tapped || result.next != expectedNext || result.prev != expectedPrevious) {
-            fail("Mixed page tap mismatch: next=%u previous=%u x=%d", next, previous, x);
+        for (const int tapY : {0, height / 10, y, height * 9 / 10, height - 1}) {
+          for (const int x : {0, width / 3 - 1, width / 3, width * 2 / 3 - 1, width * 2 / 3, width - 1}) {
+            mappedInputManager.simulatorInjectTouchDown(x, tapY);
+            mappedInputManager.simulatorInjectTouchRelease(x, tapY);
+            const auto result = ReaderUtils::detectTouchPageTurn(renderer, mappedInputManager);
+            const bool nextZone = inverted ? x < width * 2 / 3 : x >= width / 3;
+            const bool expectedNext = nextTap && (!previousTap || nextZone);
+            const bool expectedPrevious = previousTap && (!nextTap || !nextZone);
+            if (!result.tapped || result.next != expectedNext || result.prev != expectedPrevious) {
+              fail("Mixed page tap mismatch: next=%u previous=%u x=%d", next, previous, x);
+            }
+            mappedInputManager.simulatorClearInputFrame();
           }
-          mappedInputManager.simulatorClearInputFrame();
         }
         for (const bool right : {false, true}) {
           const int startX = right ? 1 : width - 2;
@@ -2215,10 +2266,29 @@ class SimulatorSmokeTest {
         }
       }
     }
+    // Real vertical swipes must never also produce a page tap.
+    for (const bool fromTop : {false, true}) {
+      const int startY = fromTop ? 1 : height - 2;
+      const int endY = fromTop ? height / 2 : height / 4;
+      mappedInputManager.simulatorInjectTouchDown(width / 2, startY);
+      mappedInputManager.simulatorInjectTouchRelease(width / 2, endY);
+      const auto swipe = ReaderUtils::detectTouchPageTurn(renderer, mappedInputManager);
+      if (swipe.tapped || swipe.prev || swipe.next ||
+          !(fromTop ? (mappedInputManager.wasLightPanelGesture() || mappedInputManager.wasMenuGesture())
+                    : mappedInputManager.wasBottomEdgeUpSwipe()))
+        fail("Vertical edge swipe leaked into a page turn or lost its gesture");
+      mappedInputManager.simulatorClearInputFrame();
+    }
+    JsonDocument original;
+    SETTINGS.toJson(original);
+    const auto orientation = renderer.getOrientation();
+    if (!StatusBarFeatureSmokeTest::tapRouting()) fail("Reader status-bar tap routing failed");
+    SETTINGS.fromJson(original.as<JsonVariantConst>());
+    renderer.setOrientation(orientation);
     SETTINGS.pageTurnGesture = savedNext;
     SETTINGS.previousPageGesture = savedPrevious;
     mappedInputManager.setReaderMode(false);
-    LOG_INF("SMOKE", "All 25 mixed page gesture combinations passed");
+    LOG_INF("SMOKE", "All 25 mixed page gesture combinations passed, including edge taps and vertical swipes");
 #endif
   }
 
