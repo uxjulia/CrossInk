@@ -1938,6 +1938,15 @@ are rejected. Boot selects the highest fully valid generation. Generations do
 not wrap; exhausting u32 rejects a further update. A successful update requires
 a restart before another operation or activation of its new mapping.
 
+## OPDS server filenames
+
+Each server in `/.crosspoint/opds.json` stores `filenameFormat` (`author_title` or
+`title_author`) and `useServerFilename` (boolean, default `false`). When enabled,
+a safe server filename takes precedence; otherwise the selected format is used.
+Legacy `filenameFormat: "server_filename"` loads as `author_title` with the toggle
+on. Missing fields in web API updates preserve existing values. No EPUB cache or
+binary settings version change is required.
+
 ## OPDS server download folders
 
 `/.crosspoint/opds.json` stores an optional `downloadFolder` string on each entry in `servers`. Missing or empty means inherit the global `opdsDownloadFolder` setting; `/` explicitly selects SD root. Other values are normalized absolute SD folder paths (at most 63 UTF-8 bytes). Existing files need no migration. No EPUB cache or settings binary format change is required.

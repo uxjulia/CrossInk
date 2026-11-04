@@ -19,8 +19,6 @@ constexpr char FILENAME_FORMAT_SERVER[] = "server_filename";
 
 const char* opdsFilenameFormatToJson(const OpdsFilenameFormat format) {
   switch (format) {
-    case OpdsFilenameFormat::SERVER_FILENAME:
-      return FILENAME_FORMAT_SERVER;
     case OpdsFilenameFormat::TITLE_AUTHOR:
       return FILENAME_FORMAT_TITLE_AUTHOR;
     case OpdsFilenameFormat::AUTHOR_TITLE:
@@ -30,11 +28,23 @@ const char* opdsFilenameFormatToJson(const OpdsFilenameFormat format) {
 }
 
 OpdsFilenameFormat opdsFilenameFormatFromJson(const char* value) {
-  if (value && strcmp(value, FILENAME_FORMAT_SERVER) == 0) return OpdsFilenameFormat::SERVER_FILENAME;
   if (value && strcmp(value, FILENAME_FORMAT_TITLE_AUTHOR) == 0) {
     return OpdsFilenameFormat::TITLE_AUTHOR;
   }
   return OpdsFilenameFormat::AUTHOR_TITLE;
+}
+
+bool applyOpdsFilenameSettings(JsonVariantConst object, OpdsServer& server) {
+  const auto useServerFilename = object["useServerFilename"];
+  if (!useServerFilename.isUnbound() && !useServerFilename.is<bool>()) return false;
+  if (const char* format = object["filenameFormat"]) {
+    server.filenameFormat = opdsFilenameFormatFromJson(format);
+    if (useServerFilename.isUnbound() && strcmp(format, FILENAME_FORMAT_SERVER) == 0) {
+      server.useServerFilename = true;
+    }
+  }
+  if (!useServerFilename.isUnbound()) server.useServerFilename = useServerFilename.as<bool>();
+  return true;
 }
 
 bool applyOpdsDownloadFolder(JsonVariantConst object, std::string& folder) {
@@ -54,6 +64,7 @@ void OpdsServerStore::toJson(JsonDocument& doc) const {
     obj["username"] = server.username;
     obj["password_obf"] = obfuscation::obfuscateToBase64(server.password);
     obj["filenameFormat"] = opdsFilenameFormatToJson(server.filenameFormat);
+    obj["useServerFilename"] = server.useServerFilename;
     obj["downloadFolder"] = server.downloadFolder;
   }
 }
@@ -72,7 +83,11 @@ bool OpdsServerStore::fromJson(JsonVariantConst doc) {
     server.name = obj["name"] | "";
     server.url = obj["url"] | "";
     server.username = obj["username"] | "";
-    server.filenameFormat = opdsFilenameFormatFromJson(obj["filenameFormat"] | "");
+    if (!applyOpdsFilenameSettings(obj, server)) {
+      LOG_ERR("OPS", "Invalid OPDS server filename option");
+      servers.clear();
+      return false;
+    }
     if (!applyOpdsDownloadFolder(obj, server.downloadFolder)) {
       LOG_ERR("OPS", "Invalid OPDS download folder");
       servers.clear();

@@ -142,6 +142,54 @@ struct OpdsCatalogSmokeTest {
       }
       case 1: {
         require(activityManager.isCurrentActivity(editor), "folder editor did not open");
+        require(!editor->editServer.useServerFilename, "new server filename toggle must default off");
+        editor->selectedIndex = 4;
+        editor->handleSelection();
+        require(editor->editServer.filenameFormat == OpdsFilenameFormat::TITLE_AUTHOR, "filename choice missing");
+        editor->selectedIndex = 5;
+        editor->topIndex = 4;
+        render();
+        capture("server-filename-off");
+        mappedInputManager.simulatorInjectRelease(MappedInputManager::Button::Confirm);
+        editor->loop();
+        mappedInputManager.simulatorClearInputFrame();
+        require(editor->editServer.useServerFilename, "button did not enable server filename");
+        require(OPDS_STORE.getServer(editor->serverIndex)->useServerFilename, "toggle not saved");
+        render();
+        capture("server-filename-on");
+        editor->onEnter();
+        require(editor->editServer.useServerFilename, "toggle lost on reentering settings");
+        editor->selectedIndex = 5;
+        editor->topIndex = 4;
+        render();
+#if CROSSINK_APP_CAP_TOUCH
+        if (mappedInputManager.hasTouchHardware()) {
+          freeink::ui::Interaction hit;
+          bool found = false;
+          for (int y = 0; y < renderer.getScreenHeight(); ++y) {
+            if (editor->app.hitPublished(renderer.getScreenWidth() / 2, y, 1, hit) && hit.value == 5) {
+              found = true;
+              break;
+            }
+          }
+          require(found, "filename toggle touch target missing");
+          const int x = hit.rect.x + hit.rect.width / 2;
+          const int y = hit.rect.y + hit.rect.height / 2;
+          mappedInputManager.simulatorInjectTouchDown(x, y);
+          editor->loop();
+          mappedInputManager.simulatorClearInputFrame();
+          mappedInputManager.simulatorInjectTouchRelease(x, y);
+          editor->loop();
+          mappedInputManager.simulatorClearInputFrame();
+        } else
+#endif
+        {
+          editor->handleSelection();
+        }
+        require(!editor->editServer.useServerFilename, "toggle did not switch off");
+        require(editor->editServer.filenameFormat == OpdsFilenameFormat::TITLE_AUTHOR,
+                "toggle changed filename format");
+        require(!OPDS_STORE.getServer(editor->serverIndex)->useServerFilename, "toggle off not saved");
         const auto originalScale = SETTINGS.uiScale;
         const auto originalOrientation = renderer.getOrientation();
         for (const auto orientation : {GfxRenderer::Portrait, GfxRenderer::LandscapeClockwise}) {
@@ -151,13 +199,13 @@ struct OpdsCatalogSmokeTest {
             // Fresh metrics/hit targets after changing UI scale.
             editor->onEnter();
             render();
-            for (int i = 0; i < 5; ++i) {
+            for (int i = 0; i < 6; ++i) {
               mappedInputManager.simulatorInjectPress(MappedInputManager::Button::Down);
               editor->loop();
               mappedInputManager.simulatorClearInputFrame();
               render();
             }
-            require(editor->selectedIndex == 5 && editor->topIndex <= 5 && editor->topIndex + editor->visibleRows > 5,
+            require(editor->selectedIndex == 6 && editor->topIndex <= 6 && editor->topIndex + editor->visibleRows > 6,
                     "folder row unreachable with buttons");
             char name[48];
             std::snprintf(name, sizeof(name), "folder-editor-o%d-scale%d", orientation, scale);
@@ -167,15 +215,15 @@ struct OpdsCatalogSmokeTest {
         SETTINGS.uiScale = originalScale;
         renderer.setOrientation(originalOrientation);
         editor->onEnter();
-        editor->selectedIndex = 5;
-        editor->topIndex = 5;
+        editor->selectedIndex = 6;
+        editor->topIndex = 6;
         render();
 #if CROSSINK_APP_CAP_TOUCH
         if (mappedInputManager.hasTouchHardware()) {
           freeink::ui::Interaction hit;
           bool found = false;
           for (int y = 0; y < renderer.getScreenHeight(); ++y) {
-            if (editor->app.hitPublished(renderer.getScreenWidth() / 2, y, 1, hit) && hit.value == 5) {
+            if (editor->app.hitPublished(renderer.getScreenWidth() / 2, y, 1, hit) && hit.value == 6) {
               found = true;
               break;
             }
@@ -262,7 +310,7 @@ struct OpdsCatalogSmokeTest {
         OpdsServer server;
         server.name = "Catalog smoke";
         server.url = "https://opds.example";
-        server.filenameFormat = OpdsFilenameFormat::SERVER_FILENAME;
+        server.useServerFilename = true;
         auto activity = std::make_unique<OpdsBookBrowserActivity>(renderer, mappedInputManager, std::move(server));
         browser = activity.get();
         activityManager.replaceActivity(std::move(activity));
@@ -307,6 +355,7 @@ struct OpdsCatalogSmokeTest {
         // Existing locally named files must still prompt before releasing rows.
         std::snprintf(SETTINGS.opdsDownloadFolder, sizeof(SETTINGS.opdsDownloadFolder), "%s", "/books");
         browser->server.filenameFormat = OpdsFilenameFormat::TITLE_AUTHOR;
+        browser->server.useServerFilename = false;
         require(Storage.writeFile("/books/The Time Machine - H. G. Wells.epub", "original"), "overwrite fixture");
         browser->requestDownload(browser->entries[2]);
         require(browser->entries != nullptr, "catalog released before initial overwrite approval");
@@ -346,7 +395,7 @@ struct OpdsCatalogSmokeTest {
       case 11:
         require(activityManager.isCurrentActivity(browser), "root cancel did not restore browser");
         restored(*browser);
-        browser->server.filenameFormat = OpdsFilenameFormat::SERVER_FILENAME;
+        browser->server.useServerFilename = true;
         start(*browser);
         browser->goHomeAfterCancel = true;
         browser->finishDownload({}, HttpDownloader::ABORTED, "");

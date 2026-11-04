@@ -9,7 +9,6 @@
 enum class OpdsFilenameFormat : uint8_t {
   AUTHOR_TITLE = 0,
   TITLE_AUTHOR = 1,
-  SERVER_FILENAME = 2,
 };
 
 const char* opdsFilenameFormatToJson(OpdsFilenameFormat format);
@@ -24,7 +23,11 @@ struct OpdsServer {
   std::string password;  // Plaintext in memory; obfuscated with hardware key on disk
   OpdsFilenameFormat filenameFormat = OpdsFilenameFormat::AUTHOR_TITLE;
   std::string downloadFolder;  // Empty: shared default; '/': SD root
+  bool useServerFilename = false;
 };
+
+// Missing fields preserve current values; legacy server_filename enables the toggle.
+bool applyOpdsFilenameSettings(JsonVariantConst object, OpdsServer& server);
 
 /**
  * Singleton class for storing OPDS server configurations on the SD card.

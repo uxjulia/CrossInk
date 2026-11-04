@@ -172,6 +172,27 @@ TEST_P(HttpDownloaderTest, ServerFilenameUsesFinalResponseAndKeepsGeneratedFile)
   EXPECT_FALSE(files.count("/Books/Wrong.epub"));
   EXPECT_FALSE(requests[1].count("Authorization"));
 }
+TEST_P(HttpDownloaderTest, ServerFilenameToggleKeepsSelectedTemplateAsFallback) {
+  const std::string fallback = "/Books/Title - Author.epub";
+  for (const bool enabled : {false, true}) {
+    for (const char* name : {"From_Server.epub", "../unsafe.epub", ""}) {
+      files.clear();
+      requests.clear();
+      nextReply = 0;
+      replies = {named(name)};
+      HttpDownloader::DownloadOptions options;
+      options.transport = GetParam();
+      options.stageAsPart = true;
+      options.useServerFilename = enabled;
+      options.resolvedPath = &resolved;
+      ASSERT_EQ(HttpDownloader::downloadToFile("https://example.com/book", fallback, nullptr, nullptr, "", "", options),
+                HttpDownloader::OK);
+      EXPECT_EQ(resolved, enabled && std::string(name) == "From_Server.epub" ? "/Books/From_Server.epub" : fallback);
+      EXPECT_EQ(files[resolved], "abc");
+    }
+  }
+}
+
 TEST_P(HttpDownloaderTest, ServerNameFallbacksAndCollisionApproval) {
   for (const auto* header : {"", "attachment; filename=../escape.epub", "attachment; filename*=UTF-8''%00.epub"}) {
     files.clear();

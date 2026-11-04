@@ -11,7 +11,7 @@
 
 /**
  * Edit screen for a single OPDS server.
- * Shows server credentials, filename format, download folder and Delete.
+ * Shows server credentials, filename options, download folder and Delete.
  * Used for both adding new servers and editing existing ones.
  */
 class OpdsSettingsActivity final : public Activity {

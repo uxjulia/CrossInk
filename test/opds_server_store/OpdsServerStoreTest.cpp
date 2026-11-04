@@ -19,15 +19,15 @@ TEST(OpdsServerStoreTest, ExistingValuesAndUnknownDefaultsRemainCompatible) {
   EXPECT_STREQ(opdsFilenameFormatToJson(static_cast<OpdsFilenameFormat>(255)), "author_title");
 }
 
-TEST(OpdsServerStoreTest, SavesAndReloadsAllThreeFormatsWithoutChangingCredentials) {
+TEST(OpdsServerStoreTest, SavesAndReloadsFilenameOptionsWithoutChangingCredentials) {
   Storage.reset();
   auto& store = OPDS_STORE;
   store.release();
   store.loadFromFile();
   const OpdsFilenameFormat formats[] = {OpdsFilenameFormat::AUTHOR_TITLE, OpdsFilenameFormat::TITLE_AUTHOR,
-                                        OpdsFilenameFormat::SERVER_FILENAME};
-  for (const auto format : formats) {
-    OpdsServer server{"Library", "https://example.test/opds", "reader", "secret", format, {}};
+                                        OpdsFilenameFormat::TITLE_AUTHOR};
+  for (size_t i = 0; i < 3; ++i) {
+    OpdsServer server{"Library", "https://example.test/opds", "reader", "secret", formats[i], {}, i == 2};
     ASSERT_TRUE(store.addServer(server));
   }
   store.release();
@@ -36,6 +36,7 @@ TEST(OpdsServerStoreTest, SavesAndReloadsAllThreeFormatsWithoutChangingCredentia
   for (size_t i = 0; i < 3; ++i) {
     ASSERT_NE(store.getServer(i), nullptr);
     EXPECT_EQ(store.getServer(i)->filenameFormat, formats[i]);
+    EXPECT_EQ(store.getServer(i)->useServerFilename, i == 2);
     EXPECT_EQ(store.getServer(i)->username, "reader");
     EXPECT_EQ(store.getServer(i)->password, "secret");
   }
@@ -53,7 +54,45 @@ TEST(OpdsServerStoreTest, OldMissingOrUnknownFieldsLoadAsAuthorTitle) {
   EXPECT_EQ(store.getServer(0)->filenameFormat, OpdsFilenameFormat::AUTHOR_TITLE);
   EXPECT_EQ(store.getServer(1)->filenameFormat, OpdsFilenameFormat::AUTHOR_TITLE);
   EXPECT_EQ(store.getServer(2)->filenameFormat, OpdsFilenameFormat::TITLE_AUTHOR);
-  EXPECT_EQ(store.getServer(3)->filenameFormat, OpdsFilenameFormat::SERVER_FILENAME);
+  EXPECT_EQ(store.getServer(3)->filenameFormat, OpdsFilenameFormat::AUTHOR_TITLE);
+  EXPECT_FALSE(store.getServer(0)->useServerFilename);
+  EXPECT_FALSE(store.getServer(1)->useServerFilename);
+  EXPECT_FALSE(store.getServer(2)->useServerFilename);
+  EXPECT_TRUE(store.getServer(3)->useServerFilename);
+  ASSERT_TRUE(store.saveToFile());
+  store.release();
+  ASSERT_TRUE(store.loadFromFile());
+  EXPECT_TRUE(store.getServer(3)->useServerFilename);
+}
+
+TEST(OpdsServerStoreTest, FilenamePartialUpdatesPreserveBothOptionsAndMigrateLegacySelection) {
+  JsonDocument doc;
+  OpdsServer server;
+  EXPECT_FALSE(server.useServerFilename);
+  server.filenameFormat = OpdsFilenameFormat::TITLE_AUTHOR;
+  server.useServerFilename = true;
+  ASSERT_EQ(deserializeJson(doc, R"({"name":"Older client"})"), DeserializationError::Ok);
+  ASSERT_TRUE(applyOpdsFilenameSettings(doc.as<JsonVariantConst>(), server));
+  EXPECT_EQ(server.filenameFormat, OpdsFilenameFormat::TITLE_AUTHOR);
+  EXPECT_TRUE(server.useServerFilename);
+  doc["useServerFilename"] = false;
+  ASSERT_TRUE(applyOpdsFilenameSettings(doc.as<JsonVariantConst>(), server));
+  EXPECT_EQ(server.filenameFormat, OpdsFilenameFormat::TITLE_AUTHOR);
+  EXPECT_FALSE(server.useServerFilename);
+  ASSERT_EQ(deserializeJson(doc, R"({"filenameFormat":"server_filename"})"), DeserializationError::Ok);
+  ASSERT_TRUE(applyOpdsFilenameSettings(doc.as<JsonVariantConst>(), server));
+  EXPECT_EQ(server.filenameFormat, OpdsFilenameFormat::AUTHOR_TITLE);
+  EXPECT_TRUE(server.useServerFilename);
+  // An explicit toggle value wins over a legacy format in mixed-client updates.
+  doc["useServerFilename"] = false;
+  ASSERT_TRUE(applyOpdsFilenameSettings(doc.as<JsonVariantConst>(), server));
+  EXPECT_FALSE(server.useServerFilename);
+  for (const char* json : {R"({"useServerFilename":null})", R"({"useServerFilename":1})",
+                           R"({"useServerFilename":"false"})", R"({"useServerFilename":[]})"}) {
+    ASSERT_EQ(deserializeJson(doc, json), DeserializationError::Ok);
+    EXPECT_FALSE(applyOpdsFilenameSettings(doc.as<JsonVariantConst>(), server)) << json;
+    EXPECT_FALSE(server.useServerFilename);
+  }
 }
 
 TEST(OpdsServerStoreTest, DownloadFoldersRoundTripAndOldServersInheritLiveDefault) {
@@ -111,9 +150,11 @@ TEST(OpdsServerStoreTest, InvalidFoldersAndFailedSavesLeaveServerUnchanged) {
   EXPECT_EQ(store.getCount(), 0u);
   ASSERT_TRUE(store.addServer(server));
   server.downloadFolder = "/Books/New";
+  server.useServerFilename = true;
   Storage.failNextWrite();
   EXPECT_FALSE(store.updateServer(0, server));
   EXPECT_EQ(store.getServer(0)->downloadFolder, "/Books/Calibre");
+  EXPECT_FALSE(store.getServer(0)->useServerFilename);
   server.downloadFolder = "/Books/../secret";
   EXPECT_FALSE(store.updateServer(0, server));
   EXPECT_EQ(store.getServer(0)->downloadFolder, "/Books/Calibre");

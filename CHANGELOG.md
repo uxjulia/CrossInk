@@ -8,7 +8,7 @@
 - Track active reading seconds by local day, sync daily reading time to CrossPoint Sync, and show today's total and 7-day average on the This Device reading stats page.
 - Preview OPDS book descriptions before downloading, with scrollable text on touch and button devices. Long descriptions show a bounded excerpt.
 - Sync a selected EPUB’s progress or an XTC book’s reading stats from its Library or File Browser context menu; Sync Folder and Sync Books include XTC stats too.
-- Use server filenames for OPDS downloads to match reading progress across devices; missing or unsafe names fall back to Author - Title.
+- Choose Use Server Filename for each OPDS server to match reading progress across devices. When off (the default), or if the server name is missing or unsafe, downloads use the selected Filename format.
 - View device hardware, firmware/build identity, storage, and memory diagnostics in Settings → System → About without exposing network or device identifiers. Export allowlisted diagnostics and global preferences as local support JSON after confirming the scope; optional EPUB overrides are anonymous, and network/device identifiers, credentials, and reading history are excluded.
 - Choose Display or Display (B&W) in Images globally or for individual EPUB books, independently of text anti-aliasing.
 - Use Home/Reader shortcuts on touch devices.

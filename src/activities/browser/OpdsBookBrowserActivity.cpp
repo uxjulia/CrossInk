@@ -910,7 +910,7 @@ void OpdsBookBrowserActivity::requestDownload(const OpdsEntry& selectedBook) {
   path += ".epub";
   const std::string feedUrl = UrlUtils::buildUrl(server.url, currentPath);
   DownloadRequest request{UrlUtils::resolveReference(feedUrl, book.href), book.title, std::move(path)};
-  if (server.filenameFormat == OpdsFilenameFormat::SERVER_FILENAME) {
+  if (server.useServerFilename) {
     downloadBook(std::move(request));
     return;
   }
@@ -1029,7 +1029,7 @@ void OpdsBookBrowserActivity::downloadBook(DownloadRequest request, const std::s
   downloadOptions.authorizationOrigin = authorizationOrigin;
   downloadOptions.stageAsPart = true;
   std::string resolvedPath;
-  downloadOptions.useServerFilename = server.filenameFormat == OpdsFilenameFormat::SERVER_FILENAME;
+  downloadOptions.useServerFilename = server.useServerFilename;
   downloadOptions.overwriteApprovedPath = approvedPath;
   downloadOptions.resolvedPath = &resolvedPath;
   downloadOptions.checkFreeSpace = true;

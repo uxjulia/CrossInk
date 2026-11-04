@@ -22,9 +22,9 @@
 namespace fui = freeink::ui;
 
 namespace {
-// Editable fields: Name, URL, Username, Password, Filename, Download Folder.
+// Editable fields: Name, URL, Username, Password, Filename, Use Server Filename, Download Folder.
 // Existing servers also show a Delete option (BASE_ITEMS + 1).
-constexpr int BASE_ITEMS = 6;
+constexpr int BASE_ITEMS = 7;
 constexpr fui::ActionId ACTION_ROW = 1;
 }  // namespace
 
@@ -216,11 +216,16 @@ void OpdsSettingsActivity::handleSelection() {
                                                                    editServer.password, 63, InputType::Text),
                            handler);
   } else if (selectedIndex == 4) {
-    editServer.filenameFormat =
-        static_cast<OpdsFilenameFormat>((static_cast<unsigned>(editServer.filenameFormat) + 1) % 3);
-    saveServer();
+    const auto previous = editServer.filenameFormat;
+    editServer.filenameFormat = previous == OpdsFilenameFormat::AUTHOR_TITLE ? OpdsFilenameFormat::TITLE_AUTHOR
+                                                                             : OpdsFilenameFormat::AUTHOR_TITLE;
+    if (!saveServer()) editServer.filenameFormat = previous;
     requestUpdate();
   } else if (selectedIndex == 5) {
+    editServer.useServerFilename = !editServer.useServerFilename;
+    if (!saveServer()) editServer.useServerFilename = !editServer.useServerFilename;
+    requestUpdate();
+  } else if (selectedIndex == 6) {
     editDownloadFolder();
   } else if (selectedIndex == BASE_ITEMS && !isNewServer) {
     // Delete flow is only available for existing servers.
@@ -317,17 +322,21 @@ void OpdsSettingsActivity::buildListScreen(UiApp::ScreenType& screen) {
   screen.target().text(band.inset(fui::Insets{0, pad, 0, pad}), tr(STR_CALIBRE_URL_HINT), screen.theme().smallText);
   screen.spacer(static_cast<int16_t>(metrics.verticalSpacing));
 
-  const StrId fieldNames[] = {StrId::STR_SERVER_NAME, StrId::STR_OPDS_SERVER_URL, StrId::STR_USERNAME,
-                              StrId::STR_PASSWORD,    StrId::STR_FILENAME,        StrId::STR_OPDS_DOWNLOAD_FOLDER};
+  const StrId fieldNames[] = {StrId::STR_SERVER_NAME,
+                              StrId::STR_OPDS_SERVER_URL,
+                              StrId::STR_USERNAME,
+                              StrId::STR_PASSWORD,
+                              StrId::STR_FILENAME,
+                              StrId::STR_USE_SERVER_FILENAME,
+                              StrId::STR_OPDS_DOWNLOAD_FOLDER};
   const int menuItems = getMenuItemCount();
   const char* values[BASE_ITEMS] = {
       editServer.name.empty() ? tr(STR_NOT_SET) : editServer.name.c_str(),
       editServer.url.empty() ? tr(STR_NOT_SET) : editServer.url.c_str(),
       editServer.username.empty() ? tr(STR_NOT_SET) : editServer.username.c_str(),
       editServer.password.empty() ? tr(STR_NOT_SET) : "******",
-      editServer.filenameFormat == OpdsFilenameFormat::SERVER_FILENAME ? tr(STR_SERVER_FILENAME)
-      : editServer.filenameFormat == OpdsFilenameFormat::TITLE_AUTHOR  ? tr(STR_TITLE_AUTHOR)
-                                                                       : tr(STR_AUTHOR_TITLE),
+      editServer.filenameFormat == OpdsFilenameFormat::TITLE_AUTHOR ? tr(STR_TITLE_AUTHOR) : tr(STR_AUTHOR_TITLE),
+      nullptr,
       downloadFolderLabel.c_str(),
   };
 
@@ -337,6 +346,8 @@ void OpdsSettingsActivity::buildListScreen(UiApp::ScreenType& screen) {
     fui::ListItem item;
     item.label = i < BASE_ITEMS ? I18N.get(fieldNames[i]) : tr(STR_DELETE_SERVER);
     if (i < BASE_ITEMS) item.value = values[i];
+    item.toggle = i == 5;
+    item.toggleChecked = editServer.useServerFilename;
     item.actionValue = static_cast<int16_t>(i);
     items.push_back(item);
   }
