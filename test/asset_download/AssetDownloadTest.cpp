@@ -103,7 +103,7 @@ void pinResponse(AssetCatalog::Entry& entry, const std::string& bytes) {
 void fillSources(size_t count) {
   for (size_t i = 0; i < count; ++i) {
     const auto code = "X" + std::to_string(i);
-    put("/.crosspoint/languages/" + code + ".yaml", namedYaml(code, "Test"));
+    put("/.crossink/languages/" + code + ".yaml", namedYaml(code, "Test"));
   }
 }
 size_t discoveredTextBytes() {
@@ -124,14 +124,14 @@ void fillTextBudget(size_t target) {
     std::snprintf(code, sizeof(code), "X%02u", unsigned(i));
     std::snprintf(filename, sizeof(filename), "x%02u.yaml", unsigned(i));
     const size_t length = names / rows + (i < names % rows ? 1 : 0);
-    put(std::string("/.crosspoint/languages/") + filename, namedYaml(code, std::string(length, 'N')));
+    put(std::string("/.crossink/languages/") + filename, namedYaml(code, std::string(length, 'N')));
   }
   assert(discoveredTextBytes() == target);
 }
 void capacityTests(const Endpoints& endpoints) {
   auto cat = catalog();
   auto& entry = cat.entries[0];
-  const std::string destination = "/.crosspoint/languages/DE.yaml";
+  const std::string destination = "/.crossink/languages/DE.yaml";
   reset();
   fillSources(64);
   assert(discoveredTextBytes() < I18n::Catalog::TEXT_BYTES);
@@ -150,17 +150,17 @@ void capacityTests(const Endpoints& endpoints) {
 
   reset();
   fillSources(63);
-  beforeValidation = [] { put("/.crosspoint/languages/late.yaml", namedYaml("Late", "Late")); };
+  beforeValidation = [] { put("/.crossink/languages/late.yaml", namedYaml("Late", "Late")); };
   assert(download(cat, entry, endpoints, false) == Result::Invalid);
   assert(files.size() == 64 && !files.count(destination));
 
   reset();
   fillSources(63);
-  put("/.crosspoint/languages/ignored.YAML", namedYaml("Hidden", "Hidden"));
-  put("/.crosspoint/languages/ignored.yaml.old", namedYaml("Backup", "Backup"));
-  put("/.crosspoint/languages/ignored.yaml.part", "not a source");
-  put("/.crosspoint/languages/" + std::string(122, 'x') + ".yaml", namedYaml("Long", "Long"));
-  directories.insert("/.crosspoint/languages/directory.yaml");
+  put("/.crossink/languages/ignored.YAML", namedYaml("Hidden", "Hidden"));
+  put("/.crossink/languages/ignored.yaml.old", namedYaml("Backup", "Backup"));
+  put("/.crossink/languages/ignored.yaml.part", "not a source");
+  put("/.crossink/languages/" + std::string(122, 'x') + ".yaml", namedYaml("Long", "Long"));
+  directories.insert("/.crossink/languages/directory.yaml");
   assert(download(cat, entry, endpoints, false) == Result::Ok);
   assert(discoveredTextBytes() < I18n::Catalog::TEXT_BYTES);
 
@@ -192,7 +192,7 @@ void capacityTests(const Endpoints& endpoints) {
 
   reset();
   cat = catalog();
-  put("/.crosspoint/languages/mine.yaml", namedYaml("DE", "Deutsch"));
+  put("/.crossink/languages/mine.yaml", namedYaml("DE", "Deutsch"));
   const size_t existingBytes = discoveredTextBytes();
   assert(download(cat, entry, endpoints, true) == Result::Ok);
   assert(discoveredTextBytes() == existingBytes && !files.count(destination));
@@ -233,7 +233,7 @@ void cleanupRetryTests(const Endpoints& endpoints) {
     reset();
     const auto cat = catalog();
     const auto& entry = cat.entries[0];
-    const std::string destination = std::string("/.crosspoint/languages/") + filename;
+    const std::string destination = std::string("/.crossink/languages/") + filename;
     const auto backup = destination + ".old";
     const auto old = yaml + "# old\n";
     put(destination, old);
@@ -263,7 +263,7 @@ void cleanupRetryTests(const Endpoints& endpoints) {
 void companionGateTests(const Endpoints& endpoints) {
   auto cat = catalog();
   const auto& entry = cat.entries[0];
-  const std::string destination = "/.crosspoint/languages/DE.yaml";
+  const std::string destination = "/.crossink/languages/DE.yaml";
   for (const auto failure : {Result::Cancelled, Result::Io, Result::Invalid, Result::Memory, Result::Network}) {
     reset();
     put(destination, yaml + "# previous source\n");
@@ -297,37 +297,37 @@ void sourceDiagnosticsTests() {
       "_template_source_sha256: \"39d64221d9bcb1a4d05a08dd12ea19ac8ef579b1e83c001e5c58537d15787322\"\n"
       "_template_keyset_sha256: \"29477e8b762a813886821526dc8c4146dbc112c09c1084688b43c68c87b40944\"\n" +
       namedYaml("VI", "Tiếng Việt");
-  put("/.crosspoint/languages/VI.yaml", vietnamese);
+  put("/.crossink/languages/VI.yaml", vietnamese);
   assert(discover(cat.kind, entry, source) == Result::Ok && source.status == Status::Missing);
-  assert(logged("SD metadata accepted: path=/.crosspoint/languages/VI.yaml code=VI selected=FR"));
+  assert(logged("SD metadata accepted: path=/.crossink/languages/VI.yaml code=VI selected=FR"));
   assert(logged("SD check complete: code=FR"));
   for (const auto& broken :
        {std::string("_language_code: \"VI\"\n_language_name: unquoted\n"), std::string("\xef\xbb\xbf") + vietnamese}) {
     reset();
-    put("/.crosspoint/languages/VI.yaml", broken);
+    put("/.crossink/languages/VI.yaml", broken);
     const auto before = files;
     assert(discover(cat.kind, entry, source) == Result::Invalid && files == before && downloads == 0);
-    assert(logged("SD metadata rejected: path=/.crosspoint/languages/VI.yaml"));
+    assert(logged("SD metadata rejected: path=/.crossink/languages/VI.yaml"));
     assert(logged("SD metadata details: selected=FR"));
     assert(logged(broken[0] == '_' ? "line=2" : "line=1"));
     assert(logged(broken[0] == '_' ? "invalid YAML syntax" : "UTF-8 BOM is not supported"));
   }
   reset();
-  put("/.crosspoint/languages/VI.yaml", vietnamese);
+  put("/.crossink/languages/VI.yaml", vietnamese);
   failRead = true;
   assert(discover(cat.kind, entry, source) == Result::Io);
   assert(logged("reason=source read failed"));
   reset();
   // Long supported filenames must not push the rejection reason out of the
   // firmware's bounded log entry (the filename itself is logged separately).
-  const auto longPath = "/.crosspoint/languages/" + std::string(120, 'v') + ".yaml";
+  const auto longPath = "/.crossink/languages/" + std::string(120, 'v') + ".yaml";
   put(longPath, "_language_code: \"VI\"\n_language_name: unquoted\n");
   assert(discover(cat.kind, entry, source) == Result::Invalid);
   assert(logged("SD metadata rejected: path=" + longPath));
   assert(logged("reason=invalid YAML syntax: expected key: \"value\" line=2 offset=46"));
   reset();
   const auto rejectedName = std::string(154, 'v') + ".yaml";
-  put("/.crosspoint/languages/" + rejectedName, vietnamese);
+  put("/.crossink/languages/" + rejectedName, vietnamese);
   assert(discover(cat.kind, entry, source) == Result::Invalid);
   assert(logged("SD filename rejected: name=" + rejectedName));
   assert(logged("SD filename reason=filename too long length=159"));
@@ -343,15 +343,15 @@ void macMetadataTests() {
   const auto french = namedYaml("FR", "Français");
   Source source;
   reset();
-  put("/.crosspoint/languages/VI.yaml", namedYaml("VI", "Tiếng Việt"));
-  put("/.crosspoint/languages/._VI.yaml", appleDouble);
-  put("/.crosspoint/languages/._FR.yaml.old", appleDouble);
+  put("/.crossink/languages/VI.yaml", namedYaml("VI", "Tiếng Việt"));
+  put("/.crossink/languages/._VI.yaml", appleDouble);
+  put("/.crossink/languages/._FR.yaml.old", appleDouble);
   const auto before = files;
   assert(discover(cat.kind, entry, source) == Result::Ok && source.status == Status::Missing);
   assert(files == before && downloads == 0);
   pinResponse(entry, french);
   assert(download(cat, entry, endpoints, false) == Result::Ok && downloads == 1);
-  assert(files.at("/.crosspoint/languages/FR.yaml") == french && files.size() == before.size() + 1);
+  assert(files.at("/.crossink/languages/FR.yaml") == french && files.size() == before.size() + 1);
   for (const auto& file : before) assert(files.at(file.first) == file.second);
 
   // An entire SD source catalog with Finder companions must retain capacity
@@ -368,7 +368,7 @@ void macMetadataTests() {
   assert(I18n::getInstance().discover(visible) == language_cache::Result::Ok);
   pinResponse(entry, french);
   assert(download(cat, entry, endpoints, false) == Result::Ok && downloads == 1);
-  assert(files.at("/.crosspoint/languages/FR.yaml") == french);
+  assert(files.at("/.crossink/languages/FR.yaml") == french);
   reset();
 }
 
@@ -410,72 +410,72 @@ int main() {
   };
   assert(download(cat, entry, endpoints, false, phaseCallbacks) == Result::Ok && phases.verified);
   assert(phases.payloadStarted);
-  assert(files.at("/.crosspoint/languages/DE.yaml") == yaml && !files.count("/.crosspoint/languages/DE.yaml.old"));
+  assert(files.at("/.crossink/languages/DE.yaml") == yaml && !files.count("/.crossink/languages/DE.yaml.old"));
   assert(discover(cat.kind, entry, source) == Result::Ok && source.status == Status::Current);
   assert(!source.recoveryPending);
   assert(source.sha256 == digest(yaml));
   reset();
-  put("/.crosspoint/languages/mine.yaml", yaml);
+  put("/.crossink/languages/mine.yaml", yaml);
   assert(discover(cat.kind, entry, source) == Result::Ok &&
-         std::string(source.path) == "/.crosspoint/languages/mine.yaml");
-  files["/.crosspoint/languages/mine.yaml"] += "# edited\n";
+         std::string(source.path) == "/.crossink/languages/mine.yaml");
+  files["/.crossink/languages/mine.yaml"] += "# edited\n";
   assert(discover(cat.kind, entry, source) == Result::Ok && source.status == Status::Different);
   phases.payloadStarted = false;
   assert(download(cat, entry, endpoints, false, phaseCallbacks) == Result::OverwriteRequired && downloads == 0);
   assert(!phases.payloadStarted);
-  assert(download(cat, entry, endpoints, true) == Result::Ok && !files.count("/.crosspoint/languages/DE.yaml"));
-  assert(files.at("/.crosspoint/languages/mine.yaml") == yaml);
+  assert(download(cat, entry, endpoints, true) == Result::Ok && !files.count("/.crossink/languages/DE.yaml"));
+  assert(files.at("/.crossink/languages/mine.yaml") == yaml);
   reset();
-  put("/.crosspoint/languages/DE.yaml", yaml + "# old\n");
-  std::strcpy(entry.previous, digest(files.at("/.crosspoint/languages/DE.yaml")).c_str());
+  put("/.crossink/languages/DE.yaml", yaml + "# old\n");
+  std::strcpy(entry.previous, digest(files.at("/.crossink/languages/DE.yaml")).c_str());
   assert(discover(cat.kind, entry, source) == Result::Ok && source.status == Status::Previous);
   assert(download(cat, entry, endpoints, false) == Result::Ok);
   reset();
-  put("/.crosspoint/languages/DE.yaml", yaml);
-  put("/.crosspoint/languages/copy.yaml", yaml);
+  put("/.crossink/languages/DE.yaml", yaml);
+  put("/.crossink/languages/copy.yaml", yaml);
   assert(discover(cat.kind, entry, source) == Result::Collision);
   assert(download(cat, entry, endpoints, true) == Result::Collision && downloads == 0);
   reset();
-  put("/.crosspoint/languages/de.YAML", yaml);
+  put("/.crossink/languages/de.YAML", yaml);
   assert(discover(cat.kind, entry, source) == Result::Collision);
   reset();
-  put("/.crosspoint/languages/DE.yaml", "_language_code: \"FR\"\n_language_name: \"Francais\"\nSTR_TEST: \"Salut\"\n");
+  put("/.crossink/languages/DE.yaml", "_language_code: \"FR\"\n_language_name: \"Francais\"\nSTR_TEST: \"Salut\"\n");
   assert(discover(cat.kind, entry, source) == Result::Collision);
   reset();
-  put("/.crosspoint/languages/mine.yaml.old", yaml + "# old\n");
+  put("/.crossink/languages/mine.yaml.old", yaml + "# old\n");
   assert(discover(cat.kind, entry, source) == Result::Ok && source.status == Status::Missing);
   assert(source.recoveryPending);
-  assert(files.count("/.crosspoint/languages/mine.yaml.old") && !files.count("/.crosspoint/languages/mine.yaml"));
-  assert(download(cat, entry, endpoints, false) == Result::Ok && files.at("/.crosspoint/languages/mine.yaml") == yaml);
+  assert(files.count("/.crossink/languages/mine.yaml.old") && !files.count("/.crossink/languages/mine.yaml"));
+  assert(download(cat, entry, endpoints, false) == Result::Ok && files.at("/.crossink/languages/mine.yaml") == yaml);
   reset();
-  put("/.crosspoint/languages/DE.yaml", yaml);
-  put("/.crosspoint/languages/DE.yaml.old", "backup");
-  failRemove.insert("/.crosspoint/languages/DE.yaml.old");
+  put("/.crossink/languages/DE.yaml", yaml);
+  put("/.crossink/languages/DE.yaml.old", "backup");
+  failRemove.insert("/.crossink/languages/DE.yaml.old");
   assert(download(cat, entry, endpoints, true) == Result::Io && downloads == 0 &&
-         files.at("/.crosspoint/languages/DE.yaml") == yaml);
+         files.at("/.crossink/languages/DE.yaml") == yaml);
   reset();
-  put("/.crosspoint/languages/DE.yaml", yaml + "# original\n");
+  put("/.crossink/languages/DE.yaml", yaml + "# original\n");
   response[response.size() - 2] = 'X';
   assert(download(cat, entry, endpoints, true) == Result::Invalid &&
-         files.at("/.crosspoint/languages/DE.yaml") == yaml + "# original\n");
+         files.at("/.crossink/languages/DE.yaml") == yaml + "# original\n");
   reset();
   sourceValid = false;
-  assert(download(cat, entry, endpoints, false) == Result::Invalid && !files.count("/.crosspoint/languages/DE.yaml"));
+  assert(download(cat, entry, endpoints, false) == Result::Invalid && !files.count("/.crossink/languages/DE.yaml"));
   reset();
-  put("/.crosspoint/languages/DE.yaml", yaml);
-  beforeValidation = [] { files["/.crosspoint/languages/DE.yaml"] += "# concurrent edit\n"; };
+  put("/.crossink/languages/DE.yaml", yaml);
+  beforeValidation = [] { files["/.crossink/languages/DE.yaml"] += "# concurrent edit\n"; };
   assert(download(cat, entry, endpoints, true) == Result::Collision &&
-         files.at("/.crosspoint/languages/DE.yaml") == yaml + "# concurrent edit\n");
+         files.at("/.crossink/languages/DE.yaml") == yaml + "# concurrent edit\n");
   reset();
-  put("/.crosspoint/languages/DE.yaml", yaml);
+  put("/.crossink/languages/DE.yaml", yaml);
   failClose = true;
   assert(discover(cat.kind, entry, source) == Result::Io);
   reset();
-  put("/.crosspoint/languages/DE.yaml", yaml);
+  put("/.crossink/languages/DE.yaml", yaml);
   failRead = true;
   assert(discover(cat.kind, entry, source) == Result::Io);
   reset();
-  directories.insert("/.crosspoint/languages");
+  directories.insert("/.crossink/languages");
   failIteration = true;
   assert(discover(cat.kind, entry, source) == Result::Io);
   reset();
@@ -486,22 +486,25 @@ int main() {
   cancelledTransfer = true;
   assert(download(cat, entry, endpoints, false) == Result::Cancelled);
   reset();
-  put("/.crosspoint/languages/DE.yaml", yaml + "# old\n");
-  failRename.insert("/.crosspoint/languages/DE.yaml.part");
+  put("/.crossink/languages/DE.yaml", yaml + "# old\n");
+  failRename.insert("/.crossink/languages/DE.yaml.part");
   assert(download(cat, entry, endpoints, true) == Result::Io &&
-         files.at("/.crosspoint/languages/DE.yaml") == yaml + "# old\n");
+         files.at("/.crossink/languages/DE.yaml") == yaml + "# old\n");
   reset();
-  put("/.crosspoint/languages/DE.yaml", yaml + "# old\n");
-  failRemove.insert("/.crosspoint/languages/DE.yaml.old");
-  assert(download(cat, entry, endpoints, true) == Result::Io && files.at("/.crosspoint/languages/DE.yaml") == yaml);
+  put("/.crossink/languages/DE.yaml", yaml + "# old\n");
+  failRemove.insert("/.crossink/languages/DE.yaml.old");
+  assert(download(cat, entry, endpoints, true) == Result::Io && files.at("/.crossink/languages/DE.yaml") == yaml);
   reset();
   cat = catalog(AssetCatalog::Kind::Hyphenation);
+  put("/.crosspoint/hyphenation/hyph-de.cphyph", "CrossPoint pack");
+  assert(discover(cat.kind, entry, source) == Result::Ok && source.status == Status::Missing);
   response = "CPHY\1de";
   entry.bytes = response.size();
   std::strcpy(entry.sha256, digest(response).c_str());
   assert(download(cat, entry, endpoints, false) == Result::Ok &&
-         files.at("/.crosspoint/hyphenation/hyph-de.cphyph") == response);
-  put("/.crosspoint/hyphenation/other.cphyph", response);
+         files.at("/.crossink/hyphenation/hyph-de.cphyph") == response);
+  assert(files.at("/.crosspoint/hyphenation/hyph-de.cphyph") == "CrossPoint pack");
+  put("/.crossink/hyphenation/other.cphyph", response);
   assert(discover(cat.kind, entry, source) == Result::Collision);
   for (const auto& reader : openReaders) assert(reader.second == 0);
   capacityTests(endpoints);

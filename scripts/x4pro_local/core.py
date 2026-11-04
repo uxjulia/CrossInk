@@ -205,14 +205,14 @@ def fixture(destination, name, network=False):
     if name != "blank-home":
         synthetic_epub(tree / "TestBook.epub")
     if name == "sd-assets":
-        languages = tree / ".crosspoint/languages"
+        languages = tree / ".crossink/languages"
         languages.mkdir(parents=True)
         (languages / "test.yaml").write_text('_language_code: "ZZ-TEST"\n_language_name: "Local Test"\n_direction: "ltr"\n_keyboard: "EN"\nSTR_SETTINGS_TITLE: "Test settings"\n')
         # Package the existing maintained/licensed generated French patterns.
         import sys
         sys.path.insert(0, str(ROOT / "scripts"))
         from package_hyphenation import pack_bytes
-        packs = tree / ".crosspoint/hyphenation"
+        packs = tree / ".crossink/hyphenation"
         packs.mkdir()
         (packs / "hyph-fr.cphyph").write_bytes(pack_bytes("fr"))
     image = destination / "sd.img"

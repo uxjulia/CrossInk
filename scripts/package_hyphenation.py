@@ -34,7 +34,7 @@ def pack_bytes(code, root=ROOT):
 
 
 def artifacts(root=ROOT):
-    entries = {f".crosspoint/hyphenation/hyph-{code}.cphyph": pack_bytes(code, root) for code in CODES}
+    entries = {f".crossink/hyphenation/hyph-{code}.cphyph": pack_bytes(code, root) for code in CODES}
     for source in sorted((root / "assets/hyphenation").rglob("*")):
         if source.is_file():
             entries[f"hyphenation-sources/{source.relative_to(root / 'assets/hyphenation')}"] = source.read_bytes()

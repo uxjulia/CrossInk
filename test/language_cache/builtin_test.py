@@ -42,7 +42,7 @@ with tempfile.TemporaryDirectory(prefix="crossink-builtins-") as temporary:
                         str(build / "I18nStrings.cpp"), str(root / "lib/LanguageCache/LanguageCache.cpp"),
                         str(root / "lib/AssetCacheStorage/AssetCacheStorage.cpp"), str(root / "lib/HalFlashPartition/HalFlashPartition.cpp"), "-o", str(binary)],
                        check=True, capture_output=True)
-        sd = build / "sd/.crosspoint/languages"
+        sd = build / "sd/.crossink/languages"
         sd.mkdir(parents=True)
         flash = build / "flash.bin"
         env = dict(os.environ, CROSSINK_TEST_SD=str(build / "sd"), CROSSINK_LANGUAGE_FLASH=str(flash))
@@ -84,13 +84,13 @@ with tempfile.TemporaryDirectory(prefix="crossink-builtins-") as temporary:
                           'STR_SETTINGS_TITLE: "SD TEST FRENCH"\n')
         choices = run("scan").splitlines()
         assert sum(line.startswith("FR|") for line in choices) == 1
-        assert any(line.startswith("FR|SD French|0|/.crosspoint/") for line in choices)
-        assert run("install", "FR", 0, "/.crosspoint/languages/french.yaml") == "FR|1"
+        assert any(line.startswith("FR|SD French|0|/.crossink/languages/") for line in choices)
+        assert run("install", "FR", 0, "/.crossink/languages/french.yaml") == "FR|1"
         assert lookup("FR", "STR_SETTINGS_TITLE", 1) == "SD TEST FRENCH"
         assert lookup("FR", "STR_MENU", 1) == "Menu", "Missing cache key uses English"
         sample.write_text(sample.read_text().replace("SD TEST FRENCH", "SD REVISED"))
         assert lookup("FR", "STR_SETTINGS_TITLE", 1) == "SD TEST FRENCH"
-        assert run("install", "FR", 1, "/.crosspoint/languages/french.yaml") == "FR|2"
+        assert run("install", "FR", 1, "/.crossink/languages/french.yaml") == "FR|2"
         assert lookup("FR", "STR_SETTINGS_TITLE", 1) == "SD TEST FRENCH"
         sample.unlink()
         assert lookup("FR", "STR_SETTINGS_TITLE", 2) == "SD REVISED"

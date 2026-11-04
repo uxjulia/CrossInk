@@ -195,7 +195,7 @@ struct AssetDownloadSmokeTest {
         AssetDownloadActivity::bootPayload(kind, kind == Kind::Hyphenation ? germanIndex() : germanTranslationIndex()));
   }
   static std::string localHyphenationSource() {
-    std::ifstream input("fs_/.crosspoint/hyphenation/hyph-de.cphyph", std::ios::binary);
+    std::ifstream input("fs_/.crossink/hyphenation/hyph-de.cphyph", std::ios::binary);
     return {std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
   }
   static void success() {
@@ -385,8 +385,7 @@ struct AssetDownloadSmokeTest {
         // known fixture while its already-active flash mapping stays pinned.
         AssetDownloadService::Source manual;
         require(AssetDownloadService::discover(activity->kind_, activity->catalog_->entries[i], manual) == Result::Ok &&
-                    manual.status == Status::Different &&
-                    !std::strcmp(manual.path, "/.crosspoint/languages/smoke.yaml"),
+                    manual.status == Status::Different && !std::strcmp(manual.path, "/.crossink/languages/smoke.yaml"),
                 "overwrite request was not the seeded manual language");
         unchanged(false);
         result = AssetDownloadService::download(*activity->catalog_, activity->catalog_->entries[i],
@@ -643,7 +642,7 @@ struct AssetDownloadSmokeTest {
         checkProgress();
         capture("assets-language-home");
         // Seed an edited source so the next stage meets the overwrite prompt.
-        std::ofstream("fs_/.crosspoint/languages/DE.yaml", std::ios::binary | std::ios::app) << "\n# local edit\n";
+        std::ofstream("fs_/.crossink/languages/DE.yaml", std::ios::binary | std::ios::app) << "\n# local edit\n";
       }
       driveSettings(true, "12");  // Active language: Update goes straight to the network boot.
       return;
@@ -693,7 +692,7 @@ struct AssetDownloadSmokeTest {
         checkProgress();
         const bool edited = localHyphenationSource().find("# local edit") != std::string::npos;
         if (bootStage == 7) {
-          std::ofstream("fs_/.crosspoint/hyphenation/hyph-de.cphyph", std::ios::binary | std::ios::app)
+          std::ofstream("fs_/.crossink/hyphenation/hyph-de.cphyph", std::ios::binary | std::ios::app)
               << "\n# local edit\n";
           startNetwork(Kind::Hyphenation, "10");
         } else if (bootStage == 10) {
@@ -836,7 +835,7 @@ struct AssetDownloadSmokeTest {
       if (!activity) {
         if (!seen || !activityManager.isHomeActivity()) return;
         require(bootStage == 12 && phase == 1, "translation install exited without the expected prompt");
-        std::ifstream edited("fs_/.crosspoint/languages/DE.yaml");
+        std::ifstream edited("fs_/.crossink/languages/DE.yaml");
         std::string yaml{std::istreambuf_iterator<char>(edited), std::istreambuf_iterator<char>()};
         require(yaml.find("# local edit") != std::string::npos, "overwrite Cancel replaced the edited source");
         require(!std::strcmp(I18N.getCode(), "DE"), "overwrite Cancel changed the language");
@@ -899,7 +898,7 @@ struct AssetDownloadSmokeTest {
       require(!activity->catalogReady_ && activity->catalog_->count == 0 &&
                   activity->simulatorLastError_ == StrId::STR_ASSET_UNAVAILABLE,
               "empty catalog reported an invalid catalog or network failure");
-      require(!Storage.exists("/.crosspoint/hyphenation/hyph-de.cphyph"), "empty catalog downloaded a source");
+      require(!Storage.exists("/.crossink/hyphenation/hyph-de.cphyph"), "empty catalog downloaded a source");
       unchanged(true);
       require(phase == 0, "empty catalog exit did not return Home");
       captureMatrix("assets-empty-catalog");
@@ -910,7 +909,7 @@ struct AssetDownloadSmokeTest {
     if (expectTranslationRejection) {
       require(!activity->catalogReady_ && activity->simulatorLastError_ == StrId::STR_ASSET_CATALOG_INVALID,
               "obsolete translation did not reach catalog validation rejection");
-      require(!Storage.exists("/.crosspoint/languages/DE.yaml"), "rejected catalog downloaded a source");
+      require(!Storage.exists("/.crossink/languages/DE.yaml"), "rejected catalog downloaded a source");
       unchanged(false);
       require(phase == 0, "rejected catalog Cancel did not return Home");
       capture("assets-obsolete-translation-rejected");

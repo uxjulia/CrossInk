@@ -51,6 +51,11 @@ To make the Library fast, CrossInk keeps an index of your books (titles, authors
 This is for people who browse the SD card on a computer. You do not need it for normal use.
 
 ```text
+.crossink/
+├── languages/              # Editable UI translations
+│   └── fonts/              # UI fallback font families
+└── hyphenation/            # Installable EPUB hyphenation packs
+
 .crosspoint/
 ├── global_stats.bin        # All-time reading stats, including total books read
 ├── global_stats.bin.bak    # Backup used if the main global stats file is corrupt

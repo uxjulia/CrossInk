@@ -20,7 +20,8 @@ def run(program, installer, output):
         for case in cases:
             work = Path(temporary) / case
             state = work / "fs_/.crosspoint"
-            languages = state / "languages"
+            state.mkdir(parents=True)
+            languages = work / "fs_/.crossink/languages"
             languages.mkdir(parents=True)
             cache = work / "flash.bin"
             env = dict(os.environ, SDL_VIDEODRIVER="dummy", CROSSPOINT_SIM_INPUT_SCRIPT="3000:QUIT",
@@ -31,7 +32,7 @@ def run(program, installer, output):
                 source = languages / "custom.yaml"
                 source.write_text('_language_code: "ZZ-CUSTOM"\n_language_name: "Community UI"\n'
                                   '_direction: "rtl"\n_keyboard: "HE"\nSTR_SETTINGS_TITLE: "Custom settings"\n')
-                prepared = subprocess.run([str(installer), "install", "EN", "0", "/.crosspoint/languages/custom.yaml"],
+                prepared = subprocess.run([str(installer), "install", "EN", "0", "/.crossink/languages/custom.yaml"],
                                           env=env, cwd=work, text=True, capture_output=True, check=True)
                 assert prepared.stdout.strip() == "ZZ-CUSTOM|1", prepared.stdout
                 source.unlink()  # firmware must not require or rediscover the source
@@ -78,7 +79,8 @@ def run_ui(program, output):
     with tempfile.TemporaryDirectory(prefix="crossink-language-picker-") as temporary:
         work = Path(temporary)
         state = work / "fs_/.crosspoint"
-        languages = state / "languages"
+        state.mkdir(parents=True)
+        languages = work / "fs_/.crossink/languages"
         languages.mkdir(parents=True)
         settings = state / "crossink-settings.json"
         settings.write_text(json.dumps({"language": "EN", "uiTheme": 0}))

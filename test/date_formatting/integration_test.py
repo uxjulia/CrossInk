@@ -9,7 +9,7 @@ import tempfile
 program, root = sys.argv[1], Path(sys.argv[2])
 with tempfile.TemporaryDirectory(prefix="crossink-dates-") as tmp:
     base = Path(tmp)
-    sources = base / "sd/.crosspoint/languages"
+    sources = base / "sd/.crossink/languages"
     sources.mkdir(parents=True)
     env = dict(os.environ, CROSSINK_TEST_SD=str(base / "sd"),
                CROSSINK_LANGUAGE_FLASH=str(base / "flash.bin"))
@@ -20,6 +20,6 @@ with tempfile.TemporaryDirectory(prefix="crossink-dates-") as tmp:
         shutil.copy2(source, sources / source.name)
         code = next(line.split('"')[1] for line in source.read_text().splitlines()
                     if line.startswith("_language_code:"))
-        subprocess.run([program, "install", "/.crosspoint/languages/" + source.name], env=env, check=True)
+        subprocess.run([program, "install", "/.crossink/languages/" + source.name], env=env, check=True)
         (sources / source.name).unlink()
         subprocess.run([program, code], env=env, check=True)

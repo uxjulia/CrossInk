@@ -15,6 +15,7 @@ spec = importlib.util.spec_from_file_location("packs", root / "scripts/package_h
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 entries = module.artifacts(root)
+assert not any(name.startswith(".crosspoint/") for name in entries)
 assert entries == module.artifacts(root)
 manifest = json.loads(entries["hyphenation-manifest.json"])
 for name, digest in manifest["sha256"].items():
@@ -22,7 +23,7 @@ for name, digest in manifest["sha256"].items():
 with tempfile.TemporaryDirectory() as temp:
     paths = []
     for code in module.CODES:
-        name = f".crosspoint/hyphenation/hyph-{code}.cphyph"
+        name = f".crossink/hyphenation/hyph-{code}.cphyph"
         data = entries[name]
         magic, version, identity, left, right, flags, reserved, root_offset, size, crc = struct.unpack("<4sB2sBBBHIII", data[:24])
         assert (magic, version, identity, left, right, flags, reserved) == (b"CPHY", 1, code.encode(), 2, 2, 0, 0)
@@ -32,6 +33,6 @@ with tempfile.TemporaryDirectory() as temp:
         path.write_bytes(data)
         paths.append(str(path))
     subprocess.run([sys.argv[2], *paths], check=True)
-assert ".crosspoint/hyphenation/hyph-en.cphyph" not in entries
+assert ".crossink/hyphenation/hyph-en.cphyph" not in entries
 assert len([name for name in entries if name.endswith(".tex")]) == 9
 print("Nine reproducible real packs, checksums, notices and flash installation passed")

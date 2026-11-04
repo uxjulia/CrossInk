@@ -343,7 +343,7 @@ class ReleaseBundleTest(unittest.TestCase):
         self.assertEqual(rc_files, stable_files)
         for entry in rc['entries']:
             key = f"snapshots/{rc['revision']}/hyphenation/{entry['sha256']}.cphyph"
-            self.assertEqual(rc_files[key], expected[f".crosspoint/hyphenation/hyph-{entry['code']}.cphyph"])
+            self.assertEqual(rc_files[key], expected[f".crossink/hyphenation/hyph-{entry['code']}.cphyph"])
         publisher.validate_companions(rc, rc_files)
 
 

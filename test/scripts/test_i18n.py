@@ -24,7 +24,7 @@ class I18nTest(unittest.TestCase):
             r"(?:hh|ll|[hljztL])?[diuoxXfFeEgGaAcsp%]"
         )
         path = re.compile(
-            r"/\.crosspoint/(?:languages(?:/fonts)?|hyphenation)|"
+            r"/\.crossink/(?:languages(?:/fonts)?|hyphenation)|"
             r"/crossink-support\.json|\.bak|crash_report\.txt|firmware\.bin|/Read\b|\.bin\b"
         )
         for file in sorted(directory.glob("*.yaml")):

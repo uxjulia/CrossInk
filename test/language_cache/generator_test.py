@@ -48,8 +48,9 @@ with tempfile.TemporaryDirectory(prefix="crossink-language-generator-") as tempo
     assert (base / "first.zip").read_bytes() == (base / "second.zip").read_bytes()
     with zipfile.ZipFile(base / "first.zip") as archive:
         names = archive.namelist()
+        assert not any(n.startswith(".crosspoint/") for n in names)
         assert "english-template.yaml" in names
-        assert ".crosspoint/languages/english.yaml" not in names
-        assert len([n for n in names if n.startswith(".crosspoint/languages/")]) == 27
+        assert ".crossink/languages/english.yaml" not in names
+        assert len([n for n in names if n.startswith(".crossink/languages/")]) == 27
         assert json.loads(archive.read("manifest.json"))["firmware"] == "test"
 print("Generator and packaging passed: English-only dependency, legacy identities, and reproducible release archive")

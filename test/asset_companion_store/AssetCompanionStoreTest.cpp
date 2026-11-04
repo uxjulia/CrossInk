@@ -128,11 +128,11 @@ Result run() {
 void prior() {
   Storage.ensureDirectoryExists(root().c_str());
   files[root() + "/complete.txt"] = "old generation";
-  files["/.crosspoint/hyphenation/hyph-de.cphyph"] = "old payload";
+  files["/.crossink/hyphenation/hyph-de.cphyph"] = "old payload";
 }
 void assertPrior() {
   assert(files.at(root() + "/complete.txt") == "old generation");
-  assert(files.at("/.crosspoint/hyphenation/hyph-de.cphyph") == "old payload");
+  assert(files.at("/.crossink/hyphenation/hyph-de.cphyph") == "old payload");
 }
 int main() {
   reset();
@@ -319,7 +319,7 @@ int main() {
   failRemove.insert(root() + ".old/complete.txt");
   assert(run() == Result::Io);
   assert(files.at(root() + "/complete.txt") != "old generation");
-  assert(files.at("/.crosspoint/hyphenation/hyph-de.cphyph") == "old payload");
+  assert(files.at("/.crossink/hyphenation/hyph-de.cphyph") == "old payload");
   failRemove.clear();
   assert(run() == Result::Ok);
   assert(!Storage.exists((root() + ".old").c_str()));

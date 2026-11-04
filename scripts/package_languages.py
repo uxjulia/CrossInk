@@ -26,13 +26,13 @@ def package(output: Path, version: str, benchmark: bool = False, template_output
     for path in sorted(source.glob("*.yaml")):
         if path.name == "english.yaml":
             continue
-        destination = f".crosspoint/languages/{path.name}"
+        destination = f".crossink/languages/{path.name}"
         entries[destination] = (prefix + path.read_text(encoding="utf-8")).encode("utf-8")
     if benchmark:
         english = (source / "english.yaml").read_text(encoding="utf-8")
         english = english.replace('_language_code: "EN"', '_language_code: "BENCH"\n_keyboard: "EN"')
         english = english.replace('_language_name: "English"', '_language_name: "English benchmark"')
-        entries[".crosspoint/languages/benchmark.yaml"] = (prefix + english).encode("utf-8")
+        entries[".crossink/languages/benchmark.yaml"] = (prefix + english).encode("utf-8")
     entries["README.md"] = (ROOT / "docs/languages.md").read_bytes()
     entries["manifest.json"] = (json.dumps({
         "firmware": version,

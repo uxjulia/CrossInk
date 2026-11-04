@@ -42,7 +42,7 @@ def checked_run(command, *, env, cwd):
 
 def test_host(args, values):
     work = args.output / "host"
-    languages = work / "fs_/.crosspoint/languages"
+    languages = work / "fs_/.crossink/languages"
     languages.mkdir(parents=True)
     shutil.copyfile(args.export, languages / "inky.yaml")
     env = dict(os.environ, CROSSINK_TEST_SD=str(work / "fs_"),
@@ -50,7 +50,7 @@ def test_host(args, values):
     run = lambda *command: checked_run([args.installer, *command], env=env, cwd=work)
     assert run("boot", values["_language_code"]).startswith("EN|English|Settings|")
     assert not (work / "flash.bin").exists(), "Boot must not provision flash"
-    installed = run("install", "EN", "0", "/.crosspoint/languages/inky.yaml")
+    installed = run("install", "EN", "0", "/.crossink/languages/inky.yaml")
     code, generation = installed.split("|")
     assert code == values["_language_code"].upper() and generation == "1", installed
     expected_name = values["_language_name"]
@@ -89,7 +89,8 @@ def test_host(args, values):
 def test_simulator(args, values):
     work = args.output / "simulator"
     state = work / "fs_/.crosspoint"
-    languages = state / "languages"
+    state.mkdir(parents=True)
+    languages = work / "fs_/.crossink/languages"
     languages.mkdir(parents=True)
     shutil.copyfile(args.export, languages / "inky.yaml")
     books = work / "fs_/books"

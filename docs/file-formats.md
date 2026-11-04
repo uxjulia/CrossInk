@@ -1897,7 +1897,7 @@ allocation failure leaves the built-in language/patterns available.
 
 ## SD hyphenation packs and flash banks
 
-SD path: `/.crosspoint/hyphenation/hyph-<code>.cphyph`. The upstream CPHY v1
+SD path: `/.crossink/hyphenation/hyph-<code>.cphyph`. The upstream CPHY v1
 header is 24 bytes, with all multibyte integers little-endian:
 
 - 0: magic `CPHY` (4 bytes)

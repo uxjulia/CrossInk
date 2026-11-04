@@ -148,7 +148,8 @@ Two singletons are central:
 - `src/CrossPointSettings.h` (`SETTINGS`): user preferences and behavior flags
 - `src/CrossPointState.h` (`APP_STATE`): runtime/session state such as current book and sleep context
 
-Most SD-card persistence lives under `/.crosspoint/`. See file inventory in
+SD language sources, UI fallback fonts, and hyphenation packs live under
+`/.crossink/`. Most other SD-card persistence lives under `/.crosspoint/`. See file inventory in
 `docs/data-cache.md`; for binary cache formats, see `docs/file-formats.md`.
 
 ## Networking architecture

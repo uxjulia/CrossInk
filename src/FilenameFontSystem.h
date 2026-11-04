@@ -24,7 +24,7 @@ class FilenameFontSystem {
   bool discover(std::vector<Family>& families);
   FontLoadError lastError() const { return lastError_; }
 #endif
-  static constexpr const char* FONT_DIR = "/.crosspoint/languages/fonts";
+  static constexpr const char* FONT_DIR = "/.crossink/languages/fonts";
   bool ensureLoaded(GfxRenderer& renderer);
   void release(GfxRenderer& renderer);
   // File-transfer screens can replace fonts or hand the SD card to the host.

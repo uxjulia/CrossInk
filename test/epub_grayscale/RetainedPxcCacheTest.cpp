@@ -200,23 +200,23 @@ TEST_F(RetainedPxcCacheTest, RetentionLeavesPsramForTheNextJpegDecoder) {
 TEST_F(RetainedPxcCacheTest, RegeneratingTheSamePathInvalidatesRetainedPixels) {
   constexpr int width = 200;
   constexpr int height = 120;
-  Storage.put("image.pxc", cache(width, height, 0));
+  Storage.put("image_v2.pxc", cache(width, height, 0));
   GfxRenderer renderer(800, 480);
   renderer.orientation = GfxRenderer::LandscapeCounterClockwise;
-  render(renderer, "image.pxc", width, height);
+  render(renderer, "image_v2.pxc", width, height);
   const auto stalePixels = renderer.bw;
 
-  Storage.remove("image.pxc");
+  Storage.remove("image_v2.pxc");
   SeedContext seed{.bytes = cache(width, height, 1)};
   ImageBlock::setExtractor(&seed, nullptr, seedCache);
   ImageBlock image("image.jpg", "source.jpg", width, height);
   image.prepareCache();
   ASSERT_EQ(seed.calls, 1);
 
-  const size_t bytesBeforeReload = Storage.data("image.pxc").readBytes;
-  render(renderer, "image.pxc", width, height);
+  const size_t bytesBeforeReload = Storage.data("image_v2.pxc").readBytes;
+  render(renderer, "image_v2.pxc", width, height);
   EXPECT_NE(renderer.bw, stalePixels);
-  EXPECT_EQ(Storage.data("image.pxc").readBytes - bytesBeforeReload,
+  EXPECT_EQ(Storage.data("image_v2.pxc").readBytes - bytesBeforeReload,
             4u + static_cast<size_t>((width + 3) / 4) * height);
 }
 

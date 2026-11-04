@@ -451,7 +451,7 @@ TEST(EpubTextGrayscaleTest, CachedNightModeImagesMatchMonochromeAcrossStoragePat
       std::vector<uint8_t> pixels(4 + 16 * 4, 0x1B);
       pixels[0] = pixels[2] = 16;
       pixels[1] = pixels[3] = 0;
-      Storage.put("image.pxc", pixels);
+      Storage.put("image_v2.pxc", pixels);
       HalDisplay display(800, 480);
       GfxRenderer renderer(display);
       renderer.begin();

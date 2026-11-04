@@ -14,7 +14,7 @@ constexpr size_t NAME_SIZE = 96;
 constexpr size_t MAX_KEYS = 2048;
 constexpr uint16_t MISSING = 0xffff;
 constexpr size_t MAX_SOURCE_SIZE = 256 * 1024;
-constexpr char DIRECTORY[] = "/.crosspoint/languages";
+constexpr char DIRECTORY[] = "/.crossink/languages";
 
 // Finder copies these metadata companions alongside SD files. They are not payloads.
 constexpr bool isAppleDoubleFile(const char* filename) { return filename && filename[0] == '.' && filename[1] == '_'; }

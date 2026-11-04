@@ -186,7 +186,7 @@ def build_hyphenation():
         data = hfiles[name]
         return {'path': hbase + '/' + name, 'bytes': len(data), 'sha256': sha(data)}
     for code in CODES:
-        name = f'.crosspoint/hyphenation/hyph-{code}.cphyph'
+        name = f'.crossink/hyphenation/hyph-{code}.cphyph'
         data = hfiles[name]
         magic, fmt, lang, left, right, flags, reserved, offset, size, crc = PACK_HEADER.unpack_from(data)
         payload = data[PACK_HEADER.size:]

@@ -13,7 +13,7 @@ sys.path.insert(0, str(root / "scripts"))
 from generate_language_template import generate
 with tempfile.TemporaryDirectory(prefix="crossink-language-") as temporary:
     base = Path(temporary)
-    languages = base / "sd/.crosspoint/languages"
+    languages = base / "sd/.crossink/languages"
     languages.mkdir(parents=True)
     env = dict(os.environ, CROSSINK_TEST_SD=str(base / "sd"), CROSSINK_LANGUAGE_FLASH=str(base / "flash.bin"))
 
@@ -21,6 +21,13 @@ with tempfile.TemporaryDirectory(prefix="crossink-language-") as temporary:
         result = subprocess.run([binary, *map(str, args)], env=env, text=True, capture_output=True)
         assert result.returncode == 0, (args, result.stdout, result.stderr)
         return result.stdout.strip()
+
+    # CrossPoint's namespace must never be discovered as a CrossInk source.
+    foreign = base / "sd/.crosspoint/languages"
+    foreign.mkdir(parents=True)
+    (foreign / "foreign.yaml").write_text(
+        '_language_code: "ZZ-FOREIGN"\n_language_name: "CrossPoint language"\n')
+    assert "ZZ-FOREIGN|" not in run("scan")
 
     assert run("boot", "ZZ-CUSTOM").startswith("EN|English|Settings|")
     assert not (base / "flash.bin").exists()  # boot never provisions or scans SD
@@ -32,10 +39,10 @@ with tempfile.TemporaryDirectory(prefix="crossink-language-") as temporary:
     online = languages / "FR.yaml"
     source = artifacts[french["translation"]["filename"]]
     online.write_bytes(source)
-    run("validate", "FR", 0, "/.crosspoint/languages/FR.yaml")
+    run("validate", "FR", 0, "/.crossink/languages/FR.yaml")
     assert not (base / "flash.bin").exists()
     online.write_bytes(source.replace(contract["keysetSha256"].encode(), b"0" * 64))
-    rejected = subprocess.run([binary, "validate", "FR", "0", "/.crosspoint/languages/FR.yaml"],
+    rejected = subprocess.run([binary, "validate", "FR", "0", "/.crossink/languages/FR.yaml"],
                               env=env, capture_output=True)
     assert rejected.returncode == 5
     assert not (base / "flash.bin").exists()
@@ -53,7 +60,7 @@ with tempfile.TemporaryDirectory(prefix="crossink-language-") as temporary:
     env["CROSSINK_TEST_BATCHED_INSTALL"] = "1"
     # Use a real multi-string language so per-string syncs would exceed the cap.
     sample.write_text(sample.read_text() + 'STR_BACK: "Retour"\nSTR_CANCEL: "Annuler"\n')
-    assert run("install", "EN", 0, "/.crosspoint/languages/custom.yaml") == "ZZ-CUSTOM|1"
+    assert run("install", "EN", 0, "/.crossink/languages/custom.yaml") == "ZZ-CUSTOM|1"
     del env["CROSSINK_TEST_BATCHED_INSTALL"]
     assert (base / "flash.bin").read_bytes() == factory_flash
     assert run("boot", "ZZ-CUSTOM", 1) == "ZZ-CUSTOM|My language|Custom settings|1"
@@ -62,7 +69,7 @@ with tempfile.TemporaryDirectory(prefix="crossink-language-") as temporary:
     assert run("boot", "ZZ-CUSTOM", 1) == "ZZ-CUSTOM|My language|Custom settings|1"
     sample.write_text(original_source)
     old_sd = sd_cache.read_bytes()
-    run("unchanged", "ZZ-CUSTOM", 1, "/.crosspoint/languages/custom.yaml")
+    run("unchanged", "ZZ-CUSTOM", 1, "/.crossink/languages/custom.yaml")
     assert sd_cache.read_bytes() == old_sd
     # Inject a failure after each SD flush: erase, bulk image, publication.
     # The settings-pinned old slot and its UI stay usable even when the new
@@ -70,7 +77,7 @@ with tempfile.TemporaryDirectory(prefix="crossink-language-") as temporary:
     sample.write_text(original_source.replace("Custom settings", "Replacement settings"))
     for failure in (1, 2, 3):
         env["CROSSINK_TEST_FAIL_SYNC"] = str(failure)
-        rejected = subprocess.run([binary, "install", "ZZ-CUSTOM", "1", "/.crosspoint/languages/custom.yaml"],
+        rejected = subprocess.run([binary, "install", "ZZ-CUSTOM", "1", "/.crossink/languages/custom.yaml"],
                                   env=env, capture_output=True)
         assert rejected.returncode == 5, (failure, rejected.stdout, rejected.stderr)
         del env["CROSSINK_TEST_FAIL_SYNC"]
@@ -82,7 +89,7 @@ with tempfile.TemporaryDirectory(prefix="crossink-language-") as temporary:
     # overwritten by a failed install.
     sd_cache.write_bytes(b"truncated")
     assert run("boot", "ZZ-CUSTOM", 1).startswith("EN|English|Settings|")
-    rejected = subprocess.run([binary, "install", "EN", "0", "/.crosspoint/languages/custom.yaml"],
+    rejected = subprocess.run([binary, "install", "EN", "0", "/.crossink/languages/custom.yaml"],
                               env=env, capture_output=True)
     assert rejected.returncode == 5 and sd_cache.read_bytes() == b"truncated"
     sd_cache.unlink()
@@ -98,18 +105,18 @@ with tempfile.TemporaryDirectory(prefix="crossink-language-") as temporary:
     assert run("boot", "ZZ-CUSTOM").startswith("EN|English|Settings|")
     assert (base / "flash.bin").read_bytes() == old_flash
     assert "ZZ-CUSTOM|My language|0|" in run("scan")
-    assert run("install", "EN", 0, "/.crosspoint/languages/custom.yaml") == "ZZ-CUSTOM|1"
+    assert run("install", "EN", 0, "/.crossink/languages/custom.yaml") == "ZZ-CUSTOM|1"
     installed_flash = (base / "flash.bin").read_bytes()
     assert installed_flash[:-0x20000] == old_flash[:-0x20000]
     assert installed_flash[-0x10000:] == old_flash[-0x10000:]
     assert run("boot", "ZZ-CUSTOM", 1) == "ZZ-CUSTOM|My language|Custom settings|1"
-    run("unchanged", "ZZ-CUSTOM", 1, "/.crosspoint/languages/custom.yaml")
+    run("unchanged", "ZZ-CUSTOM", 1, "/.crossink/languages/custom.yaml")
     assert (base / "flash.bin").read_bytes() == installed_flash
     unchanged_sample = languages / "same.yaml"
     unchanged_sample.write_text("# Formatting-only edit\n" + sample.read_text())
     sample.write_text(sample.read_text().replace("Custom settings", "Revised settings"))
     assert "|Custom settings|" in run("boot", "ZZ-CUSTOM", 1)  # edits require apply
-    run("unchanged", "ZZ-CUSTOM", 1, "/.crosspoint/languages/same.yaml", "/.crosspoint/languages/custom.yaml")
+    run("unchanged", "ZZ-CUSTOM", 1, "/.crossink/languages/same.yaml", "/.crossink/languages/custom.yaml")
     unchanged_sample.unlink()
     assert "|Custom settings|" in run("boot", "ZZ-CUSTOM", 1)  # failed selection save keeps old generation
     assert "|Revised settings|" in run("boot", "ZZ-CUSTOM", 2)
@@ -128,7 +135,7 @@ with tempfile.TemporaryDirectory(prefix="crossink-language-") as temporary:
     }
     sample.write_text('_language_code: "TEST-FMT"\n_language_name: "Unsafe format fixture"\n' +
                       ''.join(f'{key}: "{bad}"\n' for key, (bad, _) in contracts.items()))
-    fmt_code, fmt_generation = run("install", "ZZ-CUSTOM", 2, "/.crosspoint/languages/custom.yaml").split("|")
+    fmt_code, fmt_generation = run("install", "ZZ-CUSTOM", 2, "/.crossink/languages/custom.yaml").split("|")
     for key, (_, expected) in contracts.items():
         assert run("lookup", fmt_code, fmt_generation, key) == expected
     sample.unlink()
@@ -139,7 +146,7 @@ with tempfile.TemporaryDirectory(prefix="crossink-language-") as temporary:
         if path.name == "english.yaml":
             continue
         shutil.copy2(path, languages / path.name)
-        installed = run("install", code, generation, f"/.crosspoint/languages/{path.name}")
+        installed = run("install", code, generation, f"/.crossink/languages/{path.name}")
         code, generation = installed.split("|")
         assert run("boot", code, generation).startswith(code + "|")
     # Duplicate identities remain visible and disabled, not arbitrarily selected.

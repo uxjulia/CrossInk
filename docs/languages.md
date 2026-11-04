@@ -38,13 +38,21 @@ install the language manually.
 If you have edited the SD copy, downloading an update asks before replacing it.
 Keep a separate copy of any translation you want to save.
 
+## Existing SD folders
+
+If you used an earlier build, move the `languages` and `hyphenation` folders
+from `.crosspoint` into `.crossink` at the SD root, including any
+`languages/fonts` families. CrossInk only reads these sources from `.crossink`.
+Already installed language and hyphenation packs remain active; moving the
+source folders does not require clearing book caches or reinstalling packs.
+
 ## Install a language from SD
 
 1. Download `crossink-languages-<version>.zip` for your firmware from the
    [releases page](https://github.com/uxjulia/CrossInk/releases).
-2. Unzip it and copy the `.crosspoint/languages` folder to the root of your SD
+2. Unzip it and copy the `.crossink/languages` folder to the root of your SD
    card. You only need the language files you want. Turn on **Show hidden files**
-   in your file manager if you cannot see the `.crosspoint` folder.
+   in your file manager if you cannot see the `.crossink` folder.
 3. On the reader, open **Settings > System > Device > Language** and select the
    language. The reader prepares it, saves your choice, and restarts to Home.
 
@@ -86,7 +94,7 @@ replaced. English is always available and cannot be removed.
 
 ### Install from SD
 
-1. Copy the `.crosspoint/hyphenation` folder from the language ZIP to the root
+1. Copy the `.crossink/hyphenation` folder from the language ZIP to the root
    of your SD card.
 2. Open **Settings > Reader > Page Layout > Hyphenation Packs**.
 3. Select the pack marked **Install**. The reader installs it and restarts to
@@ -137,7 +145,7 @@ STR_SETTINGS_TITLE: "My settings"
 - Keep placeholders such as `%s`, `%d`, and `%zu` exactly as they are and in the
   same order. They are filled in by the reader.
 
-Copy your file into `.crosspoint/languages` on SD and select it through
+Copy your file into `.crossink/languages` on SD and select it through
 **Settings > System > Device > Language**. Select it again after each edit to
 apply the changes. Creating a translation does not require rebuilding firmware.
 
@@ -154,7 +162,7 @@ and does not change your reading font. This option is unavailable on the X3 and
 X4.
 
 1. Copy a static `.ttf` or `.otf` font into a family folder, for example
-   `/.crosspoint/languages/fonts/Noto Sans SC/`.
+   `/.crossink/languages/fonts/Noto Sans SC/`.
 2. Include one regular face and, optionally, one bold face. Each file can be up
    to **32 MiB**. Italic faces, variable fonts, font collections, and bitmap
    `.cpfont` files are not supported here.

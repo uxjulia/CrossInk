@@ -4,7 +4,7 @@
 #include <HyphenationPack.h>
 
 namespace HyphenationPackStore {
-constexpr char DIRECTORY[] = "/.crosspoint/hyphenation";
+constexpr char DIRECTORY[] = "/.crossink/hyphenation";
 bool begin();
 bool lookup(const char* code, ExternalHyphenationPatterns& out);
 bool isInstalled(const char* code);

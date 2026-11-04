@@ -31,22 +31,25 @@ int main(int argc, char** argv) {
   char temp[] = "/tmp/crossink-font-errors-XXXXXX";
   testRoot = mkdtemp(temp);
   const auto put = [&](const char* family, const char* name, const std::filesystem::path& source) {
-    const auto dir = std::filesystem::path(testRoot) / ".crosspoint/languages/fonts" / family;
+    const auto dir = std::filesystem::path(testRoot) / ".crossink/languages/fonts" / family;
     std::filesystem::create_directories(dir);
     std::filesystem::copy_file(source, dir / name, std::filesystem::copy_options::overwrite_existing);
   };
   const auto regular = repo / "lib/EpdFont/scalableFonts/bitter_regular.ttf";
   const auto bold = repo / "lib/EpdFont/scalableFonts/bitter_bold.ttf";
+  const auto foreign = std::filesystem::path(testRoot) / ".crosspoint/languages/fonts/CrossPoint";
+  std::filesystem::create_directories(foreign);
+  std::filesystem::copy_file(regular, foreign / "Regular.ttf");
   put("Good", "Regular.ttf", regular);
   put("Bold Only", "Bold.ttf", bold);
   put("Duplicate", "One.ttf", regular);
   put("Duplicate", "Two.ttf", regular);
   put("Sidecars", "._Ghost.ttf", regular);
   put("Good", "._Regular.ttf", regular);
-  const auto corruptDir = std::filesystem::path(testRoot) / ".crosspoint/languages/fonts/Corrupt";
+  const auto corruptDir = std::filesystem::path(testRoot) / ".crossink/languages/fonts/Corrupt";
   std::filesystem::create_directories(corruptDir);
   std::ofstream(corruptDir / "Bad.ttf") << "not a font file";
-  const auto largeDir = std::filesystem::path(testRoot) / ".crosspoint/languages/fonts/Large";
+  const auto largeDir = std::filesystem::path(testRoot) / ".crossink/languages/fonts/Large";
   std::filesystem::create_directories(largeDir);
   {
     std::ofstream file(largeDir / "Large.otf", std::ios::binary);
@@ -58,6 +61,7 @@ int main(int argc, char** argv) {
   FilenameFontSystem system;
   std::vector<FilenameFontSystem::Family> families;
   assert(system.discover(families));
+  assert(std::none_of(families.begin(), families.end(), [](const auto& entry) { return entry.name == "CrossPoint"; }));
   const auto errorFor = [&](const char* name) {
     const auto found =
         std::find_if(families.begin(), families.end(), [&](const auto& entry) { return entry.name == name; });
@@ -101,22 +105,22 @@ int main(int argc, char** argv) {
   assert(
       !HalScalableFont::inspectFile("/missing.ttf", info, &unavailable, HalScalableFont::MaxFilenameFileBytes, &error));
   assert(error == FontLoadError::Read && unavailable);
-  assert(!HalScalableFont::inspectFile("/.crosspoint/languages/fonts/Corrupt/Bad.ttf", info, &unavailable,
+  assert(!HalScalableFont::inspectFile("/.crossink/languages/fonts/Corrupt/Bad.ttf", info, &unavailable,
                                        HalScalableFont::MaxFilenameFileBytes, &error));
   assert(error == FontLoadError::Unsupported && !unavailable);
 
   failOpenWrapperAlloc = true;
   assert(!system.discover(families) && system.lastError() == FontLoadError::Memory);
-  assert(!HalScalableFont::inspectFile("/.crosspoint/languages/fonts/Good/Regular.ttf", info, &unavailable,
+  assert(!HalScalableFont::inspectFile("/.crossink/languages/fonts/Good/Regular.ttf", info, &unavailable,
                                        HalScalableFont::MaxFilenameFileBytes, &error));
   assert(error == FontLoadError::Memory && unavailable);
   size_t bytes = 0;
-  assert(!HalScalableFont::fileSize("/.crosspoint/languages/fonts/Good/Regular.ttf", bytes,
+  assert(!HalScalableFont::fileSize("/.crossink/languages/fonts/Good/Regular.ttf", bytes,
                                     HalScalableFont::MaxFilenameFileBytes, &error));
   assert(error == FontLoadError::Memory);
   {
     HalScalableFont font;
-    assert(!font.openFile("/.crosspoint/languages/fonts/Good/Regular.ttf") &&
+    assert(!font.openFile("/.crossink/languages/fonts/Good/Regular.ttf") &&
            font.lastLoadError() == FontLoadError::Memory);
   }
   failOpenWrapperAlloc = false;
@@ -132,7 +136,7 @@ int main(int argc, char** argv) {
   system.release(renderer);
 
   failFontRead = true;
-  assert(!HalScalableFont::inspectFile("/.crosspoint/languages/fonts/Good/Regular.ttf", info, &unavailable,
+  assert(!HalScalableFont::inspectFile("/.crossink/languages/fonts/Good/Regular.ttf", info, &unavailable,
                                        HalScalableFont::MaxFilenameFileBytes, &error));
   assert(error == FontLoadError::Read && unavailable);
   assert(!select("Good") && system.lastError() == FontLoadError::Read);
@@ -149,7 +153,7 @@ int main(int argc, char** argv) {
     assert(errorFor("Good") == FontLoadError::None);
     assert(!select("Noto") && system.lastError() == FontLoadError::Memory);
     // An OOM during one inspection must not taint the next format decision.
-    assert(!HalScalableFont::inspectFile("/.crosspoint/languages/fonts/Corrupt/Bad.ttf", info, &unavailable,
+    assert(!HalScalableFont::inspectFile("/.crossink/languages/fonts/Corrupt/Bad.ttf", info, &unavailable,
                                          HalScalableFont::MaxFilenameFileBytes, &error));
     assert(error == FontLoadError::Unsupported && !unavailable);
     assert(select("Good"));
