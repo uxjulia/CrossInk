@@ -392,6 +392,7 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   };
 
   enum INDEXING_METHOD { INDEXING_INCREMENTAL = 0, INDEXING_FULL_SECTION = 1, INDEXING_METHOD_COUNT };
+  static uint8_t defaultIndexingMethod();
 
   enum TILT_PAGE_TURN { TILT_OFF = 0, TILT_ON = 1, TILT_PAGE_TURN_COUNT };
   enum TILT_PAGE_TURN_DIRECTION {
@@ -643,7 +644,7 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   uint8_t embeddedStyle = 1;
   uint8_t publisherFonts = 1;
   // EPUB section indexing policy. The current chapter keeps its active build.
-  uint8_t indexingMethod = INDEXING_FULL_SECTION;
+  uint8_t indexingMethod = defaultIndexingMethod();
   // Focus Reading - emphasizes the first part of words with bold
   uint8_t focusReadingEnabled = 0;
   // Guide Dots - places a middle dot between words to guide the eye

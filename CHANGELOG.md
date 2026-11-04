@@ -187,6 +187,7 @@
 - Open EPUB chapters sooner by deferring optional SD-font preparation until pages are ready. On PSRAM readers, reuse ZIP directories and decode JPEG/PNG sources without temporary SD extraction when memory permits.
 - Reduce SD writes for EPUB progress and reading statistics.
 - Match Nearby Position Sync to the progress sync comparison design, with progress cards, bars, chapter details, and an Ahead badge.
+- Default to Incremental EPUB indexing on ESP32-S3 readers, while preserving saved global choices and per-book overrides.
 
 ## [v1.6.1] - 2026-10-03
 
