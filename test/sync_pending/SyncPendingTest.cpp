@@ -92,6 +92,15 @@ TEST_F(SyncPendingTest, SnapshotWalkIgnoresClearsMadeDuringIt) {
   EXPECT_EQ(entries().size(), 1u);
 }
 
+TEST_F(SyncPendingTest, SessionMarkerRetriesAfterFailedSave) {
+  SyncPending::SessionMarker marker;
+  Storage.failNextRenameFrom(std::string(SyncPending::PATH) + ".tmp");
+  marker.mark("/a.epub", SyncPending::STATS_BIT);
+  EXPECT_TRUE(entries().empty());
+  marker.mark("/a.epub", SyncPending::STATS_BIT);
+  EXPECT_EQ(entries(), (Entries{{"/a.epub", SyncPending::STATS_BIT}}));
+}
+
 TEST_F(SyncPendingTest, SessionMarkerWritesOnceUntilASyncClearsTheBook) {
   SyncPending::SessionMarker marker;
   marker.mark("/a.epub", SyncPending::CLIPPINGS_BIT);

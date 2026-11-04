@@ -1,5 +1,6 @@
 #include "BookMoveUtils.h"
 
+#include <BookKey.h>
 #include <Epub.h>
 #include <FsHelpers.h>
 #include <HalStorage.h>
@@ -49,7 +50,7 @@ namespace BookMoveUtils {
 RenameMigrationResult renameFilePreservingBookState(const std::string& oldPath, const std::string& newPath) {
   const char* bookType = bookTypeForPath(oldPath);
   if (!bookType) {
-    if (!Storage.rename(oldPath.c_str(), newPath.c_str())) {
+    if (!bookkey::moveFile(oldPath, newPath)) {
       LOG_ERR("BookMove", "Failed to rename file: %s -> %s", oldPath.c_str(), newPath.c_str());
       return RenameMigrationResult::RolledBack;
     }
@@ -60,7 +61,7 @@ RenameMigrationResult renameFilePreservingBookState(const std::string& oldPath, 
     if (moveBootImage) APP_STATE.favoriteBootImagePath = newPath;
     if (APP_STATE.saveToFile()) return RenameMigrationResult::Success;
     LOG_ERR("BookMove", "Failed to save renamed favorite image path: %s", newPath.c_str());
-    if (!Storage.rename(newPath.c_str(), oldPath.c_str())) {
+    if (!bookkey::moveFile(newPath, oldPath)) {
       LOG_ERR("BookMove", "Failed to restore original favorite image filename: %s", oldPath.c_str());
       return RenameMigrationResult::KeepRenamed;
     }
@@ -216,13 +217,13 @@ RenameMigrationResult migrateRenamedBookState(const std::string& oldPath, const 
 
   const auto recover = [&]() {
     if (bookRenamed) {
-      if (!Storage.rename(newPath.c_str(), oldPath.c_str())) {
+      if (!bookkey::moveFile(newPath, oldPath)) {
         return keepRenamed();
       }
       bookRenamed = false;
 
       if (!rollbackMovedReferences()) {
-        if (Storage.rename(oldPath.c_str(), newPath.c_str())) {
+        if (bookkey::moveFile(oldPath, newPath)) {
           bookRenamed = true;
           return keepRenamed();
         }
@@ -261,7 +262,7 @@ RenameMigrationResult migrateRenamedBookState(const std::string& oldPath, const 
   }
 
   library::invalidateLibraryIndex();
-  if (!Storage.rename(oldPath.c_str(), newPath.c_str())) {
+  if (!bookkey::moveFile(oldPath, newPath)) {
     LOG_ERR("BookMove", "Failed to rename file: %s -> %s", oldPath.c_str(), newPath.c_str());
     return recover();
   }

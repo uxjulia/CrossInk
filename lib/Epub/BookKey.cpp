@@ -2,6 +2,7 @@
 
 #include <DeviceSecret.h>
 #include <DownloadFileSwap.h>
+#include <FsHelpers.h>
 #include <HalStorage.h>
 #include <Logging.h>
 #include <Memory.h>
@@ -103,6 +104,52 @@ bool write(const std::string& bookPath, const uint8_t* key, const size_t keyLen,
     }
   }
   return DownloadFileSwap::publishFrom(path, tmp);
+}
+
+bool hasSidecar(const std::string& bookPath) {
+  if (!FsHelpers::hasEpubExtension(bookPath)) return false;
+  const std::string path = keyPath(bookPath);
+  return Storage.exists(path.c_str()) || Storage.exists((path + ".old").c_str());
+}
+
+bool moveFile(const std::string& from, const std::string& to) {
+  std::lock_guard<std::mutex> guard(keyLock);
+  if (Storage.exists(to.c_str())) return false;
+  const bool keyed = hasSidecar(from);
+  if (!keyed) return !hasSidecar(to) && Storage.rename(from.c_str(), to.c_str());
+  if (!FsHelpers::hasEpubExtension(to)) return false;
+
+  const std::string src = keyPath(from), dst = keyPath(to);
+  if (!DownloadFileSwap::recover(src) || !DownloadFileSwap::recover(dst)) return false;
+  // Copy the wrapped bytes before publishing the book. At every reset point
+  // the existing book still has its key. An identical staged key permits retry.
+  FsFile file;
+  uint8_t wrapped[MAX_FILE_LEN];
+  if (!Storage.openFileForRead("BKEY", src, file)) return false;
+  const size_t size = file.size();
+  const bool loaded = size && size <= sizeof(wrapped) && file.read(wrapped, size) == static_cast<int>(size);
+  if (!file.close() || !loaded) return false;
+  if (Storage.exists(dst.c_str())) {
+    uint8_t other[MAX_FILE_LEN];
+    if (!Storage.openFileForRead("BKEY", dst, file)) return false;
+    const bool same = file.size() == size && file.read(other, size) == static_cast<int>(size) &&
+                      std::memcmp(wrapped, other, size) == 0;
+    if (!file.close() || !same) return false;
+  } else {
+    const std::string tmp = dst + ".tmp";
+    if (!Storage.openFileForWrite("BKEY", tmp, file)) return false;
+    const bool written = file.write(wrapped, size) == size && file.sync();
+    if (!file.close() || !written || !Storage.rename(tmp.c_str(), dst.c_str())) {
+      Storage.remove(tmp.c_str());
+      return false;
+    }
+  }
+  if (!Storage.rename(from.c_str(), to.c_str())) {
+    if (!Storage.remove(dst.c_str())) LOG_ERR("BKEY", "Could not clean staged key: %s", dst.c_str());
+    return false;
+  }
+  if (!Storage.remove(src.c_str())) LOG_ERR("BKEY", "Could not clean old key: %s", src.c_str());
+  return true;
 }
 
 size_t read(const std::string& bookPath, uint8_t (&key)[MAX_KEY_LEN], int64_t* expiresAt) {

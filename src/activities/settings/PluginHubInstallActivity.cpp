@@ -99,7 +99,7 @@ HttpDownloader::DownloadError PluginHubInstallActivity::installPluginHub() {
     // Show every file transition, even when the next transfer finishes quickly.
     requestUpdateAndWait();
     const std::string url = std::string(PLUGIN_HUB_BASE_URL) + filename;
-    const auto result = downloadFile(url, stage + "/" + filename);
+    const auto result = downloadFile(url, stage + "/" + filename, {}, {}, {}, HttpDownloader::Transport::ESP_HTTP);
     if (result != HttpDownloader::OK) {
       PluginBundle::discard(PLUGIN_HUB_DIR);
       return result;

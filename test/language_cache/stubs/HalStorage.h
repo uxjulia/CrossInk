@@ -122,6 +122,10 @@ class HalStorage {
     std::filesystem::create_directories(std::string(root ? root : ".") + path, ec);
     return !ec;
   }
+  bool rename(const char* from, const char* to) {
+    const std::string root = std::getenv("CROSSINK_TEST_SD");
+    return std::rename((root + from).c_str(), (root + to).c_str()) == 0;
+  }
   bool remove(const char* path) {
     const char* root = std::getenv("CROSSINK_TEST_SD");
     std::error_code ec;

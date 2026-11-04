@@ -9,6 +9,16 @@ inline bool sameOrigin(const std::string& trusted, const std::string& target) {
   return HttpRedirectPolicy::parseUrl(trusted, a) && HttpRedirectPolicy::parseUrl(target, b) &&
          HttpRedirectPolicy::sameOrigin(a, b);
 }
+// A feed field can supply the entire origin, including just the hostname or port.
+inline bool trustedDownloadTarget(const std::string& configured, const std::string& browse, const std::string& target) {
+  HttpRedirectPolicy::Url origin;
+  const bool fixed =
+      HttpRedirectPolicy::parseUrl(configured, origin) && origin.host.find_first_of("@{}") == std::string::npos;
+  return sameOrigin(fixed ? configured : browse, target);
+}
+inline bool usesSecretTemplate(const std::string& value) {
+  return value.find("{token}") != std::string::npos || value.find("{cfg.") != std::string::npos;
+}
 inline bool validRequest(const std::string& url, const std::string& method) {
   if (url.size() > 2048 || method.empty() || method.size() > 16) return false;
   for (const unsigned char c : url)

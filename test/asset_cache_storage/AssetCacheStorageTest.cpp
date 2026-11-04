@@ -128,5 +128,37 @@ int main() {
   const std::string actual((std::istreambuf_iterator<char>(file)), {});
   file.close();
   assert(actual == factory);
+#ifdef CROSSINK_ASSET_CACHE_TEST_PSRAM
+  // Stock Picco. Both old banks and the two language slots contain distinct data.
+  constexpr size_t slot = 65536, oldBank = (0x80000 - 2 * slot) / 2;
+  std::string picco(0x80000, 'A');
+  std::fill(picco.begin() + oldBank, picco.begin() + 2 * oldBank, 'B');
+  std::fill(picco.begin() + 2 * oldBank, picco.end() - slot, 'L');
+  std::fill(picco.end() - slot, picco.end(), 'M');
+  std::ofstream(flashPath, std::ios::binary).write(picco.data(), picco.size());
+  AssetCacheStorage compact;
+  assert(compact.begin() && compact.usesSd() && !std::filesystem::exists(sdPath));
+  const size_t bank = (compact.size() - 2 * slot) / 2;
+  const auto checkLayout = [&] {
+    uint8_t pair[2];
+    AssetCacheReadSession session(compact);
+    assert(session && compact.read(oldBank - 1, pair, 2) && pair[0] == 'A' && pair[1] == 0xff);
+    assert(compact.read(bank, pair, 1) && pair[0] == 'B');
+    assert(compact.read(2 * bank - 1, pair, 2) && pair[0] == 0xff && pair[1] == 'L');
+    assert(compact.read(compact.size() - slot, pair, 1) && pair[0] == 'M');
+  };
+  checkLayout();
+  HalFile::failClose = true;
+  assert(!compact.begin(true) && !std::filesystem::exists(sdPath));
+  HalFile::failClose = false;
+  assert(compact.begin(true));
+  checkLayout();
+  const std::string german(206259, 'g');
+  assert(german.size() > oldBank && compact.write(bank, german.data(), german.size()));
+  AssetCacheStorage reboot;
+  assert(reboot.begin() && reboot.verify(bank, german.data(), german.size()));
+  std::ifstream preserved(flashPath, std::ios::binary);
+  assert(std::string(std::istreambuf_iterator<char>(preserved), {}) == picco);
+#endif
   std::filesystem::remove_all(root);
 }

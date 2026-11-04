@@ -31,6 +31,7 @@ class AssetCacheStorage {
   static constexpr size_t SD_SIZE = 0x360000;
   bool contains(size_t offset, size_t length) const { return offset <= size() && length <= size() - offset; }
   bool beginSd(bool create);
+  bool readInitial(size_t offset, void* bytes, size_t length) const;
   HalFlashPartition flash_;
   bool sd_ = false;
 };

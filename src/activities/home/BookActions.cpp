@@ -1,5 +1,6 @@
 #include "BookActions.h"
 
+#include <BookKey.h>
 #include <Epub.h>
 #include <Epub/EpubRenderMode.h>
 #include <FsHelpers.h>
@@ -347,7 +348,7 @@ bool toggleBookCompleted(const std::string& fullPath, const std::string& display
     const std::string oldCachePath = epub.getCachePath();
     const std::string dstPath = BookMoveUtils::buildReadFolderDestination(fullPath);
     LOG_INF("BookActions", "Moving completed epub: %s -> %s", fullPath.c_str(), dstPath.c_str());
-    if (!Storage.rename(fullPath.c_str(), dstPath.c_str())) {
+    if (!bookkey::moveFile(fullPath, dstPath)) {
       LOG_ERR("BookActions", "Failed to move book to 'Read' folder");
       snprintf(APP_STATE.pendingAlertTitle, sizeof(APP_STATE.pendingAlertTitle), "%s",
                tr(STR_MOVE_TO_READ_FAILED_TITLE));

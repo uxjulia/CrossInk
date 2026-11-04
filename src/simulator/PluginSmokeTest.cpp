@@ -283,6 +283,17 @@ struct PluginCatalogSmokeTest {
                     "EPUB did not route encrypted resource reads");
             free(bytes);
           }
+          const std::string moved = "/Books/moved.epub";
+          require(bookkey::write(moved, key, bits / 8, 1) && !bookkey::moveFile(path, moved) &&
+                      Storage.exists(path.c_str()),
+                  "Move overwrote another wrapped key");
+          require(Storage.remove((moved + ".key").c_str()), "Could not clear fixture key");
+          require(Storage.rename((path + ".key").c_str(), (path + ".key.old").c_str()), "Could not stage key recovery");
+          require(bookkey::moveFile(path, moved) && !bookkey::hasSidecar(path) &&
+                      bookkey::read(moved, unwrapped, &expiry) == bits / 8 && expiry == 0 &&
+                      freeink::content::openProtectedBook(moved, error),
+                  "Moved EPUB lost its key");
+          require(bookkey::moveFile(moved, path), "Could not restore protected fixture");
           require(bookkey::write(path, key, bits / 8, 1), "Expiring key write failed");
           Epub expired(path, "/.crosspoint");
           require(!expired.load() && expired.getLastLoadFailure() == Epub::OpenFailure::LoanExpired,
@@ -505,6 +516,31 @@ struct PluginCatalogSmokeTest {
         {
           RenderLock lock;
           require(activity.itemCount == 3, "JSON row count");
+          // Same server on a different hostname lets the fixture detect any leaked request.
+          auto& list = activity.manifest.browseLists.at(activity.currentList);
+          const auto savedUrl = list.url;
+          const auto origin = savedUrl.substr(0, savedUrl.rfind('/'));
+          auto foreign = origin;
+          foreign.replace(foreign.find("localhost"), 9, "127.0.0.1");
+          list.url = foreign + "/forbidden-list?page={page}";
+          require(!activity.fetchBrowseResponse(), "Foreign dynamic catalog list allowed");
+          list.url = savedUrl;
+          require(activity.fetchBrowseResponse(), "Same-origin dynamic list rejected");
+          activity.state = CatalogActivity::State::BROWSING;
+          HttpDownloader::DownloadOptions verified;
+          verified.transport = HttpDownloader::Transport::ESP_HTTP;
+          verified.stageAsPart = true;
+          require(HttpDownloader::downloadToFile(origin + "/forbidden-untrusted-hub", "/untrusted-plugin.js", nullptr,
+                                                 nullptr, "", "", verified) != HttpDownloader::OK &&
+                      !Storage.exists("/untrusted-plugin.js"),
+                  "Untrusted Hub certificate accepted");
+          PluginCatalogActivity::Item remote;
+          remote.url = foreign + "/forbidden-lookup";
+          activity.manifest.downloadReq.headers.emplace_back("Authorization", "Bearer fixture");
+          activity.manifest.dlUrlPath = "file";
+          require(activity.downloadBook(remote) == HttpDownloader::HTTP_ERROR, "Foreign file lookup allowed");
+          activity.manifest.dlUrlPath.clear();
+          activity.manifest.downloadReq.headers.pop_back();
           const auto pageSize = activity.manifest.pageSize;
           const auto lastId = activity.items[2].id;
           activity.manifest.pageSize = 2;

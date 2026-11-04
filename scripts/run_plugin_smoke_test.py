@@ -64,12 +64,15 @@ def main():
             write('/.crosspoint/crossink-settings.json', tilt_preferences)
         event_attempts = []
         encoded_downloads = set()
+        forbidden_requests = []
         class Fixture(http.server.BaseHTTPRequestHandler):
             protocol_version = 'HTTP/1.1'
             def log_message(self, *args):
                 pass
             def do_POST(self):
                 body = self.rfile.read(int(self.headers.get('Content-Length', 0)))
+                if self.path.startswith('/forbidden'):
+                    forbidden_requests.append(self.path)
                 if self.path == '/events':
                     event_attempts.append(body)
                     self.send_response(503 if len(event_attempts) == 1 else 200)
@@ -89,6 +92,8 @@ def main():
                 self.wfile.write(payload)
             def do_GET(self):
                 url = f'https://localhost:{self.server.server_port}'
+                if self.path.startswith('/forbidden'):
+                    forbidden_requests.append(self.path)
                 if self.path == '/signed':
                     assert self.headers.get('Authorization') == 'Bearer signed-in'
                     data = json.dumps([{'title': 'Signed-in library', 'url': url + '/book'}]).encode()
@@ -283,6 +288,7 @@ def main():
                 status, _ = request(f'/api/plugin-jobs/status?id={job}'); assert json.loads(status)['state'] == 'done'
                 write('/plugin-web-done', 'done')
                 assert process.wait(timeout=10) == 0
+                assert not forbidden_requests, forbidden_requests
                 assert encoded_downloads == {
                     "/book/Caf%C3%A9%20stories", "/bundle/Caf%C3%A9%20scripts/plugin.js"
                 }, encoded_downloads

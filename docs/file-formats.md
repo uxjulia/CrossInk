@@ -1869,19 +1869,16 @@ publication and is restored before settings are loaded or saved.
 
 ### SD-backed cache on PSRAM devices
 
-When `spiffs` is missing or fails the language storage size check, PSRAM-equipped
-devices use `/.crosspoint/asset-cache.bin` instead. Its fixed size is `0x360000`;
-the same language slots occupy its last 128 KiB and the same hyphenation banks
-occupy the preceding bytes. This is a new backing store, not a format-version
-change. Compatible flash layouts keep their original backend; flash I/O failures
-do not silently select SD. No partition-table or application-slot writes occur.
+On PSRAM devices with a missing or undersized `spiffs` partition, including the
+stock Picco layout, CrossInk uses `/.crosspoint/asset-cache.bin`. The image is
+`0x360000` bytes. The two UI language slots occupy its last 128 KiB. Two
+equal-sized hyphenation banks occupy the preceding bytes.
 
-Read-only startup treats an absent image as erased storage. Explicit installation
-creates and fills the image with `0xff`. Writes sync and close before returning,
-so the existing checksum and commit-last protocols still apply. A truncated
-image is rejected rather than overwritten. An incomplete initial creation can
-be removed and the packs reinstalled; SD filesystem durability still depends on
-the card. The cache holds installed resources, not book progress or settings.
+Until the SD image exists, startup reads existing slots and banks from compatible
+flash and treats unused space as erased. The first pack change copies these
+regions into a temporary SD image, fills the extra space with `0xff`, then
+syncs, closes and renames the image. An interrupted copy can be retried from
+flash. Flash I/O errors and truncated SD images fail validation.
 
 Startup validation and mapping share a scoped read-only SD handle per consumer.
 Consecutive chunks read at the current file position without seeking; bank/slot

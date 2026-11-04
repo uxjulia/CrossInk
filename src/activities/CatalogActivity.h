@@ -63,7 +63,8 @@ class CatalogActivity : public UiListActivity {
   void finishDownload(HttpDownloader::DownloadError result);
   HttpDownloader::DownloadError downloadFile(const std::string& url, const std::string& dest,
                                              const std::string& user = {}, const std::string& password = {},
-                                             const std::vector<HttpDownloader::Header>& headers = {});
+                                             const std::vector<HttpDownloader::Header>& headers = {},
+                                             HttpDownloader::Transport transport = HttpDownloader::Transport::WOLFSSL);
   void onDownloadProgress(size_t downloaded, size_t total);
   void screenHeader(UiScreen& screen, const char* title);
   bool buildStatusScreen(UiScreen& screen, bool boldError = true, bool showDownloadTotal = false);

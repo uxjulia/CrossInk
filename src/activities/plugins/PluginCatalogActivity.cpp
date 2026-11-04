@@ -364,6 +364,9 @@ bool PluginCatalogActivity::loadBrowseListIndex() {
     entry.noticeMessage = notice["message"] | "";
     entry.noticeConfirm = notice["confirm"] | "";
     entry.noticeCancel = notice["cancel"] | "";
+    // Remote views can paginate but cannot choose which local secrets to expand.
+    if (pluginhttp::usesSecretTemplate(entry.url) || pluginhttp::usesSecretTemplate(entry.body)) continue;
+    entry.fromIndex = true;
     if (!entry.title.empty() && !entry.url.empty()) manifest.browseLists.push_back(std::move(entry));
   }
   if (manifest.browseLists.empty()) {
@@ -780,15 +783,18 @@ bool PluginCatalogActivity::fetchBrowseResponse() {
     }
     if (browseCurrentUrl.empty()) browseCurrentUrl = substituted(manifest.browseReq.url, nullptr);
   }
-  // URLs in a remote XML listing are untrusted, unlike the installed manifest.
-  if (manifest.isXmlList() && !pluginhttp::sameOrigin(substituted(manifest.browseReq.url, nullptr), browseCurrentUrl)) {
-    LOG_ERR("PCAT", "Catalog link changed origin");
-    fail(StrId::STR_FETCH_FEED_FAILED);
-    return false;
-  }
+  const bool remoteList = !searchActive && currentList >= 0 &&
+                          currentList < static_cast<int>(manifest.browseLists.size()) &&
+                          manifest.browseLists[currentList].fromIndex;
   const auto run = [&] {
+    const std::string url = manifest.isXmlList() ? browseCurrentUrl : substituted(activeBrowseUrl(), nullptr);
+    if ((manifest.isXmlList() || remoteList) &&
+        !pluginhttp::sameOrigin(substituted(manifest.browseReq.url, nullptr), url)) {
+      LOG_ERR("PCAT", "Catalog link changed origin");
+      return -1;
+    }
     const pluginhttp::RequestSpec req = {
-        substituted(manifest.isXmlList() ? browseCurrentUrl : activeBrowseUrl(), nullptr), manifest.browseReq.method,
+        url, manifest.browseReq.method,
         substituted(manifest.isXmlList() ? manifest.browseReq.body : activeBrowseBody(), nullptr),
         substitutedHeaders(manifest.browseReq.headers, nullptr)};
     return pluginhttp::requestToFile(session.get(), req.url, req.method, req.body, req.headers, BROWSE_TMP_PATH,
@@ -1162,12 +1168,25 @@ HttpDownloader::DownloadError PluginCatalogActivity::downloadBundle(const Item& 
 HttpDownloader::DownloadError PluginCatalogActivity::downloadBook(const Item& item) {
   // Resolve the file URL: either the template itself, or one API hop away.
   std::string fileUrl;
+  // Resolve the configured origin without using values supplied by a feed item.
+  const auto trustedTarget = [&](const std::string& url) {
+    return pluginhttp::trustedDownloadTarget(substituted(manifest.downloadReq.url, nullptr),
+                                             substituted(manifest.browseReq.url, nullptr), url);
+  };
   if (!manifest.dlUrlPath.empty()) {
     String response;
-    int status = apiRequest(substitutedRequest(manifest.downloadReq, &item), response);
+    const auto lookup = [&] {
+      const auto req = substitutedRequest(manifest.downloadReq, &item);
+      if (!trustedTarget(req.url)) {
+        LOG_ERR("PCAT", "Download lookup changed origin");
+        return -1;
+      }
+      return apiRequest(req, response);
+    };
+    int status = lookup();
     // An expired password-grant token: mint a fresh one and retry once.
     if ((status == 401 || status == 403) && manifest.hasPasswordGrant() && refreshCredentialToken()) {
-      status = apiRequest(substitutedRequest(manifest.downloadReq, &item), response);
+      status = lookup();
     }
     if (status < 200 || status >= 300) {
       return HttpDownloader::HTTP_ERROR;
@@ -1215,12 +1234,9 @@ HttpDownloader::DownloadError PluginCatalogActivity::downloadBook(const Item& it
   // url_path already authenticated the JSON hop; the resolved file URL must not
   // inherit those headers (S3 pre-signed GETs reject a second Authorization).
   const auto fetchFile = [&] {
-    // A template using {url} gets its authority from the remote feed. Its
-    // credentials belong to the manifest's browse origin, not that feed URL.
-    const std::string trusted = manifest.downloadReq.url.find("{url}") != std::string::npos
-                                    ? substituted(manifest.browseReq.url, nullptr)
-                                    : substituted(manifest.downloadReq.url, nullptr);
-    const bool sendCredentials = manifest.dlUrlPath.empty() && pluginhttp::sameOrigin(trusted, fileUrl);
+    const bool sendCredentials = manifest.dlUrlPath.empty() && trustedTarget(fileUrl);
+    if (manifest.dlUrlPath.empty() && !sendCredentials && pluginhttp::usesSecretTemplate(manifest.downloadReq.url))
+      return HttpDownloader::HTTP_ERROR;
     const auto headers =
         sendCredentials ? substitutedHeaders(manifest.downloadReq.headers, &item) : pluginhttp::Headers{};
     if (!pluginhttp::validRequest(fileUrl, "GET") || !pluginhttp::validHeaders(headers))

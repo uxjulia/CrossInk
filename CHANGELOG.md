@@ -145,6 +145,9 @@
 - Keep File Transfer responsive after stalled browser replies, malformed uploads, oversized discovery packets, and abandoned upload connections; hotspot captive-portal checks now reach the home page without intercepting WebDAV writes.
 - Retry a failed font catalog download from either touch or buttons, and show font/settings load errors instead of accepting incomplete lists.
 - Allow page-turn taps near the top and bottom screen edges, including over reader status bars when Tap to Hide Status Bar is off.
+- Show TXT and Markdown reading progress on Home after opening books with character spacing support.
+- Keep protected EPUBs readable after renaming or moving them, including moves to the Read folder.
+- Retry queuing a reading change after an SD write fails.
 
 ### Changed
 

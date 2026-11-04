@@ -234,7 +234,6 @@ void SessionMarker::mark(const std::string& bookPath, const uint8_t bits) {
   if (!fresh || path.empty()) return;
   // Remember even when nothing was recordable (no account, toggle off), so a
   // reading session does not retry on every save.
-  marked |= fresh;
-  SyncPending::mark(path, fresh);
+  if (SyncPending::mark(path, fresh)) marked |= fresh;
 }
 }  // namespace SyncPending

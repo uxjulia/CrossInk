@@ -129,7 +129,9 @@ Optional `browse.lists` contains named `{title, url, body}` views.
 `browse.search` overrides `url` and/or `body` for search. A `download.url_path`
 selects a URL from an API response; credentials used for that API request are
 not sent to the returned file URL. `download.username` and `download.password`
-provide Basic authentication for a direct file request.
+provide Basic authentication for a direct file request. If a feed item supplies
+the lookup server, its origin must match the installed manifest's browse URL. A
+manifest can also configure a separate, fixed lookup server.
 
 For XML catalogs set `browse.format` to `xml`, `browse.item` to the repeated
 element's local name, and field selectors to an element, `element@attribute`,
@@ -183,7 +185,7 @@ actions should tolerate retries. Jobs are not persisted across firmware restart.
 
 ## Dynamic catalogs and compatibility
 
-`browse.lists_url` can return an object containing a `lists` array with `title`, `url`, and optional `body`. The response is limited to 16 KiB and the first 16 usable lists. Each list can include a `notice` with `title`, `message`, `confirm`, and `cancel`; the notice must be accepted before browsing.
+`browse.lists_url` can return an object containing a `lists` array with `title`, `url`, and optional `body`. List URLs must use the browse URL's scheme, host, and port. Put credentials in the installed manifest. Remote list URL and body templates can use pagination placeholders and must omit `{token}` and `{cfg.*}`. The response is limited to 16 KiB and the first 16 usable lists. Each list can include a `notice` with `title`, `message`, `confirm`, and `cancel`; the notice must be accepted before browsing.
 
 Catalog requests support `{firmware_family}`, `{firmware_version}`, `{plugin_api}`, and `{plugin_capabilities}`. This integration advertises the `crosspoint` catalog family, the CrossInk version, API 1, and `catalog.lists`, `catalog.notices`, `catalog.bundle_install`, `catalog.version_tracking`, and `catalog.compatibility`. It also advertises `catalog.item_details`: catalogs may map `description`, `detail_author`, `repository`, `details_url`, and `details_format` in `browse.fields`. Version-tracked catalogs default to `description`, `author`, `repository`, and `details.url`/`details.format`. Text or HTML details are limited to 8 KiB; HTML is displayed as readable text with paragraph breaks. Details page before downloading, and Back cancels without downloading. Only the current page is wrapped in memory.
 

@@ -128,6 +128,8 @@ hyphenation_pack::Result install(const char* code) {
   return result;
 }
 hyphenation_pack::Result remove(const char* code) {
+  // A legacy flash install may still be serving reads before the SD image exists.
+  if (isInstalled(code) && !initialize(true)) return hyphenation_pack::Result::Unavailable;
   const auto result = store.remove(code);
   if (result != hyphenation_pack::Result::Ok && result != hyphenation_pack::Result::Unchanged)
     LOG_ERR("HYPH", "%s: %s", code, hyphenation_pack::resultName(result));

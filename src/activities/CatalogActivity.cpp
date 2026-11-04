@@ -184,7 +184,8 @@ void CatalogActivity::onDownloadProgress(const size_t downloaded, const size_t t
 
 HttpDownloader::DownloadError CatalogActivity::downloadFile(const std::string& url, const std::string& dest,
                                                             const std::string& user, const std::string& password,
-                                                            const std::vector<HttpDownloader::Header>& headers) {
+                                                            const std::vector<HttpDownloader::Header>& headers,
+                                                            HttpDownloader::Transport transport) {
   {
     RenderLock lock;
     downloadProgress = downloadTotal = 0;
@@ -204,7 +205,7 @@ HttpDownloader::DownloadError CatalogActivity::downloadFile(const std::string& u
     return HttpDownloader::HTTP_ERROR;
   }
   HttpDownloader::DownloadOptions options;
-  options.transport = HttpDownloader::Transport::WOLFSSL;
+  options.transport = transport;
   options.stageAsPart = true;
   options.checkFreeSpace = true;
   options.headers = &headers;

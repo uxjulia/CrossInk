@@ -19,6 +19,10 @@ constexpr size_t MAX_KEY_LEN = 32;
 // expiresAt: epoch seconds, 0 = no expiry. keyLen: 16 or 32.
 bool write(const std::string& bookPath, const uint8_t* key, size_t keyLen, int64_t expiresAt);
 
+// Physical rename to an unoccupied path, carrying an EPUB's wrapped key.
+bool moveFile(const std::string& from, const std::string& to);
+bool hasSidecar(const std::string& bookPath);
+
 // Returns the key length (16 or 32), or 0 when the file is missing, not
 // wrapped by this device, or tampered.
 size_t read(const std::string& bookPath, uint8_t (&key)[MAX_KEY_LEN], int64_t* expiresAt);
