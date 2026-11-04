@@ -114,46 +114,21 @@ book cache, and your bookmarks and reading position are kept.
 
 ## Create or edit a translation
 
-You can use [Inky](https://inky.crossink.dev/#language-tools) (recommended), or edit a YAML file in a plain-text editor. See instructions
-below for plain-text editing.
+1. Open [Inky's Language Tools](https://inky.crossink.dev/#language-tools).
+2. Choose a language to edit, or start a new translation.
+3. Edit the menu text and download the language file. Keep any placeholders
+   shown by the tool, since the reader fills these with names or numbers.
+4. Copy the file into `.crossink/languages` on the SD card.
+5. Choose it in **Settings > System > Device > Language** to apply it.
 
-To start a new translation, copy `english_template.yaml` from the language ZIP.
-Give your copy a filename ending in `.yaml`, then set its language code and name at the top:
-
-```yaml
-_language_code: "MY-LANGUAGE"
-_language_name: "My language"
-_direction: "ltr"
-_keyboard: "EN"
-
-# Keep the STR_ names; edit the quoted text.
-STR_SETTINGS_TITLE: "My settings"
-```
-
-- Use a unique language code starting with a letter, using only letters, digits,
-  hyphens, or underscores. Do not use `EN`, which is reserved for English.
-- Write the language's display name in `_language_name`.
-- Use `ltr` for left-to-right text or `rtl` for right-to-left text.
-- `_keyboard` chooses an existing keyboard layout. `EN` uses English; a
-  translation cannot add a new keyboard layout.
-- Keep these language details above the `STR_` entries.
-- Save as UTF-8 plain text. Keep values in double quotes, one entry per line.
-  Type accented and non-Latin characters directly. Use `\n` for a line break
-  inside a value and `\"` for a quotation mark.
-- Change the quoted text without changing the `STR_` names. You can leave entries
-  empty or remove ones you do not want to translate; they will appear in English.
-- Keep placeholders such as `%s`, `%d`, and `%zu` exactly as they are and in the
-  same order. They are filled in by the reader.
-
-Copy your file into `.crossink/languages` on SD and select it through
-**Settings > System > Device > Language**. Select it again after each edit to
-apply the changes. Creating a translation does not require rebuilding firmware.
+Select the language again after each edit. Keep a separate copy of your changes
+before downloading an update. Missing translations appear in English.
 
 <a id="add-missing-characters-with-ui-font"></a>
 
 ## Add missing characters with UI Fallback Font
 
-On devices with PSRAM such as the X4 Classic, X4 Pro, and Sticky, **UI Fallback Font**
+On supported devices such as the X4 Classic, X4 Pro, and Sticky, **UI Fallback Font**
 can fill in characters missing from the built-in font, such as Chinese characters
 in menu text or book titles.
 It also applies to filenames, dialogs, keyboards, chapter lists, bookmarks, and
@@ -175,9 +150,8 @@ with no regular face or duplicate styles. Selecting it retries the load; if it
 still fails, your previous choice is kept. Empty folders and folders containing
 only bitmap fonts or macOS metadata files are not listed.
 
-The 32 MiB file limit does not guarantee a font will fit in the font workspace.
-Some large CJK OTF fonts need more working memory than the reader allows. If the
-picker reports insufficient font memory, try a smaller or prepared static font.
+Some large fonts may still be too demanding to open. If the picker reports
+insufficient font memory, try a smaller or prepared static font.
 
 Keep fonts for book text in `/fonts` or `/.fonts`. A UI fallback font's first use can take
 longer than later redraws. If a font is missing or unreadable, CrossInk uses its
@@ -191,8 +165,7 @@ font returns when you leave those screens.
 
 Some readers, including X4 Pro devices with their factory storage layout, keep
 installed languages and hyphenation packs in `/.crosspoint/asset-cache.bin` on
-SD. Keep this file on the card. You do not need to repartition or fully erase the
-reader to use language packs.
+SD. Keep this file on the card. You do not need to erase the reader to use language packs.
 
 The original YAML and hyphenation source files can be removed after installation,
 but a replacement SD card needs its own installed packs. If installed packs stop

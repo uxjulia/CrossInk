@@ -530,5 +530,5 @@ These endpoints require Plugins to be enabled.
   expiry is a nonnegative UTC epoch timestamp (zero for no expiry). Returns
   `{ok:true}` after device-bound wrapped-key publication.
 
-See [SD plugins](sd-plugins.md#protected-books) for clock, enrollment, and cache
+See [Plugin Development Guide](development/plugin-development.md#protected-books) for clock, enrollment, and cache
 limitations. These APIs do not transfer the internal device secret.

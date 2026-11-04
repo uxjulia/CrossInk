@@ -88,7 +88,7 @@ Related docs:
 
 ## Custom Scalable Fonts
 
-On Sticky and X4 Pro (the ESP32-S3 readers), you can use your own TrueType
+On X4 Classic, X4 Pro, and Sticky, you can use your own TrueType
 (`.ttf`) or OpenType (`.otf`) fonts. Copy the files into the `/fonts` folder on
 the SD card, either together or in a folder named after the font family. Restart
 the reader or refresh its font list, then choose the family from the font
@@ -226,7 +226,7 @@ Turn it on from **Settings > Reader > Guide Dots**, or from the Reader Menu's
 
 ## Force Paragraph Indents
 
-Some books do not define paragraph indents in a way the firmware understands, which can make the page look like one large wall of text.
+Some books do not show paragraph indents correctly, which can make the page look like one large wall of text.
 
 Force Paragraph Indents adds an indent at each new paragraph regardless of how the book is formatted.
 

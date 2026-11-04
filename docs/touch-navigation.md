@@ -61,7 +61,7 @@ Dashboard, or Minimal Home screen to switch to the other recent book.
 
 ## Cover Grid Home
 
-On PSRAM devices such as Sticky and X4 Pro, choose **Settings > Display > UI
+On supported devices such as Sticky and X4 Pro, choose **Settings > Display > UI
 Theme > Cover Grid** for a Home screen with the current book and up to six
 additional covers. Tap a cover to open its book. This is a separate Home theme
 from Library's **Recently Opened View** grid option.

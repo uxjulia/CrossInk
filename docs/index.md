@@ -26,6 +26,13 @@ Welcome to CrossInk, a personal fork of CrossPoint Reader.
 - [EPUB Render Modes](./epub-render-modes.md)
 - [Data Cache](./data-cache.md)
 - [Languages](./languages.md)
-- [Translators](./translators.md)
+- [Plugins](./sd-plugins.md)
+- [BOOX Picco](./picco.md)
 - [Web Server Guide](./webserver.md)
 - [Troubleshooting](./troubleshooting.md)
+
+## Developer Docs
+
+- [Development guides](./development/README.md)
+- [Plugin Development Guide](./development/plugin-development.md)
+- [Translation reference](./translators.md)

@@ -5,7 +5,7 @@ nav_order: 1.5
 
 # CrossInk User Guide
 
-This guide covers day-to-day device use. Your books, settings, and reading progress are stored on the SD card, the small memory card inside the device. For focused reference material, see [Reader Features](./reader-features.md), [Controls](./controls.md), [SD Card Fonts](./sd-card-fonts.md), [File Transfer](./webserver.md), and [Troubleshooting](./troubleshooting.md). For Dashboard and Minimal Home-screen gestures, see [Touch Navigation](./touch-navigation.md).
+This guide covers day-to-day device use. Your books, settings, and reading progress are stored on the SD card, the small memory card inside the device. For focused reference material, see [Reader Features](./reader-features.md), [Controls](./controls.md), [SD Card Fonts](./sd-card-fonts.md), [File Transfer](./webserver.md), [Plugins](./sd-plugins.md), and [Troubleshooting](./troubleshooting.md). For Dashboard and Minimal Home-screen gestures, see [Touch Navigation](./touch-navigation.md).
 
 - [CrossInk User Guide](#crossink-user-guide)
   - [1. Hardware Overview](#1-hardware-overview)
@@ -30,8 +30,8 @@ This guide covers day-to-day device use. Your books, settings, and reading progr
       - [3.6.6 Web Settings (Wi-Fi + OPDS)](#366-web-settings-wi-fi--opds)
       - [3.6.7 Sync Server Quick Setup](#367-sync-server-quick-setup)
         - [Option A: CrossPoint Sync Server (`sync.crosspointreader.com`, default)](#option-a-crosspoint-sync-server-synccrosspointreadercom-default)
-        - [Option B (advanced): Legacy Public KOReader Server (`sync.koreader.rocks`)](#option-b-advanced-legacy-public-koreader-server-synckoreaderrocks)
-        - [Option C (advanced): Self-Hosted Server (Docker Compose)](#option-c-advanced-self-hosted-server-docker-compose)
+        - [Option B: Existing KOReader Account](#option-b-existing-koreader-account)
+        - [Option C: Your Own Sync Server](#option-c-your-own-sync-server)
     - [3.7 Sleep Screen](#37-sleep-screen)
       - [Cover settings](#cover-settings)
       - [Custom images](#custom-images)
@@ -53,7 +53,6 @@ This guide covers day-to-day device use. Your books, settings, and reading progr
     - [5.3 Dictionary](#53-dictionary)
   - [6. Current Limitations & Roadmap](#6-current-limitations--roadmap)
   - [7. Troubleshooting Issues & Escaping Bootloop](#7-troubleshooting-issues--escaping-bootloop)
-    - [Advanced: Serial Monitor Logs](#advanced-serial-monitor-logs)
 
 ## 1. Hardware Overview
 
@@ -107,7 +106,7 @@ If the device freezes, or after a firmware update, restart it: press and release
 Upon turning the device on for the first time, you will be placed on the **[Home](#31-home-screen)** screen.
 
 > [!NOTE]
-> On subsequent restarts, the firmware will automatically reopen the last book you were reading.
+> On subsequent restarts, CrossInk will automatically reopen the last book you were reading.
 
 ---
 
@@ -117,10 +116,9 @@ Upon turning the device on for the first time, you will be placed on the **[Home
 
 The Home screen is the main menu. It shows the book you are reading and these entries: **[Browse Files](#33-browse-files-screen)**, **[Library](#34-library-screen)**, **OPDS Browser** (once you have added an OPDS server), **Reading Stats** and **Bookmarks**/**Clippings** (when there is something to show), **[File Transfer](#35-file-transfer-screen)**, and **[Settings](#36-settings)**. The layout depends on your **UI Theme**. To start reading, see **[Reading Mode](#4-reading-mode)**.
 
-When Plugins is enabled in Settings → System, open **Plugins** from Home. In
-its installed-plugin picker, hold **Confirm** for one second or long-press a
-plugin row on a touch device. Choose **Uninstall** to remove that installed
-plugin folder and all of its files, or **Cancel** to keep it.
+To add extra services, enable **Settings > System > Plugins**, then open
+**Home > Plugins**. See [Plugins](./sd-plugins.md) for Plugin Hub, manual
+installation, sign-in, updates, and removal.
 
 ### 3.2 Reading Mode
 
@@ -153,7 +151,7 @@ refresh after file changes or transfers.
 - **Touch:** Tap a book to open it, hold it for book actions, and swipe to scroll.
   Use the search, settings, refresh, and sort controls at the top.
 - **Library Settings:** Open Library's **Settings** to choose embedded EPUB
-  metadata or filenames, compact or expanded rows, and a list or cover grid
+  book titles and authors or filenames, compact or expanded rows, and a list or cover grid
   for **Recently Opened View**. You can also hide finished books, show series
   and genre, and filter which book formats appear.
 - **Book actions:** EPUB and XTC books can offer **Reading Stats** without
@@ -180,7 +178,7 @@ The web interface also supports **WebDAV**, allowing you to mount the device as 
 
 Download links for files already on the device are available in the web interface, so you can retrieve books or screenshots over Wi-Fi without connecting a cable.
 
-A **Wi-Fi signal strength indicator** (dBm) is displayed on-screen during joined-network web server sessions.
+A **Wi-Fi signal strength indicator** is displayed on-screen during joined-network web server sessions.
 
 The **Sync Server** section syncs with your sync server account (set up in
 **Settings > System > Sync Server**): **Sync Books** syncs progress, reading
@@ -197,11 +195,6 @@ On X4 Pro, the screen also includes **USB Drive**. This exposes the reader's SD
 card to a computer over USB for direct file management. See the
 [USB Drive instructions](./installation.md#usb-drive) for the safe-eject and
 disconnect behavior.
-
-> [!TIP]
-> Advanced users can manage files programmatically with the same HTTP endpoints
-> used by the web interface. The browser interface is the supported path for
-> normal file management.
 
 ### 3.5.1 Calibre Wireless Transfers
 
@@ -246,7 +239,7 @@ device model and build.
   - "Lyra Extended" - Lyra, but displays 3 books instead of 1 on the **[Home Screen](#31-home-screen)**
   - "Lyra Carousel" - A carousel-based Lyra home layout
   - "RoundedRaff" - A rounded theme with additional visual styling (button devices only)
-  - "Cover Grid" (PSRAM devices, such as Sticky and X4 Pro) - Shows the current book and up to six additional book covers; tap a cover to open that book
+  - "Cover Grid" (supported devices, such as Sticky and X4 Pro) - Shows the current book and up to six additional book covers; tap a cover to open that book
 
   Themes that show reading stats hide those stats while **Track Reading Stats** is off.
 
@@ -284,7 +277,7 @@ individual global changes. **Delete Book Cache** does not reset these choices.
 
 - **Font Options**: Opens a submenu with the font and text spacing choices:
   - **Font Family**: The font used for reading. "Lexend Deca" (default) and "Bitter" are built in; fonts you add to the SD card appear here too (see [Custom Fonts](#39-custom-fonts-sd-card)).
-  - **Font Size**: The sizes depend on your device and font. X3/X4 devices offer 10, 12, 14, and 16 pt. ESP32-S3 readers (Sticky and X4 Pro) use scalable fonts with every whole point size from **8-22 pt**; see [Scalable Fonts](./scalable-fonts.md). The default is 14 pt.
+  - **Font Size**: The sizes depend on your device and font. X3/X4 devices offer 10, 12, 14, and 16 pt. X4 Classic, X4 Pro, and Sticky use scalable fonts with every whole point size from **8-22 pt**; see [Scalable Fonts](./scalable-fonts.md). The default is 14 pt.
   - **TTF Rendering** (scalable-font devices): Fine-tune how TrueType fonts are drawn.
   - **Dictionary Font** and **Dictionary Font Size** (when a dictionary is installed): The font used in word lookups. The default is to use the reader font.
   - **Line Spacing**: The gap between lines, as a percentage from 70% to 200% (default 100%).
@@ -308,7 +301,7 @@ individual global changes. **Delete Book Cache** does not reset these choices.
 - **Disable Touchscreen** (touch devices): Block screen-touch input while a book is open, while leaving touch available in reader menus so you can turn it back on. To disable only touch page turns, use **Next Page** and **Previous Page** in **Settings > Controls > Taps & Gestures**.
 
 - **Status Bars**: Set up the bars shown while reading. Open **Settings > Reader > Status Bars**, or the Reader Menu's **Settings** tab > **Status Bars**. A preview shows the result at its reading position.
-  - **Top Status Bar** and **Bottom Status Bar** (EPUB and TXT): Each has three left slots, one center slot, and three right slots. Fill a slot with any of: Clock and Date (devices with a clock), Battery, Time Left (book or chapter), Chapter Page Count (for example 5/25; it changes with font size and margins), Stable Page Numbers (needs CrossInk reference metadata in the EPUB; see [Stable Page Numbers](./reader-features.md#stable-page-numbers)), Book Progress Percentage, Title (book or chapter), or Empty.
+  - **Top Status Bar** and **Bottom Status Bar** (EPUB and TXT): Each has three left slots, one center slot, and three right slots. Fill a slot with any of: Clock and Date (devices with a clock), Battery, Time Left (book or chapter), Chapter Page Count (for example 5/25; it changes with font size and margins), Stable Page Numbers (needs page reference information in the EPUB; see [Stable Page Numbers](./reader-features.md#stable-page-numbers)), Book Progress Percentage, Title (book or chapter), or Empty.
   - **Battery**: Show the battery as "Icon + %" (default), "Icon Only", or "% Only".
   - **Percentage Format**: Show book progress as `10%` (default), `10.1%`, or `10.12%`.
   - **Progress Bar**: Hide it, or show a progress bar for the **Book** or the **Chapter**. **Progress Bar Thickness** can be Thin, Medium, or Thick.
@@ -389,9 +382,9 @@ Which entries you see depends on your device. Button devices show **Front Button
 
 - **Check for Updates** and **SD Card Firmware Update**: Check for new firmware over Wi-Fi, or install a `firmware.bin` file you placed on the SD card.
 
-- **About**: Shows the device model, firmware version, chip and display details, SD card transport and capacity, and memory figures. Use the buttons or swipe to scroll; **Back** returns to Settings. The figures are captured when the screen opens; reopen it for a fresh snapshot. See [Troubleshooting](./troubleshooting.md#device-information). You can also choose **Export** to save a support file (`/crossink-support.json`) to the SD card, with device and global settings alone or with the last opened EPUB's anonymous overrides. Nothing is uploaded. See [export coverage and privacy](./troubleshooting.md#export-support-information).
+- **About**: Shows the device model, software version, screen, storage, and memory details. Use the buttons or swipe to scroll; **Back** returns to Settings. The figures are captured when the screen opens; reopen it for a fresh snapshot. See [Troubleshooting](./troubleshooting.md#device-information). You can also choose **Export** to save a support file (`/crossink-support.json`) to the SD card, with device and global settings alone or with the last opened EPUB's saved settings without its title or filename. Nothing is uploaded. See [export coverage and privacy](./troubleshooting.md#export-support-information).
 
-- **Language** (in **Device**): Set the menu language. CrossInk supports 28 languages: English, Spanish, French, German, Czech, Brazilian Portuguese, Russian, Swedish, Romanian, Catalan, Ukrainian, Belarusian, Italian, Polish, Finnish, Danish, Dutch, Turkish, Kazakh, Hungarian, Lithuanian, Slovenian, Valencian, Hebrew, Vietnamese, Slovak, Portuguese (Portugal), and Arabic. Only English is built into the standard firmware. For any other language, first copy its language files to the SD card; see [SD language files](./languages.md).
+- **Language** (in **Device**): Set the menu language. CrossInk supports 28 languages: English, Spanish, French, German, Czech, Brazilian Portuguese, Russian, Swedish, Romanian, Catalan, Ukrainian, Belarusian, Italian, Polish, Finnish, Danish, Dutch, Turkish, Kazakh, Hungarian, Lithuanian, Slovenian, Valencian, Hebrew, Vietnamese, Slovak, Portuguese (Portugal), and Arabic. English is included. Download other languages on the reader or install them from SD; see [Languages](./languages.md).
 
 #### 3.6.5 OPDS Servers (Multiple Libraries)
 
@@ -417,8 +410,8 @@ Behavior notes:
 
 You can also manage OPDS servers from the web interface while in File Transfer mode:
 
-1. Connect to the device web UI.
-2. Open `http://<device-ip>/settings`.
+1. Open the web address shown on the reader in your browser.
+2. Select the **Settings** tab.
 3. Use the **OPDS Servers** card to add, edit, or delete entries.
 
 For web-based Wi-Fi network management, see [File Transfer](./webserver.md).
@@ -431,164 +424,72 @@ Each server also has a **Download Folder** setting:
 
 The web portal offers the same choices and previews the destination. Save the shared default with **Save default**, and each server with its **Save** button. Folder changes affect future downloads; existing books are not moved. Missing folders, including nested folders, are created when downloading. If the destination cannot be used, the download reports an error rather than saving elsewhere.
 
-Folder paths may contain up to 63 UTF-8 bytes, including the leading slash. Relative input gains a leading slash; repeated/trailing slashes are removed. Parent-directory components (`..`), control characters, FAT-reserved characters and components ending in a dot or space are rejected.
+Keep folder names short and simple, for example `/Books/Calibre`.
 
-OPDS catalogs may use Atom or OPDS 2 JSON. JSON navigation, groups, facets,
-search, pagination, publication descriptions, and indirect EPUB links are
-supported. The reader keeps up to 50 entries per feed and follows server page
-links. Descriptions are bounded previews. Basic-auth credentials remain scoped
-to the configured server. OAuth sign-in, purchases, and LCP service fulfillment
-are not included.
+The OPDS Browser supports browsing, searching, and downloading from compatible
+online catalogs. Some catalogs require an account. Buying books and signing in
+through services that need a separate approval flow are not supported here.
 
 #### 3.6.6 Web Settings (Wi-Fi + OPDS)
 
 While in **File Transfer** mode, the web settings page includes management cards for both **Wi-Fi Networks** and **OPDS Servers**.
 
 1. On device: open **File Transfer** and connect through **Join a Network** or **Create Hotspot**.
-2. In a browser, open `http://<device-ip>/settings` or `http://crosspoint.local/settings`.
-3. In **Wi-Fi Networks**, add, edit, or delete saved network entries (SSID + optional password).
+2. Open the web address shown on the reader and select **Settings**.
+3. In **Wi-Fi Networks**, add, edit, or delete saved network entries (network name and optional password).
 4. In **OPDS Servers**, add, edit, or delete OPDS catalogs.
 
 Behavior notes:
 
 - Passwords are never shown back in the web UI after saving.
 - Leaving Password blank while editing keeps the existing saved password unchanged.
-- The web UI can save hidden-network SSIDs, but connecting to hidden networks still depends on the device-side Wi-Fi connection flow.
+- The web UI can save hidden-network names, but connecting to hidden networks still depends on the device-side Wi-Fi connection flow.
 
 #### 3.6.7 Sync Server Quick Setup
 
 CrossInk can sync your reading progress between devices using a sync server. It also works with KOReader apps and devices that use the same server and account.
 
-**Most people only need Option A.** It is free, needs no extra software, and everything is done on the device. Options B and C are advanced: use B only if you already sync KOReader against the public KOReader server, and C only if you want to run your own server (this needs a computer or home server running Docker and a terminal).
+Use the same server and account on every device you want to sync.
 
-**Server Type** controls optional progress fields, independently of the server URL:
+**Server Type** should match the service you use:
 
-- **CrossPoint**: standard KOReader sync plus rich book positions, including self-hosted CrossPoint servers.
-- **KOSync**: standard progress without rich positions or extended metadata. Use this for `sync.koreader.rocks` and standard KOSync servers.
-- **Other**: rich positions plus ISBN, ASIN, series, and series number for custom servers that accept these fields. Book metadata is only sent when **Send Metadata** is on.
+- **CrossPoint** for CrossPoint Sync, including your own hosted copy.
+- **KOSync** for `sync.koreader.rocks` or another standard KOReader sync server.
+- **Other** only if your service's setup instructions ask for it.
 
-Upgrades preserve the previous behavior: the default hosted server uses CrossPoint; existing custom URLs use KOSync. Choose the matching type after changing the URL. Stats and clippings still require separately detected server support and their own opt-in.
-
-Percentage-only positions from compatible servers are supported as an approximate position in the local book, including optimized EPUBs. XPath positions still use the source-document map.
-
-**Custom Header 1/2** accept `Header-Name: value` for authentication proxies, such as Cloudflare Access. Values are masked in settings and obfuscated on the SD card like passwords. Clear a row to remove it. In the web portal, replace the masked value with the complete header when editing. HTTP framing headers and built-in sync authentication headers cannot be overridden.
+Reading stats and clippings also need a compatible CrossPoint Sync server and
+must be turned on separately. See [Reading Stats Sync](./reading-stats-sync.md).
 
 ##### Option A: CrossPoint Sync Server (`sync.crosspointreader.com`, default)
 
-When **Sync Server URL** is left empty, CrossInk uses the free CrossPoint sync server at `https://sync.crosspointreader.com`. It speaks the standard KOReader sync protocol (so KOReader apps can use it too) and additionally stores an exact spine/page position for lossless CrossInk-to-CrossInk sync.
+1. Open **Settings > System > Sync Server**.
+2. Enter a **Username** and **Password**. Use the same details on every reader.
+3. Leave **Sync Server URL** empty to use `https://sync.crosspointreader.com`,
+   and choose **CrossPoint** as the server type.
+4. On your first device, select **Sign Up** to create an account. On other
+   devices, select **Authenticate**.
 
-1. On each CrossInk device:
-   - Go to **Settings > System > Sync Server**.
+An account from a different sync server does not transfer automatically. Create
+one on this server or keep using your existing server as described below.
 
-   - Set **Username** and **Password** (enter the plain password; CrossInk computes MD5 internally, and use the same values on all devices).
+##### Option B: Existing KOReader Account
 
-   - Leave **Sync Server URL** empty (or set it to `https://sync.crosspointreader.com`).
+1. Open **Settings > System > Sync Server**.
+2. Set **Sync Server URL** to `https://sync.koreader.rocks` and choose **KOSync**
+   as the server type.
+3. Enter your existing KOReader sync username and password.
+4. Select **Authenticate**. If you need a new account, choose **Sign Up** first.
 
-   - On the first device, run **Sign Up** once to create the account directly from the device. On every other device, just run **Authenticate**.
+##### Option C: Your Own Sync Server
 
-Accounts are per server. Existing `sync.koreader.rocks` credentials do not exist on the CrossPoint server; either sign up again with the same username/password or use Option B to keep using the legacy server.
+If you already run a sync server, enter its full address, choose the matching
+**Server Type**, then enter your account details and select **Authenticate**.
+Ask the server administrator for the address and account setup instructions.
+Use an HTTPS address and a password you do not reuse for other accounts.
 
-##### Option B (advanced): Legacy Public KOReader Server (`sync.koreader.rocks`)
-
-Use this if you already sync KOReader devices against the official public server.
-
-1. On each CrossInk device:
-   - Go to **Settings > System > Sync Server**.
-
-   - Set **Sync Server URL** to `https://sync.koreader.rocks` (required; an empty URL now points at the CrossPoint server instead).
-
-   - Set **Username** and **Password** to your existing KOReader Sync credentials.
-
-   - Run **Authenticate**.
-
-2. If you do not have an account yet, run **Sign Up** on the device, or register once with curl:
-
-```bash
-USERNAME="user"
-PASSWORD="pass"
-PASSWORD_MD5="$(printf '%s' "$PASSWORD" | openssl md5 | awk '{print $2}')"
-
-curl -i "https://sync.koreader.rocks/users/create" \
-  -H "Accept: application/vnd.koreader.v1+json" \
-  -H "Content-Type: application/json" \
-  --data "{\"username\":\"$USERNAME\",\"password\":\"$PASSWORD_MD5\"}"
-```
-
-When this returns `HTTP 402` with `{"code":2002,"message":"Username is already registered."}`, pick a different username or use that existing account.
-
-##### Option C (advanced): Self-Hosted Server (Docker Compose)
-
-This option is for people comfortable with the command line.
-
-1. Start a sync server:
-
-```bash
-mkdir -p kosync-quickstart
-cd kosync-quickstart
-
-cat > compose.yaml <<'YAML'
-services:
-  kosync:
-    image: koreader/kosync:latest
-    ports:
-      - "7200:7200"
-      - "17200:17200"
-    volumes:
-      - ./data/redis:/var/lib/redis
-    environment:
-      - ENABLE_USER_REGISTRATION=true
-    restart: unless-stopped
-YAML
-
-# Docker
-docker compose up -d
-
-# Podman (alternative)
-podman compose up -d
-```
-
-> [!NOTE]
-> `ENABLE_USER_REGISTRATION=true` is convenient for first setup. After creating your users, set it to `false` (or remove it) to avoid unexpected registrations.
-
-2. Verify the server:
-
-```bash
-curl -H "Accept: application/vnd.koreader.v1+json" "http://<server-ip>:17200/healthcheck"
-# Expected: {"state":"OK"}
-```
-
-3. Register a user once.
-   CrossInk authenticates against KOReader Sync (`koreader/kosync`) using an MD5 key, so register using the MD5 of your password:
-
-> [!WARNING]
-> Sending a reusable MD5-derived password over plain HTTP is insecure.
-> Create unique sync-only credentials and do not reuse main account passwords.
-> Prefer `https://<server-ip>:7200` whenever traffic leaves a fully trusted LAN or when using untrusted networks.
-> Use `curl -k` only for self-signed certificate testing.
-
-```bash
-USERNAME="user"
-PASSWORD="pass"
-PASSWORD_MD5="$(printf '%s' "$PASSWORD" | openssl md5 | awk '{print $2}')"
-
-curl -i "http://<server-ip>:17200/users/create" \
-  -H "Accept: application/vnd.koreader.v1+json" \
-  -H "Content-Type: application/json" \
-  --data "{\"username\":\"$USERNAME\",\"password\":\"$PASSWORD_MD5\"}"
-```
-
-If this returns `HTTP 402` with `{"code":2002,"message":"Username is already registered."}`, the account already exists.
-
-4. On each device:
-   - Go to **Settings > System > Sync Server**.
-
-   - Set **Username** and **Password** (enter the plain password; CrossInk computes MD5 internally, and use the same values on all devices).
-
-   - Set **Sync Server URL** to `http://<server-ip>:17200`.
-
-   - Run **Authenticate**.
-
-If you use the HTTPS listener, use `https://<server-ip>:7200` (`curl -k` only for self-signed certificate testing).
+If your service requires **Custom Header 1/2**, copy the complete values from
+its setup instructions. These settings can usually be left empty. Clear a row
+to remove it; saved values are hidden.
 
 ##### Syncing While Reading
 
@@ -668,30 +569,15 @@ CrossInk supports two ways to choose a custom boot screen:
   `/bootscreen` folder is also supported. Folder names are case-insensitive; if
   both folders exist, `/.bootscreen` takes priority.
 
-CrossInk caches folder contents for faster startup. If you add BMP files
-directly to an already-used folder while the device is off, the new files may
-not be selected until the index is rebuilt. Upload them through the **File
-Transfer** web file manager or **Nearby File Transfer** to invalidate the
-index automatically.
+If you keep both boot-screen folders, `/.bootscreen` takes priority even when
+it is empty. Remove or rename it to use `/bootscreen` instead.
 
-The selection and fallback order is:
+If an image cannot be opened, CrossInk uses another available boot image or its
+standard logo. With no custom image or boot-screen folder, waking normally
+keeps the sleep screen visible.
 
-1. A selected BMP set with **Set Boot Screen**.
-2. A usable BMP selected from the active root-level boot-screen folder.
-3. The standard CrossInk logo.
-
-On a cold boot, if a selected image or the active folder is missing, unreadable,
-empty, or contains no usable BMP, CrossInk falls back to the next option in the
-order above. If both folder names exist, `/.bootscreen` masks `/bootscreen`
-even when the hidden folder is empty or unusable; remove or rename it to use
-`/bootscreen` instead.
-
-On a power-button wake, an existing selected BMP or boot-screen folder (even
-an empty or unusable folder) runs the boot-screen flow and then falls back to
-the standard logo if no image can be shown. If the selected file was removed
-and no boot-screen folder exists, the wake is splashless and keeps the current
-sleep screen visible. With no selected image or boot-screen folder, a
-power-button wake is also splashless.
+If new images are not being picked, upload them through **File Transfer** or
+**Nearby File Transfer** so the reader notices the change.
 
 > [!TIP]
 > Use an uncompressed BMP at your device's screen resolution for the best result: 480x800 pixels on X4 or 528x792 pixels on X3. Images with other dimensions are centered and scaled down as needed.
@@ -781,7 +667,7 @@ For **EPUB readers**, vertical gestures depend on the device:
 - On other touchscreen devices, swipe down to open the reader menu and swipe up
   to return Home.
 
-**XTC** and **TXT** readers use narrower, format-specific vertical routing. For
+**XTC** and **TXT** books have fewer swipe shortcuts. For
 example, Sticky TXT has the down-swipe reader-details/frontlight panel but no
 swipe-to-menu or swipe-to-Home action; on X4 Pro, XTC keeps the swipe-up reader
 menu while its down-swipe frontlight panel is top-edge only, and TXT has no
@@ -806,7 +692,7 @@ only when the hardware supports them; Select Chapter opens the chapter list in E
 size options apply to EPUB and TXT books. Each direction starts as **Not Set**,
 and each action can be assigned to only one direction; choosing it again moves
 it to the new direction. On image-based XTC books, Next/Previous Chapter and font-size actions
-are consumed but cannot change the pre-rendered pages. See [Two-finger Swipe
+do nothing because those pages are saved as images. See [Two-finger Swipe
 Actions](./controls.md#two-finger-swipe-actions) for the complete list and
 reader-specific limitations.
 
@@ -841,11 +727,11 @@ After following an in-book link to a full chapter, sleeping or closing the book 
 
 ### Supported Languages
 
-CrossInk renders text using the following Unicode character blocks, enabling support for a wide range of languages:
+The built-in reading fonts support many languages:
 
-- **Latin Script (Basic, Supplement, Extended-A/B):** Covers English, German, French, Spanish, Portuguese, Italian, Dutch, Swedish, Norwegian, Danish, Finnish, Polish, Czech, Hungarian, Romanian, Slovak, Slovenian, Turkish, Catalan, and others.
-- **Cyrillic Script (Standard and Extended):** Covers Russian, Ukrainian, Belarusian, Bulgarian, Serbian, Macedonian, Kazakh, Kyrgyz, Mongolian, and others.
-- **Vietnamese:** Supported via extended Latin glyph coverage in the built-in reader fonts.
+- **Latin alphabet:** Covers English, German, French, Spanish, Portuguese, Italian, Dutch, Swedish, Norwegian, Danish, Finnish, Polish, Czech, Hungarian, Romanian, Slovak, Slovenian, Turkish, Catalan, and others.
+- **Cyrillic alphabet:** Covers Russian, Ukrainian, Belarusian, Bulgarian, Serbian, Macedonian, Kazakh, Kyrgyz, Mongolian, and others.
+- **Vietnamese:** Supported by the built-in reading fonts.
 
 What is not supported with built-in reader fonts: Chinese, Japanese, Korean, Arabic, Greek, Hebrew, and Farsi. However, **CJK, Hebrew, Greek, and other extended scripts can be enabled by installing custom SD card fonts**; see [Custom Fonts (SD Card)](#39-custom-fonts-sd-card).
 
@@ -914,7 +800,7 @@ CrossInk is in active development. These are the current limits:
   seconds to convert for the sleep screen and Home-screen thumbnail. If a book
   is slow to open, use the built-in [EPUB optimization](./webserver.md#epub-optimization)
   before uploading it.
-- **Image formats:** Most JPG, PNG, and non-interlaced GIF images in EPUBs display correctly. GIF covers and thumbnails are supported; animated GIFs show their first frame. Damaged, oversized, interlaced GIFs and progressive JPEGs are not supported. Existing EPUB page caches rebuild automatically after this update.
+- **Image formats:** Most JPG, PNG, and non-interlaced GIF images in EPUBs display correctly. GIF covers and thumbnails are supported; animated GIFs show their first frame. Damaged, oversized, interlaced GIFs and progressive JPEGs are not supported.
 - **Built-in reader fonts:** Chinese, Japanese, Korean, Arabic, Greek, Hebrew, and Farsi need a custom SD card font; see [Supported Languages](#supported-languages).
 
 ---
@@ -933,46 +819,3 @@ For network, upload, and settings problems, see [Troubleshooting](./troubleshoot
 **If the Home screen also fails**, the saved settings or cache may be damaged. Turn the device off, put the SD card in a computer, and delete the `.crosspoint` folder on the SD card. This resets settings, reading progress, bookmarks, and caches (see [Data and Cache](./data-cache.md)). To lose less, delete only `crossink-settings.json`, `settings.json`, `state.json`, or the `epub_*` folders inside `.crosspoint/`.
 
 **If a firmware update went wrong:** Put a working `firmware.bin` on the root of the SD card, turn the device off, then hold **Power** and **Up** while turning it on (use **Down** instead of **Up** on X4 Pro and X4 Classic). CrossInk opens a screen where you pick the `.bin` file to install. You can also reflash over USB; see [Installation](./installation.md).
-
-### Advanced: Serial Monitor Logs
-
-This is for developers and advanced users who need detailed logs. Connect the device to a computer with a USB cable and run the debugging monitor script from the CrossInk source code. It needs Python 3 with `pyserial`, `colorama`, and `matplotlib` (install with `pip3 install pyserial colorama matplotlib`):
-
-```
-python3 scripts/debugging_monitor.py
-```
-
-The script finds the serial port automatically. You can also give it one:
-
-```
-python3 scripts/debugging_monitor.py /dev/ttyACM0        # Linux
-python3 scripts/debugging_monitor.py /dev/tty.usbmodem1  # macOS
-python3 scripts/debugging_monitor.py COM7                # Windows
-```
-
-**Features:**
-
-- Color-coded log output by category (errors, memory, display, EPUB parsing, etc.)
-- Live memory usage graph updated every second
-- Interactive command prompt: type a command and press Enter to send it to the device
-- Screenshot capture: saves the current display to `screenshot.bmp` when triggered by the device
-
-**Options:**
-
-| Option               | Description                                               |
-| -------------------- | --------------------------------------------------------- |
-| `--baud RATE`        | Baud rate (default: 115200)                               |
-| `--filter KEYWORD`   | Show only lines containing the keyword (case-insensitive) |
-| `--suppress KEYWORD` | Hide lines containing the keyword (case-insensitive)      |
-
-**Examples:**
-
-```
-# Show only memory-related log lines
-python3 scripts/debugging_monitor.py --filter MEM
-
-# Hide noisy SD card log lines
-python3 scripts/debugging_monitor.py --suppress "[SD]"
-```
-
-Press **Ctrl-C** or close the graph window to exit.

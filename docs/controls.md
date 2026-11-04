@@ -98,7 +98,7 @@ By default, tap the left third of the page to go back and the right two-thirds
 to go forward.
 
 > [!NOTE]
-> **Advanced:** If either setting is **Inverted Tap**, the zones flip: the left
+> If either setting is **Inverted Tap**, the zones flip: the left
 > two-thirds go forward and the right third goes back. If only one direction
 > allows taps, a tap anywhere on the page turns in that direction. The top and
 > bottom bands of the screen are kept for vertical gestures, so taps there do
@@ -113,7 +113,7 @@ fingers. While reading an EPUB or TXT book, move two fingers apart to make the
 text bigger, or together to make it smaller. Each pinch changes the font by one
 size step. You can turn it off in **Settings > Controls > Taps & Gestures**.
 It needs **Touch Reader Controls** to be on. It cannot resize XTC books,
-because their pages are pre-rendered images.
+because their pages are saved as images.
 
 ## Two-finger Screen Rotation
 
@@ -162,7 +162,7 @@ Available actions depend on the device and the book:
 Brightness and warmth change while you drag, and a longer swipe gives finer
 adjustments. Use a clear, mostly straight motion so both fingers are read as
 one gesture. **Select Chapter** opens the chapter list. In XTC books, the
-chapter and font-size actions do nothing, because the pages are pre-rendered
+chapter and font-size actions do nothing, because the pages are saved
 images.
 
 ## Edge Gestures
@@ -203,7 +203,7 @@ you can choose:
   orientation changes. The labels describe the direction the page turns.
 - **Ignore** to leave a press unassigned.
 
-XTC books have pre-rendered pages, so font-size and page-rotation actions do not
+XTC books have pages saved as images, so font-size and page-rotation actions do not
 apply. **Orientation Aware** is a separate switch that makes the buttons follow
 the way you hold the device.
 

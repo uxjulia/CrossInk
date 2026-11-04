@@ -46,8 +46,7 @@ positions can change. Your bookmarks and clippings remain saved.
 
 ## Supported files and limits
 
-- Use static TrueType `.ttf` or OpenType CFF `.otf` files. Some CFF fonts have a
-  `.ttf` filename; CrossInk checks the file contents. Variable fonts and font
+- Use static TrueType `.ttf` or OpenType `.otf` files. Variable fonts and font
   collections are not supported.
 - Each file must be **2 MiB or smaller**, and the four files in one family must
   total **6 MiB or less**.
@@ -58,24 +57,9 @@ If a font does not appear, check its file type and size, then restart the
 reader. If the reader has too little free memory to open a
 font, it may use a fallback font instead.
 
-## Implementation and upstream attribution (Advanced)
-
-The `.otf` discovery and web upload support follows
-[CrossPoint runtime SD fonts #3646](https://github.com/crosspoint-reader/crosspoint-reader/pull/3646)
-and [web font upload #3717](https://github.com/crosspoint-reader/crosspoint-reader/pull/3717).
-Upstream accepts the `.otf` extension but its FreeInk SDK has no CFF (OpenType
-outline) driver, so extension support alone is not full OpenType support.
-
-CrossInk's S3 builds enable the SDK's CFF driver (`FREEINK_FONT_ENABLE_CFF`), so
-static OpenType CFF fonts really render, including CFF fonts named `.ttf`. The
-existing PSRAM feature gates, style metadata, font memory arenas, and
-content-based cache identities are kept. The font catalog version changed so old
-discovery results are rebuilt. The **TTF Rendering** menu also controls
-OpenType faces.
-
 ## Fonts embedded in EPUBs
 
-On a PSRAM-equipped reader (such as X4 Pro or Sticky), open a book, then open
+On a supported reader (X4 Classic, X4 Pro, or Sticky), open a book, then open
 the reader menu → Layout → Publisher fonts:
 
 - **Off**: Use your selected reading font instead of the book's embedded fonts.
@@ -89,28 +73,10 @@ Reader settings also provide the global default; a book's choice is saved
 separately. Embedded Style must be enabled, and Light/Safe Mode keeps the
 reader font.
 
-The EPUB must contain static TTF or OTF font files referenced by CSS
-`@font-face` rules. Merely naming an installed font in `font-family` does not
-embed it. WOFF, WOFF2, variable fonts and obfuscated/encrypted font data are
-not supported. Ignore Body Font identifies the body family from the chapter's
-root style or a bounded scan of its opening paragraphs; unusual typography
-may require All Text or Off. Compact tables continue using the reader font.
+The book must include supported fonts. A publisher font may be unavailable or
+too large for the reader; in that case, your selected reading font is used.
+If a book's typography looks wrong, try **All Text** or **Off**. Compact tables
+continue to use your reading font. X3 and X4 do not use publisher fonts.
 
-The loader keeps metadata for at most 32 faces and loads a family only when
-layout uses it. Ignored body families consume no font-file budget. Loaded
-faces are limited to 2 MiB each and 4 MiB per book, subject to the existing
-scalable-font memory reserve. Unsupported
-or unavailable faces fall back to the selected reader font. X3/X4 do not
-load embedded fonts. Extracted files live in the book cache and can be
-removed with that book's cache. Layout caches rebuild when the publisher
-mode or required font data changes. Cached sections remember the families
-requested during their reader session, restore them before reuse, and rebuild
-when font availability changes.
-
-To run the host regression fixture, generate it with
-`python3 scripts/generate_publisher_font_epub.py /tmp/publisher-fonts.epub`, then run
-`CROSSINK_SIMULATOR_SMOKE_PUBLISHER_FONTS=1 python3 scripts/run_simulator_smoke_test.py --env x4-pro-simulator --no-build --book /tmp/publisher-fonts.epub --status-bar-captures /tmp/publisher-font-captures`.
-Build `x4-pro-simulator` first. This checks modes, portrait/landscape layout,
-page-cache round trips, font identity invalidation, saved settings migration,
-menu choices and reader-session cleanup;
-it does not establish physical-device memory or SD-card performance.
+Changing this option can make the reader prepare the book again. Your saved
+reading position, bookmarks, and clippings are kept.

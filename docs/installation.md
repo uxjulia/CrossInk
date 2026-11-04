@@ -15,17 +15,11 @@ Don't have a device yet? Get one directly from [Xteink](https://go.sjv.io/X4RGBb
 
 Note: Your purchases using the above affiliate links help support ongoing development of Crossink.
 
-## Factory partition layouts
+## Languages and hyphenation
 
-CrossInk's language and hyphenation packs work on PSRAM-equipped devices such as
-the X4 Pro even when an app-only installation keeps the smaller factory data
-partition. No bootloader flash or repartitioning is required for these packs.
-SD and Wi-Fi updates can continue to preserve the existing firmware slots.
-
-On these devices CrossInk automatically keeps its prepared pack cache at
-`/.crosspoint/asset-cache.bin` on the SD card and loads the active data into PSRAM
-at boot. Keep this cache on the SD card; see [Languages](languages.md) for details.
-Devices with a compatible internal data partition continue to use it.
+You can add menu languages and hyphenation packs without erasing your reader.
+Some devices keep installed packs on the SD card, so keep that card in the
+reader. See [Languages](./languages.md) for setup and recovery.
 
 ## Web Installation via USB
 
@@ -39,7 +33,7 @@ Flashing means writing the CrossInk firmware (the reader's software) onto the de
 4. Choose the firmware option you want to install.
 5. Click **Flash Firmware** and follow the prompts.
 
-Keep the reader connected until Inky says it is finished. Some devices need to be put into download mode first. If Inky asks, follow the steps it shows. The X4 Pro uses the ESP32-S3 firmware option.
+Keep the reader connected until Inky says it is finished. Some devices need to be put into download mode first. If Inky asks, follow the steps it shows. Always select your exact device model.
 
 ## USB Drive
 
@@ -70,39 +64,3 @@ Some devices ship with USB data transfer turned off, so a computer cannot flash 
 2. The latest version is selected for you. To go back to an earlier build, pick it from the dropdown.
 3. Choose the firmware option you want to download.
 4. Click **Download update.bin** and follow the instructions on the page.
-
-## Command Line
-
-#### Advanced. Most people should use the web installer above.
-
-These instructions are for macOS and Linux, and for the Xteink X3 and X4 (the examples use `--chip esp32c3`). Windows users and owners of the X4 Classic, X4 Pro, or Sticky should use the web installer.
-
-Install `esptool`:
-
-```sh
-pip3 install esptool
-```
-
-Download the `firmware-*.bin` file from the [releases page](https://github.com/uxjulia/CrossInk/releases), then connect your device with USB-C.
-
-Find the device port:
-
-```sh
-# Linux
-dmesg | grep tty
-
-# macOS
-ls /dev/cu.*
-```
-
-Flash the firmware:
-
-```sh
-# Linux
-esptool.py --chip esp32c3 --port /dev/ttyACM0 --baud 921600 write_flash 0x10000 /path/to/firmware.bin
-
-# macOS
-esptool.py --chip esp32c3 --port /dev/cu.usbmodem2101 --baud 921600 write_flash 0x10000 /path/to/firmware.bin
-```
-
-Replace the port and firmware path with your actual values.

@@ -50,14 +50,14 @@ This document shows common issues and possible solutions while using the device 
 **Solutions:**
 
 1. Check that the SD card has enough free space
-2. Check that the filename is valid for the SD card filesystem
+2. Check that the filename is simple, without special characters such as `:`, `*`, or `?`
 3. Try uploading a smaller file first to test
 4. Refresh the browser page and try again
 5. If uploads keep failing, refresh the page and try again. The page falls back to a slower upload method automatically
 
 ### Saved Password Not Working
 
-**Problem:** Device fails to connect with saved credentials. This often happens when swapping between firmwares or devices due to the password hashing mechanism.
+**Problem:** Device fails to connect with saved credentials. This can happen after changing the reader software or moving the SD card to another reader.
 
 **Solutions:**
 
@@ -71,9 +71,6 @@ This document shows common issues and possible solutions while using the device 
 To see details about your reader, open **Settings > System > About**. Scroll with Up/Down on button devices, or swipe up and down on touch devices. Back returns you to Settings.
 
 The page shows read-only details such as the device model, firmware version, screen, storage, and memory. It does not show Wi-Fi names, passwords, or other personal identifiers, and it does not need a network connection. Close and reopen the page to refresh the numbers.
-
-> [!NOTE]
-> Advanced: the memory figures are snapshots taken when the page opens. Internal RAM and PSRAM are shown separately; a large PSRAM value does not mean internal RAM is plentiful. PSRAM shows **Not present** on the X3/X4. The reset reason is the raw ESP-IDF code (1: power-on, 3: software restart, 4: panic, 5/6/7: watchdog, 8: deep-sleep wake, 9: brownout) and is not a crash log. Flash capacity is the chip's total size, not free update space. Simulators show **Simulated** or **Unsupported** for hardware values.
 
 ### Sharing Settings for Support
 
@@ -98,13 +95,6 @@ The reader saves `/crossink-support.json` in the top folder of the SD card. A ne
 
 The file leaves out passwords, Wi-Fi and server names, usernames, device names, custom font names, folder and book paths, book titles and authors, bookmarks, clippings, reading history, and logs. It still shows your device model and your preference choices, so give it a quick look before sharing.
 
-> [!NOTE]
-> Advanced: the file is JSON with `schema: "crossink-support"` and `version: 1`, and only allowlisted fields are written. It contains:
->
-> - **Firmware:** version, source revision, device target, whether the build had local changes, the FreeInk SDK revision, and the ESP-IDF version.
-> - **About:** the same hardware fields as the About screen, captured again just before saving (bytes, MHz, pixels, seconds).
-> - **Global preferences:** numeric settings, status bar slot choices and options, and Quick Action IDs, taken from the settings currently loaded in memory. Font and dictionary names are reduced to "custom font selected" flags.
-> - **Configuration status:** only whether the Wi-Fi, OPDS, KOReader, and TTF rendering-profile files exist. Their contents are never read.
-> - **Optional last opened EPUB:** that book's reader-settings record and its reading-stats on/off marker, with each value tagged by where it came from (`global_default`, `book_override`, `global_fallback`, or `safe_mode`). Legacy custom-font size steps are exported as unavailable rather than guessed. If the book has no usable cache, the file says so instead of inventing values.
->
-> The export is written to a temporary file first, and the previous export is kept as `/crossink-support.json.bak` until the new one is installed. If the reader shows **Saved; previous export kept as .bak**, the new file is fine and the old copy was left behind. If rollback fails, the message says the previous export remains in `.bak`; copy it off the card or try again. FAT cannot replace a file in one step, so a power loss at the wrong moment can leave only the `.bak` file. The next export restores it first. Do not delete a `.bak` file before checking it.
+If the reader says a previous export was kept as `.bak`, check
+`/crossink-support.json.bak` on the SD card before removing it. If an export
+fails, try again or keep the previous file for your support report.

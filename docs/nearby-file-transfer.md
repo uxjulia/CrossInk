@@ -6,8 +6,7 @@ nav_order: 7.5
 # Nearby File Transfer
 
 Nearby File Transfer sends one supported file directly between two nearby
-CrossInk readers. It uses a direct radio link between the two devices (called
-ESP-NOW), so it does not need a Wi-Fi network, internet connection, account, or
+CrossInk readers. It connects the two readers directly, so it does not need a Wi-Fi network, internet connection, account, or
 computer.
 
 ## Requirements
@@ -48,10 +47,8 @@ The receiver must accept the offer before the file starts sending. Press
 
 ## Transfer Safety
 
-CrossInk writes incoming data to a temporary file and verifies its size and
-contents before making it available at the chosen destination. A cancelled or
-failed transfer does not replace an existing file and does not leave a usable
-partial book or image behind.
+The new file becomes available only after the transfer has finished and been
+checked. Cancelling or losing the connection keeps any existing file intact.
 
 ## Troubleshooting
 

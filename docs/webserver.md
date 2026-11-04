@@ -50,7 +50,7 @@ web server. See [Reading Stats Sync](./reading-stats-sync.md) and
 
 After connection, the reader shows:
 
-- The connected SSID
+- The connected Wi-Fi network name
 - A QR code for the web URL
 - The direct IP address, for example `http://192.168.1.102/`
 - A name-based address, usually `http://crosspoint.local/`
@@ -78,8 +78,7 @@ when you are done.
 
 Calibre Wireless joins your Wi-Fi network like **Join a Network** does, then shows
 setup instructions and upload progress on the reader. Keep the screen open while
-you send books from Calibre. Use this mode with the CrossPoint Calibre plugin or
-other clients that speak the documented WebSocket upload protocol.
+you send books from Calibre. Use this mode with the CrossPoint Calibre plugin to send books from your computer.
 
 For Calibre OPDS browsing, add `/opds` to the catalog URL when configuring an
 OPDS server.
@@ -146,6 +145,11 @@ what you want, then press **Save Settings**. It also has sections for:
 Passwords can be typed in when adding or editing entries, but saved passwords
 are never shown again.
 
+### Plugins
+
+Enabled browser plugins appear on **Settings** or **File Manager**, depending on
+the plugin. See [Plugins](./sd-plugins.md) for installation and sign-in help.
+
 ### Fonts
 
 The Fonts tab lists installed SD-card font families and lets you upload new ones.
@@ -164,10 +168,6 @@ If one is missing, leave and reopen Settings, or restart the reader.
   while it is running.
 - The server stops when you exit File Transfer or Calibre Wireless mode.
 - Hotspot mode creates an open network; disconnect when done.
-
-> [!NOTE]
-> Advanced: the HTTP server runs on port 80 and the WebSocket upload server on
-> port 81.
 
 ## Tips
 

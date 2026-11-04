@@ -118,7 +118,10 @@ See [Installation](./docs/installation.md) for step-by-step flashing and revert 
 
 ## Guides & Documentation
 
-Visit [https://www.crossink.dev](https://www.crossink.dev) for more user guides and additional documentation.
+Visit [https://www.crossink.dev](https://www.crossink.dev) for user guides.
+Start with the [User Guide](./docs/user-guide.md), or see [Plugins](./docs/sd-plugins.md)
+for installing and using extensions. Plugin authors can use the separate
+[Plugin Development Guide](./docs/development/plugin-development.md).
 
 ---
 
