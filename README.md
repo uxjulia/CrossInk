@@ -7,6 +7,7 @@
 - Xteink X4 Pro
 - Xteink X4 Classic
 - Seeed Studio Sticky
+- BOOX Picco
 
 ## What's different in this fork
 
