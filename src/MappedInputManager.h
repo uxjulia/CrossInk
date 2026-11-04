@@ -83,8 +83,10 @@ class MappedInputManager {
   void setPowerAsConfirmInReaderMode(bool enabled) { powerAsConfirmInReaderMode = enabled; }
 #if CROSSINK_APP_CAP_TOUCH
   void setReaderTouchscreenOverride(bool enabled) { readerTouchscreenOverride = enabled; }
+  void setTouchscreenRecoveryOverride(bool enabled) { touchscreenRecoveryOverride = enabled; }
 #else
   constexpr void setReaderTouchscreenOverride(bool) {}
+  constexpr void setTouchscreenRecoveryOverride(bool) {}
 #endif
 
   void update() const;
@@ -285,6 +287,7 @@ class MappedInputManager {
 #if CROSSINK_APP_CAP_TOUCH
   bool usesFrontlightSwipeLayout() const;
   bool readerTouchscreenOverride = false;
+  bool touchscreenRecoveryOverride = false;
   EdgeSlide edgeSlideSide = EdgeSlide::None;
   int edgeSlideStartX = 0;
   int edgeSlideStartY = 0;

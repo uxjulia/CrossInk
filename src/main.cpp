@@ -91,7 +91,6 @@ inline esp_sleep_wakeup_cause_t esp_sleep_get_wakeup_cause() { return ESP_SLEEP_
 #include "AppVersion.h"
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
-#include "DeviceCapabilities.h"
 #include "FilenameFontSystem.h"
 #include "GlobalActions.h"
 #include "HyphenationPackStore.h"
@@ -843,9 +842,6 @@ bool dispatchButtonShortcut(const ButtonShortcutController::Result& result) {
     case ButtonShortcutController::Event::ConfiguredAction:
       return dispatchShortcutAction(chordPowerAction(result.action));
     case ButtonShortcutController::Event::TouchscreenEscapeHatch:
-      if (deviceUsesGlobalTouchscreenLock()) {
-        return handleGlobalPowerButtonAction(CrossPointSettings::TOGGLE_TOUCHSCREEN);
-      }
       return activityManager.openReaderSettingsForTouchscreenEscapeHatch();
   }
 
@@ -1885,8 +1881,8 @@ void loop() {
     return;
   }
 
-  const bool touchscreenEscapeHatch = !modalOwnsInput && gpio.hasTouch() && SETTINGS.disableReaderTouchscreen &&
-                                      (deviceUsesGlobalTouchscreenLock() || activityManager.isReaderActivity());
+  const bool touchscreenEscapeHatch =
+      !modalOwnsInput && gpio.hasTouch() && SETTINGS.disableReaderTouchscreen && activityManager.isReaderActivity();
   const auto sideButtonShortcutResult = buttonShortcutController.updateUpDown(
       mappedInputManager.buttonSampleTime(), gpio.isPressed(HalGPIO::BTN_UP), gpio.isPressed(HalGPIO::BTN_DOWN),
       configuredSideButtonChordAction(), touchscreenEscapeHatch, modalOwnsInput);

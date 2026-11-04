@@ -314,8 +314,11 @@ bool MappedInputManager::shouldMirrorPowerAsConfirmHold() const {
 
 #if CROSSINK_APP_CAP_TOUCH
 bool MappedInputManager::touchInputEnabled() const {
-  // Keep Picco locked in menus and Quick Actions as well as on reader pages.
-  if (deviceUsesGlobalTouchscreenLock()) return gpio.hasTouch() && !SETTINGS.disableReaderTouchscreen;
+  // Picco locks touch across the app, but explicitly opened reader controls
+  // must remain usable so the Up + Down recovery menu can re-enable touch.
+  if (deviceUsesGlobalTouchscreenLock())
+    return gpio.hasTouch() && (!SETTINGS.disableReaderTouchscreen || (readerMode && readerTouchscreenOverride) ||
+                               touchscreenRecoveryOverride);
   return gpio.hasTouch() && (!readerMode || !SETTINGS.disableReaderTouchscreen || readerTouchscreenOverride);
 }
 

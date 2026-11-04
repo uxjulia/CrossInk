@@ -285,6 +285,7 @@ class SettingsActivity final : public Activity {
   // The frontlight drawer pushes Settings over an active reader. Closing that
   // instance must pop back to the panel instead of replacing the reader with Home.
   bool returnToParentOnClose = false;
+  bool touchscreenRecovery = false;
   View view = View::Root;
   // Settings can be created over a landscape reader. Its teardown resets the
   // renderer before this activity enters, so retain the requested layout.
@@ -371,6 +372,7 @@ class SettingsActivity final : public Activity {
   bool handleHomeGesture() override;
   // Opens System > Device with the Download Languages popup once the activity enters.
   void openLanguageDownloadsOnEnter() { openLanguageDownloadsPending = true; }
+  void enableTouchscreenRecovery() { touchscreenRecovery = true; }
 #ifdef SIMULATOR
   void simulatorOpenFrontButtons();
   int simulatorCategoryIndex() const { return selectedCategoryIndex; }

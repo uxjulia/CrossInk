@@ -220,3 +220,41 @@ TEST(ButtonShortcutController, ModalConsumesUpDownChordThroughBothReleaseOrders)
     EXPECT_FALSE(controller.updateUpDown(4U, false, false, Action::QuickActions, false, false).consumeInput);
   }
 }
+
+TEST(ButtonShortcutController, DisabledTouchRecoveryOverridesConfiguredChordUntilBothButtonsRelease) {
+  using Action = ButtonShortcutController::ChordAction;
+  using Event = ButtonShortcutController::Event;
+
+  for (const auto action : {Action::Disabled, Action::RotateFlip, Action::ToggleTouchscreen}) {
+    for (const bool releaseUpFirst : {false, true}) {
+      ButtonShortcutController controller;
+      const auto opened = controller.updateUpDown(1U, true, true, action, true);
+      EXPECT_EQ(opened.event, Event::TouchscreenEscapeHatch);
+      EXPECT_TRUE(opened.consumeInput);
+      EXPECT_EQ(controller.updateUpDown(2U, true, true, action, true).event, Event::None);
+      const auto firstRelease = controller.updateUpDown(3U, !releaseUpFirst, releaseUpFirst, action, true);
+      EXPECT_EQ(firstRelease.event, Event::None);
+      EXPECT_TRUE(firstRelease.consumeInput);
+      EXPECT_TRUE(controller.updateUpDown(4U, false, false, action, true).consumeInput);
+      EXPECT_FALSE(controller.updateUpDown(5U, false, false, action, false).consumeInput);
+      EXPECT_EQ(controller.updateUpDown(6U, true, true, action, true).event, Event::TouchscreenEscapeHatch);
+    }
+  }
+}
+
+TEST(ButtonShortcutController, ModalAndQuickLockBlockDisabledTouchRecovery) {
+  using Action = ButtonShortcutController::ChordAction;
+  using Event = ButtonShortcutController::Event;
+
+  ButtonShortcutController modalController;
+  const auto modal = modalController.updateUpDown(1U, true, true, Action::RotateFlip, true, true);
+  EXPECT_EQ(modal.event, Event::None);
+  EXPECT_TRUE(modal.consumeInput);
+
+  ButtonShortcutController lockedController;
+  lockedController.toggleQuickLock(1U, QuickLockTrigger::ShortPower);
+  const auto locked = lockedController.updateUpDown(2U, true, true, Action::RotateFlip, true);
+  EXPECT_EQ(locked.event, Event::None);
+  EXPECT_TRUE(locked.consumeInput);
+  EXPECT_TRUE(lockedController.isQuickLocked());
+}
