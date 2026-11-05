@@ -1400,10 +1400,19 @@ void setup() {
       mappedInputManager.suppressNextPowerConfirmRelease();
       break;
     case HalGPIO::WakeupReason::AfterUSBPower:
-      // TEMP: continue booting while diagnosing post-flash/reset behavior.
-      // Normal behavior is to go back to sleep when USB power causes a cold boot.
-      LOG_INF("BOOT", "AfterUSBPower route: TEMP continuing boot instead of deep sleep");
-      break;
+      LOG_INF("BOOT", "AfterUSBPower route: returning to sleep");
+#if FREEINK_DEVICE_PICCO
+      // Keep the retained screen and use the normal USB sleep/wake path.
+      Frontlight.begin(0, 0, false);
+      putTiltSensorToSleepForDeepSleep();
+      if (powerManager.holdWhileUsbPowered(gpio)) {
+        piccoUsbWakeToken.arm();
+        ESP.restart();
+        return;
+      }
+#endif
+      powerManager.startDeepSleep(gpio);
+      return;
     case HalGPIO::WakeupReason::AfterFlash:
       // After flashing, just proceed to boot
       LOG_INF("BOOT", "AfterFlash route: continuing boot");
