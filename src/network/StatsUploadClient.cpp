@@ -1,6 +1,7 @@
 #include "StatsUploadClient.h"
 
 #include <ArduinoJson.h>
+#include <HalStorage.h>
 #include <I18n.h>
 #include <KOReaderCredentialStore.h>
 #include <KOReaderSyncClient.h>
@@ -117,8 +118,12 @@ StatsUploadClient::Result StatsUploadClient::put(const char* endpoint, const cha
   return Result::Ok;
 }
 
-StatsUploadClient::Result StatsUploadClient::get(const char* endpoint, char* response, const size_t capacity) {
-  if (!impl) return Result::LowMemory;
+StatsUploadClient::Result StatsUploadClient::get(const char* endpoint, const char* responsePath,
+                                                 const size_t maxBytes) {
+  if (!impl) {
+    LOG_ERR("StatsSync", "Cannot allocate download HTTP client");
+    return Result::LowMemory;
+  }
   auto& http = impl->http;
   http.end();
   if (ESP.getFreeHeap() < 35000 || ESP.getMaxAllocHeap() < 20000) {
@@ -132,21 +137,31 @@ StatsUploadClient::Result StatsUploadClient::get(const char* endpoint, char* res
   applyCustomHttpHeaders(http, KOREADER_STORE.getCustomHeaders());
   http.addHeader("x-auth-user", KOREADER_STORE.getUsername());
   http.addHeader("x-auth-key", KOREADER_STORE.getMd5Password());
+  // Stream escaped JSON to SD instead of reserving its worst-case size during TLS.
+  FsFile file;
+  if (!Storage.openFileForWrite("StatsSync", responsePath, file)) {
+    LOG_ERR("StatsSync", "Cannot open download file");
+    http.end();
+    return Result::InvalidResponse;
+  }
+  ScopedCleanup cleanup{[&file] { file.close(); }};
   size_t size = 0;
+  bool stored = true;
+  const auto store = [&](const uint8_t* data, const size_t length) {
+    if (length > maxBytes - size || file.write(data, length) != length) {
+      stored = false;
+      return false;
+    }
+    size += length;
+    return true;
+  };
   bool complete;
 #ifdef SIMULATOR
   const int status = http.GET();
-  const auto body = http.getString();
-  size = body.length();
-  complete = size < capacity;
-  if (complete) memcpy(response, body.c_str(), size);
+  const auto& body = http.getString();
+  complete = store(reinterpret_cast<const uint8_t*>(body.c_str()), body.length());
 #else
-  const int status = http.GET([&](const uint8_t* data, size_t length) {
-    if (length >= capacity - size) return false;
-    memcpy(response + size, data, length);
-    size += length;
-    return true;
-  });
+  const int status = http.GET(store);
   complete = http.responseComplete();
 #endif
   http.end();
@@ -155,8 +170,10 @@ StatsUploadClient::Result StatsUploadClient::get(const char* endpoint, char* res
   if (status == 401) return Result::Auth;
   if (status == 404 || status == 405) return Result::Unsupported;
   if (status != 200) return Result::Server;
-  if (!complete) return Result::InvalidResponse;
-  response[size] = '\0';
+  if (!stored || !complete || !file.sync() || !file.close()) {
+    LOG_ERR("StatsSync", "Incomplete download file");
+    return Result::InvalidResponse;
+  }
   return Result::Ok;
 }
 

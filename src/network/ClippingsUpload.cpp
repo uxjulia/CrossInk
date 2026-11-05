@@ -11,6 +11,55 @@
 #include "sync/SyncFiles.h"
 
 namespace {
+// ArduinoJson's stream reader unescapes strings directly into its document.
+// A small sector fragment avoids one SD/HAL call for every JSON byte.
+class ResponseReader {
+ public:
+  explicit ResponseReader(FsFile& file) : file(file) {}
+  int read() {
+    if (offset == size) {
+      const int count = file.read(buffer, sizeof(buffer));
+      if (count <= 0) return -1;
+      size = static_cast<size_t>(count);
+      offset = 0;
+    }
+    return buffer[offset++];
+  }
+  size_t readBytes(char* out, size_t count) {
+    size_t copied = 0;
+    for (; copied < count; ++copied) {
+      const int value = read();
+      if (value < 0) break;
+      out[copied] = static_cast<char>(value);
+    }
+    return copied;
+  }
+
+ private:
+  FsFile& file;
+  uint8_t buffer[128];
+  size_t offset = 0;
+  size_t size = 0;
+};
+
+StatsUploadClient::Result readResponse(const char* path, JsonDocument& json) {
+  using Result = StatsUploadClient::Result;
+  FsFile file;
+  if (!Storage.openFileForRead("ClippingsSync", path, file)) {
+    LOG_ERR("ClippingsSync", "Cannot open download response");
+    return Result::InvalidResponse;
+  }
+  ResponseReader reader(file);
+  const auto error = deserializeJson(json, reader);
+  // Release the sole SD reader before merging clippings or updating the cursor.
+  const bool closed = file.close();
+  if (error || !closed) {
+    LOG_ERR("ClippingsSync", "Cannot parse download response: %s", error.c_str());
+    return error == DeserializationError::NoMemory ? Result::LowMemory : Result::InvalidResponse;
+  }
+  return Result::Ok;
+}
+
 bool clippingScope(const std::string& document, char (&scope)[17]) {
   const auto& server = KOREADER_STORE.getBaseUrl();
   const auto& user = KOREADER_STORE.getUsername();
@@ -128,14 +177,16 @@ StatsUploadClient::Result ClippingsUpload::download(const std::string& path, con
   using Result = StatsUploadClient::Result;
   if (document.size() != 32 || document.find_first_not_of("0123456789abcdefABCDEF") != std::string::npos)
     return Result::InvalidResponse;
-  // One worst-case JSON-escaped 4 KiB passage plus bounded metadata. Reuse on
-  // heap (too large for task stack); never retain a book index across TLS.
-  constexpr size_t CAPACITY = CLIPPING_TEXT_MAX * 6 + 2048;
-  auto response = makeUniqueNoThrow<char[]>(CAPACITY);
-  if (!response) {
-    LOG_ERR("ClippingsSync", "Cannot allocate download buffer");
-    return Result::LowMemory;
+  // Keep worst-case escaped text off the heap during TLS. Each bounded page
+  // is staged on SD and parsed only after the transport releases its connection.
+  constexpr size_t MAX_RESPONSE_BYTES = CLIPPING_TEXT_MAX * 6 + 2048;
+  constexpr const char* RESPONSE_PATH = "/.crosspoint/clipping-sync/download.tmp";
+  if ((!Storage.exists("/.crosspoint") && !Storage.mkdir("/.crosspoint")) ||
+      (!Storage.exists("/.crosspoint/clipping-sync") && !Storage.mkdir("/.crosspoint/clipping-sync"))) {
+    LOG_ERR("ClippingsSync", "Cannot create download directory");
+    return Result::InvalidResponse;
   }
+  ScopedCleanup cleanup{[&] { Storage.remove(RESPONSE_PATH); }};
   StatsUploadClient client;
   const std::string statePath = ClippingStore::syncStatePath(path);
   char scope[17];
@@ -155,11 +206,11 @@ StatsUploadClient::Result ClippingsUpload::download(const std::string& path, con
     char query[160];
     snprintf(query, sizeof(query), "/api/v1/clippings/%s?cursor=%llu&limit=1&format=reader", document.c_str(),
              static_cast<unsigned long long>(cursor));
-    const auto result = client.get(query, response.get(), CAPACITY);
+    const auto result = client.get(query, RESPONSE_PATH, MAX_RESPONSE_BYTES);
     if (result != Result::Ok) return result;
     JsonDocument json;
-    // Mutable input keeps strings in the bounded response buffer.
-    if (deserializeJson(json, response.get())) return Result::InvalidResponse;
+    const auto parsed = readResponse(RESPONSE_PATH, json);
+    if (parsed != Result::Ok) return parsed;
     if (json["sync_version"].isNull() && json["cursor"].isNull() && json["until"].is<uint64_t>() &&
         json["document"].is<const char*>() && document == json["document"].as<const char*>() &&
         json["more"].is<bool>() && json["items"].is<JsonArray>())

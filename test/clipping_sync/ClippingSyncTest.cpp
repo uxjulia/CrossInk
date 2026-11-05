@@ -82,13 +82,16 @@ class ClippingSync : public ::testing::Test {
     revision = putCount = getCount = 0;
     lastCursor = 0;
     testCredentials = {};
+    maxClippingTestArrayAllocation = SIZE_MAX;
     offline = false;
     forcedReply.clear();
     Storage.files["/My Clippings.txt"] = "local export\n";
   }
   void TearDown() override {
     CLIPPINGS.unload();
+    maxClippingTestArrayAllocation = SIZE_MAX;
     EXPECT_EQ(openBookmarkReaders, 0);
+    EXPECT_FALSE(Storage.files.contains("/.crosspoint/clipping-sync/download.tmp"));
     EXPECT_EQ(Storage.files.at("/My Clippings.txt"), "local export\n");
   }
   void load() { ASSERT_TRUE(CLIPPINGS.loadForBook(BOOK, "Title", "Author", "epub")); }
@@ -111,7 +114,7 @@ struct StatsUploadClient::Impl {};
 StatsUploadClient::StatsUploadClient() = default;
 StatsUploadClient::~StatsUploadClient() = default;
 void StatsUploadClient::close() {}
-Result StatsUploadClient::put(const char*, const char* payload, bool, bool, const char*) {
+Result StatsUploadClient::put(const char*, const char* payload, unsigned, bool, const char*) {
   if (offline) return Result::Network;
   ++putCount;
   JsonDocument request;
@@ -128,7 +131,7 @@ Result StatsUploadClient::put(const char*, const char* payload, bool, bool, cons
   remote[id] = row;
   return Result::Ok;
 }
-Result StatsUploadClient::get(const char* endpoint, char* response, size_t capacity) {
+Result StatsUploadClient::get(const char* endpoint, const char* responsePath, size_t maxBytes) {
   ++getCount;
   if (offline) return Result::Network;
   std::string body = forcedReply;
@@ -155,9 +158,12 @@ Result StatsUploadClient::get(const char* endpoint, char* response, size_t capac
            "\",\"sync_version\":2,\"cursor\":" + std::to_string(matches ? firstRevision : cursor) +
            ",\"more\":" + (matches > 1 ? "true" : "false") + ",\"items\":[" + first + "]}";
   }
-  if (body.size() >= capacity) return Result::InvalidResponse;
-  memcpy(response, body.c_str(), body.size() + 1);
-  return Result::Ok;
+  if (body.size() > maxBytes) return Result::InvalidResponse;
+  FsFile file;
+  if (!Storage.openFileForWrite("test", responsePath, file)) return Result::InvalidResponse;
+  const bool written = file.write(body.data(), body.size()) == body.size() && file.sync();
+  const bool closed = file.close();
+  return written && closed ? Result::Ok : Result::InvalidResponse;
 }
 
 TEST_F(ClippingSync, ImportsFullTextWithoutDuplicatesOrReuploadingForeignAnchors) {
@@ -521,4 +527,75 @@ TEST_F(ClippingSync, DeletionsWaitForTheirOriginalAccountEvenWhenIdsMatch) {
   std::string passage;
   ASSERT_TRUE(CLIPPINGS.readClippingText(0, passage));
   EXPECT_EQ(passage, "B's passage");
+}
+
+TEST_F(ClippingSync, DownloadsWorstCaseEscapedSelectionWithFragmentedHeap) {
+  // A full passage can expand to six times its size on the wire.
+  const std::string text(CLIPPING_TEXT_MAX, '\x01');
+  addRemote("escaped", text);
+  // Match a server serializer that emits control bytes as Unicode escapes.
+  std::string wire;
+  wire.reserve(CLIPPING_TEXT_MAX * 6 + 1024);
+  for (const char value : remote.at("escaped")) {
+    if (value == '\x01')
+      wire += "\\u0001";
+    else
+      wire += value;
+  }
+  remote["escaped"] = std::move(wire);
+  ASSERT_GT(remote.at("escaped").size(), CLIPPING_TEXT_MAX * 6);
+  maxClippingTestArrayAllocation = 16 * 1024;
+  ASSERT_EQ(ClippingsUpload::sync(BOOK, DOCUMENT), Result::Ok);
+  load();
+  std::string saved;
+  ASSERT_TRUE(CLIPPINGS.readClippingText(0, saved));
+  EXPECT_EQ(saved, text);
+  EXPECT_EQ(ClippingsUpload::download(BOOK, DOCUMENT), Result::Skipped);
+}
+
+TEST_F(ClippingSync, DownloadFileFailuresDoNotAdvanceCursor) {
+  addRemote("remote", "selection");
+  failBookmarkWriteOpen = true;
+  EXPECT_EQ(ClippingsUpload::download(BOOK, DOCUMENT), Result::InvalidResponse);
+  failBookmarkWriteOpen = false;
+  maxBookmarkWriteBytes = 8;
+  EXPECT_EQ(ClippingsUpload::download(BOOK, DOCUMENT), Result::InvalidResponse);
+  maxBookmarkWriteBytes = -1;
+  failBookmarkSync = true;
+  EXPECT_EQ(ClippingsUpload::download(BOOK, DOCUMENT), Result::InvalidResponse);
+  failBookmarkSync = false;
+  failBookmarkClose = true;
+  EXPECT_EQ(ClippingsUpload::download(BOOK, DOCUMENT), Result::InvalidResponse);
+  failBookmarkClose = false;
+  ASSERT_EQ(ClippingsUpload::download(BOOK, DOCUMENT), Result::Ok);
+  EXPECT_EQ(lastCursor, 0U);
+  EXPECT_EQ(ClippingsUpload::download(BOOK, DOCUMENT), Result::Skipped);
+}
+
+TEST_F(ClippingSync, FailedPullAfterSuccessfulUploadStillReportsFailureAndRetries) {
+  addLocal();
+  forcedReply = "{broken";
+  EXPECT_EQ(ClippingsUpload::sync(BOOK, DOCUMENT), Result::InvalidResponse);
+  EXPECT_EQ(remote.size(), 1U);
+  forcedReply.clear();
+  EXPECT_EQ(ClippingsUpload::sync(BOOK, DOCUMENT), Result::Ok);
+  load();
+  EXPECT_EQ(CLIPPINGS.clippingCount(), 1U);
+}
+
+TEST_F(ClippingSync, OversizedReplyCannotAdvanceCursorOrImportData) {
+  forcedReply.assign(CLIPPING_TEXT_MAX * 6 + 2049, ' ');
+  EXPECT_EQ(ClippingsUpload::download(BOOK, DOCUMENT), Result::InvalidResponse);
+  forcedReply.clear();
+  addRemote("remote", "selection");
+  EXPECT_EQ(ClippingsUpload::download(BOOK, DOCUMENT), Result::Ok);
+  EXPECT_EQ(lastCursor, 0U);
+}
+
+TEST_F(ClippingSync, UploadThenDownloadCompletesWithoutWorstCaseResponseAllocation) {
+  addLocal();
+  maxClippingTestArrayAllocation = 16 * 1024;
+  EXPECT_EQ(ClippingsUpload::sync(BOOK, DOCUMENT), Result::Ok);
+  EXPECT_EQ(putCount, 1U);
+  EXPECT_GT(getCount, 0U);
 }
