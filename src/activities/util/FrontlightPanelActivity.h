@@ -38,6 +38,7 @@ class FrontlightPanelActivity final : public Activity {
   OptionPopup optionPopup;
   bool initialInversion = false;
   bool initialTouchscreenDisabled = false;
+  bool previousTouchscreenRecoveryOverride = false;
   bool ttfRenderingChanged = false;
   // Swallow the swipe/tap fallout of a slider drag so its release can't
   // trigger the back gesture and close the panel mid-adjustment.

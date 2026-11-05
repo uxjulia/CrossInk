@@ -85,6 +85,10 @@ void FrontlightPanelActivity::onEnter() {
   initialInversion = SETTINGS.screenInverted;
   initialTouchscreenDisabled = SETTINGS.disableReaderTouchscreen;
   mappedInput.setReaderTouchscreenOverride(true);
+  // Picco also locks touch outside readers. Keep this recovery panel usable,
+  // preserving an outer recovery session when the drawer is nested.
+  previousTouchscreenRecoveryOverride = mappedInput.isTouchscreenRecoveryOverrideEnabled();
+  mappedInput.setTouchscreenRecoveryOverride(true);
 
   uiReady = false;
   applySharedUiTheme(app, uiTarget);
@@ -118,6 +122,7 @@ void FrontlightPanelActivity::onExit() {
     activityManager.persistGlobalSettings();
   }
   mappedInput.setReaderTouchscreenOverride(false);
+  mappedInput.setTouchscreenRecoveryOverride(previousTouchscreenRecoveryOverride);
   Activity::onExit();
 }
 
@@ -195,12 +200,8 @@ void FrontlightPanelActivity::toggleLight() {
 
 void FrontlightPanelActivity::toggleReaderTouchscreen() {
   SETTINGS.disableReaderTouchscreen = SETTINGS.disableReaderTouchscreen ? 0 : 1;
-  {
-    RenderLock lock;
-    BookActions::drawToast(
-        renderer, SETTINGS.disableReaderTouchscreen ? tr(STR_TOUCHSCREEN_DISABLED) : tr(STR_TOUCHSCREEN_ENABLED));
-  }
-  delay(1000);
+  BookActions::showTouchscreenToast(renderer, activityManager.isReaderActivity(),
+                                    BookActions::TouchscreenToggleSource::FrontlightDrawer);
   requestUpdate();
 }
 

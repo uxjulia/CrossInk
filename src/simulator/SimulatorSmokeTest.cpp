@@ -130,6 +130,7 @@
 extern ActivityManager activityManager;
 extern GfxRenderer renderer;
 extern MappedInputManager mappedInputManager;
+extern bool dispatchButtonShortcut(const ButtonShortcutController::Result& result);
 
 // Use a detached reader so these boundary checks cannot race its render task.
 struct EpubReaderCompletionSmokeTest {
@@ -2218,6 +2219,81 @@ class SimulatorSmokeTest {
   }
 
  private:
+  static void verifyFrontlightTouchRecovery() {
+#if CROSSINK_APP_CAP_TOUCH
+    if (!deviceUsesGlobalTouchscreenLock()) fail("Touch recovery regression requires the Picco touch-lock policy");
+    for (const bool reader : {false, true}) {
+      for (const bool inheritedRecovery : {false, true}) {
+        SETTINGS.disableReaderTouchscreen = 0;
+        mappedInputManager.setReaderMode(reader);
+        mappedInputManager.setTouchscreenRecoveryOverride(inheritedRecovery);
+        auto panel = std::make_unique<FrontlightPanelActivity>(renderer, mappedInputManager);
+        panel->onEnter();
+        if (!reader && !inheritedRecovery) {
+          activityManager.requestUpdateAndWait();
+          RenderLock lock;
+          panel->render(std::move(lock));
+        }
+        panel->simulatorActivateQuickAction(4);
+        if (!reader && !inheritedRecovery) {
+          RenderLock lock;
+          captureStatusBarScreen("picco-touch-disabled-recovery-hint");
+        }
+        if (!SETTINGS.disableReaderTouchscreen || !mappedInputManager.hasTouch())
+          fail("Frontlight panel lost touch after disabling it");
+        mappedInputManager.simulatorInjectTouchDown(100, 100);
+        mappedInputManager.simulatorInjectTouchRelease(100, 100);
+        int x = 0, y = 0;
+        if (!mappedInputManager.wasScreenTapped(x, y)) fail("Frontlight recovery blocked a real touch event");
+        mappedInputManager.simulatorClearInputFrame();
+        panel->simulatorActivateQuickAction(4);
+        if (SETTINGS.disableReaderTouchscreen) fail("Frontlight panel could not re-enable touch");
+        panel->simulatorActivateQuickAction(4);
+        panel->onExit();
+        if (!SETTINGS.disableReaderTouchscreen || mappedInputManager.hasTouch() != inheritedRecovery ||
+            mappedInputManager.isTouchscreenRecoveryOverrideEnabled() != inheritedRecovery)
+          fail("Frontlight panel did not restore the outer touch-lock state");
+      }
+    }
+    mappedInputManager.setReaderMode(false);
+    mappedInputManager.setTouchscreenRecoveryOverride(false);
+    using Action = ButtonShortcutController::ChordAction;
+    using Event = ButtonShortcutController::Event;
+    for (const auto action : {Action::Disabled, Action::RotateFlip, Action::ToggleTouchscreen}) {
+      for (const bool releaseUpFirst : {false, true}) {
+        SETTINGS.disableReaderTouchscreen = 1;
+        ButtonShortcutController controller;
+        const auto result = controller.updateUpDown(1, true, true, action, true);
+        if (result.event != Event::TouchscreenEscapeHatch || !dispatchButtonShortcut(result) ||
+            SETTINGS.disableReaderTouchscreen || !mappedInputManager.hasTouch())
+          fail("Up + Down did not restore touch outside the reader");
+        if (controller.updateUpDown(2, true, true, action, false).event != Event::None ||
+            controller.updateUpDown(3, !releaseUpFirst, releaseUpFirst, action, false).event != Event::None ||
+            !controller.updateUpDown(4, false, false, action, false).consumeInput)
+          fail("Recovery chord repeated or leaked a button release");
+        SETTINGS.disableReaderTouchscreen = 1;
+        if (!SETTINGS.loadFromFile() || SETTINGS.disableReaderTouchscreen)
+          fail("Recovered touch setting did not survive a reload");
+      }
+    }
+    // A reader without its own menu still opens recovery Settings instead of
+    // silently changing the user's touch preference (the TXT/Markdown path).
+    activityManager.replaceActivity(
+        std::make_unique<HomeReaderSmokeActivity>("TouchRecoveryReader", true, renderer, mappedInputManager));
+    activityManager.loop();
+    SETTINGS.disableReaderTouchscreen = 1;
+    if (!dispatchButtonShortcut({Event::TouchscreenEscapeHatch, true}) || !SETTINGS.disableReaderTouchscreen)
+      fail("Reader recovery changed the touchscreen preference");
+    activityManager.loop();
+    if (!activityManager.isCurrentActivityNamed("Settings") || !mappedInputManager.hasTouch())
+      fail("Reader recovery Settings is not usable");
+    LOG_INF("SMOKE", "Simulator smoke test passed: frontlight touch recovery and outside-reader Up + Down");
+    std::_Exit(0);
+#else
+    fail("Touch recovery regression requires touch hardware");
+#endif
+  }
+
   static void verifyUnicodeSpaces() {
     RenderLock lock;
     // Deliberately omit every special space while providing a visible replacement.
@@ -7647,6 +7723,31 @@ class SimulatorSmokeTest {
 
   void tickImpl() {
     mappedInputManager.simulatorClearInputFrame();
+    if (std::getenv("CROSSINK_SIMULATOR_SMOKE_QUICK_LOCK_TOUCH_RECOVERY")) {
+      // Drive the real main loop with timed raw Up + Down chords at 4, 6 and
+      // 8 seconds via CROSSPOINT_SIM_INPUT_SCRIPT: lock, unlock, then recover.
+      static bool initialized = false;
+      static bool touchDisabled = false;
+      if (!initialized) {
+        if (!deviceUsesGlobalTouchscreenLock()) fail("Quick Lock recovery requires the Picco touch-lock policy");
+        SETTINGS.sideButtonChordAction = static_cast<uint8_t>(ButtonShortcutController::ChordAction::QuickLock);
+        SETTINGS.disableReaderTouchscreen = 0;
+        initialized = true;
+      }
+      const auto now = millis();
+      if (now >= 5000 && !touchDisabled) {
+        SETTINGS.disableReaderTouchscreen = 1;
+        touchDisabled = true;
+      }
+      if (now >= 7000 && now < 8000 && !SETTINGS.disableReaderTouchscreen)
+        fail("Touch recovery took priority over the Quick Lock unlock chord");
+      if (now >= 9000) {
+        if (SETTINGS.disableReaderTouchscreen) fail("Touch recovery did not work after unlocking Quick Lock");
+        LOG_INF("SMOKE", "Simulator smoke test passed: Quick Lock unlock precedes touch recovery");
+        std::_Exit(0);
+      }
+      return;
+    }
     if (std::getenv("CROSSINK_SIMULATOR_SMOKE_PLUGINS")) {
       runPluginSmokeTestTick();
       return;
@@ -7713,6 +7814,10 @@ class SimulatorSmokeTest {
           if (!ScreenCalibrationSmokeTest::dictionaryHints(lock, capture)) fail("Dictionary hint pixels changed");
           LOG_INF("SMOKE", "Simulator smoke test passed: dictionary hint backgrounds and stale labels");
           std::_Exit(0);
+        }
+        if (std::getenv("CROSSINK_SIMULATOR_SMOKE_FRONTLIGHT_TOUCH_RECOVERY")) {
+          verifyFrontlightTouchRecovery();
+          break;
         }
         if (std::getenv("CROSSINK_SIMULATOR_SMOKE_UNICODE_SPACES")) {
           const char* book = std::getenv("CROSSINK_SIMULATOR_SMOKE_BOOK");

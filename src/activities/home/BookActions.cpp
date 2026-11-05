@@ -12,15 +12,18 @@
 #include <Memory.h>
 #include <Xtc.h>
 
+#include <algorithm>
 #include <cstdio>
 
 #include "BookmarkStore.h"
 #include "ClippingStore.h"
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
+#include "DeviceCapabilities.h"
 #include "GlobalActions.h"
 #include "RecentBookProgress.h"
 #include "RecentBooksStore.h"
+#include "activities/RenderLock.h"
 #include "activities/network/StatsUploadActivity.h"
 #include "activities/reader/BookReadingStats.h"
 #include "activities/reader/BookStatsActivity.h"
@@ -366,9 +369,36 @@ bool toggleBookCompleted(const std::string& fullPath, const std::string& display
   return true;
 }
 
-void drawToast(const GfxRenderer& renderer, const char* msg) {
+void drawToast(const GfxRenderer& renderer, const char* msg, const char* detail) {
   constexpr int toastPadX = 20;
   constexpr int toastPadY = 12;
+  if (detail) {
+    int top = 0, right = 0, bottom = 0, left = 0;
+    renderer.getOrientedViewableTRBL(&top, &right, &bottom, &left);
+    const int maxWidth = renderer.getScreenWidth() - left - right - toastPadX * 2;
+    // A rare, explicit toggle on touch devices: use the renderer's bounded
+    // wrapping so longer translations stay inside calibrated screen edges.
+    auto lines = renderer.wrappedText(UI_10_FONT_ID, detail, maxWidth, 4);
+    const auto title = renderer.truncatedText(UI_10_FONT_ID, msg, maxWidth);
+    int textWidth = renderer.getTextWidth(UI_10_FONT_ID, title.c_str());
+    for (const auto& line : lines) textWidth = std::max(textWidth, renderer.getTextWidth(UI_10_FONT_ID, line.c_str()));
+    const int lineHeight = renderer.getLineHeight(UI_10_FONT_ID);
+    constexpr int detailGap = 8;
+    const int width = textWidth + toastPadX * 2;
+    const int height = lineHeight * (1 + static_cast<int>(lines.size())) + detailGap + toastPadY * 2;
+    const int x = left + (renderer.getScreenWidth() - left - right - width) / 2;
+    const int y = top + (renderer.getScreenHeight() - top - bottom - height) / 2;
+    renderer.fillRect(x, y, width, height, true);
+    const Rect textArea{x + toastPadX, y + toastPadY, textWidth, height - toastPadY * 2};
+    UITheme::drawCenteredText(renderer, textArea, UI_10_FONT_ID, y + toastPadY, title.c_str(), false);
+    int lineY = y + toastPadY + lineHeight + detailGap;
+    for (const auto& line : lines) {
+      UITheme::drawCenteredText(renderer, textArea, UI_10_FONT_ID, lineY, line.c_str(), false);
+      lineY += lineHeight;
+    }
+    renderer.displayBuffer();
+    return;
+  }
   const int msgW = renderer.getTextWidth(UI_10_FONT_ID, msg);
   const int msgH = renderer.getLineHeight(UI_10_FONT_ID);
   const int toastW = msgW + toastPadX * 2;
@@ -378,6 +408,21 @@ void drawToast(const GfxRenderer& renderer, const char* msg) {
   renderer.fillRect(toastX, toastY, toastW, toastH, true);
   renderer.drawText(UI_10_FONT_ID, toastX + toastPadX, toastY + toastPadY, msg, false);
   renderer.displayBuffer();
+}
+
+void showTouchscreenToast(const GfxRenderer& renderer, const bool readerContext, const TouchscreenToggleSource source) {
+  const bool globalLock = deviceUsesGlobalTouchscreenLock();
+  const bool disabled = SETTINGS.disableReaderTouchscreen;
+  const bool showRecoveryHint =
+      source == TouchscreenToggleSource::FrontlightDrawer && globalLock && disabled && !readerContext;
+  {
+    RenderLock lock;
+    const auto message =
+        globalLock ? (disabled ? StrId::STR_TOUCHSCREEN_DISABLED_GLOBAL : StrId::STR_TOUCHSCREEN_ENABLED_GLOBAL)
+                   : (disabled ? StrId::STR_TOUCHSCREEN_DISABLED : StrId::STR_TOUCHSCREEN_ENABLED);
+    drawToast(renderer, I18N.get(message), showRecoveryHint ? tr(STR_TOUCHSCREEN_REENABLE_HINT) : nullptr);
+  }
+  delay(showRecoveryHint ? 2500 : 1000);
 }
 
 }  // namespace BookActions

@@ -84,9 +84,11 @@ class MappedInputManager {
 #if CROSSINK_APP_CAP_TOUCH
   void setReaderTouchscreenOverride(bool enabled) { readerTouchscreenOverride = enabled; }
   void setTouchscreenRecoveryOverride(bool enabled) { touchscreenRecoveryOverride = enabled; }
+  bool isTouchscreenRecoveryOverrideEnabled() const { return touchscreenRecoveryOverride; }
 #else
   constexpr void setReaderTouchscreenOverride(bool) {}
   constexpr void setTouchscreenRecoveryOverride(bool) {}
+  constexpr bool isTouchscreenRecoveryOverrideEnabled() const { return false; }
 #endif
 
   void update() const;

@@ -9,8 +9,9 @@
 inline constexpr bool deviceHasFrontButtons() { return !CROSSINK_APP_CAP_TOUCH; }
 
 // Picco's physical slide switch locks screen input across the whole app.
+// Host tests can exercise this policy without enabling Picco hardware drivers.
 inline constexpr bool deviceUsesGlobalTouchscreenLock() {
-#if FREEINK_DEVICE_PICCO
+#if FREEINK_DEVICE_PICCO || (defined(SIMULATOR) && defined(CROSSINK_SIMULATOR_GLOBAL_TOUCHSCREEN_LOCK))
   return true;
 #else
   return false;
