@@ -1068,13 +1068,23 @@ void ActivityManager::goToLibrary() {
   replaceActivity(std::move(library));
 }
 
-void ActivityManager::goToPlugins() {
+bool ActivityManager::goToPlugins(const bool networkBootReady) {
+#ifndef SIMULATOR
+  if (!networkBootReady) {
+    // Hub installation and catalog parsing need the same clean heap as OPDS.
+    silentRestartToNetwork(NetworkBootTarget::PLUGINS);
+    return true;
+  }
+#else
+  (void)networkBootReady;
+#endif
   auto plugins = makeUniqueNoThrow<PluginCatalogActivity>(renderer, mappedInput, true);
   if (!plugins) {
-    LOG_ERR("ACT", "Cannot allocate Plugins activity");
-    return;
+    LOG_ERR("ACT", "Cannot allocate Plugins activity (free=%u maxAlloc=%u)", ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+    return false;
   }
   replaceActivity(std::move(plugins));
+  return true;
 }
 
 void ActivityManager::goToBrowser() {

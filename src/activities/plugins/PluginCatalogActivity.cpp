@@ -30,6 +30,7 @@
 #include "CrossPointSettings.h"
 #include "MappedInputManager.h"
 #include "SdCardFontSystem.h"
+#include "SilentRestart.h"
 #include "activities/settings/PluginHubInstallActivity.h"
 #include "activities/util/ConfirmationActivity.h"
 #include "activities/util/DetailsActivity.h"
@@ -458,6 +459,7 @@ int PluginCatalogActivity::apiRequest(const pluginhttp::RequestSpec& req, String
 void PluginCatalogActivity::onEnter() {
   RenderLock lock;
   CatalogActivity::onEnter();
+  sdFontSystem.releaseForNetwork(renderer);
   enterPluginPicker();
 }
 
@@ -698,6 +700,13 @@ void PluginCatalogActivity::onExit() {
   session.reset();  // drop browse TLS before Wi-Fi teardown
   Storage.remove(BROWSE_TMP_PATH);
   CatalogActivity::onExit();
+  // Restore normal boot resources and the larger reader render stack before
+  // returning Home. The simulator keeps its full stack and stays in-process.
+#ifndef SIMULATOR
+  silentRestart();
+#else
+  sdFontSystem.begin(renderer);
+#endif
 }
 
 void PluginCatalogActivity::startBrowseNow() {
@@ -827,7 +836,8 @@ bool PluginCatalogActivity::allocateItems(const size_t capacity) {
   const size_t bytes = capacity * sizeof(Item);
   if (ESP.getFreeHeap() < bytes + 64 * 1024 || ESP.getMaxAllocHeap() < bytes + 1024 ||
       !(items = makeUniqueNoThrow<Item[]>(capacity))) {
-    LOG_ERR("PCAT", "Insufficient heap for %u catalog rows", static_cast<unsigned>(capacity));
+    LOG_ERR("PCAT", "Insufficient heap for %u catalog rows (%u bytes; free=%u maxAlloc=%u)",
+            static_cast<unsigned>(capacity), static_cast<unsigned>(bytes), ESP.getFreeHeap(), ESP.getMaxAllocHeap());
     fail(StrId::STR_MEMORY_ERROR);
     return false;
   }

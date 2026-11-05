@@ -207,3 +207,5 @@ add_subdirectory(clipping_sync)
 add_subdirectory(progress_slots)
 add_test(NAME PiccoDisplayIdleRegression
   COMMAND ${Python3_EXECUTABLE} ${REPO_ROOT}/test/scripts/test_picco_display_idle.py)
+add_test(NAME PluginNetworkBootRegression
+  COMMAND ${Python3_EXECUTABLE} ${REPO_ROOT}/test/scripts/test_plugin_network_boot.py)

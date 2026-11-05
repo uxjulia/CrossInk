@@ -83,11 +83,17 @@ void AssetDownloadActivity::onExit() {
   catalogReady_ = false;
   WiFi.disconnect(false);
   WiFi.mode(WIFI_OFF);
-  // Minimal boot skipped resolver setup. Restore it after network resources
-  // and catalog storage are released, so subsequent reading needs no reboot.
+#ifdef SIMULATOR
+  // The simulator keeps its full stack and returns Home in-process.
   sdFontSystem.begin(renderer);
+#endif
   mappedInput.setReaderTouchscreenOverride(false);
   Activity::onExit();
+#ifndef SIMULATOR
+  // Cancellation and errors must leave minimal network boot too, restoring
+  // normal reader resources and its larger render stack before returning Home.
+  silentRestart();
+#endif
 }
 bool AssetDownloadActivity::pollCancel() {
   if (cancelled_) return true;

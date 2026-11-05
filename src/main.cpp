@@ -1630,6 +1630,9 @@ void setup() {
       case NetworkBootTarget::OPDS:
         launched = activityManager.goToOpdsServer(snapshotPayload, true);
         break;
+      case NetworkBootTarget::PLUGINS:
+        launched = activityManager.goToPlugins(true);
+        break;
       case NetworkBootTarget::KOREADER_SYNC:
         launched = startGlobalSyncProgress(true, decodeKOReaderSyncOrientation(snapshotPayload));
         break;
