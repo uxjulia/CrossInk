@@ -216,6 +216,7 @@ class EpubReaderDrawerActivity final : public Activity {
   void buildDrawer(UiApp::ScreenType& screen);
   void drawButtonBookHeader();
   bool showsSamplePreview() const;
+  bool showsSamplePreviewAaNote(const ReaderSettingsDraft& settings) const;
   bool samplePreviewBesideControls() const;
   void renderPreviewUnavailable();
   void renderSamplePreviewText(const ReaderSettingsDraft& settings, int fontId);

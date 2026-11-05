@@ -938,6 +938,10 @@ bool EpubReaderDrawerActivity::showsSamplePreview() const {
   return readerDrawerShowsSamplePreview(state.pane, state.tab, enumOptionRow);
 }
 
+bool EpubReaderDrawerActivity::showsSamplePreviewAaNote(const ReaderSettingsDraft& settings) const {
+  return CROSSINK_APP_READER_SAMPLE_PREVIEW && state.pane == ReaderDrawerPane::FontFamily && settings.textAntiAliasing;
+}
+
 bool EpubReaderDrawerActivity::samplePreviewBesideControls() const {
   return readerDrawerSamplePreviewBesideControls(isLandscapeOrientation(renderer.getOrientation()));
 }
@@ -2580,7 +2584,8 @@ void EpubReaderDrawerActivity::renderPreviewContents(const ReaderSettingsDraft& 
   if (CROSSINK_APP_READER_SAMPLE_PREVIEW) {
     const auto& metrics = UITheme::getInstance().getMetrics();
     const int labelTextHeight = renderer.getTextHeight(UI_10_FONT_ID);
-    const int noteHeight = previewSettings.textAntiAliasing ? labelTextHeight + 2 : 0;
+    const bool showAaNote = showsSamplePreviewAaNote(previewSettings);
+    const int noteHeight = showAaNote ? labelTextHeight + 2 : 0;
     const char* name = previewSettings.sdFontFamilyName[0]
                            ? previewSettings.sdFontFamilyName.data()
                            : (previewSettings.fontFamily == 0 ? tr(STR_LEXEND_DECA) : tr(STR_BITTER));
@@ -2592,7 +2597,7 @@ void EpubReaderDrawerActivity::renderPreviewContents(const ReaderSettingsDraft& 
     renderer.beginTextClip(preview.x, preview.y, preview.width, preview.height);
     renderer.drawText(UI_10_FONT_ID, preview.x + metrics.previewPadding, labelY, label,
                       ReaderUtils::readerForegroundBlack());
-    if (previewSettings.textAntiAliasing) {
+    if (showAaNote) {
       std::snprintf(label, sizeof(label), "%s: %s", tr(STR_TEXT_AA), tr(STR_PREVIEW_UNAVAILABLE));
       renderer.drawText(SMALL_FONT_ID, preview.x + metrics.previewPadding, labelY + labelTextHeight + 6, label,
                         ReaderUtils::readerForegroundBlack());
@@ -2659,7 +2664,7 @@ void EpubReaderDrawerActivity::renderSamplePreviewText(const ReaderSettingsDraft
   const fui::Rect area = previewBounds();
   const int labelTextHeight = renderer.getTextHeight(UI_10_FONT_ID);
   const int labelHeight =
-      labelTextHeight + (settings.textAntiAliasing ? labelTextHeight + 2 : 0) + metrics.previewPadding + 8;
+      labelTextHeight + (showsSamplePreviewAaNote(settings) ? labelTextHeight + 2 : 0) + metrics.previewPadding + 8;
   const int textHeight = std::max(0, area.height - labelHeight - metrics.previewPadding);
   // The sample is a short page: show top AND bottom margins proportionally
   // to its height, while horizontal margins and font sizes remain actual pixels.
