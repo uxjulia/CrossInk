@@ -45,3 +45,17 @@ To make the Library fast, CrossInk keeps an index of your books (titles, authors
 - **Library Settings > Use Book Metadata** chooses between the title and author inside each EPUB and the filename. TXT, Markdown, and XTC files always use the filename.
 - **Date Added** uses the time the file arrived on the card. Some copy tools keep the original file's date, which can change the order.
 - **Recently Opened** shows only books in your reading history (up to 18), newest first. Marking a book unfinished does not add it to the history. Opening it does.
+
+## Copying a card to another reader
+
+Reading stats belong to the reader that recorded them. Copying an SD card or a
+book's cache folder keeps those stats on the card, but another reader starts its
+own local counters and does not upload the copied history as new reading. Moving
+the card back lets the original reader resume its counters. Book files and saved
+reading positions can still be copied as usual.
+
+Before copying a card from older firmware, update the original reader and open a
+book once so CrossInk can record where the existing stats came from. Files copied
+before that step have no origin information; the first updated reader to use them
+will claim them. This change prevents future duplicates and does not automatically
+correct totals already duplicated on the sync server.

@@ -14,6 +14,7 @@
 #include "DailyReadingStats.h"
 #include "TwoSlotFile.h"
 #include "sync/SyncFiles.h"
+#include "util/StatsStorage.h"
 
 namespace {
 enum class StatsLoadResult : uint8_t { Ok, Invalid, NewerFormat };
@@ -55,7 +56,6 @@ static constexpr uint8_t GLOBAL_STATS_VERSION_V2 = 2;
 static constexpr int GLOBAL_STATS_FILE_SIZE_V2 = 17;
 static constexpr int GLOBAL_STATS_FILE_SIZE = static_cast<int>(GlobalReadingStats::CURRENT_FILE_SIZE);
 static constexpr char GLOBAL_STATS_PATH[] = "/.crosspoint/global_stats.bin";
-static constexpr char GLOBAL_STATS_BAK_PATH[] = "/.crosspoint/global_stats.bin.bak";
 static constexpr char SYNCED_STATS_DIR[] = "/.crosspoint/synced_stats";
 static bool s_blockDestructiveSave = false;
 
@@ -233,13 +233,13 @@ bool saveToFile(const GlobalReadingStats& stats, const char* path, const char* b
 
 }  // namespace
 
-static StatsLoadOutcome loadFromFile(const char* path, GlobalReadingStats& out) {
+static StatsLoadOutcome loadFromFile(const char* path, GlobalReadingStats& out, bool primary = false) {
   StatsLoadOutcome outcome;
   FsFile f;
   if (!Storage.openFileForRead("GSTATS", path, f)) return outcome;
   outcome = loadFromOpenFile(f, out);
   f.close();
-  if (strcmp(path, GLOBAL_STATS_PATH) == 0 && outcome.result != StatsLoadResult::NewerFormat) {
+  if (primary && outcome.result != StatsLoadResult::NewerFormat) {
     const std::string selected = two_slot::preferredPath("GSTATS", path, GLOBAL_STATS_FILE_SIZE);
     if (selected != path && Storage.openFileForRead("GSTATS", selected, f)) {
       outcome = loadFromOpenFile(f, out);
@@ -251,10 +251,12 @@ static StatsLoadOutcome loadFromFile(const char* path, GlobalReadingStats& out) 
 
 bool GlobalReadingStats::loadForUpload(GlobalReadingStats& stats) {
   stats = {};
-  const auto primary = loadFromFile(GLOBAL_STATS_PATH, stats);
+  const std::string path = StatsStorage::localPath(GLOBAL_STATS_PATH);
+  if (path.empty()) return false;
+  const auto primary = loadFromFile(path.c_str(), stats, true);
   if (primary.result == StatsLoadResult::Ok) return true;
   if (primary.result == StatsLoadResult::NewerFormat) return false;
-  const auto backup = loadFromFile(GLOBAL_STATS_BAK_PATH, stats);
+  const auto backup = loadFromFile((path + ".bak").c_str(), stats);
   return backup.result == StatsLoadResult::Ok;
 }
 
@@ -267,7 +269,12 @@ bool GlobalReadingStats::exportLocal(uint8_t* data, size_t capacity) {
 
 GlobalReadingStats GlobalReadingStats::load() {
   GlobalReadingStats stats;
-  const StatsLoadOutcome primary = loadFromFile(GLOBAL_STATS_PATH, stats);
+  const std::string path = StatsStorage::localPath(GLOBAL_STATS_PATH);
+  if (path.empty()) {
+    s_blockDestructiveSave = true;
+    return stats;
+  }
+  const StatsLoadOutcome primary = loadFromFile(path.c_str(), stats, true);
   if (primary.result == StatsLoadResult::Ok) return stats;
   if (primary.result == StatsLoadResult::NewerFormat) {
     s_blockDestructiveSave = true;
@@ -276,7 +283,7 @@ GlobalReadingStats GlobalReadingStats::load() {
     return stats;
   }
 
-  const StatsLoadOutcome backup = loadFromFile(GLOBAL_STATS_BAK_PATH, stats);
+  const StatsLoadOutcome backup = loadFromFile((path + ".bak").c_str(), stats);
   if (backup.result == StatsLoadResult::Ok) {
     LOG_DBG("GSTATS", "Recovered global stats from backup");
     return stats;
@@ -358,14 +365,16 @@ bool GlobalReadingStats::save() const {
     return false;
   }
   // Keep the global snapshot even if the independent daily flush needs retrying.
-  const bool globalSaved = saveToFile(*this, GLOBAL_STATS_PATH, GLOBAL_STATS_BAK_PATH);
+  const std::string path = StatsStorage::localPath(GLOBAL_STATS_PATH);
+  const bool globalSaved = !path.empty() && saveToFile(*this, path.c_str(), (path + ".bak").c_str());
   return globalSaved && dailySaved;
 }
 
 static uint32_t s_localResetRevision = 0;
 
 bool GlobalReadingStats::resetLocal() {
-  if (!saveToFile(GlobalReadingStats{}, GLOBAL_STATS_PATH, GLOBAL_STATS_BAK_PATH)) return false;
+  const std::string path = StatsStorage::localPath(GLOBAL_STATS_PATH);
+  if (path.empty() || !saveToFile(GlobalReadingStats{}, path.c_str(), (path + ".bak").c_str())) return false;
   s_localResetRevision++;
   return true;
 }

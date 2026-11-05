@@ -21,6 +21,7 @@
 #include "network/ClippingsUpload.h"
 #include "network/ReadingSyncUpload.h"
 #include "util/FolderBookIterator.h"
+#include "util/StatsStorage.h"
 
 namespace {
 void require(bool ok, const char* what) {
@@ -231,8 +232,8 @@ bool prepareReadingUploadSmokeTest() {
       Epub epub(path, "/.crosspoint");
       require(BookReadingStats::remove(epub.getCachePath()), "remove stats fixture");
     }
-    Storage.remove("/.crosspoint/global_stats.bin");
-    Storage.remove("/.crosspoint/global_stats.bin.bak");
+    Storage.remove(StatsStorage::localPath("/.crosspoint/global_stats.bin").c_str());
+    Storage.remove((StatsStorage::localPath("/.crosspoint/global_stats.bin") + ".bak").c_str());
   }
   if (std::getenv("CROSSINK_READING_TEST_TRACKING_DISABLED")) SETTINGS.trackReadingStats = 0;
   if (std::getenv("CROSSINK_READING_TEST_EMPTY_FOLDER")) {

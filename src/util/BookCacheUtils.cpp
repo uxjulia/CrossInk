@@ -113,6 +113,8 @@ int statsFileVersion(const char* name) {
     return -1;
   int version = 0;
   for (size_t i = prefix.size(); i < payload.size() - suffixLength; ++i) {
+    // Device-qualified names keep the version before the origin suffix.
+    if (payload[i] == '_') break;
     if (payload[i] < '0' || payload[i] > '9') return -1;
     const int digit = payload[i] - '0';
     if (version > (std::numeric_limits<int>::max() - digit) / 10) return -1;
@@ -159,6 +161,11 @@ bool appendStatsPreservedFiles(const std::string& cachePath, std::vector<Resolve
     if (isDirectory || nameLen == 0 || !isStatsFileName(name)) {
       continue;
     }
+    if (candidates.size() == MAX_STATS_FILES_TO_PRESERVE) {
+      dir.close();
+      LOG_ERR("BookCache", "Too many stats files to preserve safely: %s", cachePath.c_str());
+      return false;
+    }
     candidates.push_back({name, statsFileVersion(name)});
   }
   dir.close();
@@ -171,10 +178,6 @@ bool appendStatsPreservedFiles(const std::string& cachePath, std::vector<Resolve
   });
 
   for (size_t i = 0; i < candidates.size(); ++i) {
-    if (i >= MAX_STATS_FILES_TO_PRESERVE) {
-      LOG_DBG("BookCache", "Dropping older stats file during cache preservation: %s", candidates[i].name.c_str());
-      continue;
-    }
     files.push_back({candidates[i].name, std::string(tmpPrefix) + candidates[i].name});
   }
   return true;

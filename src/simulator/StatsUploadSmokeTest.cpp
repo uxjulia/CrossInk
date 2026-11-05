@@ -16,6 +16,7 @@
 #include "activities/reader/StatsUploadPayload.h"
 #include "network/ReadingSyncUpload.h"
 #include "network/StatsUploadClient.h"
+#include "util/StatsStorage.h"
 
 namespace {
 void require(bool ok, const char* what) {
@@ -51,7 +52,7 @@ void verifyStatsUploadContract() {
   require(global.save(), "create second global stats slot");
   FsFile torn;
   std::array<uint8_t, GlobalReadingStats::CURRENT_FILE_SIZE + 5> partial{GlobalReadingStats::CURRENT_FILE_VERSION};
-  require(Storage.openFileForWrite("SMOKE", "/.crosspoint/global_stats.bin", torn) &&
+  require(Storage.openFileForWrite("SMOKE", StatsStorage::localPath("/.crosspoint/global_stats.bin").c_str(), torn) &&
               torn.write(partial.data(), partial.size()) == partial.size() && torn.close(),
           "truncate primary trailer");
   loaded = GlobalReadingStats::load();
@@ -85,8 +86,8 @@ void verifyStatsUploadContract() {
           "dates remain UTC beyond 2038");
   require(item["completed"].is<bool>() && item["completed"] == true, "boolean fields");
   // Do not leave fixture counters in the normal app-flow smoke session.
-  Storage.remove("/.crosspoint/global_stats.bin");
-  Storage.remove("/.crosspoint/global_stats.bin.bak");
+  Storage.remove(StatsStorage::localPath("/.crosspoint/global_stats.bin").c_str());
+  Storage.remove((StatsStorage::localPath("/.crosspoint/global_stats.bin") + ".bak").c_str());
 
   const char* server = std::getenv("CROSSINK_STATS_TEST_SERVER");
   if (server) {
@@ -145,12 +146,15 @@ void verifyStatsUploadContract() {
         record.seconds = 600;
         require(ReadingSessionJournal::save(record), "step fixture session");
         if (strcmp(mode, "corrupt-session") == 0)
-          require(Storage.writeFile("/.crosspoint/reading_sessions/0123456789abcdef0123456789abcdef.bin", "bad"),
+          require(Storage.writeFile((StatsStorage::localPath("/.crosspoint/reading_sessions", true) +
+                                     "/0123456789abcdef0123456789abcdef.bin")
+                                        .c_str(),
+                                    "bad"),
                   "step fixture corrupt session");
       }
       if (strcmp(mode, "empty-streak") == 0) {
-        Storage.remove("/.crosspoint/global_stats.bin");
-        Storage.remove("/.crosspoint/global_stats.bin.bak");
+        Storage.remove(StatsStorage::localPath("/.crosspoint/global_stats.bin").c_str());
+        Storage.remove((StatsStorage::localPath("/.crosspoint/global_stats.bin") + ".bak").c_str());
       }
       Step failedStep = Step::Setup;  // Success must clear stale failure details.
       const bool skipped = strncmp(mode, "old-streak", 10) == 0 || strcmp(mode, "ok") == 0;
@@ -258,7 +262,8 @@ void verifyStatsUploadContract() {
       global.save();
       require(ReadingSessionJournal::save(record), "session fixture");
       const auto first = ReadingSyncUpload::globalStats();
-      const std::string path = "/.crosspoint/reading_sessions/" + std::string(record.id) + ".bin";
+      const std::string path =
+          StatsStorage::localPath("/.crosspoint/reading_sessions", true) + "/" + std::string(record.id) + ".bin";
       if (strcmp(mode, "ok") != 0) {
         const auto wanted = strcmp(mode, "old-server") == 0 ? StatsUploadClient::Result::Unsupported
                                                             : StatsUploadClient::Result::InvalidResponse;

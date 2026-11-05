@@ -5,7 +5,7 @@
 #include "ReadingStatsUtils.h"
 
 // Cumulative reading statistics across all books, persisted to
-// /.crosspoint/global_stats.bin.
+// /.crosspoint/global_stats_<reader>.bin.
 struct GlobalReadingStats {
   uint32_t totalSessions = 0;        // Total book-open events across all books
   uint32_t totalReadingSeconds = 0;  // Accumulated reading time across all books
@@ -21,7 +21,7 @@ struct GlobalReadingStats {
   static constexpr size_t CURRENT_FILE_SIZE = 159;
   static constexpr size_t MIN_SUPPORTED_FILE_SIZE = 13;
 
-  // Loads stats from /.crosspoint/global_stats.bin. Returns default-constructed
+  // Loads this reader's device-qualified stats. Returns default-constructed
   // stats if the file is missing or the version byte does not match.
   static GlobalReadingStats load();
 

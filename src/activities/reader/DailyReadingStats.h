@@ -7,6 +7,7 @@ struct Counter {
   uint32_t seconds = 0;
   uint32_t uploaded = 0;
 };
+// Legacy directory; storage resolves it to daily_reading_<reader>.
 constexpr const char* DIRECTORY = "/.crosspoint/daily_reading";
 bool read(uint32_t day, Counter& counter);
 bool write(uint32_t day, const Counter& counter);
