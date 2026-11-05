@@ -17,9 +17,26 @@ def api(repository, path, data=None):
     command = ['gh', 'api', '-H', 'X-GitHub-Api-Version: 2026-03-10', f'repos/{repository}/{path}']
     if data is not None:
         command += ['--method', 'POST', '--input', '-']
-    result = subprocess.run(command, input=None if data is None else json.dumps(data),
-                            capture_output=True, text=True, check=True)
+    try:
+        result = subprocess.run(command, input=None if data is None else json.dumps(data),
+                                capture_output=True, text=True, check=True)
+    except subprocess.CalledProcessError as exc:
+        detail = (exc.stderr or exc.stdout or f'gh api exited with status {exc.returncode}').strip()
+        raise RuntimeError(f'GitHub API request failed for {path}: {detail}') from exc
     return json.loads(result.stdout)
+
+
+def require_workflow(repository):
+    try:
+        workflow = api(repository, f'actions/workflows/{WORKFLOW}')
+    except RuntimeError as exc:
+        raise RuntimeError(
+            f'Cannot access {WORKFLOW}. The workflow must exist on the repository default branch '
+            'before GitHub can dispatch it on a release tag. Add the workflow there, and ensure '
+            f'RELEASE_PAT can access Actions in {repository} (write is required to dispatch). {exc}'
+        ) from exc
+    if workflow.get('state') != 'active':
+        raise RuntimeError(f'{WORKFLOW} must be active before preparing release downloads')
 
 
 def require_remote_tag(repository, tag, commit, create=False):
@@ -40,6 +57,7 @@ def prepare(repository, tag, commit):
         raise RuntimeError('a GitHub owner/repository is required')
     current = subprocess.check_output(['git', '-C', str(publisher.root), 'rev-parse', 'HEAD'], text=True).strip()
     publisher.prepared_release_identity(tag, commit, current)
+    require_workflow(repository)
     require_remote_tag(repository, tag, commit, create=True)
     # The returned run ID avoids accidentally waiting for an older successful
     # run, or a concurrent dispatch for the same release.

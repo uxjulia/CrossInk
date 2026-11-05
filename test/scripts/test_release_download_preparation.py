@@ -27,10 +27,16 @@ class ReleasePreparationTest(unittest.TestCase):
         self.dispatched = {'workflow_run_id': 71}
         self.failed_watch = False
         self.failed_create = False
+        self.workflow_state = 'active'
+        self.workflow_error = None
 
     def api(self, repository, path, data=None):
         self.assertEqual(repository, self.repository)
         self.calls.append((path, data))
+        if path == 'actions/workflows/' + preparation.WORKFLOW:
+            if self.workflow_error:
+                raise RuntimeError(self.workflow_error)
+            return {'state': self.workflow_state}
         if path.startswith('git/matching-refs/'):
             return [{'ref': 'refs/tags/' + self.tag}] if self.remote_commit else []
         if path.startswith('commits/'):
@@ -75,6 +81,20 @@ class ReleasePreparationTest(unittest.TestCase):
         self.remote_commit = self.commit
         self.prepare()
         self.assertNotIn('git/refs', [path for path, _ in self.calls])
+
+    def test_unavailable_workflow_explains_default_branch_before_creating_tag(self):
+        self.workflow_error = 'gh: Not Found (HTTP 404)'
+        with self.assertRaisesRegex(RuntimeError, 'default branch.*HTTP 404'):
+            self.prepare()
+        self.assertIsNone(self.remote_commit)
+        self.assertEqual(len(self.calls), 1)
+
+    def test_disabled_workflow_blocks_tag_creation_and_dispatch(self):
+        self.workflow_state = 'disabled_manually'
+        with self.assertRaisesRegex(RuntimeError, 'must be active'):
+            self.prepare()
+        self.assertIsNone(self.remote_commit)
+        self.assertEqual(len(self.calls), 1)
 
     def test_wrong_existing_tag_blocks_dispatch(self):
         self.remote_commit = '2' * 40
@@ -125,6 +145,19 @@ class ReleasePreparationTest(unittest.TestCase):
                                               {'ref': self.tag}), self.dispatched)
         self.assertIn('X-GitHub-Api-Version: 2026-03-10', command.call_args.args[0])
         self.assertEqual(json.loads(command.call_args.kwargs['input']), {'ref': self.tag})
+
+    def test_api_failure_keeps_github_error_details(self):
+        path = 'actions/workflows/test/dispatches'
+        for stderr, stdout, expected in (
+                ('gh: Not Found (HTTP 404)', '', 'HTTP 404'),
+                ('gh: Resource not accessible (HTTP 403)', '', 'HTTP 403'),
+                ('', '{"message":"Not Found"}', 'Not Found'),
+                ('', '', 'status 1')):
+            failure = subprocess.CalledProcessError(1, ['gh', 'api'], output=stdout, stderr=stderr)
+            with self.subTest(stderr=stderr, stdout=stdout), \
+                 patch.object(preparation.subprocess, 'run', side_effect=failure), \
+                 self.assertRaisesRegex(RuntimeError, path + '.*' + expected):
+                preparation.api(self.repository, path, {'ref': self.tag})
 
 
 if __name__ == '__main__':
