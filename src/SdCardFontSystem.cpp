@@ -102,13 +102,15 @@ bool findInstalledFontFile(const char* familyName, const uint8_t targetPointSize
 
 }  // namespace
 
-void SdCardFontSystem::begin(GfxRenderer& renderer) {
+void SdCardFontSystem::begin(GfxRenderer& renderer, const bool loadReaderFont) {
   // Register this system as the SD font ID resolver in settings.
   // Uses a static trampoline since CrossPointSettings stores a plain function pointer.
   SETTINGS.sdFontIdResolver = [](void* ctx, const char* familyName, uint8_t pointSize) -> int {
     return static_cast<SdCardFontSystem*>(ctx)->resolveFontId(familyName, pointSize);
   };
   SETTINGS.sdFontResolverCtx = this;
+
+  if (!loadReaderFont) return;
 
   if (SETTINGS.sdFontFamilyName[0] == '\0') {
     LOG_DBG("SDFS", "SD font resolver ready; discovery deferred until requested");

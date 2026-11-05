@@ -133,6 +133,12 @@ extern MappedInputManager mappedInputManager;
 // Use a detached reader so these boundary checks cannot race its render task.
 struct EpubReaderCompletionSmokeTest {
   static std::optional<uint32_t> statusAnchor;
+  static bool fontBrowserReturn(EpubReaderActivity& reader, const char* family) {
+    RenderLock lock;
+    const int fontId = sdFontSystem.resolveFontId(family, SETTINGS.readerFontPointSize);
+    return fontId && SETTINGS.getReaderFontId() == fontId && reader.section && !reader.section->isBuilding() &&
+           reader.activeSectionFontId == fontId;
+  }
 #if !CROSSINK_SCALABLE_FONTS
   static bool fontReload(EpubReaderActivity& reader) {
     RenderLock lock;
@@ -7318,6 +7324,43 @@ class SimulatorSmokeTest {
     }
   }
 
+  void tickFontBrowserReturn() {
+    static unsigned phase = 0;
+    const char* family = std::getenv("CROSSINK_SIMULATOR_SMOKE_FONT_FAMILY");
+    if (!family) fail("Font browser return requires an SD font fixture");
+    if (phase == 0) {
+      if (!activityManager.isCurrentActivityNamed("WifiSelection")) return;
+      if (sdFontSystem.registry().getFamilyCount() || sdFontSystem.resolveFontId(family, 12))
+        fail("Minimal network boot eagerly loaded reader fonts");
+      // Cancel the real network child, then leave Download Fonts through its
+      // normal result/onExit path without installing or deleting anything.
+      ActivityResult cancelled;
+      cancelled.isCancelled = true;
+      activityManager.simulatorCurrentActivity()->setResult(std::move(cancelled));
+      activityManager.simulatorCurrentActivity()->finish();
+      ++phase;
+      return;
+    }
+    if (phase == 1) {
+      if (!activityManager.isCurrentActivityNamed("Home")) return;
+      if (std::strcmp(SETTINGS.sdFontFamilyName, family) != 0) fail("Font browser changed the saved selection");
+      const int fontId = sdFontSystem.resolveFontId(family, SETTINGS.readerFontPointSize);
+      if (!fontId || SETTINGS.getReaderFontId() != fontId) fail("Font browser return lost the SD font resolver");
+      activityManager.goToReader(std::getenv("CROSSINK_SIMULATOR_SMOKE_BOOK"));
+      ++phase;
+      return;
+    }
+    auto* reader = dynamic_cast<EpubReaderActivity*>(activityManager.simulatorCurrentActivity());
+    if (!reader) return;
+    if (!EpubReaderCompletionSmokeTest::fontBrowserReturn(*reader, family)) return;
+    {
+      RenderLock lock;
+      captureStatusBarScreen("font-browser-return");
+    }
+    LOG_INF("SMOKE", "Simulator smoke test passed: font browser return");
+    std::_Exit(0);
+  }
+
   void tickImpl() {
     mappedInputManager.simulatorClearInputFrame();
     if (std::getenv("CROSSINK_SIMULATOR_SMOKE_PLUGINS")) {
@@ -7331,6 +7374,11 @@ class SimulatorSmokeTest {
         renderCurrentStep(activeStepName);
         activeStepName = nullptr;
       }
+      return;
+    }
+
+    if (std::getenv("CROSSINK_SIMULATOR_SMOKE_FONT_BROWSER_RETURN")) {
+      tickFontBrowserReturn();
       return;
     }
 
