@@ -20,6 +20,7 @@
 class DictionaryDefinitionActivity final : public Activity {
 #ifdef SIMULATOR
   friend struct ScreenCalibrationSmokeTest;
+  friend struct DictionaryPagingSmokeTest;
 #endif
  public:
   bool usesMenuButtonOrientation() const override { return false; }

@@ -1235,6 +1235,91 @@ struct StatusBarFeatureSmokeTest {
   }
 };
 
+struct DictionaryPagingSmokeTest {
+  static bool run(RenderLock& lock, const StatusBarFeatureSmokeTest::Capture& capture) {
+    using B = MappedInputManager::Button;
+    using C = CrossPointSettings;
+    std::string definition;
+    for (int i = 0; i < 60; ++i) definition += "Dictionary power button paging keeps this definition readable.\n";
+    if (!Storage.writeFile("/.crosspoint/paging-dictionary.dict", definition.c_str()) ||
+        !Storage.writeFile("/.crosspoint/paging-dictionary.ifo",
+                           "StarDict's dict ifo file\nbookname=Paging\nsametypesequence=m\n"))
+      return false;
+    DictLocation location;
+    location.folderPath = "/.crosspoint/paging-dictionary";
+    location.size = static_cast<uint32_t>(definition.size());
+    location.found = true;
+    SETTINGS.sideButtonUpShort = C::PREVIOUS_PAGE;
+    SETTINGS.sideButtonDownShort = C::QUICK_LOCK;
+    mappedInputManager.setReaderMode(false);
+    bool valid = true;
+    for (const bool modal : {false, true}) {
+      auto dictionary =
+          std::make_unique<DictionaryDefinitionActivity>(renderer, mappedInputManager, "Paging", location, true);
+      if (modal) {
+        dictionary->backgroundContext_ = &valid;
+        dictionary->backgroundRender_ = [](void*) { renderer.clearScreen(); };
+      }
+      dictionary->wrapText();
+      if (dictionary->definitionReadFailed_ || dictionary->totalPages < 3) return false;
+      const auto checkPage = [&](const int expected) {
+        if (dictionary->currentPage == expected && !dictionary->isWordSelectMode) return true;
+        LOG_ERR("SMOKE", "Dictionary page expected=%d actual=%d word-select=%d", expected, dictionary->currentPage,
+                dictionary->isWordSelectMode);
+        return false;
+      };
+      const auto releasePower = [&] {
+        mappedInputManager.simulatorInjectRelease(B::Power);
+        // Model the non-reader Power-to-Confirm fallback as well as the page edge.
+        mappedInputManager.injectRelease(B::Confirm);
+        dictionary->loop();
+        mappedInputManager.clearInjectedReleases();
+        mappedInputManager.simulatorClearInputFrame();
+      };
+      SETTINGS.shortPwrBtn = C::PAGE_TURN;
+      SETTINGS.longPwrBtn = C::SLEEP;
+      dictionary->render(std::move(lock));
+      capture(modal ? "dictionary-modal-page-1" : "dictionary-page-1");
+      releasePower();
+      if (!checkPage(1)) return false;
+      dictionary->render(std::move(lock));
+      capture(modal ? "dictionary-modal-page-2" : "dictionary-page-2");
+      releasePower();
+      if (!checkPage(2)) return false;
+      SETTINGS.shortPwrBtn = C::PREVIOUS_PAGE;
+      releasePower();
+      if (!checkPage(1)) return false;
+      releasePower();
+      if (!checkPage(0)) return false;
+      releasePower();
+      if (!checkPage(0)) return false;
+      SETTINGS.shortPwrBtn = C::PAGE_TURN;
+      dictionary->currentPage = dictionary->totalPages - 1;
+      dictionary->loadPage(dictionary->currentPage);
+      releasePower();
+      if (!checkPage(dictionary->totalPages - 1)) return false;
+      // A long release must use the long assignment, not the short one.
+      SETTINGS.longPwrBtn = C::PREVIOUS_PAGE;
+      mappedInputManager.simulatorInjectPress(B::Power);
+      delay(SETTINGS.getPowerButtonLongPressDuration() + 1);
+      dictionary->loop();
+      if (!checkPage(dictionary->totalPages - 1)) return false;
+      releasePower();
+      if (!checkPage(dictionary->totalPages - 2)) return false;
+      // Existing side navigation and word-selection Confirm remain available.
+      mappedInputManager.simulatorInjectRelease(B::PageBack);
+      dictionary->loop();
+      mappedInputManager.simulatorClearInputFrame();
+      if (!checkPage(dictionary->totalPages - 3)) return false;
+      mappedInputManager.simulatorInjectRelease(B::Confirm);
+      dictionary->loop();
+      mappedInputManager.simulatorClearInputFrame();
+      valid &= dictionary->isWordSelectMode;
+    }
+    return valid;
+  }
+};
+
 struct ScreenCalibrationSmokeTest {
   // Check actual ink, not just layout metadata, across the default/custom boundary.
   static bool safeAreaContract(RenderLock& lock, const StatusBarFeatureSmokeTest::Capture& capture) {
@@ -7819,6 +7904,13 @@ class SimulatorSmokeTest {
         if (std::getenv("CROSSINK_SIMULATOR_SMOKE_C3_FONT_SIZES")) {
           verifyBitmapFontSizes();
           LOG_INF("SMOKE", "Simulator smoke test passed: bitmap font sizes");
+          std::_Exit(0);
+        }
+        if (std::getenv("CROSSINK_SIMULATOR_SMOKE_DICTIONARY_PAGING")) {
+          RenderLock lock;
+          const auto capture = [&](const std::string& name) { captureStatusBarScreen(name.c_str()); };
+          if (!DictionaryPagingSmokeTest::run(lock, capture)) fail("Dictionary power-button paging failed");
+          LOG_INF("SMOKE", "Simulator smoke test passed: dictionary power-button paging");
           std::_Exit(0);
         }
         if (std::getenv("CROSSINK_SIMULATOR_SMOKE_DICTIONARY")) verifyDictionaryElisions();

@@ -354,6 +354,8 @@ def run_smoke(args: argparse.Namespace) -> int:
             )
             if args.dictionary and not args.clipping_selection:
                 env["CROSSINK_SIMULATOR_SMOKE_DICTIONARY"] = "1"
+        if args.dictionary_paging:
+            env["CROSSINK_SIMULATOR_SMOKE_DICTIONARY_PAGING"] = "1"
         if args.font_dir and args.font_family:
             env["CROSSINK_SIMULATOR_SMOKE_ISOLATED_FONTS"] = "1"
         if args.font_family:
@@ -548,6 +550,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--hyphenation-captures", help="Directory for hyphenation manager framebuffer captures (PGM)")
     parser.add_argument("--clipping-selection", action="store_true", help="Check floating text actions, selection handles, dismissal and saving")
     parser.add_argument("--dictionary", action="store_true", help="Check French contractions and exact dictionary matches")
+    parser.add_argument("--dictionary-paging", action="store_true", help="Check power-button dictionary page turns")
     parser.add_argument("--gesture-shortcuts", action="store_true", help="Check page gesture and front-button shortcut migrations, input, catalogs and UI")
     parser.add_argument("--c3-font-sizes", "--bitmap-font-sizes", dest="c3_font_sizes", action="store_true", help="Check bitmap font sizes, inline layout, page cache, selection and SD reload")
     parser.add_argument("--cpfont-heading-sizes", action="store_true", help="Check publisher heading targets with an 8-20pt cpfont family (requires --c3-font-sizes, --font-dir and --font-family)")

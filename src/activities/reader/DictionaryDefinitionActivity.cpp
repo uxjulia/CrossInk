@@ -1384,11 +1384,18 @@ void DictionaryDefinitionActivity::loop() {
   if (handleTouchDictionaryLookup()) return;
 #endif
 
+  // Power is not part of the logical side-button mapping. Handle its page
+  // assignment here before it can fall back to Confirm on this screen.
+  const auto powerAction = mappedInput.getHeldTime() < SETTINGS.getPowerButtonLongPressDuration() ? SETTINGS.shortPwrBtn
+                                                                                                  : SETTINGS.longPwrBtn;
+  const bool powerReleased = mappedInput.wasReleased(MappedInputManager::Button::Power);
+  const bool powerPrevious = powerReleased && powerAction == CrossPointSettings::PREVIOUS_PAGE;
+  const bool powerNext = powerReleased && powerAction == CrossPointSettings::PAGE_TURN;
   const auto swipe = mappedInput.wasSwipe();
-  const bool prevPage =
-      DictUtils::dictionaryPageButtonTriggered(mappedInput, true) || swipe == MappedInputManager::SwipeDir::Down;
-  const bool nextPage =
-      DictUtils::dictionaryPageButtonTriggered(mappedInput, false) || swipe == MappedInputManager::SwipeDir::Up;
+  const bool prevPage = powerPrevious || DictUtils::dictionaryPageButtonTriggered(mappedInput, true) ||
+                        swipe == MappedInputManager::SwipeDir::Down;
+  const bool nextPage = powerNext || DictUtils::dictionaryPageButtonTriggered(mappedInput, false) ||
+                        swipe == MappedInputManager::SwipeDir::Up;
 
   if (prevPage && currentPage > 0) {
     currentPage--;
@@ -1401,6 +1408,9 @@ void DictionaryDefinitionActivity::loop() {
     loadPage(currentPage);
     requestUpdate();
   }
+
+  // Also consume page actions at the first/last page instead of confirming.
+  if (powerPrevious || powerNext) return;
 
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
     if (showLookupButton) {
