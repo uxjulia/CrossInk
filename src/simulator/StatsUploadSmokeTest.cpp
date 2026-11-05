@@ -108,6 +108,25 @@ void verifyStatsUploadContract() {
     StatsUploadClient client;
     char id[32];
     require(StatsUploadClient::deviceId(id, sizeof(id)), "simulator identity");
+    if (const char* countText = std::getenv("CROSSINK_STATS_TEST_BATCH")) {
+      const unsigned count = std::atoi(countText);
+      require(count > 0 && count <= StatsUploadPayload::BookBatch::MAX_ITEMS, "batch count");
+      std::vector<char> batchPayload(4096);
+      StatsUploadPayload::BookBatch batch(batchPayload.data(), batchPayload.size());
+      require(batch.begin(id), "batch start");
+      for (unsigned i = 0; i < count; ++i) {
+        char document[33];
+        snprintf(document, sizeof(document), "%032x", i + 1);
+        require(batch.add(document, BookReadingStats{}), "batch item");
+      }
+      require(batch.finish(), "batch finish");
+      const char* expected = std::getenv("CROSSINK_STATS_TEST_ERROR");
+      const auto wanted =
+          expected ? static_cast<StatsUploadClient::Result>(std::atoi(expected)) : StatsUploadClient::Result::Ok;
+      require(client.put("/api/v1/stats/books", batch.payload(), count) == wanted, "batch acknowledgment count");
+      LOG_INF("SMOKE", "Stats upload transport smoke passed");
+      std::_Exit(0);
+    }
     if (const char* mode = std::getenv("CROSSINK_STATS_TEST_STEP")) {
       using Step = ReadingSyncUpload::GlobalStatsStep;
       using Result = StatsUploadClient::Result;
@@ -264,7 +283,7 @@ void verifyStatsUploadContract() {
       std::_Exit(0);
     }
     const char* expected = std::getenv("CROSSINK_STATS_TEST_ERROR");
-    auto result = client.put("/api/v1/stats/global", payload.data(), false);
+    auto result = client.put("/api/v1/stats/global", payload.data(), 0);
     if (expected) {
       const auto wanted = static_cast<StatsUploadClient::Result>(std::atoi(expected));
       require(result == wanted, "expected transport failure classification");
@@ -292,11 +311,10 @@ void verifyStatsUploadContract() {
         require(DailyReadingStats::read(9769, counter) && counter.seconds == 70 && counter.uploaded == 70,
                 "incremental daily ack");
       }
-      require(client.put("/api/v1/stats/global", payload.data(), false) == StatsUploadClient::Result::Ok,
-              "global retry");
+      require(client.put("/api/v1/stats/global", payload.data(), 0) == StatsUploadClient::Result::Ok, "global retry");
       require(StatsUploadPayload::book(payload.data(), payload.size(), id, DOCUMENT, book), "test book payload");
-      require(client.put("/api/v1/stats/books", payload.data(), true) == StatsUploadClient::Result::Ok, "book upload");
-      require(client.put("/api/v1/stats/books", payload.data(), true) == StatsUploadClient::Result::Ok, "book retry");
+      require(client.put("/api/v1/stats/books", payload.data(), 1) == StatsUploadClient::Result::Ok, "book upload");
+      require(client.put("/api/v1/stats/books", payload.data(), 1) == StatsUploadClient::Result::Ok, "book retry");
     }
     LOG_INF("SMOKE", "Stats upload transport smoke passed");
     std::_Exit(0);

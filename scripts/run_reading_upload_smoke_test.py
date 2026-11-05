@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Exercise confirmed recursive uploads against an isolated local server and SD fixture."""
 import argparse
+import base64
 import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -51,6 +52,9 @@ def main():
 
         def do_GET(self):
             reply = {}
+            if self.path.split('?', 1)[0] == '/api/v1/stats/streak':
+                reply = {'v': 1, 'anchor_day': 9769, 'streak': 0,
+                         'history_b64': base64.b64encode(bytes(92)).decode()}
             (second if (fs / 'second-sync-started').exists() else gets).append(('GET', self.path))
             if self.path.startswith('/api/v1/clippings/'):
                 from urllib.parse import parse_qs, urlparse
@@ -136,6 +140,8 @@ def main():
             (second if (fs / 'second-sync-started').exists() else requests).append((self.path, body))
             status = 200
             reply = {'until': 1, 'accepted': 1, 'timestamp': 1, 'document': body.get('document', '')}
+            if self.path == '/api/v1/stats/books':
+                reply['accepted'] = len(body['items'])
             if mode == 'auth':
                 status = 401
             if mode == 'unsupported' and self.path.startswith('/api/v1/'):

@@ -983,6 +983,13 @@ Binary layout:
 
 ## `section.bin`
 
+### Version 104
+
+Complete caches use `104`; suspended partial caches use `0xD9`. Chapter-wrapper
+closing spacing now stays above the first body paragraph instead of leaking
+below it. Both cache types rebuild automatically; the binary payload is
+unchanged and reading progress is preserved.
+
 ### Version 103
 
 Complete caches use `103`; suspended partial caches use `0xD8`. Missing Unicode

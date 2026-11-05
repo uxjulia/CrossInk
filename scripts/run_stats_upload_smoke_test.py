@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 DOCUMENT = "01b729228ded144417191bebc5a17445"
 
 
-def run(program, server, credentials, error=None, empty_library=False, step=None):
+def run(program, server, credentials, error=None, empty_library=False, step=None, batch=None):
     with tempfile.TemporaryDirectory(prefix="crossink-stats-smoke-") as directory:
         (Path(directory) / "fs_").mkdir()
         env = os.environ.copy()
@@ -29,6 +29,9 @@ def run(program, server, credentials, error=None, empty_library=False, step=None
                    CROSSINK_STATS_TEST_USER=credentials["username"],
                    CROSSINK_STATS_TEST_PASSWORD=credentials["password"])
         env.pop("CROSSINK_STATS_TEST_EMPTY_LIBRARY", None)
+        env.pop("CROSSINK_STATS_TEST_BATCH", None)
+        if batch is not None:
+            env["CROSSINK_STATS_TEST_BATCH"] = str(batch)
         if empty_library:
             env["CROSSINK_STATS_TEST_EMPTY_LIBRARY"] = "1"
         if step is not None:
@@ -78,6 +81,14 @@ def local_tests(program):
             if mode == "totals":
                 status = 500
             reply = {"until": 1, "accepted": 1, "accepted_daily": 1}
+            if self.path == "/api/v1/stats/books":
+                reply["accepted"] = len(body["items"])
+                if mode == "partial-batch":
+                    reply["accepted"] -= 1
+                elif mode == "extra-batch":
+                    reply["accepted"] += 1
+                elif mode == "missing-batch":
+                    reply.pop("accepted")
             if "daily" in body and mode == "daily":
                 reply.pop("accepted_daily")
             if self.path == "/api/v1/stats/sessions" and mode != "sessions":
@@ -106,6 +117,11 @@ def local_tests(program):
         assert len(base64.b64decode(requests[0][1]["history_b64"])) == 92
         assert requests[2][1]["items"][0]["document"] == DOCUMENT
         print("PASS: production payloads, headers, global/book uploads, identical retries")
+        for mode, error in [("ok", None), ("partial-batch", 4), ("extra-batch", 4), ("missing-batch", 4)]:
+            for count in (1, 2, 10):
+                run(program, url, {"username": "smoke", "password": "smoke-password"}, error, batch=count)
+                assert len(requests[-1][1]["items"]) == count
+            print(f"PASS: {mode} acknowledgment for batches of 1, 2 and 10 books")
         for mode, error in [("auth", 2), ("unsupported", 3), ("invalid", 4), ("oversize", 4), ("server", 6)]:
             run(program, url, {"username": "smoke", "password": "smoke-password"}, error)
             print(f"PASS: {mode} response")

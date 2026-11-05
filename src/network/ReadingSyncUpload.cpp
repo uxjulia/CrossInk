@@ -126,7 +126,7 @@ StatsUploadClient::Result ReadingSyncUpload::globalStats(StatsUploadClient& clie
     return globalOutcome(client.downloadStreak(), GlobalStatsStep::Streak, failedStep);
   if (!StatsUploadPayload::global(payload, capacity, deviceId, global))
     return globalOutcome(Result::InvalidResponse, GlobalStatsStep::Totals, failedStep);
-  auto result = client.put("/api/v1/stats/global", payload, false);
+  auto result = client.put("/api/v1/stats/global", payload, 0);
   if (result != Result::Ok) return globalOutcome(result, GlobalStatsStep::Totals, failedStep);
   struct UploadContext {
     StatsUploadClient& client;
@@ -143,7 +143,7 @@ StatsUploadClient::Result ReadingSyncUpload::globalStats(StatsUploadClient& clie
           ctx.result = Result::InvalidResponse;
           return false;
         }
-        ctx.result = ctx.client.put("/api/v1/stats/global", ctx.payload, false, true);
+        ctx.result = ctx.client.put("/api/v1/stats/global", ctx.payload, 0, true);
         return ctx.result == Result::Ok;
       },
       &context);
@@ -170,7 +170,7 @@ StatsUploadClient::Result ReadingSyncUpload::globalStats(StatsUploadClient& clie
           ctx.result = Result::InvalidResponse;
           return false;
         }
-        ctx.result = ctx.client.put("/api/v1/stats/sessions", ctx.payload, false, false, record.id);
+        ctx.result = ctx.client.put("/api/v1/stats/sessions", ctx.payload, 0, false, record.id);
         return ctx.result == Result::Ok;
       },
       &context);
@@ -209,7 +209,7 @@ StatsUploadClient::Result ReadingSyncUpload::stats(const std::string& path, cons
   if (!StatsUploadPayload::book(payload.get(), StatsUploadPayload::CAPACITY, deviceId, document.c_str(), book))
     return Result::InvalidResponse;
   StatsUploadClient client;
-  return client.put("/api/v1/stats/books", payload.get(), true);
+  return client.put("/api/v1/stats/books", payload.get(), 1);
 }
 
 ReadingSyncUpload::ExtrasResult ReadingSyncUpload::extras(const std::string& path, const std::string& document,

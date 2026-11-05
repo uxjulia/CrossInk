@@ -9,7 +9,9 @@ class StatsUploadClient {
   StatsUploadClient();
   ~StatsUploadClient();
   void close();
-  Result put(const char* endpoint, const char* payload, bool book, bool daily = false, const char* sessionId = nullptr);
+  // Zero for non-book requests; otherwise require acknowledgment of every book.
+  Result put(const char* endpoint, const char* payload, unsigned bookCount, bool daily = false,
+             const char* sessionId = nullptr);
   // Bounded extension download; releases TLS before the caller parses/applies it.
   Result get(const char* endpoint, char* response, size_t capacity);
   // Read-only capability check against the stats summary endpoint. Records the

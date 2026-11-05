@@ -4237,6 +4237,18 @@ void XMLCALL ChapterHtmlSlimParser::endElement(void* userData, const XML_Char* n
       }
     } else {
       self->currentTextBlock->setBlockStyle(self->currentTextBlock->getBlockStyle().addBottom(closingStyle));
+      auto& pending = self->currentTextBlock->getBlockStyle();
+      const bool emptyBox = self->boxScopeCount && self->boxScopes[self->boxScopeCount - 1].depth == self->depth &&
+                            self->boxScopes[self->boxScopeCount - 1].top < 0 &&
+                            !self->boxScopes[self->boxScopeCount - 1].continued;
+      if (self->currentTextBlock->isEmpty() && self->wordsExtractedInBlock == 0 && pending.topInset() == 0 &&
+          !emptyBox) {
+        // A flushed child leaves an empty parent block. Spend its closing spacing
+        // before that placeholder is reused for the next paragraph. Empty border
+        // boxes keep their own spacing for closeBoxScope() to consume.
+        self->currentPageNextY += pending.bottomInset();
+        pending.marginBottom = pending.paddingBottom = 0;
+      }
     }
   }
 

@@ -282,22 +282,19 @@ void NetworkModeSelectionActivity::buildListScreen(UiApp::ScreenType& screen) {
 }
 
 void NetworkModeSelectionActivity::render(RenderLock&&) {
-  renderer.clearScreen();
-
-  const auto& metrics = UITheme::getInstance().getMetrics();
-  const auto pageWidth = renderer.getScreenWidth();
-
   // Header via GUI.drawHeader (already FreeInkUI-themed) for the battery
   // indicator; the rest of the screen renders through the app.
   const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput);
-  if (mappedInput.hasTouchHardware()) {
-    TouchHeaderBackButton::draw(renderer, ui.target, header, tr(STR_FILE_TRANSFER), false);
-  } else {
-    GUI.drawHeader(renderer, header, tr(STR_FILE_TRANSFER));
-  }
-
   ui.closeRouting();
   for (int pass = 0; pass < 8; ++pass) {
+    // Wrapped rows can move the viewport after layout. Erase the previous pass
+    // before drawing the corrected list, including its section headings.
+    renderer.clearScreen();
+    if (mappedInput.hasTouchHardware()) {
+      TouchHeaderBackButton::draw(renderer, ui.target, header, tr(STR_FILE_TRANSFER), false);
+    } else {
+      GUI.drawHeader(renderer, header, tr(STR_FILE_TRANSFER));
+    }
     ui.render();
     if (!listNav.consumeRebuildNeeded()) break;
   }

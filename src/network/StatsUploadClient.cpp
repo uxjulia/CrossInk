@@ -43,7 +43,7 @@ bool StatsUploadClient::deviceId(char* out, const size_t capacity) {
   return false;
 }
 
-StatsUploadClient::Result StatsUploadClient::put(const char* endpoint, const char* payload, const bool book,
+StatsUploadClient::Result StatsUploadClient::put(const char* endpoint, const char* payload, const unsigned bookCount,
                                                  const bool daily, const char* sessionId) {
   if (!impl) {
     LOG_ERR("StatsSync", "Cannot allocate HTTP client");
@@ -108,7 +108,7 @@ StatsUploadClient::Result StatsUploadClient::put(const char* endpoint, const cha
       (sessionId && (!reply["accepted_session_ids"].is<JsonArray>() || reply["accepted_session_ids"].size() != 1 ||
                      !reply["accepted_session_ids"][0].is<const char*>() ||
                      strcmp(reply["accepted_session_ids"][0].as<const char*>(), sessionId) != 0)) ||
-      (book && (!reply["accepted"].is<unsigned>() || reply["accepted"].as<unsigned>() != 1)) ||
+      (bookCount && (!reply["accepted"].is<unsigned>() || reply["accepted"].as<unsigned>() != bookCount)) ||
       (daily && (!reply["accepted_daily"].is<unsigned>() || reply["accepted_daily"].as<unsigned>() != 1))) {
     return failure(Result::InvalidResponse);
   }

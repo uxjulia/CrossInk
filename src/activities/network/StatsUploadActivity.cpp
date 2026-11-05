@@ -1207,7 +1207,7 @@ bool StatsUploadActivity::flushBookStats() {
   auto result = StatsUploadClient::Result::InvalidResponse;
   if (batch.finish()) {
     StatsUploadClient client;
-    result = client.put("/api/v1/stats/books", batch.payload(), true);
+    result = client.put("/api/v1/stats/books", batch.payload(), count);
   }
   LOG_INF("StatsSync", "Stats batch of %u books: %d", static_cast<unsigned>(count), static_cast<int>(result));
   if (result == StatsUploadClient::Result::Ok) {
