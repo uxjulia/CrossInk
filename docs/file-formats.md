@@ -1891,6 +1891,10 @@ buffer; it marks that counter uploaded only after `accepted_daily: 1`. Old serve
 can still accept aggregate stats, but cannot silently discard daily history and
 acknowledge it. Failed requests remain eligible for retry, including recovered
 `.tmp`/`.bak` records. Nearby-device snapshots are never uploaded as local history.
+The global `history_b64` bitmap carries read-day flags only: it must not replace
+existing page estimates or measured daily time on the server. A missing `daily`
+field means no daily measurements in that request, not zero time for its flagged
+dates. Old aggregate totals cannot recover unknown historical daily durations.
 
 ## Internal language cache (v1)
 

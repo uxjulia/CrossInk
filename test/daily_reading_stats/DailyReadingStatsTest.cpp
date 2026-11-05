@@ -160,6 +160,42 @@ TEST_F(DailyReading, BoundedPayloadWithOptionalDailySeconds) {
   EXPECT_FALSE(StatsUploadPayload::global(payload, 20, "crossink-test", g, dayOf(21), 61));
 }
 
+TEST_F(DailyReading, HistoryFlagsNeverReplaceOrInventDailyTime) {
+  GlobalReadingStats global;
+  global.totalReadingSeconds = 7200;
+  global.totalPagesTurned = 123;
+  global.readingHistoryAnchorDay = dayOf(21);
+  global.readingHistoryBits[0] = 7;  // Three read days, only one with a measured daily counter.
+  ASSERT_TRUE(write(dayOf(20), {600, 0}));
+
+  char payload[StatsUploadPayload::CAPACITY];
+  ASSERT_TRUE(StatsUploadPayload::global(payload, sizeof(payload), "crossink-test", global));
+  EXPECT_EQ(std::string(payload).find("\"daily\""), std::string::npos);
+  EXPECT_NE(std::string(payload).find("\"seconds\":7200"), std::string::npos);
+  EXPECT_NE(std::string(payload).find("\"pages\":123"), std::string::npos);
+
+  unsigned uploads = 0;
+  ASSERT_TRUE(uploadPending(
+      [](void* context, uint32_t day, uint32_t seconds) {
+        ++*static_cast<unsigned*>(context);
+        EXPECT_EQ(day, dayOf(20));
+        EXPECT_EQ(seconds, 600u);
+        return true;
+      },
+      &uploads));
+  EXPECT_EQ(uploads, 1u);
+  Counter counter;
+  ASSERT_TRUE(read(dayOf(20), counter));
+  EXPECT_EQ(counter.seconds, 600u);
+  EXPECT_EQ(counter.uploaded, 600u);
+  // An overlapping bitmap-only snapshot after acknowledgment still sends no zero-time rows.
+  ASSERT_TRUE(StatsUploadPayload::global(payload, sizeof(payload), "crossink-test", global));
+  EXPECT_EQ(std::string(payload).find("\"daily\""), std::string::npos);
+  EXPECT_EQ(secondsOn(20), 600u);
+  EXPECT_EQ(secondsOn(19), 0u);
+  EXPECT_EQ(secondsOn(21), 0u);
+}
+
 TEST_F(DailyReading, BookBatchMatchesSingleBookPayloadAndRollsBackOverflow) {
   BookReadingStats book;
   book.sessionCount = 3;
