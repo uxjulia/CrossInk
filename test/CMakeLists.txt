@@ -173,6 +173,9 @@ add_subdirectory(plugin_catalog_paging)
 add_subdirectory(plugin_http_policy)
 add_subdirectory(plugin_bundle)
 
+add_test(NAME PluginDownloadLifecycleRegression
+  COMMAND ${Python3_EXECUTABLE} ${REPO_ROOT}/test/scripts/test_plugin_download_lifecycle.py)
+
 add_subdirectory(plugin_picker_layout)
 
 add_subdirectory(plugin_details)
