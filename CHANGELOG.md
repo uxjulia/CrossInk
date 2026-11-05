@@ -149,6 +149,7 @@
 - Keep protected EPUBs readable after renaming or moving them, including moves to the Read folder.
 - Retry queuing a reading change after an SD write fails.
 - Render Unicode spaces, including thin and hair spaces around nested quotes, without missing-character boxes; preserve font-relative spacing and invisible zero-width controls.
+- Return to sleep after USB-triggered cold boots instead of opening the reader; Picco stays in light sleep while plugged in and wakes with Power.
 
 ### Changed
 
