@@ -1672,6 +1672,107 @@ CssParser::CacheStatus CssParser::inspectCache() const {
   return (flags & CSS_CACHE_FLAG_PARTIAL) != 0 ? CacheStatus::Partial : CacheStatus::Complete;
 }
 
+std::array<uint16_t, 2> CssParser::contentFontSizeScales() const {
+  constexpr std::array<uint16_t, 2> defaults{512, 192};
+  if (cachePath.empty()) return defaults;
+  FsFile file;
+  if (!Storage.openFileForRead("CSS", cachePath + rulesCache, file)) return defaults;
+
+  // A fixed 148-byte summary replaces a hydrated stylesheet. Nearby scales
+  // share a nominal 12pt bucket; retain the smaller exact scale for stable ties.
+  struct Hint {
+    uint16_t scale = 0;
+    uint16_t votes = 0;
+  };
+  std::array<Hint, 37> hints{};
+  const auto skip = [&file](const size_t bytes) {
+    return static_cast<size_t>(file.available()) >= bytes && file.seek(file.position() + bytes);
+  };
+  const auto readSelector = [&file, &skip](bool& heading) {
+    uint16_t length = 0;
+    if (file.read(&length, sizeof(length)) != sizeof(length) || !length || length > MAX_SELECTOR_LENGTH) return false;
+    char prefix[3]{};
+    const size_t count = std::min<size_t>(length, sizeof(prefix));
+    if (file.read(prefix, count) != static_cast<int>(count) || !skip(length - count)) return false;
+    heading = asciiToLower(prefix[0]) == 'h' && prefix[1] >= '1' && prefix[1] <= '6' &&
+              (length == 2 || prefix[2] == '.' || prefix[2] == '#');
+    return true;
+  };
+  const auto readStyle = [&file, &hints](const bool heading) {
+    CssStyle style;
+    if (!readCssStylePayload(file, style)) return false;
+    if (!style.hasFontSize()) return true;
+    float scale = style.fontSize.value;
+    switch (style.fontSize.unit) {
+      case CssUnit::Em:
+      case CssUnit::Rem:
+        break;
+      case CssUnit::Percent:
+        scale /= 100.0f;
+        break;
+      case CssUnit::Points:
+        scale /= 12.0f;
+        break;
+      case CssUnit::Pixels:
+        scale /= 16.0f;
+        break;
+      default:
+        return true;
+    }
+    if (!std::isfinite(scale) || scale <= 0 || scale == 1.0f) return true;
+    const auto fixed = static_cast<uint16_t>(std::clamp(scale * 256.0f + 0.5f, 46.0f, 1408.0f));
+    const unsigned bucket = std::clamp<unsigned>((unsigned(fixed) * 12 + 128) / 256, 8, 44) - 8;
+    auto& hint = hints[bucket];
+    // The high bit ranks explicit heading selectors ahead of generic classes,
+    // even in a stylesheet containing hundreds of footnote/body declarations.
+    if (heading && !(hint.votes & 0x8000)) hint = {fixed, 0x8000};
+    if (!heading && (hint.votes & 0x8000)) return true;
+    if (!hint.scale || fixed < hint.scale) hint.scale = fixed;
+    ++hint.votes;  // At most MAX_RULES + MAX_DESCENDANT_RULES declarations.
+    return true;
+  };
+  const bool valid = [&]() {
+    uint32_t magic = 0;
+    uint8_t version = 0, flags = 0;
+    uint16_t count = 0;
+    if (file.read(&magic, sizeof(magic)) != sizeof(magic) || magic != CSS_CACHE_MAGIC || file.read(&version, 1) != 1 ||
+        version != CSS_CACHE_VERSION || file.read(&flags, 1) != 1 || (flags & ~CSS_CACHE_FLAG_PARTIAL) ||
+        file.read(&count, sizeof(count)) != sizeof(count) || count > MAX_RULES ||
+        !skip(size_t(count) * sizeof(SelectorEntry)))
+      return false;
+    for (uint16_t i = 0; i < count; ++i) {
+      bool heading = false;
+      if (!readSelector(heading) || !readStyle(heading)) return false;
+    }
+    if (file.read(&count, sizeof(count)) != sizeof(count) || count > MAX_DESCENDANT_RULES) return false;
+    for (uint16_t i = 0; i < count; ++i) {
+      bool heading = false;
+      if (!readSelector(heading) || !readSelector(heading) || !readStyle(heading)) return false;
+    }
+    return readFontFaces(file);
+  }();
+  file.close();  // Close the CSS cache before any .cpfont is opened.
+  if (!valid) {
+    LOG_DBG("CSS", "Ignoring invalid font-size hints cache");
+    return defaults;
+  }
+  std::array<uint16_t, 2> result = defaults;
+  for (size_t slot = 0; slot < result.size(); ++slot) {
+    Hint* best = nullptr;
+    for (auto& hint : hints) {
+      // Small-print declarations must not consume both optional slots: a plain
+      // h1 still needs its default enlargement when CSS only sizes footnotes.
+      if (!hint.votes || (slot == 1 && result[0] < 256 && hint.scale < 256)) continue;
+      if (!best || hint.votes > best->votes || (hint.votes == best->votes && hint.scale > best->scale)) best = &hint;
+    }
+    if (!best) break;
+    result[slot] = best->scale;
+    best->votes = 0;
+    if (slot == 0) result[1] = result[0] < 256 ? defaults[0] : defaults[1];
+  }
+  return result;
+}
+
 void CssParser::deleteCache() const {
   if (hasCache()) Storage.remove((cachePath + rulesCache).c_str());
   Storage.remove((cachePath + rulesCacheTmp).c_str());

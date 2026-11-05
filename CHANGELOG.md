@@ -149,6 +149,7 @@
 - Keep protected EPUBs readable after renaming or moving them, including moves to the Read folder.
 - Retry queuing a reading change after an SD write fails.
 - Render Unicode spaces, including thin and hair spaces around nested quotes, without missing-character boxes; preserve font-relative spacing and invisible zero-width controls.
+- Choose optional SD bitmap font sizes from EPUB stylesheet headings instead of always loading a double-size font, while keeping the existing C3 memory limits and safe fallback.
 
 ### Changed
 

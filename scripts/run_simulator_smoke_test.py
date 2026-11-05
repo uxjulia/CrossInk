@@ -354,6 +354,8 @@ def run_smoke(args: argparse.Namespace) -> int:
             env["CROSSINK_SIMULATOR_SMOKE_READER_FONT_LAYOUT"] = "1"
         if args.c3_font_sizes:
             env["CROSSINK_SIMULATOR_SMOKE_C3_FONT_SIZES"] = "1"
+        if args.cpfont_heading_sizes:
+            env["CROSSINK_SIMULATOR_SMOKE_CPFONT_HEADINGS"] = "1"
         if args.font_size_book:
             env["CROSSINK_SIMULATOR_SMOKE_FONT_SIZE_BOOK"] = "1"
         if args.gesture_shortcuts:
@@ -484,6 +486,10 @@ def run_smoke(args: argparse.Namespace) -> int:
         print("Simulator did not complete the bitmap font-size checks", file=sys.stderr)
         return 2
 
+    if args.cpfont_heading_sizes and "Publisher cpfont headings: sizes, layout, reload, dictionary and resize passed" not in proc.stdout:
+        print("Simulator did not complete the publisher cpfont heading checks", file=sys.stderr)
+        return 2
+
     if args.reader_font_layout and "Simulator smoke test passed: reader font layout" not in proc.stdout:
         print("Simulator did not complete the Reader Font layout checks", file=sys.stderr)
         return 2
@@ -532,6 +538,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dictionary", action="store_true", help="Check French contractions and exact dictionary matches")
     parser.add_argument("--gesture-shortcuts", action="store_true", help="Check page gesture and front-button shortcut migrations, input, catalogs and UI")
     parser.add_argument("--c3-font-sizes", "--bitmap-font-sizes", dest="c3_font_sizes", action="store_true", help="Check bitmap font sizes, inline layout, page cache, selection and SD reload")
+    parser.add_argument("--cpfont-heading-sizes", action="store_true", help="Check publisher heading targets with an 8-20pt cpfont family (requires --c3-font-sizes, --font-dir and --font-family)")
     parser.add_argument("--font-size-book", action="store_true", help="Also render every page of --book with C3 fonts, checking its opening drop cap")
     parser.add_argument("--font-dir", help="Font fixtures copied into isolated /fonts")
     parser.add_argument("--filename-font-dir", help="TTF family fixtures copied into /.crossink/languages/fonts")
@@ -577,6 +584,8 @@ def parse_args() -> argparse.Namespace:
         parser.error("--asset-downloads and --hyphenation are separate smoke scenarios")
     if args.c3_font_sizes and args.env not in ("simulator", "simulator-X3") and not (args.font_dir and args.font_family):
         parser.error("--bitmap-font-sizes on S3 requires --font-dir and --font-family with cpfont fixtures")
+    if args.cpfont_heading_sizes and not (args.c3_font_sizes and args.font_dir and args.font_family):
+        parser.error("--cpfont-heading-sizes requires --c3-font-sizes, --font-dir and --font-family")
     if args.font_size_book and not args.c3_font_sizes:
         parser.error("--font-size-book requires --c3-font-sizes")
     if args.language_file and not args.language_installer:

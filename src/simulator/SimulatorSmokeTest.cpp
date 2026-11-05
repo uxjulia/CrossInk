@@ -5101,6 +5101,70 @@ class SimulatorSmokeTest {
             pages);
   }
 
+  void verifyCpfontHeadingSizes(const char* family) {
+    RenderLock lock;
+    const std::string cssPath = "/cpfont-headings.css";
+    if (!Storage.writeFile(cssPath.c_str(), "h1 { font-size: 1.33em; } h2 { font-size: 1.17em; }"))
+      fail("Cannot write heading stylesheet");
+    CssParser css("/.crosspoint");
+    FsFile file;
+    if (!Storage.openFileForRead("SMOKE", cssPath, file) || !css.loadFromStream(file))
+      fail("Cannot parse heading stylesheet");
+    file.close();
+    if (!css.saveToCache()) fail("Cannot cache heading stylesheet");
+    css.clear();
+    sdFontSystem.setContentSizeScales(css.contentFontSizeScales());
+    SETTINGS.readerFontPointSize = 10;
+    sdFontSystem.ensureLoaded(renderer);
+    const int body = SETTINGS.getReaderFontId();
+    if (renderer.getFontPointSize(body) != 10 || renderer.getFontPointSize(renderer.getFontIdForSize(body, 13)) != 13 ||
+        renderer.getFontPointSize(renderer.getFontIdForSize(body, 12)) != 12)
+      fail("Publisher heading sizes did not replace the fixed 2x target");
+    const std::string htmlPath = "/cpfont-headings.xhtml";
+    if (!Storage.writeFile(htmlPath.c_str(),
+                           "<html><body><h1>Chapter Length</h1>"
+                           "<h2>Among Oddly Engineered Audio</h2><p>Body text at ten points.</p></body></html>"))
+      fail("Cannot write heading excerpt");
+    Epub book("/cpfont-headings.epub", "/.crosspoint");
+    if (!css.loadFromCache()) fail("Cannot load heading CSS");
+    unsigned headings = 0;
+    ChapterHtmlSlimParser parser(
+        book, htmlPath, renderer, body, 1.0f, false, false, 1, 400, 700, false, false, false, 0,
+        [&](std::unique_ptr<Page> page, uint16_t, uint16_t, uint32_t, uint32_t) {
+          for (const auto& element : page->elements) {
+            if (element->getTag() != TAG_PageLine) continue;
+            const auto& block = *static_cast<const PageLine&>(*element).getBlock();
+            if (!block.wordCount()) continue;
+            const char* word = block.wordText(0);
+            const unsigned size = !std::strcmp(word, "Chapter") ? 13 : !std::strcmp(word, "Among") ? 12 : 10;
+            if (block.getBlockStyle().fontSize != size) fail("Heading layout used the wrong size");
+            if (size != 10) ++headings;
+          }
+          renderer.setRenderMode(GfxRenderer::BW);
+          renderer.clearScreen();
+          page->renderText(renderer, body, 20, 20);
+          captureStatusBarScreen("cpfont-publisher-headings");
+        },
+        true, "", "", 0, {}, nullptr, &css);
+    if (!parser.parseAndBuildPages() || headings != 2) fail("Publisher heading excerpt did not render");
+    css.clear();
+    sdFontSystem.releaseLoadedFont(renderer);
+    sdFontSystem.ensureLoaded(renderer);
+    if (SETTINGS.getReaderFontId() != body) fail("Heading-size identity changed on reload");
+    const auto dictionary = sdFontSystem.activateDictionaryFont(renderer, family, 8);
+    if (!dictionary.usingDictionaryFont || sdFontSystem.restoreReaderFont(renderer) != body)
+      fail("Dictionary return lost the publisher heading sizes");
+    SETTINGS.readerFontPointSize = 12;
+    sdFontSystem.ensureLoaded(renderer);
+    const int resized = SETTINGS.getReaderFontId();
+    if (renderer.getFontPointSize(renderer.getFontIdForSize(resized, 16)) != 16 ||
+        renderer.getFontPointSize(renderer.getFontIdForSize(resized, 14)) != 14)
+      fail("Heading targets did not follow the new body size");
+    sdFontSystem.setContentSizeScales({512, 192});
+    sdFontSystem.ensureLoaded(renderer);
+    LOG_INF("SMOKE", "Publisher cpfont headings: sizes, layout, reload, dictionary and resize passed");
+  }
+
   void verifyBitmapFontSizes() {
     const auto orientation = renderer.getOrientation();
 #if CROSSINK_SCALABLE_FONTS
@@ -5145,6 +5209,7 @@ class SimulatorSmokeTest {
       if (sdFontSystem.restoreReaderFont(renderer) != original) fail("Bitmap dictionary return lost content sizes");
       verifyBlockFontSizes(original, "bitmap-sd-dictionary-return");
       verifyBitmapBook(original, "sd12");
+      if (std::getenv("CROSSINK_SIMULATOR_SMOKE_CPFONT_HEADINGS")) verifyCpfontHeadingSizes(family);
     }
     renderer.setOrientation(orientation);
     LOG_INF("SMOKE", "Bitmap size snapping, page cache and selection passed");

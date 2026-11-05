@@ -403,7 +403,7 @@ void contentSizeChecks(const std::string& path) {
   }
   SdCardFontFamilyInfo family;
   family.name = "Content";
-  for (const uint8_t size : {8, 12, 24}) {
+  for (const uint8_t size : {8, 10, 12, 14, 16, 24}) {
     const std::string file = path + std::to_string(size);
     fixture(file, {{0, table({{0x41, 0x5A}})}});
     family.files.push_back({file, size, 0});
@@ -431,6 +431,36 @@ void contentSizeChecks(const std::string& path) {
   assert(manager.loadFamilyClosest(family, renderer, 12));
   assert(manager.getFontId(family.name) == highId);
   manager.unloadAll(renderer);
+  // Book-aware content choices remain limited to two budgeted font objects.
+  // Changing the preferences changes the identity, and a dictionary-style
+  // unload/reload must restore that same identity and actual size set.
+  assert(manager.setContentSizeScales({341, 299}));
+  assert(!manager.setContentSizeScales({341, 299}));
+  assert((manager.contentSizeTargetsForBody(12) == std::array<uint8_t, 2>{16, 14}));
+  assert(manager.loadFamilyClosest(family, renderer, 12));
+  const int bookId = manager.getFontId(family.name);
+  assert(bookId != highId && renderer.getFontMap().size() == 3);
+  for (const auto& [id, font] : renderer.getFontMap()) {
+    assert(font.sizeFamilyId() == bookId);
+    assert(font.pointSize() == 12 || font.pointSize() == 14 || font.pointSize() == 16);
+  }
+  manager.unloadAll(renderer);
+  assert(manager.loadFamilyClosest(family, renderer, 12));
+  assert(manager.getFontId(family.name) == bookId);
+  manager.unloadAll(renderer);
+  freeHeap = 100 * 1024;
+  assert(manager.loadFamilyClosest(family, renderer, 12));
+  assert(renderer.getFontMap().size() == 1 && manager.getFontId(family.name) == lowId);
+  manager.unloadAll(renderer);
+  freeHeap = 1024 * 1024;
+  assert(manager.loadFamilyClosest(family, renderer, 10));
+  assert(renderer.getFontMap().size() == 3);
+  // An even-only family rounds the 13pt growth target up, consistently with
+  // the renderer, while retaining the exact 12pt subheading size.
+  for (const auto& [id, font] : renderer.getFontMap())
+    assert(font.pointSize() == 10 || font.pointSize() == 12 || font.pointSize() == 14);
+  manager.unloadAll(renderer);
+  manager.setContentSizeScales({512, 192});
   // Variant replacement must invalidate the body identity even at the same size.
   {
     std::fstream out(family.files.back().path, std::ios::in | std::ios::out | std::ios::binary);
@@ -439,6 +469,21 @@ void contentSizeChecks(const std::string& path) {
   }
   assert(manager.loadFamilyClosest(family, renderer, 12));
   assert(manager.getFontId(family.name) != highId);
+  manager.unloadAll(renderer);
+  assert(arrayBytes() == 0 && openFiles == 0);
+  // A tied but unsupported 45pt file must not displace supported 43pt growth.
+  for (const uint8_t size : {22, 43, 45}) {
+    const std::string file = path + std::to_string(size);
+    fixture(file, {{0, table({{0x41, 0x5A}})}});
+    family.files.push_back({file, size, 0});
+  }
+  assert(manager.loadFamilyClosest(family, renderer, 22));
+  bool found43 = false;
+  for (const auto& [id, font] : renderer.getFontMap()) {
+    assert(font.pointSize() != 45);
+    found43 |= font.pointSize() == 43;
+  }
+  assert(found43);
   manager.unloadAll(renderer);
   assert(arrayBytes() == 0 && openFiles == 0);
   for (const auto& file : family.files) std::filesystem::remove(file.path);

@@ -271,3 +271,75 @@ TEST_F(CssArenaBackingTest, PublisherMetadataRespectsInternalReserve) {
   ASSERT_TRUE(CssParser::loadFontFaces("book", faces));
   EXPECT_TRUE(faces.empty());
 }
+
+TEST_F(CssArenaBackingTest, BitmapSizeHintsPreferPublisherHeadingsWithoutHydratingRules) {
+  std::string text = "h1 { font-size: 1.33em; } h2 { font-size: 117%; } p { font-size: 1em; }";
+  for (unsigned i = 0; i < 100; ++i) text += ".note" + std::to_string(i) + " { font-size: .75em; }";
+  Storage.put("input.css", {text.begin(), text.end()});
+  FsFile file;
+  ASSERT_TRUE(Storage.openFileForRead("test", "input.css", file));
+  {
+    CssParser writer("book");
+    ASSERT_TRUE(writer.loadFromStream(file));
+    file.close();
+    ASSERT_TRUE(writer.saveToCache());
+  }
+  fakeheap::reset(false);
+  fakeheap::internal.fail = 1;  // No arena allocation is allowed for the summary.
+  CssParser css("book");
+  const auto sizes = css.contentFontSizeScales();
+  EXPECT_EQ(sizes, (std::array<uint16_t, 2>{340, 300}));
+  EXPECT_TRUE(css.empty());
+  EXPECT_TRUE(fakeheap::live.empty());
+  EXPECT_EQ(fakeheap::internal.fail, 1u);
+  EXPECT_EQ(Storage.openHandles("book/css_rules.cache"), 0);
+  Storage.data("book/css_rules.cache").bytes[5] = 1;  // A valid partial cache is useful too.
+  EXPECT_EQ(css.contentFontSizeScales(), sizes);
+  // This is the supplied EPUB's 10pt case: nearest files are 13pt and 12pt.
+  EXPECT_EQ((10 * sizes[0] + 128) / 256, 13);
+  EXPECT_EQ((10 * sizes[1] + 128) / 256, 12);
+}
+
+TEST_F(CssArenaBackingTest, BitmapSizeHintsSupportUnitsDescendantsAndStableOrdering) {
+  const std::string text = "section h1.title { font-size: 24px; } h2 { font-size: 15pt; } p { font-size: 100%; }";
+  Storage.put("input.css", {text.begin(), text.end()});
+  FsFile file;
+  ASSERT_TRUE(Storage.openFileForRead("test", "input.css", file));
+  CssParser css("book");
+  ASSERT_TRUE(css.loadFromStream(file));
+  file.close();
+  ASSERT_TRUE(css.saveToCache());
+  css.clear();
+  EXPECT_EQ(css.contentFontSizeScales(), (std::array<uint16_t, 2>{384, 320}));
+  EXPECT_EQ(css.contentFontSizeScales(), (std::array<uint16_t, 2>{384, 320}));
+}
+
+TEST_F(CssArenaBackingTest, BitmapSizeHintsFallBackOnMissingOrInterruptedCache) {
+  CssParser css("book");
+  const std::array<uint16_t, 2> defaults{512, 192};
+  EXPECT_EQ(css.contentFontSizeScales(), defaults);
+  createCache();
+  const auto original = Storage.data("book/css_rules.cache").bytes;
+  for (size_t length = 0; length < original.size(); ++length) {
+    Storage.put("book/css_rules.cache", {original.begin(), original.begin() + length});
+    EXPECT_EQ(css.contentFontSizeScales(), defaults) << length;
+  }
+  Storage.put("book/css_rules.cache", original);
+  Storage.data("book/css_rules.cache").bytes[4] = 0;  // Old format.
+  EXPECT_EQ(css.contentFontSizeScales(), defaults);
+}
+
+TEST_F(CssArenaBackingTest, SmallPrintHintsPreserveDefaultHeadingEnlargement) {
+  const std::string text = ".footnote { font-size: 75%; } .caption { font-size: 83%; }";
+  Storage.put("input.css", {text.begin(), text.end()});
+  FsFile file;
+  ASSERT_TRUE(Storage.openFileForRead("test", "input.css", file));
+  CssParser css("book");
+  ASSERT_TRUE(css.loadFromStream(file));
+  file.close();
+  ASSERT_TRUE(css.saveToCache());
+  css.clear();
+  const auto scales = css.contentFontSizeScales();
+  EXPECT_LT(scales[0], 256);
+  EXPECT_EQ(scales[1], 512);
+}

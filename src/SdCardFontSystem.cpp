@@ -26,7 +26,8 @@ enum class FontFileSelection : uint8_t { Closest, Exact };
 // (path and filename) replace a heap-allocated whole-font catalog
 // during every dictionary swap, avoiding persistent fragmentation on the C3.
 bool findInstalledFontFile(const char* familyName, const uint8_t targetPointSize, const FontFileSelection selection,
-                           char* path, const size_t pathSize, uint8_t& selectedPointSize) {
+                           char* path, const size_t pathSize, uint8_t& selectedPointSize,
+                           const bool contentGrowth = false) {
   if (!familyName || familyName[0] == '\0' || !path || pathSize == 0) return false;
 
   const char* root = SdCardFontRegistry::findFamilyRoot(familyName);
@@ -52,9 +53,13 @@ bool findInstalledFontFile(const char* familyName, const uint8_t targetPointSize
     uint8_t style = 0;
     if (!SdCardFontRegistry::parseFilename(filename, pointSize, style) || style != 0) continue;
 
+    // Optional growth follows the renderer's tie-break within its supported
+    // content range; body/dictionary selections retain their existing policy.
+    if (contentGrowth && (pointSize < 8 || pointSize > 44)) continue;
     if (selection == FontFileSelection::Closest) {
       const uint8_t diff = pointSize > targetPointSize ? pointSize - targetPointSize : targetPointSize - pointSize;
-      if (closestDiff == UINT8_MAX || diff < closestDiff || (diff == closestDiff && pointSize < closestSize)) {
+      if (closestDiff == UINT8_MAX || diff < closestDiff ||
+          (diff == closestDiff && (contentGrowth ? pointSize > closestSize : pointSize < closestSize))) {
         closestSize = pointSize;
         closestDiff = diff;
       }
@@ -523,9 +528,9 @@ int SdCardFontSystem::restoreReaderFont(GfxRenderer& renderer) {
     contentFamily.files.push_back({path, selectedPointSize, 0});
     const uint8_t bodySize = selectedPointSize;
     if (bodySize >= 8 && bodySize <= 44) {
-      for (const uint8_t target : SdCardFontManager::contentSizeTargets(bodySize)) {
-        if (findInstalledFontFile(familyName, target, FontFileSelection::Closest, path, sizeof(path),
-                                  selectedPointSize))
+      for (const uint8_t target : manager_.contentSizeTargetsForBody(bodySize)) {
+        if (findInstalledFontFile(familyName, target, FontFileSelection::Closest, path, sizeof(path), selectedPointSize,
+                                  target > bodySize))
           contentFamily.files.push_back({path, selectedPointSize, 0});
       }
     }

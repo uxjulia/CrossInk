@@ -23,7 +23,15 @@ class SdCardFontManager {
   // Load the closest body file, plus up to two budgeted content sizes for bitmap fonts.
   bool loadFamilyClosest(const SdCardFontFamilyInfo& family, GfxRenderer& renderer, uint8_t targetPointSize);
   // Shared by registry loads and bounded dictionary-return discovery.
-  static std::array<uint8_t, 2> contentSizeTargets(uint8_t bodySize);
+  static std::array<uint8_t, 2> contentSizeTargets(uint8_t bodySize, std::array<uint16_t, 2> scales = {512, 192});
+  bool setContentSizeScales(std::array<uint16_t, 2> scales) {
+    if (contentSizeScales_ == scales) return false;
+    contentSizeScales_ = scales;
+    return true;
+  }
+  std::array<uint8_t, 2> contentSizeTargetsForBody(uint8_t bodySize) const {
+    return contentSizeTargets(bodySize, contentSizeScales_);
+  }
 #if CROSSINK_SCALABLE_FONTS
   bool loadFamilyClosest(const SdCardFontFamilyInfo& family, GfxRenderer& renderer, uint8_t targetPointSize,
                          const freeink::font::FtFont::RenderOptions& renderOptions);
@@ -127,6 +135,7 @@ class SdCardFontManager {
   int loadFilePath(const char* path, const char* familyName, uint8_t pointSize, GfxRenderer& renderer,
                    size_t residentLimit = 0);
 
+  std::array<uint16_t, 2> contentSizeScales_{512, 192};
   std::string loadedFamilyName_;
   uint8_t loadedPointSize_ = 0;
   std::vector<LoadedFont> loaded_;

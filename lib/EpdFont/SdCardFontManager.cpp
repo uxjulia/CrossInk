@@ -12,6 +12,8 @@
 #include <SdCardFont.h>
 #include <SdCardFontRegistry.h>
 
+#include <cstdlib>
+
 SdCardFontManager::~SdCardFontManager() {
   for (auto& lf : loaded_) {
     delete lf.font;
@@ -104,9 +106,12 @@ bool SdCardFontManager::loadFamilyClosest(const SdCardFontFamilyInfo& family, Gf
   return true;
 }
 
-std::array<uint8_t, 2> SdCardFontManager::contentSizeTargets(const uint8_t bodySize) {
-  return {static_cast<uint8_t>(std::min<unsigned>(44, unsigned(bodySize) * 2)),
-          static_cast<uint8_t>(std::max<unsigned>(8, unsigned(bodySize) * 3 / 4))};
+std::array<uint8_t, 2> SdCardFontManager::contentSizeTargets(const uint8_t bodySize,
+                                                             const std::array<uint16_t, 2> scales) {
+  std::array<uint8_t, 2> sizes{};
+  for (size_t i = 0; i < sizes.size(); ++i)
+    sizes[i] = static_cast<uint8_t>(std::clamp<unsigned>((unsigned(bodySize) * scales[i] + 128) / 256, 8, 44));
+  return sizes;
 }
 
 void SdCardFontManager::loadContentSizes(const SdCardFontFamilyInfo& family, GfxRenderer& renderer) {
@@ -116,8 +121,20 @@ void SdCardFontManager::loadContentSizes(const SdCardFontFamilyInfo& family, Gfx
   constexpr size_t SIZE_BUDGET = 12U * 1024U;
   constexpr size_t FREE_RESERVE = 96U * 1024U;
   constexpr size_t BLOCK_RESERVE = 48U * 1024U;
-  for (const uint8_t target : contentSizeTargets(loadedPointSize_)) {
+  for (const uint8_t target : contentSizeTargetsForBody(loadedPointSize_)) {
     const auto* file = family.findClosestFile(target);
+    // Match the renderer's growth tie-break. Body selection still prefers the
+    // smaller file, but a 13pt heading with only 12/14pt files should use 14pt.
+    if (target > loadedPointSize_) {
+      file = nullptr;
+      for (const auto& candidate : family.files) {
+        if (candidate.style != 0 || candidate.pointSize < 8 || candidate.pointSize > 44) continue;
+        const int distance = std::abs(int(candidate.pointSize) - int(target));
+        const int bestDistance = file ? std::abs(int(file->pointSize) - int(target)) : 256;
+        if (distance < bestDistance || (distance == bestDistance && candidate.pointSize > file->pointSize))
+          file = &candidate;
+      }
+    }
     if (!file || file->pointSize < 8 || file->pointSize > 44) continue;
     bool present = false;
     for (const auto& loaded : loaded_) present |= loaded.size == file->pointSize;

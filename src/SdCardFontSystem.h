@@ -32,6 +32,14 @@ class SdCardFontSystem {
   /// Also re-discovers if the registry has been marked dirty (e.g. by web upload).
   void ensureLoaded(GfxRenderer& renderer);
 
+  // Book-level bitmap size preferences, in 1/256 em. Font loading and cache
+  // identities are settled before layout; dictionary return reuses these hints.
+  void setContentSizeScales(std::array<uint16_t, 2> scales) {
+    if (manager_.setContentSizeScales(scales) &&
+        !manager_.hasResidentScalableFamily(manager_.currentFamilyName().c_str()))
+      fontReloadPending_ = true;
+  }
+
   /// Prepare the selected built-in family before using it as a reader fallback.
   int ensureBuiltInReaderFont(GfxRenderer& renderer);
 
