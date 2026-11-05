@@ -157,6 +157,22 @@ uint32_t BookFontSystem::loadedFaces() const {
   return mask;
 }
 
+bool BookFontSystem::hasLoadedFamily(const uint32_t family) const {
+  for (size_t i = 0; i < faceCount_; ++i)
+    if (faces_[i].family == family && faces_[i].registered) return true;
+  return false;
+}
+
+bool BookFontSystem::copyFamilyName(const uint32_t family, char* name, const size_t capacity) {
+  if (!name || !capacity) return false;
+  name[0] = '\0';
+  for (size_t i = 0; i < faceCount_; ++i) {
+    auto& face = faces_[i];
+    if (face.family == family && face.registered && face.font) return face.font->copyFamilyName(name, capacity);
+  }
+  return false;
+}
+
 uint32_t BookFontSystem::faceSignature(const uint32_t mask) const {
   if (!mask) return 0;
   uint32_t hash = 2166136261U;

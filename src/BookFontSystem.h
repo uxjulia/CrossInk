@@ -17,6 +17,8 @@ class BookFontSystem {
   void open(Epub& epub, GfxRenderer& renderer);
   void close();
   int resolve(uint32_t family, uint8_t points);
+  bool hasLoadedFamily(uint32_t family) const;
+  bool copyFamilyName(uint32_t family, char* name, size_t capacity);
   uint32_t requestedFaces() const { return requestedFaces_; }
   uint32_t loadedFaces() const;
   uint32_t faceSignature(uint32_t mask) const;

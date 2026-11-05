@@ -233,6 +233,27 @@ void Section::releaseBuildFile() {
   }
 }
 
+#if CROSSINK_SCALABLE_FONTS
+uint32_t Section::publisherBodyFontFamily() {
+  // The incremental parser may own this HTML reader. Release it before probing;
+  // it resumes from its saved offset on the next build step.
+  releaseBuildFile();
+  auto* css = epub->getCssParser();
+  if (!css) return 0;
+  const bool ownsCss = !build_ || !build_->cssParser;
+  if (ownsCss && !css->loadFromCache()) {
+    LOG_ERR("SCT", "Cannot load CSS for publisher body font");
+    css->clear();
+    return 0;
+  }
+  const std::string path =
+      build_ ? build_->parsePath : epub->getCachePath() + "/html/" + std::to_string(spineIndex) + ".html";
+  const auto family = ChapterHtmlSlimParser::publisherBodyFontFamily(path, *css);
+  if (ownsCss) css->clear();
+  return family;
+}
+#endif
+
 bool Section::writePublisherFontState() {
   return file.seek(HEADER_SIZE - sizeof(uint32_t) * 9 - sizeof(pageCount)) &&
          serialization::tryWritePod(file, publisherFontFaces_) &&

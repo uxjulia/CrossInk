@@ -308,6 +308,7 @@ class BodyFontProbe {
     uint32_t bytes = 0;
   };
   const CssParser& css;
+  const bool useTextFamily;
   CssStyle resolvedStyle;
   std::vector<CssAncestorEntry> ancestors;
   std::array<Frame, MAX_DEPTH> frames{};
@@ -365,15 +366,16 @@ class BodyFontProbe {
     auto& self = *static_cast<BodyFontProbe*>(context);
     if (self.depth == 0 || self.depth > MAX_DEPTH) return;
     const auto& frame = self.frames[self.depth - 1];
-    if (!frame.inBody || !frame.inParagraph || frame.ignored) return;
+    if (!frame.inBody || (!frame.inParagraph && !self.useTextFamily) || frame.ignored) return;
     uint32_t bytes = 0;
     for (int i = 0; i < length; ++i) {
       if (!isWhitespace(text[i])) ++bytes;
     }
     if (bytes == 0) return;
+    const uint32_t family = self.useTextFamily ? frame.family : frame.paragraphFamily;
     for (auto& candidate : self.usage) {
-      if (candidate.bytes == 0 || candidate.family == frame.paragraphFamily) {
-        candidate.family = frame.paragraphFamily;
+      if (candidate.bytes == 0 || candidate.family == family) {
+        candidate.family = family;
         candidate.bytes += bytes;
         return;
       }
@@ -385,7 +387,10 @@ class BodyFontProbe {
   }
 
  public:
-  explicit BodyFontProbe(const CssParser& css) : css(css) { ancestors.reserve(MAX_DEPTH); }
+  explicit BodyFontProbe(const CssParser& css, const bool useTextFamily = false)
+      : css(css), useTextFamily(useTextFamily) {
+    ancestors.reserve(MAX_DEPTH);
+  }
 
   void attach(XML_Parser parser) {
     XML_SetUserData(parser, this);
@@ -394,11 +399,11 @@ class BodyFontProbe {
     XML_SetDefaultHandlerExpand(parser, entity);
   }
 
-  uint32_t family() const {
-    if (rootFamily != 0) return rootFamily;
+  uint32_t family(const bool preferParagraph = false) const {
+    if (!preferParagraph && rootFamily != 0) return rootFamily;
     const auto best =
         std::max_element(usage.begin(), usage.end(), [](const Usage& a, const Usage& b) { return a.bytes < b.bytes; });
-    return best->family;
+    return best->bytes ? best->family : (preferParagraph ? 0 : rootFamily);
   }
 };
 
@@ -4516,41 +4521,63 @@ void ChapterHtmlSlimParser::releaseInputFile() {
   parseFile_.close();
 }
 
-bool ChapterHtmlSlimParser::detectBodyFont() {
+bool ChapterHtmlSlimParser::scanBodyFont(XML_Parser parser, FsFile& file, const CssParser& css, uint32_t& family,
+                                         const bool preferParagraph) {
   // The bounded ancestor/usage tables exceed the task's small stack budget.
-  auto probe = makeUniqueNoThrow<BodyFontProbe>(*cssParser);
+  auto probe = makeUniqueNoThrow<BodyFontProbe>(css, preferParagraph);
   if (!probe) {
     LOG_ERR("EHP", "OOM: body font probe");
     return false;
   }
-  probe->attach(activeParser);
+  probe->attach(parser);
   size_t consumed = 0;
-  while (parseFile_.available() > 0 && consumed < BODY_FONT_SCAN_BYTES) {
-    void* const buffer = XML_GetBuffer(activeParser, PARSE_BUFFER_SIZE);
+  while (file.available() > 0 && consumed < BODY_FONT_SCAN_BYTES) {
+    void* const buffer = XML_GetBuffer(parser, PARSE_BUFFER_SIZE);
     if (!buffer) {
       LOG_ERR("EHP", "OOM: body font scan buffer");
       return false;
     }
-    const size_t length = parseFile_.read(buffer, PARSE_BUFFER_SIZE);
+    const size_t length = file.read(buffer, PARSE_BUFFER_SIZE);
     if (length == 0) {
       LOG_ERR("EHP", "Body font scan read failed");
       return false;
     }
     consumed += length;
-    if (XML_ParseBuffer(activeParser, static_cast<int>(length), parseFile_.available() == 0) == XML_STATUS_ERROR) {
+    if (XML_ParseBuffer(parser, static_cast<int>(length), file.available() == 0) == XML_STATUS_ERROR) {
       // The layout pass reports malformed XML and handles tolerated trailing data.
       break;
     }
     delay(1);
   }
-  bodyFontFamily = probe->family();
-  LOG_DBG("EHP", "Body font %08x from %u bytes (probe %u bytes)", static_cast<unsigned>(bodyFontFamily),
+  family = probe->family(preferParagraph);
+  LOG_DBG("EHP", "Body font %08x from %u bytes (probe %u bytes)", static_cast<unsigned>(family),
           static_cast<unsigned>(consumed), static_cast<unsigned>(sizeof(BodyFontProbe)));
+  return true;
+}
+
+bool ChapterHtmlSlimParser::detectBodyFont() {
+  if (!scanBodyFont(activeParser, parseFile_, *cssParser, bodyFontFamily, false)) return false;
   if (!XML_ParserReset(activeParser, nullptr) || !parseFile_.seek(0)) {
     LOG_ERR("EHP", "Failed to rewind after body font scan");
     return false;
   }
   return true;
+}
+
+uint32_t ChapterHtmlSlimParser::publisherBodyFontFamily(const std::string& path, const CssParser& css) {
+  FsFile file;
+  if (!Storage.openFileForRead("EHP", path, file)) return 0;
+  XML_Parser parser = XML_ParserCreate(nullptr);
+  if (!parser) {
+    LOG_ERR("EHP", "OOM: body font metadata parser");
+    file.close();
+    return 0;
+  }
+  uint32_t family = 0;
+  const bool ok = scanBodyFont(parser, file, css, family, true);
+  destroyXmlParser(parser);
+  file.close();
+  return ok ? family : 0;
 }
 
 bool ChapterHtmlSlimParser::beginParse() {

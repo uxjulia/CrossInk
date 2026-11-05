@@ -69,6 +69,8 @@ class HalScalableFont {
                           FontLoadError* error = nullptr);
   static uint32_t renderingRevision();
   uint32_t fingerprint() const { return hash_; }
+  // Reads metadata through the already-owned source; never reopens an SD reader.
+  bool copyFamilyName(char* name, size_t capacity);
   const EpdFont* atSize(uint8_t points);
 
  private:

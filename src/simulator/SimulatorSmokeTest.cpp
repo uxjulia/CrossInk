@@ -472,6 +472,80 @@ struct SliderOrientationSmokeTest {
 };
 
 struct ReaderDrawerLayoutSmokeTest {
+#if CROSSINK_SCALABLE_FONTS
+  template <typename Capture>
+  static bool verifyPublisherBodyFont(RenderLock& lock, Epub& book, Section& section, const uint8_t mode,
+                                      const Capture& capture) {
+    const auto family = section.publisherBodyFontFamily();
+    if (family != CssParser::hashFontFamily("Publisher Body")) return false;
+    auto borrowedBook = std::shared_ptr<Epub>(&book, [](Epub*) {});
+    EpubReaderDrawerActivity editor(renderer, mappedInputManager, borrowedBook, nullptr, 0.0f, 0, 0, false, false,
+                                    false, false, false, false, false, false, true, true, 0, 0, 5, false);
+    struct Probe {
+      uint32_t family;
+      unsigned calls = 0;
+    } probe{family};
+    editor.setPublisherBodyFontProbe(
+        [](void* context) {
+          auto& probe = *static_cast<Probe*>(context);
+          ++probe.calls;
+          return probe.family;
+        },
+        &probe);
+    const auto requestedBeforeMenu = bookFontSystem.requestedFaces();
+    const auto loadedBeforeMenu = bookFontSystem.loadedFaces();
+    editor.onEnter();
+    editor.render(std::move(lock));
+    if (probe.calls) return false;
+    editor.openPane(ReaderDrawerPane::ReaderFont);
+    editor.render(std::move(lock));
+    char buffer[64];
+    bool valid = editor.publisherBodyFontActive() == (mode == 2) && probe.calls == (mode == 2 ? 1U : 0U) &&
+                 bookFontSystem.requestedFaces() == requestedBeforeMenu &&
+                 bookFontSystem.loadedFaces() == loadedBeforeMenu;
+    if (mode == 2) {
+      valid &= std::strcmp(editor.rowValue(ReaderDrawerCatalogItem::FontFamily, buffer, sizeof(buffer)), "Bitter") == 0;
+      // A disabled row publishes no touch target, and direct/button activation is inert.
+      freeink::ui::Interaction hit;
+      for (int y = 0; y < renderer.getScreenHeight(); y += 2) {
+        if (editor.app.hitPublished(renderer.getScreenWidth() / 2, y, EpubReaderDrawerActivity::ACTION_ROW, hit) &&
+            hit.value == 0)
+          valid = false;
+      }
+      editor.activateRow(ReaderDrawerCatalogItem::FontFamily);
+      valid &= editor.state.pane == ReaderDrawerPane::ReaderFont;
+      capture("publisher-body-font-" + std::to_string(renderer.getOrientation()));
+      editor.draft.publisherFonts = 0;
+      valid &= !editor.publisherBodyFontActive();
+      editor.draft.publisherFonts = 2;
+      editor.draft.embeddedStyle = false;
+      valid &= !editor.publisherBodyFontActive();
+      editor.draft.embeddedStyle = true;
+      editor.draft.epubRenderMode = static_cast<uint8_t>(EpubRenderMode::Light);
+      valid &= !editor.publisherBodyFontActive();
+      editor.draft.epubRenderMode = 0;
+    }
+    editor.draft.publisherFonts = 0;
+    editor.render(std::move(lock));
+    freeink::ui::Interaction fallbackHit;
+    bool fallbackTouchable = false;
+    for (int y = 0; y < renderer.getScreenHeight(); y += 2) {
+      if (editor.app.hitPublished(renderer.getScreenWidth() / 2, y, EpubReaderDrawerActivity::ACTION_ROW,
+                                  fallbackHit) &&
+          fallbackHit.value == 0)
+        fallbackTouchable = true;
+    }
+    valid &= fallbackTouchable;
+    editor.publisherBodyFontName[0] = '\0';
+    editor.publisherBodyFontNameResolved = false;
+    probe.family = CssParser::hashFontFamily("Missing Body");
+    editor.draft.publisherFonts = 2;
+    editor.resolvePublisherBodyFontName();
+    valid &= !editor.publisherBodyFontActive();
+    editor.onExit();
+    return valid;
+  }
+#endif
   template <typename Capture>
   static bool verifyImageDisplay(const Capture& capture) {
     JsonDocument original;
@@ -5057,6 +5131,32 @@ class SimulatorSmokeTest {
         (legacy.readerSettingsOverrideMask & (1U << 21)))
       fail("Publisher mode broke version 12 inheritance");
     Storage.remove(settingsPath.c_str());
+    // Heading/root fonts and inline overrides must not be mistaken for body prose.
+    auto* bodyCss = book.getCssParser();
+    if (!bodyCss || !bodyCss->loadFromCache()) fail("Cannot load body-font probe CSS");
+    const auto probePath = book.getCachePath() + "/body-font-probe.xhtml";
+    for (const auto html :
+         {"<html><body style=\"font-family:'Publisher Accent'\"><h1>Decorative title</h1>"
+          "<p style=\"font-family:'Publisher Body'\">Ordinary paragraph body text.</p></body></html>",
+          "<html><body><h1 style=\"font-family:'Publisher Accent'\">Decorative title</h1>"
+          "<p><span style=\"font-family:'Publisher Body'\">Ordinary paragraph body text.</span></p></body></html>",
+          "<html><body><div style=\"font-family:'Publisher Body'\">Ordinary body text without a p tag.</div>"
+          "</body></html>"}) {
+      if (!Storage.writeFile(probePath.c_str(), html) ||
+          ChapterHtmlSlimParser::publisherBodyFontFamily(probePath, *bodyCss) !=
+              CssParser::hashFontFamily("Publisher Body"))
+        fail("Body probe selected a decorative font");
+    }
+    for (const auto html :
+         {"<html><body><h1 style=\"font-family:'Publisher Accent'\">Decorative title</h1>"
+          "<p style=\"font-family:serif\">Ordinary reader-font body text.</p></body></html>",
+          "<html><body style=\"font-family:'Publisher Accent'\"><h1>Heading only</h1></body></html>"}) {
+      if (!Storage.writeFile(probePath.c_str(), html) ||
+          ChapterHtmlSlimParser::publisherBodyFontFamily(probePath, *bodyCss) != 0)
+        fail("Body probe invented a publisher body font");
+    }
+    Storage.remove(probePath.c_str());
+    bodyCss->clear();
     const int readerFont = sdFontSystem.ensureBuiltInReaderFont(renderer);
     for (const auto orientation : {GfxRenderer::Portrait, GfxRenderer::LandscapeClockwise}) {
       renderer.setOrientation(orientation);
@@ -5071,6 +5171,9 @@ class SimulatorSmokeTest {
         spec.publisherFontSignature = mode ? bookFontSystem.signature() : 0;
         Section section(book, 0, renderer, "-publisher-smoke");
         if (!section.createSectionFile(spec) || !section.loadSectionFile(spec)) fail("Publisher layout/cache failed");
+        if (!ReaderDrawerLayoutSmokeTest::verifyPublisherBodyFont(
+                lock, book, section, mode, [&](const std::string& name) { captureStatusBarScreen(name.c_str()); }))
+          fail("Publisher body font name, disabled row or reader fallback failed");
         bool publisherWord = false, readerWord = false;
         for (uint16_t index = 0; index < section.pageCount; ++index) {
           section.currentPage = index;
@@ -5100,6 +5203,17 @@ class SimulatorSmokeTest {
         if (mode == 2 && (!publisherWord || readerWord)) fail("All Text did not use publisher fonts");
         if (mode == 1 && Storage.exists((book.getCachePath() + "/publisher-font-0").c_str()))
           fail("Ignore Body Font extracted the ignored body face");
+        if (mode == 2) {
+          Section incremental(book, 0, renderer, "-publisher-body-incremental");
+          if (!incremental.startBuild(spec) || !incremental.buildSomeMore(1) ||
+              incremental.publisherBodyFontFamily() != CssParser::hashFontFamily("Publisher Body"))
+            fail("Incremental body font probe failed");
+          while (incremental.isBuilding()) {
+            if (!incremental.buildSomeMore(1)) fail("Body font probe prevented incremental build resume");
+          }
+          if (!incremental.loadSectionFile(spec) || incremental.pageCount != section.pageCount)
+            fail("Body font probe changed incremental pages");
+        }
         const uint32_t requested = bookFontSystem.requestedFaces();
         bookFontSystem.close();
         bookFontSystem.ensure(book, renderer, mode != 0);

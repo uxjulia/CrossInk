@@ -46,6 +46,7 @@
 - Choose Cover Overlay to place a transparent sleep image over the current book cover (CrossPoint #3770).
 - Sync combined reading streaks back from CrossPoint Sync, including reading on other devices, while keeping local reading and upload totals separate.
 - Advanced Wi-Fi transmit-power setting with a per-device limit; Default preserves existing radio behavior.
+- Show the publisher’s body font as a disabled Font Family value in the in-book Reader Font menu when "Publisher Font" is set to "All Text"; keep the normal picker available when the body uses the reader font.
 
 ### Fixed
 

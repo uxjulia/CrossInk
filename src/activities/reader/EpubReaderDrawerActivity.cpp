@@ -32,6 +32,7 @@
 #include "activities/settings/StatusBarSettingsActivity.h"
 #include "util/ImageDisplayMode.h"
 #if CROSSINK_SCALABLE_FONTS
+#include "BookFontSystem.h"
 #include "activities/settings/TtfRenderOptionsActivity.h"
 #endif
 #include "components/DrawerHandle.h"
@@ -1170,6 +1171,7 @@ void EpubReaderDrawerActivity::buildRows(UiApp::ScreenType& screen) {
     props.action = ACTION_ROW;
     props.valueId = static_cast<int16_t>(top + i);
     props.drawChevron = rowShowsNavigationCaret(row);
+    props.enabled = row != RowId::FontFamily || !publisherBodyFontActive();
     props.labelText = screen.theme().bodyText;
     props.valueText = screen.theme().smallText;
     if (buttonDevice) props.minTouchSize = rowHeight;
@@ -1185,7 +1187,15 @@ void EpubReaderDrawerActivity::buildRows(UiApp::ScreenType& screen) {
       toggle.toggleValue = static_cast<int16_t>(top + i);
       screen.toggleRow(toggle, buttonDevice ? rowHeight : 0);
     } else {
+      const fui::Rect rowBounds{screen.body().x, screen.body().y, screen.body().width, rowHeight};
       screen.settingRow(props, buttonDevice ? rowHeight : 0);
+      if (!props.enabled) {
+        // This renderer predates the SDK's gray-text API. A transparent white
+        // checker mask dims only the row's existing ink, with no extra buffer.
+        static constexpr uint8_t dimMask[] = {0x80, 0x40};
+        screen.target().bitmap(rowBounds, fui::BitmapRef{dimMask, 2, 2, fui::BitmapFormat::BW1}, fui::BitmapMode::Tile,
+                               fui::Paint::solid(fui::Color::White));
+      }
     }
   }
   fui::drawListScrollIndicator(screen.target(), drawerScrollbarBounds(listBounds), rows.size(), visibleRows, top,
@@ -1802,6 +1812,7 @@ void EpubReaderDrawerActivity::activateRow(const RowId row) {
     }
 #endif
     case RowId::FontFamily:
+      if (publisherBodyFontActive()) return;
       discoverFonts();
       openPane(ReaderDrawerPane::FontFamily);
       return;
@@ -3006,6 +3017,7 @@ void EpubReaderDrawerActivity::loop() {
 void EpubReaderDrawerActivity::render(RenderLock&&) {
 #if CROSSINK_SCALABLE_FONTS
   if (ttfResetPopup.processRender(renderer, mappedInput)) return;
+  resolvePublisherBodyFontName();
 #endif
   const bool buttonDevice = !mappedInput.hasTouchHardware();
   const int16_t drawerEdge =
@@ -3256,9 +3268,37 @@ const char* EpubReaderDrawerActivity::rowLabel(const RowId row) const {
   return "";
 }
 
+bool EpubReaderDrawerActivity::publisherBodyFontActive() const {
+#if CROSSINK_SCALABLE_FONTS
+  return draft.publisherFonts == static_cast<uint8_t>(PublisherFonts::All) && draft.embeddedStyle &&
+         draft.epubRenderMode != static_cast<uint8_t>(EpubRenderMode::Light) && publisherBodyFontName[0];
+#else
+  return false;
+#endif
+}
+
+#if CROSSINK_SCALABLE_FONTS
+void EpubReaderDrawerActivity::resolvePublisherBodyFontName() {
+  if (publisherBodyFontNameResolved || state.pane != ReaderDrawerPane::ReaderFont || !epub || !draft.embeddedStyle ||
+      draft.publisherFonts != static_cast<uint8_t>(PublisherFonts::All) ||
+      draft.epubRenderMode == static_cast<uint8_t>(EpubRenderMode::Light))
+    return;
+  publisherBodyFontNameResolved = true;
+  if (!bookFontSystem.loadedFaces()) return;
+  if (publisherBodyFontProbe) publisherBodyFontFamily = publisherBodyFontProbe(publisherBodyFontContext);
+  // This informational row must not load fonts or change their admission order.
+  if (!bookFontSystem.hasLoadedFamily(publisherBodyFontFamily)) return;
+  if (!bookFontSystem.copyFamilyName(publisherBodyFontFamily, publisherBodyFontName, sizeof(publisherBodyFontName)))
+    std::snprintf(publisherBodyFontName, sizeof(publisherBodyFontName), "%s", tr(STR_PUBLISHER_FONTS));
+}
+#endif
+
 const char* EpubReaderDrawerActivity::rowValue(const RowId row, char* buffer, const size_t bufferSize) const {
   switch (row) {
     case RowId::FontFamily: {
+#if CROSSINK_SCALABLE_FONTS
+      if (publisherBodyFontActive()) return publisherBodyFontName;
+#endif
       if (draft.sdFontFamilyName[0] != '\0') return draft.sdFontFamilyName.data();
       static constexpr std::array<StrId, CrossPointSettings::BUILTIN_FONT_COUNT> labels = {StrId::STR_LEXEND_DECA,
                                                                                            StrId::STR_BITTER};

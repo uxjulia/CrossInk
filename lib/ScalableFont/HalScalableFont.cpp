@@ -752,6 +752,23 @@ unsigned long HalScalableFont::streamRead(void* ctx, unsigned long offset, unsig
   }
   return count;
 }
+bool HalScalableFont::copyFamilyName(char* name, const size_t capacity) {
+  ScalableFontAccess access;
+  if (!name || capacity == 0) return false;
+  name[0] = '\0';
+  if (!font_.ready() || (!streamed_ && !bytes_)) return false;
+  freeink::font::FtFont::FaceInfo info;
+  const auto result = streamed_
+                          ? freeink::font::FtFont::inspectStream(streamRead, this, fileBytes_, info, name, capacity)
+                          : freeink::font::FtFont::inspectMemory(bytes_.get(), fileBytes_, info, name, capacity);
+  if (result != freeink::font::FtFont::InspectResult::Ok || !name[0]) {
+    LOG_ERR("TTF", "Cannot read loaded font family name");
+    name[0] = '\0';
+    return false;
+  }
+  return true;
+}
+
 bool HalScalableFont::inspectFile(const char* path, Info& info, bool* unavailable, size_t limit, FontLoadError* error) {
   const auto failed = [&](FontLoadError reason) {
     if (error) *error = reason;
