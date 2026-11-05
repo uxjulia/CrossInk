@@ -151,6 +151,7 @@
 - Render Unicode spaces, including thin and hair spaces around nested quotes, without missing-character boxes; preserve font-relative spacing and invisible zero-width controls.
 - Choose optional SD bitmap font sizes from EPUB stylesheet headings instead of always loading a double-size font, while keeping the existing C3 memory limits and safe fallback.
 - Honor Next Page and Previous Page power-button assignments while viewing dictionary definitions.
+- Preserve book text between dictionary button hints and above inactive button markers.
 
 ### Changed
 

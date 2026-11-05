@@ -78,6 +78,7 @@
 #include "activities/reader/BookStatsActivity.h"
 #include "activities/reader/BookStatsView.h"
 #include "activities/reader/DictionaryDefinitionActivity.h"
+#include "activities/reader/DictionaryWordSelectActivity.h"
 #include "activities/reader/EndOfBookOptions.h"
 #include "activities/reader/EpubReaderActivity.h"
 #include "activities/reader/EpubReaderBookmarkListActivity.h"
@@ -1321,6 +1322,90 @@ struct DictionaryPagingSmokeTest {
 };
 
 struct ScreenCalibrationSmokeTest {
+  static bool dictionaryHints(RenderLock& lock, const StatusBarFeatureSmokeTest::Capture& capture) {
+    const auto orientation = renderer.getOrientation();
+    const auto insets = renderer.getViewableInsets();
+    const auto theme = SETTINGS.uiTheme;
+    bool valid = true;
+    renderer.setViewableInsets(ScreenInsets{});
+    for (const auto variant : {CrossPointSettings::CLASSIC, CrossPointSettings::LYRA, CrossPointSettings::MINIMAL}) {
+      SETTINGS.uiTheme = variant;
+      UITheme::getInstance().reload();
+      for (unsigned rotation = 0; rotation < 4; ++rotation) {
+        renderer.setOrientation(GfxRenderer::Portrait);
+        const int x = variant == CrossPointSettings::CLASSIC ? (renderer.getScreenWidth() >= 528 ? 43 : 30)
+                                                             : (renderer.getScreenWidth() >= 528 ? 70 : 63);
+        const int y = renderer.getScreenHeight() - UITheme::getButtonHintsBottomInset(renderer) - 30;
+        renderer.clearScreen();
+        renderer.fillRect(x, y, 2, 2);
+        renderer.setOrientation(static_cast<GfxRenderer::Orientation>(rotation));
+        GUI.drawButtonHints(renderer, "", nullptr, nullptr, nullptr);
+        valid &= renderer.getOrientation() == static_cast<GfxRenderer::Orientation>(rotation);
+        renderer.setOrientation(GfxRenderer::Portrait);
+        valid &= renderer.isPixelBlack(x, y);  // Above the inactive marker, inside the old full-size clear.
+      }
+
+      // Exercise both entry paths with a real selectable word and ink between the hints.
+      for (const bool prepared : {false, true}) {
+        auto page = std::make_unique<Page>();
+        auto block = std::make_shared<TextBlock>(
+            std::vector<std::string>{"Reader", "text"}, std::vector<int16_t>{0, 120},
+            std::vector<EpdFontFamily::Style>{EpdFontFamily::REGULAR, EpdFontFamily::REGULAR}, std::vector<uint8_t>{},
+            std::vector<uint16_t>{}, std::vector<uint16_t>{}, std::vector<uint8_t>{}, std::vector<bool>{false, true});
+        for (int y = 40; y < renderer.getScreenHeight() - 20; y += 36)
+          page->elements.push_back(std::make_unique<PageLine>(block, 20, y));
+        const int sentinelY = renderer.getScreenHeight() - 30;
+        page->elements.push_back(std::make_unique<PageHorizontalRule>(20, 1, 0, sentinelY));
+        auto selection = std::make_unique<DictionaryWordSelectActivity>(renderer, mappedInputManager, std::move(page),
+                                                                        0, 0, "", "", false, prepared);
+        if (!selection->buildWorkingSet(false) || selection->navigator.isEmpty()) return false;
+        if (prepared) selection->renderDefinitionBackground();
+        selection->render(std::move(lock));
+        valid &= renderer.isPixelBlack(5, sentinelY);
+        capture("dictionary-selection-theme-" + std::to_string(variant) + (prepared ? "-prepared" : "-full"));
+        selection->onExit();
+      }
+
+      // Returning from selection must restore old full-size labels from the book,
+      // rather than letting an inactive marker erase an oversized white rectangle.
+      const char* path = "/.crosspoint/hints-dictionary";
+      constexpr char definitionText[] = "Reader text remains visible around the hints.";
+      if (!Storage.writeFile("/.crosspoint/hints-dictionary.dict", definitionText) ||
+          !Storage.writeFile("/.crosspoint/hints-dictionary.ifo",
+                             "StarDict's dict ifo file\nbookname=Hints\nsametypesequence=m\n"))
+        return false;
+      DictLocation location;
+      location.folderPath = path;
+      location.size = sizeof(definitionText) - 1;
+      location.found = true;
+      int redraws = 0;
+      const auto background = [](void* context) {
+        ++*static_cast<int*>(context);
+        renderer.clearScreen();
+        for (int y = 0; y < renderer.getScreenHeight(); y += 32)
+          renderer.drawText(UI_10_FONT_ID, 4, y, "Reader text visible around dictionary hints");
+      };
+      auto definition = std::make_unique<DictionaryDefinitionActivity>(
+          renderer, mappedInputManager, "Reader", location, false, "", false, "", LookupHistory::Status::NotFound,
+          &redraws, background);
+      definition->onEnter();
+      definition->render(std::move(lock));
+      const std::vector<uint8_t> initial(renderer.getFrameBuffer(),
+                                         renderer.getFrameBuffer() + renderer.getBufferSize());
+      if (!definition->enterWordSelectMode()) return false;
+      definition->render(std::move(lock));
+      definition->isWordSelectMode = false;
+      definition->render(std::move(lock));
+      valid &= redraws == 2 && std::equal(initial.begin(), initial.end(), renderer.getFrameBuffer());
+      capture("dictionary-inactive-hints-theme-" + std::to_string(variant));
+      definition->onExit();
+    }
+    SETTINGS.uiTheme = theme;
+    UITheme::getInstance().reload();
+    renderer.setViewableInsets(insets);
+    renderer.setOrientation(orientation);
+    return valid;
+  }
   // Check actual ink, not just layout metadata, across the default/custom boundary.
   static bool safeAreaContract(RenderLock& lock, const StatusBarFeatureSmokeTest::Capture& capture) {
     const auto original = renderer.getViewableInsets();
@@ -7508,6 +7593,13 @@ class SimulatorSmokeTest {
     switch (step) {
       case SmokeStep::Start:
         LOG_INF("SMOKE", "Starting simulator smoke test");
+        if (std::getenv("CROSSINK_SIMULATOR_SMOKE_DICTIONARY_HINTS")) {
+          RenderLock lock;
+          const auto capture = [&](const std::string& name) { captureStatusBarScreen(name.c_str()); };
+          if (!ScreenCalibrationSmokeTest::dictionaryHints(lock, capture)) fail("Dictionary hint pixels changed");
+          LOG_INF("SMOKE", "Simulator smoke test passed: dictionary hint backgrounds and stale labels");
+          std::_Exit(0);
+        }
         if (std::getenv("CROSSINK_SIMULATOR_SMOKE_UNICODE_SPACES")) {
           const char* book = std::getenv("CROSSINK_SIMULATOR_SMOKE_BOOK");
           if (!book || !Storage.exists(book)) fail("Unicode space fixture is missing");

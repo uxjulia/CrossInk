@@ -673,8 +673,7 @@ void MinimalTheme::drawButtonHints(GfxRenderer& renderer, const char* btn1, cons
       renderer.drawRoundedRect(x, pageHeight - buttonY, buttonWidth, buttonHeight, 1, kButtonCornerRadius, true, true,
                                false, false, true);
     } else if (labels[i] != nullptr) {
-      // Clear the previous full-sized hint before drawing the inactive marker.
-      renderer.fillRect(x, pageHeight - buttonY, buttonWidth, buttonHeight, false);
+      // The caller restores the background when hints change; only cover the small marker.
       const int smallButtonY = pageHeight - smallButtonHeight - UITheme::getButtonHintsBottomInset(renderer);
       renderer.fillRoundedRect(x, smallButtonY, buttonWidth, smallButtonHeight, kButtonCornerRadius, Color::White);
       renderer.drawRoundedRect(x, smallButtonY, buttonWidth, smallButtonHeight, 1, kButtonCornerRadius, true, true,
