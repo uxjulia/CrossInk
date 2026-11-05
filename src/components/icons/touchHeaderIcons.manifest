@@ -4,3 +4,4 @@
 #   --sizes 32 --stroke-width 3 \
 #   --out src/components/icons/touchHeaderIcons.h
 back = chevron-left
+close = x

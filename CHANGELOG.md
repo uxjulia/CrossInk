@@ -192,6 +192,7 @@
 - Reduce SD writes for EPUB progress and reading statistics.
 - Match Nearby Position Sync to the progress sync comparison design, with progress cards, bars, chapter details, and an Ahead badge.
 - Default to Incremental EPUB indexing on ESP32-S3 readers, while preserving saved global choices and per-book overrides.
+- Move dictionary definition pagination to the bottom right and add a tappable close icon at the top right on touch devices.
 
 ## [v1.6.1] - 2026-10-03
 

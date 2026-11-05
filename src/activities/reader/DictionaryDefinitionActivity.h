@@ -17,6 +17,8 @@
 #include "util/LookupHistory.h"
 #include "util/WordSelectNavigator.h"
 
+struct Rect;
+
 class DictionaryDefinitionActivity final : public Activity {
 #ifdef SIMULATOR
   friend struct ScreenCalibrationSmokeTest;
@@ -222,6 +224,11 @@ class DictionaryDefinitionActivity final : public Activity {
   bool dictionarySwitchButtonContains(int x, int y) const;
   bool dictionaryCreateClippingButtonContains(int x, int y) const;
   bool modalContains(int x, int y) const;
+#endif
+  int dictionaryTitleHeight() const;
+  Rect definitionHeaderRect() const;
+#if CROSSINK_APP_CAP_TOUCH
+  Rect closeButtonRect() const;
 #endif
   int dictionaryFooterHeight() const;
   bool hasModalBackground() const { return backgroundContext_ && backgroundRender_; }
