@@ -101,11 +101,11 @@ with tempfile.TemporaryDirectory(prefix="crossink-builtins-") as temporary:
         flash.write_bytes(b"\xff" * 0x360000)
         assert lookup("FR", "STR_SETTINGS_TITLE", 2) == fallback
         flash.unlink()
-        # Existing 27 release sources plus all builtins fit the bounded catalog.
+        # Existing 28 release sources plus all builtins fit the bounded catalog.
         for path in sources.glob("*.yaml"):
             if path.name != "english.yaml":
                 shutil.copy2(path, sd / path.name)
-        assert len(run("scan").splitlines()) == 28
+        assert len(run("scan").splitlines()) == 29
 
     # Invalid options must fail the CLI, not quietly produce English-only output.
     result = subprocess.run(command[:-2] + ["--builtin-langs", "NOT-A-LANGUAGE"], capture_output=True)
@@ -134,4 +134,4 @@ with tempfile.TemporaryDirectory(prefix="crossink-builtins-") as temporary:
         assert "Missing" in str(error)
     else:
         raise AssertionError("Missing selected identity must fail")
-print("Builtin matrix passed: default EN, explicit subset, all 28, invalid config, SD precedence/reboot/fallback")
+print("Builtin matrix passed: default EN, explicit subset, all 29, invalid config, SD precedence/reboot/fallback")

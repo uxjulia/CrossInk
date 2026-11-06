@@ -81,7 +81,7 @@ for language in catalog["languages"]:
     assert cache_bytes <= 65536
     assert len(data) <= 262144 and all(len(line) <= 2047 for line in data.split(b"\n"))
 assert not unsafe, f"Community translations contain invalid printf contracts: {unsafe}"
-assert len([item for item in catalog["languages"] if "translation" in item]) == 27
+assert len([item for item in catalog["languages"] if "translation" in item]) == 28
 
 # The exported budget is the production on-flash layout, not just text length.
 header = (root / "lib/LanguageCache/LanguageCache.h").read_text()
