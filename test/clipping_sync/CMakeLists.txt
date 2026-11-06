@@ -1,4 +1,4 @@
-add_executable(ClippingSyncTest ClippingSyncTest.cpp
+add_executable(ClippingSyncTest ClippingSyncTest.cpp ArrayHeap.cpp
   ${REPO_ROOT}/src/ClippingStore.cpp
   ${REPO_ROOT}/src/sync/SyncFiles.cpp
   ${REPO_ROOT}/src/network/ClippingsUpload.cpp

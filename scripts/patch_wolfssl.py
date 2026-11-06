@@ -111,3 +111,37 @@ for settings in PROJECT_DIR.glob(".pio/libdeps/*/Arduino-wolfSSL/src/user_settin
 for internal in PROJECT_DIR.glob(".pio/libdeps/*/Arduino-wolfSSL/src/src/internal.c"):
     patch_input_buffer_shrink(internal)
     patch_input_buffer_growth(internal)
+
+
+# SP RSA public operations accept exponents up to 64 bits. Return the existing
+# fallback signal for wider exponents instead of letting SP reject a key that
+# general math previously supported. Keep the patch inert in older builds that
+# reuse this dependency cache without the accompanying define.
+RSA_MARKER = "/* CrossInk: preserve general RSA for wide public exponents */"
+RSA_ORIGINAL = """    ret = RsaFunction_SP(in, inLen, out, outLen, type, key, rng);
+"""
+RSA_PATCHED = f"""    {RSA_MARKER}
+#if defined(FREEINK_WOLFSSL_SP_RSA_FALLBACK) && !defined(WOLFSSL_SP_MATH)
+    if ((type == RSA_PUBLIC_ENCRYPT || type == RSA_PUBLIC_DECRYPT) &&
+            mp_count_bits(&key->e) > 64)
+        ret = WC_KEY_SIZE_E;
+    else
+#endif
+{RSA_ORIGINAL}"""
+env.Append(CPPDEFINES=["FREEINK_WOLFSSL_SP_RSA_FALLBACK"])
+
+
+def patch_rsa_fallback(path: Path) -> None:
+    text = path.read_text()
+    if RSA_MARKER in text:
+        if text.count(RSA_PATCHED) != 1:
+            raise RuntimeError(f"Corrupt wolfSSL RSA fallback patch in {path}")
+        return
+    if text.count(RSA_ORIGINAL) != 1:
+        raise RuntimeError(f"Unsupported wolfSSL RSA dispatch in {path}; refusing an unverified patch")
+    path.write_text(text.replace(RSA_ORIGINAL, RSA_PATCHED, 1))
+    print(f"Patched wolfSSL RSA fallback: {path.relative_to(PROJECT_DIR)}")
+
+
+for rsa in PROJECT_DIR.glob(".pio/libdeps/*/Arduino-wolfSSL/src/wolfcrypt/src/rsa.c"):
+    patch_rsa_fallback(rsa)

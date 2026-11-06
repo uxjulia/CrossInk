@@ -39,6 +39,7 @@
 #include "network/ReadingSyncUpload.h"
 #include "network/WifiUtils.h"
 #include "sync/BookSyncFile.h"
+#include "sync/PreparedProgress.h"
 #include "sync/SyncParked.h"
 #include "sync/SyncPending.h"
 
@@ -86,8 +87,8 @@ void KOReaderSyncActivity::ensureEpubLoaded() {
       return;
     }
     epub->setupCacheDir();
-    // Load metadata only (no CSS needed for progress mapping, don't rebuild if cache is missing).
-    if (!epub->load(false, true, Epub::XLocationLoadMode::Immediate, true)) {
+    // Bulk fallback runs offline and may rebuild metadata missing after a book move.
+    if (!epub->load(folderSync, true, Epub::XLocationLoadMode::Immediate, true)) {
       LOG_ERR("KOSync", "Failed to load epub for progress mapping");
       epub.reset();
       return;
@@ -110,6 +111,14 @@ bool KOReaderSyncActivity::ensureLocalProgressLoaded() {
     if (progress.hasPageCount) totalPagesInSpine = std::max(1, progress.pageCount);
   }
 
+  if (folderSync && (!progress.hasPageCount || progress.pageCount < 1 || progress.pageNumber < 0 ||
+                     progress.pageNumber >= progress.pageCount || progress.spineIndex < 0 ||
+                     progress.spineIndex >= epub->getSpineItemsCount())) {
+    LOG_ERR("KOSync", "Saved position is outside this EPUB");
+    localProgressDeferred = false;
+    localProgress.valid = false;
+    return false;
+  }
   if (currentSpineIndex < 0 || currentSpineIndex >= epub->getSpineItemsCount()) currentSpineIndex = 0;
   CrossPointPosition localPos = {currentSpineIndex, currentPage, totalPagesInSpine};
   if (progress.hasVisibleTextOffset) {
@@ -461,63 +470,72 @@ void KOReaderSyncActivity::performSync() {
           result, KOReaderSyncClient::lastHttpCode, documentHash.c_str(), remoteProgress.percentage,
           remoteProgress.progress.c_str());
 
-  // Folder sync resolves here with Wi-Fi already active. Single-book sync keeps
-  // only its precomputed pointer through the network request.
-  if (!ensureLocalProgressLoaded()) {
-    LOG_ERR("KOSync", "Failed to reconstruct local progress after network boot");
+  const bool sameAnchor = !localProgressDeferred && result == KOReaderSyncClient::OK &&
+                          localProgress.xpath == remoteProgress.progress &&
+                          std::fabs(localProgress.percentage - remoteProgress.percentage) <= 0.001f;
+  const bool needsMap = result == KOReaderSyncClient::OK && !sameAnchor;
+  const bool suspendWifi = folderSync && (localProgressDeferred || needsMap) && hasActiveStationWifiConnection();
+  if (suspendWifi) wifiOff();
+  {
+    RenderLock lock(*this);
+    // Bulk mapping runs offline. Reuse the framebuffer for the inflater's 32 KB
+    // window even when WiFi teardown has left the heap fragmented.
+    std::optional<GfxRenderer::FrameBufferLoan> loan;
+    if (folderSync) loan.emplace(renderer);
+    localProgress.valid = ensureLocalProgressLoaded();
+    remotePosition.valid = sameAnchor;
+    if (localProgress.valid && needsMap) {
+      ensureEpubLoaded();
+      if (epub)
+        remotePosition =
+            mapRemotePosition(epub, renderer, remoteProgress, primaryMatchMethod, currentSpineIndex, totalPagesInSpine);
+    }
+    if (folderSync && epub && KOREADER_STORE.getSendMetadata() && !preparedMetadata) {
+      auto& meta = preparedMetadata.emplace();
+      meta.filename = epubPath.substr(epubPath.find_last_of('/') + 1);
+      meta.title = epub->getTitle();
+      meta.authors = epub->getAuthor();
+      meta.loadExtended(*epub);
+    }
+  }
+  if (folderSync) requestUpdate(true);
+  if (suspendWifi) {
+    auto wifi = makeUniqueNoThrow<WifiSelectionActivity>(renderer, mappedInput, true, true);
+    if (!wifi) {
+      exitBatch();
+      return;
+    }
+    startActivityForResult(std::move(wifi), [this, result](const ActivityResult& selected) {
+      if (selected.isCancelled || !hasActiveStationWifiConnection()) {
+        exitBatch();
+        return;
+      }
+      WiFi.setSleep(false);
+      finishComparison(result);
+    });
+    return;
+  }
+  finishComparison(result);
+}
+
+void KOReaderSyncActivity::finishComparison(const KOReaderSyncClient::Error result) {
+  if (!localProgress.valid || (result == KOReaderSyncClient::OK && !remotePosition.valid) ||
+      (result != KOReaderSyncClient::OK && result != KOReaderSyncClient::NOT_FOUND)) {
     {
       RenderLock lock(*this);
       state = SYNC_FAILED;
       progressFailed = true;
-      statusMessage = localProgress.needsReoptimization ? tr(STR_SYNC_REOPTIMIZE_REQUIRED) : tr(STR_SYNC_FAILED_MSG);
+      statusMessage = result != KOReaderSyncClient::OK && result != KOReaderSyncClient::NOT_FOUND
+                          ? KOReaderSyncClient::errorString(result)
+                          : tr(STR_SYNC_FAILED_MSG);
     }
     requestUpdate(true);
     return;
   }
-
   if (result == KOReaderSyncClient::NOT_FOUND) {
-    // Nothing to conflict with, so neither sync behavior asks.
-    LOG_DBG("KOSync", "No remote progress found; uploading local %.6f", localProgress.percentage);
     performUpload();
     return;
   }
-
-  if (result != KOReaderSyncClient::OK) {
-    {
-      RenderLock lock(*this);
-      state = SYNC_FAILED;
-      progressFailed = true;
-      statusMessage = KOReaderSyncClient::errorString(result);
-    }
-    requestUpdate(true);
-    return;
-  }
-
-  ensureEpubLoaded();
-  if (!epub) {
-    {
-      RenderLock lock(*this);
-      state = SYNC_FAILED;
-      progressFailed = true;
-      statusMessage = tr(STR_SYNC_FAILED_MSG);
-    }
-    requestUpdate(true);
-    return;
-  }
-
-  remotePosition =
-      mapRemotePosition(epub, renderer, remoteProgress, primaryMatchMethod, currentSpineIndex, totalPagesInSpine);
-  if (!remotePosition.valid) {
-    {
-      RenderLock lock(*this);
-      state = SYNC_FAILED;
-      progressFailed = true;
-      statusMessage = tr(STR_SYNC_REOPTIMIZE_REQUIRED);
-    }
-    requestUpdate(true);
-    return;
-  }
-
   static constexpr float SAME_PROGRESS_EPSILON = 0.001f;  // 0.1 percentage points
   const float delta = localProgress.percentage - remoteProgress.percentage;
   LOG_DBG("KOSync", "Sync decision: doc=%s local=%.6f remote=%.6f delta=%.6f remoteXpath=%s mapped=%d/%d",
@@ -583,55 +601,61 @@ void KOReaderSyncActivity::performUpload() {
     epub.reset();
   }
 
-  // localProgress was pre-computed in EpubReaderActivity before the Epub was released.
-  KOReaderProgress progress;
-  progress.document = documentHash;
-  progress.progress = localProgress.xpath;
-  progress.percentage = localProgress.percentage;
-  progress.device = SETTINGS.getEffectiveDeviceName();
+  KOReaderSyncClient::Error result;
+  {
+    // localProgress was pre-computed before the Epub was released.
+    KOReaderProgress progress;
+    progress.document = documentHash;
+    progress.progress = localProgress.xpath;
+    progress.percentage = localProgress.percentage;
+    progress.device = SETTINGS.getEffectiveDeviceName();
 
-  // Rich CrossPoint position for the default CrossPoint sync server (lossless
-  // CrossPoint<->CrossPoint sync). The HTTP client also enforces this boundary
-  // before serializing the extension.
-  if (KOREADER_STORE.supportsRichProgress()) {
-    KOReaderRichPosition pos;
-    const float pct = localProgress.percentage < 0.0f   ? 0.0f
-                      : localProgress.percentage > 1.0f ? 1.0f
-                                                        : localProgress.percentage;
-    pos.pctQ = static_cast<uint32_t>(pct * 1000000.0f + 0.5f);
-    pos.spineIndex = static_cast<uint16_t>(currentSpineIndex);
-    pos.pageNumber = static_cast<uint16_t>(currentPage);
-    pos.totalPages = static_cast<uint16_t>(totalPagesInSpine > 0 ? totalPagesInSpine : 1);
-    pos.paragraphIndex = currentParagraphIndex;
-    pos.xpath = localProgress.xpath;
-    progress.position = std::move(pos);
-  }
-
-  // Optionally include document metadata (KOReader PR #15306)
-  if (KOREADER_STORE.getSendMetadata()) {
-    // The Epub is released before the sync network calls and is only reloaded on the
-    // remote-progress path (performSync). When uploading without remote progress the
-    // Epub is still null, so reload it here and guard the title/author reads to avoid
-    // dereferencing a null Epub. Filename is derived from the path and is always safe.
-    ensureEpubLoaded();
-    KOReaderMetadata meta;
-    const auto lastSlash = epubPath.rfind('/');
-    meta.filename = (lastSlash != std::string::npos) ? epubPath.substr(lastSlash + 1) : epubPath;
-    if (epub) {
-      meta.title = epub->getTitle();
-      meta.authors = epub->getAuthor();
-      meta.loadExtended(*epub);
-    } else {
-      LOG_ERR("KOSync", "Epub unavailable for metadata; sending filename only");
+    // Rich CrossPoint position for the default CrossPoint sync server (lossless
+    // CrossPoint<->CrossPoint sync). The HTTP client also enforces this boundary
+    // before serializing the extension.
+    if (KOREADER_STORE.supportsRichProgress()) {
+      KOReaderRichPosition pos;
+      const float pct = localProgress.percentage < 0.0f   ? 0.0f
+                        : localProgress.percentage > 1.0f ? 1.0f
+                                                          : localProgress.percentage;
+      pos.pctQ = static_cast<uint32_t>(pct * 1000000.0f + 0.5f);
+      pos.spineIndex = static_cast<uint16_t>(currentSpineIndex);
+      pos.pageNumber = static_cast<uint16_t>(currentPage);
+      pos.totalPages = static_cast<uint16_t>(totalPagesInSpine > 0 ? totalPagesInSpine : 1);
+      pos.paragraphIndex = currentParagraphIndex;
+      pos.xpath = localProgress.xpath;
+      progress.position = std::move(pos);
     }
-    progress.metadata = std::move(meta);
-  }
 
-  // Release the Epub before the network call so the TLS handshake has enough free heap
-  // (consistent with the release-before-sync pattern in performSync); nothing below needs it.
-  epub.reset();
+    // Optionally include document metadata (KOReader PR #15306)
+    if (KOREADER_STORE.getSendMetadata() && preparedMetadata) {
+      progress.metadata = std::move(preparedMetadata);
+    } else if (KOREADER_STORE.getSendMetadata()) {
+      // The Epub is released before the sync network calls and is only reloaded on the
+      // remote-progress path (performSync). When uploading without remote progress the
+      // Epub is still null, so reload it here and guard the title/author reads to avoid
+      // dereferencing a null Epub. Filename is derived from the path and is always safe.
+      ensureEpubLoaded();
+      KOReaderMetadata meta;
+      const auto lastSlash = epubPath.rfind('/');
+      meta.filename = (lastSlash != std::string::npos) ? epubPath.substr(lastSlash + 1) : epubPath;
+      if (epub) {
+        meta.title = epub->getTitle();
+        meta.authors = epub->getAuthor();
+        meta.loadExtended(*epub);
+      } else {
+        LOG_ERR("KOSync", "Epub unavailable for metadata; sending filename only");
+      }
+      progress.metadata = std::move(meta);
+    }
 
-  const auto result = KOReaderSyncClient::updateProgress(progress);
+    // Release the Epub before the network call so the TLS handshake has enough free heap
+    // (consistent with the release-before-sync pattern in performSync); nothing below needs it.
+    epub.reset();
+
+    result = KOReaderSyncClient::updateProgress(progress);
+  }  // Destroy all payload strings before stats/clipping work below.
+  preparedMetadata.reset();
 
   if (result == KOReaderSyncClient::OK) {
     progressSucceeded = true;
@@ -783,6 +807,18 @@ void KOReaderSyncActivity::onEnter() {
   }
   ReaderUtils::applyOrientation(renderer, syncOrientation);
   lockInitialConfirmRelease = mappedInput.isPressed(MappedInputManager::Button::Confirm);
+  if (folderSync) {
+    KOReaderProgress prepared;
+    PreparedProgress::Saved saved;
+    if (ReadingSyncUpload::loadPreparedProgress(epubPath, prepared, &saved)) {
+      localProgress = {std::move(prepared.progress), prepared.percentage, true, false};
+      currentSpineIndex = saved.spine;
+      currentPage = saved.page;
+      totalPagesInSpine = saved.pages;
+      preparedMetadata = std::move(prepared.metadata);
+      localProgressDeferred = false;
+    }
+  }
 
   if (!localProgressDeferred && !localProgress.valid) {
     LOG_ERR("KOSync", "Source position map unavailable; re-optimize the EPUB before filename-based sync");

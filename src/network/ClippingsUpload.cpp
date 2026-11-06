@@ -1,6 +1,7 @@
 #include "ClippingsUpload.h"
 
 #include <ArduinoJson.h>
+#include <JsonFileReader.h>
 #include <KOReaderCredentialStore.h>
 #include <Logging.h>
 #include <Memory.h>
@@ -11,35 +12,44 @@
 #include "sync/SyncFiles.h"
 
 namespace {
-// ArduinoJson's stream reader unescapes strings directly into its document.
-// A small sector fragment avoids one SD/HAL call for every JSON byte.
-class ResponseReader {
+// ArduinoJson escapes common whitespace but writes other control bytes verbatim.
+// Keep every SD-staged body valid JSON without an expanded in-memory string.
+class JsonUploadWriter {
  public:
-  explicit ResponseReader(FsFile& file) : file(file) {}
-  int read() {
-    if (offset == size) {
-      const int count = file.read(buffer, sizeof(buffer));
-      if (count <= 0) return -1;
-      size = static_cast<size_t>(count);
-      offset = 0;
+  explicit JsonUploadWriter(FsFile& file) : file(file) {}
+  size_t write(uint8_t value) {
+    if (value < 0x20) {
+      static constexpr char HEX_DIGITS[] = "0123456789abcdef";
+      const char escaped[] = {'\\', 'u', '0', '0', HEX_DIGITS[value >> 4], HEX_DIGITS[value & 15]};
+      return emit(reinterpret_cast<const uint8_t*>(escaped), sizeof(escaped)) ? 1 : 0;
     }
-    return buffer[offset++];
+    return emit(&value, 1) ? 1 : 0;
   }
-  size_t readBytes(char* out, size_t count) {
-    size_t copied = 0;
-    for (; copied < count; ++copied) {
-      const int value = read();
-      if (value < 0) break;
-      out[copied] = static_cast<char>(value);
-    }
-    return copied;
+  size_t write(const uint8_t* data, size_t length) {
+    size_t count = 0;
+    while (count < length && write(data[count])) ++count;
+    return count;
   }
+  bool finish() { return flush() && ok; }
 
  private:
+  bool emit(const uint8_t* data, size_t length) {
+    if (!ok) return false;
+    for (size_t i = 0; i < length; ++i) {
+      if (used == sizeof(buffer) && !flush()) return false;
+      buffer[used++] = data[i];
+    }
+    return true;
+  }
+  bool flush() {
+    if (used) ok = ok && file.write(buffer, used) == used;
+    used = 0;
+    return ok;
+  }
   FsFile& file;
   uint8_t buffer[128];
-  size_t offset = 0;
-  size_t size = 0;
+  size_t used = 0;
+  bool ok = true;
 };
 
 StatsUploadClient::Result readResponse(const char* path, JsonDocument& json) {
@@ -49,11 +59,11 @@ StatsUploadClient::Result readResponse(const char* path, JsonDocument& json) {
     LOG_ERR("ClippingsSync", "Cannot open download response");
     return Result::InvalidResponse;
   }
-  ResponseReader reader(file);
+  serialization::JsonFileReader reader(file);
   const auto error = deserializeJson(json, reader);
   // Release the sole SD reader before merging clippings or updating the cursor.
   const bool closed = file.close();
-  if (error || !closed) {
+  if (error || reader.failed() || !closed) {
     LOG_ERR("ClippingsSync", "Cannot parse download response: %s", error.c_str());
     return error == DeserializationError::NoMemory ? Result::LowMemory : Result::InvalidResponse;
   }
@@ -93,11 +103,14 @@ StatsUploadClient::Result ClippingsUpload::upload(const std::string& path, const
   const auto endpoint = "/api/v1/clippings/" + document;
   StatsUploadClient client;
   std::string text;
-  text.reserve(CLIPPING_TEXT_MAX);
   // One clipping at a time; never hold the up-to-256-record index across TLS.
-  // Reuse the request buffer across records, growing fallibly only when needed.
-  std::unique_ptr<char[]> payload;
-  size_t capacity = 0;
+  constexpr const char* UPLOAD_PATH = "/.crosspoint/clipping-sync/upload.tmp";
+  if ((!Storage.exists("/.crosspoint") && !Storage.mkdir("/.crosspoint")) ||
+      (!Storage.exists("/.crosspoint/clipping-sync") && !Storage.mkdir("/.crosspoint/clipping-sync"))) {
+    LOG_ERR("ClippingsSync", "Cannot create upload directory");
+    return Result::InvalidResponse;
+  }
+  ScopedCleanup cleanup{[&] { Storage.remove(UPLOAD_PATH); }};
   // Send durable deletions first. A retry is idempotent on the server.
   bool sent = false;
   for (size_t i = 0; i <= CLIPPING_MAX_PER_BOOK; ++i) {
@@ -152,20 +165,26 @@ StatsUploadClient::Result ClippingsUpload::upload(const std::string& path, const
     item["layout_signature"] = clipping.layoutSignature;
     // Omit note/color and source offsets: preserve server annotations.
     if (json.overflowed()) return Result::LowMemory;
-    const size_t needed = measureJson(json) + 1;
+    const size_t needed = measureJson(json);
     if (needed > CLIPPING_TEXT_MAX * 6 + 1024) return Result::InvalidResponse;
-    if (needed > capacity) {
-      payload.reset();
-      payload = makeUniqueNoThrow<char[]>(needed);
-      if (!payload) {
-        LOG_ERR("ClippingsSync", "Cannot allocate %u-byte request", unsigned(needed));
-        return Result::LowMemory;
-      }
-      capacity = needed;
+    // Serialize before TLS, then release both decoded text and the JSON tree.
+    client.close();
+    FsFile file;
+    if (!Storage.openFileForWrite("ClippingsSync", UPLOAD_PATH, file)) {
+      LOG_ERR("ClippingsSync", "Cannot open upload staging file");
+      return Result::InvalidResponse;
     }
-    serializeJson(json, payload.get(), capacity);
+    JsonUploadWriter writer(file);
+    const bool written = serializeJson(json, writer) == needed && writer.finish() &&
+                         file.size() <= CLIPPING_TEXT_MAX * 6 + 1024 && file.sync();
+    const bool closed = file.close();
+    if (!written || !closed) {
+      LOG_ERR("ClippingsSync", "Cannot stage complete clipping");
+      return Result::InvalidResponse;
+    }
     json.clear();
-    const auto result = client.put(endpoint.c_str(), payload.get(), true);
+    std::string().swap(text);
+    const auto result = client.putFile(endpoint.c_str(), UPLOAD_PATH, 1);
     if (result != Result::Ok) return result;
     sent = true;
   }
@@ -261,6 +280,8 @@ StatsUploadClient::Result ClippingsUpload::download(const std::string& path, con
         snprintf(clip.chapterTitle, sizeof(clip.chapterTitle), "%s", item["chapter"].as<const char*>());
         clip.chapterTitle[utf8SafeTruncateBuffer(clip.chapterTitle, strlen(clip.chapterTitle))] = '\0';
       }
+      // All fields are owned above; release JSON before loading the book index.
+      json.clear();
       bool full = false;
       if (!ClippingStore::mergeFromSync(path, clip, text, scope + id, deleted, &full)) {
         if (!full) return Result::InvalidResponse;

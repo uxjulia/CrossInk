@@ -219,9 +219,11 @@ class ClippingStore {
   SyncPending::SessionMarker pendingSync;
 
   bool readKey(const Clipping& clip, std::string& key) const;
-  static bool loadForSync(const std::string& path, ClippingStore& store);
-  bool readFromFile();
-  bool readFromFile(const std::string& path, ClippingRecords& out, size_t onlyIndex = SIZE_MAX);
+  bool loadForBook(const std::string& filePath, const std::string& title, const std::string& author,
+                   const std::string& bookType, bool reserveImportSlot);
+  static bool loadForSync(const std::string& path, ClippingStore& store, bool reserveImportSlot = false);
+  bool readFromFile(const std::string& path, ClippingRecords& out, size_t onlyIndex = SIZE_MAX,
+                    bool reserveImportSlot = false);
   struct UploadBinding {
     const std::string& scope;
     std::vector<std::string> legacyIds;

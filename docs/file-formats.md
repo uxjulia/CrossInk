@@ -2126,3 +2126,9 @@ Existing v1/v2 files are preserved as `/battery_log_v1.csv` or
 `/battery_log_v2.csv`, adding a numbered suffix if needed. Unknown headers are
 left untouched. Appending stops at the existing 128 KiB cap. RTC estimate state
 is versioned and validated in retained RAM; it adds no SD/NVS file format.
+
+### Temporary bulk-sync preparation
+
+`/.crosspoint/sync-prepared/` holds disposable version-1 records for one explicit Sync Books/Folder run. It is cleared before preparation and when the activity finishes. A path-CRC filename is checked against the full stored book path. Each record uses the SyncFiles trailing CRC, starts with a version byte and path string16, then the saved spine/page/page-count (u16), visible offset (u32), offset-present byte, document/XPath strings16, percentage (float), device string16, and optional metadata. Metadata has a presence byte, filename/title/authors/ISBN/ASIN/series strings16, and optional series index (presence byte plus float). Reading validates the saved-position fields against current progress; these files never replace pending flags or acknowledge an upload.
+
+Clipping uploads use `/.crosspoint/clipping-sync/upload.tmp` as a disposable JSON body. It is fully written and closed before TLS, read in bounded chunks, and removed on every exit. Existing persistent progress and clipping formats are unchanged.

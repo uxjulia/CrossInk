@@ -66,16 +66,26 @@ class StatsUploadActivity final : public Activity {
   void onExit() override;
   void loop() override;
   void render(RenderLock&&) override;
-  bool preventAutoSleep() override { return state == State::Uploading; }
+  bool preventAutoSleep() override { return state == State::Uploading || state == State::Preparing; }
 
  private:
-  enum class State { Ready, Wifi, Uploading, SyncingBook, Done, Failed };
+  enum class State { Ready, Preparing, Wifi, Uploading, SyncingBook, Done, Failed };
   enum class NextBook { Book, Skip, Done, Error };
   // Reading Stats / Clippings: catch-up walk first when needed, then pending books.
   enum class Phase : uint8_t { CatchUp, Pending, Done };
   // Sync Books / Sync Folder. Legacy: the per-book walk (stock KOSync, or no
   // change feed). Otherwise a scope's first walk, or catch-ups, pull, push.
-  enum class Flow : uint8_t { Unplanned, Legacy, FirstWalk, CatchUpStats, CatchUpClippings, Pull, Push, Done };
+  enum class Flow : uint8_t {
+    Unplanned,
+    Legacy,
+    FirstWalk,
+    CatchUpStats,
+    CatchUpClippings,
+    Pull,
+    Push,
+    PushClippings,
+    Done
+  };
   struct PullItem {
     uint8_t change;  // index into pageChanges
     std::string path;
@@ -171,6 +181,10 @@ class StatsUploadActivity final : public Activity {
   bool singleBook() const { return scope == Scope::Book; }
   bool targeted() const { return scope == Scope::ReadingStats || scope == Scope::Clippings; }
   void start();
+  void prepareNext();
+  void startTransfer();
+  bool preparationPendingOnly = false;
+  bool preparationOwned = false;
   void uploadNext();
   // `remote`: a pulled change to apply instead of fetching (incremental pull).
   void syncEpub(std::string&& bookPath, const KOReaderProgressChange* remote = nullptr);
@@ -214,4 +228,5 @@ class StatsUploadActivity final : public Activity {
   uint32_t countPendingInScope() const;
   void finishUpload();
   void closeTransfer();
+  void releaseBatchBuffers();
 };

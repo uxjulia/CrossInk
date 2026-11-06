@@ -9,11 +9,17 @@
 #include "StatsUploadClient.h"
 
 struct BookReadingStats;
+namespace PreparedProgress {
+struct Saved;
+}
 
 // Foreground helpers shared by reader sync and the explicit folder upload.
 namespace ReadingSyncUpload {
 // Only saved, mappable EPUB positions qualify. Never invent progress for an unread book.
 bool prepareProgress(const std::string& path, KOReaderProgress& progress);
+bool stageProgress(const std::string& path);
+bool loadPreparedProgress(const std::string& path, KOReaderProgress& progress,
+                          PreparedProgress::Saved* saved = nullptr);
 struct ExtrasResult {
   StatsUploadClient::Result stats = StatsUploadClient::Result::Skipped;
   StatsUploadClient::Result clippings = StatsUploadClient::Result::Skipped;

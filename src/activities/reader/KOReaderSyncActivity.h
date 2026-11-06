@@ -157,6 +157,8 @@ class KOReaderSyncActivity final : public Activity {
 
   void onWifiSelectionComplete(bool success);
   void performSync();
+  void finishComparison(KOReaderSyncClient::Error result);
+  std::optional<KOReaderMetadata> preparedMetadata;
   void performUpload();
   bool uploadExtras();
   // Per-data result rows; `withProgress` adds a Progress row (failure screen).

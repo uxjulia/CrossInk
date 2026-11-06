@@ -83,6 +83,16 @@ struct KOReaderProgressChange {
  */
 class KOReaderSyncClient {
  public:
+  // Shared admission budget for progress, stats, and clipping connections.
+  static constexpr uint32_t MIN_FREE_HEAP_FOR_TLS = 35000;
+#if defined(WOLFSSL_HAVE_SP_RSA)
+  // SP RSA scratch fits below SecureClient's 16,704-byte full-record buffer.
+  // Allow allocator overhead without rejecting a usable 18 KB free block.
+  static constexpr uint32_t MIN_MAX_ALLOC_HEAP_FOR_TLS = 18000;
+#else
+  static constexpr uint32_t MIN_MAX_ALLOC_HEAP_FOR_TLS = 20000;
+#endif
+
   enum Error {
     OK = 0,
     NO_CREDENTIALS,
@@ -94,8 +104,10 @@ class KOReaderSyncClient {
     INVALID_AUTH_RESPONSE,
     LOW_MEMORY,
     USER_EXISTS,
-    FEED_UNSUPPORTED,  // stock KOSync or an older CrossPoint Sync: no change feed
-    BATCH_UNSUPPORTED  // no PUT /api/v1/progress/batch: send one PUT per book
+    FEED_UNSUPPORTED,   // stock KOSync or an older CrossPoint Sync: no change feed
+    BATCH_UNSUPPORTED,  // no PUT /api/v1/progress/batch: send one PUT per book
+    RESPONSE_TOO_LARGE,
+    STORAGE_ERROR
   };
 
   // Progress positions per batch request: each item is a few hundred bytes and
@@ -150,8 +162,10 @@ class KOReaderSyncClient {
   /**
    * GET /api/v1/progress/changes?since=&limit=&device=: progress changed since
    * a cursor, leaving out documents whose newest position is this reader's.
-   * `limit` 0 only reads the current cursor. A page is at most 8 KB; it is
-   * parsed with a filter and each change handed to `callback`.
+   * `limit` 0 only reads the current cursor. Responses are staged on SD with
+   * a 16 KiB wire limit; the server may exceed its soft 8 KB page budget for
+   * one large change. Resource failures retry smaller pages at the same cursor.
+   * Parsing finishes before each change is handed to `callback`.
    */
   static Error getProgressChanges(uint32_t since, uint8_t limit, ChangesPage& page, ChangeCallback callback,
                                   void* context);

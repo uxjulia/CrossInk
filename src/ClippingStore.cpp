@@ -214,6 +214,11 @@ ClippingStore ClippingStore::instance;
 
 bool ClippingStore::loadForBook(const std::string& filePath, const std::string& title, const std::string& author,
                                 const std::string& bookType) {
+  return loadForBook(filePath, title, author, bookType, false);
+}
+
+bool ClippingStore::loadForBook(const std::string& filePath, const std::string& title, const std::string& author,
+                                const std::string& bookType, const bool reserveImportSlot) {
   loaded = false;
   dirty = false;
   clippings.release();
@@ -234,7 +239,8 @@ bool ClippingStore::loadForBook(const std::string& filePath, const std::string& 
     LOG_ERR("CLIP", "Failed to recover clipping backup: %s", backup.c_str());
     return false;
   }
-  loaded = !Storage.exists(storeFilePath.c_str()) || readFromFile();
+  loaded =
+      !Storage.exists(storeFilePath.c_str()) || readFromFile(storeFilePath, clippings, SIZE_MAX, reserveImportSlot);
   if (!loaded) clippings.release();
   return loaded;
 }
@@ -439,9 +445,8 @@ void ClippingStore::clearAll() {
   pendingSync.mark(bookFilePath, SyncPending::CLIPPINGS_BIT);
 }
 
-bool ClippingStore::readFromFile() { return readFromFile(storeFilePath, clippings); }
-
-bool ClippingStore::readFromFile(const std::string& path, ClippingRecords& out, const size_t onlyIndex) {
+bool ClippingStore::readFromFile(const std::string& path, ClippingRecords& out, const size_t onlyIndex,
+                                 const bool reserveImportSlot) {
   out.clear();
   deletedIds.clear();
   bool complete = false;
@@ -510,7 +515,10 @@ bool ClippingStore::readFromFile(const std::string& path, ClippingRecords& out, 
     f.close();
     return true;
   }
-  if (!out.reserve(onlyIndex == SIZE_MAX ? count : 1)) {
+  // Import needs one additional slot. Reserve it with the initial index so
+  // appending never holds two book-sized arrays at once (up to 256 records).
+  const size_t capacity = reserveImportSlot ? std::min<size_t>(count + 1, CLIPPING_MAX_PER_BOOK) : count;
+  if (!out.reserve(onlyIndex == SIZE_MAX ? capacity : 1)) {
     LOG_ERR("CLIP", "OOM: %u clipping records", count);
     f.close();
     return false;
@@ -642,7 +650,7 @@ bool ClippingStore::readKey(const Clipping& clip, std::string& key) const {
   return ok;
 }
 
-bool ClippingStore::loadForSync(const std::string& path, ClippingStore& store) {
+bool ClippingStore::loadForSync(const std::string& path, ClippingStore& store, const bool reserveImportSlot) {
   // Preserve the saved metadata; downloading into a never-opened book can use
   // its filename until the reader supplies the EPUB title/author.
   const auto file = storeFilePathForBook(path, "epub");
@@ -651,7 +659,7 @@ bool ClippingStore::loadForSync(const std::string& path, ClippingStore& store) {
   if (Storage.exists(source.c_str()) && !readClippingFileHeader(source, nullptr, header)) return false;
   if (!header.path.empty() && header.path != path) return false;
   const auto title = header.title.empty() ? path.substr(path.find_last_of('/') + 1) : header.title;
-  return store.loadForBook(path, title, header.author, "epub");
+  return store.loadForBook(path, title, header.author, "epub", reserveImportSlot);
 }
 
 bool ClippingStore::readDeletionForUpload(const std::string& path, const size_t ordinal, std::string& id, bool& done) {
@@ -705,7 +713,7 @@ bool ClippingStore::mergeFromSync(const std::string& path, const Clipping& clipp
                                   const std::string& key, const bool deleted, bool* full) {
   if (full) *full = false;
   ClippingStore store;
-  if (!loadForSync(path, store)) return false;
+  if (!loadForSync(path, store, !deleted)) return false;
   if (std::find(store.deletedIds.begin(), store.deletedIds.end(), key) != store.deletedIds.end()) return true;
   size_t match;
   if (!findSyncMatch(store.storeFilePath, store.clippings, key, text, deleted, match)) return false;

@@ -20,6 +20,11 @@
 #include "activities/reader/GlobalReadingStats.h"
 
 namespace {
+bool insufficientTlsHeap() {
+  return ESP.getFreeHeap() < KOReaderSyncClient::MIN_FREE_HEAP_FOR_TLS ||
+         ESP.getMaxAllocHeap() < KOReaderSyncClient::MIN_MAX_ALLOC_HEAP_FOR_TLS;
+}
+
 // Only definitive answers update the persisted capability; transient failures keep it.
 void recordMissingApi(const int status) {
   if (status == 404 || status == 405) KOREADER_STORE.setServerSupport(SyncServerSupport::UNSUPPORTED);
@@ -46,6 +51,15 @@ bool StatsUploadClient::deviceId(char* out, const size_t capacity) {
 
 StatsUploadClient::Result StatsUploadClient::put(const char* endpoint, const char* payload, const unsigned bookCount,
                                                  const bool daily, const char* sessionId) {
+  return putBody(endpoint, payload, bookCount, daily, sessionId, nullptr);
+}
+
+StatsUploadClient::Result StatsUploadClient::putFile(const char* endpoint, const char* path, unsigned bookCount) {
+  return putBody(endpoint, nullptr, bookCount, false, nullptr, path);
+}
+
+StatsUploadClient::Result StatsUploadClient::putBody(const char* endpoint, const char* payload, unsigned bookCount,
+                                                     bool daily, const char* sessionId, const char* filePath) {
   if (!impl) {
     LOG_ERR("StatsSync", "Cannot allocate HTTP client");
     return Result::LowMemory;
@@ -53,8 +67,8 @@ StatsUploadClient::Result StatsUploadClient::put(const char* endpoint, const cha
   auto& http = impl->http;
   // Retain a successful connection while headroom permits. If TLS is holding
   // needed heap, release it before applying the normal handshake floors.
-  if (ESP.getFreeHeap() < 35000 || ESP.getMaxAllocHeap() < 20000) http.end();
-  if (ESP.getFreeHeap() < 35000 || ESP.getMaxAllocHeap() < 20000) {
+  if (insufficientTlsHeap()) http.end();
+  if (insufficientTlsHeap()) {
     LOG_ERR("StatsSync", "Insufficient memory for upload");
     return Result::LowMemory;
   }
@@ -72,24 +86,54 @@ StatsUploadClient::Result StatsUploadClient::put(const char* endpoint, const cha
   applyCustomHttpHeaders(http, KOREADER_STORE.getCustomHeaders());
   http.addHeader("x-auth-user", KOREADER_STORE.getUsername());
   http.addHeader("x-auth-key", KOREADER_STORE.getMd5Password());
+  FsFile source;
+  if (filePath && (!Storage.openFileForRead("StatsSync", filePath, source) || !source.size())) {
+    LOG_ERR("StatsSync", "Cannot read upload file");
+    source.close();
+    http.end();
+    return Result::InvalidResponse;
+  }
+  ScopedCleanup closeSource{[&] { source.close(); }};
   size_t size = 0;
   bool complete = true;
 #ifdef SIMULATOR
-  const int status = http.sendRequest("PUT", std::string(payload));
+  std::string simulated;
+  if (filePath) {
+    simulated.resize(source.size());
+    if (source.read(simulated.data(), simulated.size()) != static_cast<int>(simulated.size())) {
+      http.end();
+      return Result::InvalidResponse;
+    }
+  }
+  const int status = http.sendRequest("PUT", filePath ? simulated : std::string(payload));
   const auto body = http.getString();
   size = body.length();
   complete = size < sizeof(impl->response);
   if (complete) memcpy(impl->response, body.c_str(), size);
 #else
-  const int status = http.sendRequest("PUT", reinterpret_cast<const uint8_t*>(payload), strlen(payload),
-                                      [&](const uint8_t* data, size_t length) {
-                                        if (length >= sizeof(impl->response) - size) return false;
-                                        memcpy(impl->response + size, data, length);
-                                        size += length;
-                                        return true;
-                                      });
+  const auto receive = [&](const uint8_t* data, size_t length) {
+    if (length >= sizeof(impl->response) - size) return false;
+    memcpy(impl->response + size, data, length);
+    size += length;
+    return true;
+  };
+  const auto read = [](void* context, size_t offset, uint8_t* data, size_t length) -> size_t {
+    auto& file = *static_cast<FsFile*>(context);
+    if (!file.seekSet(offset)) return 0;
+    const int count = file.read(data, length);
+    return count < 0 ? 0 : static_cast<size_t>(count);
+  };
+  const int status = filePath
+                         ? http.sendRequestStream("PUT", source.size(), read, &source, receive)
+                         : http.sendRequest("PUT", reinterpret_cast<const uint8_t*>(payload), strlen(payload), receive);
   complete = http.responseComplete();
 #endif
+  // File-backed uploads release TLS and the SD reader before parsing acknowledgment.
+  const bool closed = source.close();
+  if (filePath) {
+    http.end();
+    complete = complete && closed;
+  }
   LOG_INF("StatsSync", "PUT %s: HTTP %d", endpoint, status);
   // A missing sessions endpoint on an older Sync server does not invalidate
   // support for the existing stats endpoints. Keep the outbox for an upgrade.
@@ -126,7 +170,7 @@ StatsUploadClient::Result StatsUploadClient::get(const char* endpoint, const cha
   }
   auto& http = impl->http;
   http.end();
-  if (ESP.getFreeHeap() < 35000 || ESP.getMaxAllocHeap() < 20000) {
+  if (insufficientTlsHeap()) {
     LOG_ERR("StatsSync", "Insufficient memory for download");
     return Result::LowMemory;
   }
@@ -183,7 +227,7 @@ StatsUploadClient::Result StatsUploadClient::probe(const bool trustHtml) {
     return Result::LowMemory;
   }
   auto& http = impl->http;
-  if (ESP.getFreeHeap() < 35000 || ESP.getMaxAllocHeap() < 20000) {
+  if (insufficientTlsHeap()) {
     LOG_ERR("StatsSync", "Insufficient memory for capability probe");
     return Result::LowMemory;
   }
@@ -242,8 +286,8 @@ StatsUploadClient::Result StatsUploadClient::downloadStreak() {
   }
   auto& http = impl->http;
   // Release a reused TLS session before checking room for the next handshake.
-  if (ESP.getFreeHeap() < 35000 || ESP.getMaxAllocHeap() < 20000) http.end();
-  if (ESP.getFreeHeap() < 35000 || ESP.getMaxAllocHeap() < 20000) {
+  if (insufficientTlsHeap()) http.end();
+  if (insufficientTlsHeap()) {
     LOG_ERR("StatsSync", "Insufficient memory for streak download");
     return Result::LowMemory;
   }

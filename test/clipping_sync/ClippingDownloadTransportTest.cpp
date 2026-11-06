@@ -23,6 +23,21 @@ class ClippingDownloadTransport : public ::testing::Test {
   }
 };
 
+TEST_F(ClippingDownloadTransport, StreamsUploadAndRequiresCompleteAcknowledgment) {
+  const std::string body(25000, 'x');
+  Storage.files["/upload.tmp"] = body;
+  testHttp.body = R"({"until":1,"accepted":1})";
+  StatsUploadClient client;
+  EXPECT_EQ(client.putFile("/clippings", "/upload.tmp", 1), Result::Ok);
+  EXPECT_EQ(testHttp.uploaded, body);
+  testHttp.complete = false;
+  EXPECT_EQ(client.putFile("/clippings", "/upload.tmp", 1), Result::InvalidResponse);
+  testHttp.complete = true;
+  shortReadAfter = 512;
+  EXPECT_EQ(client.putFile("/clippings", "/upload.tmp", 1), Result::Network);
+  shortReadAfter = -1;
+}
+
 TEST_F(ClippingDownloadTransport, StreamsMaximumResponseWithC3MemoryHeadroom) {
   // Enough for TLS, but not for TLS plus the former 26 KiB response buffer.
   testHttp.body.assign(LIMIT, 'x');

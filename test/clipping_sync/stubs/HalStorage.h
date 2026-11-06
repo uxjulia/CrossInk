@@ -6,6 +6,7 @@
 #include <vector>
 
 inline int openBookmarkReaders = 0;
+inline void (*bookmarkReadHook)() = nullptr;
 inline int shortReadAfter = -1;
 inline bool bookmarkMockWriting = false;
 inline bool failBookmarkWriteOpen = false;
@@ -28,12 +29,14 @@ class FsFile {
   }
   int available() const { return data ? static_cast<int>(data->size() - offset) : 0; }
   int read(void* bytes, size_t size) {
+    if (bookmarkReadHook) bookmarkReadHook();
     size = std::min(size, static_cast<size_t>(available()));
     if (shortReadAfter >= 0 && offset + size > static_cast<size_t>(shortReadAfter)) return 0;
     if (size) std::memcpy(bytes, data->data() + offset, size);
     offset += size;
     return static_cast<int>(size);
   }
+  size_t write(uint8_t byte) { return write(&byte, 1); }
   size_t write(const void* bytes, size_t size) { return write(static_cast<const uint8_t*>(bytes), size); }
   size_t write(const uint8_t* bytes, size_t size) {
     if (!data || !writer) return 0;
@@ -99,6 +102,16 @@ class HalStorage {
     else
       openFileForRead("test", path, file);
     return file;
+  }
+  bool removeDir(const char* directory) {
+    const std::string prefix = std::string(directory) + "/";
+    for (auto it = files.begin(); it != files.end();) {
+      if (it->first == directory || it->first.starts_with(prefix))
+        it = files.erase(it);
+      else
+        ++it;
+    }
+    return true;
   }
   bool openFileForRead(const char*, const std::string& path, FsFile& file) {
     auto it = files.find(path);

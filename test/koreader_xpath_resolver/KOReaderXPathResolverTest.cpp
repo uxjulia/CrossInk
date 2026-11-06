@@ -87,6 +87,21 @@ TEST_F(KOReaderLongChapter, RejectsUnreadableChapterInsteadOfGuessingParagraph) 
   EXPECT_TRUE(mapped.xpath.empty());
 }
 
+TEST_F(KOReaderLongChapter, RejectsUnreadableRemoteChapterInsteadOfGuessingPercentage) {
+  epub->failRead = true;
+  const auto mapped =
+      ProgressMapper::toCrossPoint(epub, {"/body/DocFragment[1]/body/section[1]/p[472]/text()[1].1", 0.98f}, 0, 480);
+  EXPECT_FALSE(mapped.valid);
+}
+
+TEST_F(KOReaderLongChapter, PreservesPercentageFallbackForMissingAnchorInReadableChapter) {
+  const auto mapped =
+      ProgressMapper::toCrossPoint(epub, {"/body/DocFragment[1]/body/section[1]/p[999]/text()[1].1", 0.5f}, 0, 480);
+  EXPECT_TRUE(mapped.valid);
+  const auto percentageOnly = ProgressMapper::toCrossPoint(epub, {"", 0.5f}, 0, 480);
+  EXPECT_EQ(mapped.pageNumber, percentageOnly.pageNumber);
+}
+
 TEST_F(KOReaderLongChapter, PreservesReoptimizationReasonForMissingSourceMap) {
   epub->sourceMapRequired = true;
   const auto mapped = ProgressMapper::toKOReader(epub, {0, 471, 480}, PositionCoordinateSpace::SourceDocument);

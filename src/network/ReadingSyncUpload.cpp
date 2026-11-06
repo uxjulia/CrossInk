@@ -21,6 +21,7 @@
 #include "activities/reader/ReadingSessionJournal.h"
 #include "activities/reader/StatsUploadPayload.h"
 #include "sync/BookSyncFile.h"
+#include "sync/PreparedProgress.h"
 
 bool ReadingSyncUpload::prepareProgress(const std::string& path, KOReaderProgress& progress) {
   if (!FsHelpers::hasEpubExtension(path)) return false;
@@ -32,7 +33,7 @@ bool ReadingSyncUpload::prepareProgress(const std::string& path, KOReaderProgres
   }
   EpubReaderUtils::Progress saved;
   if (!EpubReaderUtils::loadProgress(*epub, saved) ||
-      !epub->load(false, true, Epub::XLocationLoadMode::Immediate, true) || saved.spineIndex < 0 ||
+      !epub->load(true, true, Epub::XLocationLoadMode::Immediate, true) || saved.spineIndex < 0 ||
       saved.spineIndex >= epub->getSpineItemsCount() || !saved.hasPageCount || saved.pageCount < 1 ||
       saved.pageNumber >= saved.pageCount) {
     LOG_DBG("ReadingSync", "Skipping book without usable saved progress: %s", path.c_str());
@@ -70,6 +71,42 @@ bool ReadingSyncUpload::prepareProgress(const std::string& path, KOReaderProgres
     rich.totalPages = saved.pageCount;
     rich.xpath = mapped.xpath;
     progress.position = std::move(rich);
+  }
+  return true;
+}
+
+namespace {
+bool savedPosition(const std::string& path, PreparedProgress::Saved& out) {
+  EpubReaderUtils::Progress saved;
+  const auto cache = BookSyncFile::cachePathFor(path);
+  if (cache.empty() || !EpubReaderUtils::loadProgressPath(cache + "/progress.bin", saved) || !saved.hasPageCount ||
+      saved.pageCount < 1 || saved.pageNumber < 0 || saved.pageNumber >= saved.pageCount || saved.spineIndex < 0 ||
+      saved.spineIndex > UINT16_MAX)
+    return false;
+  out = {uint16_t(saved.spineIndex), uint16_t(saved.pageNumber), uint16_t(saved.pageCount), saved.visibleTextOffset,
+         saved.hasVisibleTextOffset};
+  return true;
+}
+}  // namespace
+bool ReadingSyncUpload::stageProgress(const std::string& path) {
+  KOReaderProgress progress;
+  PreparedProgress::Saved saved;
+  // Preparation may migrate an old cache directory, so read its fingerprint afterward.
+  return prepareProgress(path, progress) && savedPosition(path, saved) &&
+         PreparedProgress::write(path, saved, progress);
+}
+bool ReadingSyncUpload::loadPreparedProgress(const std::string& path, KOReaderProgress& progress,
+                                             PreparedProgress::Saved* savedOut) {
+  PreparedProgress::Saved saved;
+  if (!savedPosition(path, saved) || !PreparedProgress::read(path, saved, progress)) return false;
+  if (savedOut) *savedOut = saved;
+  if (KOREADER_STORE.supportsRichProgress()) {
+    auto& rich = progress.position.emplace();
+    rich.pctQ = static_cast<uint32_t>(progress.percentage * 1000000.0f + 0.5f);
+    rich.spineIndex = saved.spine;
+    rich.pageNumber = saved.page;
+    rich.totalPages = saved.pages;
+    rich.xpath = progress.progress;
   }
   return true;
 }
