@@ -231,6 +231,9 @@ void forEachBaseSetting(SettingVisitor visitor, void* context) {
                          StrId::STR_TILT_DIRECTION_FORWARD_BACK, StrId::STR_TILT_DIRECTION_FORWARD_BACK_INVERTED},
 #endif
                         "tiltPageTurnDirection", StrId::STR_CAT_CONTROLS));
+  add(SettingInfo::Enum(StrId::STR_TILT_SENSITIVITY, &CrossPointSettings::tiltSensitivity,
+                        {StrId::STR_SENSITIVITY_LOW, StrId::STR_SENSITIVITY_NORMAL, StrId::STR_SENSITIVITY_HIGH},
+                        "tiltSensitivity", StrId::STR_CAT_CONTROLS));
   add(SettingInfo::Toggle(StrId::STR_TILT_NEXT_PAGE_ONLY, &CrossPointSettings::tiltNextPageOnly, "tiltNextPageOnly",
                           StrId::STR_CAT_CONTROLS));
   add(buildShortcutSetting(StrId::STR_LONG_PRESS_ACTION, &CrossPointSettings::longPwrBtn, "longPwrBtn",

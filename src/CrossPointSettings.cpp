@@ -617,11 +617,15 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc, bool importingCrossPoint
 
     // Missing keys in older exports restore the original status font size and
     // bidirectional tilt behavior, even if this session changed them.
+    // Sensitivity also restores Normal for older exports and invalid values.
     const uint8_t fieldDefault = info.valuePtr == &CrossPointSettings::displayStatusBarTextSize ||
                                          info.valuePtr == &CrossPointSettings::tiltNextPageOnly
                                      ? 0
                                      : this->*(info.valuePtr);
-    uint8_t value = doc[info.key] | fieldDefault;
+    const uint8_t importDefault = info.valuePtr == &CrossPointSettings::tiltSensitivity
+                                      ? static_cast<uint8_t>(TiltSensitivity::NORMAL)
+                                      : fieldDefault;
+    uint8_t value = doc[info.key] | importDefault;
     // CrossPoint stores normal spacing as 100%; CrossInk stores it as level 0.
     // Keep native CrossInk levels intact, including files at the legacy path.
     if (importingCrossPoint && info.valuePtr == &CrossPointSettings::wordSpacing && value == 100) {
@@ -651,7 +655,7 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc, bool importingCrossPoint
                !(strcmp(info.key, "fontSize") == 0 && doc["sdFontFamilyName"].is<const char*>() &&
                  doc["sdFontFamilyName"].as<const char*>()[0] != '\0' && value >= MIN_READER_FONT_POINT_SIZE) &&
                !isEnumRawValueAllowed(info, value)) {
-      value = defaultEnumRawValue(info, fieldDefault);
+      value = defaultEnumRawValue(info, importDefault);
       needsResave = true;
     } else if (info.type == SettingType::TOGGLE) {
       value = clamp(value, 2, fieldDefault);

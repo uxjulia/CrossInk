@@ -59,7 +59,7 @@ def main():
                 archive.writestr('META-INF/encryption.xml', manifest)
                 archive.writestr('chapter.xhtml', iv + cipher)
                 archive.writestr('plain.txt', 'plain resource')
-        tilt_preferences = {'tiltPageTurn': 1, 'tiltPageTurnDirection': 2, 'tiltNextPageOnly': 1}
+        tilt_preferences = {'tiltPageTurn': 1, 'tiltPageTurnDirection': 2, 'tiltNextPageOnly': 1, 'tiltSensitivity': 2}
         if args.env == 'simulator':
             write('/.crosspoint/crossink-settings.json', tilt_preferences)
         event_attempts = []
@@ -225,6 +225,22 @@ def main():
                     assert settings['shortPwrBtn']['value'] == last_action
                     saved = json.loads((sd / '.crosspoint/crossink-settings.json').read_text())
                     assert all(saved[key] == value for key, value in tilt_preferences.items()), saved
+                elif args.env == 'simulator-X3':
+                    settings_body, _ = request('/api/settings')
+                    settings = {row['key']: row for row in json.loads(settings_body)}
+                    assert settings['tiltSensitivity']['options'] == ['Low', 'Normal', 'High']
+                    assert settings['tiltSensitivity']['value'] == 1
+                    for value in (0, 1, 2):
+                        request('/api/settings', {'tiltSensitivity': value})
+                        settings_body, _ = request('/api/settings')
+                        settings = {row['key']: row for row in json.loads(settings_body)}
+                        assert settings['tiltSensitivity']['value'] == value
+                        saved = json.loads((sd / '.crosspoint/crossink-settings.json').read_text())
+                        assert saved['tiltSensitivity'] == value
+                    request('/api/settings', {'tiltSensitivity': 255})
+                    settings_body, _ = request('/api/settings')
+                    settings = {row['key']: row for row in json.loads(settings_body)}
+                    assert settings['tiltSensitivity']['value'] == 2
                 assert len(event_attempts) >= 6 and event_attempts[0] == event_attempts[1], event_attempts
                 assert any(p['name'] == 'json' for p in json.loads(plugins))
                 script, script_headers = request('/plugin?name=json&file=plugin.js')

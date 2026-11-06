@@ -1827,7 +1827,7 @@ void loop() {
 #endif
   if (!buttonShortcutController.isQuickLocked()) {
     halTiltSensor.update(SETTINGS.tiltPageTurn, SETTINGS.tiltPageTurnDirection, SETTINGS.orientation,
-                         activityManager.isReaderActivity());
+                         activityManager.isReaderActivity(), SETTINGS.tiltSensitivity);
   }
 
   renderer.setFadingFix(SETTINGS.fadingFix);

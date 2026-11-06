@@ -48,6 +48,8 @@
 - Advanced Wi-Fi transmit-power setting with a per-device limit; Default preserves existing radio behavior.
 - Show the publisher’s body font as a disabled Font Family value in the in-book Reader Font menu when "Publisher Font" is set to "All Text"; keep the normal picker available when the body uses the reader font.
 
+- Choose Low, Normal, or High Tilt Sensitivity in Controls; Normal keeps the existing flick behavior.
+
 ### Fixed
 
 - Keep publisher CSS styles active when free heap falls below 48 KiB; existing EPUB page caches rebuild automatically (CrossPoint #4032).

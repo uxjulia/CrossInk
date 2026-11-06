@@ -3644,15 +3644,26 @@ class SimulatorSmokeTest {
       const auto direction = std::find_if(rows.begin(), rows.end(), [](const SettingInfo& setting) {
         return settingKeyIs(setting, "tiltPageTurnDirection");
       });
+      const auto sensitivity = std::find_if(rows.begin(), rows.end(), [](const SettingInfo& setting) {
+        return settingKeyIs(setting, "tiltSensitivity");
+      });
       const auto nextOnly = std::find_if(rows.begin(), rows.end(), [](const SettingInfo& setting) {
         return settingKeyIs(setting, "tiltNextPageOnly");
       });
       if (!QuickActions::supportsTiltPageTurn()) {
-        if (direction != rows.end() || nextOnly != rows.end()) fail("Tilt settings exposed without a gyroscope");
+        if (direction != rows.end() || sensitivity != rows.end() || nextOnly != rows.end())
+          fail("Tilt settings exposed without a gyroscope");
         return;
       }
-      if (direction == rows.end() || nextOnly == rows.end() || nextOnly != direction + 1 ||
-          nextOnly->type != SettingType::TOGGLE || nextOnly->nameId != StrId::STR_TILT_NEXT_PAGE_ONLY ||
+      if (direction == rows.end() || sensitivity == rows.end() || sensitivity != direction + 1 ||
+          sensitivity->type != SettingType::ENUM || sensitivity->nameId != StrId::STR_TILT_SENSITIVITY ||
+          sensitivity->valuePtr != &CrossPointSettings::tiltSensitivity ||
+          sensitivity->enumValues != std::vector<StrId>({StrId::STR_SENSITIVITY_LOW, StrId::STR_SENSITIVITY_NORMAL,
+                                                         StrId::STR_SENSITIVITY_HIGH}) ||
+          std::count_if(rows.begin(), rows.end(),
+                        [](const SettingInfo& setting) { return settingKeyIs(setting, "tiltSensitivity"); }) != 1 ||
+          nextOnly == rows.end() || nextOnly != sensitivity + 1 || nextOnly->type != SettingType::TOGGLE ||
+          nextOnly->nameId != StrId::STR_TILT_NEXT_PAGE_ONLY ||
           nextOnly->valuePtr != &CrossPointSettings::tiltNextPageOnly ||
           std::count_if(rows.begin(), rows.end(),
                         [](const SettingInfo& setting) { return settingKeyIs(setting, "tiltNextPageOnly"); }) != 1)
@@ -3660,6 +3671,25 @@ class SimulatorSmokeTest {
     };
     verifyRows(all);
     verifyRows(controls);
+    if (SETTINGS.tiltSensitivity != TiltSensitivity::NORMAL) fail("Tilt sensitivity must default to Normal");
+    JsonDocument sensitivitySettings;
+    SETTINGS.toJson(sensitivitySettings);
+    for (const uint8_t sensitivity : {TiltSensitivity::LOW, TiltSensitivity::NORMAL, TiltSensitivity::HIGH}) {
+      sensitivitySettings["tiltSensitivity"] = sensitivity;
+      SETTINGS.fromJson(sensitivitySettings.as<JsonVariantConst>());
+      if (SETTINGS.tiltSensitivity != sensitivity) fail("Tilt sensitivity JSON import changed a valid value");
+      if (!SETTINGS.saveToFile()) fail("Cannot save tilt sensitivity");
+      SETTINGS.tiltSensitivity = 255;
+      if (!SETTINGS.loadFromFile() || SETTINGS.tiltSensitivity != sensitivity)
+        fail("Tilt sensitivity did not survive disk reload");
+    }
+    sensitivitySettings.remove("tiltSensitivity");
+    SETTINGS.fromJson(sensitivitySettings.as<JsonVariantConst>());
+    if (SETTINGS.tiltSensitivity != TiltSensitivity::NORMAL) fail("Old settings must restore Normal tilt sensitivity");
+    sensitivitySettings["tiltSensitivity"] = 255;
+    SETTINGS.tiltSensitivity = TiltSensitivity::HIGH;
+    SETTINGS.fromJson(sensitivitySettings.as<JsonVariantConst>());
+    if (SETTINGS.tiltSensitivity != TiltSensitivity::NORMAL) fail("Invalid tilt sensitivity must fall back to Normal");
     if (!QuickActions::supportsTiltPageTurn()) {
       SETTINGS.tiltPageTurn = 1;
       SETTINGS.tiltPageTurnDirection = 2;
@@ -3721,6 +3751,23 @@ class SimulatorSmokeTest {
     SETTINGS.tiltNextPageOnly = 0;
     if (!SETTINGS.loadFromFile() || SETTINGS.tiltNextPageOnly != 1)
       fail("Controls row did not persist tilt preference");
+    // Exercise the real sensitivity picker and its persisted selection.
+    press(mappedInputManager.menuButton(MappedInputManager::Button::Up));
+    press(MappedInputManager::Button::Confirm);
+    if (!editor.simulatorOptionPopupActive()) fail("Tilt sensitivity picker did not open");
+    editor.render(std::move(lock));
+    captureStatusBarScreen("tilt-sensitivity-options");
+    press(mappedInputManager.menuButton(MappedInputManager::Button::Down));
+    mappedInputManager.simulatorInjectPress(MappedInputManager::Button::Confirm);
+    editor.loop();
+    mappedInputManager.simulatorClearInputFrame();
+    if (editor.simulatorOptionPopupActive() || SETTINGS.tiltSensitivity != TiltSensitivity::HIGH)
+      fail("Tilt sensitivity picker did not select High");
+    editor.render(std::move(lock));
+    captureStatusBarScreen("tilt-sensitivity-high");
+    SETTINGS.tiltSensitivity = TiltSensitivity::NORMAL;
+    if (!SETTINGS.loadFromFile() || SETTINGS.tiltSensitivity != TiltSensitivity::HIGH)
+      fail("Tilt sensitivity picker did not persist High");
     editor.onExit();
     SETTINGS.fromJson(original.as<JsonVariantConst>());
     if (!SETTINGS.saveToFile()) fail("Cannot restore tilt test settings");
