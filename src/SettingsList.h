@@ -12,6 +12,7 @@
 #include <cstring>
 #include <iterator>
 #include <string>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -574,7 +575,10 @@ inline void appendShortcutOptions(SettingInfo& setting, const ShortcutOptionCata
     if (catalog == ShortcutOptionCatalog::HomeButton &&
         (action == CrossPointSettings::HOME_READER || action == CrossPointSettings::BACK_HOME))
       continue;
-    if (!QuickActions::isActionAvailable(static_cast<uint8_t>(action))) continue;
+    // Persist a saved stats shortcut even while tracking is disabled. The UI
+    // removes it in getSettingsList(); availability must not invalidate storage.
+    if (action != CrossPointSettings::READING_STATS && !QuickActions::isActionAvailable(static_cast<uint8_t>(action)))
+      continue;
     const uint8_t rawValue = shortcutRawValue(catalog, action);
     if (rawValue == SHORTCUT_OPTION_UNAVAILABLE) continue;
     setting.enumValues.push_back(QuickActions::actionLabel(static_cast<uint8_t>(action)));
@@ -622,12 +626,8 @@ inline SettingInfo buildSideButtonActionSetting(const StrId nameId, uint8_t Cros
 // Each entry has a key (for JSON API) and category (for grouping).
 // ACTION-type entries and entries without a key are device-only.
 //
-// The static list is constructed exactly once (master's optimization, #1086 +
-// #1636) so the per-entry SettingInfo cost is paid once. Read-only consumers
-// can use it directly; mutable device UI lists use getSettingsList(), which
-// returns an owned copy and can add SD-card font and dictionary options.
-// 110 common entries, plus Publisher Fonts on scalable-font builds and four
-// edge gestures on touch devices; getBaseSettingsCapacity() adds the three persisted IMU entries.
+// UI consumers own their descriptors; persistence visits and releases each entry.
+// Counts include conditional publisher-font, touch and slide-switch entries.
 #if CROSSINK_SCALABLE_FONTS
 inline constexpr size_t BASE_SETTINGS_CAPACITY = 111 + (CROSSINK_APP_CAP_TOUCH ? 4 : 0);
 #else
@@ -640,11 +640,22 @@ inline constexpr size_t SLIDE_SWITCH_SETTINGS_COUNT = 1;
 inline constexpr size_t SLIDE_SWITCH_SETTINGS_COUNT = 0;
 #endif
 
-inline size_t getBaseSettingsCapacity() {
-  return BASE_SETTINGS_CAPACITY + (QuickActions::supportsTiltPageTurn() ? 3 : 0) + SLIDE_SWITCH_SETTINGS_COUNT;
+inline size_t getBaseSettingsCapacity() { return BASE_SETTINGS_CAPACITY + 3 + SLIDE_SWITCH_SETTINGS_COUNT; }
+
+using SettingVisitor = void (*)(SettingInfo&&, void*);
+// Inspect or move each descriptor during the callback; borrowed references expire on return.
+void forEachBaseSetting(SettingVisitor visitor, void* context);
+
+template <typename Visitor>
+void forEachBaseSetting(Visitor&& visitor) {
+  forEachBaseSetting(
+      [](SettingInfo&& setting, void* context) {
+        (*static_cast<std::remove_reference_t<Visitor>*>(context))(std::move(setting));
+      },
+      &visitor);
 }
 
-const std::vector<SettingInfo>& getBaseSettingsList();
+std::vector<SettingInfo> getBaseSettingsList();
 
 inline std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* registry = nullptr,
                                                 const DictionaryRegistry* dictRegistry = nullptr) {

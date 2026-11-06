@@ -53,11 +53,12 @@ constexpr uint32_t SECTION_CACHE_MAGIC = 0x535843FF;  // bytes: 0xFF, "CXS"
 // v101: Round SD-font glyph advances individually to match drawing.
 // v103: Unicode space advances change wrapping and scaled text placement.
 // v104: Spend chapter-wrapper closing spacing before the following paragraph.
-constexpr uint8_t SECTION_FILE_VERSION = 104;
+// v105: Keep CSS active below 48 KiB free heap; rebuild previously unstyled pages.
+constexpr uint8_t SECTION_FILE_VERSION = 105;
 // Suspended incremental build: valid pages plus LUTs and a parse-watermark trailer.
 // Change this with layout or payload changes so stale partial pages cannot resume
 // under a different layout contract.
-constexpr uint8_t SECTION_FILE_PARTIAL_VERSION = 0xD9;
+constexpr uint8_t SECTION_FILE_PARTIAL_VERSION = 0xDA;
 constexpr uint32_t HEADER_SIZE =
     4 * sizeof(uint32_t) + sizeof(PublisherFonts) + sizeof(SECTION_CACHE_MAGIC) + sizeof(uint8_t) + sizeof(int) +
     sizeof(float) + sizeof(bool) + sizeof(bool) + sizeof(uint8_t) + sizeof(uint16_t) + sizeof(uint16_t) + sizeof(bool) +

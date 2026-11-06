@@ -816,8 +816,18 @@ void CrossPointWebServer::handlePluginRunnerPage() const {
 }
 
 CrossPointWebServer::PluginJob* CrossPointWebServer::allocPluginJob() {
+  if (!pluginJobs) {
+    // Six bounded slots (~2.7 KB) are only needed by automation clients, not
+    // ordinary File Transfer. Keep them off the task stack and release as a unit.
+    pluginJobs = makeUniqueNoThrow<PluginJob[]>(MAX_PLUGIN_JOBS);
+    if (!pluginJobs) {
+      LOG_ERR("WEB", "Cannot allocate %zu bytes for plugin jobs", sizeof(PluginJob) * MAX_PLUGIN_JOBS);
+      return nullptr;
+    }
+  }
   PluginJob* best = nullptr;
-  for (auto& job : pluginJobs) {
+  for (size_t i = 0; i < MAX_PLUGIN_JOBS; ++i) {
+    auto& job = pluginJobs[i];
     if (job.state == JOB_EMPTY) return &job;
     const bool finished = job.state == JOB_DONE || job.state == JOB_ERROR;
     if (finished && (!best || job.updatedAt < best->updatedAt)) best = &job;
@@ -847,7 +857,8 @@ void CrossPointWebServer::handlePluginJobSubmit() {
   }
   PluginJob* job = allocPluginJob();
   if (!job) {
-    server->send(503, "application/json", "{\"error\":\"job queue full\"}");
+    server->send(503, "application/json",
+                 pluginJobs ? "{\"error\":\"job queue full\"}" : "{\"error\":\"out of memory\"}");
     return;
   }
   *job = PluginJob{};
@@ -868,7 +879,8 @@ void CrossPointWebServer::handlePluginJobClaim() {
   if (rejectIfPluginsDisabled()) return;
   const String plugin = server->arg("plugin");
   const uint32_t now = millis();
-  for (auto& job : pluginJobs) {
+  for (size_t i = 0; pluginJobs && i < MAX_PLUGIN_JOBS; ++i) {
+    auto& job = pluginJobs[i];
     if (job.state == JOB_RUNNING && now - job.updatedAt > PLUGIN_JOB_LEASE_MS) {
       job.state = JOB_PENDING;
       job.updatedAt = now;
@@ -895,7 +907,8 @@ void CrossPointWebServer::handlePluginJobComplete() {
   if (!readJsonBody(req)) return;
   const uint32_t id = req["id"] | 0;
   const uint32_t claim = req["claim"] | 0;
-  for (auto& job : pluginJobs) {
+  for (size_t i = 0; pluginJobs && i < MAX_PLUGIN_JOBS; ++i) {
+    auto& job = pluginJobs[i];
     if (job.id != id) continue;
     if (job.state == JOB_DONE || job.state == JOB_ERROR) {
       server->send(200, "application/json", "{\"ok\":true}");
@@ -929,7 +942,8 @@ void CrossPointWebServer::handlePluginJobStatus() {
   if (rejectIfPluginsDisabled()) return;
   const uint32_t id = strtoul(server->arg("id").c_str(), nullptr, 10);
   static constexpr const char* STATE_NAMES[] = {"empty", "pending", "running", "done", "error"};
-  for (auto& job : pluginJobs) {
+  for (size_t i = 0; pluginJobs && i < MAX_PLUGIN_JOBS; ++i) {
+    auto& job = pluginJobs[i];
     if (job.id != id || job.state == JOB_EMPTY) continue;
     const std::string msg = "{\"id\":" + std::to_string(id) + ",\"state\":\"" + STATE_NAMES[job.state] +
                             "\",\"result\":" + (job.result[0] ? job.result : "null") + "}";

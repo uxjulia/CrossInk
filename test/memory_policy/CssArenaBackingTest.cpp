@@ -343,3 +343,20 @@ TEST_F(CssArenaBackingTest, SmallPrintHintsPreserveDefaultHeadingEnlargement) {
   EXPECT_LT(scales[0], 256);
   EXPECT_EQ(scales[1], 512);
 }
+
+TEST_F(CssArenaBackingTest, StylesSurviveLowHeapWithHydratedAndDiskBackedRules) {
+  for (bool hydrated : {false, true}) {
+    fakeheap::reset(false);
+    createCache();
+    {
+      CssParser css("book");
+      if (!hydrated) fakeheap::internal.free = 40 * 1024;
+      ASSERT_TRUE(css.loadFromCache());
+      for (size_t free : {size_t(48 * 1024), size_t(48 * 1024 - 1), size_t(24 * 1024)}) {
+        fakeheap::internal.free = free;
+        checkStyle(css);
+      }
+    }
+    EXPECT_TRUE(fakeheap::live.empty());
+  }
+}

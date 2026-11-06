@@ -642,6 +642,7 @@ void CrossPointWebServer::stop() {
   delay(10);
 
   server.reset();
+  pluginJobs.reset();
 
   // Note: Static upload variables (uploadFileName, uploadPath, uploadError) are declared
   // later in the file and will be cleared when they go out of scope or on next upload
@@ -1792,11 +1793,10 @@ void CrossPointWebServer::handlePostStatusBars() {
 }
 
 void CrossPointWebServer::handleGetSettings() const {
-  // The device settings UI needs an owned, mutable copy of the settings list.
-  // The web API only reads it, so iterate the static base list directly rather
-  // than copying its nested vectors and callbacks while WiFi is using the heap.
+  // Own one request-scoped catalog; release descriptors and nested options
+  // when the response completes instead of retaining them throughout reading.
   sdFontSystem.refreshIfDirty();
-  const auto& settings = getBaseSettingsList();
+  const auto settings = getBaseSettingsList();
   const auto& fontFamilies = sdFontSystem.registry().getFamilies();
   const SdCardFontFamilyInfo* selectedSdFamily =
       SETTINGS.sdFontFamilyName[0] == '\0' ? nullptr : sdFontSystem.registry().findFamily(SETTINGS.sdFontFamilyName);

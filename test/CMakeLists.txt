@@ -212,3 +212,14 @@ add_test(NAME PiccoDisplayIdleRegression
   COMMAND ${Python3_EXECUTABLE} ${REPO_ROOT}/test/scripts/test_picco_display_idle.py)
 add_test(NAME PluginNetworkBootRegression
   COMMAND ${Python3_EXECUTABLE} ${REPO_ROOT}/test/scripts/test_plugin_network_boot.py)
+
+FetchContent_GetProperties(arduinojson)
+add_test(NAME PluginJobHeapRegression
+  COMMAND ${Python3_EXECUTABLE} ${REPO_ROOT}/test/scripts/test_plugin_job_heap.py
+    --json-include ${arduinojson_SOURCE_DIR}/src)
+
+find_program(NODE_EXECUTABLE node)
+if(NODE_EXECUTABLE)
+  add_test(NAME TransferWebSocketRegression
+    COMMAND ${NODE_EXECUTABLE} ${REPO_ROOT}/test/scripts/test_transfer_websocket.cjs)
+endif()

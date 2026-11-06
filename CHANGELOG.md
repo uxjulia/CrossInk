@@ -50,6 +50,7 @@
 
 ### Fixed
 
+- Keep publisher CSS styles active when free heap falls below 48 KiB; existing EPUB page caches rebuild automatically (CrossPoint #4032).
 - Keep font upload and delete feedback visible while scrolling on the web portal, including mobile, and prevent older notification timers from hiding newer messages (adapted from CrossPoint #3984).
 - Keep web dialogs open when a text-selection drag ends outside the dialog, while preserving backdrop clicks and upload-in-progress protection (adapted from Crestwave, CrossPoint #3931).
 - Normalize new web-upload filenames to composed Unicode (NFC), including duplicate checks, so accented filenames remain accessible across platforms (adapted from serialx, CrossPoint #3961).
@@ -193,6 +194,7 @@
 - Match Nearby Position Sync to the progress sync comparison design, with progress cards, bars, chapter details, and an Ahead badge.
 - Default to Incremental EPUB indexing on ESP32-S3 readers, while preserving saved global choices and per-book overrides.
 - Move dictionary definition pagination to the bottom right and add a tappable close icon at the top right on touch devices.
+- Release settings descriptors after use and allocate plugin job storage only when automation submits a job, leaving more heap available for reading and ordinary File Transfer. File Transfer now reserves two WebSocket connections (adapted from CrossPoint #4085 and #4288).
 
 ## [v1.6.1] - 2026-10-03
 

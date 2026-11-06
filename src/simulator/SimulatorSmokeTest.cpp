@@ -553,7 +553,8 @@ struct ReaderDrawerLayoutSmokeTest {
     SETTINGS.toJson(original);
     bool valid = true;
     const SettingInfo* images = nullptr;
-    for (const auto& setting : getBaseSettingsList()) {
+    const auto settings = getBaseSettingsList();
+    for (const auto& setting : settings) {
       if (settingKeyIs(setting, "imageGrayscale")) return false;
       if (settingKeyIs(setting, "imageRendering")) images = &setting;
     }
@@ -3586,6 +3587,53 @@ class SimulatorSmokeTest {
   }
 
   static void verifyTiltPageTurnSettings() {
+    // Device/web lists own their descriptors. Persistence visits the identical
+    // catalog without retaining a global copy or depending on UI lifetimes.
+    {
+      auto first = getBaseSettingsList();
+      const auto second = getBaseSettingsList();
+      if (first.size() > getBaseSettingsCapacity()) fail("Settings capacity is too small");
+      size_t index = 0;
+      forEachBaseSetting([&](const SettingInfo& setting) {
+        if (index >= second.size()) fail("Streamed catalog has extra descriptors");
+        const auto& expected = second[index++];
+        if (setting.nameId != expected.nameId || setting.type != expected.type ||
+            setting.valuePtr != expected.valuePtr || setting.value16Ptr != expected.value16Ptr ||
+            setting.stringOffset != expected.stringOffset || setting.stringMaxLen != expected.stringMaxLen ||
+            setting.obfuscated != expected.obfuscated || setting.key != expected.key ||
+            setting.enumValues != expected.enumValues || setting.enumRawValues != expected.enumRawValues ||
+            setting.enumStringValues != expected.enumStringValues)
+          fail("Streamed settings descriptor differs from owned catalog");
+      });
+      if (index != second.size()) fail("Streamed catalog is missing descriptors");
+      first.front().enumRawValues.clear();
+      if (second.front().enumRawValues.empty()) fail("Settings lists share mutable storage");
+      JsonDocument saved;
+      SETTINGS.toJson(saved);
+      for (const auto& setting : second) {
+        if (!setting.key || (!setting.valuePtr && !setting.value16Ptr && !setting.stringOffset)) continue;
+        const std::string key = std::string(setting.key) + (setting.obfuscated ? "_obf" : "");
+        if (saved[key].isNull()) fail("Persisted descriptor missing from settings JSON: %s", key.c_str());
+      }
+      const uint8_t originalTracking = SETTINGS.trackReadingStats;
+      const uint8_t originalShortcut = SETTINGS.shortPwrBtn;
+      SETTINGS.trackReadingStats = 0;
+      SETTINGS.shortPwrBtn = CrossPointSettings::READING_STATS;
+      JsonDocument disabled;
+      SETTINGS.toJson(disabled);
+      SETTINGS.fromJson(disabled.as<JsonVariantConst>());
+      if (SETTINGS.shortPwrBtn != CrossPointSettings::READING_STATS)
+        fail("Disabled stats tracking discarded a persisted shortcut");
+      const auto hidden = getSettingsList();
+      const auto power = std::find_if(hidden.begin(), hidden.end(),
+                                      [](const SettingInfo& setting) { return settingKeyIs(setting, "shortPwrBtn"); });
+      if (power == hidden.end() || std::find(power->enumRawValues.begin(), power->enumRawValues.end(),
+                                             CrossPointSettings::READING_STATS) != power->enumRawValues.end())
+        fail("Stats shortcut still offered while tracking is disabled");
+      SETTINGS.trackReadingStats = originalTracking;
+      SETTINGS.shortPwrBtn = originalShortcut;
+      LOG_INF("SMOKE", "Settings catalog ownership and streamed persistence checks passed (%zu entries)", index);
+    }
     JsonDocument original;
     SETTINGS.toJson(original);
     const auto all = getSettingsList();

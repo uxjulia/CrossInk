@@ -185,8 +185,8 @@ class CrossPointWebServer {
   // {plugin, action, args}; any open page hosting the plugin (File Manager,
   // Settings, or the headless /plugins-run page) claims and executes it, then
   // posts the result. The firmware only stores small JSON blobs — plugin logic
-  // never runs on-device. Fixed pool inside this (heap-allocated, web-session
-  // lifetime) object: no allocation per job, oldest finished slot recycled.
+  // never runs on-device. Lazily allocated fixed pool, owned for this web session:
+  // no allocation per job, oldest finished slot recycled.
   struct PluginJob {
     uint32_t id = 0;         // 0 = empty slot
     uint32_t claim = 0;      // current claim; a completion must echo it
@@ -204,7 +204,7 @@ class CrossPointWebServer {
   static constexpr uint8_t JOB_ERROR = 4;
   static constexpr size_t MAX_PLUGIN_JOBS = 6;
   static constexpr uint32_t PLUGIN_JOB_LEASE_MS = 10UL * 60 * 1000;
-  PluginJob pluginJobs[MAX_PLUGIN_JOBS];
+  std::unique_ptr<PluginJob[]> pluginJobs;
   uint32_t nextPluginJobId = 1;
   uint32_t nextPluginJobClaim = 1;
   PluginJob* allocPluginJob();

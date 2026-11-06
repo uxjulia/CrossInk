@@ -1022,6 +1022,13 @@ Binary layout:
 
 ## `section.bin`
 
+### Version 105
+
+Complete caches use `105`; suspended partial caches use `0xDA`. CSS rules now
+remain active below 48 KiB free heap. Both cache types rebuild automatically
+so layouts previously cached without styles are corrected. The binary payload
+is unchanged and reading progress is preserved.
+
 ### Version 104
 
 Complete caches use `104`; suspended partial caches use `0xD9`. Chapter-wrapper

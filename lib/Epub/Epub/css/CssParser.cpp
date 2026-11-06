@@ -55,10 +55,6 @@ constexpr size_t MAX_DESCENDANT_RULES = CssParser::MAX_DESCENDANT_RULES;
 constexpr size_t MIN_FREE_HEAP_FOR_RULE_GROWTH = 64 * 1024;
 constexpr size_t MIN_LARGEST_BLOCK_FOR_RULE_GROWTH = 8 * 1024;
 
-// Minimum free heap required to apply CSS during rendering
-// If below this threshold, we skip CSS to avoid display artifacts.
-constexpr size_t MIN_FREE_HEAP_FOR_CSS = 48 * 1024;
-
 // Hydrating cached CSS rules is an optimization, not a requirement. Keep a
 // larger heap floor than basic CSS application so low-memory books can still
 // fall back to the disk-backed selector index.
@@ -1260,16 +1256,8 @@ bool CssParser::loadFromStream(FsFile& source, const std::string_view baseDir) {
 CssStyle CssParser::resolveStyle(std::string_view tagName, std::string_view classAttr,
                                  const std::vector<CssAncestorEntry>& ancestors, const std::string_view idAttr,
                                  const bool firstLetter) const {
-  static bool lowHeapWarningLogged = false;
-  if (ESP.getFreeHeap() < MIN_FREE_HEAP_FOR_CSS) {
-    if (!lowHeapWarningLogged) {
-      lowHeapWarningLogged = true;
-      LOG_DBG("CSS", "Warning: low heap (%u bytes) below MIN_FREE_HEAP_FOR_CSS (%u), returning empty style",
-              ESP.getFreeHeap(), static_cast<unsigned>(MIN_FREE_HEAP_FOR_CSS));
-    }
-    return CssStyle{};
-  }
-
+  // Matching already-loaded rules must not change with transient heap pressure.
+  // Parsing and cache hydration retain their separate allocation admission gates.
   CssStyle result;
 
   std::array<uint8_t, MAX_DESCENDANT_RULES> matches{};
