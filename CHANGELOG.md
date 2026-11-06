@@ -155,6 +155,7 @@
 - Honor Next Page and Previous Page power-button assignments while viewing dictionary definitions.
 - Preserve book text between dictionary button hints and above inactive button markers.
 - Prevent Page Overlay sleep from triggering an extra reader shortcut, and preserve the page's Dark Mode colors.
+- Center and scale custom sleep BMPs correctly in Fit and Crop modes, including smaller images on X3 (fixes #925; adapted from CrossPoint #4185).
 
 ### Changed
 

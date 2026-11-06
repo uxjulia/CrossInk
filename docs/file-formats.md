@@ -151,6 +151,16 @@ the stem-darkening toggle. Missing families use automatic hinting, grayscale
 output, the default interpreter, and no outline adjustments. The file currently
 keeps at most 24 modified family profiles to bound RAM use while settings are open.
 
+## `/.crosspoint/sleep_<hash>.bmp`
+
+Custom sleep images are converted to native 1-bit or 2-bit BMPs using the selected
+Fit/Crop mode. The rebuildable cache key includes the source path, a streamed
+content fingerprint, runtime screen dimensions, sizing mode, tone profile and
+conversion version. The source is read once on each use to detect replacements
+even when FAT timestamps and file sizes are unchanged on devices without a clock. Conversion writes a temporary `.bmp.tmp` file and renames it
+only after a successful close. Removing these files forces conversion on next use.
+No EPUB cache reset is needed.
+
 ## `/.crosspoint/sleep-image-index/<directory-hash>-{bmp,all}.idx`
 
 ### Version 2

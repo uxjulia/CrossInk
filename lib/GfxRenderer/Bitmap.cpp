@@ -386,6 +386,15 @@ BmpReaderError Bitmap::readNextRow(uint8_t* data, uint8_t* rowBuffer) const {
   return BmpReaderError::Ok;
 }
 
+BmpReaderError Bitmap::readRowGray(const int y, uint8_t* gray, uint8_t* rowBuffer) const {
+  if (y < 0 || y >= height) return BmpReaderError::BadDimensions;
+  const uint32_t fileRow = topDown ? y : height - 1 - y;
+  if (!file.seek(bfOffBits + fileRow * rowBytes)) return BmpReaderError::SeekPixelDataFailed;
+  if (file.read(rowBuffer, rowBytes) != rowBytes) return BmpReaderError::ShortReadRow;
+  for (int x = 0; x < width; ++x) gray[x] = pixelLuminance(rowBuffer, x);
+  return BmpReaderError::Ok;
+}
+
 BmpReaderError Bitmap::rewindToData() const {
   if (!file.seek(bfOffBits)) {
     return BmpReaderError::SeekPixelDataFailed;

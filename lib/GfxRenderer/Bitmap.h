@@ -71,6 +71,9 @@ class Bitmap {
   BmpReaderError parseHeaders();
   BmpReaderError readNextRow(uint8_t* data, uint8_t* rowBuffer) const;
   BmpReaderError rewindToData() const;
+  // Unprocessed luminance of display-order row y (0 = top), without changing dither state.
+  BmpReaderError readRowGray(int y, uint8_t* gray, uint8_t* rowBuffer) const;
+  bool hasNativePalette() const { return nativePalette; }
   // Downsample high-color images before error diffusion. This is intentionally
   // limited to smaller output dimensions; the renderer still handles upscale.
   bool setDitheredOutputSize(int targetWidth, int targetHeight);

@@ -36,6 +36,52 @@ struct UpstreamFeatureSmokeTest {
       for (int x = 0; x < renderer.getScreenWidth(); ++x) std::fputc(renderer.isPixelBlack(x, y) ? 0 : 255, image);
     require(std::fclose(image) == 0, "capture close");
   }
+  static void runCustomSleepImages() {
+    RenderLock lock;
+    SETTINGS.sleepScreenCoverFilter = CrossPointSettings::BLACK_AND_WHITE;
+    SleepActivity sleep(renderer, mappedInputManager, false);
+    for (const auto orientation : {GfxRenderer::Portrait, GfxRenderer::LandscapeClockwise}) {
+      renderer.setOrientation(orientation);
+      const int w = renderer.getScreenWidth(), h = renderer.getScreenHeight();
+      for (const auto mode : {CrossPointSettings::FIT, CrossPointSettings::CROP}) {
+        SETTINGS.sleepScreenCoverMode = mode;
+        require(sleep.renderCustomSleepBmp("/sleep-test.bmp"), "custom sleep BMP render");
+        // Fixture is a square, black on the left and white on the right. A crop
+        // must fill the screen; Fit must leave centered white margins.
+        require(renderer.isPixelBlack(w / 4, h / 2), "sleep image left half");
+        require(!renderer.isPixelBlack(w * 3 / 4, h / 2), "sleep image right half");
+        if (mode == CrossPointSettings::CROP) {
+          require(renderer.isPixelBlack(0, 0) && renderer.isPixelBlack(w / 4, h - 1), "crop must reach edges");
+        } else if (h > w) {
+          require(!renderer.isPixelBlack(w / 4, 0) && !renderer.isPixelBlack(w / 4, h - 1), "fit vertical margins");
+        } else {
+          require(!renderer.isPixelBlack(0, h / 2) && !renderer.isPixelBlack(w - 1, h / 2), "fit horizontal margins");
+        }
+        const std::string name = std::string(orientation == GfxRenderer::Portrait ? "portrait-" : "landscape-") +
+                                 (mode == CrossPointSettings::CROP ? "crop" : "fit");
+        capture(name.c_str());
+        require(sleep.renderCustomSleepBmp("/sleep-test.bmp"), "cached custom sleep BMP render");
+        require(renderer.isPixelBlack(w / 4, h / 2) && !renderer.isPixelBlack(w * 3 / 4, h / 2), "cached sleep pixels");
+      }
+    }
+    // A replaced BMP can have exactly the same byte count and FAT timestamp.
+    // Exercise the no-RTC case by preserving both while reversing its pixels.
+    const std::filesystem::path source = "fs_/sleep-test.bmp";
+    const auto timestamp = std::filesystem::last_write_time(source);
+    const auto bytes = std::filesystem::file_size(source);
+    std::filesystem::copy_file("fs_/sleep-replacement.bmp", source, std::filesystem::copy_options::overwrite_existing);
+    std::filesystem::last_write_time(source, timestamp);
+    require(std::filesystem::file_size(source) == bytes, "replacement fixture size");
+    renderer.setOrientation(GfxRenderer::Portrait);
+    SETTINGS.sleepScreenCoverMode = CrossPointSettings::CROP;
+    require(sleep.renderCustomSleepBmp("/sleep-test.bmp"), "same-metadata replacement render");
+    const int w = renderer.getScreenWidth(), h = renderer.getScreenHeight();
+    require(!renderer.isPixelBlack(w / 4, h / 2) && renderer.isPixelBlack(w * 3 / 4, h / 2),
+            "same-metadata replacement reused stale sleep BMP");
+    capture("same-metadata-replacement");
+    LOG_INF("PORTTEST", "Simulator smoke test passed: custom sleep Fit/Crop, orientation, edges and cached redraws");
+    std::_Exit(0);
+  }
   static void run() {
     RenderLock lock;
     require(CrossPointSettings::verifySleepScreenMigrationContract(), "sleep settings migration");
@@ -129,6 +175,7 @@ struct UpstreamFeatureSmokeTest {
   }
 };
 bool tickUpstreamFeatureSmokeTest() {
+  if (std::getenv("CROSSINK_SIMULATOR_SMOKE_CUSTOM_SLEEP_IMAGES")) UpstreamFeatureSmokeTest::runCustomSleepImages();
   if (!std::getenv("CROSSINK_SIMULATOR_SMOKE_UPSTREAM_FEATURES")) return false;
   UpstreamFeatureSmokeTest::run();
   return true;
