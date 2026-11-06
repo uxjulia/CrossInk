@@ -434,10 +434,8 @@ bool BookReadingStats::remove(const std::string& cachePath) {
       ok = false;
     }
   }
-  // Keep the newest valid slot until all fallbacks are gone.
-  if (ok && Storage.exists(newest.c_str()) && !Storage.remove(newest.c_str())) {
-    LOG_ERR("STATS", "Could not delete %s", newest.c_str());
-    ok = false;
-  }
-  return ok;
+  // Publish an empty snapshot atomically, like the global stats reset. Keeping
+  // a local record prevents preserved legacy copies from migrating back later.
+  // The newest valid slot remains recoverable if this reset write fails.
+  return ok && BookReadingStats{}.save(cachePath);
 }

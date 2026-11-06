@@ -120,13 +120,22 @@ static std::string resolvePath(const std::string& legacyPath, bool directory, bo
   char legacyOwner[32];
   if (!owner(parent + OWNER, rootOwner, legacyOwner, !readOnly)) return {};
   if (strcmp(legacyOwner, id) != 0) return local;
-  if (readOnly) return Storage.exists(local.c_str()) ? local : legacyPath;
+  // Older firmware can recreate legacy stats after migration. Keep using the
+  // established local family without mixing its slots or totals with that copy.
+  // A remaining legacy primary identifies a separate family: migration moves
+  // it first. If only legacy recovery slots remain, finish that interrupted move.
+  bool localExists = Storage.exists(local.c_str());
+  if (!directory)
+    for (const char* suffix : {".bak", ".tmp"}) localExists |= Storage.exists((local + suffix).c_str());
+  if (localExists && Storage.exists(legacyPath.c_str())) return local;
+  if (readOnly) return localExists ? local : legacyPath;
   for (const char* suffix : {"", ".bak", ".tmp"}) {
     if (directory && *suffix) break;
     const std::string from = legacyPath + suffix;
     const std::string to = local + suffix;
     if (!Storage.exists(from.c_str())) continue;
-    if (Storage.exists(to.c_str()) || !Storage.rename(from.c_str(), to.c_str())) {
+    if (Storage.exists(to.c_str())) continue;
+    if (!Storage.rename(from.c_str(), to.c_str())) {
       LOG_ERR("StatsOrigin", "Cannot migrate stats: %s", from.c_str());
       return {};
     }

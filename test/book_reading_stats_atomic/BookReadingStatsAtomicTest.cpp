@@ -105,14 +105,15 @@ TEST_F(BookReadingStatsAtomicTest, IdenticalSaveSkipsWrite) {
   EXPECT_EQ(BookReadingStats::load(CACHE_PATH).totalReadingSeconds, 124U);
 }
 
-TEST_F(BookReadingStatsAtomicTest, RemoveClearsRecoverableTransactionFiles) {
+TEST_F(BookReadingStatsAtomicTest, ResetPublishesEmptySnapshotAndClearsTemporaryFiles) {
   statsWithSeconds(123).save(CACHE_PATH);
   ASSERT_TRUE(Storage.rename(statsPath.c_str(), (statsPath + ".bak").c_str()));
 
   EXPECT_TRUE(BookReadingStats::remove(CACHE_PATH));
-  EXPECT_FALSE(Storage.exists(statsPath.c_str()));
+  BookReadingStats reset;
+  EXPECT_TRUE(BookReadingStats::loadForUpload(CACHE_PATH, reset));
+  EXPECT_EQ(reset.totalReadingSeconds, 0u);
   EXPECT_FALSE(Storage.exists((statsPath + ".tmp").c_str()));
-  EXPECT_FALSE(Storage.exists((statsPath + ".bak").c_str()));
 }
 
 TEST_F(BookReadingStatsAtomicTest, FailedBackupRemovalKeepsCanonicalStats) {
@@ -300,7 +301,8 @@ TEST_F(BookReadingStatsAtomicTest, ResetRemovesAllSupportedFallbacksAndTransacti
   }
   EXPECT_TRUE(BookReadingStats::remove(CACHE_PATH));
   BookReadingStats stats;
-  EXPECT_FALSE(BookReadingStats::loadForUpload(CACHE_PATH, stats));
+  EXPECT_TRUE(BookReadingStats::loadForUpload(CACHE_PATH, stats));
+  EXPECT_EQ(stats.totalReadingSeconds, 0u);
   EXPECT_FALSE(BookReadingStats::peekCompleted(CACHE_PATH));
 }
 

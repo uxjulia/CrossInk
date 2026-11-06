@@ -326,3 +326,130 @@ TEST_F(StatsStorageTest, UnsupportedCompleteTemporaryClaimIsNeverReplaced) {
   EXPECT_EQ(Storage.files.at("/.crosspoint/stats_origin.bin.tmp")->bytes, bytes);
   EXPECT_FALSE(Storage.exists(ROOT_OWNER));
 }
+
+TEST_F(StatsStorageTest, LegacyBookRecreatedByOlderFirmwareKeepsLocalHistoryWritable) {
+  BookReadingStats saved;
+  saved.totalReadingSeconds = 565;
+  saved.startDate = {2026, 11, 5};
+  saved.avgSecondsPerForwardPage = 30;
+  saved.paceSampleCount = 18;
+  ASSERT_TRUE(saved.save(CACHE));
+  legacyBook(95);
+  const auto legacy = Storage.files.at(LEGACY_BOOK)->bytes;
+  switchReader(5);
+  auto loaded = BookReadingStats::load(CACHE);
+  ASSERT_EQ(loaded.totalReadingSeconds, 565u);
+  EXPECT_EQ(loaded.startDate.year, 2026);
+  EXPECT_EQ(loaded.paceSampleCount, 18u);
+  loaded.totalReadingSeconds += 120;
+  ASSERT_TRUE(loaded.save(CACHE));
+  switchReader(5);
+  EXPECT_EQ(BookReadingStats::load(CACHE).totalReadingSeconds, 685u);
+  EXPECT_EQ(Storage.files.at(LEGACY_BOOK)->bytes, legacy);
+}
+
+TEST_F(StatsStorageTest, LegacyGlobalCollisionDoesNotDisableBookStats) {
+  GlobalReadingStats global;
+  global.totalReadingSeconds = 3600;
+  ASSERT_TRUE(global.save());
+  BookReadingStats book;
+  book.totalReadingSeconds = 565;
+  ASSERT_TRUE(book.save(CACHE));
+  writeBytes("/.crosspoint/global_stats.bin", {1, 2, 3});
+  switchReader(5);
+  ASSERT_TRUE(GlobalReadingStats::loadForUpload(global));
+  EXPECT_EQ(global.totalReadingSeconds, 3600u);
+  EXPECT_EQ(BookReadingStats::load(CACHE).totalReadingSeconds, 565u);
+  global.totalReadingSeconds += 60;
+  EXPECT_TRUE(global.save());
+}
+
+TEST_F(StatsStorageTest, ExistingLocalRecoverySlotKeepsLegacySlotsSeparate) {
+  for (const char* suffix : {"", ".bak", ".tmp"}) {
+    Storage.reset();
+    switchReader(5);
+    const auto local = StatsStorage::localPath(LEGACY_BOOK);
+    writeBytes(local + suffix, {6, 7, 8});
+    legacyBook(95);
+    writeBytes(std::string(LEGACY_BOOK) + ".bak", {1, 2, 3});
+    writeBytes(std::string(LEGACY_BOOK) + ".tmp", {4, 5, 6});
+    EXPECT_EQ(StatsStorage::localPath(LEGACY_BOOK), local);
+    EXPECT_EQ(StatsStorage::localPath(LEGACY_BOOK, false, true), local);
+    EXPECT_TRUE(Storage.exists(LEGACY_BOOK));
+    EXPECT_TRUE(Storage.exists((std::string(LEGACY_BOOK) + ".bak").c_str()));
+    EXPECT_TRUE(Storage.exists((std::string(LEGACY_BOOK) + ".tmp").c_str()));
+  }
+}
+
+TEST_F(StatsStorageTest, RecreatedLegacyDailyAndSessionDirectoriesDoNotBlockLocalWrites) {
+  const uint32_t day = readingStatsDayIndex({2026, 11, 1});
+  ASSERT_TRUE(DailyReadingStats::record(day, 3600));
+  ASSERT_TRUE(DailyReadingStats::flush());
+  ASSERT_TRUE(ReadingSessionJournal::save(session()));
+  ASSERT_TRUE(Storage.mkdir("/.crosspoint/daily_reading"));
+  ASSERT_TRUE(Storage.mkdir("/.crosspoint/reading_sessions"));
+  switchReader(5);
+  ASSERT_TRUE(DailyReadingStats::record(day, 60));
+  ASSERT_TRUE(DailyReadingStats::flush());
+  uint32_t uploaded = 0;
+  ASSERT_TRUE(DailyReadingStats::uploadPending(collectDay, &uploaded));
+  EXPECT_EQ(uploaded, 3660u);
+  auto record = session();
+  record.seconds = 120;
+  record.endedAt = record.startedAt + record.seconds;
+  ASSERT_TRUE(ReadingSessionJournal::save(record));
+  std::vector<ReadingSessionJournal::Record> sessions;
+  ASSERT_TRUE(ReadingSessionJournal::uploadPending(collectSession, &sessions));
+  ASSERT_EQ(sessions.size(), 1u);
+  EXPECT_EQ(sessions[0].seconds, 120u);
+  EXPECT_TRUE(Storage.exists("/.crosspoint/daily_reading"));
+  EXPECT_TRUE(Storage.exists("/.crosspoint/reading_sessions"));
+}
+
+TEST_F(StatsStorageTest, InterruptedMigrationStillRecoversTheNewerLegacyBackup) {
+  BookReadingStats book;
+  book.totalReadingSeconds = 100;
+  ASSERT_TRUE(book.save(CACHE));
+  book.totalReadingSeconds = 200;
+  ASSERT_TRUE(book.save(CACHE));
+  const auto local = StatsStorage::localPath(LEGACY_BOOK);
+  ASSERT_TRUE(Storage.rename(local.c_str(), LEGACY_BOOK));
+  ASSERT_TRUE(Storage.rename((local + ".bak").c_str(), (std::string(LEGACY_BOOK) + ".bak").c_str()));
+  faults.failRenameFrom = std::string(LEGACY_BOOK) + ".bak";
+  switchReader(5);
+  EXPECT_EQ(BookReadingStats::load(CACHE).totalReadingSeconds, 0u);
+  EXPECT_TRUE(Storage.exists(local.c_str()));
+  EXPECT_TRUE(Storage.exists((std::string(LEGACY_BOOK) + ".bak").c_str()));
+  switchReader(5);
+  EXPECT_EQ(BookReadingStats::load(CACHE).totalReadingSeconds, 200u);
+  EXPECT_FALSE(Storage.exists((std::string(LEGACY_BOOK) + ".bak").c_str()));
+}
+
+TEST_F(StatsStorageTest, ResetCannotRevivePreservedLegacyStatsOrEraseAnotherReader) {
+  BookReadingStats book;
+  book.totalReadingSeconds = 565;
+  ASSERT_TRUE(book.save(CACHE));
+  legacyBook(95);
+  switchReader(6);
+  book.totalReadingSeconds = 60;
+  ASSERT_TRUE(book.save(CACHE));
+  switchReader(5);
+  ASSERT_TRUE(BookReadingStats::remove(CACHE));
+  switchReader(5);
+  EXPECT_EQ(BookReadingStats::load(CACHE).totalReadingSeconds, 0u);
+  EXPECT_TRUE(Storage.exists(LEGACY_BOOK));
+  switchReader(6);
+  EXPECT_EQ(BookReadingStats::load(CACHE).totalReadingSeconds, 60u);
+}
+
+TEST_F(StatsStorageTest, FailedResetWriteKeepsNewestHistoryWithLegacyCollision) {
+  BookReadingStats book;
+  book.totalReadingSeconds = 565;
+  ASSERT_TRUE(book.save(CACHE));
+  legacyBook(95);
+  faults.bytesUntilFailure = 0;
+  EXPECT_FALSE(BookReadingStats::remove(CACHE));
+  faults.bytesUntilFailure = -1;
+  switchReader(5);
+  EXPECT_EQ(BookReadingStats::load(CACHE).totalReadingSeconds, 565u);
+}
