@@ -80,6 +80,8 @@ class ActivityManager {
 #endif
 
   void exitActivity(const RenderLock& lock);
+  // Apply navigation and render requests without polling the outgoing activity.
+  void processPendingActivities();
 
   // Pending activity to be launched on next loop iteration
   std::unique_ptr<Activity> pendingActivity;

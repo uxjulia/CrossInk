@@ -64,6 +64,7 @@
 #include "WifiCredentialStore.h"
 #include "activities/Activity.h"
 #include "activities/ActivityManager.h"
+#include "activities/boot_sleep/SleepActivity.h"
 #include "activities/home/AlertActivity.h"
 #include "activities/home/BookActions.h"
 #include "activities/home/FileBrowserActivity.h"
@@ -131,6 +132,7 @@ extern ActivityManager activityManager;
 extern GfxRenderer renderer;
 extern MappedInputManager mappedInputManager;
 extern bool dispatchButtonShortcut(const ButtonShortcutController::Result& result);
+extern CrossPointSettings::SHORT_PWRBTN getPowerButtonAction();
 
 // Use a detached reader so these boundary checks cannot race its render task.
 struct EpubReaderCompletionSmokeTest {
@@ -7769,8 +7771,87 @@ class SimulatorSmokeTest {
     std::_Exit(0);
   }
 
+  void tickSleepScreenColors() {
+    // A sleep transition must save/exit the outgoing reader without delivering
+    // another input frame, including any stale hold exposed after capture stops.
+    struct SleepInputProbe final : Activity {
+      int& loops;
+      bool& exited;
+      SleepInputProbe(int& loops, bool& exited)
+          : Activity("SleepInputProbe", ::renderer, mappedInputManager), loops(loops), exited(exited) {}
+      void loop() override { ++loops; }
+      void onExit() override { exited = true; }
+    };
+    int outgoingLoops = 0;
+    bool outgoingExited = false;
+    SETTINGS.sleepScreen = CrossPointSettings::OVERLAY;
+    SETTINGS.quickResumeSleepScreen = CrossPointSettings::QUICK_RESUME_SLEEP_SCREEN::QUICK_RESUME_NEVER;
+    activityManager.replaceActivity(std::make_unique<SleepInputProbe>(outgoingLoops, outgoingExited));
+    activityManager.loop();
+    activityManager.goToSleep();
+    if (outgoingLoops || !outgoingExited || !activityManager.isCurrentActivityNamed("Sleep"))
+      fail("Sleep dispatched outgoing input or skipped reader cleanup");
+
+    RenderLock lock;
+    SETTINGS.shortPwrBtn = CrossPointSettings::SLEEP;
+    SETTINGS.longPwrBtn = CrossPointSettings::TOGGLE_DARK_MODE;
+    mappedInputManager.simulatorInjectRelease(MappedInputManager::Button::Power);
+    if (getPowerButtonAction() != CrossPointSettings::SLEEP) fail("Short Power selected the long-press action");
+    mappedInputManager.simulatorClearInputFrame();
+    SETTINGS.quickResumeSleepScreen = CrossPointSettings::QUICK_RESUME_SLEEP_SCREEN::QUICK_RESUME_NEVER;
+    APP_STATE.openEpubPath.clear();
+    APP_STATE.lastSleepFromReader = false;
+    const char* captures = std::getenv("CROSSINK_SIMULATOR_SMOKE_STATUS_BAR_CAPTURES");
+    for (const bool inverted : {false, true}) {
+      SETTINGS.screenInverted = inverted;
+      for (const auto mode : {CrossPointSettings::OVERLAY, CrossPointSettings::QUICK_RESUME, CrossPointSettings::DARK,
+                              CrossPointSettings::LIGHT, CrossPointSettings::BLANK}) {
+        SETTINGS.sleepScreen = mode;
+        display.setInverted(inverted);
+        renderer.clearScreen();
+        renderer.drawText(UI_12_FONT_ID, 30, 40, "Page Overlay");
+        renderer.drawText(UI_12_FONT_ID, 30, 80, "Keep the current page colors.");
+        SleepActivity sleep(renderer, mappedInputManager, false);
+        sleep.onEnter();
+        const bool retained = mode == CrossPointSettings::OVERLAY || mode == CrossPointSettings::QUICK_RESUME;
+        if (display.isInverted() != (retained && inverted)) fail("Sleep screen changed page colors");
+        if (SETTINGS.screenInverted != inverted) fail("Sleep screen changed the Dark Mode preference");
+        if (mode == CrossPointSettings::OVERLAY && renderer.isPixelBlack(10, 10))
+          fail("Page Overlay changed the logical background");
+        if (captures && mode == CrossPointSettings::OVERLAY) {
+          std::filesystem::create_directories(captures);
+          const auto path = std::filesystem::path(captures) / (inverted ? "overlay-dark.pgm" : "overlay-light.pgm");
+          FILE* image = std::fopen(path.c_str(), "wb");
+          if (!image) fail("Cannot open sleep screen capture");
+          std::fprintf(image, "P5\n%d %d\n255\n", renderer.getScreenWidth(), renderer.getScreenHeight());
+          for (int y = 0; y < renderer.getScreenHeight(); ++y)
+            for (int x = 0; x < renderer.getScreenWidth(); ++x)
+              std::fputc(renderer.isPixelBlack(x, y) != display.isInverted() ? 0 : 255, image);
+          if (std::fclose(image) != 0) fail("Cannot save sleep screen capture");
+        }
+      }
+    }
+    SETTINGS.sleepScreen = CrossPointSettings::OVERLAY;
+    SETTINGS.screenInverted = 1;
+    if (!Storage.writeFile("/sleep.bmp", "invalid bitmap")) fail("Cannot create broken overlay fixture");
+    SleepActivity fallback(renderer, mappedInputManager, false);
+    fallback.onEnter();
+    if (display.isInverted() || SETTINGS.screenInverted != 1)
+      fail("Page Overlay fallback inverted the default sleep screen or changed Dark Mode");
+    SETTINGS.quickResumeSleepScreen = CrossPointSettings::QUICK_RESUME_SLEEP_SCREEN::QUICK_RESUME_AFTER_TIMEOUT;
+    SleepActivity timeout(renderer, mappedInputManager, false, {}, true);
+    timeout.onEnter();
+    if (!display.isInverted()) fail("Timed Quick Resume lost Dark Mode");
+    LOG_INF("SMOKE", "Simulator smoke test passed: sleep screen colors and fallback");
+    std::_Exit(0);
+  }
+
   void tickImpl() {
     mappedInputManager.simulatorClearInputFrame();
+    if (std::getenv("CROSSINK_SIMULATOR_SMOKE_SLEEP_SCREEN_COLORS")) {
+      tickSleepScreenColors();
+      return;
+    }
     if (std::getenv("CROSSINK_SIMULATOR_SMOKE_QUICK_LOCK_TOUCH_RECOVERY")) {
       // Drive the real main loop with timed raw Up + Down chords at 4, 6 and
       // 8 seconds via CROSSPOINT_SIM_INPUT_SCRIPT: lock, unlock, then recover.

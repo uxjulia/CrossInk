@@ -154,6 +154,7 @@
 - Choose optional SD bitmap font sizes from EPUB stylesheet headings instead of always loading a double-size font, while keeping the existing C3 memory limits and safe fallback.
 - Honor Next Page and Previous Page power-button assignments while viewing dictionary definitions.
 - Preserve book text between dictionary button hints and above inactive button markers.
+- Prevent Page Overlay sleep from triggering an extra reader shortcut, and preserve the page's Dark Mode colors.
 
 ### Changed
 

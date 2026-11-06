@@ -230,6 +230,10 @@ def run_smoke(args: argparse.Namespace) -> int:
         if args.font_dir:
             shutil.copytree(Path(args.font_dir), temp_root / "fs_" / "fonts", dirs_exist_ok=True)
         env = os.environ.copy()
+        if args.sleep_screen_colors:
+            env["CROSSINK_SIMULATOR_SMOKE_SLEEP_SCREEN_COLORS"] = "1"
+        if args.sleep_screen_captures:
+            env["CROSSINK_SIMULATOR_SMOKE_STATUS_BAR_CAPTURES"] = str(Path(args.sleep_screen_captures).resolve())
         if args.font_browser_return:
             env["CROSSINK_SIMULATOR_SMOKE_FONT_BROWSER_RETURN"] = "1"
             env["CROSSPOINT_SIM_SILENT_REBOOT_MAGIC"] = str(0xC1EAB007)
@@ -522,6 +526,8 @@ def run_smoke(args: argparse.Namespace) -> int:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--sleep-screen-colors", action="store_true", help="Check retained sleep screen colors, Dark Mode preference and default fallback")
+    parser.add_argument("--sleep-screen-captures", help="Directory for Page Overlay display-color captures (PGM)")
     parser.add_argument("--dictionary-hints", action="store_true", help="Check dictionary hints preserve surrounding book pixels and clear old labels")
     parser.add_argument("--unicode-spaces", action="store_true", help="Check native Unicode spacing metrics and blank normal, rotated and scaled rendering")
     parser.add_argument("--factory-flash", action="store_true",

@@ -543,9 +543,10 @@ void SleepActivity::onEnter() {
        SETTINGS.quickResumeSleepScreen == CrossPointSettings::QUICK_RESUME_SLEEP_SCREEN::QUICK_RESUME_AFTER_TIMEOUT);
 
   // Sleep screens draw directly, outside ActivityManager's normal render path.
-  // Quick Resume retains the current screen, so preserve its Night Mode output;
-  // generated sleep screens continue to use their normal polarity.
-  display.setInverted(renderQuickResume && SETTINGS.screenInverted != 0);
+  // Quick Resume and Page Overlay retain the current screen, including its
+  // Night Mode output. Generated sleep screens use their normal polarity.
+  const bool retainPageColors = renderQuickResume || SETTINGS.sleepScreen == CrossPointSettings::OVERLAY;
+  display.setInverted(retainPageColors && SETTINGS.screenInverted != 0);
 
   if (renderQuickResume) {
     return renderLastScreenSleepScreen();
@@ -712,6 +713,8 @@ void SleepActivity::renderCustomSleepScreen() const {
 // sequence, used once for the sleep image. It never runs the multi-flash GC
 // waveform (0xF7) that FULL_REFRESH selects (#2471's blinking complaint).
 void SleepActivity::renderDefaultSleepScreen() const {
+  // Page Overlay can fall back here after keeping the reader's Night Mode.
+  display.setInverted(false);
   const auto pageWidth = renderer.getScreenWidth();
   const auto pageHeight = renderer.getScreenHeight();
 
