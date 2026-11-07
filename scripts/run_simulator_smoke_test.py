@@ -340,9 +340,11 @@ def run_smoke(args: argparse.Namespace) -> int:
             env["CROSSINK_SIMULATOR_SMOKE_FILENAME_FONT_ERROR"] = args.filename_font_error_family
         if args.filename_font_captures:
             env["CROSSINK_SIMULATOR_SMOKE_STATUS_BAR_CAPTURES"] = str(Path(args.filename_font_captures).resolve())
-        if args.screen_calibration:
+        if args.screen_calibration or args.theme_calibration:
             env["CROSSINK_SIMULATOR_SMOKE_CALIBRATION"] = "1"
             env["CROSSINK_CALIBRATION_PATH"] = str(temp_root / "device-calibration.nvs")
+        if args.theme_calibration:
+            env["CROSSINK_SIMULATOR_SMOKE_THEME_CALIBRATION"] = "1"
         if args.status_bar_lifecycle:
             env["CROSSINK_SIMULATOR_SMOKE_STATUS_BAR_LIFECYCLE"] = "1"
         if args.chapter_percentage:
@@ -556,6 +558,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--chapter-percentage", action="store_true", help="Check chapter percentage slot selection, removal, reload and rendered formats")
     parser.add_argument("--centered-status-bar", action="store_true", help="Check Center Status Bar and Separator rows, popups and persistence")
     parser.add_argument("--status-bar-feature", action="store_true", help="Check status bar visibility, independent sizes, disk reload and rendered theme/orientation matrix")
+    parser.add_argument("--theme-calibration", action="store_true", help="Check Minimal/Dashboard home and sleep artwork against calibrated bounds")
     parser.add_argument("--screen-calibration", action="store_true", help="Check screen calibration button/touch editing, save, cancel, reset and rotations")
     parser.add_argument("--receive-folder", action="store_true", help="Check receive folder selection, navigation and cancellation")
     parser.add_argument("--receive-folder-captures", help="Directory for receive folder picker framebuffer captures (PGM)")

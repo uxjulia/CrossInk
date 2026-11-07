@@ -43,6 +43,7 @@
 #endif
 #include <AppVersion.h>
 #include <ArduinoJson.h>
+#include <Bitmap.h>
 #include <Epub/hyphenation/Hyphenator.h>
 #include <SupportInfo.h>
 
@@ -119,6 +120,8 @@
 #include "components/HeaderDate.h"
 #include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
+#include "components/themes/dashboard/DashboardTheme.h"
+#include "components/themes/minimal/MinimalTheme.h"
 #include "simulator/SimulatorHomeKeyInput.h"
 #include "sync/BookSyncFile.h"
 #include "sync/SyncIds.h"
@@ -1400,6 +1403,167 @@ struct DictionaryPagingSmokeTest {
 };
 
 struct ScreenCalibrationSmokeTest {
+  static bool themeCoverFixture(const Epub& epub, const int width, const int height) {
+    const int stride = ((width + 31) / 32) * 4;
+    BmpHeader header{};
+    header.fileHeader.bfType = 0x4d42;
+    header.fileHeader.bfSize = sizeof(header) + stride * height;
+    header.fileHeader.bfOffBits = sizeof(header);
+    header.infoHeader.biSize = 40;
+    header.infoHeader.biWidth = width;
+    header.infoHeader.biHeight = height;
+    header.infoHeader.biPlanes = 1;
+    header.infoHeader.biBitCount = 1;
+    header.infoHeader.biSizeImage = stride * height;
+    header.infoHeader.biClrUsed = 2;
+    header.colors[1] = {255, 255, 255, 0};
+    auto file = Storage.open(epub.getAdaptiveThumbBmpPath(width, height).c_str(), O_WRONLY | O_CREAT | O_TRUNC);
+    if (!file) return false;
+    bool ok = file.write(reinterpret_cast<const uint8_t*>(&header), sizeof(header)) == sizeof(header);
+    std::vector<uint8_t> row(stride, 0xff);
+    std::fill_n(row.begin(), stride / 2, 0);
+    for (int y = 0; y < height; ++y) ok &= file.write(row.data(), row.size()) == row.size();
+    file.close();
+    return ok;
+  }
+  static bool themeArtwork(const StatusBarFeatureSmokeTest::Capture& capture) {
+    const auto originalInsets = renderer.getViewableInsets();
+    const auto originalOrientation = renderer.getOrientation();
+    const auto originalTheme = SETTINGS.uiTheme;
+    const auto originalTracking = SETTINGS.trackReadingStats;
+    bool valid = true;
+    const ScreenInsets cases[] = {ScreenInsets{}, ScreenInsets{{{32, 32, 32, 32}}}, ScreenInsets{{{32, 0, 32, 32}}},
+                                  ScreenInsets{{{0, 32, 0, 0}}}};
+    RecentBook book;
+    book.path = "/books/calibration.epub";
+    book.title = "A long book title that wraps onto two lines inside the calibrated screen";
+    book.author = "An author with a long name";
+    Epub epub(book.path, "/.crosspoint");
+    Storage.mkdir(epub.getCachePath().c_str());
+    if (!themeCoverFixture(epub, MinimalMetrics::homeCoverImageWidth, MinimalMetrics::homeCoverImageHeight) ||
+        !themeCoverFixture(epub, DashboardMetrics::homeCoverImageWidth, DashboardMetrics::homeCoverImageHeight))
+      return false;
+    BookReadingStats stats{};
+    stats.totalReadingSeconds = 123456789;
+    stats.totalPagesTurned = 12345;
+    stats.sessionCount = 42;
+    GlobalReadingStats global{};
+    global.totalReadingSeconds = 123456789;
+    global.completedBooks = 12345;
+    MinimalTheme minimal;
+    DashboardTheme dashboard;
+    for (const auto theme : {CrossPointSettings::MINIMAL, CrossPointSettings::DASHBOARD}) {
+      SETTINGS.uiTheme = theme;
+      UITheme::getInstance().reload();
+      for (unsigned index = 0; index < 4; ++index) {
+        renderer.setViewableInsets(cases[index]);
+        for (unsigned rotation = 0; rotation < 4; ++rotation) {
+          renderer.setOrientation(static_cast<GfxRenderer::Orientation>(rotation));
+          const auto check = [&](const char* screen, const bool backgroundBlack, const bool hints) {
+            const auto safe = UITheme::getInstance().getScreenSafeArea(renderer, hints, false);
+            int ink = 0;
+            for (int y = 0; y < renderer.getScreenHeight(); ++y) {
+              for (int x = 0; x < renderer.getScreenWidth(); ++x) {
+                if (renderer.isPixelBlack(x, y) == backgroundBlack) continue;
+                ++ink;
+                if (x < safe.x || y < safe.y || x >= safe.x + safe.width || y >= safe.y + safe.height) {
+                  LOG_ERR("SMOKE", "Theme calibration: %s theme=%d case=%u rotation=%u pixel=%d,%d", screen, theme,
+                          index, rotation, x, y);
+                  return false;
+                }
+              }
+            }
+            return ink > 100;
+          };
+          for (const bool tracking : {false, true}) {
+            SETTINGS.trackReadingStats = tracking;
+            uint64_t missingCoverHash = 0;
+            for (const int coverMode : {0, 1, 2}) {
+              const bool empty = coverMode == 2;
+              book.coverBmpPath = coverMode == 1 ? "/calibration-cover.bmp" : "";
+              renderer.clearScreen();
+              const auto safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
+              const auto& metrics = UITheme::getInstance().getMetrics();
+              const int top = metrics.homeTopPadding + UITheme::getHeaderRect(renderer, 0).y - metrics.topPadding;
+              bool rendered = false, stored = false, restored = false;
+              GUI.drawRecentBookCover(
+                  renderer, Rect{safe.x, top, safe.width, metrics.homeCoverTileHeight},
+                  empty ? std::vector<RecentBook>{} : std::vector<RecentBook>{book}, 0, rendered, stored, restored,
+                  [] { return false; }, &stats, 42.0f, &global, "A long chapter title that must stay above the footer");
+              valid &= check(empty ? "empty-home" : "home", false, true);
+              uint64_t hash = 1469598103934665603ull;
+              for (size_t i = 0; i < renderer.getBufferSize(); ++i)
+                hash = (hash ^ renderer.getFrameBuffer()[i]) * 1099511628211ull;
+              if (coverMode == 0) missingCoverHash = hash;
+              if (coverMode == 1 && hash == missingCoverHash) {
+                LOG_ERR("SMOKE", "Calibrated cover was replaced by its placeholder");
+                valid = false;
+              }
+              if (coverMode == 1 && tracking && rotation == 0 && index == 2)
+                capture("calibrated-home-" + std::to_string(theme));
+            }
+            book.coverBmpPath = "/calibration-cover.bmp";
+            for (const bool inverted : {false, true}) {
+              if (theme == CrossPointSettings::MINIMAL) {
+                minimal.drawSleepScreen(renderer, book, &stats, 42.0f, inverted);
+                valid &= check("minimal-sleep", !inverted, false);
+                minimal.drawStatsSleepScreen(renderer, book, &stats, &global, 42.0f, inverted);
+                valid &= check("minimal-stats-sleep", !inverted, false);
+              } else {
+                dashboard.drawSleepScreen(renderer, book, &stats, &global, 42.0f, "Chapter title", inverted);
+                valid &= check("dashboard-sleep", !inverted, false);
+              }
+              if (tracking && rotation == 0 && index == 2)
+                capture("calibrated-sleep-" + std::to_string(theme) + (inverted ? "-inverted" : ""));
+            }
+          }
+        }
+      }
+      // Home can remain alive while its drawer opens Settings. Restoring its
+      // retained cover after a stats toggle must equal a completely fresh draw.
+      renderer.setOrientation(GfxRenderer::Portrait);
+      renderer.setViewableInsets(cases[2]);
+      const auto safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
+      const auto& metrics = UITheme::getInstance().getMetrics();
+      const int top = metrics.homeTopPadding + UITheme::getHeaderRect(renderer, 0).y - metrics.topPadding;
+      const Rect content{safe.x, top, safe.width, metrics.homeCoverTileHeight};
+      std::vector<uint8_t> coverBuffer(renderer.getBufferSize());
+      bool rendered = false, stored = false, restored = false;
+      SETTINGS.trackReadingStats = false;
+      renderer.clearScreen();
+      GUI.drawRecentBookCover(
+          renderer, content, {book}, 0, rendered, stored, restored,
+          [&] {
+            std::copy_n(renderer.getFrameBuffer(), coverBuffer.size(), coverBuffer.data());
+            return true;
+          },
+          &stats, 42.0f, &global, "Chapter title");
+      SETTINGS.trackReadingStats = true;
+      std::copy(coverBuffer.begin(), coverBuffer.end(), renderer.getFrameBuffer());
+      restored = true;
+      GUI.drawRecentBookCover(
+          renderer, content, {book}, 0, rendered, stored, restored, [] { return false; }, &stats, 42.0f, &global,
+          "Chapter title");
+      const std::vector<uint8_t> cached(renderer.getFrameBuffer(),
+                                        renderer.getFrameBuffer() + renderer.getBufferSize());
+      renderer.clearScreen();
+      rendered = stored = restored = false;
+      GUI.drawRecentBookCover(
+          renderer, content, {book}, 0, rendered, stored, restored, [] { return false; }, &stats, 42.0f, &global,
+          "Chapter title");
+      if (!std::equal(cached.begin(), cached.end(), renderer.getFrameBuffer())) {
+        LOG_ERR("SMOKE", "Stats toggle retained stale Home artwork for theme %d", theme);
+        valid = false;
+      }
+    }
+    SETTINGS.uiTheme = originalTheme;
+    SETTINGS.trackReadingStats = originalTracking;
+    UITheme::getInstance().reload();
+    renderer.setViewableInsets(originalInsets);
+    renderer.setOrientation(originalOrientation);
+    return valid;
+  }
+
   static bool dictionaryHints(RenderLock& lock, const StatusBarFeatureSmokeTest::Capture& capture) {
     const auto orientation = renderer.getOrientation();
     const auto insets = renderer.getViewableInsets();
@@ -6369,6 +6533,14 @@ class SimulatorSmokeTest {
   }
 
   void tickCalibration() {
+    if (std::getenv("CROSSINK_SIMULATOR_SMOKE_THEME_CALIBRATION")) {
+      RenderLock lock;
+      if (!ScreenCalibrationSmokeTest::themeArtwork(
+              [this](const std::string& name) { captureStatusBarScreen(name.c_str()); }))
+        fail("Theme calibration artwork escaped the safe area");
+      LOG_INF("SMOKE", "Simulator smoke test passed: Minimal/Dashboard calibrated home and sleep artwork");
+      std::_Exit(0);
+    }
     if (scriptIndex < inputScript.size()) {
       runReaderInputScript();
       return;
