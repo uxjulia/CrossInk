@@ -35,14 +35,13 @@ constexpr int16_t READER_SLIDER_CONTROL_HEIGHT = 30;
 constexpr int16_t READER_SLIDER_SCALE_GAP = 4;
 #endif
 
-Rect touchStepButtonRect(const Rect& screen, const int index) {
+Rect touchStepButtonRect(const Rect& screen, const int index, const int top) {
   const int totalWidth = TOUCH_STEP_BUTTON_SIZE * 4 + TOUCH_STEP_BUTTON_GAP * 3;
   const int x = screen.x + (screen.width - totalWidth) / 2 + index * (TOUCH_STEP_BUTTON_SIZE + TOUCH_STEP_BUTTON_GAP);
-  return Rect{x, 220, TOUCH_STEP_BUTTON_SIZE, TOUCH_STEP_BUTTON_SIZE};
+  return Rect{x, top, TOUCH_STEP_BUTTON_SIZE, TOUCH_STEP_BUTTON_SIZE};
 }
 
-Rect touchStepLabelRect(const Rect& screen, const int index) {
-  constexpr int top = 176;
+Rect touchStepLabelRect(const Rect& screen, const int index, const int top) {
   const int width = screen.width / 4;
   const int x = screen.x + index * width;
   const int right = index == 3 ? screen.x + screen.width : x + width;
@@ -403,6 +402,34 @@ void IntervalSelectionActivity::renderReaderPreview(const Rect& area) {
   renderer.endTextClip();
 }
 
+Rect IntervalSelectionActivity::pickerHeaderRect() const {
+  Rect header = showTouchHeaderBackButton ? TouchHeaderBackButton::headerRect(renderer, mappedInput)
+                                          : TouchHeaderBackButton::standardHeaderRect(renderer);
+  const Rect safe = UITheme::getInstance().getScreenSafeArea(renderer, !mappedInput.hasTouchHardware(), false);
+  header.x = safe.x;
+  header.width = safe.width;
+  return header;
+}
+
+IntervalSelectionLayout IntervalSelectionActivity::legacyLayout() const {
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  const bool touch = mappedInput.hasTouchHardware();
+  const Rect safe = UITheme::getInstance().getScreenSafeArea(renderer, !touch, false);
+  const Rect header = pickerHeaderRect();
+  const int gap = std::max(4, metrics.verticalSpacing);
+  const int top = std::max(safe.y, header.y + header.height) + gap;
+  const int bottom = (touch ? touchActionLayout(safe).buttons[0].y : safe.y + safe.height) - gap;
+  const int stepsHeight = touch ? TOUCH_STEP_BUTTON_SIZE : 2 * renderer.getLineHeight(SMALL_FONT_ID) + 4;
+  return intervalSelectionLayout(top, bottom, renderer.getLineHeight(UI_12_FONT_ID), stepsHeight, gap,
+                                 readerPreviewSetting != ReaderPreviewSetting::None);
+}
+
+Rect IntervalSelectionActivity::legacyBarRect() const {
+  const Rect safe = UITheme::getInstance().getScreenSafeArea(renderer, !mappedInput.hasTouchHardware(), false);
+  const int width = std::min(360, std::max(0, safe.width - 40));
+  return Rect{safe.x + (safe.width - width) / 2, legacyLayout().barY, width, IntervalSelectionLayout::barHeight};
+}
+
 void IntervalSelectionActivity::loop() {
   if (InputReleaseGuard::consumeInitialRelease(mappedInput, MappedInputManager::Button::Back, ignoreBackRelease) ||
       InputReleaseGuard::consumeInitialRelease(mappedInput, MappedInputManager::Button::Power, ignorePowerRelease)) {
@@ -446,18 +473,23 @@ void IntervalSelectionActivity::loop() {
   int ty = 0;
   const Rect touchScreen = UITheme::getInstance().getScreenSafeArea(renderer, !mappedInput.hasTouchHardware(), false);
 #if CROSSINK_APP_CAP_TOUCH
-  const int screenWidth = renderer.getScreenWidth();
-  const int barWidth = std::min(360, std::max(0, screenWidth - 40));
-  constexpr int barHeight = 16;
-  const int barX = std::max(0, (screenWidth - barWidth) / 2);
-  const int barY = 140;
-  const bool useLegacyTouchBar = !usesReaderSlider();
+  const auto layout = legacyLayout();
+  const Rect bar = legacyBarRect();
+  const int barWidth = bar.width;
+  const int barX = bar.x;
+  const int barY = bar.y;
+  const int barTouchBottom =
+      std::min(barY + bar.height + 20, layout.showSteps ? layout.stepsY : touchActionLayout(touchScreen).buttons[0].y);
+  const auto touchesBar = [&](const int x, const int y) {
+    return x >= barX && x < barX + barWidth && y >= barY - 20 && y < barTouchBottom;
+  };
+  const bool useLegacyTouchBar = !usesReaderSlider() && layout.visible && barWidth >= 8;
   // Live drag on the slider: once a touch lands on the bar, the value follows the
   // finger until release. Runs before the Back/Confirm handlers because the release
   // of a drag can also register as a swipe (e.g. the left-edge rightward back
   // gesture) — the drag must consume it so it can't cancel or confirm the dialog.
   if (useLegacyTouchBar && mappedInput.isScreenTouchHeld(tx, ty)) {
-    if (draggingBar || (ty >= barY - 20 && ty < barY + barHeight + 20 && tx >= barX && tx < barX + barWidth)) {
+    if (draggingBar || touchesBar(tx, ty)) {
       draggingBar = true;
       const int range = std::max(1, maxValue - minValue);
       const int dragged =
@@ -473,8 +505,7 @@ void IntervalSelectionActivity::loop() {
     draggingBar = false;
     int tapX = 0;
     int tapY = 0;
-    if (mappedInput.wasScreenTapped(tapX, tapY) && tapY >= barY - 20 && tapY < barY + barHeight + 20 && tapX >= barX &&
-        tapX < barX + barWidth) {
+    if (mappedInput.wasScreenTapped(tapX, tapY) && touchesBar(tapX, tapY)) {
       const int range = std::max(1, maxValue - minValue);
       value = tappedValue(minValue + (tapX - barX) * range / std::max(1, barWidth - 1));
       requestUpdate();
@@ -530,7 +561,7 @@ void IntervalSelectionActivity::loop() {
 
 #if CROSSINK_APP_CAP_TOUCH
   if (useLegacyTouchBar && mappedInput.wasScreenTapped(tx, ty)) {
-    if (ty >= barY - 20 && ty < barY + barHeight + 20 && tx >= barX && tx < barX + barWidth) {
+    if (touchesBar(tx, ty)) {
       const int range = std::max(1, maxValue - minValue);
       value = tappedValue(minValue + (tx - barX) * range / std::max(1, barWidth - 1));
       requestUpdate();
@@ -538,9 +569,9 @@ void IntervalSelectionActivity::loop() {
     }
 
     if (mappedInput.hasTouch()) {
-      for (int index = 0; index < 4; ++index) {
-        const Rect stepRect = usesTextTouchStepControls() ? touchStepLabelRect(touchScreen, index)
-                                                          : touchStepButtonRect(touchScreen, index);
+      for (int index = 0; layout.showSteps && index < 4; ++index) {
+        const Rect stepRect = usesTextTouchStepControls() ? touchStepLabelRect(touchScreen, index, layout.stepsY)
+                                                          : touchStepButtonRect(touchScreen, index, layout.stepsY);
         if (!contains(stepRect, tx, ty)) continue;
         constexpr int deltas[] = {-1, -1, 1, 1};
         const int step = (index == 0 || index == 3) ? largeStep : smallStep;
@@ -552,12 +583,12 @@ void IntervalSelectionActivity::loop() {
     }
 
     if (ty >= renderer.getScreenHeight() - 80) {
-      if (tx < screenWidth / 3) {
+      if (tx < renderer.getScreenWidth() / 3) {
         ActivityResult result;
         result.isCancelled = true;
         setResult(std::move(result));
         finish();
-      } else if (tx > screenWidth * 2 / 3) {
+      } else if (tx > renderer.getScreenWidth() * 2 / 3) {
         setResult(IntervalResult{static_cast<uint32_t>(value)});
         finish();
       }
@@ -577,7 +608,6 @@ void IntervalSelectionActivity::render(RenderLock&&) {
   renderer.clearScreen();
 
   const auto& metrics = UITheme::getInstance().getMetrics();
-  const int screenWidth = renderer.getScreenWidth();
   const Rect safe = UITheme::getInstance().getScreenSafeArea(renderer, !mappedInput.hasTouchHardware(), false);
   const Rect touchScreen = safe;
 
@@ -598,13 +628,7 @@ void IntervalSelectionActivity::render(RenderLock&&) {
   }
 #endif
 
-  // The Auto Page Turn picker has no touch back button. Keep its title in the
-  // normal-height header rather than centering it in the taller touch-navigation
-  // header, which puts the title against the divider.
-  Rect header = showTouchHeaderBackButton ? TouchHeaderBackButton::headerRect(renderer, mappedInput)
-                                          : TouchHeaderBackButton::standardHeaderRect(renderer);
-  header.x = safe.x;
-  header.width = safe.width;
+  const Rect header = pickerHeaderRect();
   if (showTouchHeaderBackButton && mappedInput.hasTouchHardware()) {
     TouchHeaderBackButton::draw(renderer, header, I18N.get(titleId), readerActivity);
   } else {
@@ -616,47 +640,48 @@ void IntervalSelectionActivity::render(RenderLock&&) {
 
   const bool hasButtonReaderPreview =
       readerPreviewSetting != ReaderPreviewSetting::None && !mappedInput.hasTouchHardware();
-  const int controlsBottom = safe.y + safe.height - UITheme::getButtonHintsReserve(renderer) - metrics.verticalSpacing;
-  // Reserve the value, bar and both step hints below the preview divider.
-  const int barY = hasButtonReaderPreview ? controlsBottom - 72 : 140;
-  const int valueY = barY - 50;
-  renderer.drawCenteredText(UI_12_FONT_ID, valueY, formattedValue, true, EpdFontFamily::BOLD);
+  const auto layout = legacyLayout();
+  const Rect bar = legacyBarRect();
+  const int valueY = layout.valueY;
+  const int barY = bar.y;
+  const int barX = bar.x;
+  const int barWidth = bar.width;
+  const int barHeight = bar.height;
+  if (layout.visible && barWidth >= 8) {
+    renderer.drawCenteredText(UI_12_FONT_ID, valueY, formattedValue, true, EpdFontFamily::BOLD);
 
-  const int barWidth = std::min(360, std::max(0, screenWidth - 40));
-  constexpr int barHeight = 16;
-  const int barX = std::max(0, (screenWidth - barWidth) / 2);
+    renderer.drawRect(barX, barY, barWidth, barHeight);
 
-  renderer.drawRect(barX, barY, barWidth, barHeight);
+    const int range = std::max(1, maxValue - minValue);
+    const int fillWidth = (barWidth - 4) * (value - minValue) / range;
+    if (fillWidth > 0) {
+      renderer.fillRect(barX + 2, barY + 2, fillWidth, barHeight - 4);
+    }
 
-  const int range = std::max(1, maxValue - minValue);
-  const int fillWidth = (barWidth - 4) * (value - minValue) / range;
-  if (fillWidth > 0) {
-    renderer.fillRect(barX + 2, barY + 2, fillWidth, barHeight - 4);
-  }
+    const int knobX = std::max(barX + 2, barX + 2 + fillWidth - 2);
+    renderer.fillRect(knobX, barY - 4, 4, barHeight + 8, true);
 
-  const int knobX = std::max(barX + 2, barX + 2 + fillWidth - 2);
-  renderer.fillRect(knobX, barY - 4, 4, barHeight + 8, true);
-
-  if (hasButtonReaderPreview) {
-    const int previewTop = header.y + header.height;
-    const int previewBottom = valueY - metrics.verticalSpacing;
-    renderReaderPreview(Rect{safe.x, previewTop, safe.width, std::max(0, previewBottom - previewTop)});
+    if (hasButtonReaderPreview) {
+      const int previewTop = header.y + header.height;
+      const int previewBottom = valueY - metrics.verticalSpacing;
+      renderReaderPreview(Rect{safe.x, previewTop, safe.width, std::max(0, previewBottom - previewTop)});
+    }
   }
 
   if (mappedInput.hasTouch()) {
-    if (usesTextTouchStepControls()) {
+    if (layout.showSteps && usesTextTouchStepControls()) {
       char labels[4][12];
       snprintf(labels[0], sizeof(labels[0]), "%+d", -largeStep);
       snprintf(labels[1], sizeof(labels[1]), "%+d", -smallStep);
       snprintf(labels[2], sizeof(labels[2]), "%+d", smallStep);
       snprintf(labels[3], sizeof(labels[3]), "%+d", largeStep);
       for (int index = 0; index < 4; ++index) {
-        const Rect rect = touchStepLabelRect(touchScreen, index);
+        const Rect rect = touchStepLabelRect(touchScreen, index, layout.stepsY);
         const int textWidth = renderer.getTextWidth(UI_10_FONT_ID, labels[index]);
         const int textY = rect.y + (rect.height - renderer.getLineHeight(UI_10_FONT_ID)) / 2;
         renderer.drawText(UI_10_FONT_ID, rect.x + (rect.width - textWidth) / 2, textY, labels[index]);
       }
-    } else {
+    } else if (layout.showSteps) {
       auto drawButton = [&](const Rect& rect) {
         renderer.fillRectDither(rect.x, rect.y, rect.width, rect.height, Color::White);
         renderer.drawRect(rect.x, rect.y, rect.width, rect.height, true);
@@ -680,7 +705,7 @@ void IntervalSelectionActivity::render(RenderLock&&) {
       };
 
       for (int index = 0; index < 4; ++index) {
-        const Rect rect = touchStepButtonRect(touchScreen, index);
+        const Rect rect = touchStepButtonRect(touchScreen, index, layout.stepsY);
         drawButton(rect);
         drawChevron(rect, index >= 2, index == 0 || index == 3);
       }
@@ -693,8 +718,10 @@ void IntervalSelectionActivity::render(RenderLock&&) {
     // Two-line step hint: front buttons do the small step, side buttons the large step. Built from
     // separate label + value strings (rather than splitting one localized sentence) so the layout
     // doesn't depend on translators preserving a hidden separator.
-    drawStepHintLine(barY + 30, StrId::STR_FRONT_BUTTONS, smallStep);
-    drawStepHintLine(barY + 52, StrId::STR_SIDE_BUTTONS, largeStep);
+    if (layout.showSteps) {
+      drawStepHintLine(layout.stepsY, StrId::STR_FRONT_BUTTONS, smallStep);
+      drawStepHintLine(layout.stepsY + renderer.getLineHeight(SMALL_FONT_ID) + 4, StrId::STR_SIDE_BUTTONS, largeStep);
+    }
 
     const auto labels = mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), tr(STR_SELECT), "-", "+");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4, readerActivity);

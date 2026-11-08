@@ -444,6 +444,40 @@ std::optional<uint32_t> EpubReaderCompletionSmokeTest::statusAnchor;
 // Inspect values after dispatching physical key edges through each real slider loop.
 struct SliderOrientationSmokeTest {
   static int value(const IntervalSelectionActivity& slider) { return slider.value; }
+  static bool clearsHeader(const IntervalSelectionActivity& slider) {
+    const auto header = slider.pickerHeaderRect();
+    const auto layout = slider.legacyLayout();
+    const auto bar = slider.legacyBarRect();
+    return layout.visible && layout.showSteps && layout.valueY > header.y + header.height &&
+           bar.y - IntervalSelectionLayout::knobOverhang >=
+               layout.valueY + slider.renderer.getLineHeight(UI_12_FONT_ID);
+  }
+  static bool routesTouches(IntervalSelectionActivity& slider) {
+#if CROSSINK_APP_CAP_TOUCH
+    const auto bar = slider.legacyBarRect();
+    const auto layout = slider.legacyLayout();
+    auto& input = slider.mappedInput;
+    const int original = slider.value;
+    const auto tap = [&](const int x, const int y) {
+      input.simulatorInjectTouchDown(x, y);
+      slider.loop();
+      input.simulatorClearInputFrame();
+      input.simulatorInjectTouchRelease(x, y);
+      slider.loop();
+      input.simulatorClearInputFrame();
+    };
+    tap(bar.x + bar.width * 3 / 4, bar.y + bar.height / 2);
+    const int raised = slider.value;
+    const auto safe = UITheme::getInstance().getScreenSafeArea(slider.renderer, false, false);
+    tap(safe.x + safe.width / 8, layout.stepsY + 28);
+    const bool ok = raised > original && slider.value == raised - slider.largeStep;
+    slider.value = original;
+    return ok;
+#else
+    (void)slider;
+    return true;
+#endif
+  }
   static int value(const EpubReaderPercentSelectionActivity& slider) { return slider.value; }
   static void open(EpubReaderDrawerActivity& drawer, const ReaderDrawerPane pane, const uint8_t focus) {
     drawer.openPane(pane);
@@ -3029,6 +3063,46 @@ class SimulatorSmokeTest {
       for (int x = 0; x < width; ++x) std::fputc(renderer.isPixelBlack(x, y) ? 0 : 255, image);
     }
     std::fclose(image);
+  }
+
+  static void verifyIntervalLayout() {
+    RenderLock lock;
+    applyRequestedTheme();
+    const auto savedInsets = renderer.getViewableInsets();
+    const auto savedOrientation = renderer.getOrientation();
+    const auto savedScale = SETTINGS.uiScale;
+    MappedInputManager input(gpio, renderer);
+    input.setMenuMode(true);
+    ButtonNavigator::setMappedInputManager(input);
+    // Calibration moves the header. Absolute content coordinates must not
+    // creep back in when device geometry or UI scale changes.
+    for (const auto orientation : {GfxRenderer::Portrait, GfxRenderer::LandscapeClockwise,
+                                   GfxRenderer::PortraitInverted, GfxRenderer::LandscapeCounterClockwise}) {
+      renderer.setOrientation(orientation);
+      for (const uint8_t scale : {CrossPointSettings::UI_SCALE_SMALL, CrossPointSettings::UI_SCALE_LARGE}) {
+        SETTINGS.uiScale = scale;
+        for (const bool calibrated : {false, true}) {
+          renderer.setViewableInsets(calibrated ? ScreenInsets{{{32, 16, 24, 12}}} : ScreenInsets{});
+          IntervalSelectionActivity autoTurn(renderer, input, "AutoTurnLayout", StrId::STR_AUTO_TURN_INTERVAL_SECONDS,
+                                             30, 5, 120, 1, 5, StrId::STR_NONE_OPT, true);
+          autoTurn.onEnter();
+          if (!SliderOrientationSmokeTest::clearsHeader(autoTurn))
+            fail("Auto page turn overlaps header (orientation=%d scale=%d calibrated=%d)", orientation, scale,
+                 calibrated);
+          if (input.hasTouchHardware() && !SliderOrientationSmokeTest::routesTouches(autoTurn))
+            fail("Auto page turn touch targets do not follow the controls (orientation=%d)", orientation);
+          autoTurn.render(std::move(lock));
+          captureStatusBarScreen(("auto-turn-" + std::to_string(orientation) + "-scale-" + std::to_string(scale) +
+                                  (calibrated ? "-calibrated" : ""))
+                                     .c_str());
+          autoTurn.onExit();
+        }
+      }
+    }
+    renderer.setViewableInsets(savedInsets);
+    renderer.setOrientation(savedOrientation);
+    SETTINGS.uiScale = savedScale;
+    ButtonNavigator::setMappedInputManager(mappedInputManager);
   }
 
   static void verifyMenuOrientation() {
@@ -8545,6 +8619,11 @@ class SimulatorSmokeTest {
           sdFontSystem.setSettingsPersistenceCallback(nullptr, nullptr);
           sdFontSystem.releaseRegistry();
           LOG_INF("SMOKE", "Simulator smoke test passed: font recovery");
+          std::_Exit(0);
+        }
+        if (std::getenv("CROSSINK_SIMULATOR_SMOKE_INTERVAL_LAYOUT")) {
+          verifyIntervalLayout();
+          LOG_INF("SMOKE", "Simulator smoke test passed: interval layout");
           std::_Exit(0);
         }
         if (std::getenv("CROSSINK_SIMULATOR_SMOKE_MENU_ORIENTATION")) {

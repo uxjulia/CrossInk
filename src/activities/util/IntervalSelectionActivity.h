@@ -13,6 +13,7 @@
 #include <atomic>
 #endif
 
+#include "IntervalSelectionLayout.h"
 #include "MappedInputManager.h"
 #include "activities/Activity.h"
 #include "activities/reader/TouchReaderPreviewModel.h"
@@ -97,6 +98,9 @@ class IntervalSelectionActivity final : public Activity {
   void buildSliderScreen(UiApp::ScreenType& screen);
   void formatEndpoint(int endpoint, char* buf, size_t len) const;
 #endif
+  Rect pickerHeaderRect() const;
+  Rect legacyBarRect() const;
+  IntervalSelectionLayout legacyLayout() const;
   bool usesReaderSlider() const;
   void formatValue(char* buf, size_t len) const;
 

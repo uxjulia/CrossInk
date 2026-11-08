@@ -129,6 +129,7 @@ add_subdirectory(support_info)
 add_subdirectory(log_retention)
 add_subdirectory(screen_calibration)
 add_subdirectory(keyboard_tips)
+add_subdirectory(interval_selection_layout)
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 add_subdirectory(frontlight_settings_boot)
 add_test(NAME TransferReliabilityRegression
