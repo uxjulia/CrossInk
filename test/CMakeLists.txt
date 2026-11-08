@@ -144,6 +144,10 @@ add_test(NAME UploadFailureRegression
   COMMAND ${Python3_EXECUTABLE} ${REPO_ROOT}/test/scripts/test_upload_cancellation.py)
 add_test(NAME StorageAndBrowsingRegression
   COMMAND ${Python3_EXECUTABLE} ${REPO_ROOT}/test/scripts/test_storage_and_browsing_ports.py)
+add_test(NAME RecentTxtProgressRegression
+  COMMAND ${Python3_EXECUTABLE} ${REPO_ROOT}/test/scripts/test_recent_txt_progress.py)
+add_test(NAME DecodedImageRevisionRegression
+  COMMAND ${Python3_EXECUTABLE} ${REPO_ROOT}/test/scripts/test_decoded_image_revision.py)
 add_test(NAME OptimizerCacheSeedRegression
   COMMAND ${Python3_EXECUTABLE} ${REPO_ROOT}/test/scripts/test_optimizer_cache_seed.py)
 add_test(NAME WifiAutoConnectRegression
@@ -159,6 +163,9 @@ add_subdirectory(swipe_delete)
 add_subdirectory(touch_action_buttons)
 add_test(NAME LanguageAssetPublicationRegression
   COMMAND ${Python3_EXECUTABLE} ${REPO_ROOT}/test/scripts/test_language_asset_publication.py)
+add_test(NAME ReleaseDownloadPreparationRegression
+  COMMAND ${Python3_EXECUTABLE} ${REPO_ROOT}/test/scripts/test_release_download_preparation.py)
+
 add_subdirectory(reading_session_journal)
 add_subdirectory(reading_session_checkpoint)
 add_subdirectory(protected_paths)

@@ -12,6 +12,8 @@ own.
 Hyphenation packs help split long words at the end of a line. They follow the
 book's language, independently of your menu language.
 
+SD language files and hyphenation packs are new in CrossInk v2.0.0.
+
 ## Download a language on the reader
 
 1. Open **Settings > System > Device > Download Languages**.
@@ -37,14 +39,6 @@ install the language manually.
 
 If you have edited the SD copy, downloading an update asks before replacing it.
 Keep a separate copy of any translation you want to save.
-
-## Existing SD folders
-
-If you used an earlier build, move the `languages` and `hyphenation` folders
-from `.crosspoint` into `.crossink` at the SD root, including any
-`languages/fonts` families. CrossInk only reads these sources from `.crossink`.
-Already installed language and hyphenation packs remain active; moving the
-source folders does not require clearing book caches or reinstalling packs.
 
 ## Install a language from SD
 

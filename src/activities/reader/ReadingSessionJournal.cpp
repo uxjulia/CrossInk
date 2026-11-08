@@ -90,9 +90,9 @@ bool Session::flush() {
 bool Session::accept(const char* bookPath, const ReadingStatsDateTime& end, const uint8_t offset,
                      const uint32_t seconds, const bool allowCheckpoint) {
   if (!isValidReadingStatsInterval(intervalStart, end, intervalOffset, offset, seconds)) return true;
-  const uint64_t start = localSeconds(intervalStart);
+  const uint64_t localStart = localSeconds(intervalStart);
   const int16_t minutes = (int(offset) - 48) * 15;
-  const uint64_t utcStart = start - int64_t(minutes) * 60;
+  const uint64_t utcStart = localStart - int64_t(minutes) * 60;
   // Normalize subsecond RTC rounding to measured seconds, never add idle time.
   const uint64_t utcEnd = utcStart + seconds;
   if (pending.seconds && (pending.utcOffsetMinutes != minutes || utcStart < pending.endedAt ||

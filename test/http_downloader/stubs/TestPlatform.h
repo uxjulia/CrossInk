@@ -212,7 +212,7 @@ class SecureHttpClient {
   int getStatus() { return reply.status; }
   bool hasContentLength() { return reply.length > 0; }
   size_t getContentLength() { return reply.length; }
-  std::string getHeader(const char* key) {
+  std::string getHeader(const char* key) const {
     return std::string(key) == "content-range"         ? reply.range
            : std::string(key) == "etag"                ? reply.etag
            : std::string(key) == "location"            ? reply.location

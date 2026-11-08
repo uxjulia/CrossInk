@@ -39,12 +39,12 @@ void ImageBlock::setExtractor(void* context, ExtractFn extract, SeedCacheFn seed
 namespace {
 
 std::string getCachePath(const std::string& imagePath) {
-  // Replace extension with .pxc (pixel cache)
+  // Revision 2 rebuilds decoded pixels after the progressive JPEG correction.
   size_t dotPos = imagePath.rfind('.');
   if (dotPos != std::string::npos) {
-    return imagePath.substr(0, dotPos) + ".pxc";
+    return imagePath.substr(0, dotPos) + "_v2.pxc";
   }
-  return imagePath + ".pxc";
+  return imagePath + "_v2.pxc";
 }
 
 // Half-open image-local bounds shared by retained and streamed PXC rendering.

@@ -47,7 +47,7 @@ int main() {
   // directory names and file sizes have not changed.
   {
     std::fstream index(testRoot + fontcatalog::Path, std::ios::binary | std::ios::in | std::ios::out);
-    constexpr uint32_t previousVersion = 2;
+    constexpr uint32_t previousVersion = 1;
     index.seekp(offsetof(fontcatalog::Header, version));
     index.write(reinterpret_cast<const char*>(&previousVersion), sizeof(previousVersion));
   }

@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
+#include <iterator>
 
 #include "util/StatsStorage.h"
 
@@ -235,11 +236,12 @@ bool digits(const char* name, size_t n, uint32_t& value) {
 bool fileMonth(const char* name, uint32_t& first) {
   const size_t length = strlen(name);
   uint32_t day;
-  uint8_t count;
   if (((length == 9 && strcmp(name + 5, ".bin") == 0) ||
        (length == 13 && (strcmp(name + 5, ".bin.bak") == 0 || strcmp(name + 5, ".bin.tmp") == 0))) &&
-      digits(name, 5, day))
+      digits(name, 5, day)) {
+    uint8_t count;
     return monthFor(day, first, count);
+  }
   uint32_t year, month;
   if (length != 13 || name[4] != '-' || name[7] != '.' || (name[8] != 'a' && name[8] != 'b') ||
       strcmp(name + 9, ".bin") != 0 || !digits(name, 4, year) || !digits(name + 5, 2, month))
@@ -331,8 +333,9 @@ bool pruneMonth(uint32_t first, uint8_t count) {
   Month month;
   if (!loadMonth(first, count, month)) return false;
   if (month.slot < 0) return true;
-  for (const auto& counter : month.days)
-    if (counter.seconds != counter.uploaded) return true;
+  if (std::any_of(std::begin(month.days), std::end(month.days),
+                  [](const Counter& counter) { return counter.seconds != counter.uploaded; }))
+    return true;
   // A corrupt sibling could hide a newer unsynced checkpoint. Unlike normal
   // recovery reads, deletion requires every existing slot to be valid and covered.
   for (int slot = 0; slot < 2; ++slot) {
@@ -346,6 +349,8 @@ bool pruneMonth(uint32_t first, uint8_t count) {
   }
   // Keep the newest fully acknowledged copy until last. A failed delete or reboot
   // leaves enough information to retry, without reviving an older unacknowledged copy.
+  // Deletion order preserves the newest copy if an earlier remove fails.
+  // cppcheck-suppress useStlAlgorithm
   for (int slot : {1 - month.slot, month.slot}) {
     char path[64];
     monthPath(path, first, slot);
@@ -354,10 +359,10 @@ bool pruneMonth(uint32_t first, uint8_t count) {
       return false;
     }
   }
-  for (auto& c : cache)
-    if (c.day >= first && c.day - first < count) c = {};
-  for (auto& migrated : migratedMonths)
-    if (migrated == first) migrated = UINT32_MAX;
+  std::replace_if(
+      std::begin(cache), std::end(cache),
+      [first, count](const Cache& c) { return c.day >= first && c.day - first < count; }, Cache{});
+  std::replace(std::begin(migratedMonths), std::end(migratedMonths), first, UINT32_MAX);
   return true;
 }
 bool save(Cache& c) {
@@ -470,9 +475,8 @@ bool pruneSyncedMonths(const ReadingStatsDate& today) {
 }
 
 bool record(uint32_t day, uint32_t seconds, bool allowCheckpoint) {
-  Cache* chosen = nullptr;
-  for (auto& c : cache)
-    if (c.day == day) chosen = &c;
+  const auto found = std::find_if(std::rbegin(cache), std::rend(cache), [day](const Cache& c) { return c.day == day; });
+  Cache* chosen = found == std::rend(cache) ? nullptr : &*found;
   if (!chosen) {
     chosen = cache[0].day == UINT32_MAX ? &cache[0] : &cache[1];
     if (!save(*chosen)) return false;
@@ -499,6 +503,8 @@ bool checkpointIfDue() {
 
 bool flush() {
   bool ok = true;
+  // Attempt every checkpoint even when one write fails.
+  // cppcheck-suppress useStlAlgorithm
   for (auto& c : cache)
     if (!save(c)) ok = false;
   return ok;
@@ -506,11 +512,10 @@ bool flush() {
 
 bool secondsFor(uint32_t day, uint32_t& seconds) {
   seconds = 0;
-  for (const auto& c : cache) {
-    if (c.day == day) {
-      seconds = c.counter.seconds;
-      return true;
-    }
+  const auto found = std::find_if(std::begin(cache), std::end(cache), [day](const Cache& c) { return c.day == day; });
+  if (found != std::end(cache)) {
+    seconds = found->counter.seconds;
+    return true;
   }
   Counter counter;
   if (!read(day, counter)) return false;
@@ -554,9 +559,9 @@ bool Session::accept(const ReadingStatsDateTime& end, uint8_t utcOffset, uint32_
     pendingCount = retained;
   }
   if (!isValidReadingStatsInterval(startTime, end, offset, utcOffset, seconds)) return ok;
-  const uint64_t start = uint64_t(readingStatsDayIndex(startTime.date)) * 86400 + startTime.hour * 3600u +
-                         startTime.minute * 60u + startTime.second;
-  uint64_t cursor = start;
+  const uint64_t localStart = uint64_t(readingStatsDayIndex(startTime.date)) * 86400 + startTime.hour * 3600u +
+                              startTime.minute * 60u + startTime.second;
+  uint64_t cursor = localStart;
   uint32_t remaining = seconds;
   while (remaining) {
     const uint32_t segment = std::min(remaining, 86400u - uint32_t(cursor % 86400));

@@ -35,23 +35,10 @@ constexpr uint32_t SECTION_CACHE_MAGIC = 0x535843FF;  // bytes: 0xFF, "CXS"
 // v81: HTML and body text indents now inherit into descendant blocks.
 // v82: Scalable headings and blocks serialize point size and line height.
 // v83: Nested blocks inherit bold and italic styles, changing glyphs and wrapping.
-// v84: Suppressed CSS borders no longer draw horizontal rules.
-// v85: Branches independently changed hyphenation identity and paragraph layout.
-// v86: Combine external hyphenation identity with incremental paragraph layout fixes.
-// v87: Publisher decorations, whitespace, contextual CSS, and per-word font sizes.
-// v88: Character spacing in the layout identity and cached text blocks.
-// v89: C3 bitmap heading/CSS sizes change layout and cached font identities.
-// v90: S3 bitmap heading/CSS sizes now participate in layout.
-// v91: Figure containers apply publisher alignment and spacing to chapter ornaments.
-// v94: Fieldset defaults add bordered containers and change page layout.
-// v95: Image-only paragraphs retain publisher alignment independently of prose.
-// v96: Allow line breaks after visible hyphens/dashes without inserting spaces.
-// v97: Keep hyphenated word boundaries closed during justification.
-// v98: Flush buffered words before nested block layout and font changes.
-// v99: Preserve normalized reference-text offsets for stable-page reading pace.
-// v100: Leave words below drop caps unsplit until full-width layout.
-// v101: Round SD-font glyph advances individually to match drawing.
-// v103: Unicode space advances change wrapping and scaled text placement.
+// v84 (2.0.0 RC): normalize development revisions 84-103 into one release bump.
+// Publisher decorations/fonts, spacing, hyphenation identity, GIFs, and reference
+// text offsets change both the payload and generated layout.
+// Keep the post-RC development revisions so cached layouts rebuild on upgrade.
 // v104: Spend chapter-wrapper closing spacing before the following paragraph.
 // v105: Keep CSS active below 48 KiB free heap; rebuild previously unstyled pages.
 constexpr uint8_t SECTION_FILE_VERSION = 105;

@@ -25,14 +25,9 @@ class BookPageEstimate {
     if (!complete && availablePages < 8) return;
     if (currentPage == 0 && pagesPerByte() > 0) return;
 
-    Sample* target = nullptr;
-    for (auto& sample : samples) {
-      if (sample.spine == spine) {
-        target = &sample;
-        break;
-      }
-    }
-    if (!target) {
+    auto target =
+        std::find_if(samples.begin(), samples.end(), [spine](const Sample& sample) { return sample.spine == spine; });
+    if (target == samples.end()) {
       target = &samples[next];
       *target = {};
       next = (next + 1) % samples.size();

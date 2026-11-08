@@ -51,7 +51,7 @@ fui::Rect keyboardRect(const GfxRenderer& renderer) {
   int x = (renderer.getScreenWidth() - width) / 2;
   int y = renderer.getScreenHeight() - UITheme::getButtonHintsReserve(renderer) - metrics.verticalSpacing - height +
           metrics.keyboardVerticalOffset;
-  int visibleHeight = height;
+  int visibleHeight;
   {
     const auto safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
     const int right = std::min(x + width, safe.x + safe.width);

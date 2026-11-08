@@ -228,13 +228,13 @@ void logTlsError(esp_http_client_handle_t client, const char* phase) {
 }
 
 #if defined(FREEINK_NET_WOLFSSL) || defined(FREEINK_NET_EXTERNAL_TLS)
-std::string_view responseDisposition(freeink::SecureHttpClient& http, const Sink& sink) {
+std::string_view responseDisposition(const freeink::SecureHttpClient& http, const Sink& sink) {
   if (!sink.prepareDestination) return {};
   const auto* header = http.getUniqueHeader("content-disposition");
   return header ? std::string_view(*header) : std::string_view{};
 }
 
-std::string responseValidator(freeink::SecureHttpClient& http) {
+std::string responseValidator(const freeink::SecureHttpClient& http) {
   std::string value = http.getHeader("etag");
   if (value.empty() || value.compare(0, 2, "W/") == 0 || value.size() > 128) value = http.getHeader("last-modified");
   if (value.size() > 128) value.clear();

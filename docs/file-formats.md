@@ -90,7 +90,7 @@ Word Spacing preserves saved values `0..4`. Values `5..8` encode levels `-1..-4`
 
 ## TXT `index.bin`
 
-Version 5 adds signed `characterSpacing` (-5..5) after the source file size in the index header. A changed spacing value or older version rebuilds pagination around the stored text position.
+Version 5 adds signed `characterSpacing` (-5..5) after the source file size in the index header. A changed spacing value or older version rebuilds pagination around the stored text position. Home reads this same header before displaying reading progress.
 
 ## TXT `progress.bin`
 
@@ -256,20 +256,17 @@ fresh deck. Deleting `/.crosspoint/sleep-image-index/` resets indexes and decks.
 
 ## `/.crosspoint/library.idx`
 
-### Version 8
+### Version 7 (2.0.0)
 
-Version 8 keeps the version 7 layout and rebuilds the index to exclude
-`XTCache` and `System Volume Information` directories, regardless of FAT name
-casing. Version 7 remains readable for reconciliation, preserving arrival
-history and reusable metadata. Rebuilding never deletes the source books or
-system directories.
-
-### Version 7
-
-Version 7 preserves the version 6 layout but invalidates extracted metadata to
-resolve EPUB3 series refinements by collection ID. The next Library scan reparses
-EPUB metadata when enabled, preserving first-seen history during reconciliation.
-The persistent metadata cache is also invalidated, so it cannot restore stale series.
+The release normalizes development versions 7–8 to one step after v1.6.1's
+version 6. The binary layout is unchanged. Library rebuilds exclude `XTCache`
+and `System Volume Information` directories regardless of FAT name casing,
+and reparse EPUB3 series refinements by collection ID. Version 6 remains
+readable for reconciliation, preserving first-seen history. The metadata
+cache also advances from version 1 to 2 so stale series cannot be restored.
+Development version 8 has the same layout and is also accepted for
+reconciliation only, preserving its first-seen history while rebuilding to
+release version 7. Rebuilding never deletes source books or system directories.
 
 ### Version 6
 
@@ -1030,9 +1027,25 @@ Binary layout:
 - `[41-68]` `dayOfWeekSeconds[7]` (`uint32_t` LE each)
 - `[69-72]` `estimatedTimeLeftSeconds` (`uint32_t` LE, `0` means unavailable)
 
+## EPUB decoded-image revision 2 (2.0.0)
+
+Generated covers and thumbnails end in `_v2.bmp` (adaptive thumbnails use
+`_fit_v2.bmp`); inline pixel caches end in `_v2.pxc`. This changes the cache
+identity after the progressive JPEG decoder correction, so distorted pixels
+from older firmware are not reused. Old thumbnail paths have no fallback.
+Recent-book artwork references normalize to the current thumbnail pattern
+on load, including legacy binary stores. Carousel's existing artwork key
+includes those paths and thumbnail availability, invalidating old snapshots.
+Images regenerate as needed; this does not change book paths, bookmarks,
+clippings, progress or statistics. The PXC byte layout itself is unchanged.
+
 ## `section.bin`
 
-### Version 105
+### Version 105 (current development)
+
+The post-RC development cache revisions are retained when merging the release
+branch, so the first 2.0.0 RC's `84` / `0xC5` caches cannot bypass the newer
+layout fixes below. CSS rules use the release-normalized revision `21`.
 
 Complete caches use `105`; suspended partial caches use `0xDA`. CSS rules now
 remain active below 48 KiB free heap. Both cache types rebuild automatically
@@ -1046,183 +1059,57 @@ closing spacing now stays above the first body paragraph instead of leaking
 below it. Both cache types rebuild automatically; the binary payload is
 unchanged and reading progress is preserved.
 
-### Version 103
+### Version 84 (2.0.0)
 
-Complete caches use `103`; suspended partial caches use `0xD8`. Missing Unicode
-spaces now retain font-relative blank advances in normal and scaled text.
-Both cache types rebuild automatically so cached word positions and line wraps
-match rendering. The binary payload is unchanged; reading progress is preserved.
+The release normalizes development versions 84–103 to `84` for complete
+caches and `0xC5` for suspended partial caches, exactly one step after
+v1.6.1's `83` / `0xC4`. CSS rules similarly advance from `20` to `21`.
+Both section types and CSS rules rebuild automatically; book metadata,
+saved reading positions, bookmarks and reading history are preserved.
 
-### Version 102
+The new layout includes external hyphenation identity, character spacing,
+bitmap heading sizes, publisher decorations and fonts, fieldsets, GIF images,
+ornament alignment, corrected paragraph boundaries and SD-font advances.
+Hyphen/dash wrapping and words below drop caps also use the corrected layout.
+Unicode spaces retain font-relative blank advances in normal and scaled text,
+so cached word positions and line wraps match rendering.
 
-Complete caches use `102`; suspended partial caches use `0xD7`. GIF images now
-participate in EPUB layout, so older pages must be rebuilt. The binary layout
-is unchanged.
+After the render-mode byte, the section header adds `u8 publisherFonts`,
+`u32 publisherFontSignature` (face manifest identity), `u32 publisherFontFaces`
+(requested face bitmask), `u32 publisherFaceSignature` (loaded face fingerprints
+and fallback results), and `u32 publisherLoadedFaces` (admitted faces).
+Reopening prioritizes previously loaded faces and rejects layouts whose face
+availability or fingerprints changed. Signed `characterSpacing` (-5..5)
+follows `wordSpacing` in the layout identity and text blocks.
 
-### Version 101
+TextBlock adds `wordSizesPresent` and `initialLetterBytes` bytes before
+`textBytes`. Its arena optionally stores one point-size byte per word after
+the whitespace bitset, before UTF-8 text; zero uses the block font. The initial
+letter prefix (0–12 bytes) remains in the first logical word for lookups and
+clippings, while ordinary text rendering skips it. After the packed arena,
+a boolean byte enables one `u32` CSS family hash per word before the ruby count.
+A zero family keeps the reader font.
 
-Complete caches use `101`; suspended partial caches use `0xD6`. SD-font layout
-rounds each glyph advance to pixels before summing, matching drawing while
-preserving character spacing and boundary kerning. The payload is unchanged.
-Both complete and partial caches from version `100` / `0xD5` and earlier rebuild
-automatically; saved reading progress and book metadata are preserved.
+Page tags `5` and `6` represent drop caps and border boxes. Drop caps contain
+x/y (`int16` each), source point size (`u8`), Q8 scale (`u16`), style (`u8`),
+family hash (`u32`), UTF-8 length (`u8`, 1–12), then text. Border boxes contain
+x/y (`int16`), width/height (`u16`), four width/style pairs in top/right/bottom/left
+order, and a shaded byte. Styles are none/solid/double/dotted/dashed (0–4);
+border widths are capped at 8 pixels.
 
-### Version 100
+After the visible-text offset table, sections store normalized reference-text
+page offsets (`u32[pageCount]`) and total normalized text length (`u32`, zero
+while partial). The partial parse-watermark trailer follows. These coordinates
+support stable-page reading pace without depending on provisional page counts.
 
-Complete caches use `100`; suspended partial caches use `0xD5`. The payload
-retains the reference-text offset tables introduced in version 99 below.
-Layout beside drop caps stops after the requested lines, leaving the remaining
-words intact for full-width layout. Both cache types rebuild to remove stale
-hyphens and refresh wrapping; book metadata and saved progress are kept.
-Version `99` / `0xD4` and earlier caches are rejected as stale.
-
-### Version 99
-
-Complete caches use `99`; suspended partial caches use `0xD4`. The header and
-existing lookup-table offsets are unchanged. After the visible-text offset
-table, a second `uint32_t[pageCount]` table stores normalized reference-text
-character offsets at each page start, followed by a `uint32_t` total normalized
-text length (zero while partial). The partial parse-watermark trailer follows
-these new fields. Both cache types rebuild automatically.
-
-All section builders record these coordinates, including sleep-page rebuilds
-that skip location metadata. The in-memory page index grows from 12 to 16 bytes
-per page, in fallible 1 KiB chunks; active text buffers also retain the parser's
-existing optional four-byte reference offset per buffered word.
-
-These coordinates let book time-left use the stable-page manifest's text units
-without relying on a provisional chapter page count. Character-based manifests
-work during incremental indexing. Older word-based manifests use the complete
-section's text length to map character positions to fractional word progress;
-they retain the screen-page fallback while that length is unknown. Stable pace
-is learned in memory from three accepted forward reads per session and remains
-valid through font/layout changes; the persisted screen-page pace is separate.
-
-### Version 98
-
-Complete caches use `98`; suspended partial caches use `0xD3`. The payload is
-unchanged. Pending words are committed to their original paragraph before a
-nested block changes layout or inherited font styles. Both cache types rebuild
-automatically so existing books pick up the corrected word placement (#886).
-
-### Version 95
-
-Complete caches use `95`; suspended partial caches use `0xD0`. The payload is
-unchanged. Image-only paragraphs retain publisher alignment independently of
-the reader's prose alignment. Both cache types rebuild to refresh image positions.
-
-### Version 94
-
-Complete caches use `94`; suspended partial caches use `0xCF`. The payload is
-unchanged. Fieldset containers now have a default outline and padding, with
-publisher CSS taking precedence. Both cache types rebuild to apply the updated
-wrapping, box decorations, and pagination.
-
-### Version 93
-
-Complete caches use `93`; suspended caches use `0xCE`. After the render-mode
-byte, the header adds `u8 publisherFonts`, `u32 publisherFontSignature` (face
-manifest identity), `u32 publisherFontFaces` (requested face bitmask), and
-`u32 publisherFaceSignature` (loaded face fingerprints and fallback results),
-and `u32 publisherLoadedFaces` (successfully admitted faces). Reopening gives
-previously successful faces priority before retrying fallback faces.
-The face state is captured after page layout and patched when the complete or
-partial cache is committed. Reopening restores only requested families and
-rejects cached layout if their availability or fingerprints differ.
-Text blocks add a boolean byte after their packed arena, followed by one
-`u32` CSS family hash per word when present, before the ruby count. A zero
-family keeps the reader font. Drop caps add a `u32` family hash before their text length. All older complete and partial caches rebuild.
-
-CSS cache revision `23` adds a four-byte family hash to each style (96 bytes
-total); defined bit 29 marks an explicit family. After the descendant rules,
-the same CSS cache contains an 8-bit face count (maximum 32). Each face stores
-a 32-bit family hash, style flags (bit 0 bold, bit 1 italic), an 8-bit path
-length and that many UTF-8 path bytes. Paths are relative to the EPUB root.
-A final `u32` points to the face count for direct font-loader access. Empty
-manifests still store the count and footer. Cache validation checks this tail;
-rules and font metadata share the existing atomic cache replacement.
-
-
-### Version 91
-
-Complete caches use `91`; suspended partial caches use `0xCC`. The payload is
-unchanged. Figure containers now apply publisher alignment and spacing, so both
-cache types rebuild to center chapter ornaments and separate them from nearby text.
-
-### Version 90
-
-Complete caches use `90`; suspended partial caches use `0xCB`. The payload is
-unchanged. ESP32-S3 readers now apply installed bitmap sizes to EPUB text, so
-both cache types rebuild to use the updated wrapping and line heights.
-
-### Version 89
-
-Complete caches use `89`; suspended partial caches use `0xCA`. The payload is
-unchanged, but C3 EPUB headings and CSS font sizes now use available physical
-bitmap sizes. Both cache types rebuild to pick up the new wrapping and line
-heights. SD reader font identities include the content of the optional sizes
-that fit the memory budget, so a changed size file or a load under tighter
-memory also invalidates previously paginated sections.
-
-### Version 88
-
-Complete caches use `88`; suspended partial caches use `0xC9`. Both rebuild older caches automatically. The section header adds signed `characterSpacing` (-5..5) immediately after `wordSpacing`. Each TextBlock adds the same signed byte immediately before `initialLetterBytes`, so cached drawing retains the exact spacing used for layout. No additional per-word allocation is needed.
-
-### Version 87
-
-Publisher decorations, contextual CSS selectors, preserved whitespace and inline
-font sizes change layout. Complete caches use `87`; suspended partial caches use
-`0xC8`. Version `86` / `0xC7` already exist on another local feature branch and
-are deliberately not reused. Both old full and partial caches rebuild.
-
-TextBlock adds one-byte `wordSizesPresent` and `initialLetterBytes` fields immediately before `textBytes`.
-The initial-letter prefix (0–12 bytes) stays in the first logical word for dictionary lookup and clippings; ordinary text rendering skips those bytes because the drop cap draws them separately.
-When `wordSizesPresent` is set, the arena stores one point-size byte per word after the whitespace
-bitset and before UTF-8 text; zero uses the block font. The flag is zero for
-ordinary lines, so they require no extra per-word storage. Sizes use the existing
-scalable font family and share the tallest word's baseline and line height.
-
-Page tags `5` and `6` are drop caps and border boxes. Drop caps contain x/y
-(int16 each), source font point size (uint8, zero means the reader font), Q8
-scale (uint16), style (uint8), UTF-8 byte length (uint8, 1–12), then text bytes.
-Border boxes contain x/y (int16 each), width/height (uint16 each), four pairs of
-width/style bytes in top/right/bottom/left order, and a shaded byte. Styles are
-none/solid/double/dotted/dashed (0–4), and border widths are capped at 8 pixels.
-
-CSS cache revision `22` grows the fixed style payload from 80 to 92 bytes:
-whitespace byte after the four existing border masks, eight border width/style
-bytes, then shaded/float-left/initial-letter bytes, followed by the existing
-uint32 defined flags. New flag bits 25–28 identify whitespace, shading, float
-and initial-letter declarations. Context-rule records retain the two-string
-format; the first string is the ancestor chain (`@` means no constraint), and
-the second is the subject compound, optionally ending in `::first-letter`.
-
-### Version 86
-
-Complete sections use byte `86` and suspended partials use `0xC7`. A little-endian
-`u32` hyphenation identity follows `hyphenationEnabled` in the header. It is zero
-when disabled or unavailable, one for built-in English, and a fingerprint of the
-external pack's language, prefix/suffix rules, root offset, size and payload CRC
-otherwise. Storage offsets are excluded. A mismatch rebuilds the section,
-including suspended incremental builds; older full and partial versions rebuild.
-
-### Version 85
-
-Long paragraphs apply initial CSS margin/padding on their first emitted line,
-including incremental flushes. Text fragment bounds are checked on each append.
-Both branch-specific version 85 formats are invalidated to rebuild complete and
-suspended layouts with the combined header and paragraph-spacing rules.
-
-### Version 84
-
-Explicit CSS border suppression on `<hr>` removes the generated rule from page
-layout. The section payload is unchanged; complete files use byte `84` and
-suspended partials use `0xC5`. Older full and partial caches rebuild automatically.
-
-CSS cache revision `21` appends four edge masks after `listStyleType`: suppressed
-styles, zero widths, defined styles, and defined widths (one byte each, with bits
-0-3 for top/right/bottom/left). Defined-property bit 24 marks border state. The
-fixed style payload grows from 76 to 80 bytes. Older CSS caches rebuild.
+CSS revision `21` uses a 96-byte style payload, including border masks and
+width/style pairs, preserved whitespace, shading, float/initial-letter flags,
+and a four-byte family hash. Defined bits 24–29 mark these added properties.
+After descendant rules, an eight-bit face count (maximum 32) precedes faces
+with a `u32` family hash, style flags (bold/italic), `u8` path length, and UTF-8
+path relative to the EPUB root. A final `u32` points to the face count.
+Validation checks this tail, including empty manifests; rules and font metadata
+share atomic replacement.
 
 ### Version 83
 
@@ -1818,9 +1705,9 @@ this cache to force reinspection after external same-length font changes.
 
 EPUB layout cache versions and identities are unchanged by this catalog.
 
-Version 2 rescans static TrueType-outline `.ttf` and `.otf` files. Version 3
-rescans again so OpenType CFF faces rejected by earlier firmware enter the
-catalog without requiring a manual font refresh. The binary layout is unchanged.
+Version 2 (2.0.0) normalizes development versions 2–3 into one release bump.
+It rescans static `.ttf` and `.otf` files, including OpenType CFF faces rejected
+by earlier firmware, without a manual font refresh. The binary layout is unchanged.
 
 ### Daily reading counters (v2)
 

@@ -511,6 +511,8 @@ bool ClippingStore::readFromFile(const std::string& path, ClippingRecords& out, 
   }
 
   if (onlyIndex != SIZE_MAX && onlyIndex >= count) {
+    // The scope guard reads this through its reference on return.
+    // cppcheck-suppress unreadVariable
     complete = true;
     f.close();
     return true;
@@ -614,6 +616,8 @@ bool ClippingStore::readFromFile(const std::string& path, ClippingRecords& out, 
     if (onlyIndex == i) break;
   }
 
+  // The scope guard reads this through its reference on return.
+  // cppcheck-suppress unreadVariable
   complete = true;
   f.close();
   return true;

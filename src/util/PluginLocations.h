@@ -1,4 +1,6 @@
 #pragma once
+
+#include <algorithm>
 #include <cstdint>
 #include <string>
 #include <string_view>
@@ -17,8 +19,10 @@ inline bool validName(const std::string& name) {
   if (name.empty() || name.size() > 80 || name.front() == '.' || name.front() == ' ' || name.back() == '.' ||
       name.back() == ' ' || name.find("..") != std::string::npos)
     return false;
-  for (const unsigned char c : name)
-    if (c < 32 || c == 127 || std::string_view("/\\:*?\"<>|").find(c) != std::string_view::npos) return false;
+  if (std::any_of(name.begin(), name.end(), [](unsigned char c) {
+        return c < 32 || c == 127 || std::string_view("/\\:*?\"<>|").find(c) != std::string_view::npos;
+      }))
+    return false;
   return !protectedpaths::isShortAlias(name.data(), name.data() + name.size());
 }
 inline constexpr size_t ROOT_COUNT = sizeof(ROOTS) / sizeof(ROOTS[0]);

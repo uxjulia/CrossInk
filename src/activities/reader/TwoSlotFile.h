@@ -36,33 +36,33 @@ struct SlotRead {
 
 // Reads one slot file into buf (MAX_FILE_BYTES).
 inline SlotRead readSlot(const char* tag, const char* path, const size_t payloadSize, uint8_t* buf) {
-  SlotRead read;
-  if (payloadSize > MAX_PAYLOAD_BYTES) return read;
+  SlotRead result;
+  if (payloadSize > MAX_PAYLOAD_BYTES) return result;
   // openFileForRead logs a failure for missing files; a missing slot is normal.
-  if (!Storage.exists(path)) return read;
+  if (!Storage.exists(path)) return result;
   HalFile file;
-  if (!Storage.openFileForRead(tag, path, file)) return read;
+  if (!Storage.openFileForRead(tag, path, file)) return result;
   const size_t fileSize = file.fileSize();
   const size_t want = std::min(fileSize, MAX_FILE_BYTES);
   const int n = file.read(buf, want);
   file.close();
   if (n < 0 || static_cast<size_t>(n) != want) {
     LOG_ERR(tag, "Short read of %s", path);
-    return read;
+    return result;
   }
   if (fileSize == payloadSize + TRAILER_BYTES) {
     if (progress_record::readU32(buf + payloadSize + 4) != progress_record::crc32(buf, payloadSize + 4)) {
       LOG_ERR(tag, "%s failed its CRC; using the other slot", path);
-      return read;
+      return result;
     }
-    read.slot.kind = progress_record::SlotKind::Versioned;
-    read.slot.seq = progress_record::readU32(buf + payloadSize);
-    read.size = payloadSize;
+    result.slot.kind = progress_record::SlotKind::Versioned;
+    result.slot.seq = progress_record::readU32(buf + payloadSize);
+    result.size = payloadSize;
   } else if (fileSize > 0) {
-    read.slot.kind = progress_record::SlotKind::Legacy;
-    read.size = fileSize;
+    result.slot.kind = progress_record::SlotKind::Legacy;
+    result.size = fileSize;
   }
-  return read;
+  return result;
 }
 
 // Copies the newest slot that `accept` takes into out (MAX_PAYLOAD_BYTES) and

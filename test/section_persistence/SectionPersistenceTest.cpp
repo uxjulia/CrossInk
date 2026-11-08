@@ -49,8 +49,8 @@ constexpr uint8_t kOlderFullVersion = 79;
 constexpr uint8_t kOlderPartialVersion = 0xF4;
 constexpr uint8_t kEarlierFullVersion = 78;
 constexpr uint8_t kEarlierPartialVersion = 0xF2;
-constexpr uint8_t kLastReleaseFullVersion = 77;
-constexpr uint8_t kLastReleasePartialVersion = 0xF3;
+constexpr uint8_t kLastReleaseFullVersion = 83;
+constexpr uint8_t kLastReleasePartialVersion = 0xC4;
 constexpr uint8_t kPreviousReleasePrepPartialVersion = 0x80;
 
 ReaderRenderSpec renderSpec() {
@@ -231,7 +231,11 @@ TEST_F(SectionPersistenceTest, RejectsCachesFromPreviousLayoutRevisions) {
                                      kEarlierPartialVersion,
                                      kLastReleaseFullVersion,
                                      kLastReleasePartialVersion,
-                                     kPreviousReleasePrepPartialVersion}) {
+                                     kPreviousReleasePrepPartialVersion,
+                                     uint8_t{77},
+                                     uint8_t{0xF3},
+                                     uint8_t{80},
+                                     uint8_t{0xC1}}) {
     SectionHarness harness;
     harness.begin();
     harness.appendPages(1);

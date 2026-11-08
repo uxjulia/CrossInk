@@ -112,7 +112,9 @@ void ReleaseNotesActivity::addWrapped(const char* text, const LineKind kind, con
     if (paragraph.empty()) {
       lines.push_back({std::string(), kind, height, false});
     } else {
+      // Move wrapped strings into layout without copying their text.
       for (auto& wrapped : renderer.wrappedText(fontId, paragraph.c_str(), width, MAX_LINES_PER_PARAGRAPH, style)) {
+        // cppcheck-suppress useStlAlgorithm
         lines.push_back({std::move(wrapped), kind, height, false});
       }
     }

@@ -8,6 +8,7 @@
 #include <Memory.h>
 #include <mbedtls/sha256.h>
 
+#include <algorithm>
 #include <atomic>
 #include <cstdio>
 #include <cstring>
@@ -324,7 +325,7 @@ Result scan(AssetCatalog::Kind kind, const AssetCatalog::Entry& entry, Source& s
                                                                                    : Status::Different;
   return Result::Ok;
 }
-Result sourceCountCapacity(Workspace& work) {
+Result sourceCountCapacity(const Workspace& work) {
   if (work.catalog->kind != AssetCatalog::Kind::Translation) return Result::Ok;
   const char* filename = std::strrchr(work.source.path, '/');
   if (!filename) return failure(Result::Invalid);
@@ -400,9 +401,11 @@ bool cleanHttps(std::string_view value) {
   if (value.size() < 10 || value.size() >= MAX_URL || value.substr(0, 8) != "https://") return false;
   const size_t slash = value.find('/', 8);
   if (slash == std::string_view::npos || slash == 8) return false;
-  for (char c : value)
-    if (c <= 32 || static_cast<unsigned char>(c) >= 127 || c == '@' || c == '%' || c == '?' || c == '#' || c == '\\')
-      return false;
+  if (std::any_of(value.begin(), value.end(), [](char c) {
+        return c <= 32 || static_cast<unsigned char>(c) >= 127 || c == '@' || c == '%' || c == '?' || c == '#' ||
+               c == '\\';
+      }))
+    return false;
   if (value.substr(8, slash - 8).find(':') != std::string_view::npos) return false;
   const auto path = value.substr(slash);
   return path.find("//") == std::string_view::npos && path.find("/../") == std::string_view::npos &&
@@ -416,6 +419,8 @@ bool matches(std::string_view value, const char* prefix) {
          value.substr(0, allowed.size()) == allowed;
 }
 }  // namespace
+// The downloader callback contract requires a mutable opaque context.
+// cppcheck-suppress constParameterCallback
 bool allowUrl(std::string_view url, void* context) {
   if (!context || !cleanHttps(url)) return false;
   const auto& endpoints = *static_cast<const Endpoints*>(context);

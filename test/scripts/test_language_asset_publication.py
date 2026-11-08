@@ -6,6 +6,8 @@ import importlib.util
 import io
 import json
 from pathlib import Path
+import re
+import subprocess
 import sys
 import tempfile
 from types import SimpleNamespace
@@ -82,12 +84,14 @@ class PublicationTest(unittest.TestCase):
         self.writes.append(key)
         return {}
 
-    def run_publisher(self, *options):
+    def run_publisher(self, *options, clean=False):
         with patch.object(publisher, 'root', self.root), \
              patch.object(publisher, 'aws', self.aws), \
              patch.object(publisher, 'build_languages', side_effect=lambda *_: copy.deepcopy(self.current)), \
              patch.object(publisher, 'build_hyphenation', side_effect=lambda: copy.deepcopy(self.hyphenation)), \
-             patch.object(publisher.subprocess, 'check_output', return_value='1' * 40), \
+             patch.object(publisher.subprocess, 'check_output', side_effect=lambda command, **_:
+                          '' if clean and 'status' in command else '1' * 40), \
+             patch.object(publisher.subprocess, 'run', return_value=subprocess.CompletedProcess([], 1, '', '')), \
              patch.dict('os.environ', {}, clear=True), \
              patch.object(sys, 'argv', ['publish_language_assets.py', '--assets', 'languages', *options]), \
              contextlib.redirect_stdout(io.StringIO()):
@@ -232,6 +236,20 @@ class PublicationTest(unittest.TestCase):
         self.assertEqual(self.reads, [])
         self.assertEqual(self.writes, [])
 
+    def test_prepares_downloads_before_tag_and_github_release_exist(self):
+        self.run_publisher('--publish', '--prepare-release', 'v2.0.0', '--source-commit', '1' * 40, clean=True)
+        self.assertIn(publisher.catalog_key(self.current[0]), self.store)
+        self.assertTrue(self.writes)
+
+    def test_preparation_rejects_wrong_or_dirty_source_before_s3_access(self):
+        for source, clean, error in (('2' * 40, True, 'exact full source'),
+                                     ('1' * 40, False, 'requires clean')):
+            with self.subTest(source=source, clean=clean), self.assertRaisesRegex(RuntimeError, error):
+                self.run_publisher('--publish', '--prepare-release', 'v2.0.0',
+                                   '--source-commit', source, clean=clean)
+            self.assertEqual(self.reads, [])
+            self.assertEqual(self.writes, [])
+
 
 class GitHubExportTest(unittest.TestCase):
     def test_exports_individual_files_and_frozen_catalog_for_each_kind(self):
@@ -316,7 +334,153 @@ class ReleaseIdentityTest(unittest.TestCase):
             command.assert_not_called()
 
 
+class PreparedReleaseIdentityTest(unittest.TestCase):
+    commit = '123abcd' + '1' * 33
+
+    def identity(self, tag='v2.0.0', source_commit=None, dirty='', tag_commit=None,
+                 tag_error=1, channel=None):
+        ref = subprocess.CompletedProcess([], tag_error if tag_commit is None else 0,
+                                          stdout=tag_commit or '', stderr='lookup failure')
+        with patch.object(publisher.subprocess, 'check_output', return_value=dirty) as commands, \
+             patch.object(publisher.subprocess, 'run', return_value=ref) as tags:
+            result = publisher.prepared_release_identity(tag, source_commit or self.commit,
+                                                        self.commit, channel)
+        return result, commands, tags
+
+    def test_preparation_does_not_need_a_tag_or_published_release(self):
+        result, commands, tags = self.identity()
+        self.assertEqual(result, ('2.0.0', 'stable'))
+        self.assertIn('status', commands.call_args.args[0])
+        self.assertEqual(commands.call_count, 1)
+        self.assertEqual(tags.call_args.args[0][-1], 'refs/tags/v2.0.0^{commit}')
+
+    def test_candidate_tag_uses_the_actual_source_hash(self):
+        self.assertEqual(self.identity('rc-next-123abcd')[0], ('rc-next-123abcd', 'rc'))
+        with self.assertRaisesRegex(RuntimeError, 'candidate tag does not match'):
+            self.identity('rc-next-7654321')
+
+    def test_wrong_or_abbreviated_source_is_rejected_before_commands(self):
+        with patch.object(publisher.subprocess, 'check_output') as commands, \
+             patch.object(publisher.subprocess, 'run') as tags:
+            for source in ('main', self.commit[:7], '2' * 40):
+                with self.subTest(source=source), self.assertRaisesRegex(RuntimeError, 'exact full source'):
+                    publisher.prepared_release_identity('v2.0.0', source, self.commit)
+            commands.assert_not_called()
+            tags.assert_not_called()
+
+    def test_dirty_source_and_existing_mismatched_tag_are_rejected(self):
+        for options, error in (({'dirty': ' M english.yaml'}, 'requires clean'),
+                               ({'tag_commit': '2' * 40}, 'does not match existing'),
+                               ({'tag_error': 128}, 'could not verify'),
+                               ({'channel': 'rc'}, 'requested channel')):
+            with self.subTest(options=options), self.assertRaisesRegex(RuntimeError, error):
+                self.identity(**options)
+        self.assertEqual(self.identity(tag_commit=self.commit)[0], ('2.0.0', 'stable'))
+
+    def test_real_git_source_and_tag_validation(self):
+        # Exercise actual git return codes, including a not-yet-created tag.
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            def git(*args):
+                return subprocess.check_output(['git', '-C', directory, *args], text=True).strip()
+            git('init', '-q')
+            git('config', 'user.name', 'Release test')
+            git('config', 'user.email', 'release-test@example.invalid')
+            git('config', 'commit.gpgsign', 'false')
+            git('config', 'tag.gpgsign', 'false')
+            (root / 'source').write_text('first')
+            git('add', 'source')
+            git('commit', '-qm', 'first')
+            first = git('rev-parse', 'HEAD')
+            with patch.object(publisher, 'root', root):
+                self.assertEqual(publisher.prepared_release_identity('v2.0.0', first, first), ('2.0.0', 'stable'))
+                git('tag', 'v2.0.0')
+                (root / 'source').write_text('second')
+                with self.assertRaisesRegex(RuntimeError, 'requires clean'):
+                    publisher.prepared_release_identity('v2.0.0', first, first)
+                git('commit', '-qam', 'second')
+                second = git('rev-parse', 'HEAD')
+                with self.assertRaisesRegex(RuntimeError, 'does not match existing'):
+                    publisher.prepared_release_identity('v2.0.0', second, second)
+
+    def test_both_command_lines_require_preparation_and_source_together(self):
+        for script in ('publish_language_assets.py', 'export_github_language_assets.py'):
+            for options in (['--prepare-release', 'v2.0.0'], ['--source-commit', self.commit]):
+                args = [sys.executable, str(ROOT / 'scripts' / script), *options]
+                if script.startswith('export_'):
+                    args += ['--output', 'unused']
+                result = subprocess.run(args, capture_output=True, text=True)
+                self.assertEqual(result.returncode, 2)
+                self.assertIn('must be used together', result.stderr)
+
+
+class ReleaseWorkflowTest(unittest.TestCase):
+    def jobs(self, filename):
+        text = (ROOT / '.github/workflows' / filename).read_text().split('\njobs:\n', 1)[1]
+        parts = re.split(r'^  ([a-z0-9-]+):\n', text, flags=re.M)
+        return dict(zip(parts[1::2], parts[2::2]))
+
+    def needs(self, job):
+        match = re.search(r'^    needs:([^\n]*)\n((?:      - [^\n]*\n)*)', job, re.M)
+        self.assertIsNotNone(match)
+        return ([match[1].strip()] if match[1].strip() else
+                re.findall(r'^      - ([a-z0-9-]+)$', match[2], re.M))
+
+    def test_stable_and_rc_drafts_require_successful_download_preparation(self):
+        for filename, draft_job, build_job in (
+                ('release.yml', 'publish-release', 'build-release'),
+                ('release_candidate.yml', 'publish-release-candidate', 'build-release-candidate')):
+            with self.subTest(workflow=filename):
+                jobs = self.jobs(filename)
+                draft, gate = jobs[draft_job], jobs['prepare-language-assets']
+                self.assertIn('softprops/action-gh-release@', draft)
+                self.assertIn('draft: true', draft)
+                self.assertIn('prepare-language-assets', self.needs(draft))
+                self.assertIn(build_job, self.needs(gate))
+                self.assertIn('scripts/prepare_release_downloads.py --tag', gate)
+                self.assertIn('SOURCE_COMMIT: ${{ github.sha }}', gate)
+                self.assertIn('GH_TOKEN: ${{ secrets.RELEASE_PAT }}', gate)
+                self.assertNotIn('continue-on-error:', draft + gate)
+                self.assertNotIn('always()', draft + gate)
+                # GitHub's default needs semantics must block the draft for
+                # failure, cancellation and a skipped preparation workflow.
+                for outcome in ('failure', 'cancelled', 'skipped'):
+                    results = {job: 'success' for job in self.needs(draft)}
+                    results['prepare-language-assets'] = outcome
+                    self.assertFalse(all(results[job] == 'success' for job in self.needs(draft)))
+
+    def test_shared_workflow_prepares_both_destinations_without_release_events(self):
+        path = ROOT / '.github/workflows/publish-language-assets.yml'
+        text = path.read_text()
+        self.assertIn('  workflow_dispatch:', text)
+        self.assertNotIn('  release:', text)
+        self.assertNotIn('github.event.release', text)
+        jobs = self.jobs(path.name)
+        self.assertEqual(set(jobs), {'verify-source', 'publish-github', 'publish'})
+        verification = jobs['verify-source']
+        self.assertIn('$GITHUB_REF_TYPE\" == tag', verification)
+        self.assertIn('$GITHUB_SHA\" == \"$SOURCE_COMMIT', verification)
+        for name in ('publish-github', 'publish'):
+            job = jobs[name]
+            self.assertEqual(self.needs(job), ['verify-source'])
+            self.assertIn('ref: ${{ inputs.source_commit }}', job)
+            self.assertIn('--prepare-release "$RELEASE_TAG" --source-commit "$SOURCE_COMMIT"', job)
+            self.assertNotIn('continue-on-error:', job)
+        rc = self.jobs('release_candidate.yml')
+        self.assertIn('rc_tag: ${{ steps.metadata.outputs.rc_tag }}', rc['build-release-candidate'])
+        self.assertIn('RELEASE_TAG: ${{ needs.build-release-candidate.outputs.rc_tag }}', rc['prepare-language-assets'])
+
+
 class ReleaseBundleTest(unittest.TestCase):
+    def test_preparation_and_published_retry_have_identical_immutable_bytes(self):
+        with patch.object(publisher, 'args', SimpleNamespace(channel='stable', release_tag=None,
+                                                            prepare_release='v2.0.0'), create=True):
+            prepared = publisher.build_languages('2.0.0', '1' * 40)
+        with patch.object(publisher, 'args', SimpleNamespace(channel='stable', release_tag='v2.0.0',
+                                                            prepare_release=None), create=True):
+            published = publisher.build_languages('2.0.0', '1' * 40)
+        self.assertEqual(prepared, published)
+
     def test_published_translations_match_release_editor_artifacts(self):
         from generate_language_template import generate
         version, commit = 'rc-next-123abcd', '1' * 40
@@ -329,7 +493,7 @@ class ReleaseBundleTest(unittest.TestCase):
         for entry in catalog['entries']:
             filename = 'translations/' + entry['sha256'] + '.yaml'
             self.assertEqual(files[prefix + 'translation/' + entry['sha256'] + '.yaml'], expected[filename])
-        self.assertEqual(json.loads(files[prefix + 'snapshot.json'])['status'], 'published-release')
+        self.assertEqual(json.loads(files[prefix + 'snapshot.json'])['status'], 'release-build')
         publisher.validate_companions(catalog, files)
 
     def test_hyphenation_payloads_match_release_zip_and_ignore_release_label(self):
