@@ -157,6 +157,8 @@
 - Center and scale custom sleep BMPs correctly in Fit and Crop modes, including smaller images on X3 (fixes #925; adapted from CrossPoint #4185).
 - Prepare and verify language and hyphenation downloads before the release workflow creates its firmware draft, so download failures are caught before publication.
 - Keep EPUB clipping highlights on the original passage after font, spacing, orientation, and layout changes, without highlighting repeated phrases elsewhere (#931). Save and sync stable source positions, and upgrade older clippings when their original coordinates can be verified.
+- Keep root fonts, dictionaries, plugins, sleep, and sleep-overlay resource folders out of Library scans; existing indexes refresh after upgrading (CrossPoint #4373).
+- Include combining accent marks when generating latin-ext SD font packs (CrossPoint #4358).
 
 ### Changed
 

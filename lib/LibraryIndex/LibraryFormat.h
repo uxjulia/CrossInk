@@ -29,7 +29,7 @@ namespace library {
 
 inline constexpr char CLIX_MAGIC[4] = {'C', 'L', 'X', '1'};
 // Compatible older and development layouts are accepted only for reconciliation during a rebuild.
-inline constexpr uint8_t CLIX_FORMAT_VERSION = 7;  // Exclude system directories; layout unchanged.
+inline constexpr uint8_t CLIX_FORMAT_VERSION = 9;  // Exclude root resource directories; layout unchanged.
 inline constexpr uint32_t CLIX_UNKNOWN_SERIES_POSITION = 0xFFFFFFFFu;
 
 // Bump when the fold or a permutation's sort key changes.
@@ -180,8 +180,9 @@ inline ClixValidity validateHeaderStructure(const ClixHeader& h, const uint64_t 
     if (h.magic[i] != CLIX_MAGIC[i]) return ClixValidity::BadMagic;
   }
   if (h.formatVersion != CLIX_FORMAT_VERSION &&
-      !(acceptPrevious && (h.formatVersion == 2 || h.formatVersion == 3 || h.formatVersion == 4 ||
-                           h.formatVersion == 5 || h.formatVersion == 6 || h.formatVersion == 8)))
+      !(acceptPrevious &&
+        (h.formatVersion == 2 || h.formatVersion == 3 || h.formatVersion == 4 || h.formatVersion == 5 ||
+         h.formatVersion == 6 || h.formatVersion == 7 || h.formatVersion == 8)))
     return ClixValidity::UnknownFormatVersion;
   if (h.bookCount > CLIX_MAX_RECORDS) return ClixValidity::CountOutOfRange;
   if (h.metadataEnabled > 1) return ClixValidity::SectionsInconsistent;

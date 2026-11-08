@@ -13,6 +13,7 @@
 #include "LibraryFileTypes.h"
 #include "LibraryIndexFile.h"
 #include "LibraryMetadataCache.h"
+#include "LibraryScanPolicy.h"
 #include "LibrarySort.h"
 #include "LibraryText.h"
 #include "Memory.h"
@@ -1673,4 +1674,70 @@ TEST_F(LibraryBuilderTest, VersionSixSeriesMetadataIsReparsedIncludingPersistent
   std::string series;
   ASSERT_TRUE(after.readSeries(rebuilt, series));
   EXPECT_EQ(series, "Correct series");
+}
+
+TEST_F(LibraryBuilderTest, RootResourceDirectoriesArePrunedButNestedBooksRemain) {
+  for (const char* folder : {"fonts", "Dictionaries", "PLUGINS", "sleep", "Sleep-Overlay"}) {
+    const std::string path = std::string("/") + folder + "/license.txt";
+    fake::add(path);
+    fake::add(std::string("/Books/") + folder + "/book.txt");
+  }
+  fake::add("/fonts-archive/book.txt");
+  fake::add("/sleep.txt");
+  initial();
+  LibraryIndexFile index;
+  ASSERT_TRUE(index.open(INDEX));
+  EXPECT_EQ(index.bookCount(), 9u);
+  ClixRecord record{};
+  for (const char* folder : {"fonts", "Dictionaries", "PLUGINS", "sleep", "Sleep-Overlay"}) {
+    const std::string path = std::string("/") + folder + "/license.txt";
+    EXPECT_FALSE(recordAtPath(index, path, record));
+    EXPECT_TRUE(fake::files.count(path));
+    EXPECT_EQ(fake::directoryEntriesByPath[path], 0u);
+    EXPECT_TRUE(recordAtPath(index, std::string("/Books/") + folder + "/book.txt", record));
+  }
+}
+
+TEST_F(LibraryBuilderTest, PreviousResourceScanPolicyReconcilesWithoutDeletingSources) {
+  fake::add("/xonts/license.txt");
+  initial();
+  auto& bytes = fake::files[INDEX]->bytes;
+  const std::string oldFolder = "/xonts";
+  auto folder = std::search(bytes.begin(), bytes.end(), oldFolder.begin(), oldFolder.end());
+  ASSERT_NE(folder, bytes.end());
+  *(folder + 1) = 'f';
+  bytes[offsetof(ClixHeader, formatVersion)] = 8;
+  for (const char* suffix : {"", "/license.txt"}) {
+    const std::string oldPath = oldFolder + suffix;
+    fake::files[std::string("/fonts") + suffix] = fake::files[oldPath];
+    fake::files.erase(oldPath);
+  }
+  LibraryIndexFile index;
+  ASSERT_FALSE(index.open(INDEX));
+  ASSERT_TRUE(index.openForReconciliation(INDEX));
+  index.close();
+  ASSERT_TRUE(buildLibraryIndex("/", stats, true));
+  EXPECT_TRUE(stats.indexReplaced);
+  EXPECT_EQ(stats.removed, 1u);
+  ASSERT_TRUE(index.open(INDEX));
+  EXPECT_EQ(index.bookCount(), 2u);
+  EXPECT_TRUE(fake::files.count("/fonts/license.txt"));
+  EXPECT_TRUE(preservedCacheClears.empty());
+}
+
+TEST_F(LibraryBuilderTest, ResourcePolicyHandlesRootAliasesAndExplicitSubroots) {
+  for (const char* prefix : {"/", "", "./", "/./", "//", "././"}) {
+    EXPECT_TRUE(isLibraryResourceDirectory(std::string(prefix) + "FoNtS/nested"));
+    EXPECT_FALSE(isLibraryResourceDirectory(std::string(prefix) + "Books/fonts"));
+    EXPECT_FALSE(isLibraryResourceDirectory(std::string(prefix) + "fonts-archive"));
+  }
+  fake::add("/fonts/license.txt");
+  ASSERT_TRUE(buildLibraryIndex("/fonts", stats, false));
+  LibraryIndexFile index;
+  ASSERT_TRUE(index.open(INDEX));
+  EXPECT_EQ(index.bookCount(), 0u);
+  index.close();
+  ASSERT_TRUE(buildLibraryIndex("./", stats, false));
+  ASSERT_TRUE(index.open(INDEX));
+  EXPECT_EQ(index.bookCount(), 2u);
 }

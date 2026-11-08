@@ -30,8 +30,8 @@ TEST(LibraryFormat, StructSizesAreFrozen) {
   EXPECT_EQ(sizeof(ClixHeader), 64u);
   EXPECT_EQ(sizeof(ClixRecord), 128u);
   EXPECT_EQ(sizeof(ClixFolderHeader), 1u);
-  // Version 6 appends each book's series position to its name blob.
-  EXPECT_EQ(CLIX_FORMAT_VERSION, 7u);
+  // Version 9 refreshes the resource-folder scan policy without changing the layout.
+  EXPECT_EQ(CLIX_FORMAT_VERSION, 9u);
 }
 
 TEST(LibraryFormat, RecordsTileSectorsExactly) {
@@ -125,12 +125,14 @@ TEST(LibraryFormatValidation, PreviousLayoutIsOnlyAcceptedForReconciliation) {
   EXPECT_EQ(validateHeaderStructure(h, h.selfSize, true), ClixValidity::Ok);
 }
 
-TEST(LibraryFormatValidation, DevelopmentVersionEightIsOnlyAcceptedForReconciliation) {
+TEST(LibraryFormatValidation, PreviousScanPoliciesAreOnlyAcceptedForReconciliation) {
   ClixHeader h = makeHeader(200, 116);
-  h.formatVersion = 8;
-  EXPECT_EQ(validateHeader(h, h.selfSize), ClixValidity::UnknownFormatVersion);
-  EXPECT_EQ(validateHeaderStructure(h, h.selfSize, true), ClixValidity::Ok);
-  h.formatVersion = 9;
+  for (const uint8_t version : {7, 8}) {
+    h.formatVersion = version;
+    EXPECT_EQ(validateHeader(h, h.selfSize), ClixValidity::UnknownFormatVersion);
+    EXPECT_EQ(validateHeaderStructure(h, h.selfSize, true), ClixValidity::Ok);
+  }
+  h.formatVersion = CLIX_FORMAT_VERSION + 1;
   EXPECT_EQ(validateHeaderStructure(h, h.selfSize, true), ClixValidity::UnknownFormatVersion);
 }
 

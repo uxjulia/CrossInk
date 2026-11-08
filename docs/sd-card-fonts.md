@@ -24,6 +24,14 @@ To make `.cpfont` packs from your own TrueType/OpenType fonts, use CrossPoint's
 [Font Builder](https://crosspointreader.com/fonts). On X4 Classic, X4 Pro, and
 Sticky, static `.ttf` and `.otf` files do not need conversion.
 
+The local `fontconvert_sdcard.py --intervals latin-ext` preset includes combining
+accent marks (U+0300–U+036F). Regenerate older latin-ext packs from their original
+source fonts to add these glyphs; the source font must contain them. Preserve the
+source font license when distributing regenerated packs. Built-in and `reading`
+presets already include this range and do not need regeneration for this fix.
+The maintained `build-sd-fonts.py` pipeline adds `builtin`, so its existing packs
+also already request these marks.
+
 ## Installing Fonts
 
 There are three ways to install fonts:

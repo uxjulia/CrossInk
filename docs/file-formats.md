@@ -256,6 +256,16 @@ fresh deck. Deleting `/.crosspoint/sleep-image-index/` resets indexes and decks.
 
 ## `/.crosspoint/library.idx`
 
+### Version 9
+
+Version 9 keeps the release version 7 and development version 8 layout and
+rebuilds the Library index to exclude
+root resource folders (`fonts`, `dictionaries`, `plugins`, `sleep`, and
+`sleep-overlay`) case-insensitively. Nested folders with those names remain
+indexable. Versions 7 and 8 remain readable for reconciliation to preserve
+arrival order and reuse metadata; no source files are removed. Version 8 is
+reserved for the earlier development scan policy so those indexes also rebuild.
+
 ### Version 7 (2.0.0)
 
 The release normalizes development versions 7–8 to one step after v1.6.1's
