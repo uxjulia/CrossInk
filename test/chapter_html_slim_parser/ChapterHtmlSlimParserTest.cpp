@@ -2309,3 +2309,69 @@ TEST_F(ChapterHtmlSlimParserTest, DeferredPrewarmDoesNotDelayBeginAndRestoresPar
   parser.abortParse();
   EXPECT_FALSE(parser.prewarmSectionAdvanceStep());
 }
+
+TEST_F(ChapterHtmlSlimParserTest, SourceOffsetsIncludeHiddenBodyTextAndRestartAtBody) {
+  parser.visibleTextOffset = 123;
+  const XML_Char* empty[] = {nullptr};
+  ChapterHtmlSlimParser::startElement(&parser, "body", empty);
+  const XML_Char* hidden[] = {"style", "display: none", nullptr};
+  ChapterHtmlSlimParser::startElement(&parser, "span", hidden);
+  ChapterHtmlSlimParser::characterData(&parser, "ghost", 5);
+  ChapterHtmlSlimParser::endElement(&parser, "span");
+  ChapterHtmlSlimParser::characterData(&parser, "word ", 5);
+  ASSERT_NE(parser.currentTextBlock, nullptr);
+  ASSERT_FALSE(parser.currentTextBlock->isEmpty());
+  EXPECT_EQ(parser.currentTextBlock->wordSourceOffsets[0], 5U);
+  EXPECT_EQ(parser.sourceTextOffset, 10U);
+  EXPECT_EQ(parser.currentTextBlock->visibleOffsetAt(0), 123U);
+  EXPECT_EQ(parser.visibleTextOffset, 128U);
+}
+
+TEST_F(ChapterHtmlSlimParserTest, PreviewScanRetainsDocumentSourceCoordinatesAndEntities) {
+  parser.previewAnchor = "note";
+  parser.previewMaxPages = 1;
+  const XML_Char* empty[] = {nullptr};
+  ChapterHtmlSlimParser::startElement(&parser, "html", empty);
+  ChapterHtmlSlimParser::startElement(&parser, "head", empty);
+  ChapterHtmlSlimParser::characterData(&parser, "ignored", 7);
+  ChapterHtmlSlimParser::endElement(&parser, "head");
+  ChapterHtmlSlimParser::startElement(&parser, "body", empty);
+  ChapterHtmlSlimParser::characterData(&parser, "prefix ", 7);
+  ChapterHtmlSlimParser::defaultHandlerExpand(&parser, "&amp;", 5);
+  const XML_Char* note[] = {"id", "note", nullptr};
+  ChapterHtmlSlimParser::startElement(&parser, "p", note);
+  ASSERT_TRUE(parser.previewAnchorFound);
+  ChapterHtmlSlimParser::characterData(&parser, "note ", 5);
+  ASSERT_NE(parser.currentTextBlock, nullptr);
+  ASSERT_FALSE(parser.currentTextBlock->isEmpty());
+  EXPECT_EQ(parser.currentTextBlock->wordSourceOffsets[0], 8U);
+  EXPECT_EQ(parser.sourceTextOffset, 13U);
+}
+
+TEST_F(ChapterHtmlSlimParserTest, HiddenInlineTextDoesNotChangeWordOrdinalsOrSourceEndpoints) {
+  const XML_Char* empty[] = {nullptr};
+  ChapterHtmlSlimParser::startElement(&parser, "body", empty);
+  ChapterHtmlSlimParser::characterData(&parser, "be", 2);
+  const XML_Char* hidden[] = {"style", "display: none", nullptr};
+  ChapterHtmlSlimParser::startElement(&parser, "span", hidden);
+  ChapterHtmlSlimParser::characterData(&parser, "xxxxx", 5);
+  ChapterHtmlSlimParser::endElement(&parser, "span");
+  ChapterHtmlSlimParser::characterData(&parser, "fore ", 5);
+  ASSERT_NE(parser.currentTextBlock, nullptr);
+  ASSERT_EQ(parser.currentTextBlock->words.size(), 1U);
+  EXPECT_EQ(parser.currentTextBlock->words[0], "before");
+  EXPECT_EQ(parser.currentTextBlock->wordSourceOffsets[0], 0U);
+  EXPECT_EQ(parser.currentTextBlock->sourceLengthAt(0, 6), 11U);
+  EXPECT_EQ(parser.visibleTextOffset, 7U);
+}
+
+TEST_F(ChapterHtmlSlimParserTest, RemovedByteOrderMarkRetainsItsSourceCharacter) {
+  const XML_Char* empty[] = {nullptr};
+  ChapterHtmlSlimParser::startElement(&parser, "body", empty);
+  ChapterHtmlSlimParser::characterData(&parser, "be", 2);
+  ChapterHtmlSlimParser::characterData(&parser, "\xef\xbb\xbf", 3);
+  ChapterHtmlSlimParser::characterData(&parser, "fore ", 5);
+  ASSERT_EQ(parser.currentTextBlock->words.size(), 1U);
+  EXPECT_EQ(parser.currentTextBlock->words[0], "before");
+  EXPECT_EQ(parser.currentTextBlock->sourceLengthAt(0, 6), 7U);
+}

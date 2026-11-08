@@ -90,6 +90,37 @@ std::string selectedWordText(const ClipWordStore& wordStore, const WordRef& word
   return cleanWordText(std::string(wordStore.text(word) + begin, end - begin));
 }
 
+uint32_t countCharacters(const char* text, const size_t begin, const size_t end) {
+  uint32_t count = 0;
+  for (size_t i = begin; i < end; ++i)
+    if ((static_cast<uint8_t>(text[i]) & 0xC0) != 0x80) ++count;
+  return count;
+}
+
+bool selectedSourceRange(const ClipWordStore& store, const WordRef& word, const SelectionBounds* bounds,
+                         uint32_t& start, uint32_t& end) {
+  start = word.sourceStart;
+  end = word.sourceEnd;
+  if (!bounds) return true;
+  const bool first = word.pageIdx == bounds->firstPageIdx && word.pageWordIndex == bounds->firstPageWordOrdinal;
+  const bool last = word.pageIdx == bounds->lastPageIdx && word.pageWordIndex == bounds->lastPageWordOrdinal;
+  const size_t begin = first ? std::min<size_t>(bounds->firstWordByteOffset, word.textLength) : 0;
+  const size_t finish = last ? std::min<size_t>(bounds->lastWordByteEndOffset, word.textLength) : word.textLength;
+  if (begin == 0 && finish == word.textLength) return true;
+  const char* text = store.text(word);
+  if (start >= end || end == UINT32_MAX || finish < begin || (static_cast<uint8_t>(text[begin]) & 0xC0) == 0x80 ||
+      (static_cast<uint8_t>(text[finish]) & 0xC0) == 0x80)
+    return false;
+  const uint32_t indent = hasEmSpace(text) ? 1 : 0;
+  const uint32_t insertedHyphen = word.endsWithInsertedHyphen ? 1 : 0;
+  // Whole-word source ranges survive NFC composition. An interior byte bound
+  // needs a one-to-one character map; never expand an ambiguous fragment.
+  if (end - start != countCharacters(text, 0, word.textLength) - indent - insertedHyphen) return false;
+  start += countCharacters(text, 0, begin) - (indent && begin >= 3 ? 1 : 0);
+  end -= countCharacters(text, finish, word.textLength) - (insertedHyphen && finish < word.textLength ? 1 : 0);
+  return start < end;
+}
+
 bool isSelectedTableWord(const WordRef& word, const uint16_t tableSelection) {
   return tableSelection == UINT16_MAX || word.tableSelection == tableSelection;
 }
@@ -126,10 +157,23 @@ ClippingResult build(const ClipWordStore& wordStore, const uint16_t* wordOrder, 
   uint16_t startPageWordIndex = firstWord.pageWordIndex;
   uint16_t endPageWordIndex = lastWord.pageWordIndex;
   uint16_t selectedWordCount = 0;
+  uint32_t sourceStart = UINT32_MAX, sourceEnd = 0;
+  bool allSourceRangesKnown = true;
+  bool sourceMappingBlocked = false;
   for (int orderIdx = fromOrder; orderIdx <= toOrder; ++orderIdx) {
     const WordRef& word = words[wordOrder[orderIdx]];
     if (!isSelectedTableWord(word, tableSelection)) continue;
     selectedWordCount++;
+    uint32_t selectedStart, selectedEnd;
+    if (!selectedSourceRange(wordStore, word, selectionBounds, selectedStart, selectedEnd)) {
+      allSourceRangesKnown = false;
+      sourceMappingBlocked = true;
+    } else if (selectedStart > selectedEnd || selectedEnd == UINT32_MAX) {
+      allSourceRangesKnown = false;
+    } else if (selectedStart < selectedEnd) {
+      sourceStart = std::min(sourceStart, selectedStart);
+      sourceEnd = std::max(sourceEnd, selectedEnd);
+    }
     if (word.pageIdx == firstWord.pageIdx) {
       startPageWordIndex = std::min(startPageWordIndex, word.pageWordIndex);
     }
@@ -189,7 +233,7 @@ ClippingResult build(const ClipWordStore& wordStore, const uint16_t* wordOrder, 
     previousClean = cleanText;
   }
 
-  return ClippingResult{std::move(text),
+  ClippingResult result{std::move(text),
                         static_cast<uint16_t>(startPageInSection + firstWord.pageIdx),
                         static_cast<uint16_t>(startPageInSection + lastWord.pageIdx),
                         static_cast<uint16_t>(std::max(1, sectionPageCount)),
@@ -198,6 +242,13 @@ ClippingResult build(const ClipWordStore& wordStore, const uint16_t* wordOrder, 
                         UINT16_MAX,
                         tableSelection,
                         selectedWordCount};
+  if (allSourceRangesKnown && sourceStart < sourceEnd) {
+    result.sourceStart = sourceStart;
+    result.sourceEnd = sourceEnd;
+  } else if (sourceMappingBlocked) {
+    result.sourceEnd = 0;  // Explicitly unresolvable: do not migrate to the whole outer word.
+  }
+  return result;
 }
 
 }  // namespace ClipTextBuilder

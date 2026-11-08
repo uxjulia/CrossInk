@@ -22,6 +22,8 @@ struct WordRef {
   bool paragraphStart = false;
   bool endsWithInsertedHyphen = false;
   bool lineIsRtl = false;
+  uint32_t sourceStart = UINT32_MAX;
+  uint32_t sourceEnd = UINT32_MAX;
 };
 
 static_assert(std::is_trivially_copyable_v<WordRef>, "Clip word metadata must stay allocation-free");

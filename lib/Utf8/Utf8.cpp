@@ -4,7 +4,6 @@
 
 #include "Utf8ComposeTable.h"
 
-namespace {
 // Look up canonical composition, including algorithmic Hangul LV / LVT pairs.
 uint32_t utf8ComposePair(const uint32_t base, const uint32_t mark) {
   if (base >= 0x1100 && base <= 0x1112 && mark >= 0x1161 && mark <= 0x1175) {
@@ -30,6 +29,7 @@ uint32_t utf8ComposePair(const uint32_t base, const uint32_t mark) {
   return 0;
 }
 
+namespace {
 bool isLookupBoundary(const uint32_t cp) {
   if (cp <= 0x7F) {
     return !((cp >= '0' && cp <= '9') || (cp >= 'A' && cp <= 'Z') || (cp >= 'a' && cp <= 'z'));

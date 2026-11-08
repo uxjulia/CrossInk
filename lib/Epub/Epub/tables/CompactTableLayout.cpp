@@ -126,7 +126,8 @@ bool CompactTableLayout::beginCell(const bool isHeader, const uint8_t colSpan, c
 }
 
 bool CompactTableLayout::appendWord(const std::string_view text, const EpdFontFamily::Style requestedStyle,
-                                    const bool attachToPrevious, const bool backgroundBlack, const uint8_t linkId) {
+                                    const bool attachToPrevious, const bool backgroundBlack, const uint8_t linkId,
+                                    const uint32_t sourceOffset) {
   if (fatal_ || !rowActive_ || !cellActive_ || text.empty()) return !fatal_;
   if (tokenCount_ >= MAX_ROW_TOKENS) {
     LOG_DBG("EHP", "Compact table row exceeds %u text runs", MAX_ROW_TOKENS);
@@ -163,6 +164,7 @@ bool CompactTableLayout::appendWord(const std::string_view text, const EpdFontFa
   bufferUsed_ = static_cast<uint16_t>(bufferUsed_ + bytes);
 
   auto& token = tokens_[tokenCount_++];
+  token.sourceOffset = sourceOffset;
   token.offset = offset;
   token.length = static_cast<uint16_t>(text.size());
   token.style = style;
@@ -200,11 +202,36 @@ int CompactTableLayout::gapBefore(const LineToken& previous, const uint16_t offs
          renderer_.getKerning(fontId_, left, right, style);
 }
 
+TextBlock::SourceRange CompactTableLayout::sourceRange(const uint16_t offset, const uint16_t length) const {
+  const auto end = tokens_.begin() + tokenCount_;
+  const auto after = std::upper_bound(tokens_.begin(), end, offset,
+                                      [](uint16_t value, const Token& token) { return value < token.offset; });
+  if (after == tokens_.begin()) return {};
+  const Token& token = *(after - 1);
+  if (token.sourceOffset == UINT32_MAX || offset + length > token.offset + token.length) return {};
+  auto* cursor = reinterpret_cast<const unsigned char*>(buffer_.get() + token.offset);
+  const auto* start = reinterpret_cast<const unsigned char*>(buffer_.get() + offset);
+  const auto* finish = start + length;
+  uint32_t position = token.sourceOffset;
+  while (cursor < start) {
+    utf8NextCodepoint(&cursor);
+    ++position;
+  }
+  TextBlock::SourceRange range{position, position};
+  while (cursor < finish) {
+    utf8NextCodepoint(&cursor);
+    ++range.end;
+  }
+  return range;
+}
+
 bool CompactTableLayout::emitLine(std::array<LineToken, MAX_ROW_TOKENS>& line, const uint16_t lineCount,
                                   const uint16_t lineWidth, const uint16_t maxWidth, const BlockStyle& style,
                                   TableFragmentCell& output) {
   if (lineCount == 0) return true;
 
+  std::vector<TextBlock::SourceRange> sources;
+  sources.reserve(lineCount);
   std::vector<std::string> words;
   std::vector<int16_t> xPositions;
   std::vector<EpdFontFamily::Style> styles;
@@ -217,6 +244,7 @@ bool CompactTableLayout::emitLine(std::array<LineToken, MAX_ROW_TOKENS>& line, c
   hasSpaceBefore.reserve(lineCount);
   bool anyFlags = false;
   for (uint16_t i = 0; i < lineCount; ++i) {
+    sources.push_back(sourceRange(line[i].offset, line[i].length));
     words.emplace_back(buffer_.get() + line[i].offset, line[i].length);
     styles.push_back(line[i].style);
     flags.push_back(line[i].flags);
@@ -270,7 +298,7 @@ bool CompactTableLayout::emitLine(std::array<LineToken, MAX_ROW_TOKENS>& line, c
 
   auto owned = std::unique_ptr<TextBlock>(
       new (std::nothrow) TextBlock(words, xPositions, styles, {}, {}, {}, anyFlags ? flags : std::vector<uint8_t>{},
-                                   hasSpaceBefore, style, {}, {}, "", characterSpacing_));
+                                   hasSpaceBefore, style, {}, {}, "", characterSpacing_, {}, sources));
   if (!owned || !owned->valid()) {
     LOG_ERR("EHP", "Compact table TextBlock allocation failed (%u words)", lineCount);
     allocationFailure_ = true;

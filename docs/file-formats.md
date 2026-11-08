@@ -778,7 +778,7 @@ the replacement has the same file size. No binary format version changes.
 
 ## `/.crosspoint/clippings/<bookType>_<crc32(path)>.bin`
 
-### Versions 1-5
+### Versions 1-7
 
 Clipping files store the per-book EPUB clipping list used by the reader. A
 saved clipping is also what CrossInk renders as an in-reader highlight; there is
@@ -796,7 +796,7 @@ example:
 
 Binary layout:
 
-- `[0]` version (`1`, `2`, `3`, `4`, `5`, or current version `6`)
+- `[0]` version (`1`, `2`, `3`, `4`, `5`, `6`, or current version `7`)
 - `[1-2]` clipping count (`uint16_t` LE, maximum `256`)
 - book title (`String`)
 - book author (`String`)
@@ -815,17 +815,20 @@ Binary layout:
   - `paragraphIndex` (`uint16_t` LE, `UINT16_MAX` when unavailable)
   - `timestamp` (`uint32_t` LE, Unix UTC seconds; `0` when no valid clock is
     available; older records may contain boot-relative seconds)
-  - versions 3–6: reader layout signature (`uint32_t` LE; font, spacing,
+  - versions 3–7: reader layout signature (`uint32_t` LE; font, spacing,
     viewport, and other section-layout inputs)
-  - versions 4–6: table selection (`uint16_t` LE; `UINT16_MAX` for non-table text)
+  - versions 4–7: table selection (`uint16_t` LE; `UINT16_MAX` for non-table text)
+  - version 7: `sourceStart`, `sourceEnd` (`uint32_t` LE each), a half-open
+    source character range; both `UINT32_MAX` when not yet known. The pair
+    `UINT32_MAX, 0` blocks whole-word migration for an ambiguous subword range
   - version 5: server clipping ID (`String`, maximum 64 bytes; empty for a
     local selection that has never been prepared for upload), then a local
     upload marker (`uint8_t`, `0` or `1`; imported records retain `0`)
-  - version 6 uses the same ID and flag fields. Bit 0 marks a local upload and bit 1 indicates a 16-byte scope prefix on the stored ID.
+  - versions 6–7 use the same ID and flag fields. Bit 0 marks a local upload and bit 1 indicates a 16-byte scope prefix on the stored ID.
   - `chapterTitle` (`char[48]`, null-terminated/truncated)
   - version 1: selected text (`String`; legacy files were written with a
     `512`-byte in-app limit)
-  - versions 2–6: selected-text length (`uint16_t` LE) followed by that many
+  - versions 2–7: selected-text length (`uint16_t` LE) followed by that many
     UTF-8 bytes (the current in-app limit is `4096` bytes, defined by
     `CLIPPING_TEXT_MAX`)
 
@@ -834,18 +837,34 @@ The clipping selector has a separate navigation bound: it exposes at most
 selection window for low-memory devices, not a character-count limit. The
 selected text is still stored separately and is limited to `4096` UTF-8 bytes.
 
-CrossInk uses the stored spine/page/paragraph fields as anchors, then searches
-near that location for the stored clipping text after relayout. This is similar
-to keeping both a DOM position and a text quote in a web app: the numeric
-position gives a fast starting point, while the text makes jumps and highlights
-survive font, layout, or page-count changes when possible.
+Version 7 adds stable source ranges: zero-based Unicode codepoint positions in
+that spine item's decoded body text. Head/style/script/title and ruby fallback
+`rp` text do not count; CSS-hidden body text and ruby annotations do count.
+Synthetic list markers and layout-inserted hyphens do not consume source
+positions. NFC composition, removed soft hyphens/BOMs, and hidden inline runs
+retain their original source character counts. Compact low-memory table tokens
+with hidden inline gaps keep unknown coordinates rather than guessing them.
+Rendered words retain these ranges through wrapping, bidi reordering, reading
+aids, and both complete and partial page caches. Highlight rendering checks
+source-range overlap, so matching phrases elsewhere cannot acquire a marker.
+Clipping jumps verify source ranges in a bounded neighborhood of the estimated
+page. The older visible-text progress coordinate remains separate and unchanged.
 
-Version 3 records which reader layout produced the numeric page/word anchor.
-When that signature differs, CrossInk ignores the stale numeric range and
-matches the saved text instead, including when both layouts happen to have the
-same total page count. Legacy records without a layout signature use text
-matching rather than trusting ambiguous numeric ranges. Version 4 adds the
-table selection field; versions 1-3 remain readable.
+Versions 1–6 remain readable and rewrite as version 7 without discarding text,
+IDs, or deletion scopes. An old clipping can gain source endpoints when its
+saved page/word coordinates and layout signature are still verifiable, and
+streamed comparisons confirm that the saved quote contains the complete outer
+words. Simple dictionary subword selections use their exact character bounds;
+interior bounds in a composed/stripped token without an exact map remain
+unresolved instead of expanding onto neighboring text. Endpoints
+are collected in memory and saved at the existing store save/unload boundary.
+Ambiguous old layouts do not trigger text-based highlight guessing; restoring
+the original layout and visiting the selected pages enables this migration.
+Legacy clipping jumps can still use nearby quote searches.
+
+The two new fields cost eight bytes per clipping record (up to 2 KiB for 256
+records). Word source ranges share each rendered line's existing arena, at eight
+bytes per word, and selection metadata carries the same two integers.
 
 Version 6 binds each selection to its server, account and document when first
 prepared for upload or imported. A new local selection gets a random 128-bit
@@ -860,6 +879,10 @@ multiple old selections share that ID, the first keeps it and the others get
 new IDs. An unscoped v5 import can be bound by a matching live ID and passage.
 V5 deletion records contain no destination, so upgrading skips these entries.
 A remote highlight deleted offline before the upgrade may reappear on replay.
+
+Version 7 exchanges stable ranges through the existing optional `start_offset`
+and `end_offset` API fields, preserving source positions across devices without
+trusting another device's page layout. Missing offsets remain unknown.
 
 Two-way sync exchanges these per-book records, including tombstones, through
 `/api/v1/clippings/:document?cursor=…&limit=1&format=reader`. The v2 revision
@@ -1041,11 +1064,21 @@ clippings, progress or statistics. The PXC byte layout itself is unchanged.
 
 ## `section.bin`
 
-### Version 105 (current development)
+### Version 106 (current development)
 
 The post-RC development cache revisions are retained when merging the release
 branch, so the first 2.0.0 RC's `84` / `0xC5` caches cannot bypass the newer
 layout fixes below. CSS rules use the release-normalized revision `21`.
+
+Complete caches use `106`; suspended partial caches use `0xDB`. Each TextBlock
+header adds `u8 sourceRangesPresent` after `wordSizesPresent`, before
+`characterSpacing`. When present, the existing arena starts with one pair of
+`u32 sourceStart, sourceEnd` per word, before its 16-bit arrays. Equal endpoints
+represent synthetic text; both `UINT32_MAX` represent unavailable coordinates.
+Old complete and partial caches rebuild automatically to supply stable clipping
+anchors; saved clippings live separately and are retained.
+
+### Version 105
 
 Complete caches use `105`; suspended partial caches use `0xDA`. CSS rules now
 remain active below 48 KiB free heap. Both cache types rebuild automatically

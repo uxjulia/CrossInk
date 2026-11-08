@@ -39,7 +39,8 @@ std::string bytes(const std::string& name) {
   const auto& v = fake::files.at(name)->bytes;
   return {v.begin(), v.end()};
 }
-std::string fixture(uint8_t version = 6, uint16_t count = 2) {
+std::string fixture(uint8_t version = 7, uint16_t count = 2, uint32_t sourceStart = UINT32_MAX,
+                    uint32_t sourceEnd = UINT32_MAX) {
   std::string out;
   pod(out, version);
   pod(out, count);
@@ -48,7 +49,7 @@ std::string fixture(uint8_t version = 6, uint16_t count = 2) {
   string(out, BOOK);
   if (version >= 5) {
     pod(out, uint16_t(1));
-    string(out, version == 6 ? "0123456789abcdefdeleted" : "legacy-deleted");
+    string(out, version >= 6 ? "0123456789abcdefdeleted" : "legacy-deleted");
   }
   for (uint16_t i = 0; i < count; ++i) {
     for (uint16_t x : {i, uint16_t(0), uint16_t(0), uint16_t(1), uint16_t(0), uint16_t(2), uint16_t(3), uint16_t(0)})
@@ -56,9 +57,13 @@ std::string fixture(uint8_t version = 6, uint16_t count = 2) {
     pod(out, uint32_t(0));
     if (version >= 3) pod(out, uint32_t(123));
     if (version >= 4) pod(out, uint16_t(UINT16_MAX));
+    if (version >= 7) {
+      pod(out, sourceStart);
+      pod(out, sourceEnd);
+    }
     if (version >= 5) {
-      string(out, version == 6 ? "0123456789abcdefexisting" : "legacy");
-      pod(out, uint8_t(version == 6 ? 3 : 1));
+      string(out, version >= 6 ? "0123456789abcdefexisting" : "legacy");
+      pod(out, uint8_t(version >= 6 ? 3 : 1));
     }
     out.append(CLIPPING_CHAPTER_TITLE_MAX, '\0');
     if (version == 1)
@@ -88,8 +93,8 @@ void cannotMutate(const std::string& original) {
 }
 }  // namespace
 int main() {
-  // Every readable version still loads and rewrites in CrossInk's v6 format.
-  for (uint8_t version = 1; version <= 6; ++version) {
+  // Every readable version still loads and rewrites in CrossInk's v7 format.
+  for (uint8_t version = 1; version <= 7; ++version) {
     reset();
     fake::add(path(), fixture(version));
     assert(load());
@@ -101,8 +106,45 @@ int main() {
     assert(load());
     assert(store.clippingCount() == 3);
   }
+  reset();
+  assert(load());
+  assert(store.addClipping(0, 1, 2, 3, 0, 5, 6, "Chapter", 1, "same passage", UINT16_MAX, 123, 100, 180) ==
+         ClippingStore::AddResult::Added);
+  store.unload();
+  assert(load());
+  assert(store.clippingAt(0)->sourceStart == 100 && store.clippingAt(0)->sourceEnd == 180);
+  reset();
+  fake::add(path(), fixture(6));
+  assert(load());
+  assert(!store.cacheSourceRange(0, 20, UINT32_MAX));
+  assert(store.cacheSourceRange(0, UINT32_MAX, 40));
+  store.unload();
+  assert(load());
+  assert(store.clippingAt(0)->sourceStart == 20 && store.clippingAt(0)->sourceEnd == 40);
+  reset();
+  const auto invalidSource = fixture(7, 1, 40, 20);
+  fake::add(path(), invalidSource);
+  assert(!load());
+  cannotMutate(invalidSource);
+  reset();
+  assert(load());
+  assert(store.addClipping(0, 0, 0, 1, 0, 0, 1, "", 0, "fragment", UINT16_MAX, 123, UINT32_MAX, 0) ==
+         ClippingStore::AddResult::Added);
+  store.unload();
+  assert(load());
+  assert(clippingSourceRangeBlocked(*store.clippingAt(0)));
+  assert(!store.cacheSourceRange(0, 0, 20));
+  bool edgeMatch = false;
+  assert(store.clippingTextMatchesEdges(*store.clippingAt(0), "frag", "ment", edgeMatch) && edgeMatch);
+  assert(store.clippingTextMatchesEdges(*store.clippingAt(0), "other", "ment", edgeMatch) && !edgeMatch);
+  reset();
+  fake::add(path(), fixture(6));
+  assert(load());
+  assert(store.cacheSourceRange(0, UINT32_MAX, 0));
+  assert(clippingSourceRangeBlocked(*store.clippingAt(0)));
+  assert(store.clippingAt(0)->layoutSignature == 0);
   // Every truncation boundary, including a complete first record and partial second.
-  for (uint8_t version = 1; version <= 6; ++version) {
+  for (uint8_t version = 1; version <= 7; ++version) {
     const std::string good = fixture(version);
     for (size_t cut = 0; cut < good.size(); ++cut) {
       reset();

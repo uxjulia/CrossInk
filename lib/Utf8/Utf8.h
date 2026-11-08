@@ -16,6 +16,8 @@ void utf8TruncateChars(std::string& str, size_t numChars);
 // Hangul jamo. Needed because the device fonts have no combining-mark positioning
 // or decomposed Hangul glyphs, so NFD text otherwise renders broken or blank.
 std::string utf8ComposeNfc(const std::string& in);
+// Returns the composed codepoint, or zero when the pair does not compose.
+uint32_t utf8ComposePair(uint32_t base, uint32_t mark);
 
 // Compose a null-terminated display buffer without allocating or growing it.
 // Uncomposed bytes (including malformed UTF-8) are preserved unchanged.

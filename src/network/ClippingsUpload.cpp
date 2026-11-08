@@ -163,7 +163,11 @@ StatsUploadClient::Result ClippingsUpload::upload(const std::string& path, const
     item["text"] = text.c_str();
     item["created_at"] = createdAt;
     item["layout_signature"] = clipping.layoutSignature;
-    // Omit note/color and source offsets: preserve server annotations.
+    if (clippingHasSourceRange(clipping)) {
+      item["start_offset"] = clipping.sourceStart;
+      item["end_offset"] = clipping.sourceEnd;
+    }
+    // Omit note/color: preserve server annotations.
     if (json.overflowed()) return Result::LowMemory;
     const size_t needed = measureJson(json);
     if (needed > CLIPPING_TEXT_MAX * 6 + 1024) return Result::InvalidResponse;
@@ -268,6 +272,16 @@ StatsUploadClient::Result ClippingsUpload::download(const std::string& path, con
         text = item["text"].as<const char*>();
         if (text.empty() || text.size() > CLIPPING_TEXT_MAX || text.size() != item["text"].as<JsonString>().size())
           return Result::InvalidResponse;
+        const bool hasStart = !item["start_offset"].isNull();
+        const bool hasEnd = !item["end_offset"].isNull();
+        if (hasStart != hasEnd ||
+            (hasStart && (!item["start_offset"].is<uint32_t>() || !item["end_offset"].is<uint32_t>())))
+          return Result::InvalidResponse;
+        if (hasStart) {
+          clip.sourceStart = item["start_offset"];
+          clip.sourceEnd = item["end_offset"];
+          if (!clippingHasSourceRange(clip)) return Result::InvalidResponse;
+        }
         clip.spineIndex = item["spine"];
         clip.startPage = item["start_page"];
         clip.endPage = item["end_page"];

@@ -233,3 +233,26 @@ TEST_F(TextLayoutBackingTest, PublisherBaselineIsComputedOncePerRender) {
   block.render(renderer, 0, 0, 0);
   EXPECT_LE(renderer.ascenderCalls, count * 2 + 1);
 }
+
+TEST_F(TextLayoutBackingTest, SourceRangesSurviveCacheRoundTrip) {
+  ParsedText text(false);
+  text.addWord("same", EpdFontFamily::REGULAR, false, false, false, 0, 20);
+  text.addWord("phrase", EpdFontFamily::REGULAR, false, false, false, 0, 25);
+  GfxRenderer renderer;
+  FsFile output;
+  ASSERT_TRUE(Storage.openFileForWrite("test", "source-line", output));
+  ASSERT_TRUE(text.layoutAndExtractLines(renderer, 0, 480, [&](std::shared_ptr<TextBlock> line, uint32_t, uint32_t) {
+    ASSERT_TRUE(line->serialize(output));
+  }));
+  output.close();
+  FsFile input;
+  ASSERT_TRUE(Storage.openFileForRead("test", "source-line", input));
+  auto restored = TextBlock::deserialize(input);
+  input.close();
+  ASSERT_NE(restored, nullptr);
+  ASSERT_EQ(restored->wordCount(), 2);
+  EXPECT_EQ(restored->wordSourceRange(0).start, 20U);
+  EXPECT_EQ(restored->wordSourceRange(0).end, 24U);
+  EXPECT_EQ(restored->wordSourceRange(1).start, 25U);
+  EXPECT_EQ(restored->wordSourceRange(1).end, 31U);
+}

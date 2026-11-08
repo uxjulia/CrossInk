@@ -206,3 +206,28 @@ TEST(CompactTableLayoutTest, UnsupportedRowsFlattenDeterministically) {
 }
 
 }  // namespace
+
+TEST(CompactTableLayoutTest, SourceRangesSurviveEmergencyUtf8Wrapping) {
+  GfxRenderer renderer;
+  renderer.codepointWidth = 3;
+  CompactTableLayout layout(renderer, 0, 12, 200, 10, 1, leftStyle());
+  ASSERT_TRUE(layout.beginRow());
+  ASSERT_TRUE(layout.beginCell(false, 1, 70, leftStyle()));
+  ASSERT_TRUE(layout.appendWord("长长长长长长", EpdFontFamily::REGULAR, false, false, 0, 70));
+  ASSERT_TRUE(layout.endCell({}));
+  TableFragmentRow row;
+  std::vector<std::shared_ptr<TextBlock>> flat;
+  std::vector<FootnoteEntry> notes;
+  uint32_t offset = 0;
+  ASSERT_EQ(layout.finishRow(row, flat, notes, offset), CompactTableLayout::RowResult::Ok);
+  ASSERT_EQ(row.cells.size(), 1U);
+  uint32_t position = 70;
+  for (const auto& line : row.cells[0].lines) {
+    for (const auto& range : line->sources) {
+      EXPECT_EQ(range.start, position);
+      EXPECT_GT(range.end, range.start);
+      position = range.end;
+    }
+  }
+  EXPECT_EQ(position, 76U);
+}

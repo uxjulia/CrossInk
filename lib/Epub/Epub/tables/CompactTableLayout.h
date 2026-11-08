@@ -37,7 +37,7 @@ class CompactTableLayout final {
   bool beginRow();
   bool beginCell(bool isHeader, uint8_t colSpan, uint32_t visibleTextOffset, const BlockStyle& style);
   bool appendWord(std::string_view text, EpdFontFamily::Style style, bool attachToPrevious, bool backgroundBlack,
-                  uint8_t linkId);
+                  uint8_t linkId, uint32_t sourceOffset = UINT32_MAX);
   bool endCell(const std::vector<std::pair<int, FootnoteEntry>>& footnotes);
   void markUnsupported() { unsupported_ = true; }
   bool unsupported() const { return unsupported_; }
@@ -56,6 +56,7 @@ class CompactTableLayout final {
 
  private:
   struct Token {
+    uint32_t sourceOffset = UINT32_MAX;
     uint16_t offset = 0;
     uint16_t length = 0;
     EpdFontFamily::Style style = EpdFontFamily::REGULAR;
@@ -122,6 +123,7 @@ class CompactTableLayout final {
   bool cellActive_ = false;
   uint8_t fragmentColumnCount_ = 0;
 
+  TextBlock::SourceRange sourceRange(uint16_t offset, uint16_t length) const;
   bool ensureBuffer(size_t additionalBytes);
   uint16_t tableWidth() const;
   uint16_t innerWidthForSpan(uint8_t columns, uint8_t startColumn, uint8_t span) const;

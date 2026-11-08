@@ -385,7 +385,19 @@ TEST(ClippingLayout, RejectsStoredRangeWhenFontChangesWithoutChangingPageCount) 
       clippingStoredRangeMatchesLayout(clipping, 20, clippingWordLayoutSignature(readerRenderSpecSignature(changed))));
 }
 
-TEST(ClippingLayout, RejectsUnsignedLegacyRangesAndUsesSavedTextInstead) {
+TEST(ClippingLayout, PreservesExactCoordinatesAcrossPaginationAndCacheRebuilds) {
+  Clipping clipping;
+  clipping.pageCount = 3;
+  clipping.layoutSignature = clippingWordLayoutSignature(123);
+
+  EXPECT_TRUE(clippingStoredRangeMatchesLayout(clipping, 3, clipping.layoutSignature));
+  EXPECT_TRUE(clippingStoredRangeMatchesLayout(clipping, 4, clipping.layoutSignature));
+  EXPECT_TRUE(clippingStoredRangeMatchesLayout(clipping, 2, clipping.layoutSignature));
+  EXPECT_FALSE(clippingStoredRangeMatchesLayout(clipping, 0, clipping.layoutSignature));
+  EXPECT_FALSE(clippingStoredRangeMatchesLayout(clipping, 4, clippingWordLayoutSignature(456)));
+}
+
+TEST(ClippingLayout, RejectsUnsignedLegacyRanges) {
   Clipping clipping;
   clipping.pageCount = 20;
   clipping.layoutSignature = 0;
@@ -421,7 +433,7 @@ TEST(ClippingLayout, CachesLegacyBoundaryRangesWithoutAHeapAllocation) {
   clipping.pageCount = 10;
   clipping.layoutSignature = 123;
 
-  EXPECT_EQ(sizeof(Clipping), 84U);
+  EXPECT_EQ(sizeof(Clipping), 92U);
   EXPECT_FALSE(clippingCachedRangeReadyOnPage(clipping, 2));
   EXPECT_TRUE(clippingCachedRangeReadyOnPage(clipping, 3));
   EXPECT_FALSE(clippingCachedRangeReadyOnPage(clipping, 4));
@@ -510,4 +522,55 @@ TEST(ClipTextBuilder, BudgetsTheCompleteSelectionAndTemporaryWords) {
   EXPECT_TRUE(budget.fits(1066, 14));
   EXPECT_EQ(ClipTextBuilder::allocationBudget(store, order, 0, 1, 1).textCapacity, 6);
   EXPECT_LE(ClipTextBuilder::build(store, order, 0, 1, 0, 1).text.size(), budget.textCapacity);
+}
+
+TEST(ClipTextBuilder, CapturesSourceRangeAcrossPagesAndRejectsMissingMetadata) {
+  ClipWordStore store;
+  store.words.reserve(2);
+  for (uint16_t i = 0; i < 2; ++i) {
+    WordRef word;
+    word.pageIdx = i;
+    word.sourceStart = 50 + i * 10;
+    word.sourceEnd = word.sourceStart + 4;
+    ASSERT_TRUE(store.appendText(word, "same"));
+    store.words.push_back(word);
+  }
+  const uint16_t order[] = {0, 1};
+  auto result = ClipTextBuilder::build(store, order, 0, 1, 0, 2);
+  EXPECT_EQ(result.sourceStart, 50U);
+  EXPECT_EQ(result.sourceEnd, 64U);
+  store.words[1].sourceStart = store.words[1].sourceEnd = UINT32_MAX;
+  result = ClipTextBuilder::build(store, order, 0, 1, 0, 2);
+  EXPECT_EQ(result.sourceStart, UINT32_MAX);
+  EXPECT_EQ(result.sourceEnd, UINT32_MAX);
+}
+
+TEST(ClipTextBuilder, SubwordBoundsMapToTheSelectedSourceCharacters) {
+  ClipWordStore store;
+  WordRef word;
+  word.sourceStart = 50;
+  word.sourceEnd = 62;
+  ASSERT_TRUE(store.appendText(word, "before.after"));
+  store.words.push_back(word);
+  const uint16_t order[] = {0};
+  const ClipTextBuilder::SelectionBounds bounds{0, 0, 7, 0, 0, 12};
+  const auto result = ClipTextBuilder::build(store, order, 0, 0, 0, 1, &bounds);
+  EXPECT_EQ(result.text, "after");
+  EXPECT_EQ(result.sourceStart, 57U);
+  EXPECT_EQ(result.sourceEnd, 62U);
+}
+
+TEST(ClipTextBuilder, AmbiguousNormalizedSubwordsCannotMigrateToTheirWholeOuterWord) {
+  ClipWordStore store;
+  WordRef word;
+  word.sourceStart = 50;
+  word.sourceEnd = 61;  // Source has a separate combining accent; display is NFC.
+  ASSERT_TRUE(store.appendText(word, "café.after"));
+  store.words.push_back(word);
+  const uint16_t order[] = {0};
+  const ClipTextBuilder::SelectionBounds bounds{0, 0, 6, 0, 0, 11};
+  const auto result = ClipTextBuilder::build(store, order, 0, 0, 0, 1, &bounds);
+  EXPECT_EQ(result.text, "after");
+  EXPECT_EQ(result.sourceStart, UINT32_MAX);
+  EXPECT_EQ(result.sourceEnd, 0U);
 }

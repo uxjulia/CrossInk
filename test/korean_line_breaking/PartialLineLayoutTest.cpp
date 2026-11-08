@@ -228,3 +228,127 @@ TEST(PartialLineLayout, BoundedLinesKeepRubyAndPunctuationGroupsTogether) {
     }
   }
 }
+
+TEST(SourceAnchors, RepeatedWordsKeepTheirOriginalRangesAcrossWrappingAndReadingAids) {
+  for (const bool focus : {false, true})
+    for (const bool hyphenate : {false, true}) {
+      for (const int width : {32, 100, 240}) {
+        GfxRenderer renderer;
+        ParsedText text(false, false, hyphenate, focus, !focus);
+        for (uint32_t repeat = 0; repeat < 3; ++repeat) {
+          uint32_t position = repeat * 18;
+          for (const std::string word : {"best", "in", "the", "world"}) {
+            text.addWord(word, EpdFontFamily::REGULAR, false, false, false, 0, position);
+            position += word.size() + 1;
+          }
+        }
+        uint32_t selectedCharacters = 0;
+        ASSERT_TRUE(
+            text.layoutAndExtractLines(renderer, 0, width, [&](std::shared_ptr<TextBlock> line, uint32_t, uint32_t) {
+              for (uint16_t i = 0; i < line->wordCount(); ++i) {
+                const auto source = line->wordSourceRange(i);
+                ASSERT_TRUE(source.valid());
+                if (source.start < 35 && source.end > 18) {
+                  EXPECT_GE(source.start, 18U);
+                  EXPECT_LE(source.end, 35U);
+                  selectedCharacters += source.end - source.start;
+                }
+              }
+            }));
+        EXPECT_EQ(selectedCharacters, 14U);
+      }
+    }
+}
+
+TEST(SourceAnchors, ComposedAccentsAndHyphenatedFragmentsRetainRawSourceCoordinates) {
+  for (const int width : {32, 80, 240}) {
+    GfxRenderer renderer;
+    ParsedText text(false, false, true, true);
+    text.addWord("cafe\xcc\x81longword", EpdFontFamily::REGULAR, false, false, false, 0, 100);
+    std::vector<TextBlock::SourceRange> ranges;
+    ASSERT_TRUE(
+        text.layoutAndExtractLines(renderer, 0, width, [&](std::shared_ptr<TextBlock> line, uint32_t, uint32_t) {
+          for (uint16_t i = 0; i < line->wordCount(); ++i) ranges.push_back(line->wordSourceRange(i));
+        }));
+    ASSERT_FALSE(ranges.empty());
+    std::sort(ranges.begin(), ranges.end(), [](auto a, auto b) { return a.start < b.start; });
+    EXPECT_EQ(ranges.front().start, 100U);
+    EXPECT_EQ(ranges.back().end, 113U);
+    for (size_t i = 1; i < ranges.size(); ++i) EXPECT_EQ(ranges[i - 1].end, ranges[i].start);
+  }
+}
+
+TEST(SourceAnchors, ReorderedRtlAndCjkWordsKeepTheirLogicalSourceIdentity) {
+  GfxRenderer renderer;
+  BlockStyle style;
+  style.isRtl = true;
+  ParsedText text(false, false, false, false, false, 0, style);
+  text.addWord("שלום", EpdFontFamily::REGULAR, false, false, false, 0, 10);
+  text.addWord("世界", EpdFontFamily::REGULAR, false, false, false, 0, 15);
+  text.addWord("123", EpdFontFamily::REGULAR, false, false, false, 0, 18);
+  uint32_t characters = 0;
+  ASSERT_TRUE(text.layoutAndExtractLines(renderer, 0, 240, [&](std::shared_ptr<TextBlock> line, uint32_t, uint32_t) {
+    for (uint16_t i = 0; i < line->wordCount(); ++i) {
+      const auto source = line->wordSourceRange(i);
+      EXPECT_TRUE(source.valid());
+      EXPECT_TRUE((source.start >= 10 && source.end <= 14) || (source.start >= 15 && source.end <= 17) ||
+                  (source.start >= 18 && source.end <= 21));
+      characters += source.end - source.start;
+    }
+  }));
+  EXPECT_EQ(characters, 9U);
+}
+
+TEST(SourceAnchors, SoftHyphensKeepRawEndpointsAcrossDifferentWraps) {
+  for (int width : {24, 40, 240}) {
+    GfxRenderer renderer;
+    ParsedText text(false, false, true);
+    text.addWord(
+        "ab\xc2\xad"
+        "cd",
+        EpdFontFamily::REGULAR, false, false, false, 0, 100);
+    std::vector<TextBlock::SourceRange> ranges;
+    ASSERT_TRUE(
+        text.layoutAndExtractLines(renderer, 0, width, [&](std::shared_ptr<TextBlock> line, uint32_t, uint32_t) {
+          for (uint16_t i = 0; i < line->wordCount(); ++i) ranges.push_back(line->wordSourceRange(i));
+        }));
+    ASSERT_FALSE(ranges.empty());
+    EXPECT_EQ(ranges.front().start, 100U);
+    EXPECT_EQ(ranges.back().end, 105U);
+    for (size_t i = 1; i < ranges.size(); ++i) EXPECT_EQ(ranges[i - 1].end, ranges[i].start);
+  }
+}
+
+TEST(SourceAnchors, HiddenInlineGapsKeepRawEndpointsWithoutChangingVisibleWordOrder) {
+  for (int width : {32, 80, 240}) {
+    GfxRenderer renderer;
+    ParsedText text(false, false, true);
+    const std::vector<ParsedText::SourceGap> gaps{{6, 100}};
+    text.addWord("beforeafter", EpdFontFamily::REGULAR, false, false, false, 0, 0, 0, 0, false, 0, 0, true, 50, gaps);
+    std::vector<TextBlock::SourceRange> ranges;
+    ASSERT_TRUE(
+        text.layoutAndExtractLines(renderer, 0, width, [&](std::shared_ptr<TextBlock> line, uint32_t, uint32_t) {
+          for (uint16_t i = 0; i < line->wordCount(); ++i) ranges.push_back(line->wordSourceRange(i));
+        }));
+    ASSERT_FALSE(ranges.empty());
+    EXPECT_EQ(ranges.front().start, 50U);
+    EXPECT_EQ(ranges.back().end, 161U);
+    for (size_t i = 1; i < ranges.size(); ++i) EXPECT_EQ(ranges[i - 1].end, ranges[i].start);
+  }
+}
+
+TEST(SourceAnchors, FocusReadingDoesNotExpandAnAnchoredSemanticFragment) {
+  GfxRenderer renderer;
+  ParsedText text(false, false, false, true);
+  text.addWord("before.after", EpdFontFamily::REGULAR, false, false, false, 0, 50);
+  unsigned selected = 0;
+  ASSERT_TRUE(text.layoutAndExtractLines(renderer, 0, 240, [&](std::shared_ptr<TextBlock> line, uint32_t, uint32_t) {
+    for (uint16_t i = 0; i < line->wordCount(); ++i) {
+      const auto source = line->wordSourceRange(i);
+      const bool matches = source.start < 62 && source.end > 57;
+      EXPECT_EQ(matches, std::string(line->wordText(i)) == "after");
+      if (matches) ++selected;
+    }
+  }));
+  EXPECT_EQ(selected, 1U);
+}

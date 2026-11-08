@@ -393,6 +393,8 @@ bool hasVisibleWordText(const char* text) {
 bool hasVisibleWordText(const std::string& text) { return hasVisibleWordText(text.c_str()); }
 
 struct ClippingPageMatch {
+  uint32_t sourceStart = UINT32_MAX;
+  uint32_t sourceEnd = UINT32_MAX;
   uint16_t startWord = 0;
   uint16_t endWord = 0;
   uint16_t tableSelection = UINT16_MAX;
@@ -707,7 +709,7 @@ bool findClippingTextOnPage(Section& section, const Page& page, const std::strin
 
 bool findClippingStoredRangeOnPage(const Page& page, const Clipping& clipping, const uint16_t currentPage,
                                    const uint16_t currentPageCount, ClippingPageMatch& match) {
-  if (clipping.wordCount == 0 || currentPageCount == 0 || clipping.pageCount != currentPageCount) {
+  if (clipping.wordCount == 0 || clipping.pageCount == 0 || currentPageCount == 0 || currentPage >= currentPageCount) {
     return false;
   }
   if (clipping.startPage > clipping.endPage || currentPage < clipping.startPage || currentPage > clipping.endPage) {
@@ -733,6 +735,71 @@ bool findClippingStoredRangeOnPage(const Page& page, const Clipping& clipping, c
   match.endWord = endWord;
   match.tableSelection = clipping.tableSelection;
   return true;
+}
+
+bool findClippingSourceRangeOnPage(const Page& page, const Clipping& clipping, ClippingPageMatch& match) {
+  if (!clippingHasSourceRange(clipping)) return false;
+  bool found = false;
+  forEachVisiblePageWord(page, [&](const uint16_t, const PageTextLine&, const TextBlock& block, const size_t i) {
+    const auto source = block.wordSourceRange(i);
+    found = source.valid() && source.start < clipping.sourceEnd && source.end > clipping.sourceStart;
+    return !found;
+  });
+  if (found) {
+    match.sourceStart = clipping.sourceStart;
+    match.sourceEnd = clipping.sourceEnd;
+  }
+  return found;
+}
+
+void cacheClippingSourceRangeOnPage(const Page& page, const size_t index, const Clipping& clipping,
+                                    const uint16_t currentPage, const ClippingPageMatch& match) {
+  if (clippingHasSourceRange(clipping) || clippingSourceRangeBlocked(clipping) ||
+      (currentPage != clipping.startPage && currentPage != clipping.endPage))
+    return;
+  uint32_t start = UINT32_MAX, end = 0;
+  bool complete = true;
+  std::string_view prefix, suffix;
+  forEachVisiblePageWord(
+      page, [&](const uint16_t word, const PageTextLine& line, const TextBlock& block, const size_t i) {
+        if (word < match.startWord || word > match.endWord ||
+            !ClippingHighlightGeometry::matchesTableSelection(match.tableSelection, line.tableSelection))
+          return true;
+        const auto source = block.wordSourceRange(i);
+        if (source.known() && !source.valid()) return true;
+        if (!source.valid()) {
+          complete = false;
+          return false;
+        }
+        const char* text = block.wordText(i);
+        size_t length = block.wordTextLen(i);
+        if (hasEmSpacePrefix(text)) {
+          text += 3;
+          length -= 3;
+        }
+        if (block.wordEndsWithInsertedHyphen(i) && length && text[length - 1] == '-') --length;
+        if (source.start < start) {
+          start = source.start;
+          prefix = std::string_view(text, length);
+        }
+        if (source.end > end) {
+          end = source.end;
+          suffix = std::string_view(text, length);
+        }
+        return true;
+      });
+  if (complete && start < end) {
+    bool edgesMatch = false;
+    if (!CLIPPINGS.clippingTextMatchesEdges(clipping, currentPage == clipping.startPage ? prefix : std::string_view{},
+                                            currentPage == clipping.endPage ? suffix : std::string_view{}, edgesMatch))
+      return;
+    if (!edgesMatch) {
+      CLIPPINGS.cacheSourceRange(index, UINT32_MAX, 0);
+      return;
+    }
+    CLIPPINGS.cacheSourceRange(index, currentPage == clipping.startPage ? start : UINT32_MAX,
+                               currentPage == clipping.endPage ? end : UINT32_MAX);
+  }
 }
 
 uint16_t clampSectionPage(const uint32_t page, const uint16_t pageCount) {
@@ -824,6 +891,22 @@ bool findClippingPageNear(Section& section, const std::string& clippingText, con
 
 uint16_t resolveClippingJumpPage(Section& section, const Clipping& clipping, const std::string& clippingText,
                                  const uint16_t fallbackPage) {
+  if (clippingHasSourceRange(clipping)) {
+    const uint16_t center = approximateRelayoutPage(clipping, section.pageCount);
+    // Source positions are separate from the older visible-text progress LUT.
+    // Verify nearby pages by their actual word ranges, never by repeated text.
+    for (int distance = 0; distance <= 8; ++distance) {
+      for (const int direction : {-1, 1}) {
+        if (distance == 0 && direction == 1) continue;
+        const int candidate = static_cast<int>(center) + direction * distance;
+        if (candidate < 0 || candidate >= section.pageCount) continue;
+        auto page = section.loadPage(candidate);
+        ClippingPageMatch match;
+        if (page && findClippingSourceRangeOnPage(*page, clipping, match)) return candidate;
+      }
+    }
+    return fallbackPage;
+  }
   constexpr uint16_t SEARCH_RADIUS = 8;
   if (section.pageCount == 0) return fallbackPage;
 
@@ -5053,6 +5136,9 @@ void EpubReaderActivity::startClipSelection(const DictionaryClippingRequest* dic
           word.pageIdx = pageIdx;
           word.pageWordIndex = static_cast<uint16_t>(wordIndexOnPage);
           word.tableSelection = line.tableSelection;
+          const auto source = block.wordSourceRange(i);
+          word.sourceStart = source.start;
+          word.sourceEnd = source.end;
           if (!wordStore.appendText(word, wordText)) {
             if (!textPoolLimitLogged) {
               LOG_ERR("CLIP", "Selectable text pool reached its 64 KB limit; clipping range truncated");
@@ -5153,7 +5239,7 @@ void EpubReaderActivity::startClipSelection(const DictionaryClippingRequest* dic
         const auto addResult = CLIPPINGS.addClipping(
             static_cast<uint16_t>(currentSpineIndex), clip.sectionPage, clip.endSectionPage, clip.sectionPageCount,
             clip.startPageWordIndex, clip.endPageWordIndex, clip.wordCount, chapterTitle.c_str(), clip.paragraphIndex,
-            clip.text, clip.tableSelection, clippingLayoutSignature);
+            clip.text, clip.tableSelection, clippingLayoutSignature, clip.sourceStart, clip.sourceEnd);
         bool exported = false;
         if (addResult == ClippingStore::AddResult::Added) {
           exported = ClippingsManager::saveClipping(bookTitle, author, chapterTitle,
@@ -7982,63 +8068,50 @@ void EpubReaderActivity::drawClippingHighlights(const Page& page, const int font
   // that marker in the grayscale anti-aliasing planes overlays gray pixels on
   // the glyphs and makes a saved clipping look washed out.
 
+  // Bounded to 256 bytes; keep rendering allocation-free.
   std::array<ClippingPageMatch, CLIPPING_MAX_PAGE_MATCHES> matches;
   uint16_t matchCount = 0;
-  const bool canUseStoredRanges = section->pageCount > 0 && section->pageCount <= UINT16_MAX &&
-                                  section->currentPage >= 0 && section->currentPage < section->pageCount;
-  const uint16_t currentPage = canUseStoredRanges ? static_cast<uint16_t>(section->currentPage) : 0;
-  const uint16_t currentPageCount = canUseStoredRanges ? static_cast<uint16_t>(section->pageCount) : 0;
-  const uint32_t sectionLayoutSignature = section->layoutSignature();
-  const uint32_t currentClippingLayoutSignature = clippingWordLayoutSignature(sectionLayoutSignature);
-  std::string clippingText;
-  clippingText.reserve(CLIPPING_TEXT_MAX);
+  if (section->pageCount == 0 || section->currentPage < 0 || section->currentPage >= section->pageCount) {
+    return;
+  }
+  const auto currentPage = static_cast<uint16_t>(section->currentPage);
+  const uint16_t currentPageCount = section->pageCount;
+  const uint32_t currentClippingLayoutSignature = clippingWordLayoutSignature(section->layoutSignature());
   const auto& clippings = CLIPPINGS.getClippings();
-  for (size_t clippingIndex = 0; clippingIndex < clippings.size(); ++clippingIndex) {
-    const Clipping& clipping = clippings[clippingIndex];
-    if (clipping.spineIndex != static_cast<uint16_t>(currentSpineIndex)) {
-      continue;
-    }
+  for (size_t index = 0; index < clippings.size(); ++index) {
+    const Clipping& clipping = clippings[index];
+    if (clipping.spineIndex != static_cast<uint16_t>(currentSpineIndex)) continue;
     ClippingPageMatch match;
-    const bool storedLayoutMatches =
-        canUseStoredRanges &&
-        clippingStoredRangeMatchesLayout(clipping, currentPageCount, currentClippingLayoutSignature);
-    const bool legacyWordLayout =
-        canUseStoredRanges && clippingUsesLegacyWordLayout(clipping, currentPageCount, sectionLayoutSignature);
-    const bool legacyRangeReady = legacyWordLayout && clippingCachedRangeReadyOnPage(clipping, currentPage);
-    const bool matchedStoredRange = (storedLayoutMatches || legacyRangeReady) &&
-                                    findClippingStoredRangeOnPage(page, clipping, currentPage, currentPageCount, match);
-    const bool pageInStoredRange = currentPage >= clipping.startPage && currentPage <= clipping.endPage;
-    const bool shouldSearchText =
-        legacyWordLayout ? (!matchedStoredRange && pageInStoredRange) : (!storedLayoutMatches || pageInStoredRange);
-    bool matchedText = false;
-    if (!matchedStoredRange && shouldSearchText) {
-      clippingText.clear();
-      if (CLIPPINGS.readClippingText(clipping, clippingText)) {
-        bool uniqueTextMatch = false;
-        const uint8_t expectedTableColumn = tableColumnForSelection(clipping.tableSelection);
-        matchedText =
-            findClippingTextOnPage(*section, page, clippingText, match, &uniqueTextMatch, expectedTableColumn);
-        const bool coversStoredBoundaries = (currentPage != clipping.startPage || match.startsAtClipStart) &&
-                                            (currentPage != clipping.endPage || match.reachesClipEnd);
-        if (matchedText && uniqueTextMatch && coversStoredBoundaries && legacyWordLayout) {
-          CLIPPINGS.cacheResolvedLayoutRange(clippingIndex, currentPage, match.startWord, match.endWord,
-                                             currentClippingLayoutSignature);
-        }
+    bool found = false;
+    if (clippingHasSourceRange(clipping)) {
+      found = findClippingSourceRangeOnPage(page, clipping, match);
+    } else if (clippingStoredRangeMatchesLayout(clipping, currentPageCount, currentClippingLayoutSignature)) {
+      found = findClippingStoredRangeOnPage(page, clipping, currentPage, currentPageCount, match);
+      if (found) {
+        cacheClippingSourceRangeOnPage(page, index, clipping, currentPage, match);
+        found = clippingHasSourceRange(clipping) ||
+                clippingStoredRangeMatchesLayout(clipping, currentPageCount, currentClippingLayoutSignature);
       }
     }
-    if (matchedStoredRange || matchedText) {
+    if (found) {
       matches[matchCount++] = match;
-      if (matchCount >= matches.size()) {
-        break;
-      }
+      if (matchCount >= matches.size()) break;
     }
   }
   if (matchCount == 0) {
     return;
   }
 
-  const auto isHighlightedWord = [&matches, matchCount](const uint16_t pageWordIndex, const PageTextLine& line) {
+  const auto isHighlightedWord = [&matches, matchCount](const uint16_t pageWordIndex, const PageTextLine& line,
+                                                        const uint16_t blockWordIndex) {
     for (uint16_t matchIndex = 0; matchIndex < matchCount; ++matchIndex) {
+      if (matches[matchIndex].sourceEnd != UINT32_MAX) {
+        const auto source = line.block->wordSourceRange(blockWordIndex);
+        if (source.valid() && source.start < matches[matchIndex].sourceEnd &&
+            source.end > matches[matchIndex].sourceStart)
+          return true;
+        continue;
+      }
       if (pageWordIndex >= matches[matchIndex].startWord && pageWordIndex <= matches[matchIndex].endWord &&
           ClippingHighlightGeometry::matchesTableSelection(matches[matchIndex].tableSelection, line.tableSelection)) {
         return true;
@@ -8052,7 +8125,7 @@ void EpubReaderActivity::drawClippingHighlights(const Page& page, const int font
   bool hasPreviousHighlight = false;
   forEachVisiblePageWord(page, [&](const uint16_t pageWordIndex, const PageTextLine& line, const TextBlock& block,
                                    const size_t i) {
-    if (!isHighlightedWord(pageWordIndex, line)) {
+    if (!isHighlightedWord(pageWordIndex, line, i)) {
       hasPreviousHighlight = false;
       return true;
     }
@@ -8084,7 +8157,7 @@ void EpubReaderActivity::drawClippingHighlights(const Page& page, const int font
       const int nextSkipX = nextHasEmSpace ? renderer.getTextAdvanceX(lineFontId, "\xe2\x80\x83", nextTextStyle) : 0;
       const PageWordGeometry nextGeometry = pageWordGeometry(renderer, fontId, line, block, nextIndex);
       const int nextWordX = orientedMarginLeft + line.xPos + nextGeometry.xOffset + nextSkipX;
-      if (isHighlightedWord(pageWordIndex + 1, line) && nextWordX > wordX + wordW) {
+      if (isHighlightedWord(pageWordIndex + 1, line, nextIndex) && nextWordX > wordX + wordW) {
         wordW = nextWordX - wordX;
       } else if (nextWordX > wordX && wordW > nextWordX - wordX) {
         wordW = nextWordX - wordX;

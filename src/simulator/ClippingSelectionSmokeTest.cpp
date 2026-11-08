@@ -7,9 +7,12 @@
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
+#include <tuple>
 
 #include "ClippingStore.h"
+#include "Epub/ParsedText.h"
 #include "Epub/Section.h"
+#include "SdCardFontSystem.h"
 #include "activities/ActivityManager.h"
 #include "activities/reader/DictionaryWordSelectActivity.h"
 #include "activities/reader/EpubReaderActivity.h"
@@ -114,6 +117,182 @@ void verifyOverlayBounds() {
   renderer.setOrientation(orientation);
 }
 }  // namespace
+
+void ClippingSelectionSmokeTest::verifyHighlightAnchoring(EpubReaderActivity& reader) {
+  require(!CLIPPINGS.hasClippings(), "Anchoring test requires an empty clipping store");
+  require(reader.section && reader.section->pageCount > 1, "Missing anchoring test section");
+  const auto currentPage = static_cast<uint16_t>(reader.section->currentPage);
+  const auto pageCount = static_cast<uint16_t>(reader.section->pageCount);
+  const auto readerSignature = reader.section->layoutSignature();
+  const auto signature = clippingWordLayoutSignature(readerSignature);
+  const int fontId = SETTINGS.getReaderFontId();
+  const int lineHeight = renderer.getLineHeight(fontId) * 2;
+  Page page;
+  const std::vector<std::string> words{"best", "in", "the", "world"};
+  const std::vector<EpdFontFamily::Style> styles(4, EpdFontFamily::REGULAR);
+  std::vector<int16_t> positions;
+  positions.reserve(words.size());
+  page.elements.reserve(4);
+  int x = 0;
+  for (const auto& word : words) {
+    positions.push_back(x);
+    x += renderer.getTextAdvanceX(fontId, word.c_str(), EpdFontFamily::REGULAR) + 12;
+  }
+  // The same phrase occurs four times; only its second occurrence is clipped.
+  for (int row = 0; row < 4; ++row) {
+    auto block =
+        std::make_shared<TextBlock>(words, positions, styles, std::vector<uint8_t>{}, std::vector<uint16_t>{},
+                                    std::vector<uint16_t>{}, std::vector<uint8_t>{}, std::vector<bool>{}, BlockStyle{});
+    page.elements.push_back(std::make_unique<PageLine>(std::move(block), 24, 40 + row * lineHeight));
+  }
+  struct Case {
+    const char* name;
+    uint32_t signature;
+    uint16_t page;
+    bool marked;
+    const char* text = "best in the world";
+    int8_t paginationDelta = 0;
+  };
+  const uint16_t otherPage = currentPage == 0 ? 1 : 0;
+  for (const auto& test :
+       {Case{"clip-anchor-exact", signature, currentPage, true},
+        Case{"clip-anchor-other-page", signature, otherPage, false},
+        Case{"clip-anchor-stale-layout", signature ^ 1U, currentPage, false},
+        Case{"clip-anchor-unsigned", 0, currentPage, false},
+        Case{"clip-anchor-legacy", readerSignature, currentPage, false},
+        Case{"clip-anchor-stale-other-page", signature ^ 1U, otherPage, false},
+        Case{"clip-anchor-partial-phrase", signature ^ 1U, currentPage, false, "intro best in the world"},
+        Case{"clip-anchor-restored", signature, currentPage, true},
+        Case{"clip-anchor-pagination-growth", signature, currentPage, true, "best in the world", 1},
+        Case{"clip-anchor-cache-rebuild", signature, currentPage, true, "best in the world", -1}}) {
+    require(CLIPPINGS.addClipping(reader.currentSpineIndex, test.page, test.page, pageCount, 4, 7, 4, "", UINT16_MAX,
+                                  test.text, UINT16_MAX, test.signature) == ClippingStore::AddResult::Added,
+            "Could not save anchoring test range");
+    {
+      RenderLock lock;
+      renderer.clearScreen();
+      page.renderText(renderer, fontId, 0, 0, true);
+      const int width = renderer.getScreenWidth(), height = renderer.getScreenHeight();
+      std::vector<uint8_t> before(static_cast<size_t>(width) * height);
+      for (int y = 0; y < height; ++y)
+        for (int px = 0; px < width; ++px) before[y * width + px] = renderer.isPixelBlack(px, y);
+      // Model appended pages and a shorter readable prefix after cache deletion.
+      reader.section->pageCount = pageCount + test.paginationDelta;
+      reader.drawClippingHighlights(page, fontId, 0, 0);
+      reader.section->pageCount = pageCount;
+      size_t changed = 0;
+      const int selectedY = 40 + lineHeight;
+      const int bandHeight = (renderer.getLineHeight(fontId) * SETTINGS.lineHeightPercent + 50) / 100;
+      for (int y = 0; y < height; ++y) {
+        for (int px = 0; px < width; ++px) {
+          if (before[y * width + px] == renderer.isPixelBlack(px, y)) continue;
+          ++changed;
+          require(test.marked && y >= selectedY && y < selectedY + bandHeight,
+                  "Highlight escaped its exact saved occurrence");
+        }
+      }
+      require(test.marked ? changed > 100 : changed == 0, "Unexpected anchored marker pixels");
+    }
+    capture(test.name);
+    LOG_INF("SMOKE", "Highlight anchoring passed: %s", test.name);
+    require(CLIPPINGS.removeClippingAt(0), "Could not remove anchoring test range");
+  }
+  reader.requestUpdate();
+}
+
+void ClippingSelectionSmokeTest::verifyStableHighlightAnchoring(EpubReaderActivity& reader) {
+  require(!CLIPPINGS.hasClippings(), "Stable anchor test requires an empty clipping store");
+  require(CLIPPINGS.addClipping(reader.currentSpineIndex, 0, 0, 1, 4, 7, 4, "", UINT16_MAX, "best in the world",
+                                UINT16_MAX, 0, 18, 35) == ClippingStore::AddResult::Added,
+          "Could not save stable highlight");
+  // Exercise the actual saved format before reflowing the passage.
+  CLIPPINGS.unload();
+  require(CLIPPINGS.loadForBook(reader.epub->getPath(), reader.epub->getTitle(), reader.epub->getAuthor(), "epub"),
+          "Could not reload stable highlight");
+  const auto oldFamily = SETTINGS.fontFamily;
+  const auto oldSize = SETTINGS.readerFontPointSize;
+  const auto oldOrientation = renderer.getOrientation();
+  for (int variant = 0; variant < 4; ++variant) {
+    size_t markedWords = 0;
+    {
+      RenderLock lock;
+      SETTINGS.fontFamily = variant % 2 ? CrossPointSettings::BITTER : CrossPointSettings::LEXENDDECA;
+      SETTINGS.readerFontPointSize = variant < 2 ? 12 : 18;
+      renderer.setOrientation(variant < 2 ? GfxRenderer::Portrait : GfxRenderer::LandscapeClockwise);
+      const int fontId = sdFontSystem.ensureBuiltInReaderFont(renderer);
+      require(renderer.getFontMap().contains(fontId), "Reflow font was not loaded");
+      ParsedText text(false, false, true, variant == 2, variant == 3);
+      for (uint32_t repeat = 0; repeat < 4; ++repeat) {
+        uint32_t source = repeat * 18;
+        for (const std::string word : {"best", "in", "the", "world"}) {
+          text.addWord(word, EpdFontFamily::REGULAR, false, false, false, 0, source);
+          source += word.size() + 1;
+        }
+      }
+      Page page;
+      page.elements.reserve(16);
+      int y = 40;
+      require(text.layoutAndExtractLines(renderer, fontId, variant % 2 ? 360 : 220,
+                                         [&](std::shared_ptr<TextBlock> line, uint32_t, uint32_t) {
+                                           page.elements.push_back(std::make_unique<PageLine>(std::move(line), 24, y));
+                                           y += renderer.getLineHeight(fontId);
+                                         }),
+              "Could not reflow stable highlight fixture");
+      renderer.clearScreen();
+      page.renderText(renderer, fontId, 0, 0, true);
+      const int width = renderer.getScreenWidth(), height = renderer.getScreenHeight();
+      std::vector<uint8_t> before(static_cast<size_t>(width) * height);
+      for (int py = 0; py < height; ++py)
+        for (int px = 0; px < width; ++px) before[py * width + px] = renderer.isPixelBlack(px, py);
+      reader.drawClippingHighlights(page, fontId, 0, 0);
+      std::tuple<const std::vector<uint8_t>&, int, int, size_t&> context{before, width, fontId, markedWords};
+      page.forEachTextLine(
+          [](const PageTextLine& line, void* raw) {
+            auto& context = *static_cast<std::tuple<const std::vector<uint8_t>&, int, int, size_t&>*>(raw);
+            const auto& before = std::get<0>(context);
+            const int width = std::get<1>(context), fontId = std::get<2>(context);
+            for (uint16_t i = 0; i < line.block->wordCount(); ++i) {
+              const auto source = line.block->wordSourceRange(i);
+              const bool selected = source.valid() && source.start < 35 && source.end > 18;
+              const int x = line.xPos + line.block->wordXpos(i);
+              const int wordWidth = renderer.getTextAdvanceX(fontId, line.block->wordText(i), line.block->wordStyle(i));
+              size_t changed = 0;
+              for (int py = line.yPos; py < line.yPos + renderer.getLineHeight(fontId); ++py)
+                for (int px = x; px < x + wordWidth; ++px)
+                  if (before[py * width + px] != renderer.isPixelBlack(px, py)) ++changed;
+              require(selected ? changed > 5 : changed == 0,
+                      "Stable marker moved to a different occurrence after reflow");
+              if (selected) ++std::get<3>(context);
+            }
+            return true;
+          },
+          &context);
+      require(markedWords == 4, "Reflow lost a word of the anchored passage");
+      if (variant == 0) {
+        require(CLIPPINGS.removeClippingAt(0), "Could not replace migration fixture");
+        const auto currentPage = static_cast<uint16_t>(reader.section->currentPage);
+        require(CLIPPINGS.addClipping(reader.currentSpineIndex, currentPage, currentPage, reader.section->pageCount, 4,
+                                      7, 4, "", UINT16_MAX, "best in the world", UINT16_MAX,
+                                      clippingWordLayoutSignature(reader.section->layoutSignature())) ==
+                    ClippingStore::AddResult::Added,
+                "Could not save old-coordinate migration fixture");
+        reader.drawClippingHighlights(page, fontId, 0, 0);
+        require(CLIPPINGS.clippingAt(0)->sourceStart == 18 && CLIPPINGS.clippingAt(0)->sourceEnd == 35,
+                "Exact old clipping did not acquire stable source endpoints");
+        require(CLIPPINGS.saveToFile(), "Could not persist migrated source endpoints");
+      }
+    }
+    char name[40];
+    snprintf(name, sizeof(name), "clip-stable-reflow-%d", variant);
+    capture(name);
+    LOG_INF("SMOKE", "Stable highlight passed: %s", name);
+  }
+  SETTINGS.fontFamily = oldFamily;
+  SETTINGS.readerFontPointSize = oldSize;
+  renderer.setOrientation(oldOrientation);
+  require(CLIPPINGS.removeClippingAt(0), "Could not remove stable highlight test range");
+  reader.requestUpdate();
+}
 
 void ClippingSelectionSmokeTest::verifySavedHighlightSpacing(EpubReaderActivity& reader) {
   const auto oldSpacing = SETTINGS.lineHeightPercent;
@@ -242,6 +421,8 @@ bool ClippingSelectionSmokeTest::tick() {
     case 0:
       require(reader, "Expected reader");
       initialCount = CLIPPINGS.clippingCount();
+      verifyHighlightAnchoring(*reader);
+      verifyStableHighlightAnchoring(*reader);
       reader->openWordSelect(false);
       break;
     case 1:
@@ -350,6 +531,7 @@ bool ClippingSelectionSmokeTest::tick() {
         break;
       }
       require(CLIPPINGS.clippingCount() == initialCount + 1, "Clip was not saved exactly once");
+      require(clippingHasSourceRange(*CLIPPINGS.clippingAt(initialCount)), "New clipping lost its source range");
       capture("clip-actions-saved-highlight");
       verifySavedHighlightSpacing(*reader);
       reader->openWordSelect(false);
@@ -503,6 +685,7 @@ bool ClippingSelectionSmokeTest::tick() {
                   clipping->startWordIndex == savedCrossPageRequest.firstPageWordOrdinal &&
                   clipping->endWordIndex == savedCrossPageRequest.lastPageWordOrdinal,
               "Saved cross-page clipping lost its endpoints");
+      require(clippingHasSourceRange(*clipping), "Cross-page clipping lost its source range");
       std::string text;
       require(CLIPPINGS.readClippingText(*clipping, text) && !text.empty(), "Saved cross-page clipping has no text");
       capture("clip-actions-cross-page-saved");

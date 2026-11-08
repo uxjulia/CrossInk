@@ -156,6 +156,7 @@
 - Prevent Page Overlay sleep from triggering an extra reader shortcut, and preserve the page's Dark Mode colors.
 - Center and scale custom sleep BMPs correctly in Fit and Crop modes, including smaller images on X3 (fixes #925; adapted from CrossPoint #4185).
 - Prepare and verify language and hyphenation downloads before the release workflow creates its firmware draft, so download failures are caught before publication.
+- Keep EPUB clipping highlights on the original passage after font, spacing, orientation, and layout changes, without highlighting repeated phrases elsewhere (#931). Save and sync stable source positions, and upgrade older clippings when their original coordinates can be verified.
 
 ### Changed
 

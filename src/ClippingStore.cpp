@@ -23,11 +23,12 @@
 
 namespace {
 constexpr uint8_t LEGACY_VERSION = 1;
-constexpr uint8_t TEXT_OFFSET_VERSION = 2;
 constexpr uint8_t LAYOUT_SIGNATURE_VERSION = 3;
 constexpr uint8_t TABLE_SELECTION_VERSION = 4;
 constexpr uint8_t SYNC_ID_VERSION = 5;
-constexpr uint8_t VERSION = 6;
+constexpr uint8_t SCOPED_ID_VERSION = 6;
+constexpr uint8_t SOURCE_RANGE_VERSION = 7;
+constexpr uint8_t VERSION = SOURCE_RANGE_VERSION;
 constexpr size_t SCOPE_BYTES = 16;
 constexpr size_t MAX_ID_BYTES = 64;
 constexpr size_t MAX_HEADER_FIELD_BYTES = 4096;
@@ -98,9 +99,7 @@ bool readClippingFileHeader(const std::string& fullPath, const char* name, Clipp
 
   uint8_t version = 0;
   uint16_t count = 0;
-  if (!serialization::tryReadPod(f, version) ||
-      (version != LEGACY_VERSION && version != TEXT_OFFSET_VERSION && version != LAYOUT_SIGNATURE_VERSION &&
-       version != TABLE_SELECTION_VERSION && version != SYNC_ID_VERSION && version != VERSION) ||
+  if (!serialization::tryReadPod(f, version) || (version < LEGACY_VERSION || version > VERSION) ||
       !serialization::tryReadPod(f, count) || !readHeaderString(f, &header.title) ||
       !readHeaderString(f, &header.author) || !readHeaderString(f, &header.path)) {
     f.close();
@@ -262,7 +261,8 @@ ClippingStore::AddResult ClippingStore::addClipping(const uint16_t spineIndex, c
                                                     const uint16_t startWordIndex, const uint16_t endWordIndex,
                                                     const uint16_t wordCount, const char* chapterTitle,
                                                     const uint16_t paragraphIndex, const std::string& text,
-                                                    const uint16_t tableSelection, const uint32_t layoutSignature) {
+                                                    const uint16_t tableSelection, const uint32_t layoutSignature,
+                                                    const uint32_t sourceStart, const uint32_t sourceEnd) {
   if (!loaded) {
     LOG_ERR("CLIP", "Cannot add clipping after failed load");
     return AddResult::SaveFailed;
@@ -283,6 +283,10 @@ ClippingStore::AddResult ClippingStore::addClipping(const uint16_t spineIndex, c
   clipping.paragraphIndex = paragraphIndex;
   clipping.timestamp = creationTimeUtc();
   clipping.layoutSignature = layoutSignature;
+  if ((sourceStart < sourceEnd && sourceEnd != UINT32_MAX) || (sourceStart == UINT32_MAX && sourceEnd == 0)) {
+    clipping.sourceStart = sourceStart;
+    clipping.sourceEnd = sourceEnd;
+  }
   clipping.tableSelection = tableSelection;
   copyBounded(clipping.chapterTitle, sizeof(clipping.chapterTitle), chapterTitle);
   const size_t cappedLength = std::min(text.size(), CLIPPING_TEXT_MAX);
@@ -342,6 +346,58 @@ bool ClippingStore::cacheResolvedLayoutRange(const size_t index, const uint16_t 
     return false;
   }
   dirty = true;
+  return true;
+}
+
+bool ClippingStore::cacheSourceRange(const size_t index, const uint32_t start, const uint32_t end) {
+  if (!loaded || index >= clippings.size() || clippingHasSourceRange(clippings[index]) ||
+      clippingSourceRangeBlocked(clippings[index]))
+    return false;
+  auto& clipping = clippings[index];
+  if (start == UINT32_MAX && end == 0) {
+    clipping.sourceStart = UINT32_MAX;
+    clipping.sourceEnd = 0;
+    clipping.layoutSignature = 0;  // The saved quote disproved these old word coordinates.
+    dirty = true;
+    return true;
+  }
+  if (start != UINT32_MAX) clipping.sourceStart = start;
+  if (end != UINT32_MAX) clipping.sourceEnd = end;
+  // A cross-page legacy clipping is only ready after both saved endpoints have
+  // been visited. Persist at the existing save/unload boundary, never per redraw.
+  if (!clippingHasSourceRange(clipping)) return false;
+  dirty = true;
+  pendingSync.mark(bookFilePath, SyncPending::CLIPPINGS_BIT);
+  return true;
+}
+
+bool ClippingStore::clippingTextMatchesEdges(const Clipping& clipping, const std::string_view prefix,
+                                             const std::string_view suffix, bool& matches) const {
+  matches = false;
+  if (prefix.size() > clipping.textLength || suffix.size() > clipping.textLength) return true;
+  FsFile file;
+  if (!Storage.openFileForRead("CLIP", storeFilePath, file)) return false;
+  const auto compare = [&](const uint32_t offset, const std::string_view expected) {
+    if (expected.empty()) return 1;
+    if (!file.seek(offset)) return -1;
+    char bytes[64];
+    size_t done = 0;
+    while (done < expected.size()) {
+      const auto count = std::min(sizeof(bytes), expected.size() - done);
+      if (file.read(bytes, count) != static_cast<int>(count)) return -1;
+      if (memcmp(bytes, expected.data() + done, count) != 0) return 0;
+      done += count;
+    }
+    return 1;
+  };
+  const int first = compare(clipping.textOffset, prefix);
+  const int last = first == 1 ? compare(clipping.textOffset + clipping.textLength - suffix.size(), suffix) : first;
+  file.close();
+  if (first < 0 || last < 0) {
+    LOG_ERR("CLIP", "Could not verify clipping text boundaries");
+    return false;
+  }
+  matches = first == 1 && last == 1;
   return true;
 }
 
@@ -469,9 +525,7 @@ bool ClippingStore::readFromFile(const std::string& path, ClippingRecords& out, 
   uint8_t version = 0;
   uint16_t count = 0;
 
-  if (!serialization::tryReadPod(f, version) ||
-      (version != LEGACY_VERSION && version != TEXT_OFFSET_VERSION && version != LAYOUT_SIGNATURE_VERSION &&
-       version != TABLE_SELECTION_VERSION && version != SYNC_ID_VERSION && version != VERSION) ||
+  if (!serialization::tryReadPod(f, version) || (version < LEGACY_VERSION || version > VERSION) ||
       !serialization::tryReadPod(f, count) || !readHeaderString(f) || !readHeaderString(f) || !readHeaderString(f)) {
     f.close();
     LOG_ERR("CLIP", "Failed to read clipping header: %s", path.c_str());
@@ -495,8 +549,8 @@ bool ClippingStore::readFromFile(const std::string& path, ClippingRecords& out, 
       std::string id;
       uint32_t length = 0;
       if (!serialization::tryReadPod(f, length) || length == 0 ||
-          length > MAX_ID_BYTES + (version == VERSION ? SCOPE_BYTES : 0) ||
-          (version == VERSION && length <= SCOPE_BYTES)) {
+          length > MAX_ID_BYTES + (version >= SCOPED_ID_VERSION ? SCOPE_BYTES : 0) ||
+          (version >= SCOPED_ID_VERSION && length <= SCOPE_BYTES)) {
         f.close();
         return false;
       }
@@ -506,7 +560,7 @@ bool ClippingStore::readFromFile(const std::string& path, ClippingRecords& out, 
         return false;
       }
       // v5 tombstones have no destination. Replaying them under current credentials is unsafe.
-      if (version == VERSION) deletedIds.push_back(std::move(id));
+      if (version >= SCOPED_ID_VERSION) deletedIds.push_back(std::move(id));
     }
   }
 
@@ -546,6 +600,15 @@ bool ClippingStore::readFromFile(const std::string& path, ClippingRecords& out, 
       LOG_ERR("CLIP", "Clipping file truncated at table selection, record %u: %s", i, path.c_str());
       return false;
     }
+    if (version >= SOURCE_RANGE_VERSION) {
+      if (!serialization::tryReadPod(f, clipping.sourceStart) || !serialization::tryReadPod(f, clipping.sourceEnd) ||
+          (!clippingHasSourceRange(clipping) && !clippingSourceRangeBlocked(clipping) &&
+           (clipping.sourceStart != UINT32_MAX || clipping.sourceEnd != UINT32_MAX))) {
+        f.close();
+        LOG_ERR("CLIP", "Invalid source range, record %u: %s", i, path.c_str());
+        return false;
+      }
+    }
     if (version >= SYNC_ID_VERSION) {
       uint32_t length = 0;
       if (!serialization::tryReadPod(f, length) || length > MAX_ID_BYTES + SCOPE_BYTES || !skipText(f, length)) {
@@ -553,7 +616,7 @@ bool ClippingStore::readFromFile(const std::string& path, ClippingRecords& out, 
         return false;
       }
       uint8_t flags = 0;
-      if (!serialization::tryReadPod(f, flags) || flags > (version == VERSION ? 3 : 1)) {
+      if (!serialization::tryReadPod(f, flags) || flags > (version >= SCOPED_ID_VERSION ? 3 : 1)) {
         f.close();
         return false;
       }
@@ -723,11 +786,16 @@ bool ClippingStore::mergeFromSync(const std::string& path, const Clipping& clipp
   if (!findSyncMatch(store.storeFilePath, store.clippings, key, text, deleted, match)) return false;
   if (match != SIZE_MAX) {
     auto& local = store.clippings[match];
+    const bool sourceUpgrade = !deleted && !clippingHasSourceRange(local) && clippingHasSourceRange(clipping);
+    if (sourceUpgrade) {
+      local.sourceStart = clipping.sourceStart;
+      local.sourceEnd = clipping.sourceEnd;
+    }
     if (!local.scoped) {
       local.scoped = true;
       return store.writeToFile({.index = match, .key = &key});
     }
-    if (!deleted) return true;
+    if (!deleted) return !sourceUpgrade || store.writeToFile({});
     store.clippings.erase(store.clippings.begin() + match);
     return store.writeToFile({});
   }
@@ -750,8 +818,8 @@ bool ClippingStore::mergeFromSync(const std::string& path, const Clipping& clipp
   auto& added = store.clippings[store.clippings.size() - 1];
   added.scoped = true;
   added.textLength = static_cast<uint16_t>(text.size());
-  // Page/word positions belong to the originating device's layout. Resolve
-  // against the saved text on this device, including when fonts differ.
+  // Page/word positions belong to the originating device. Source ranges, when
+  // provided, identify the passage independently of its layout.
   added.layoutSignature = 0;
   added.tableSelection = UINT16_MAX;
   return store.writeToFile({.index = store.clippings.size() - 1, .text = &text, .key = &key});
@@ -842,8 +910,12 @@ bool ClippingStore::writeToFile(const Rewrite& rewrite) {
         !serialization::tryWritePod(f, clipping.endWordIndex) || !serialization::tryWritePod(f, clipping.wordCount) ||
         !serialization::tryWritePod(f, clipping.paragraphIndex) || !serialization::tryWritePod(f, clipping.timestamp) ||
         !serialization::tryWritePod(f, clipping.layoutSignature) ||
-        !serialization::tryWritePod(f, clipping.tableSelection) || !serialization::tryWriteString(f, key) ||
-        !serialization::tryWritePod(f, flags) ||
+        !serialization::tryWritePod(f, clipping.tableSelection) ||
+        !serialization::tryWritePod(f, clippingHasSourceRange(clipping) ? clipping.sourceStart : UINT32_MAX) ||
+        !serialization::tryWritePod(f, clippingSourceRangeBlocked(clipping)
+                                           ? 0U
+                                           : (clippingHasSourceRange(clipping) ? clipping.sourceEnd : UINT32_MAX)) ||
+        !serialization::tryWriteString(f, key) || !serialization::tryWritePod(f, flags) ||
         f.write(reinterpret_cast<const uint8_t*>(clipping.chapterTitle), sizeof(clipping.chapterTitle)) !=
             sizeof(clipping.chapterTitle)) {
       LOG_ERR("CLIP", "Failed to write clipping record %u: %s", i, storeFilePath.c_str());

@@ -355,6 +355,12 @@ TEST_F(ClippingSync, ReadsLegacyVersionsAndKeepsExistingServerIdentity) {
       const std::string id = version == 5 ? "original-id" : "00dd471ed33eb756";
       if (pullFirst) {
         addRemote(id, "hello");
+        JsonDocument incoming;
+        ASSERT_FALSE(deserializeJson(incoming, remote.at(id)));
+        incoming["start_offset"] = 100;
+        incoming["end_offset"] = 105;
+        remote[id].clear();
+        serializeJson(incoming, remote[id]);
         ASSERT_EQ(ClippingsUpload::download(BOOK, DOCUMENT), Result::Ok);
         EXPECT_EQ(savedKey(0), scope() + id);
       }
@@ -364,10 +370,14 @@ TEST_F(ClippingSync, ReadsLegacyVersionsAndKeepsExistingServerIdentity) {
       load();
       ASSERT_EQ(CLIPPINGS.clippingCount(), 1U);
       EXPECT_EQ(CLIPPINGS.clippingAt(0)->layoutSignature, version >= 3 ? 42U : 0U);
+      if (pullFirst) {
+        EXPECT_EQ(CLIPPINGS.clippingAt(0)->sourceStart, 100U);
+        EXPECT_EQ(CLIPPINGS.clippingAt(0)->sourceEnd, 105U);
+      }
       EXPECT_EQ(CLIPPINGS.clippingAt(0)->tableSelection, version >= 4 ? 7 : UINT16_MAX);
       ASSERT_TRUE(CLIPPINGS.removeClippingAt(0));
       CLIPPINGS.unload();
-      EXPECT_EQ(static_cast<uint8_t>(Storage.files.at(storePath())[0]), 6);
+      EXPECT_EQ(static_cast<uint8_t>(Storage.files.at(storePath())[0]), 7);
       ASSERT_EQ(ClippingsUpload::sync(BOOK, DOCUMENT), Result::Ok);
       load();
       EXPECT_FALSE(CLIPPINGS.hasClippings());
@@ -667,4 +677,29 @@ TEST_F(ClippingSync, UploadsWorstCaseEscapingWithoutLargeArrayAllocation) {
   JsonDocument json;
   ASSERT_FALSE(deserializeJson(json, remote.begin()->second));
   EXPECT_EQ(json["text"].as<std::string>(), text);
+}
+
+TEST_F(ClippingSync, SourceRangesRoundTripWithoutSharingLayoutCoordinates) {
+  load();
+  ASSERT_EQ(CLIPPINGS.addClipping(2, 3, 3, 20, 0, 1, 2, "Chapter", 12, "same phrase", UINT16_MAX, 42, 100, 111),
+            ClippingStore::AddResult::Added);
+  CLIPPINGS.unload();
+  ASSERT_EQ(ClippingsUpload::upload(BOOK, DOCUMENT), Result::Ok);
+  ASSERT_EQ(remote.size(), 1U);
+  JsonDocument uploaded;
+  ASSERT_FALSE(deserializeJson(uploaded, remote.begin()->second));
+  EXPECT_EQ(uploaded["start_offset"].as<uint32_t>(), 100U);
+  EXPECT_EQ(uploaded["end_offset"].as<uint32_t>(), 111U);
+  addRemote("anchored", "other phrase");
+  JsonDocument incoming;
+  ASSERT_FALSE(deserializeJson(incoming, remote.at("anchored")));
+  incoming["start_offset"] = 300;
+  incoming["end_offset"] = 312;
+  serializeJson(incoming, remote["anchored"] = "");
+  ASSERT_EQ(ClippingsUpload::download(BOOK, DOCUMENT), Result::Ok);
+  load();
+  ASSERT_EQ(CLIPPINGS.clippingCount(), 2U);
+  EXPECT_EQ(CLIPPINGS.clippingAt(1)->sourceStart, 300U);
+  EXPECT_EQ(CLIPPINGS.clippingAt(1)->sourceEnd, 312U);
+  EXPECT_EQ(CLIPPINGS.clippingAt(1)->layoutSignature, 0U);
 }

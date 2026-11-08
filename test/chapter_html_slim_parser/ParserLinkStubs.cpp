@@ -27,7 +27,7 @@ TextBlock::TextBlock(const std::vector<std::string>& words, const std::vector<in
                      const std::vector<uint16_t>&, const std::vector<uint16_t>&, const std::vector<uint8_t>& wordFlags,
                      const std::vector<bool>&, const BlockStyle& blockStyle, std::vector<std::string> rubyTexts,
                      const std::vector<uint8_t>& wordSizes, const char*, int8_t characterSpacing,
-                     const std::vector<uint32_t>& fontFamilies)
+                     const std::vector<uint32_t>& fontFamilies, const std::vector<SourceRange>& sourceRanges)
     : blockStyle(blockStyle),
       characterSpacing(characterSpacing),
       numWords(static_cast<uint16_t>(words.size())),
@@ -37,18 +37,25 @@ TextBlock::TextBlock(const std::vector<std::string>& words, const std::vector<in
     std::copy(fontFamilies.begin(), fontFamilies.end(), wordFamilies.get());
   }
   if (wordXpos.empty()) return;
-  arena = std::make_unique<uint8_t[]>(wordXpos.size() * sizeof(int16_t) + wordFlags.size() + wordSizes.size());
-  auto* positions = reinterpret_cast<int16_t*>(arena.get());
+  const size_t sourceBytes = sourceRanges.size() * sizeof(SourceRange);
+  arena = std::make_unique<uint8_t[]>(sourceBytes + wordXpos.size() * sizeof(int16_t) + wordFlags.size() +
+                                      wordSizes.size());
+  if (sourceBytes) {
+    sourceRangesArr = reinterpret_cast<const SourceRange*>(arena.get());
+    std::memcpy(arena.get(), sourceRanges.data(), sourceBytes);
+    sourceRangesPresent = true;
+  }
+  auto* positions = reinterpret_cast<int16_t*>(arena.get() + sourceBytes);
   std::copy(wordXpos.begin(), wordXpos.end(), positions);
   xposArr = positions;
   if (!wordSizes.empty()) {
-    auto* sizes = arena.get() + wordXpos.size() * sizeof(int16_t) + wordFlags.size();
+    auto* sizes = arena.get() + sourceBytes + wordXpos.size() * sizeof(int16_t) + wordFlags.size();
     std::copy(wordSizes.begin(), wordSizes.end(), sizes);
     wordSizesArr = sizes;
     wordSizesPresent = true;
   }
   if (!wordFlags.empty()) {
-    auto* flags = arena.get() + wordXpos.size() * sizeof(int16_t);
+    auto* flags = arena.get() + sourceBytes + wordXpos.size() * sizeof(int16_t);
     std::copy(wordFlags.begin(), wordFlags.end(), flags);
     wordFlagsArr = flags;
     wordFlagsPresent = true;
@@ -91,7 +98,9 @@ CompactTableLayout::CompactTableLayout(GfxRenderer& renderer, int, uint16_t, uin
     : renderer_(renderer), tableStyle_(tableStyle), characterSpacing_(characterSpacing) {}
 bool CompactTableLayout::beginRow() { return true; }
 bool CompactTableLayout::beginCell(bool, uint8_t, uint32_t, const BlockStyle&) { return true; }
-bool CompactTableLayout::appendWord(std::string_view, EpdFontFamily::Style, bool, bool, uint8_t) { return true; }
+bool CompactTableLayout::appendWord(std::string_view, EpdFontFamily::Style, bool, bool, uint8_t, uint32_t) {
+  return true;
+}
 bool CompactTableLayout::endCell(const std::vector<std::pair<int, FootnoteEntry>>&) { return true; }
 CompactTableLayout::RowResult CompactTableLayout::finishRow(TableFragmentRow&, std::vector<std::shared_ptr<TextBlock>>&,
                                                             std::vector<FootnoteEntry>&, uint32_t&) {

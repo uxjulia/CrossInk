@@ -59,7 +59,7 @@ bool hasSyntheticIndentPrefix(const char* word, const uint16_t len) {
 
 size_t TextBlock::arenaSize(const uint16_t wordCount, const bool hasFocus, const bool hasGuideDots,
                             const bool hasWordFlags, const bool hasWordSpaces, const uint16_t textBytes,
-                            const bool hasWordSizes) {
+                            const bool hasWordSizes, const bool hasSourceRanges) {
   // 16-bit arrays first so direct loads stay aligned on RISC-V, then byte arrays, then text.
   size_t size = static_cast<size_t>(wordCount) * (sizeof(uint16_t) + sizeof(int16_t) + sizeof(uint8_t));
   if (hasFocus) {
@@ -74,12 +74,17 @@ size_t TextBlock::arenaSize(const uint16_t wordCount, const bool hasFocus, const
   if (hasWordSpaces) {
     size += wordSpacesBytes(wordCount);
   }
-  return size + textBytes + (hasWordSizes ? wordCount : 0);
+  return size + textBytes + (hasWordSizes ? wordCount : 0) +
+         (hasSourceRanges ? static_cast<size_t>(wordCount) * sizeof(SourceRange) : 0);
 }
 
 void TextBlock::bindArenaPointers() {
   uint8_t* base = arena.get();
   const size_t wc = numWords;
+  if (sourceRangesPresent) {
+    sourceRangesArr = reinterpret_cast<const SourceRange*>(base);
+    base += wc * sizeof(SourceRange);
+  }
   textOffArr = reinterpret_cast<const uint16_t*>(base);
   xposArr = reinterpret_cast<const int16_t*>(base + wc * 2);
   size_t off = wc * 4;
@@ -118,7 +123,7 @@ TextBlock::TextBlock(const std::vector<std::string>& words, const std::vector<in
                      const std::vector<uint8_t>& wordFlags, const std::vector<bool>& wordHasSpaceBefore,
                      const BlockStyle& blockStyle, std::vector<std::string> rubyTexts,
                      const std::vector<uint8_t>& wordSizes, const char* initialLetter, const int8_t characterSpacing,
-                     const std::vector<uint32_t>& fontFamilies)
+                     const std::vector<uint32_t>& fontFamilies, const std::vector<SourceRange>& sourceRanges)
     : blockStyle(blockStyle), characterSpacing(characterSpacing), rubyTexts(std::move(rubyTexts)) {
   // A ruby-less line needs no per-word ruby vector. ParsedText passes one for
   // every extracted line once a book contains any ruby, so free all-empty
@@ -137,6 +142,19 @@ TextBlock::TextBlock(const std::vector<std::string>& words, const std::vector<in
       return;
     }
     std::copy(fontFamilies.begin(), fontFamilies.end(), wordFamilies.get());
+  }
+  sourceRangesPresent = !sourceRanges.empty();
+  if (sourceRangesPresent && sourceRanges.size() != words.size()) {
+    LOG_ERR("TXB", "Invalid source coordinate count");
+    isValid = false;
+    return;
+  }
+  for (const auto& range : sourceRanges) {
+    if (!range.wellFormed()) {
+      LOG_ERR("TXB", "Invalid source coordinates");
+      isValid = false;
+      return;
+    }
   }
   wordSizesPresent = !wordSizes.empty();
   if (wordSizesPresent && wordSizes.size() != words.size()) {
@@ -191,7 +209,7 @@ TextBlock::TextBlock(const std::vector<std::string>& words, const std::vector<in
   textBytes = static_cast<uint16_t>(totalText);
 
   const size_t size = arenaSize(numWords, focusPresent, guideDotsPresent, wordFlagsPresent, wordSpacesPresent,
-                                textBytes, wordSizesPresent);
+                                textBytes, wordSizesPresent, sourceRangesPresent);
   arena = makeUniqueNoThrow<uint8_t[]>(size);
   if (!arena) {
     LOG_ERR("TXB", "OOM: arena %u bytes", static_cast<uint32_t>(size));
@@ -205,6 +223,11 @@ TextBlock::TextBlock(const std::vector<std::string>& words, const std::vector<in
     return;
   }
   bindArenaPointers();
+  if (sourceRangesPresent) {
+    // Runtime-sized metadata shares the existing arena: eight bytes per word,
+    // without another allocation for every rendered line.
+    memcpy(const_cast<SourceRange*>(sourceRangesArr), sourceRanges.data(), numWords * sizeof(SourceRange));
+  }
   if (wordSizesPresent) memcpy(const_cast<uint8_t*>(wordSizesArr), wordSizes.data(), numWords);
 
   auto* textOff = const_cast<uint16_t*>(textOffArr);
@@ -463,6 +486,7 @@ bool TextBlock::serialize(Print& file) const {
       !serialization::tryWritePod(file, static_cast<uint8_t>(wordFlagsPresent ? 1 : 0)) ||
       !serialization::tryWritePod(file, static_cast<uint8_t>(wordSpacesPresent ? 1 : 0)) ||
       !serialization::tryWritePod(file, static_cast<uint8_t>(wordSizesPresent)) ||
+      !serialization::tryWritePod(file, static_cast<uint8_t>(sourceRangesPresent)) ||
       !serialization::tryWritePod(file, characterSpacing) || !serialization::tryWritePod(file, initialLetterBytes) ||
       !serialization::tryWritePod(file, textBytes)) {
     LOG_ERR("TXB", "Serialization failed: could not write block header");
@@ -470,7 +494,7 @@ bool TextBlock::serialize(Print& file) const {
   }
   if (numWords > 0) {
     const size_t size = arenaSize(numWords, focusPresent, guideDotsPresent, wordFlagsPresent, wordSpacesPresent,
-                                  textBytes, wordSizesPresent);
+                                  textBytes, wordSizesPresent, sourceRangesPresent);
     if (file.write(arena.get(), size) != size) {
       LOG_ERR("TXB", "Serialization failed: arena write (%u bytes)", static_cast<uint32_t>(size));
       return false;
@@ -518,14 +542,15 @@ std::unique_ptr<TextBlock> TextBlock::deserialize(HalFile& file) {
   uint8_t hasWordFlags = 0;
   uint8_t hasWordSpaces = 0;
   uint8_t hasWordSizes = 0;
+  uint8_t hasSourceRanges = 0;
   uint8_t initialLetterBytes = 0;
   int8_t characterSpacing = 0;
   uint16_t textBytes = 0;
   if (!serialization::tryReadPod(file, wc) || !serialization::tryReadPod(file, hasFocus) ||
       !serialization::tryReadPod(file, hasGuideDots) || !serialization::tryReadPod(file, hasWordFlags) ||
       !serialization::tryReadPod(file, hasWordSpaces) || !serialization::tryReadPod(file, hasWordSizes) ||
-      !serialization::tryReadPod(file, characterSpacing) || !serialization::tryReadPod(file, initialLetterBytes) ||
-      !serialization::tryReadPod(file, textBytes)) {
+      !serialization::tryReadPod(file, hasSourceRanges) || !serialization::tryReadPod(file, characterSpacing) ||
+      !serialization::tryReadPod(file, initialLetterBytes) || !serialization::tryReadPod(file, textBytes)) {
     LOG_ERR("TXB", "Deserialization failed: could not read block header");
     return nullptr;
   }
@@ -534,7 +559,8 @@ std::unique_ptr<TextBlock> TextBlock::deserialize(HalFile& file) {
     LOG_ERR("TXB", "Deserialization failed: word count %u exceeds maximum", wc);
     return nullptr;
   }
-  if (hasFocus > 1 || hasGuideDots > 1 || hasWordFlags > 1 || hasWordSpaces > 1 || hasWordSizes > 1) {
+  if (hasFocus > 1 || hasGuideDots > 1 || hasWordFlags > 1 || hasWordSpaces > 1 || hasWordSizes > 1 ||
+      hasSourceRanges > 1) {
     LOG_ERR("TXB", "Deserialization failed: invalid metadata flags");
     return nullptr;
   }
@@ -556,12 +582,14 @@ std::unique_ptr<TextBlock> TextBlock::deserialize(HalFile& file) {
   block->wordFlagsPresent = hasWordFlags != 0;
   block->wordSpacesPresent = hasWordSpaces != 0;
   block->wordSizesPresent = hasWordSizes != 0;
+  block->sourceRangesPresent = hasSourceRanges != 0;
   block->initialLetterBytes = initialLetterBytes;
   block->characterSpacing = characterSpacing;
 
   if (wc > 0) {
-    const size_t size = arenaSize(wc, block->focusPresent, block->guideDotsPresent, block->wordFlagsPresent,
-                                  block->wordSpacesPresent, textBytes, block->wordSizesPresent);
+    const size_t size =
+        arenaSize(wc, block->focusPresent, block->guideDotsPresent, block->wordFlagsPresent, block->wordSpacesPresent,
+                  textBytes, block->wordSizesPresent, block->sourceRangesPresent);
     const int remaining = file.available();
     if (remaining < 0 || static_cast<size_t>(remaining) < size) {
       LOG_ERR("TXB", "Deserialization failed: truncated arena (%u bytes needed, %d available)",
@@ -579,6 +607,15 @@ std::unique_ptr<TextBlock> TextBlock::deserialize(HalFile& file) {
     }
     block->bindArenaPointers();
 
+    if (block->sourceRangesPresent) {
+      for (uint16_t i = 0; i < wc; ++i) {
+        const auto range = block->wordSourceRange(i);
+        if (!range.wellFormed()) {
+          LOG_ERR("TXB", "Invalid cached source range");
+          return nullptr;
+        }
+      }
+    }
     if (block->wordSizesPresent)
       for (uint16_t i = 0; i < wc; ++i) {
         const auto size = block->wordFontSize(i);
