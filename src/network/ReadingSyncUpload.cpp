@@ -163,7 +163,7 @@ StatsUploadClient::Result ReadingSyncUpload::globalStats(StatsUploadClient& clie
     return globalOutcome(client.downloadStreak(), GlobalStatsStep::Streak, failedStep);
   if (!StatsUploadPayload::global(payload, capacity, deviceId, global))
     return globalOutcome(Result::InvalidResponse, GlobalStatsStep::Totals, failedStep);
-  auto result = client.put("/api/v1/stats/global", payload, 0);
+  auto result = client.put("/api/v1/stats/counters/global", payload, 0);
   if (result != Result::Ok) return globalOutcome(result, GlobalStatsStep::Totals, failedStep);
   struct UploadContext {
     StatsUploadClient& client;
@@ -171,16 +171,20 @@ StatsUploadClient::Result ReadingSyncUpload::globalStats(StatsUploadClient& clie
     size_t capacity;
     const char* deviceId;
     const GlobalReadingStats& global;
+    StatsCounterId dailyId;
     Result result = Result::Ok;
   } context{client, payload, capacity, deviceId, global};
+  if (!DailyReadingStats::counterId(context.dailyId))
+    return globalOutcome(Result::InvalidResponse, GlobalStatsStep::Daily, failedStep);
   const bool complete = DailyReadingStats::uploadPending(
       [](void* opaque, uint32_t day, uint32_t seconds) {
         auto& ctx = *static_cast<UploadContext*>(opaque);
-        if (!StatsUploadPayload::global(ctx.payload, ctx.capacity, ctx.deviceId, ctx.global, day, seconds)) {
+        if (!StatsUploadPayload::global(ctx.payload, ctx.capacity, ctx.deviceId, ctx.global, day, seconds,
+                                        ctx.dailyId)) {
           ctx.result = Result::InvalidResponse;
           return false;
         }
-        ctx.result = ctx.client.put("/api/v1/stats/global", ctx.payload, 0, true);
+        ctx.result = ctx.client.put("/api/v1/stats/counters/global", ctx.payload, 0, true);
         return ctx.result == Result::Ok;
       },
       &context);
@@ -246,7 +250,7 @@ StatsUploadClient::Result ReadingSyncUpload::stats(const std::string& path, cons
   if (!StatsUploadPayload::book(payload.get(), StatsUploadPayload::CAPACITY, deviceId, document.c_str(), book))
     return Result::InvalidResponse;
   StatsUploadClient client;
-  return client.put("/api/v1/stats/books", payload.get(), 1);
+  return client.put("/api/v1/stats/counters/books", payload.get(), 1);
 }
 
 ReadingSyncUpload::ExtrasResult ReadingSyncUpload::extras(const std::string& path, const std::string& document,

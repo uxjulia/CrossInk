@@ -137,7 +137,8 @@ StatsUploadClient::Result StatsUploadClient::putBody(const char* endpoint, const
   LOG_INF("StatsSync", "PUT %s: HTTP %d", endpoint, status);
   // A missing sessions endpoint on an older Sync server does not invalidate
   // support for the existing stats endpoints. Keep the outbox for an upgrade.
-  if (!sessionId) recordMissingApi(status);
+  const bool counterIds = strncmp(endpoint, "/api/v1/stats/counters/", 23) == 0;
+  if (!sessionId && !counterIds) recordMissingApi(status);
   auto failure = [&](Result result) {
     http.end();
     return result;
@@ -150,6 +151,7 @@ StatsUploadClient::Result StatsUploadClient::putBody(const char* endpoint, const
   impl->response[size] = '\0';
   JsonDocument reply;
   if (deserializeJson(reply, impl->response) || !reply["until"].is<uint64_t>() ||
+      (counterIds && (!reply["counter_ids"].is<unsigned>() || reply["counter_ids"].as<unsigned>() != 1)) ||
       (sessionId && (!reply["accepted_session_ids"].is<JsonArray>() || reply["accepted_session_ids"].size() != 1 ||
                      !reply["accepted_session_ids"][0].is<const char*>() ||
                      strcmp(reply["accepted_session_ids"][0].as<const char*>(), sessionId) != 0)) ||

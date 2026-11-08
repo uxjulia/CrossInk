@@ -1,5 +1,6 @@
 #include "StatsStorage.h"
 
+#include <FsHelpers.h>
 #include <HalStorage.h>
 #include <KOReaderSyncClient.h>
 #include <Logging.h>
@@ -153,6 +154,63 @@ std::string StatsStorage::localPath(const std::string& path, bool directory, boo
   // counters over recovered history after a transient migration failure.
   if (local.empty()) blocked = true;
   return local;
+}
+
+bool StatsStorage::directoryCounterId(const std::string& directory, StatsCounterId& id) {
+  const std::string path = directory + "/counter_id.bin";
+  bool exists = false;
+  for (const char* suffix : {"", ".tmp", ".bak"}) exists |= Storage.exists((path + suffix).c_str());
+  if (exists) {
+    for (const char* suffix : {"", ".tmp"}) {
+      const auto candidate = path + suffix;
+      SyncFiles::Reader reader(candidate.c_str());
+      if (reader.open() == SyncFiles::Reader::Source::None) {
+        reader.close();
+        continue;
+      }
+      uint8_t version = 0;
+      const bool ok =
+          reader.pod(version) && version == 1 && reader.read(id.bytes.data(), id.bytes.size()) && reader.atEnd();
+      reader.close();
+      if (!ok) break;  // A complete unknown format must not be replaced.
+      if (*suffix && !Storage.exists(path.c_str()) && !Storage.rename(candidate.c_str(), path.c_str())) {
+        LOG_ERR("StatsOrigin", "Cannot publish recovered daily counter identity");
+        return false;
+      }
+      return true;
+    }
+    LOG_ERR("StatsOrigin", "Cannot read daily counter identity: %s", path.c_str());
+    return false;
+  }
+  // Publish the identity before the first daily file. An old nonempty directory
+  // is adopted as legacy so upgrading does not add the same reading twice.
+  bool legacy = false;
+  if (Storage.exists(directory.c_str())) {
+    FsFile dir = Storage.open(directory.c_str());
+    if (!dir || !dir.isDirectory()) {
+      dir.close();
+      LOG_ERR("StatsOrigin", "Cannot inspect daily counter directory");
+      return false;
+    }
+    FsFile entry = dir.openNextFile();
+    legacy = static_cast<bool>(entry);
+    const bool entryClosed = entry.close();
+    const bool scanned = !FsHelpers::directoryIterationFailed(dir);
+    const bool dirClosed = dir.close();
+    if (!entryClosed || !scanned || !dirClosed) {
+      LOG_ERR("StatsOrigin", "Cannot inspect existing daily counters");
+      return false;
+    }
+  } else if (!Storage.mkdir(directory.c_str())) {
+    LOG_ERR("StatsOrigin", "Cannot create daily counter directory");
+    return false;
+  }
+  id = legacy ? StatsCounterId{} : StatsCounterId::create();
+  SyncFiles::Writer writer(path.c_str());
+  if (writer.open() && writer.pod(uint8_t{1}) && writer.write(id.bytes.data(), id.bytes.size()) && writer.commit())
+    return true;
+  LOG_ERR("StatsOrigin", "Cannot preserve daily counter identity");
+  return false;
 }
 #ifdef STATS_STORAGE_TEST
 void resetStatsStorageForTest() { blocked = false; }

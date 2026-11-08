@@ -3,6 +3,7 @@
 #include <cstdint>
 
 #include "ReadingStatsUtils.h"
+#include "StatsCounterId.h"
 
 // Cumulative reading statistics across all books, persisted to
 // /.crosspoint/global_stats_<reader>.bin.
@@ -16,9 +17,10 @@ struct GlobalReadingStats {
   uint32_t readingHistoryAnchorDay = 0;
   std::array<uint8_t, READING_HISTORY_BYTES> readingHistoryBits{};
   uint16_t longestReadingStreak = 0;
+  StatsCounterId counterId;
 
-  static constexpr uint8_t CURRENT_FILE_VERSION = 3;
-  static constexpr size_t CURRENT_FILE_SIZE = 159;
+  static constexpr uint8_t CURRENT_FILE_VERSION = 4;
+  static constexpr size_t CURRENT_FILE_SIZE = 175;
   static constexpr size_t MIN_SUPPORTED_FILE_SIZE = 13;
 
   // Loads this reader's device-qualified stats. Returns default-constructed

@@ -1,5 +1,6 @@
 #pragma once
 #include "ReadingStatsUtils.h"
+#include "StatsCounterId.h"
 
 // Separate, device-local cumulative counters. No historical totals are backfilled.
 namespace DailyReadingStats {
@@ -14,6 +15,7 @@ bool write(uint32_t day, const Counter& counter);
 bool record(uint32_t day, uint32_t seconds, bool allowCheckpoint = true);
 bool checkpointIfDue();
 bool flush();
+bool counterId(StatsCounterId& id);
 // Streams cumulative daily totals; acknowledges only successful callbacks. No file stays open during upload.
 bool uploadPending(bool (*upload)(void*, uint32_t day, uint32_t seconds), void* context);
 // Call after successful sync. Keeps current/previous/future months and any unsynced or uncertain data.

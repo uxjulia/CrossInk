@@ -4,8 +4,9 @@
 #include <string>
 
 #include "ReadingStatsUtils.h"
+#include "StatsCounterId.h"
 
-// Per-book reading statistics, persisted to cachePath/stats_v6_<reader>.bin.
+// Per-book reading statistics, persisted to cachePath/stats_v7_<reader>.bin.
 struct BookReadingStats {
   uint16_t sessionCount = 0;              // Total times this book was opened
   uint32_t totalReadingSeconds = 0;       // Accumulated reading time in seconds
@@ -21,8 +22,9 @@ struct BookReadingStats {
   ReadingStatsDate finishedDate;          // Manual or auto-finished date on X3
   std::array<uint32_t, READING_TIME_BUCKET_COUNT> timeOfDaySeconds{};
   std::array<uint32_t, READING_DAY_OF_WEEK_COUNT> dayOfWeekSeconds{};
+  StatsCounterId counterId;
 
-  // Loads stats from cachePath/stats_v6_<reader>.bin, with fallback reads from the
+  // Loads stats from cachePath/stats_v7_<reader>.bin, with fallback reads from the
   // supported older versioned filenames and legacy cachePath/stats.bin. Returns
   // default-constructed stats if no compatible file exists.
   static BookReadingStats load(const std::string& cachePath);
@@ -35,7 +37,7 @@ struct BookReadingStats {
   // Checked export: false for missing, malformed, or unsupported snapshots.
   static bool loadForUpload(const std::string& cachePath, BookReadingStats& stats);
 
-  // Alternates checksum-checked device-qualified stats_v6 files and .bak snapshots in place.
+  // Alternates checksum-checked device-qualified stats_v7 files and .bak snapshots in place.
   // Returns false if the new snapshot could not be saved.
   bool save(const std::string& cachePath) const;
 

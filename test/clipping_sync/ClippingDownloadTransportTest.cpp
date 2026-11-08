@@ -38,6 +38,20 @@ TEST_F(ClippingDownloadTransport, StreamsUploadAndRequiresCompleteAcknowledgment
   shortReadAfter = -1;
 }
 
+TEST_F(ClippingDownloadTransport, CounterUploadsRequireExplicitProtocolAndBatchAcknowledgment) {
+  StatsUploadClient client;
+  for (const char* body : {R"({"until":1,"accepted":1})", R"({"until":1,"accepted":1,"counter_ids":0})",
+                           R"({"until":1,"accepted":2,"counter_ids":1})"}) {
+    testHttp.body = body;
+    EXPECT_EQ(client.put("/api/v1/stats/counters/books", "{}", 1), Result::InvalidResponse);
+  }
+  testHttp.body = R"({"until":1,"accepted":1,"counter_ids":1})";
+  EXPECT_EQ(client.put("/api/v1/stats/counters/books", "{}", 1), Result::Ok);
+  client.close();
+  testHttp.status = 404;
+  EXPECT_EQ(client.put("/api/v1/stats/counters/global", "{}", 0), Result::Unsupported);
+}
+
 TEST_F(ClippingDownloadTransport, StreamsMaximumResponseWithC3MemoryHeadroom) {
   // Enough for TLS, but not for TLS plus the former 26 KiB response buffer.
   testHttp.body.assign(LIMIT, 'x');

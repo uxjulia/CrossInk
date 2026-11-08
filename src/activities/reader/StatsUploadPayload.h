@@ -9,7 +9,7 @@
 namespace StatsUploadPayload {
 constexpr size_t CAPACITY = 1536;
 bool global(char* out, size_t capacity, const char* deviceId, const GlobalReadingStats& stats,
-            uint32_t dailyDay = UINT32_MAX, uint32_t dailySeconds = 0);
+            uint32_t dailyDay = UINT32_MAX, uint32_t dailySeconds = 0, const StatsCounterId& dailyId = {});
 bool book(char* out, size_t capacity, const char* deviceId, const char* document, const BookReadingStats& stats);
 
 // Several books in one PUT /api/v1/stats/books request: each request costs the

@@ -154,7 +154,8 @@ TEST_F(DailyReading, BoundedPayloadWithOptionalDailySeconds) {
   GlobalReadingStats g;
   g.totalReadingSeconds = 12345;
   ASSERT_TRUE(StatsUploadPayload::global(payload, sizeof(payload), "crossink-test", g, dayOf(21), 61));
-  EXPECT_NE(std::string(payload).find("\"daily\":[{\"date\":\"2026-10-21\",\"seconds\":61}]"), std::string::npos);
+  EXPECT_NE(std::string(payload).find("\"daily\":[{\"date\":\"2026-10-21\",\"seconds\":61,\"counter_id\":"),
+            std::string::npos);
   ASSERT_TRUE(StatsUploadPayload::global(payload, sizeof(payload), "crossink-test", g));
   EXPECT_EQ(std::string(payload).find("daily"), std::string::npos);
   EXPECT_FALSE(StatsUploadPayload::global(payload, 20, "crossink-test", g, dayOf(21), 61));

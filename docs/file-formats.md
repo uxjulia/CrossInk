@@ -959,13 +959,12 @@ identity used by stats uploads: `crossink-` followed by the twelve lowercase hex
 MAC digits. Only the current reader's paths are read, updated, reset, or uploaded:
 
 - `/.crosspoint/global_stats_<reader>.bin` (and `.bak`/`.tmp`).
-- Per-book `stats_v6_<reader>.bin`, older versioned variants, and
+- Per-book `stats_v7_<reader>.bin`, older versioned variants, and
   `stats_<reader>.bin` inside the book cache directory.
 - `/.crosspoint/daily_reading_<reader>/` for daily counters.
 - `/.crosspoint/reading_sessions_<reader>/` for the session outbox.
 
-The existing binary payload versions and wire formats are unchanged. Ownership
-is carried by the path, including when just one device-qualified file is copied.
+Ownership is carried by the path, including when just one device-qualified file is copied.
 Copied files remain stored for their original reader; the receiving reader starts
 its own local counters. This prevents stale copied totals from replacing or
 adding to the original reader's totals on the server. Foreign pending sessions
@@ -989,24 +988,67 @@ Upgrade and open a book on the original reader before copying its card to anothe
 reader. Old files copied before ownership was recorded cannot be attributed
 reliably; their first upgraded reader claims them. This migration does not repair
 existing duplicated server totals. Keep both slots and origin files in backups.
-No EPUB layout-cache reset or server update is required.
+No EPUB layout-cache reset is required. Reset-aware uploads described below
+require an updated Sync server.
 
 ## Reading-stat save slots
 
-Local `global_stats.bin` and per-book `stats_v6.bin` use the same alternating
-primary/`.bak` policy. Their existing payloads remain 159 and 75 bytes,
+Local `global_stats.bin` (version 4) and per-book `stats_v7.bin` use the same alternating
+primary/`.bak` policy. Their payloads are 175 and 91 bytes,
 respectively; each slot appends a 4-byte sequence and a 4-byte IEEE CRC-32 of
-the payload plus sequence. Thus stored records are 167 and 83 bytes. Readers
+the payload plus sequence. Thus stored records are 183 and 99 bytes. Readers
 validate the entire record before choosing its sequence. The first migration
 preserves the legacy primary. Previous per-book versions and recoverable
 legacy `.tmp` files are still accepted by the migration loader.
 
-Nearby sharing and stats backups export the original payload without the slot
-trailer, preserving their wire/file contracts. Both local slots must be included
-in raw SD backups. Older firmware may not understand the new local envelopes;
-use exported stats backups when transferring to an older version. Reset deletes
+Nearby sharing and stats backups export the payload without the slot trailer.
+Updated readers can read older global payloads, including version 3; older readers
+cannot read the new version 4 payload. Both local slots must be included
+in raw SD backups. Reset deletes
 older per-book fallback files before deleting the newest slot. Global reset
 writes an empty newest snapshot through the same interruption-safe save path.
+
+### Counter identities
+
+Global version 4 appends a 16-byte opaque counter identity at offsets 159–174
+to the version 3 layout. Per-book version 7 appends the same field at offsets
+75–90 to version 6. Older supported payloads use sixteen zero bytes, the reserved
+legacy identity. Upgrading a populated snapshot keeps that identity; a missing
+snapshot or explicit local reset creates a fresh random identity. The ID and
+counters are committed in the same checksum-protected slot. Keep the ID when
+copying/restoring a snapshot; do not assign a fresh ID to existing totals.
+
+Daily counters have their own identity because global/book resets do not reset
+daily history. `daily_reading_<reader>/counter_id.bin` has SyncFiles payload
+`u8 version=1`, 16 identity bytes and CRC32 (21 bytes total). It is immutable and
+published before daily records. Existing nonempty directories without an ID
+adopt the zero legacy identity. Unreadable, corrupt or newer markers block daily
+recording/upload rather than inventing another identity for the same history.
+Monthly counter payloads remain version 2 and their sequence field is unrelated
+to the counter identity. Include this marker in daily-directory backups.
+
+Uploads retain the hardware `device_id` and send `counter_id` as 32 lowercase
+hex digits on each snapshot and each daily item. New firmware writes through
+`/api/v1/stats/counters/global` and `/api/v1/stats/counters/books`, requiring
+`counter_ids: 1` in acknowledgments. There is no fallback to legacy write URLs:
+an old server cannot silently overwrite history after dropping an unknown ID.
+The server combines lifetimes within each hardware reader, protects counters
+against stale retries, and preserves separate daily lifetimes across card resets.
+It does not download these combined totals into local upload counters.
+
+Each book/global stats instance grows by 16 bytes. Daily identity caching uses
+16 bytes plus a readiness flag; the two-slot scratch buffers grow by 32 bytes
+in total. Upload buffers remain fixed at 1536 bytes, with a 33-byte stack buffer
+for hex serialization and no new device heap allocation for identities.
+The optional nearby-sharing activity also grows by 144 bytes (eight queued
+snapshots and its local export); its existing activity allocation gate is unchanged.
+
+## `stats_v7.bin`
+
+Version 7 is version 6 plus the 16-byte counter ID at offsets 75–90. Its total
+payload size is 91 bytes. Reads retain version 6 checksum slots and all supported
+older migration sources. Saves write version 7; reset publishes an empty version
+7 snapshot with a new ID after removing fallback sources. EPUB caches are unchanged.
 
 ## `stats_v6.bin`
 

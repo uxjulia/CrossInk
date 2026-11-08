@@ -53,14 +53,16 @@ unsigned long long unixDate(const ReadingStatsDate& date) {
 
 namespace StatsUploadPayload {
 bool global(char* out, size_t capacity, const char* deviceId, const GlobalReadingStats& s, uint32_t dailyDay,
-            uint32_t dailySeconds) {
+            uint32_t dailySeconds, const StatsCounterId& dailyId) {
   if (!out || !capacity || !validId(deviceId, 64)) return false;
   Writer w(out, capacity);
+  char counterId[33];
+  s.counterId.hex(counterId);
   w.add(
       "{\"device_id\":\"%s\",\"device\":\"CrossInk\",\"v\":5,\"sessions\":%lu,\"seconds\":%lu,\"pages\":%lu,"
-      "\"completed\":%lu",
+      "\"completed\":%lu,\"counter_id\":\"%s\"",
       deviceId, static_cast<unsigned long>(s.totalSessions), static_cast<unsigned long>(s.totalReadingSeconds),
-      static_cast<unsigned long>(s.totalPagesTurned), static_cast<unsigned long>(s.completedBooks));
+      static_cast<unsigned long>(s.totalPagesTurned), static_cast<unsigned long>(s.completedBooks), counterId);
   w.array("tod", s.timeOfDaySeconds);
   w.array("dow", s.dayOfWeekSeconds);
   w.add(",\"anchor_day\":%lu,\"streak\":%u,\"history_b64\":\"", static_cast<unsigned long>(s.readingHistoryAnchorDay),
@@ -78,8 +80,9 @@ bool global(char* out, size_t capacity, const char* deviceId, const GlobalReadin
   if (dailyDay != UINT32_MAX) {
     ReadingStatsDate date;
     if (!readingStatsDateFromDayIndex(dailyDay, date)) return false;
-    w.add(",\"daily\":[{\"date\":\"%04u-%02u-%02u\",\"seconds\":%lu}]", date.year, date.month, date.day,
-          static_cast<unsigned long>(dailySeconds));
+    dailyId.hex(counterId);
+    w.add(",\"daily\":[{\"date\":\"%04u-%02u-%02u\",\"seconds\":%lu,\"counter_id\":\"%s\"}]", date.year, date.month,
+          date.day, static_cast<unsigned long>(dailySeconds), counterId);
   }
   w.add("}");
   return w.ok();
@@ -106,14 +109,16 @@ bool BookBatch::add(const char* document, const BookReadingStats& s) {
   // Leave room for the closing "]}".
   if (capacity - length < 3) return false;
   Writer w(out + length, capacity - length - 2);
+  char counterId[33];
+  s.counterId.hex(counterId);
   w.add(
       "%s{\"document\":\"%s\",\"v\":5,\"sessions\":%u,\"seconds\":%lu,\"pages\":%lu,\"completed\":%s,"
       "\"avg_fwd\":%u,\"pace_n\":%u,\"eta\":%lu,\"start_manual\":%s,\"finish_manual\":%s,\"start_date\":%llu,"
-      "\"finished_date\":%llu",
+      "\"finished_date\":%llu,\"counter_id\":\"%s\"",
       items ? "," : "", document, s.sessionCount, static_cast<unsigned long>(s.totalReadingSeconds),
       static_cast<unsigned long>(s.totalPagesTurned), s.isCompleted ? "true" : "false", s.avgSecondsPerForwardPage,
       s.paceSampleCount, static_cast<unsigned long>(s.estimatedTimeLeftSeconds), s.startDateManual ? "true" : "false",
-      s.finishedDateManual ? "true" : "false", unixDate(s.startDate), unixDate(s.finishedDate));
+      s.finishedDateManual ? "true" : "false", unixDate(s.startDate), unixDate(s.finishedDate), counterId);
   w.array("tod", s.timeOfDaySeconds);
   w.array("dow", s.dayOfWeekSeconds);
   w.add("}");

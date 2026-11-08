@@ -5,9 +5,11 @@
 
 #include <string>
 
+#include "TwoSlotFile.h"
+
 namespace {
 constexpr char CACHE_PATH[] = "/cache/book";
-const std::string statsPath = std::string(CACHE_PATH) + "/stats_v6.bin";
+const std::string statsPath = std::string(CACHE_PATH) + "/stats_v7.bin";
 const std::string previousStatsPath = std::string(CACHE_PATH) + "/stats_v5.bin";
 
 BookReadingStats statsWithSeconds(const uint32_t seconds) {
@@ -44,7 +46,7 @@ TEST_F(BookReadingStatsAtomicTest, TornSavePreservesNewestCompleteSlot) {
 
 TEST_F(BookReadingStatsAtomicTest, FirstUpgradePreservesSoleLegacyCopy) {
   ASSERT_TRUE(statsWithSeconds(123).save(CACHE_PATH));
-  Storage.data(statsPath).bytes.resize(75);  // legacy v6, no slot trailer
+  Storage.data(statsPath).bytes.resize(91);  // complete payload without a slot trailer
   auto backup = Storage.open((statsPath + ".bak").c_str(), O_RDWR | O_CREAT);
   backup.close();
   Storage.data(statsPath + ".bak").writeLimit = 20;
@@ -52,7 +54,7 @@ TEST_F(BookReadingStatsAtomicTest, FirstUpgradePreservesSoleLegacyCopy) {
   EXPECT_EQ(BookReadingStats::load(CACHE_PATH).totalReadingSeconds, 123U);
   Storage.data(statsPath + ".bak").writeLimit = SIZE_MAX;
   ASSERT_TRUE(statsWithSeconds(456).save(CACHE_PATH));
-  EXPECT_EQ(Storage.data(statsPath).bytes.size(), 75u);
+  EXPECT_EQ(Storage.data(statsPath).bytes.size(), 91u);
   EXPECT_EQ(BookReadingStats::load(CACHE_PATH).totalReadingSeconds, 456U);
 }
 
@@ -69,7 +71,7 @@ TEST_F(BookReadingStatsAtomicTest, CrcFailureFallsBackAndCompletionPeekUsesNewes
 
 TEST_F(BookReadingStatsAtomicTest, LegacyCompleteTempStillRecoversBeforeBackup) {
   ASSERT_TRUE(statsWithSeconds(123).save(CACHE_PATH));
-  Storage.data(statsPath).bytes.resize(75);
+  Storage.data(statsPath).bytes.resize(91);
   ASSERT_TRUE(Storage.rename(statsPath.c_str(), (statsPath + ".bak").c_str()));
   auto temp = Storage.open((statsPath + ".tmp").c_str(), O_RDWR | O_CREAT);
   auto bytes = Storage.data(statsPath + ".bak").bytes;
@@ -101,7 +103,7 @@ TEST_F(BookReadingStatsAtomicTest, IdenticalSaveSkipsWrite) {
   EXPECT_EQ(Storage.data(statsPath + ".bak").bytes, std::vector<uint8_t>{7});
 
   statsWithSeconds(124).save(CACHE_PATH);
-  EXPECT_EQ(Storage.data(statsPath + ".bak").bytes.size(), 83u);
+  EXPECT_EQ(Storage.data(statsPath + ".bak").bytes.size(), 99u);
   EXPECT_EQ(BookReadingStats::load(CACHE_PATH).totalReadingSeconds, 124U);
 }
 
@@ -158,8 +160,8 @@ TEST_F(BookReadingStatsAtomicTest, UploadRejectsMissingTruncatedAndNewerSnapshot
   // Oversized future payload must not be accepted merely because its first
   // 75 bytes look like the current format.
   ASSERT_TRUE(Storage.openFileForWrite("TEST", statsPath, file));
-  uint8_t oversized[76]{};
-  oversized[0] = 6;
+  uint8_t oversized[92]{};
+  oversized[0] = 7;
   file.write(oversized, sizeof(oversized));
   file.close();
   EXPECT_FALSE(BookReadingStats::loadForUpload(CACHE_PATH, snapshot));
@@ -219,7 +221,7 @@ TEST_F(BookReadingStatsAtomicTest, SaturatedCountAndMaximumSampleDoNotOverflow) 
 
 namespace {
 void writeOldStats(const std::string& path, const uint8_t version, const size_t size) {
-  uint8_t data[73]{};
+  uint8_t data[75]{};
   data[0] = version;
   data[1] = 7;    // sessions
   data[3] = 123;  // reading seconds
@@ -246,8 +248,8 @@ void writeOldStats(const std::string& path, const uint8_t version, const size_t 
 }  // namespace
 
 TEST_F(BookReadingStatsAtomicTest, MigratesEveryOlderPayloadWithoutLosingHistory) {
-  const size_t sizes[] = {11, 12, 16, 69, 73};
-  for (uint8_t version = 1; version <= 5; ++version) {
+  const size_t sizes[] = {11, 12, 16, 69, 73, 75};
+  for (uint8_t version = 1; version <= 6; ++version) {
     Storage.reset();
     const std::string path = version >= 4 ? std::string(CACHE_PATH) + "/stats_v" + std::to_string(version) + ".bin"
                                           : std::string(CACHE_PATH) + "/stats.bin";
@@ -282,6 +284,32 @@ TEST_F(BookReadingStatsAtomicTest, RecoversVersionFiveTransactionsDuringUpgrade)
     EXPECT_EQ(stats.averageForwardPageMillis(), 30000U);
     EXPECT_TRUE(Storage.exists(previousStatsPath.c_str()));
   }
+}
+
+TEST_F(BookReadingStatsAtomicTest, VersionSixChecksumSlotsKeepTheirLegacyIdentityDuringUpgrade) {
+  const std::string old = std::string(CACHE_PATH) + "/stats_v6.bin";
+  for (uint32_t seq = 1; seq <= 2; ++seq) {
+    std::vector<uint8_t> bytes(83);
+    bytes[0] = 6;
+    progress_record::writeU32(bytes.data() + 3, seq * 3600);
+    bytes[73] = 0xf4;
+    bytes[74] = 1;  // 500 ms fractional pace
+    progress_record::writeU32(bytes.data() + 75, seq);
+    progress_record::writeU32(bytes.data() + 79, progress_record::crc32(bytes.data(), 79));
+    FsFile file;
+    ASSERT_TRUE(Storage.openFileForWrite("TEST", old + (seq == 1 ? "" : ".bak"), file));
+    ASSERT_EQ(file.write(bytes.data(), bytes.size()), bytes.size());
+    ASSERT_TRUE(file.close());
+  }
+  auto stats = BookReadingStats::load(CACHE_PATH);
+  EXPECT_EQ(stats.totalReadingSeconds, 7200u);
+  EXPECT_EQ(stats.paceFractionMillis, 500u);
+  EXPECT_EQ(stats.counterId.bytes, StatsCounterId{}.bytes);
+  ASSERT_TRUE(stats.save(CACHE_PATH));
+  EXPECT_TRUE(Storage.exists(old.c_str()));
+  stats = BookReadingStats::load(CACHE_PATH);
+  EXPECT_EQ(stats.totalReadingSeconds, 7200u);
+  EXPECT_EQ(stats.counterId.bytes, StatsCounterId{}.bytes);
 }
 
 TEST_F(BookReadingStatsAtomicTest, IncompleteOldTempDoesNotHideOldBackup) {

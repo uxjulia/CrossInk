@@ -54,6 +54,7 @@ static constexpr uint8_t GLOBAL_STATS_VERSION_V1 = 1;
 static constexpr int GLOBAL_STATS_FILE_SIZE_V1 = 13;
 static constexpr uint8_t GLOBAL_STATS_VERSION_V2 = 2;
 static constexpr int GLOBAL_STATS_FILE_SIZE_V2 = 17;
+static constexpr int GLOBAL_STATS_FILE_SIZE_V3 = 159;
 static constexpr int GLOBAL_STATS_FILE_SIZE = static_cast<int>(GlobalReadingStats::CURRENT_FILE_SIZE);
 static constexpr char GLOBAL_STATS_PATH[] = "/.crosspoint/global_stats.bin";
 static constexpr char SYNCED_STATS_DIR[] = "/.crosspoint/synced_stats";
@@ -159,11 +160,14 @@ void serializeStats(const GlobalReadingStats& stats, uint8_t* data) {
   memcpy(data + 65, stats.readingHistoryBits.data(), stats.readingHistoryBits.size());
   data[157] = stats.longestReadingStreak & 0xFF;
   data[158] = (stats.longestReadingStreak >> 8) & 0xFF;
+  memcpy(data + GLOBAL_STATS_FILE_SIZE_V3, stats.counterId.bytes.data(), stats.counterId.bytes.size());
 }
 
 StatsLoadOutcome loadFromOpenFile(FsFile& f, GlobalReadingStats& out) {
   StatsLoadOutcome outcome;
-  outcome.fileSize = two_slot::payloadLength(f, GLOBAL_STATS_FILE_SIZE);
+  outcome.fileSize = two_slot::payloadLength(f, f.fileSize() == GLOBAL_STATS_FILE_SIZE_V3 + two_slot::TRAILER_BYTES
+                                                    ? GLOBAL_STATS_FILE_SIZE_V3
+                                                    : GLOBAL_STATS_FILE_SIZE);
 
   uint8_t data[GLOBAL_STATS_FILE_SIZE] = {};
   const size_t bytesToRead = std::min(outcome.fileSize, static_cast<size_t>(GLOBAL_STATS_FILE_SIZE));
@@ -195,7 +199,9 @@ StatsLoadOutcome loadFromOpenFile(FsFile& f, GlobalReadingStats& out) {
     return outcome;
   }
 
-  if (n != GLOBAL_STATS_FILE_SIZE || data[0] != GLOBAL_STATS_VERSION) return outcome;
+  if (!((n == GLOBAL_STATS_FILE_SIZE && data[0] == GLOBAL_STATS_VERSION) ||
+        (n == GLOBAL_STATS_FILE_SIZE_V3 && data[0] == 3)))
+    return outcome;
   loadCommonFields(data, out);
   out.completedBooks = readLe32(data, 13);
   for (size_t i = 0; i < out.timeOfDaySeconds.size(); ++i) {
@@ -207,6 +213,8 @@ StatsLoadOutcome loadFromOpenFile(FsFile& f, GlobalReadingStats& out) {
   out.readingHistoryAnchorDay = readLe32(data, 61);
   memcpy(out.readingHistoryBits.data(), data + 65, out.readingHistoryBits.size());
   out.longestReadingStreak = readLe16(data, 157);
+  if (n == GLOBAL_STATS_FILE_SIZE)
+    memcpy(out.counterId.bytes.data(), data + GLOBAL_STATS_FILE_SIZE_V3, out.counterId.bytes.size());
   outcome.result = StatsLoadResult::Ok;
   return outcome;
 }
@@ -224,11 +232,15 @@ bool saveToFile(const GlobalReadingStats& stats, const char* path, const char* b
   uint8_t data[GLOBAL_STATS_FILE_SIZE];
   serializeStats(stats, data);
 
-  return two_slot::write("GSTATS", path, backupPath, data, sizeof(data), [](const uint8_t* bytes, size_t size) {
-    return (size == GLOBAL_STATS_FILE_SIZE && bytes[0] == GLOBAL_STATS_VERSION) ||
-           (size == GLOBAL_STATS_FILE_SIZE_V1 && bytes[0] == GLOBAL_STATS_VERSION_V1) ||
-           (size == GLOBAL_STATS_FILE_SIZE_V2 && bytes[0] == GLOBAL_STATS_VERSION_V2);
-  });
+  return two_slot::write(
+      "GSTATS", path, backupPath, data, sizeof(data),
+      [](const uint8_t* bytes, size_t size) {
+        return (size == GLOBAL_STATS_FILE_SIZE && bytes[0] == GLOBAL_STATS_VERSION) ||
+               (size == GLOBAL_STATS_FILE_SIZE_V1 && bytes[0] == GLOBAL_STATS_VERSION_V1) ||
+               (size == GLOBAL_STATS_FILE_SIZE_V2 && bytes[0] == GLOBAL_STATS_VERSION_V2) ||
+               (size == GLOBAL_STATS_FILE_SIZE_V3 && bytes[0] == 3);
+      },
+      GLOBAL_STATS_FILE_SIZE_V3);
 }
 
 }  // namespace
@@ -240,7 +252,8 @@ static StatsLoadOutcome loadFromFile(const char* path, GlobalReadingStats& out, 
   outcome = loadFromOpenFile(f, out);
   f.close();
   if (primary && outcome.result != StatsLoadResult::NewerFormat) {
-    const std::string selected = two_slot::preferredPath("GSTATS", path, GLOBAL_STATS_FILE_SIZE);
+    const std::string selected =
+        two_slot::preferredPath("GSTATS", path, GLOBAL_STATS_FILE_SIZE, false, GLOBAL_STATS_FILE_SIZE_V3);
     if (selected != path && Storage.openFileForRead("GSTATS", selected, f)) {
       outcome = loadFromOpenFile(f, out);
       f.close();
@@ -296,6 +309,7 @@ GlobalReadingStats GlobalReadingStats::load() {
   }
 
   LOG_DBG("GSTATS", "Global stats missing or corrupt, starting fresh");
+  stats.counterId = StatsCounterId::create();
   return stats;
 }
 
@@ -374,7 +388,9 @@ static uint32_t s_localResetRevision = 0;
 
 bool GlobalReadingStats::resetLocal() {
   const std::string path = StatsStorage::localPath(GLOBAL_STATS_PATH);
-  if (path.empty() || !saveToFile(GlobalReadingStats{}, path.c_str(), (path + ".bak").c_str())) return false;
+  GlobalReadingStats fresh;
+  fresh.counterId = StatsCounterId::create();
+  if (path.empty() || !saveToFile(fresh, path.c_str(), (path + ".bak").c_str())) return false;
   s_localResetRevision++;
   return true;
 }

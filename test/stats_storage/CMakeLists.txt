@@ -2,6 +2,7 @@ add_executable(StatsStorageTest
  StatsStorageTest.cpp
  ${REPO_ROOT}/src/activities/reader/GlobalReadingStats.cpp
  ${REPO_ROOT}/src/util/StatsStorage.cpp
+ ${REPO_ROOT}/src/activities/reader/StatsCounterId.cpp
  ${REPO_ROOT}/src/activities/reader/BookReadingStats.cpp
  ${REPO_ROOT}/src/activities/reader/DailyReadingStats.cpp
  ${REPO_ROOT}/src/activities/reader/ReadingSessionJournal.cpp

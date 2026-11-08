@@ -5303,7 +5303,8 @@ void EpubReaderActivity::resetReadingPaceData() {
 
 void EpubReaderActivity::resetCurrentBookStatsAfterDelete() {
   readingSessionJournal.flush();
-  stats = BookReadingStats{};
+  // remove() already published the new counter identity with the empty snapshot.
+  stats = epub ? BookReadingStats::load(epub->getCachePath()) : BookReadingStats{};
   stableReadingPace = {};
   lastBookTimeLeftSeconds = 0;
   pendingStableReadSeconds = 0;

@@ -400,6 +400,7 @@ struct EpubReaderCompletionSmokeTest {
       if (reader->bookPageEstimate.pagesPerByte() != 0) return false;
       reader->section.reset();
       // Deleting book stats must clear both display fallback and text pace.
+      if (!BookReadingStats::remove(reader->epub->getCachePath())) return false;
       reader->resetCurrentBookStatsAfterDelete();
       uint32_t deletedSeconds = 0;
       if (reader->estimateTimeLeftSeconds(true, deletedSeconds) ||
@@ -2217,6 +2218,32 @@ std::optional<uint32_t> ScreenCalibrationSmokeTest::epubOffset;
 int ScreenCalibrationSmokeTest::epubWidth = 0;
 
 struct ReaderMenuOrientationSmokeTest {
+  template <typename Reader>
+  static bool resetCounter(Reader& reader, const std::string& cache) {
+    if (!Storage.ensureDirectoryExists(cache.c_str())) return false;
+    reader.stats = BookReadingStats::load(cache);
+    reader.stats.totalReadingSeconds = 3600;
+    if (!reader.stats.save(cache) || !BookReadingStats::remove(cache)) return false;
+    const auto reset = BookReadingStats::load(cache);
+    if (reset.counterId.bytes == StatsCounterId{}.bytes) return false;
+    reader.resetCurrentBookStatsAfterDelete();
+    if (reader.stats.totalReadingSeconds != 0 || reader.stats.counterId.bytes != reset.counterId.bytes) return false;
+    reader.stats.totalReadingSeconds = 60;
+    if (!reader.stats.save(cache)) return false;
+    const auto saved = BookReadingStats::load(cache);
+    return saved.totalReadingSeconds == 60 && saved.counterId.bytes == reset.counterId.bytes;
+  }
+  static bool resetCounters() {
+    auto epub = std::make_unique<Epub>("/books/counter.epub", "/.crosspoint");
+    const auto epubCache = epub->getCachePath();
+    EpubReaderActivity epubReader(renderer, mappedInputManager, std::move(epub),
+                                  EpubReaderActivity::BookReaderSettingsData{}, 1);
+    if (!resetCounter(epubReader, epubCache)) return false;
+    auto xtc = std::make_unique<Xtc>("/books/counter.xtc", "/.crosspoint");
+    const auto xtcCache = xtc->getCachePath();
+    XtcReaderActivity xtcReader(renderer, mappedInputManager, std::move(xtc), 1);
+    return resetCounter(xtcReader, xtcCache);
+  }
   template <typename Reader>
   static OptionPopup& popup(Reader& reader) {
     return reader.quickActionsPopup;
@@ -8297,6 +8324,11 @@ class SimulatorSmokeTest {
         // isolated fixture marks re-entry so this test cannot repeat uploads.
         if (std::getenv("CROSSINK_READING_TEST_CURRENT") && Storage.exists("/expected-progress.json")) {
           LOG_INF("SMOKE", "Stats upload transport smoke passed");
+          std::_Exit(0);
+        }
+        if (std::getenv("CROSSINK_STATS_TEST_READER_RESET")) {
+          if (!ReaderMenuOrientationSmokeTest::resetCounters()) fail("Live reader reset lost its counter identity");
+          LOG_INF("SMOKE", "EPUB and XTC live reader counter resets passed");
           std::_Exit(0);
         }
         verifyStatsUploadContract();

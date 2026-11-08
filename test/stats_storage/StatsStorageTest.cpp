@@ -6,6 +6,7 @@
 #include "DailyReadingStats.h"
 #include "GlobalReadingStats.h"
 #include "ReadingSessionJournal.h"
+#include "TwoSlotFile.h"
 #include "sync/SyncFiles.h"
 #include "util/StatsStorage.h"
 
@@ -412,24 +413,29 @@ TEST_F(StatsStorageTest, InterruptedMigrationStillRecoversTheNewerLegacyBackup) 
   ASSERT_TRUE(book.save(CACHE));
   book.totalReadingSeconds = 200;
   ASSERT_TRUE(book.save(CACHE));
-  const auto local = StatsStorage::localPath(LEGACY_BOOK);
-  ASSERT_TRUE(Storage.rename(local.c_str(), LEGACY_BOOK));
-  ASSERT_TRUE(Storage.rename((local + ".bak").c_str(), (std::string(LEGACY_BOOK) + ".bak").c_str()));
-  faults.failRenameFrom = std::string(LEGACY_BOOK) + ".bak";
+  const std::string generic = std::string(CACHE) + "/stats_v7.bin";
+  const auto local = StatsStorage::localPath(generic);
+  ASSERT_TRUE(Storage.rename(local.c_str(), generic.c_str()));
+  ASSERT_TRUE(Storage.rename((local + ".bak").c_str(), (generic + ".bak").c_str()));
+  faults.failRenameFrom = generic + ".bak";
   switchReader(5);
   EXPECT_EQ(BookReadingStats::load(CACHE).totalReadingSeconds, 0u);
   EXPECT_TRUE(Storage.exists(local.c_str()));
-  EXPECT_TRUE(Storage.exists((std::string(LEGACY_BOOK) + ".bak").c_str()));
+  EXPECT_TRUE(Storage.exists((generic + ".bak").c_str()));
   switchReader(5);
   EXPECT_EQ(BookReadingStats::load(CACHE).totalReadingSeconds, 200u);
-  EXPECT_FALSE(Storage.exists((std::string(LEGACY_BOOK) + ".bak").c_str()));
+  EXPECT_FALSE(Storage.exists((generic + ".bak").c_str()));
 }
 
 TEST_F(StatsStorageTest, ResetCannotRevivePreservedLegacyStatsOrEraseAnotherReader) {
   BookReadingStats book;
   book.totalReadingSeconds = 565;
   ASSERT_TRUE(book.save(CACHE));
-  legacyBook(95);
+  const auto generic = std::string(CACHE) + "/stats_v7.bin";
+  auto recreated = std::vector<uint8_t>(91);
+  recreated[0] = 7;
+  recreated[3] = 95;
+  writeBytes(generic, recreated);
   switchReader(6);
   book.totalReadingSeconds = 60;
   ASSERT_TRUE(book.save(CACHE));
@@ -437,7 +443,7 @@ TEST_F(StatsStorageTest, ResetCannotRevivePreservedLegacyStatsOrEraseAnotherRead
   ASSERT_TRUE(BookReadingStats::remove(CACHE));
   switchReader(5);
   EXPECT_EQ(BookReadingStats::load(CACHE).totalReadingSeconds, 0u);
-  EXPECT_TRUE(Storage.exists(LEGACY_BOOK));
+  EXPECT_TRUE(Storage.exists(generic.c_str()));
   switchReader(6);
   EXPECT_EQ(BookReadingStats::load(CACHE).totalReadingSeconds, 60u);
 }
@@ -452,4 +458,153 @@ TEST_F(StatsStorageTest, FailedResetWriteKeepsNewestHistoryWithLegacyCollision) 
   faults.bytesUntilFailure = -1;
   switchReader(5);
   EXPECT_EQ(BookReadingStats::load(CACHE).totalReadingSeconds, 565u);
+}
+
+TEST_F(StatsStorageTest, FreshCountersKeepTheirIdsAcrossCheckpointsAndRestoredCards) {
+  auto global = GlobalReadingStats::load();
+  auto book = BookReadingStats::load(CACHE);
+  EXPECT_NE(global.counterId.bytes, StatsCounterId{}.bytes);
+  EXPECT_NE(book.counterId.bytes, global.counterId.bytes);
+  global.totalReadingSeconds = book.totalReadingSeconds = 3600;
+  ASSERT_TRUE(global.save());
+  ASSERT_TRUE(book.save(CACHE));
+  std::map<std::string, HostFileData> backup;
+  for (const auto& [path, data] : Storage.files) backup.emplace(path, *data);
+  const auto globalId = global.counterId.bytes;
+  const auto bookId = book.counterId.bytes;
+  switchReader(5);  // reboot
+  EXPECT_EQ(GlobalReadingStats::load().counterId.bytes, globalId);
+  EXPECT_EQ(BookReadingStats::load(CACHE).counterId.bytes, bookId);
+  ASSERT_TRUE(GlobalReadingStats::resetLocal());
+  ASSERT_TRUE(BookReadingStats::remove(CACHE));
+  EXPECT_NE(GlobalReadingStats::load().counterId.bytes, globalId);
+  EXPECT_NE(BookReadingStats::load(CACHE).counterId.bytes, bookId);
+  Storage.reset();
+  for (const auto& [path, data] : backup) Storage.files.emplace(path, std::make_shared<HostFileData>(data));
+  switchReader(5);
+  EXPECT_EQ(GlobalReadingStats::load().counterId.bytes, globalId);
+  EXPECT_EQ(BookReadingStats::load(CACHE).counterId.bytes, bookId);
+  EXPECT_EQ(GlobalReadingStats::load().totalReadingSeconds, 3600u);
+}
+
+TEST_F(StatsStorageTest, ResetFailureRetainsThePreviousCounterIdentity) {
+  auto global = GlobalReadingStats::load();
+  global.totalReadingSeconds = 3600;
+  ASSERT_TRUE(global.save());
+  faults.bytesUntilFailure = 0;
+  EXPECT_FALSE(GlobalReadingStats::resetLocal());
+  faults.bytesUntilFailure = -1;
+  const auto recovered = GlobalReadingStats::load();
+  EXPECT_EQ(recovered.totalReadingSeconds, 3600u);
+  EXPECT_EQ(recovered.counterId.bytes, global.counterId.bytes);
+}
+
+TEST_F(StatsStorageTest, UpgradingVersionThreeSlotsRetainsNewestCountersAndLegacyIdentity) {
+  const auto path = StatsStorage::localPath("/.crosspoint/global_stats.bin");
+  for (uint32_t seq = 1; seq <= 2; ++seq) {
+    std::vector<uint8_t> bytes(167);
+    bytes[0] = 3;
+    progress_record::writeU32(bytes.data() + 5, seq * 3600);
+    progress_record::writeU32(bytes.data() + 159, seq);
+    progress_record::writeU32(bytes.data() + 163, progress_record::crc32(bytes.data(), 163));
+    writeBytes(path + (seq == 1 ? "" : ".bak"), bytes);
+  }
+  auto stats = GlobalReadingStats::load();
+  ASSERT_EQ(stats.totalReadingSeconds, 7200u);
+  EXPECT_EQ(stats.counterId.bytes, StatsCounterId{}.bytes);
+  stats.totalReadingSeconds += 60;
+  ASSERT_TRUE(stats.save());
+  EXPECT_EQ(GlobalReadingStats::load().totalReadingSeconds, 7260u);
+  EXPECT_EQ(GlobalReadingStats::load().counterId.bytes, StatsCounterId{}.bytes);
+  // A failed new-format save must still recover the previous old-format slot.
+  faults.bytesUntilFailure = 20;
+  stats.totalReadingSeconds += 60;
+  EXPECT_FALSE(stats.save());
+  faults.bytesUntilFailure = -1;
+  EXPECT_EQ(GlobalReadingStats::load().totalReadingSeconds, 7260u);
+}
+
+TEST_F(StatsStorageTest, DailyIdentitySurvivesGlobalResetAndChangesForAFreshCard) {
+  StatsCounterId before, after;
+  ASSERT_TRUE(DailyReadingStats::counterId(before));
+  EXPECT_NE(before.bytes, StatsCounterId{}.bytes);
+  const uint32_t day = readingStatsDayIndex({2026, 11, 1});
+  ASSERT_TRUE(DailyReadingStats::record(day, 600));
+  ASSERT_TRUE(DailyReadingStats::flush());
+  ASSERT_TRUE(GlobalReadingStats::resetLocal());
+  switchReader(5);
+  ASSERT_TRUE(DailyReadingStats::counterId(after));
+  EXPECT_EQ(after.bytes, before.bytes);
+  Storage.reset();  // fresh SD on the same hardware
+  switchReader(5);
+  ASSERT_TRUE(DailyReadingStats::counterId(after));
+  EXPECT_NE(after.bytes, before.bytes);
+}
+
+TEST_F(StatsStorageTest, ExistingDailyHistoryAdoptsLegacyIdentityAndNeverChangesIt) {
+  const uint32_t day = readingStatsDayIndex({2026, 11, 1});
+  ASSERT_TRUE(DailyReadingStats::record(day, 600));
+  ASSERT_TRUE(DailyReadingStats::flush());
+  const auto path = StatsStorage::localPath(DailyReadingStats::DIRECTORY, true) + "/counter_id.bin";
+  ASSERT_TRUE(Storage.remove(path.c_str()));  // simulate a pre-ID daily directory
+  switchReader(5);
+  StatsCounterId id;
+  ASSERT_TRUE(DailyReadingStats::counterId(id));
+  EXPECT_EQ(id.bytes, StatsCounterId{}.bytes);
+  uint32_t seconds = 0;
+  ASSERT_TRUE(DailyReadingStats::secondsFor(day, seconds));
+  EXPECT_EQ(seconds, 600u);
+  switchReader(5);
+  ASSERT_TRUE(DailyReadingStats::counterId(id));
+  EXPECT_EQ(id.bytes, StatsCounterId{}.bytes);
+}
+
+TEST_F(StatsStorageTest, UncertainDailyIdentityNeverStartsAnotherLifetime) {
+  StatsCounterId id;
+  ASSERT_TRUE(DailyReadingStats::counterId(id));
+  const auto path = StatsStorage::localPath(DailyReadingStats::DIRECTORY, true) + "/counter_id.bin";
+  const auto bytes = Storage.files.at(path)->bytes;
+  for (const auto& bad : {std::vector<uint8_t>{}, std::vector<uint8_t>{2}, std::vector<uint8_t>{1, 2, 3}}) {
+    writeBytes(path, bad);
+    switchReader(5);
+    EXPECT_FALSE(DailyReadingStats::counterId(id));
+  }
+  writeBytes(path, bytes);
+  switchReader(5);
+  ASSERT_TRUE(DailyReadingStats::counterId(id));
+  faults.failReadPath = path;
+  switchReader(5);
+  EXPECT_FALSE(DailyReadingStats::counterId(id));
+}
+
+TEST_F(StatsStorageTest, DailyIdentityPublicationFailureKeepsReadingPending) {
+  ASSERT_FALSE(StatsStorage::localPath(DailyReadingStats::DIRECTORY, true).empty());
+  faults.failOpenWrite = true;
+  EXPECT_FALSE(DailyReadingStats::record(readingStatsDayIndex({2026, 11, 1}), 60));
+  faults.failOpenWrite = false;
+  StatsCounterId id;
+  EXPECT_TRUE(DailyReadingStats::counterId(id));
+  EXPECT_TRUE(DailyReadingStats::record(readingStatsDayIndex({2026, 11, 1}), 60));
+}
+
+TEST_F(StatsStorageTest, DailyIdentityRecoversACompleteUnpublishedMarker) {
+  StatsCounterId before, after;
+  ASSERT_TRUE(DailyReadingStats::counterId(before));
+  const auto path = StatsStorage::localPath(DailyReadingStats::DIRECTORY, true) + "/counter_id.bin";
+  ASSERT_TRUE(Storage.rename(path.c_str(), (path + ".tmp").c_str()));
+  switchReader(5);
+  ASSERT_TRUE(DailyReadingStats::counterId(after));
+  EXPECT_EQ(after.bytes, before.bytes);
+  EXPECT_TRUE(Storage.exists(path.c_str()));
+}
+
+TEST_F(StatsStorageTest, FailedDailyDirectoryScanNeverInventsAnIdentity) {
+  const auto directory = StatsStorage::localPath(DailyReadingStats::DIRECTORY, true);
+  ASSERT_TRUE(Storage.mkdir(directory.c_str()));
+  faults.failScan = true;
+  StatsCounterId id;
+  EXPECT_FALSE(DailyReadingStats::counterId(id));
+  EXPECT_FALSE(Storage.exists((directory + "/counter_id.bin").c_str()));
+  faults.failScan = false;
+  EXPECT_TRUE(DailyReadingStats::counterId(id));
 }

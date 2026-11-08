@@ -28,6 +28,58 @@ void require(bool ok, const char* what) {
 }  // namespace
 
 void verifyStatsUploadContract() {
+  if (const char* mode = std::getenv("CROSSINK_STATS_TEST_RESET")) {
+    const char* server = std::getenv("CROSSINK_STATS_TEST_SERVER");
+    const char* user = std::getenv("CROSSINK_STATS_TEST_USER");
+    const char* password = std::getenv("CROSSINK_STATS_TEST_PASSWORD");
+    require(server && user && password, "explicit reset test credentials");
+    KOREADER_STORE.setCredentials(user, password);
+    KOREADER_STORE.setServerUrl(server);
+    KOREADER_STORE.setSyncStats(true);
+    SETTINGS.trackReadingStats = 1;
+    const bool seed = strcmp(mode, "seed") == 0;
+    const bool restore = strcmp(mode, "restore") == 0;
+    ReadingStatsDateTime local;
+    require(getCurrentLocalDailyReadingDateTime(local), "reset fixture clock");
+    const uint32_t day = readingStatsDayIndex(local.date);
+    const std::string cache = "/.crosspoint/epub_counter_test";
+    require(Storage.ensureDirectoryExists(cache.c_str()), "reset book cache");
+    if (strcmp(mode, "reset") == 0) {
+      require(GlobalReadingStats::resetLocal() && BookReadingStats::remove(cache), "explicit local resets");
+    }
+    auto global = GlobalReadingStats::load();
+    auto book = BookReadingStats::load(cache);
+    if (seed) {  // adopted counters from firmware predating IDs
+      global.counterId = {};
+      book.counterId = {};
+    }
+    if (!restore) {
+      global.totalReadingSeconds = book.totalReadingSeconds = seed ? 3600 : 60;
+      global.totalSessions = book.sessionCount = seed ? 10 : 1;
+      require(global.save() && book.save(cache), "save reset-aware snapshots");
+      require(DailyReadingStats::record(day, seed ? 600 : 60) && DailyReadingStats::flush(), "save daily counters");
+    }
+    const bool oldServer = strcmp(mode, "old-server") == 0;
+    const auto wanted = oldServer ? StatsUploadClient::Result::Unsupported : StatsUploadClient::Result::Ok;
+    require(ReadingSyncUpload::globalStats() == wanted, "global reset-aware upload");
+    if (oldServer) {
+      DailyReadingStats::Counter counter;
+      require(DailyReadingStats::read(day, counter) && counter.uploaded == 0, "old server retains daily outbox");
+    } else {
+      require(ReadingSyncUpload::globalStats() == wanted, "global retry");
+      char device[32];
+      require(StatsUploadClient::deviceId(device, sizeof(device)), "reset reader identity");
+      std::vector<char> payload(StatsUploadPayload::CAPACITY);
+      require(
+          StatsUploadPayload::book(payload.data(), payload.size(), device, "0123456789abcdef0123456789abcdef", book),
+          "reset book JSON");
+      StatsUploadClient client;
+      require(client.put("/api/v1/stats/counters/books", payload.data(), 1) == wanted, "reset book upload");
+      require(client.put("/api/v1/stats/counters/books", payload.data(), 1) == wanted, "reset book retry");
+    }
+    LOG_INF("SMOKE", "Stats counter identity smoke passed: %s", mode);
+    std::_Exit(0);
+  }
   // Host-only buffers: firmware uses one reusable heap buffer in its activity.
   std::vector<char> payload(StatsUploadPayload::CAPACITY);
   GlobalReadingStats global;

@@ -20,9 +20,13 @@ struct Cache {
 };
 Cache cache[2];
 std::string localDirectory;
+StatsCounterId directoryId;
+bool directoryReady = false;
 bool prepareDirectory() {
   if (localDirectory.empty()) localDirectory = StatsStorage::localPath(DIRECTORY, true);
-  return !localDirectory.empty();
+  if (!localDirectory.empty() && !directoryReady)
+    directoryReady = StatsStorage::directoryCounterId(localDirectory, directoryId);
+  return directoryReady;
 }
 uint32_t migratedMonths[2] = {UINT32_MAX, UINT32_MAX};
 constexpr size_t MONTH_BYTES = 12 + 31 * 8 + 4;
@@ -376,6 +380,8 @@ bool save(Cache& c) {
 #ifdef DAILY_READING_STATS_TEST
 void resetForTest() {
   localDirectory.clear();
+  directoryId = {};
+  directoryReady = false;
   for (auto& c : cache) c = {};
   migratedMonths[0] = migratedMonths[1] = UINT32_MAX;
 }
@@ -508,6 +514,12 @@ bool flush() {
   for (auto& c : cache)
     if (!save(c)) ok = false;
   return ok;
+}
+
+bool counterId(StatsCounterId& id) {
+  if (!prepareDirectory()) return false;
+  id = directoryId;
+  return true;
 }
 
 bool secondsFor(uint32_t day, uint32_t& seconds) {

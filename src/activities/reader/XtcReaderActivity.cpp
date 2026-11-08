@@ -807,7 +807,8 @@ void XtcReaderActivity::applyBookStatsEditsFromDisk() {
 
 void XtcReaderActivity::resetCurrentBookStatsAfterDelete() {
   readingSessionJournal.flush();
-  stats = BookReadingStats{};
+  // Continue the reset snapshot's identity when reading resumes without reopening.
+  stats = xtc ? BookReadingStats::load(xtc->getCachePath()) : BookReadingStats{};
   sessionReadingSeconds = 0;
   statsCheckpointRevision = 0;
   dailyReadingSession.reset();

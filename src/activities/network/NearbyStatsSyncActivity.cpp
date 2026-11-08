@@ -139,7 +139,7 @@ std::string syncedStatsPathForDeviceMac(const std::array<uint8_t, 6>& mac) {
 bool isZeroMac(const std::array<uint8_t, 6>& mac) { return mac == std::array<uint8_t, 6>{}; }
 
 bool isValidStatsPayload(const uint8_t* data, const uint8_t size) {
-  return (size == MIN_STATS_BYTES && data[0] == 1) || (size == 17 && data[0] == 2) ||
+  return (size == MIN_STATS_BYTES && data[0] == 1) || (size == 17 && data[0] == 2) || (size == 159 && data[0] == 3) ||
          (size == MAX_STATS_BYTES && data[0] == GlobalReadingStats::CURRENT_FILE_VERSION);
 }
 

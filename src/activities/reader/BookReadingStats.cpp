@@ -56,7 +56,9 @@ namespace {
 //   [0-68]   v4 fields
 //   [69-72]  estimatedTimeLeftSeconds  uint32_t LE, 0 means unavailable
 // Binary layout v6 (75 bytes): v5 fields plus paceFractionMillis at [73-74].
-static constexpr uint8_t STATS_FILE_VERSION = 6;
+// Binary layout v7 (91 bytes): v6 fields plus the counter ID at [75-90].
+static constexpr uint8_t STATS_FILE_VERSION = 7;
+static constexpr uint8_t STATS_FILE_VERSION_V6 = 6;
 static constexpr uint8_t STATS_FILE_VERSION_V5 = 5;
 static constexpr uint8_t STATS_FILE_VERSION_V2 = 2;
 static constexpr uint8_t STATS_FILE_VERSION_V1 = 1;
@@ -67,7 +69,8 @@ static constexpr int STATS_FILE_SIZE_V2 = 12;
 static constexpr int STATS_FILE_SIZE_V3 = 16;
 static constexpr int STATS_FILE_SIZE_V4 = 69;
 static constexpr int STATS_FILE_SIZE_V5 = 73;
-static constexpr int STATS_FILE_SIZE = 75;
+static constexpr int STATS_FILE_SIZE_V6 = 75;
+static constexpr int STATS_FILE_SIZE = 91;
 static constexpr uint16_t MAX_PACE_SAMPLE_COUNT = 1000;
 static constexpr uint8_t FLAG_START_DATE_MANUAL = 1u << 0;
 static constexpr uint8_t FLAG_FINISHED_DATE_MANUAL = 1u << 1;
@@ -82,6 +85,7 @@ std::string statsFileNameForVersion(const uint8_t version) {
 
 constexpr int statsSizeForVersion(const uint8_t version) {
   return version == STATS_FILE_VERSION      ? STATS_FILE_SIZE
+         : version == STATS_FILE_VERSION_V6 ? STATS_FILE_SIZE_V6
          : version == STATS_FILE_VERSION_V5 ? STATS_FILE_SIZE_V5
                                             : STATS_FILE_SIZE_V4;
 }
@@ -116,7 +120,7 @@ bool openRecoverableStatsFile(const std::string& path, FsFile& f, const uint8_t 
       const int n = candidate.read(data, STATS_FILE_SIZE);
       candidate.close();
       if (fileSize != static_cast<size_t>(statsSizeForVersion(version)) || n != statsSizeForVersion(version) ||
-          data[0] != version || (version == STATS_FILE_VERSION && !validPaceFraction(data)))
+          data[0] != version || (version >= STATS_FILE_VERSION_V6 && !validPaceFraction(data)))
         continue;
     }
 
@@ -202,14 +206,16 @@ bool BookReadingStats::peekCompleted(const std::string& cachePath) {
     if (!Storage.openFileForRead("STATS", path, f)) return false;
     uint8_t data[STATS_FILE_SIZE] = {};
     const size_t fileSize = two_slot::payloadLength(f, statsSizeForVersion(version));
-    const int n = f.read(data, STATS_FILE_SIZE);
+    const int n = f.read(data, std::min(fileSize, sizeof(data)));
     f.close();
     const bool complete = n >= 0 && static_cast<size_t>(n) == fileSize;
-    const bool known = complete && ((n == STATS_FILE_SIZE_V2 && data[0] == STATS_FILE_VERSION_V2) ||
-                                    (n == STATS_FILE_SIZE_V3 && data[0] == STATS_FILE_VERSION_V3) ||
-                                    (n == STATS_FILE_SIZE_V4 && data[0] == STATS_FILE_VERSION_V4) ||
-                                    (n == STATS_FILE_SIZE_V5 && data[0] == STATS_FILE_VERSION_V5) ||
-                                    (n == STATS_FILE_SIZE && data[0] == STATS_FILE_VERSION && validPaceFraction(data)));
+    const bool known =
+        complete && ((n == STATS_FILE_SIZE_V2 && data[0] == STATS_FILE_VERSION_V2) ||
+                     (n == STATS_FILE_SIZE_V3 && data[0] == STATS_FILE_VERSION_V3) ||
+                     (n == STATS_FILE_SIZE_V4 && data[0] == STATS_FILE_VERSION_V4) ||
+                     (n == STATS_FILE_SIZE_V5 && data[0] == STATS_FILE_VERSION_V5) ||
+                     (n == STATS_FILE_SIZE_V6 && data[0] == STATS_FILE_VERSION_V6 && validPaceFraction(data)) ||
+                     (n == STATS_FILE_SIZE && data[0] == STATS_FILE_VERSION && validPaceFraction(data)));
     if (temp && !(known && n == statsSizeForVersion(version) && data[0] == version)) return std::nullopt;
     return known && data[11] != 0;
   };
@@ -228,7 +234,7 @@ bool BookReadingStats::peekCompleted(const std::string& cachePath) {
 
 BookReadingStats BookReadingStats::load(const std::string& cachePath) {
   BookReadingStats stats;
-  loadForUpload(cachePath, stats);
+  if (!loadForUpload(cachePath, stats)) stats.counterId = StatsCounterId::create();
   return stats;
 }
 
@@ -239,8 +245,14 @@ bool BookReadingStats::loadForUpload(const std::string& cachePath, BookReadingSt
     return false;
   }
   uint8_t data[STATS_FILE_SIZE] = {};
-  const size_t fileSize = two_slot::payloadLength(f, STATS_FILE_SIZE);
-  const int n = f.read(data, STATS_FILE_SIZE);
+  // Older versioned filenames may also contain checksum-protected slots.
+  uint8_t version = 0;
+  if (f.read(&version, 1) != 1 || !f.seekSet(0)) {
+    f.close();
+    return false;
+  }
+  const size_t fileSize = two_slot::payloadLength(f, statsSizeForVersion(version));
+  const int n = f.read(data, std::min(fileSize, sizeof(data)));
   f.close();
   if (n < 0 || static_cast<size_t>(n) != fileSize) {
     LOG_ERR("STATS", "Incomplete or oversized stats snapshot");
@@ -266,7 +278,7 @@ bool BookReadingStats::loadForUpload(const std::string& cachePath, BookReadingSt
     return true;
   }
 
-  if (n != STATS_FILE_SIZE && n != STATS_FILE_SIZE_V5 && n != STATS_FILE_SIZE_V4) {
+  if (n != STATS_FILE_SIZE && n != STATS_FILE_SIZE_V6 && n != STATS_FILE_SIZE_V5 && n != STATS_FILE_SIZE_V4) {
     LOG_DBG("STATS", "Stats missing or version mismatch, starting fresh");
     return false;
   }
@@ -278,6 +290,7 @@ bool BookReadingStats::loadForUpload(const std::string& cachePath, BookReadingSt
     LOG_DBG("STATS", "Stats missing or version mismatch, starting fresh");
     return false;
   }
+  if (n == STATS_FILE_SIZE_V6 && data[0] != STATS_FILE_VERSION_V6) return false;
   if (n == STATS_FILE_SIZE && data[0] != STATS_FILE_VERSION) {
     LOG_DBG("STATS", "Stats missing or version mismatch, starting fresh");
     return false;
@@ -300,7 +313,7 @@ bool BookReadingStats::loadForUpload(const std::string& cachePath, BookReadingSt
   if (n >= STATS_FILE_SIZE_V5) {
     stats.estimatedTimeLeftSeconds = readLe32(data, 69);
   }
-  if (n == STATS_FILE_SIZE) {
+  if (n >= STATS_FILE_SIZE_V6) {
     const uint16_t fraction = readLe16(data, 73);
     if (!validPaceFraction(data)) {
       LOG_ERR("STATS", "Invalid fractional reading pace");
@@ -309,6 +322,8 @@ bool BookReadingStats::loadForUpload(const std::string& cachePath, BookReadingSt
     }
     stats.paceFractionMillis = fraction;
   }
+  if (n == STATS_FILE_SIZE)
+    memcpy(stats.counterId.bytes.data(), data + STATS_FILE_SIZE_V6, stats.counterId.bytes.size());
   return true;
 }
 
@@ -392,6 +407,7 @@ bool BookReadingStats::save(const std::string& cachePath) const {
   }
   writeLe32(data, 69, estimatedTimeLeftSeconds);
   writeLe16(data, 73, paceFractionMillis);
+  memcpy(data + STATS_FILE_SIZE_V6, counterId.bytes.data(), counterId.bytes.size());
 
   return two_slot::write("STATS", statsPath.c_str(), backupPath.c_str(), data, sizeof(data),
                          [](const uint8_t* bytes, size_t size) {
@@ -437,5 +453,7 @@ bool BookReadingStats::remove(const std::string& cachePath) {
   // Publish an empty snapshot atomically, like the global stats reset. Keeping
   // a local record prevents preserved legacy copies from migrating back later.
   // The newest valid slot remains recoverable if this reset write fails.
-  return ok && BookReadingStats{}.save(cachePath);
+  BookReadingStats fresh;
+  fresh.counterId = StatsCounterId::create();
+  return ok && fresh.save(cachePath);
 }
