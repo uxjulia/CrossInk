@@ -48,7 +48,7 @@ class KOReaderCredentialStore : public PersistableStore<KOReaderCredentialStore>
   bool syncClippings = false;
   SyncServerSupport serverSupport = SyncServerSupport::UNKNOWN;
   std::string serverSupportUrl;  // Base URL serverSupport was learned for.
-  bool sendMetadata = false;     // Send document metadata with progress sync
+  bool sendMetadata = true;      // Send document metadata with progress sync
   KOReaderSyncBehavior syncBehavior = KOReaderSyncBehavior::SMART;
 
   // Private constructor for singleton

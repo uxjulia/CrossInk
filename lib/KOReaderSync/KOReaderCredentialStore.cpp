@@ -100,7 +100,7 @@ bool KOReaderCredentialStore::fromJson(JsonVariantConst doc) {
     LOG_DBG("KRS", "Invalid matchMethod %u in JSON, resetting to FILENAME", method);
     setMatchMethod(DocumentMatchMethod::FILENAME);
   }
-  setSendMetadata(doc["sendMetadata"] | false);
+  setSendMetadata(doc["sendMetadata"] | usesCrossPointSyncServer());
   setSyncStats(doc["syncStats"] | false);
   setSyncClippings(doc["syncClippings"] | false);
   const uint8_t support = doc["serverSupport"] | (uint8_t)0;
