@@ -242,22 +242,16 @@ Rect fittedBitmapRect(const Bitmap& bitmap, const Rect& target) {
   return Rect{target.x + (target.width - drawnW) / 2, target.y + (target.height - drawnH) / 2, drawnW, drawnH};
 }
 
-std::string coverPathForImageRect(const RecentBook& book) {
+std::string coverPathForImageRect(const RecentBook& book, const Rect& imageRect) {
   if (book.coverBmpPath.empty()) {
     return {};
   }
 
   if (FsHelpers::hasEpubExtension(book.path)) {
-    return Epub(book.path, "/.crosspoint")
-        .getAdaptiveThumbBmpPath(MinimalMetrics::homeCoverImageWidth, MinimalMetrics::homeCoverImageHeight);
+    return Epub(book.path, "/.crosspoint").getAdaptiveThumbBmpPath(imageRect.width, imageRect.height);
   }
 
-  std::string coverBmpPath = UITheme::getCoverThumbPath(book.coverBmpPath, MinimalMetrics::homeCoverImageWidth,
-                                                        MinimalMetrics::homeCoverImageHeight);
-  if (coverBmpPath.empty() || !Storage.exists(coverBmpPath.c_str())) {
-    coverBmpPath = UITheme::getCoverThumbPath(book.coverBmpPath, MinimalMetrics::homeCoverImageHeight);
-  }
-  return coverBmpPath;
+  return UITheme::getCoverThumbPath(book.coverBmpPath, imageRect.width, imageRect.height, false);
 }
 
 uint8_t selectedQuoteIndex() {
@@ -386,7 +380,7 @@ void drawBookCover(const GfxRenderer& renderer, const Rect& coverRect, const Rec
   bool hasCover = false;
   if (!book.coverBmpPath.empty()) {
     const Rect imageRect = coverImageRectForFrame(coverRect);
-    const std::string coverBmpPath = coverPathForImageRect(book);
+    const std::string coverBmpPath = coverPathForImageRect(book, imageRect);
     if (!coverBmpPath.empty() && Storage.exists(coverBmpPath.c_str())) {
       FsFile file;
       if (Storage.openFileForRead("HOME", coverBmpPath, file)) {
@@ -696,6 +690,20 @@ void MinimalTheme::drawButtonHints(GfxRenderer& renderer, const char* btn1, cons
   }
 
   renderer.setOrientation(origOrientation);
+}
+
+Rect MinimalTheme::getHomeCoverRect(const GfxRenderer& renderer) {
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  const auto safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
+  const int top = metrics.homeTopPadding + UITheme::getHeaderRect(renderer, 0).y - metrics.topPadding;
+  const auto content =
+      CalibratedThemeLayout::content(renderer, Rect{safe.x, top, safe.width, metrics.homeCoverTileHeight}, true);
+  return coverImageRectForFrame(coverRectForScreen(renderer, content));
+}
+
+Rect MinimalTheme::getSleepCoverRect(const GfxRenderer& renderer, const bool statsSleep) {
+  const auto content = CalibratedThemeLayout::sleep(renderer, MinimalMetrics::values.homeTopPadding);
+  return coverImageRectForFrame(coverRectForScreen(renderer, content, statsSleep && gpio.deviceIsX3()));
 }
 
 void MinimalTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std::vector<RecentBook>& recentBooks,

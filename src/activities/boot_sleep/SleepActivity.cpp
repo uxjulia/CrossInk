@@ -993,9 +993,9 @@ void SleepActivity::renderMinimalSleepScreen() const {
   }
 
   RecentBook book = recentBookForPath(path);
-  book.coverBmpPath = SleepCoverAssets::cachedMinimalCoverPathFor(path);
-  if (book.coverBmpPath.empty() && SleepCoverAssets::prepareMinimalCoverForPath(path, &renderer)) {
-    book.coverBmpPath = SleepCoverAssets::cachedMinimalCoverPathFor(path);
+  book.coverBmpPath = SleepCoverAssets::cachedMinimalCoverPathFor(path, renderer);
+  if (book.coverBmpPath.empty() && SleepCoverAssets::prepareMinimalCoverForPath(path, renderer)) {
+    book.coverBmpPath = SleepCoverAssets::cachedMinimalCoverPathFor(path, renderer);
   }
 
   const BookReadingStats bookStats = loadBookStatsForPath(path);
@@ -1014,9 +1014,9 @@ void SleepActivity::renderMinimalStatsSleepScreen() const {
   }
 
   RecentBook book = recentBookForPath(path);
-  book.coverBmpPath = SleepCoverAssets::cachedMinimalCoverPathFor(path);
-  if (book.coverBmpPath.empty() && SleepCoverAssets::prepareMinimalCoverForPath(path, &renderer)) {
-    book.coverBmpPath = SleepCoverAssets::cachedMinimalCoverPathFor(path);
+  book.coverBmpPath = SleepCoverAssets::cachedMinimalCoverPathFor(path, renderer, true);
+  if (book.coverBmpPath.empty() && SleepCoverAssets::prepareMinimalCoverForPath(path, renderer, true)) {
+    book.coverBmpPath = SleepCoverAssets::cachedMinimalCoverPathFor(path, renderer, true);
   }
 
   const BookReadingStats bookStats = loadBookStatsForPath(path);
@@ -1036,9 +1036,9 @@ void SleepActivity::renderDashboardSleepScreen() const {
 
   RecentBook book = recentBookForPath(path);
   const std::string fallbackCoverPath = book.coverBmpPath;
-  book.coverBmpPath = SleepCoverAssets::cachedDashboardCoverPathFor(path);
-  if (book.coverBmpPath.empty() && SleepCoverAssets::prepareDashboardCoverForPath(path, &renderer)) {
-    book.coverBmpPath = SleepCoverAssets::cachedDashboardCoverPathFor(path);
+  book.coverBmpPath = SleepCoverAssets::cachedDashboardCoverPathFor(path, renderer);
+  if (book.coverBmpPath.empty() && SleepCoverAssets::prepareDashboardCoverForPath(path, renderer)) {
+    book.coverBmpPath = SleepCoverAssets::cachedDashboardCoverPathFor(path, renderer);
   }
   if (book.coverBmpPath.empty()) {
     book.coverBmpPath = fallbackCoverPath;

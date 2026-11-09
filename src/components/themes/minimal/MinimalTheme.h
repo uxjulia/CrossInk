@@ -31,6 +31,10 @@ struct GlobalReadingStats;
 
 class MinimalTheme : public LyraTheme {
  public:
+  // Image bounds inside the cover frame, used before thumbnail dithering.
+  static Rect getHomeCoverRect(const GfxRenderer& renderer);
+  static Rect getSleepCoverRect(const GfxRenderer& renderer, bool statsSleep = false);
+
   static void setHomeButtonHintSelection(int selectedIndex);
   static Rect buttonMenuPanelRect(const GfxRenderer& renderer, int buttonCount);
   static int compactFileBrowserRowHeightFor(const GfxRenderer& renderer);

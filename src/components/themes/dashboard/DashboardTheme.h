@@ -23,6 +23,9 @@ constexpr int homeCoverImageHeight = 444;
 
 class DashboardTheme : public MinimalTheme {
  public:
+  static Rect getHomeCoverRect(const GfxRenderer& renderer);
+  static Rect getSleepCoverRect(const GfxRenderer& renderer);
+
   void drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std::vector<RecentBook>& recentBooks,
                            int selectorIndex, bool& coverRendered, bool& coverBufferStored, bool& bufferRestored,
                            const std::function<bool()>& storeCoverBuffer, const BookReadingStats* stats = nullptr,

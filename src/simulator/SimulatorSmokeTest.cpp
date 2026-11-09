@@ -66,6 +66,7 @@
 #include "activities/Activity.h"
 #include "activities/ActivityManager.h"
 #include "activities/boot_sleep/SleepActivity.h"
+#include "activities/boot_sleep/SleepCoverAssets.h"
 #include "activities/home/AlertActivity.h"
 #include "activities/home/BookActions.h"
 #include "activities/home/FileBrowserActivity.h"
@@ -1444,7 +1445,8 @@ struct DictionaryPagingSmokeTest {
 };
 
 struct ScreenCalibrationSmokeTest {
-  static bool themeCoverFixture(const Epub& epub, const int width, const int height) {
+  static bool coverFixture(const std::string& path, const int width, const int height,
+                           const bool pixelPattern = false) {
     const int stride = ((width + 31) / 32) * 4;
     BmpHeader header{};
     header.fileHeader.bfType = 0x4d42;
@@ -1458,14 +1460,40 @@ struct ScreenCalibrationSmokeTest {
     header.infoHeader.biSizeImage = stride * height;
     header.infoHeader.biClrUsed = 2;
     header.colors[1] = {255, 255, 255, 0};
-    auto file = Storage.open(epub.getAdaptiveThumbBmpPath(width, height).c_str(), O_WRONLY | O_CREAT | O_TRUNC);
+    auto file = Storage.open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC);
     if (!file) return false;
     bool ok = file.write(reinterpret_cast<const uint8_t*>(&header), sizeof(header)) == sizeof(header);
     std::vector<uint8_t> row(stride, 0xff);
     std::fill_n(row.begin(), stride / 2, 0);
-    for (int y = 0; y < height; ++y) ok &= file.write(row.data(), row.size()) == row.size();
+    for (int y = 0; y < height; ++y) {
+      if (pixelPattern) {
+        std::fill(row.begin(), row.end(), 0xff);
+        for (int x = 0; x < width; ++x) {
+          if (((x / 2 + (height - 1 - y) / 2) % 2) == 0) row[x / 8] &= ~(0x80 >> (x % 8));
+        }
+      }
+      ok &= file.write(row.data(), row.size()) == row.size();
+    }
     file.close();
     return ok;
+  }
+  static bool themeCoverFixture(const Epub& epub, const int width, const int height, const bool pixelPattern = false) {
+    return coverFixture(epub.getAdaptiveThumbBmpPath(width, height), width, height, pixelPattern);
+  }
+  static bool coverPixels(const Rect& rect) {
+    // Check every interior pixel: scaling an already dithered thumbnail merges
+    // dots and must fail even when the artwork remains inside the safe area.
+    if (rect.width <= 20 || rect.height <= 20) return false;
+    for (int y = 10; y < rect.height - 10; ++y) {
+      for (int x = 10; x < rect.width - 10; ++x) {
+        const bool black = ((x / 2 + y / 2) % 2) == 0;
+        if (renderer.isPixelBlack(rect.x + x, rect.y + y) != black) {
+          LOG_ERR("SMOKE", "Theme thumbnail was rescaled at %d,%d (%dx%d)", x, y, rect.width, rect.height);
+          return false;
+        }
+      }
+    }
+    return true;
   }
   static bool themeArtwork(const StatusBarFeatureSmokeTest::Capture& capture) {
     const auto originalInsets = renderer.getViewableInsets();
@@ -1516,6 +1544,16 @@ struct ScreenCalibrationSmokeTest {
             }
             return ink > 100;
           };
+          const auto homeCover = theme == CrossPointSettings::DASHBOARD ? DashboardTheme::getHomeCoverRect(renderer)
+                                                                        : MinimalTheme::getHomeCoverRect(renderer);
+          const auto sleepCover = theme == CrossPointSettings::DASHBOARD ? DashboardTheme::getSleepCoverRect(renderer)
+                                                                         : MinimalTheme::getSleepCoverRect(renderer);
+          const auto statsCover = MinimalTheme::getSleepCoverRect(renderer, true);
+          if (!themeCoverFixture(epub, homeCover.width, homeCover.height, true) ||
+              !themeCoverFixture(epub, sleepCover.width, sleepCover.height, true) ||
+              (theme == CrossPointSettings::MINIMAL &&
+               !themeCoverFixture(epub, statsCover.width, statsCover.height, true)))
+            return false;
           for (const bool tracking : {false, true}) {
             SETTINGS.trackReadingStats = tracking;
             uint64_t missingCoverHash = 0;
@@ -1532,6 +1570,7 @@ struct ScreenCalibrationSmokeTest {
                   empty ? std::vector<RecentBook>{} : std::vector<RecentBook>{book}, 0, rendered, stored, restored,
                   [] { return false; }, &stats, 42.0f, &global, "A long chapter title that must stay above the footer");
               valid &= check(empty ? "empty-home" : "home", false, true);
+              if (coverMode == 1) valid &= coverPixels(homeCover);
               uint64_t hash = 1469598103934665603ull;
               for (size_t i = 0; i < renderer.getBufferSize(); ++i)
                 hash = (hash ^ renderer.getFrameBuffer()[i]) * 1099511628211ull;
@@ -1548,11 +1587,14 @@ struct ScreenCalibrationSmokeTest {
               if (theme == CrossPointSettings::MINIMAL) {
                 minimal.drawSleepScreen(renderer, book, &stats, 42.0f, inverted);
                 valid &= check("minimal-sleep", !inverted, false);
+                valid &= coverPixels(sleepCover);
                 minimal.drawStatsSleepScreen(renderer, book, &stats, &global, 42.0f, inverted);
                 valid &= check("minimal-stats-sleep", !inverted, false);
+                valid &= coverPixels(statsCover);
               } else {
                 dashboard.drawSleepScreen(renderer, book, &stats, &global, 42.0f, "Chapter title", inverted);
                 valid &= check("dashboard-sleep", !inverted, false);
+                valid &= coverPixels(sleepCover);
               }
               if (tracking && rotation == 0 && index == 2)
                 capture("calibrated-sleep-" + std::to_string(theme) + (inverted ? "-inverted" : ""));
@@ -1568,6 +1610,9 @@ struct ScreenCalibrationSmokeTest {
       const auto& metrics = UITheme::getInstance().getMetrics();
       const int top = metrics.homeTopPadding + UITheme::getHeaderRect(renderer, 0).y - metrics.topPadding;
       const Rect content{safe.x, top, safe.width, metrics.homeCoverTileHeight};
+      const auto cover = theme == CrossPointSettings::DASHBOARD ? DashboardTheme::getHomeCoverRect(renderer)
+                                                                : MinimalTheme::getHomeCoverRect(renderer);
+      if (!themeCoverFixture(epub, cover.width, cover.height, true)) return false;
       std::vector<uint8_t> coverBuffer(renderer.getBufferSize());
       bool rendered = false, stored = false, restored = false;
       SETTINGS.trackReadingStats = false;
@@ -1603,6 +1648,153 @@ struct ScreenCalibrationSmokeTest {
     renderer.setViewableInsets(originalInsets);
     renderer.setOrientation(originalOrientation);
     return valid;
+  }
+
+  static bool thumbnailFits(const std::string& path, const Rect& cover) {
+    FsFile file;
+    if (!Storage.openFileForRead("SMOKE", path, file)) return false;
+    Bitmap bitmap(file);
+    const bool valid = bitmap.parseHeaders() == BmpReaderError::Ok && bitmap.is1Bit() &&
+                       bitmap.getWidth() <= cover.width && bitmap.getHeight() <= cover.height &&
+                       (bitmap.getWidth() == cover.width || bitmap.getHeight() == cover.height);
+    file.close();
+    return valid;
+  }
+
+  static bool themeCoverGeneration(const StatusBarFeatureSmokeTest::Capture& capture) {
+    RecentBook book;
+    book.path = std::getenv("CROSSINK_SIMULATOR_SMOKE_BOOK");
+    Epub epub(book.path, "/.crosspoint");
+    if (!epub.load(true, true, Epub::XLocationLoadMode::Skip) || !epub.hasCoverImage()) return false;
+    book.coverBmpPath = epub.getThumbBmpPath();
+    HomeActivity home(renderer, mappedInputManager);
+    home.recentBooks = {book};
+    for (const auto theme : {CrossPointSettings::MINIMAL, CrossPointSettings::DASHBOARD}) {
+      SETTINGS.uiTheme = theme;
+      UITheme::getInstance().reload();
+      const bool dashboard = theme == CrossPointSettings::DASHBOARD;
+      for (const auto orientation : {GfxRenderer::Portrait, GfxRenderer::LandscapeClockwise}) {
+        renderer.setOrientation(orientation);
+        renderer.setViewableInsets(ScreenInsets{{{32, 0, 32, 32}}});
+        const auto cover =
+            dashboard ? DashboardTheme::getHomeCoverRect(renderer) : MinimalTheme::getHomeCoverRect(renderer);
+        const auto path = epub.getAdaptiveThumbBmpPath(cover.width, cover.height);
+        Storage.remove(path.c_str());
+        const auto& metrics = UITheme::getInstance().getMetrics();
+        home.loadRecentCovers(metrics.homeCoverHeight);
+        if (!thumbnailFits(path, cover)) return false;
+        bool rendered = false, stored = false, restored = false;
+        const auto safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
+        const int top = metrics.homeTopPadding + UITheme::getHeaderRect(renderer, 0).y - metrics.topPadding;
+        renderer.clearScreen();
+        GUI.drawRecentBookCover(renderer, Rect{safe.x, top, safe.width, metrics.homeCoverTileHeight}, {book}, 0,
+                                rendered, stored, restored, [] { return false; });
+        capture(std::string(dashboard ? "dashboard" : "minimal") + "-generated-" +
+                (orientation == GfxRenderer::Portrait ? "portrait" : "landscape"));
+        // Sleep and Stats Sleep can reserve different amounts of space.
+        if (dashboard) {
+          const auto sleep = DashboardTheme::getSleepCoverRect(renderer);
+          if (!SleepCoverAssets::prepareDashboardCoverForPath(book.path, renderer) ||
+              SleepCoverAssets::cachedDashboardCoverPathFor(book.path, renderer).empty() ||
+              !thumbnailFits(epub.getAdaptiveThumbBmpPath(sleep.width, sleep.height), sleep))
+            return false;
+        } else {
+          for (const bool statsSleep : {false, true}) {
+            const auto sleep = MinimalTheme::getSleepCoverRect(renderer, statsSleep);
+            if (!SleepCoverAssets::prepareMinimalCoverForPath(book.path, renderer, statsSleep) ||
+                SleepCoverAssets::cachedMinimalCoverPathFor(book.path, renderer, statsSleep).empty() ||
+                !thumbnailFits(epub.getAdaptiveThumbBmpPath(sleep.width, sleep.height), sleep))
+              return false;
+          }
+        }
+      }
+    }
+    return true;
+  }
+
+  static bool legacyXtcThumbnails() {
+    constexpr uint16_t width = 16, height = 24;
+    constexpr uint32_t bytes = width / 8 * height;
+    xtc::XtcHeader header{};
+    header.magic = xtc::XTC_MAGIC;
+    header.versionMajor = 1;
+    header.pageCount = 1;
+    header.pageTableOffset = sizeof(header);
+    header.dataOffset = sizeof(header) + sizeof(xtc::PageTableEntry);
+    const xtc::PageTableEntry entry{header.dataOffset, static_cast<uint32_t>(sizeof(xtc::XtgPageHeader)) + bytes, width,
+                                    height};
+    const xtc::XtgPageHeader page{xtc::XTG_MAGIC, width, height, 0, 0, bytes, 0};
+    uint8_t pixels[bytes];
+    std::fill_n(pixels, bytes, 0xff);
+    const std::string bookPath = "/books/theme-cover.xtc";
+    auto file = Storage.open(bookPath.c_str(), O_WRONLY | O_CREAT | O_TRUNC);
+    if (!file) return false;
+    bool written = file.write(reinterpret_cast<const uint8_t*>(&header), sizeof(header)) == sizeof(header);
+    written &= file.write(reinterpret_cast<const uint8_t*>(&entry), sizeof(entry)) == sizeof(entry);
+    written &= file.write(reinterpret_cast<const uint8_t*>(&page), sizeof(page)) == sizeof(page);
+    written &= file.write(pixels, bytes) == bytes;
+    file.close();
+    Xtc xtc(bookPath, "/.crosspoint");
+    if (!written || !xtc.load()) return false;
+    RecentBook book;
+    book.path = bookPath;
+    book.title = "Legacy thumbnail";
+    book.coverBmpPath = xtc.getThumbBmpPath();
+    Storage.mkdir(book.coverBmpPath.substr(0, book.coverBmpPath.find_last_of('/')).c_str());
+    renderer.setOrientation(GfxRenderer::LandscapeClockwise);
+    renderer.setViewableInsets(ScreenInsets{{{32, 0, 32, 32}}});
+    for (const auto theme : {CrossPointSettings::MINIMAL, CrossPointSettings::DASHBOARD}) {
+      SETTINGS.uiTheme = theme;
+      UITheme::getInstance().reload();
+      const bool dashboard = theme == CrossPointSettings::DASHBOARD;
+      const auto& metrics = UITheme::getInstance().getMetrics();
+      const auto cover =
+          dashboard ? DashboardTheme::getHomeCoverRect(renderer) : MinimalTheme::getHomeCoverRect(renderer);
+      const auto exact = xtc.getThumbBmpPath(cover.width, cover.height);
+      std::string legacy = xtc.getThumbBmpPath();
+      legacy.replace(legacy.find("[HEIGHT]"), 8, std::to_string(cover.height));
+      Storage.remove(exact.c_str());
+      if (!coverFixture(legacy, cover.width + 32, cover.height, true)) return false;
+      // Without a correctly sized cache, legacy artwork must not replace the
+      // normal placeholder. Compare complete renders with/without a cache path.
+      const auto drawHome = [&](const bool withPath) {
+        RecentBook recent = book;
+        if (!withPath) recent.coverBmpPath.clear();
+        bool rendered = false, stored = false, restored = false;
+        const auto safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
+        const int top = metrics.homeTopPadding + UITheme::getHeaderRect(renderer, 0).y - metrics.topPadding;
+        renderer.clearScreen();
+        GUI.drawRecentBookCover(renderer, Rect{safe.x, top, safe.width, metrics.homeCoverTileHeight}, {recent}, 0,
+                                rendered, stored, restored, [] { return false; });
+      };
+      drawHome(false);
+      const std::vector<uint8_t> missing(renderer.getFrameBuffer(),
+                                         renderer.getFrameBuffer() + renderer.getBufferSize());
+      drawHome(true);
+      if (!std::equal(missing.begin(), missing.end(), renderer.getFrameBuffer())) return false;
+      HomeActivity home(renderer, mappedInputManager);
+      home.recentBooks = {book};
+      home.loadRecentCovers(metrics.homeCoverHeight);
+      if (!thumbnailFits(exact, cover)) return false;
+      for (const bool statsSleep : {false, true}) {
+        if (dashboard && statsSleep) continue;
+        const auto sleep = dashboard ? DashboardTheme::getSleepCoverRect(renderer)
+                                     : MinimalTheme::getSleepCoverRect(renderer, statsSleep);
+        const auto sleepExact = xtc.getThumbBmpPath(sleep.width, sleep.height);
+        legacy = xtc.getThumbBmpPath();
+        legacy.replace(legacy.find("[HEIGHT]"), 8, std::to_string(sleep.height));
+        Storage.remove(sleepExact.c_str());
+        if (!coverFixture(legacy, sleep.width + 32, sleep.height, true)) return false;
+        const auto cached = dashboard ? SleepCoverAssets::cachedDashboardCoverPathFor(bookPath, renderer)
+                                      : SleepCoverAssets::cachedMinimalCoverPathFor(bookPath, renderer, statsSleep);
+        if (!cached.empty()) return false;
+        const bool prepared = dashboard ? SleepCoverAssets::prepareDashboardCoverForPath(bookPath, renderer)
+                                        : SleepCoverAssets::prepareMinimalCoverForPath(bookPath, renderer, statsSleep);
+        if (!prepared || !thumbnailFits(sleepExact, sleep)) return false;
+      }
+    }
+    LOG_INF("SMOKE", "Minimal/Dashboard XTC legacy cache regeneration passed");
+    return true;
   }
 
   static bool dictionaryHints(RenderLock& lock, const StatusBarFeatureSmokeTest::Capture& capture) {
@@ -6645,6 +6837,10 @@ class SimulatorSmokeTest {
       if (!ScreenCalibrationSmokeTest::themeArtwork(
               [this](const std::string& name) { captureStatusBarScreen(name.c_str()); }))
         fail("Theme calibration artwork escaped the safe area");
+      if (!ScreenCalibrationSmokeTest::themeCoverGeneration(
+              [this](const std::string& name) { captureStatusBarScreen(name.c_str()); }))
+        fail("Theme thumbnail generation did not match its displayed size");
+      if (!ScreenCalibrationSmokeTest::legacyXtcThumbnails()) fail("Theme reused an old XTC thumbnail size");
       LOG_INF("SMOKE", "Simulator smoke test passed: Minimal/Dashboard calibrated home and sleep artwork");
       std::_Exit(0);
     }

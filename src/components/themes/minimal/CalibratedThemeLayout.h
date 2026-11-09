@@ -6,8 +6,8 @@
 
 #include "components/UITheme.h"
 
-// Shared geometry for the Minimal and Dashboard home/sleep artwork. Calibration
-// changes the available rectangle, never the bitmap cache identity.
+// Shared geometry for the Minimal and Dashboard home/sleep artwork. Use the
+// fitted bounds when generating thumbnails that must render without rescaling.
 namespace CalibratedThemeLayout {
 inline Rect content(const GfxRenderer& renderer, const Rect& requested, const bool buttonHints) {
   const auto safe = UITheme::getInstance().getScreenSafeArea(renderer, buttonHints, false);

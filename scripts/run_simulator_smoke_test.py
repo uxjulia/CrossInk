@@ -14,6 +14,7 @@ import subprocess
 import sys
 import tempfile
 import zipfile
+import zlib
 from pathlib import Path
 
 
@@ -344,6 +345,29 @@ def run_smoke(args: argparse.Namespace) -> int:
             env["CROSSINK_SIMULATOR_SMOKE_CALIBRATION"] = "1"
             env["CROSSINK_CALIBRATION_PATH"] = str(temp_root / "device-calibration.nvs")
         if args.theme_calibration:
+            # Add a real cover to the disposable book so this mode exercises
+            # thumbnail generation as well as the injected pixel-pattern artwork.
+            target = temp_root / "fs_" / simulator_book_path.lstrip("/")
+            with zipfile.ZipFile(target) as archive:
+                entries = [(info, archive.read(info)) for info in archive.infolist()]
+            width, height = 300, 450
+            raw = b"".join(b"\0" + bytes([y * 255 // (height - 1)]) * width for y in range(height))
+            def png_chunk(kind: bytes, data: bytes) -> bytes:
+                return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
+            png = (b"\x89PNG\r\n\x1a\n" +
+                   png_chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 0, 0, 0, 0)) +
+                   png_chunk(b"IDAT", zlib.compress(raw)) + png_chunk(b"IEND", b""))
+            with zipfile.ZipFile(target, "w") as archive:
+                for info, data in entries:
+                    if info.filename.endswith(".opf"):
+                        text = data.decode("utf-8").replace("cover-image", "")
+                        text = re.sub(r'<meta\b[^>]*name=[\'"]cover[\'"][^>]*/>', "", text)
+                        text = text.replace("</metadata>", '<meta name="cover" content="dashboard-cover"/></metadata>')
+                        text = text.replace("</manifest>", '<item id="dashboard-cover" href="dashboard-cover.png" '
+                                            'media-type="image/png" properties="cover-image"/></manifest>')
+                        data = text.encode("utf-8")
+                        archive.writestr(str(Path(info.filename).parent / "dashboard-cover.png"), png)
+                    archive.writestr(info, data)
             env["CROSSINK_SIMULATOR_SMOKE_THEME_CALIBRATION"] = "1"
         if args.status_bar_lifecycle:
             env["CROSSINK_SIMULATOR_SMOKE_STATUS_BAR_LIFECYCLE"] = "1"

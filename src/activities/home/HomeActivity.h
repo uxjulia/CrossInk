@@ -33,6 +33,7 @@ class HomeActivity final : public Activity {
 #ifdef SIMULATOR
   friend struct BookmarkListSmokeTest;
   friend struct PluginCatalogSmokeTest;
+  friend struct ScreenCalibrationSmokeTest;
 #endif
   ButtonNavigator buttonNavigator;
   std::unique_ptr<CoverGridHomeUi> coverGridUi;
