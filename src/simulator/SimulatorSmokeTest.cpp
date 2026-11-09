@@ -1186,9 +1186,15 @@ struct StatusBarFeatureSmokeTest {
       renderer.getOrientedViewableTRBL(&top, &right, &bottom, &left);
       const int topY = UITheme::getTopStatusBarY(renderer);
       const int bottomY = renderer.getScreenHeight() - bottom - 1;
+      // Include near misses beyond the old 32 px targets, both bezel margins,
+      // and the first page-turn pixel just outside each expanded target.
+      const int topEnd = topY + std::max(64, UITheme::getReaderStatusBarHeight(ReaderStatusBarPosition::Top, renderer));
+      const int bottomStart = renderer.getScreenHeight() - bottom - std::max(64, UITheme::getStatusBarHeight(renderer));
       for (const bool hideOnTap : {false, true}) {
         SETTINGS.tapToHideStatusBar = hideOnTap;
-        for (const int y : {topY, bottomY}) {
+        for (const int y : {0, topY, topY + 48, topEnd - 1, topEnd, renderer.getScreenHeight() / 2, bottomStart - 1,
+                            bottomStart, bottomY - 48, bottomY, renderer.getScreenHeight() - 1}) {
+          const bool toggleBars = hideOnTap && (y < topEnd || y >= bottomStart);
           for (const bool previous : {false, true}) {
             reader.currentPage = 5;
             reader.statusBarVisible = true;
@@ -1199,8 +1205,8 @@ struct StatusBarFeatureSmokeTest {
               mappedInputManager.simulatorInjectTouchRelease(x, y);
               reader.loop();
               mappedInputManager.simulatorClearInputFrame();
-              const int expectedPage = hideOnTap ? 5 : 5 + (tap + 1) * (previous ? -1 : 1);
-              if (reader.currentPage != expectedPage || reader.statusBarVisible != (!hideOnTap || tap == 1))
+              const int expectedPage = toggleBars ? 5 : 5 + (tap + 1) * (previous ? -1 : 1);
+              if (reader.currentPage != expectedPage || reader.statusBarVisible != (!toggleBars || tap == 1))
                 return false;
             }
           }
