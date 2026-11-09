@@ -8337,6 +8337,8 @@ class SimulatorSmokeTest {
           LOG_INF("SMOKE", "EPUB and XTC live reader counter resets passed");
           std::_Exit(0);
         }
+        if (std::getenv("CROSSINK_SYNC_DIAGNOSTICS_CAPTURES"))
+          verifySyncDiagnosticsScreens(renderer, mappedInputManager);
         verifyStatsUploadContract();
         if (prepareReadingUploadSmokeTest()) {
           WiFi.mode(WIFI_STA);
@@ -8587,7 +8589,8 @@ class SimulatorSmokeTest {
           SETTINGS.trackReadingStats = 1;
           WiFi.mode(WIFI_STA);
           WiFi.begin("stats-smoke");
-          activityManager.replaceActivity(std::make_unique<StatsUploadActivity>(renderer, mappedInputManager));
+          activityManager.replaceActivity(std::make_unique<StatsUploadActivity>(
+              renderer, mappedInputManager, std::string{}, StatsUploadActivity::Scope::ReadingStats));
           inputScript.clear();
           scriptIndex = 0;
           inputCompletionStep = SmokeStep::StatsUploadEmptyDone;

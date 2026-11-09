@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <memory>
 
 // App-facing transport for the CrossPoint stats snapshot API.
@@ -24,7 +25,9 @@ class StatsUploadClient {
   Result probe(bool trustHtml = false);
   // Bounded calendar download. Old servers may omit this endpoint.
   Result downloadStreak();
+  static int lastHttpCode;  // Foreground request; copy before starting another sync part.
   static const char* errorString(Result result);
+  static const char* formatResult(char* buffer, size_t capacity, Result result, int httpCode);
   // A server without the extension API is not an upload failure: progress-only
   // servers simply have nothing to receive stats or clippings.
   static bool failed(Result result) {

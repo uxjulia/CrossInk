@@ -7,6 +7,7 @@
 #include <KOReaderDocumentId.h>
 #include <Memory.h>
 #include <ProgressMapper.h>
+#include <SyncLog.h>
 #include <Xtc.h>
 
 #include <cmath>
@@ -135,12 +136,20 @@ StatsUploadClient::Result globalOutcome(const StatsUploadClient::Result result,
                                         ReadingSyncUpload::GlobalStatsStep* failedStep) {
   const bool incomplete = !StatsUploadClient::settled(result);
   if (failedStep) *failedStep = incomplete ? step : ReadingSyncUpload::GlobalStatsStep::None;
+  if (incomplete)
+    SyncLog::record("STATS", "sync", StatsUploadClient::lastHttpCode,
+                    step == ReadingSyncUpload::GlobalStatsStep::Totals     ? "totals-incomplete"
+                    : step == ReadingSyncUpload::GlobalStatsStep::Daily    ? "daily-incomplete"
+                    : step == ReadingSyncUpload::GlobalStatsStep::Sessions ? "sessions-incomplete"
+                    : step == ReadingSyncUpload::GlobalStatsStep::Streak   ? "streak-incomplete"
+                                                                           : "setup-incomplete");
   if (incomplete) LOG_ERR("ReadingSync", "All-time stats stopped: %s (result %d)", globalStepLabel(step), int(result));
   return result;
 }
 }  // namespace
 
 StatsUploadClient::Result ReadingSyncUpload::globalStats(GlobalStatsStep* failedStep) {
+  StatsUploadClient::lastHttpCode = 0;
   using Result = StatsUploadClient::Result;
   if (failedStep) *failedStep = GlobalStatsStep::None;
   if (!SETTINGS.shouldTrackReadingStats()) return Result::Skipped;
@@ -155,6 +164,7 @@ StatsUploadClient::Result ReadingSyncUpload::globalStats(GlobalStatsStep* failed
 
 StatsUploadClient::Result ReadingSyncUpload::globalStats(StatsUploadClient& client, char* payload, size_t capacity,
                                                          const char* deviceId, GlobalStatsStep* failedStep) {
+  StatsUploadClient::lastHttpCode = 0;
   using Result = StatsUploadClient::Result;
   if (failedStep) *failedStep = GlobalStatsStep::None;
   if (!SETTINGS.shouldTrackReadingStats()) return Result::Skipped;
@@ -174,8 +184,10 @@ StatsUploadClient::Result ReadingSyncUpload::globalStats(StatsUploadClient& clie
     StatsCounterId dailyId;
     Result result = Result::Ok;
   } context{client, payload, capacity, deviceId, global};
-  if (!DailyReadingStats::counterId(context.dailyId))
+  if (!DailyReadingStats::counterId(context.dailyId)) {
+    StatsUploadClient::lastHttpCode = 0;
     return globalOutcome(Result::InvalidResponse, GlobalStatsStep::Daily, failedStep);
+  }
   const bool complete = DailyReadingStats::uploadPending(
       [](void* opaque, uint32_t day, uint32_t seconds) {
         auto& ctx = *static_cast<UploadContext*>(opaque);
@@ -189,7 +201,10 @@ StatsUploadClient::Result ReadingSyncUpload::globalStats(StatsUploadClient& clie
       },
       &context);
   result = context.result;
-  if (!complete && result == Result::Ok) result = Result::InvalidResponse;
+  if (!complete && result == Result::Ok) {
+    StatsUploadClient::lastHttpCode = 0;
+    result = Result::InvalidResponse;
+  }
   if (!complete) LOG_ERR("ReadingSync", "Daily counter upload incomplete");
   if (complete) {
     ReadingStatsDateTime local;
@@ -208,6 +223,7 @@ StatsUploadClient::Result ReadingSyncUpload::globalStats(StatsUploadClient& clie
                      static_cast<unsigned long long>(record.endedAt), static_cast<unsigned long>(record.seconds),
                      int(record.utcOffsetMinutes));
         if (n < 0 || size_t(n) >= ctx.capacity) {
+          StatsUploadClient::lastHttpCode = 0;
           ctx.result = Result::InvalidResponse;
           return false;
         }
@@ -215,7 +231,10 @@ StatsUploadClient::Result ReadingSyncUpload::globalStats(StatsUploadClient& clie
         return ctx.result == Result::Ok;
       },
       &context);
-  if (!sessionsComplete && context.result == Result::Ok) context.result = Result::InvalidResponse;
+  if (!sessionsComplete && context.result == Result::Ok) {
+    StatsUploadClient::lastHttpCode = 0;
+    context.result = Result::InvalidResponse;
+  }
   if (context.result != Result::Ok) return globalOutcome(context.result, GlobalStatsStep::Sessions, failedStep);
   const auto downloaded = client.downloadStreak();
   if (StatsUploadClient::failed(downloaded)) return globalOutcome(downloaded, GlobalStatsStep::Streak, failedStep);
@@ -241,6 +260,7 @@ bool ReadingSyncUpload::canSyncClippings() {
 }
 
 StatsUploadClient::Result ReadingSyncUpload::stats(const std::string& path, const std::string& document) {
+  StatsUploadClient::lastHttpCode = 0;
   using Result = StatsUploadClient::Result;
   BookReadingStats book;
   if (!loadBookStats(path, book)) return Result::Skipped;
@@ -256,11 +276,16 @@ StatsUploadClient::Result ReadingSyncUpload::stats(const std::string& path, cons
 ReadingSyncUpload::ExtrasResult ReadingSyncUpload::extras(const std::string& path, const std::string& document,
                                                           bool (*cancel)(void*), void* context) {
   ExtrasResult result;
-  if (KOREADER_STORE.getSyncStats()) result.stats = stats(path, document);
+  if (KOREADER_STORE.getSyncStats()) {
+    result.stats = stats(path, document);
+    result.statsHttpCode = StatsUploadClient::lastHttpCode;
+  }
   // These independent snapshots must still be attempted after a stats failure.
   // Clippings are EPUB-only; XTC books never save any.
-  if (KOREADER_STORE.getSyncClippings() && FsHelpers::hasEpubExtension(path))
+  if (KOREADER_STORE.getSyncClippings() && FsHelpers::hasEpubExtension(path)) {
     result.clippings = ClippingsUpload::sync(path, document, cancel, context);
+    result.clippingsHttpCode = StatsUploadClient::lastHttpCode;
+  }
   LOG_INF("ReadingSync", "Extras: stats=%d clippings=%d", static_cast<int>(result.stats),
           static_cast<int>(result.clippings));
   return result;
@@ -279,11 +304,22 @@ const char* ReadingSyncUpload::statusLabel(const StatsUploadClient::Result resul
   return unavailable ? unavailable : StatsUploadClient::resultString(result);
 }
 
+const char* ReadingSyncUpload::statusLabel(char* buffer, const size_t capacity, const StatsUploadClient::Result result,
+                                           const bool clippings, const int httpCode) {
+  if (!(clippings ? KOREADER_STORE.getSyncClippings() : KOREADER_STORE.getSyncStats())) return tr(STR_OFF);
+  // A later unsupported request must not hide an earlier failure.
+  if (StatsUploadClient::failed(result)) return StatsUploadClient::formatResult(buffer, capacity, result, httpCode);
+  const char* unavailable = unavailableLabel(clippings);
+  return unavailable ? unavailable : StatsUploadClient::formatResult(buffer, capacity, result, httpCode);
+}
+
 const char* ReadingSyncUpload::globalStatusLabel(char* buffer, const size_t capacity,
-                                                 const StatsUploadClient::Result result, const GlobalStatsStep step) {
-  const char* status = statusLabel(result, false);
+                                                 const StatsUploadClient::Result result, const GlobalStatsStep step,
+                                                 const int httpCode) {
+  char detail[96];
+  const char* status = statusLabel(detail, sizeof(detail), result, false, httpCode);
   if (step == GlobalStatsStep::None || StatsUploadClient::settled(result) || !KOREADER_STORE.getSyncStats())
-    return status;
+    return statusLabel(buffer, capacity, result, false, httpCode);
   snprintf(buffer, capacity, tr(STR_SYNC_STATS_STEP_STATUS_FORMAT), globalStepLabel(step), status);
   return buffer;
 }
@@ -291,7 +327,7 @@ const char* ReadingSyncUpload::globalStatusLabel(char* buffer, const size_t capa
 const char* ReadingSyncUpload::countLabel(char* buffer, const size_t capacity, const uint32_t ok, const uint32_t failed,
                                           const bool clippings) {
   const char* unavailable = unavailableLabel(clippings);
-  if (unavailable) return unavailable;
+  if (unavailable && failed == 0) return unavailable;
   if (failed == 0)
     snprintf(buffer, capacity, "%u", static_cast<unsigned>(ok));
   else

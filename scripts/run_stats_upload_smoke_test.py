@@ -49,6 +49,17 @@ def run(program, server, credentials, error=None, empty_library=False, step=None
             lines = [line for line in (result.stdout + result.stderr).splitlines() if "StatsSync" in line or "SMOKE" in line]
             raise RuntimeError(f"Simulator upload failed (exit {result.returncode}):\n" + "\n".join(lines) + result.stderr[-1000:])
 
+        log_path = Path(directory) / "fs_/.crossink/sync.log"
+        if not log_path.is_file():
+            raise RuntimeError("Sync diagnostic log was not exported to /.crossink/sync.log")
+        log = log_path.read_text()
+        if not all(field in log for field in ("utc=", "uptime_ms=", "http=", "result=")):
+            raise RuntimeError("Sync log lacks request diagnostics")
+        for secret in (credentials["username"], credentials["password"],
+                       hashlib.md5(credentials["password"].encode()).hexdigest()):
+            if secret and secret in log:
+                raise RuntimeError("Sync log contains credentials")
+
 
 def local_tests(program):
     requests = []
@@ -80,7 +91,9 @@ def local_tests(program):
             status = {"auth": 401, "unsupported": 404, "server": 500}.get(mode, 200)
             if mode == "totals":
                 status = 500
-            reply = {"until": 1, "accepted": 1, "accepted_daily": 1}
+            if mode.startswith("missing-counters-") and self.path.startswith("/api/v1/stats/counters/"):
+                status = int(mode.rsplit("-", 1)[1])
+            reply = {"until": 1, "accepted": 1, "accepted_daily": 1, "counter_ids": 1}
             if self.path == "/api/v1/stats/books":
                 reply["accepted"] = len(body["items"])
                 if mode == "partial-batch":
@@ -128,10 +141,10 @@ def local_tests(program):
         mode = "ok"
         requests.clear()
         run(program, url, {"username": "smoke", "password": "smoke-password"}, empty_library=True)
-        assert len(requests) == 1 and requests[0][0] == "/api/v1/stats/global"
+        assert len(requests) == 1 and requests[0][0] == "/api/v1/stats/counters/global"
         print("PASS: confirmed activity uploads overall stats with an empty Library")
         for mode in ("totals", "daily", "sessions", "corrupt-session", "streak", "empty-streak",
-                     "old-streak-404", "old-streak-405", "ok"):
+                     "old-streak-404", "old-streak-405", "missing-counters-404", "missing-counters-405", "ok"):
             run(program, url, {"username": "smoke", "password": "smoke-password"}, step=mode)
             print(f"PASS: all-time failed-step attribution: {mode}")
     finally:

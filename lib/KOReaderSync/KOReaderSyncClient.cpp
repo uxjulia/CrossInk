@@ -12,6 +12,7 @@
 #include <I18n.h>
 #include <JsonFileReader.h>
 #include <Logging.h>
+#include <SyncLog.h>
 #ifdef SIMULATOR
 #include <HTTPClient.h>
 #include <SecureHttpClient.h>
@@ -280,17 +281,42 @@ KOReaderSyncClient::Error readProgressResponse(const std::string& url, JsonDocum
 }
 }  // namespace
 
+namespace {
+class ProgressRequest final : public SyncLog::Request {
+ public:
+  using SyncLog::Request::Request;
+  KOReaderSyncClient::Error finish(KOReaderSyncClient::Error result) {
+    using enum KOReaderSyncClient::Error;
+
+    SyncLog::Request::finish(result == OK                                                ? "ok"
+                             : result == NETWORK_ERROR                                   ? "connection-failed"
+                             : result == AUTH_FAILED                                     ? "authentication-failed"
+                             : result == LOW_MEMORY                                      ? "low-memory"
+                             : result == NOT_FOUND                                       ? "no-remote-progress"
+                             : result == SERVER_ERROR                                    ? "server-error"
+                             : result == FEED_UNSUPPORTED || result == BATCH_UNSUPPORTED ? "unsupported"
+                             : result == STORAGE_ERROR                                   ? "storage-error"
+                             : result == NO_CREDENTIALS                                  ? "no-credentials"
+                             : result == RESPONSE_TOO_LARGE                              ? "response-too-large"
+                                                                                         : "invalid-response");
+    return result;
+  }
+};
+}  // namespace
+
 KOReaderSyncClient::Error KOReaderSyncClient::authenticate() {
+  ProgressRequest request("GET", "/users/auth", lastHttpCode);
+
   lastHttpCode = 0;
   lastTransportError = 0;
   if (!KOREADER_STORE.hasCredentials()) {
     LOG_DBG("KOSync", "No credentials configured");
-    return NO_CREDENTIALS;
+    return request.finish(NO_CREDENTIALS);
   }
 
   const std::string url = KOREADER_STORE.getBaseUrl() + "/users/auth";
   LOG_DBG("KOSync", "Authenticating: %s (heap: %u)", url.c_str(), (unsigned)ESP.getFreeHeap());
-  if (insufficientHeap()) return LOW_MEMORY;
+  if (insufficientHeap()) return request.finish(LOW_MEMORY);
 
 #ifdef SIMULATOR
   HTTPClient http;
@@ -317,26 +343,26 @@ KOReaderSyncClient::Error KOReaderSyncClient::authenticate() {
       LOG_ERR("KOSync", "Auth response exceeded %u bytes (HTTP %d)", static_cast<unsigned>(MAX_AUTH_RESPONSE_BYTES),
               httpCode);
       http.end();
-      return INVALID_AUTH_RESPONSE;
+      return request.finish(INVALID_AUTH_RESPONSE);
     }
     String responseBody = http.getString();
     http.end();
-    return validateAuthResponse(responseBody.c_str());
+    return request.finish(validateAuthResponse(responseBody.c_str()));
   }
 
   http.end();
 
   // KOSync-compatible implementations can use other successful 2xx codes.
-  if (isSuccessfulHttpCode(httpCode)) return OK;
-  if (httpCode == 401) return AUTH_FAILED;
-  if (httpCode < 0) return NETWORK_ERROR;
-  return SERVER_ERROR;
+  if (isSuccessfulHttpCode(httpCode)) return request.finish(OK);
+  if (httpCode == 401) return request.finish(AUTH_FAILED);
+  if (httpCode < 0) return request.finish(NETWORK_ERROR);
+  return request.finish(SERVER_ERROR);
 #else
   freeink::SecureHttpClient http;
   http.setInsecure();
   if (!http.begin(url)) {
     LOG_ERR("KOSync", "Bad URL: %s", url.c_str());
-    return NETWORK_ERROR;
+    return request.finish(NETWORK_ERROR);
   }
   applyAuthHeaders(http);
   std::unique_ptr<char[]> responseBody;
@@ -369,48 +395,50 @@ KOReaderSyncClient::Error KOReaderSyncClient::authenticate() {
 
   if (httpCode <= 0) {
     http.end();
-    return NETWORK_ERROR;
+    return request.finish(NETWORK_ERROR);
   }
   if (responseTooLarge) {
     LOG_ERR("KOSync", "Auth response exceeded %u bytes (HTTP %d)", static_cast<unsigned>(MAX_AUTH_RESPONSE_BYTES),
             httpCode);
     http.end();
-    return INVALID_AUTH_RESPONSE;
+    return request.finish(INVALID_AUTH_RESPONSE);
   }
   if (responseOutOfMemory) {
     LOG_ERR("KOSync", "Not enough memory for auth response (HTTP %d)", httpCode);
     http.end();
-    return LOW_MEMORY;
+    return request.finish(LOW_MEMORY);
   }
   if (httpCode == 200) {
     if (!http.responseComplete()) {
       LOG_ERR("KOSync", "Auth response incomplete");
       http.end();
-      return NETWORK_ERROR;
+      return request.finish(NETWORK_ERROR);
     }
     const Error result = validateAuthResponse(responseBody ? responseBody.get() : "");
     http.end();
-    return result;
+    return request.finish(result);
   }
   http.end();
   // KOSync-compatible implementations use different successful 2xx codes.
   // Keep CrossInk's validation of the reference server's 200 JSON response.
-  if (isSuccessfulHttpCode(httpCode)) return OK;
-  if (httpCode == 401) return AUTH_FAILED;
-  return SERVER_ERROR;
+  if (isSuccessfulHttpCode(httpCode)) return request.finish(OK);
+  if (httpCode == 401) return request.finish(AUTH_FAILED);
+  return request.finish(SERVER_ERROR);
 #endif
 }
 
 KOReaderSyncClient::Error KOReaderSyncClient::createUser() {
+  ProgressRequest request("POST", "/users/create", lastHttpCode);
+
   lastHttpCode = 0;
   if (!KOREADER_STORE.hasCredentials()) {
     LOG_DBG("KOSync", "No credentials configured");
-    return NO_CREDENTIALS;
+    return request.finish(NO_CREDENTIALS);
   }
 
   const std::string url = KOREADER_STORE.getBaseUrl() + "/users/create";
   LOG_DBG("KOSync", "Creating account: %s (heap: %u)", url.c_str(), (unsigned)ESP.getFreeHeap());
-  if (insufficientHeap()) return LOW_MEMORY;
+  if (insufficientHeap()) return request.finish(LOW_MEMORY);
 
   JsonDocument doc;
   doc["username"] = KOREADER_STORE.getUsername();
@@ -422,7 +450,7 @@ KOReaderSyncClient::Error KOReaderSyncClient::createUser() {
   http.setInsecure();
   if (!http.begin(url)) {
     LOG_ERR("KOSync", "Bad URL: %s", url.c_str());
-    return NETWORK_ERROR;
+    return request.finish(NETWORK_ERROR);
   }
   applyCustomHttpHeaders(http, KOREADER_STORE.getCustomHeaders());
   http.addHeader("Accept", "application/vnd.koreader.v1+json");
@@ -433,25 +461,27 @@ KOReaderSyncClient::Error KOReaderSyncClient::createUser() {
 
   LOG_DBG("KOSync", "Create user response: %d", httpCode);
 
-  if (httpCode <= 0) return NETWORK_ERROR;
-  if (isSuccessfulHttpCode(httpCode)) return OK;  // 2xx: created (see #2876)
-  if (httpCode == 402) return USER_EXISTS;
-  return SERVER_ERROR;
+  if (httpCode <= 0) return request.finish(NETWORK_ERROR);
+  if (isSuccessfulHttpCode(httpCode)) return request.finish(OK);  // 2xx: created (see #2876)
+  if (httpCode == 402) return request.finish(USER_EXISTS);
+  return request.finish(SERVER_ERROR);
 }
 
 KOReaderSyncClient::Error KOReaderSyncClient::getProgress(const std::string& documentHash,
                                                           KOReaderProgress& outProgress) {
+  ProgressRequest request("GET", "/syncs/progress/:document", lastHttpCode);
+
   lastHttpCode = 0;
   lastTransportError = 0;
   if (!KOREADER_STORE.hasCredentials()) {
     LOG_DBG("KOSync", "No credentials configured");
-    return NO_CREDENTIALS;
+    return request.finish(NO_CREDENTIALS);
   }
 
   const std::string url =
       KOREADER_STORE.getBaseUrl() + "/syncs/progress/" + documentHash + "?position_kinds=locator,percentage";
   LOG_DBG("KOSync", "Getting progress: %s (heap: %u)", url.c_str(), (unsigned)ESP.getFreeHeap());
-  if (insufficientHeap()) return LOW_MEMORY;
+  if (insufficientHeap()) return request.finish(LOW_MEMORY);
 
   JsonDocument filter;
   for (const char* key : {"progress", "percentage", "device", "device_id", "timestamp"}) filter[key] = true;
@@ -459,11 +489,11 @@ KOReaderSyncClient::Error KOReaderSyncClient::getProgress(const std::string& doc
   SyncJsonAllocator allocator;
   JsonDocument doc(&allocator);
   const auto result = readProgressResponse(url, doc, filter);
-  if (result != OK) return result;
+  if (result != OK) return request.finish(result);
   if (doc["progress"].isNull() && !(doc["percentage"].is<float>() && std::isfinite(doc["percentage"].as<float>()) &&
                                     doc["percentage"].as<float>() >= 0 && doc["percentage"].as<float>() <= 1)) {
     LOG_DBG("KOSync", "No stored progress in successful response");
-    return NOT_FOUND;
+    return request.finish(NOT_FOUND);
   }
 
   outProgress.document = documentHash;
@@ -493,7 +523,7 @@ KOReaderSyncClient::Error KOReaderSyncClient::getProgress(const std::string& doc
   }
 
   LOG_DBG("KOSync", "Got progress: %.2f%% at %s", outProgress.percentage * 100, outProgress.progress.c_str());
-  return OK;
+  return request.finish(OK);
 }
 
 namespace {
@@ -606,16 +636,18 @@ KOReaderSyncClient::Error putResult(const int httpCode) {
 }  // namespace
 
 KOReaderSyncClient::Error KOReaderSyncClient::updateProgress(const KOReaderProgress& progress) {
+  ProgressRequest request("PUT", "/syncs/progress", lastHttpCode);
+
   lastHttpCode = 0;
   lastTransportError = 0;
   if (!KOREADER_STORE.hasCredentials()) {
     LOG_DBG("KOSync", "No credentials configured");
-    return NO_CREDENTIALS;
+    return request.finish(NO_CREDENTIALS);
   }
 
   const std::string url = KOREADER_STORE.getBaseUrl() + "/syncs/progress";
   LOG_DBG("KOSync", "Updating progress: %s (heap: %u)", url.c_str(), (unsigned)ESP.getFreeHeap());
-  if (insufficientHeap()) return LOW_MEMORY;
+  if (insufficientHeap()) return request.finish(LOW_MEMORY);
 
   std::string body;
   {
@@ -625,14 +657,16 @@ KOReaderSyncClient::Error KOReaderSyncClient::updateProgress(const KOReaderProgr
   }
   const int httpCode = putJson(url, body);
   LOG_DBG("KOSync", "Update progress response: %d", httpCode);
-  return putResult(httpCode);
+  return request.finish(putResult(httpCode));
 }
 
 KOReaderSyncClient::Error KOReaderSyncClient::updateProgressBatch(std::vector<KOReaderProgress>& items) {
+  ProgressRequest request("PUT", "/api/v1/progress/batch", lastHttpCode);
+
   lastHttpCode = 0;
   lastTransportError = 0;
-  if (!KOREADER_STORE.hasCredentials()) return NO_CREDENTIALS;
-  if (items.empty()) return OK;
+  if (!KOREADER_STORE.hasCredentials()) return request.finish(NO_CREDENTIALS);
+  if (items.empty()) return request.finish(OK);
   const std::string url = KOREADER_STORE.getBaseUrl() + "/api/v1/progress/batch";
   // Serialize, then release the items and the JSON tree before the TLS
   // connection allocates its buffers: only the body is alive during the request.
@@ -647,12 +681,12 @@ KOReaderSyncClient::Error KOReaderSyncClient::updateProgressBatch(std::vector<KO
   std::vector<KOReaderProgress>().swap(items);
   LOG_DBG("KOSync", "Batch progress: %u books, %u bytes (heap: %u)", static_cast<unsigned>(count),
           static_cast<unsigned>(body.size()), (unsigned)ESP.getFreeHeap());
-  if (insufficientHeap()) return LOW_MEMORY;
+  if (insufficientHeap()) return request.finish(LOW_MEMORY);
   const int httpCode = putJson(url, body);
   LOG_DBG("KOSync", "Batch progress response: %d", httpCode);
   // Stock KOSync and older CrossPoint Sync servers: one PUT per book instead.
-  if (httpCode == 404) return BATCH_UNSUPPORTED;
-  return putResult(httpCode);
+  if (httpCode == 404) return request.finish(BATCH_UNSUPPORTED);
+  return request.finish(putResult(httpCode));
 }
 
 namespace {
@@ -714,10 +748,12 @@ KOReaderSyncClient::Error parseChangesPage(const JsonDocument& doc, KOReaderSync
 KOReaderSyncClient::Error KOReaderSyncClient::getProgressChanges(const uint32_t since, const uint8_t limit,
                                                                  ChangesPage& page, const ChangeCallback callback,
                                                                  void* context) {
+  ProgressRequest request("GET", "/api/v1/progress/changes", lastHttpCode);
+
   lastHttpCode = 0;
   lastTransportError = 0;
   page = {};
-  if (!KOREADER_STORE.hasCredentials()) return NO_CREDENTIALS;
+  if (!KOREADER_STORE.hasCredentials()) return request.finish(NO_CREDENTIALS);
   char reader[32];
   if (!readerId(reader, sizeof(reader))) snprintf(reader, sizeof(reader), "crossink-device");
   uint8_t pageLimit = limit;
@@ -739,9 +775,9 @@ KOReaderSyncClient::Error KOReaderSyncClient::getProgressChanges(const uint32_t 
       if (result == NOT_FOUND) result = FEED_UNSUPPORTED;
       if (result == OK) result = parseChangesPage(doc, page, callback, context);
     }
-    if (result == OK) return OK;
+    if (result == OK) return request.finish(OK);
     page = {};  // Failed attempts never authorize cursor advancement.
-    if ((result != RESPONSE_TOO_LARGE && result != LOW_MEMORY) || pageLimit <= 1) return result;
+    if ((result != RESPONSE_TOO_LARGE && result != LOW_MEMORY) || pageLimit <= 1) return request.finish(result);
     pageLimit /= 2;
     LOG_INF("KOSync", "Retrying progress feed at cursor %lu with limit %u", static_cast<unsigned long>(since),
             static_cast<unsigned>(pageLimit));
@@ -762,6 +798,14 @@ bool KOReaderSyncClient::readerId(char* out, const size_t capacity) {
 }
 
 std::string KOReaderSyncClient::errorString(Error error) {
+  if (lastHttpCode > 0 &&
+      (error == AUTH_FAILED || error == JSON_ERROR || error == INVALID_AUTH_RESPONSE || error == RESPONSE_TOO_LARGE)) {
+    const char* reason =
+        error == AUTH_FAILED ? tr(STR_KOREADER_SYNC_AUTH_REJECTED) : tr(STR_KOREADER_SYNC_BAD_RESPONSE);
+    char status[24];
+    snprintf(status, sizeof(status), "HTTP %d: ", lastHttpCode);
+    return std::string(status) + reason;
+  }
   switch (error) {
     case OK:
       return "Success";

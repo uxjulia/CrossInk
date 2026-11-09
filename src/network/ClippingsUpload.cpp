@@ -5,6 +5,7 @@
 #include <KOReaderCredentialStore.h>
 #include <Logging.h>
 #include <Memory.h>
+#include <SyncLog.h>
 #include <Utf8.h>
 
 #include "ClippingStore.h"
@@ -95,6 +96,7 @@ bool writeCursor(const std::string& path, const char* scope, const uint64_t curs
 
 StatsUploadClient::Result ClippingsUpload::upload(const std::string& path, const std::string& document, Cancel cancel,
                                                   void* context) {
+  StatsUploadClient::lastHttpCode = 0;
   using Result = StatsUploadClient::Result;
   if (document.size() != 32 || document.find_first_not_of("0123456789abcdefABCDEF") != std::string::npos)
     return Result::InvalidResponse;
@@ -197,6 +199,7 @@ StatsUploadClient::Result ClippingsUpload::upload(const std::string& path, const
 
 StatsUploadClient::Result ClippingsUpload::download(const std::string& path, const std::string& document, Cancel cancel,
                                                     void* context) {
+  StatsUploadClient::lastHttpCode = 0;
   using Result = StatsUploadClient::Result;
   if (document.size() != 32 || document.find_first_not_of("0123456789abcdefABCDEF") != std::string::npos)
     return Result::InvalidResponse;
@@ -326,13 +329,20 @@ StatsUploadClient::Result ClippingsUpload::download(const std::string& path, con
 
 StatsUploadClient::Result ClippingsUpload::sync(const std::string& path, const std::string& document, Cancel cancel,
                                                 void* context) {
+  StatsUploadClient::lastHttpCode = 0;
   using Result = StatsUploadClient::Result;
-  const auto sent = upload(path, document, cancel, context);
-  if (!StatsUploadClient::settled(sent)) return sent;
-  const auto received = download(path, document, cancel, context);
-  // Older servers remain upload-compatible; a version-2 download is required
-  // before any remote data is applied locally.
-  if (received == Result::Unsupported) return sent;
-  if (received == Result::Skipped) return sent;
-  return received;
+  const auto perform = [&]() {
+    const auto sent = upload(path, document, cancel, context);
+    if (!StatsUploadClient::settled(sent)) return sent;
+    const auto received = download(path, document, cancel, context);
+    // Older servers remain upload-compatible; a version-2 download is required
+    // before any remote data is applied locally.
+    if (received == Result::Unsupported) return sent;
+    if (received == Result::Skipped) return sent;
+    return received;
+  };
+  const auto result = perform();
+  SyncLog::record("SYNC", "/api/v1/clippings", StatsUploadClient::lastHttpCode,
+                  StatsUploadClient::failed(result) ? "clippings-incomplete" : "complete-or-unsupported");
+  return result;
 }

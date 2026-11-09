@@ -1,9 +1,9 @@
 # Exercise the real device transport branch, not the simulator HTTP adapter.
 foreach(target IN ITEMS ProgressSyncTest ProgressSyncSpRsaTest)
   add_executable(${target} ProgressSyncTest.cpp
-    ${REPO_ROOT}/lib/KOReaderSync/KOReaderSyncClient.cpp)
+    ${REPO_ROOT}/lib/KOReaderSync/KOReaderSyncClient.cpp ${REPO_ROOT}/lib/SyncLog/SyncLog.cpp)
   target_include_directories(${target} PRIVATE stubs
-    ${REPO_ROOT}/lib/KOReaderSync
+    ${REPO_ROOT}/lib/KOReaderSync ${REPO_ROOT}/lib/SyncLog
     ${REPO_ROOT}/test/clipping_sync/stubs ${REPO_ROOT}/lib/HttpHeader
     ${REPO_ROOT}/lib/Serialization ${REPO_ROOT}/lib/Memory)
   target_link_libraries(${target} PRIVATE crosspoint_test_common GTest::gtest_main ArduinoJson)

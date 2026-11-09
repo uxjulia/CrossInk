@@ -85,6 +85,9 @@ class KOReaderSyncActivity final : public Activity {
   bool allowPowerAsConfirmInReaderMode() const override { return true; }
 
  private:
+#ifdef SIMULATOR
+  friend struct SyncDiagnosticsSmokeTest;
+#endif
   enum State {
     WIFI_SELECTION,
     CONNECTING,
@@ -132,6 +135,7 @@ class KOReaderSyncActivity final : public Activity {
   bool exitingBatch = false;
   ReadingSyncUpload::ExtrasResult extrasResult;
   ReadingSyncUpload::GlobalStatsStep globalStatsFailedStep = ReadingSyncUpload::GlobalStatsStep::None;
+  int globalStatsHttpCode = 0;
   StatsUploadClient::Result globalStatsResult = StatsUploadClient::Result::Skipped;
   ProgressSyncResult syncResult() const;
   // The reader can use a book-specific orientation that its teardown restores

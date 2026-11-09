@@ -23,6 +23,8 @@ bool loadPreparedProgress(const std::string& path, KOReaderProgress& progress,
 struct ExtrasResult {
   StatsUploadClient::Result stats = StatsUploadClient::Result::Skipped;
   StatsUploadClient::Result clippings = StatsUploadClient::Result::Skipped;
+  int statsHttpCode = 0;
+  int clippingsHttpCode = 0;
   bool success() const { return !StatsUploadClient::failed(stats) && !StatsUploadClient::failed(clippings); }
 };
 enum class GlobalStatsStep : uint8_t { None, Setup, Totals, Daily, Sessions, Streak };
@@ -45,8 +47,10 @@ ExtrasResult extras(const std::string& path, const std::string& document, bool (
 // Shared result wording for every sync screen: "Not supported" on a progress-only
 // server, "OFF" when the user turned that data off, otherwise the upload result.
 const char* statusLabel(StatsUploadClient::Result result, bool clippings);
+const char* statusLabel(char* buffer, size_t capacity, StatsUploadClient::Result result, bool clippings, int httpCode);
 // All-time result includes the failed step, using caller-owned bounded storage.
-const char* globalStatusLabel(char* buffer, size_t capacity, StatsUploadClient::Result result, GlobalStatsStep step);
+const char* globalStatusLabel(char* buffer, size_t capacity, StatsUploadClient::Result result, GlobalStatsStep step,
+                              int httpCode = 0);
 // Bulk variant: "3" or "3 (1 failed)", with the same OFF / Not supported states.
 const char* countLabel(char* buffer, size_t capacity, uint32_t ok, uint32_t failed, bool clippings);
 // Heading for a book that failed to sync: names the part that failed

@@ -5,6 +5,7 @@
 #include <I18n.h>
 #include <Logging.h>
 #include <Memory.h>
+#include <SyncLog.h>
 #include <WiFi.h>
 #include <esp_wifi.h>
 #include <freertos/FreeRTOS.h>
@@ -716,11 +717,14 @@ void KOReaderSyncActivity::drawExtrasResults(const Rect textArea, int y, const b
   // Folder runs report overall stats once in their own summary, not per book.
   if (includeGlobalStats) {
     char status[128];
-    drawRow(tr(STR_ALL_TIME_STATS),
-            ReadingSyncUpload::globalStatusLabel(status, sizeof(status), globalStatsResult, globalStatsFailedStep));
+    drawRow(tr(STR_ALL_TIME_STATS), ReadingSyncUpload::globalStatusLabel(status, sizeof(status), globalStatsResult,
+                                                                         globalStatsFailedStep, globalStatsHttpCode));
   }
-  drawRow(tr(STR_READING_STATS), ReadingSyncUpload::statusLabel(extrasResult.stats, false));
-  drawRow(tr(STR_CLIPPINGS), ReadingSyncUpload::statusLabel(extrasResult.clippings, true));
+  char detail[128];
+  drawRow(tr(STR_READING_STATS), ReadingSyncUpload::statusLabel(detail, sizeof(detail), extrasResult.stats, false,
+                                                                extrasResult.statsHttpCode));
+  drawRow(tr(STR_CLIPPINGS), ReadingSyncUpload::statusLabel(detail, sizeof(detail), extrasResult.clippings, true,
+                                                            extrasResult.clippingsHttpCode));
 }
 
 bool KOReaderSyncActivity::uploadExtras() {
@@ -746,6 +750,7 @@ bool KOReaderSyncActivity::uploadExtras() {
     const auto result = ReadingSyncUpload::globalStats(&failedStep);
     RenderLock lock(*this);
     globalStatsResult = result;
+    globalStatsHttpCode = StatsUploadClient::lastHttpCode;
     globalStatsFailedStep = failedStep;
   }
   extrasResult = ReadingSyncUpload::extras(
@@ -767,7 +772,14 @@ bool KOReaderSyncActivity::uploadExtras() {
   {
     RenderLock lock(*this);
     state = SYNC_FAILED;
-    statusMessage.clear();  // the heading and result rows say what failed
+    char detail[128];
+    const bool statsFailed = StatsUploadClient::failed(extrasResult.stats);
+    statusMessage = StatsUploadClient::formatResult(
+        detail, sizeof(detail), statsFailed ? extrasResult.stats : extrasResult.clippings,
+        statsFailed ? extrasResult.statsHttpCode : extrasResult.clippingsHttpCode);
+    if (StatsUploadClient::failed(globalStatsResult))
+      statusMessage = ReadingSyncUpload::globalStatusLabel(detail, sizeof(detail), globalStatsResult,
+                                                           globalStatsFailedStep, globalStatsHttpCode);
   }
   requestUpdate(true);
   return false;
@@ -1044,12 +1056,14 @@ void KOReaderSyncActivity::render(RenderLock&&) {
                                             EpdFontFamily::REGULAR, 4) +
            16;
     // The reason, e.g. "Sync server returned HTTP 500".
-    if (!statusMessage.empty()) {
+    if (!statusMessage.empty() && !extrasAttempted) {
       top += UITheme::drawCenteredWrappedText(renderer, textArea, UI_10_FONT_ID, top, statusMessage.c_str(), 3, true,
                                               EpdFontFamily::REGULAR, 4) +
              16;
     }
-    top += 8;
+    top += UITheme::drawCenteredWrappedText(renderer, textArea, UI_10_FONT_ID, top, SyncLog::PATH, 1, true,
+                                            EpdFontFamily::REGULAR, 4) +
+           8;
     drawExtrasResults(textArea, top, true);
     if (folderSync && mappedInput.hasTouchHardware()) {
       const auto actions = bottomActionLayout(screen, metrics, 1);

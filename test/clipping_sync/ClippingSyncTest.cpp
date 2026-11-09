@@ -112,6 +112,7 @@ void SyncPending::SessionMarker::mark(const std::string&, uint8_t) {}
 
 // In-memory transport exercises the production serializer, pagination parser,
 // store and retry flow; no test code substitutes the merge implementation.
+int StatsUploadClient::lastHttpCode = 0;
 struct StatsUploadClient::Impl {};
 StatsUploadClient::StatsUploadClient() = default;
 StatsUploadClient::~StatsUploadClient() = default;

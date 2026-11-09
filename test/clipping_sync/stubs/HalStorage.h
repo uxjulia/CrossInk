@@ -15,7 +15,7 @@ inline bool failBookmarkClose = false;
 inline int maxBookmarkWriteBytes = -1;
 inline std::string failBookmarkRenameFrom;
 
-constexpr int O_WRONLY = 1, O_CREAT = 2, O_TRUNC = 4;
+constexpr int O_WRONLY = 1, O_CREAT = 2, O_TRUNC = 4, O_APPEND = 8;
 class FsFile {
  public:
   bool attach(std::string* bytes, bool writing) {
@@ -85,6 +85,7 @@ class HalStorage {
     const auto it = files.lower_bound(prefix);
     return it != files.end() && it->first.starts_with(prefix);
   }
+  bool ensureDirectoryExists(const char*) { return true; }
   bool mkdir(const char*, bool = true) { return true; }
   bool remove(const char* path) { return files.erase(path) != 0; }
   bool rename(const char* from, const char* to) {
@@ -97,7 +98,9 @@ class HalStorage {
   }
   FsFile open(const char* path, int mode = 0) {
     FsFile file;
-    if (mode)
+    if (mode & O_APPEND) {
+      if (!failBookmarkWriteOpen) file.attach(&files[path], true);
+    } else if (mode)
       openFileForWrite("test", path, file);
     else
       openFileForRead("test", path, file);

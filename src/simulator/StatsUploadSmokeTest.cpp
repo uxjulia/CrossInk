@@ -3,15 +3,20 @@
 
 #include <ArduinoJson.h>
 #include <HalStorage.h>
+#include <I18n.h>
 #include <KOReaderCredentialStore.h>
 #include <Logging.h>
 
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <vector>
 
 #include "CrossPointSettings.h"
+#include "activities/network/StatsUploadActivity.h"
 #include "activities/reader/DailyReadingStats.h"
+#include "activities/reader/KOReaderSyncActivity.h"
 #include "activities/reader/ReadingSessionJournal.h"
 #include "activities/reader/StatsUploadPayload.h"
 #include "network/ReadingSyncUpload.h"
@@ -208,21 +213,27 @@ void verifyStatsUploadContract() {
         Storage.remove(StatsStorage::localPath("/.crosspoint/global_stats.bin").c_str());
         Storage.remove((StatsStorage::localPath("/.crosspoint/global_stats.bin") + ".bak").c_str());
       }
+      KOREADER_STORE.setServerSupport(SyncServerSupport::SUPPORTED);
+      const bool missingCounters = strncmp(mode, "missing-counters-", 17) == 0;
       Step failedStep = Step::Setup;  // Success must clear stale failure details.
       const bool skipped = strncmp(mode, "old-streak", 10) == 0 || strcmp(mode, "ok") == 0;
       const bool streak = strcmp(mode, "streak") == 0 || strcmp(mode, "empty-streak") == 0;
-      const Step expectedStep = skipped                       ? Step::None
-                                : strcmp(mode, "totals") == 0 ? Step::Totals
-                                : strcmp(mode, "daily") == 0  ? Step::Daily
-                                : streak                      ? Step::Streak
-                                                              : Step::Sessions;
-      const auto expectedResult = skipped                       ? Result::Ok
-                                  : strcmp(mode, "totals") == 0 ? Result::Server
-                                                                : Result::InvalidResponse;
+      const Step expectedStep = skipped                                          ? Step::None
+                                : strcmp(mode, "totals") == 0 || missingCounters ? Step::Totals
+                                : strcmp(mode, "daily") == 0                     ? Step::Daily
+                                : streak                                         ? Step::Streak
+                                                                                 : Step::Sessions;
+      const auto expectedResult = skipped                                          ? Result::Ok
+                                  : strcmp(mode, "totals") == 0 || missingCounters ? Result::Server
+                                                                                   : Result::InvalidResponse;
       require(ReadingSyncUpload::globalStats(&failedStep) == expectedResult, "failed step result");
       require(failedStep == expectedStep, "failed step attribution");
       char status[128];
-      const char* label = ReadingSyncUpload::globalStatusLabel(status, sizeof(status), expectedResult, failedStep);
+      const int httpCode = StatsUploadClient::lastHttpCode;
+      const char* label =
+          ReadingSyncUpload::globalStatusLabel(status, sizeof(status), expectedResult, failedStep, httpCode);
+      if (!skipped && strcmp(mode, "corrupt-session") != 0)
+        require(strstr(label, "HTTP ") != nullptr, "failed step retains HTTP status");
       const char* part = expectedStep == Step::Totals   ? "Totals"
                          : expectedStep == Step::Daily  ? "Daily history"
                          : expectedStep == Step::Streak ? "Reading Streak"
@@ -377,5 +388,93 @@ void verifyStatsUploadContract() {
     std::_Exit(0);
   }
   LOG_INF("SMOKE", "Stats upload serialization and storage smoke passed");
+}
+struct SyncDiagnosticsSmokeTest {
+  static void run(GfxRenderer& renderer, MappedInputManager& input) {
+    const char* directory = std::getenv("CROSSINK_SYNC_DIAGNOSTICS_CAPTURES");
+    std::filesystem::create_directories(directory);
+    KOREADER_STORE.setSyncStats(true);
+    KOREADER_STORE.setSyncClippings(true);
+    KOREADER_STORE.setServerSupport(SyncServerSupport::SUPPORTED);
+    const auto capture = [&](const char* name, Activity& activity) {
+      RenderLock lock;
+      activity.render(std::move(lock));
+      const auto path = std::filesystem::path(directory) / (std::string(name) + ".pgm");
+      FILE* file = fopen(path.c_str(), "wb");
+      require(file != nullptr, "create diagnostic screenshot");
+      fprintf(file, "P5\n%d %d\n255\n", renderer.getScreenWidth(), renderer.getScreenHeight());
+      for (int y = 0; y < renderer.getScreenHeight(); ++y)
+        for (int x = 0; x < renderer.getScreenWidth(); ++x) fputc(renderer.isPixelBlack(x, y) ? 0 : 255, file);
+      require(fclose(file) == 0, "close diagnostic screenshot");
+    };
+    for (const auto orientation : {GfxRenderer::Orientation::Portrait, GfxRenderer::Orientation::LandscapeClockwise}) {
+      renderer.setOrientation(orientation);
+      const bool portrait = orientation == GfxRenderer::Orientation::Portrait;
+      auto bulk = std::make_unique<StatsUploadActivity>(renderer, input, "", StatsUploadActivity::Scope::ReadingStats);
+      bulk->statsFailed = 1;
+      bulk->globalResult = StatsUploadClient::Result::Server;
+      bulk->globalFailedStep = ReadingSyncUpload::GlobalStatsStep::Totals;
+      bulk->globalHttpCode = 503;
+      bulk->failBook("/books/Example.epub", SyncPending::STATS_BIT, "Server error (HTTP 503)");
+      bulk->failBook("/books/Example.epub", SyncPending::PROGRESS_BIT, "Authentication Failed (HTTP 401)");
+      require(bulk->failed == 2 && bulk->failures.size() == 1 && bulk->omittedFailureDetails == 0,
+              "one failed book merges multiple attempts without claiming extra books");
+      require(bulk->failures[0].parts == (SyncPending::STATS_BIT | SyncPending::PROGRESS_BIT) &&
+                  bulk->failures[0].reason.find("HTTP 401") != std::string::npos &&
+                  bulk->failures[0].reason.find("HTTP 503") != std::string::npos,
+              "merged failure preserves component masks and HTTP reasons");
+      bulk->finishUpload();
+      require(bulk->message == tr(STR_SYNC_FAILED_MSG), "failed bulk cannot say Done");
+      capture(portrait ? "bulk-failed-portrait" : "bulk-failed-landscape", *bulk);
+      auto library = std::make_unique<StatsUploadActivity>(renderer, input);
+      library->clippingPullStarted = true;
+      library->statsFailed = library->clippingsFailed = 1;
+      library->globalResult = StatsUploadClient::Result::Server;
+      library->globalFailedStep = ReadingSyncUpload::GlobalStatsStep::Totals;
+      library->globalHttpCode = 503;
+      library->failBook("/books/Example.epub", SyncPending::PROGRESS_BIT, "Authentication Failed (HTTP 401)");
+      library->failBook("/books/Example.epub", SyncPending::CLIPPINGS_BIT, "Server error (HTTP 500)");
+      library->finishUpload();
+      capture(portrait ? "library-failed-portrait" : "library-failed-landscape", *library);
+      require(!library->failuresBelow, "full-library failure row fits available height");
+      auto reader = std::make_unique<KOReaderSyncActivity>(renderer, input, "/books/Example.epub",
+                                                           DocumentMatchMethod::FILENAME, SETTINGS.orientation);
+      reader->state = KOReaderSyncActivity::SYNC_FAILED;
+      reader->extrasAttempted = true;
+      reader->progressSucceeded = true;
+      reader->globalStatsResult = StatsUploadClient::Result::Server;
+      reader->globalStatsFailedStep = ReadingSyncUpload::GlobalStatsStep::Totals;
+      reader->globalStatsHttpCode = 503;
+      reader->extrasResult.stats = StatsUploadClient::Result::InvalidResponse;
+      reader->extrasResult.statsHttpCode = 200;
+      reader->extrasResult.clippings = StatsUploadClient::Result::Ok;
+      capture(portrait ? "reader-failed-portrait" : "reader-failed-landscape", *reader);
+      // Each independent failure category must reject the success heading.
+      for (unsigned kind = 0; kind < 4; ++kind) {
+        bulk->failed = kind == 0;
+        bulk->statsFailed = kind == 1;
+        bulk->clippingsFailed = kind == 2;
+        bulk->globalResult = kind == 3 ? StatsUploadClient::Result::InvalidResponse : StatsUploadClient::Result::Ok;
+        bulk->finishUpload();
+        require(bulk->message == tr(STR_SYNC_FAILED_MSG), "independent failure keeps failure heading");
+      }
+      bulk->failed = bulk->statsFailed = bulk->clippingsFailed = 0;
+      bulk->globalResult = StatsUploadClient::Result::Ok;
+      bulk->finishUpload();
+      require(bulk->message == tr(STR_DONE), "successful sync still says Done");
+    }
+    auto capped = std::make_unique<StatsUploadActivity>(renderer, input);
+    capped->failures.reserve(StatsUploadActivity::MAX_FAILURE_DETAILS);
+    for (unsigned i = 0; i < 25; ++i)
+      capped->failBook("/folder/" + std::to_string(i) + "/same.epub", SyncPending::PROGRESS_BIT, "HTTP 401");
+    capped->failBook("/folder/0/same.epub", SyncPending::CLIPPINGS_BIT, "HTTP 500");
+    require(capped->failed == 26 && capped->failures.size() == 20 && capped->omittedFailureDetails == 5,
+            "capped details count omitted attempts independently of merged rows");
+    LOG_INF("SMOKE", "Sync diagnostic result screens passed");
+    std::_Exit(0);
+  }
+};
+void verifySyncDiagnosticsScreens(GfxRenderer& renderer, MappedInputManager& input) {
+  SyncDiagnosticsSmokeTest::run(renderer, input);
 }
 #endif
