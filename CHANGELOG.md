@@ -162,6 +162,7 @@
 - Keep root fonts, dictionaries, plugins, sleep, and sleep-overlay resource folders out of Library scans; existing indexes refresh after upgrading (CrossPoint #4373).
 - Include combining accent marks when generating latin-ext SD font packs (CrossPoint #4358).
 - Restore publisher spacing around grouped EPUB chapter headings and align subtitles with the chapter number (#940).
+- Prevent an X4 Pro startup crash after KOReader sync by giving the ESP32-S3 core-to-core tasks enough stack for input interrupt setup (#938).
 
 ### Changed
 
