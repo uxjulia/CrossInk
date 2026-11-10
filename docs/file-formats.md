@@ -1121,7 +1121,13 @@ clippings, progress or statistics. The PXC byte layout itself is unchanged.
 
 ## `section.bin`
 
-### Version 106 (current development)
+### Version 107 (current development)
+
+Complete caches use `107` and suspended partial caches use `0xDC`. Both rebuild
+to apply publisher spacing and subtitle alignment in chapter heading groups.
+The binary payload is unchanged.
+
+### Version 106
 
 The post-RC development cache revisions are retained when merging the release
 branch, so the first 2.0.0 RC's `84` / `0xC5` caches cannot bypass the newer

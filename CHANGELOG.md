@@ -161,6 +161,7 @@
 - Keep EPUB clipping highlights on the original passage after font, spacing, orientation, and layout changes, without highlighting repeated phrases elsewhere (#931). Save and sync stable source positions, and upgrade older clippings when their original coordinates can be verified.
 - Keep root fonts, dictionaries, plugins, sleep, and sleep-overlay resource folders out of Library scans; existing indexes refresh after upgrading (CrossPoint #4373).
 - Include combining accent marks when generating latin-ext SD font packs (CrossPoint #4358).
+- Restore publisher spacing around grouped EPUB chapter headings and align subtitles with the chapter number (#940).
 
 ### Changed
 

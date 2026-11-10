@@ -82,8 +82,8 @@ constexpr uint32_t MIN_FREE_HEAP_FOR_RICH_TABLE = 96U * 1024U;
 constexpr uint32_t MIN_MAX_ALLOC_FOR_RICH_TABLE = 56U * 1024U;
 
 static constexpr const char* const HEADER_TAGS[] = {"h1", "h2", "h3", "h4", "h5", "h6"};
-static constexpr const char* const BLOCK_TAGS[] = {"p",  "li", "div",    "br",      "blockquote",
-                                                   "ul", "ol", "figure", "fieldset"};
+static constexpr const char* const BLOCK_TAGS[] = {"p",  "li", "div",    "br",       "blockquote",
+                                                   "ul", "ol", "figure", "fieldset", "hgroup"};
 static constexpr const char* const BOLD_TAGS[] = {"b", "strong"};
 static constexpr const char* const ITALIC_TAGS[] = {"i", "em"};
 static constexpr const char* const UNDERLINE_TAGS[] = {"u", "ins"};
@@ -3282,6 +3282,20 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
     userAlignmentBlockStyle.alignment = requestedAlign == CssTextAlign::None ? CssTextAlign::Justify : requestedAlign;
   }
 
+  // A heading group's subtitle follows the group's alignment even when prose has a reader override.
+  if (strcmp(name, "hgroup") == 0) {
+    self->headingGroupDepth = self->depth;
+  } else if (self->embeddedStyle && self->headingGroupDepth >= 0 && self->depth == self->headingGroupDepth + 1 &&
+             strcmp(name, "p") == 0) {
+    const auto alignment = cssStyle.hasTextAlign()
+                               ? cssStyle.textAlign
+                               : self->blockStyleBuf_[self->blockStyleCount_ - 1].publisherAlignment;
+    if (alignment != CssTextAlign::None) {
+      userAlignmentBlockStyle.alignment = alignment;
+      userAlignmentBlockStyle.textAlignDefined = true;
+    }
+  }
+
   // Figures lay out artwork and captions, independently of the reader's prose alignment.
   if (self->embeddedStyle && strcmp(name, "figure") == 0 && cssStyle.hasTextAlign()) {
     userAlignmentBlockStyle.alignment = cssStyle.textAlign;
@@ -4360,6 +4374,7 @@ void XMLCALL ChapterHtmlSlimParser::endElement(void* userData, const XML_Char* n
     self->currentTextRunBytes = 0;
     self->nextWordContinues = false;
   }
+  if (self->headingGroupDepth == self->depth) self->headingGroupDepth = -1;
   if (self->headingDepth == self->depth) {
     self->headingDepth = -1;
   }

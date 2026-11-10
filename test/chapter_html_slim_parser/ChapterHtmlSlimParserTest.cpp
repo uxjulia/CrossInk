@@ -190,6 +190,33 @@ class ChapterHtmlSlimParserTest : public ::testing::TestWithParam<const char*> {
   }
 };
 
+TEST_F(ChapterHtmlSlimParserTest, HeadingGroupSpacesBothTitleLinesTogether) {
+  parser.paragraphAlignment = static_cast<uint8_t>(CssTextAlign::Left);
+  cssParser.rulesBySelector_["hgroup.has-h2"] = CssParser::parseInlineStyle("margin: 4.5em 0; text-align: center");
+  const XML_Char* groupClass[] = {"class", "has-h2", nullptr};
+  ChapterHtmlSlimParser::startElement(&parser, "hgroup", groupClass);
+  ChapterHtmlSlimParser::startElement(&parser, "h2", nullptr);
+  ChapterHtmlSlimParser::characterData(&parser, "LI", 2);
+  ChapterHtmlSlimParser::endElement(&parser, "h2");
+  ChapterHtmlSlimParser::startElement(&parser, "p", nullptr);
+  EXPECT_EQ(parser.currentTextBlock->getBlockStyle().alignment, CssTextAlign::Center);
+  ChapterHtmlSlimParser::characterData(&parser, "Title", 5);
+  ChapterHtmlSlimParser::endElement(&parser, "p");
+  ChapterHtmlSlimParser::endElement(&parser, "hgroup");
+  ChapterHtmlSlimParser::startElement(&parser, "p", nullptr);
+  EXPECT_EQ(parser.currentTextBlock->getBlockStyle().alignment, CssTextAlign::Left);
+  ChapterHtmlSlimParser::characterData(&parser, "Body", 4);
+  ChapterHtmlSlimParser::endElement(&parser, "p");
+  parser.makePages();
+  ASSERT_TRUE(parser.currentPage);
+  ASSERT_EQ(parser.currentPage->elements.size(), 3u);
+  const auto& lines = parser.currentPage->elements;
+  const int margin = renderer.getFontAscenderSize(0) * 4.5f;
+  EXPECT_EQ(lines[0]->yPos, margin);
+  EXPECT_EQ(lines[1]->yPos - lines[0]->yPos, renderer.getLineHeight(0));
+  EXPECT_EQ(lines[2]->yPos - lines[1]->yPos, renderer.getLineHeight(0) + margin);
+}
+
 // Regression cases adapted from yassine-cc's fix for CrossInk #886.
 TEST_F(ChapterHtmlSlimParserTest, NestedQuotationKeepsPrecedingWordOutsideQuote) {
   cssParser.rulesBySelector_[".quote"] = CssParser::parseInlineStyle("margin-left: 3em");
