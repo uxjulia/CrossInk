@@ -12,19 +12,30 @@
 // match, so the stores' temp/backup siblings are covered too.
 namespace protectedpaths {
 
-inline constexpr const char* SENSITIVE_FILES[] = {"/.crosspoint/wifi.json", "/.crosspoint/opds.json",
-                                                  "/.crosspoint/koreader.json", "/.crosspoint/wifi.bin",
-                                                  "/.crosspoint/plugin-install.txt"};
+inline constexpr const char* SENSITIVE_FILES[] = {
+    "/.crosspoint/wifi.json",          "/.crosspoint/opds.json",
+    "/.crosspoint/koreader.json",      "/.crosspoint/wifi.bin",
+    "/.crosspoint/plugin-install.txt", "/.crosspoint/settings.json",
+    "/.crosspoint/settings.bin",       "/.crosspoint/crossink-settings.json"};
 
 // SdFat also opens a name by its generated 8.3 alias (".crosspoint" is
 // CROSSP~1), which no spelling check can map back to the long name.
 inline bool isShortAlias(const char* first, const char* last) {
   const char* tilde = static_cast<const char*>(memchr(first, '~', static_cast<size_t>(last - first)));
-  if (!tilde || tilde + 1 >= last || tilde[1] < '0' || tilde[1] > '9') return false;
+  if (!tilde || tilde + 1 >= last) return false;
   const char* dot = static_cast<const char*>(memchr(first, '.', static_cast<size_t>(last - first)));
   const size_t base = static_cast<size_t>((dot ? dot : last) - first);
   const size_t ext = dot ? static_cast<size_t>(last - dot - 1) : 0;
-  return base <= 8 && ext <= 3;
+  if (base > 8 || ext > 3) return false;
+  if (tilde[1] >= '0' && tilde[1] <= '9') return true;
+  // SdFat switches colliding long names to ~HHHH, where the first hex digit
+  // need not be numeric (FatFile::makeUniqueSfn). Keep ordinary a~b names valid.
+  const char* suffixEnd = dot ? dot : last;
+  if (suffixEnd - tilde != 5) return false;
+  for (const char* c = tilde + 1; c < suffixEnd; ++c) {
+    if (!((*c >= '0' && *c <= '9') || (*c >= 'A' && *c <= 'F') || (*c >= 'a' && *c <= 'f'))) return false;
+  }
+  return true;
 }
 
 inline bool isSensitivePath(const char* path, const bool includeParents = false) {

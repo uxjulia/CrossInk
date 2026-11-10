@@ -12,6 +12,7 @@
 #include <cstring>
 #include <memory>
 #include <new>
+#include <string_view>
 
 #include "CrossPointSettings.h"
 #include "ProtectedPaths.h"
@@ -49,10 +50,29 @@ bool replaceFile(const String& source, const String& destination) {
 constexpr const char* HIDDEN_ITEMS[] = {"System Volume Information", "XTCache"};
 constexpr size_t HIDDEN_ITEM_COUNT = sizeof(HIDDEN_ITEMS) / sizeof(HIDDEN_ITEMS[0]);
 
-bool isProtectedPathSegment(const char* name) {
-  return (!SETTINGS.showHiddenFiles && name[0] == '.') ||
+// SdFat ignores leading spaces and trailing dots/spaces, and compares ASCII
+// case-insensitively. Use views so checks do not allocate per directory entry.
+std::string_view fatName(std::string_view name) {
+  while (!name.empty() && name.front() == ' ') name.remove_prefix(1);
+  while (!name.empty() && (name.back() == '.' || name.back() == ' ')) name.remove_suffix(1);
+  return name;
+}
+
+bool sameFatName(std::string_view name, std::string_view expected) {
+  if (name.size() != expected.size()) return false;
+  for (size_t i = 0; i < name.size(); ++i) {
+    const char c = name[i] >= 'A' && name[i] <= 'Z' ? name[i] + ('a' - 'A') : name[i];
+    const char e = expected[i] >= 'A' && expected[i] <= 'Z' ? expected[i] + ('a' - 'A') : expected[i];
+    if (c != e) return false;
+  }
+  return true;
+}
+
+bool isProtectedPathSegment(std::string_view name) {
+  name = fatName(name);
+  return name.empty() || (!SETTINGS.showHiddenFiles && name.front() == '.') ||
          std::any_of(HIDDEN_ITEMS, HIDDEN_ITEMS + HIDDEN_ITEM_COUNT,
-                     [name](const char* item) { return strcmp(name, item) == 0; });
+                     [name](const char* item) { return sameFatName(name, item); });
 }
 
 // RFC 1123 date format helper: "Sun, 06 Nov 1994 08:49:37 GMT"
@@ -92,6 +112,8 @@ bool WebDAVHandler::canRaw(WebServer& server, const String& uri) {
 void WebDAVHandler::raw(WebServer& server, const String& uri, HTTPRaw& raw) {
   (void)uri;
   if (raw.status == RAW_START) {
+    if (_putFile) _putFile.close();
+    _putOk = false;
     _putPath = getRequestPath(server);
     if (isProtectedPath(_putPath)) {
       _putOk = false;
@@ -152,7 +174,7 @@ void WebDAVHandler::raw(WebServer& server, const String& uri, HTTPRaw& raw) {
   } else if (raw.status == RAW_ABORTED) {
     if (_putFile) _putFile.close();
     String tempPath = _putPath + ".davtmp";
-    Storage.remove(tempPath.c_str());
+    if (!isProtectedPath(_putPath)) Storage.remove(tempPath.c_str());
     _putOk = false;
   }
 }
@@ -881,9 +903,8 @@ bool WebDAVHandler::isProtectedPath(const String& path) const {
     int end = path.indexOf('/', start);
     if (end == -1) end = path.length();
 
-    String segment = path.substring(start, end);
-
-    if (isProtectedPathSegment(segment.c_str())) return true;
+    const std::string_view segment(path.c_str() + start, end - start);
+    if (isProtectedPathSegment(segment)) return true;
 
     start = end + 1;
   }

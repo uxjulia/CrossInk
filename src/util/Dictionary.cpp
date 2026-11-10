@@ -20,6 +20,41 @@ std::string lookupDictPathOverride;
 bool lookupDictPathOverrideActive = false;
 constexpr char GLOBAL_DICT_DIR[] = "/.crosspoint";
 
+// Query-only fallback adapted from CrossPoint Reader PR #4396. Never fold
+// index entries/comparators: removing marks changes their lexical order.
+bool isLookupVowelMark(const uint32_t cp) {
+  const bool hebrew = (cp >= 0x0591 && cp <= 0x05BD) || cp == 0x05BF || (cp >= 0x05C1 && cp <= 0x05C2) ||
+                      (cp >= 0x05C4 && cp <= 0x05C5) || (cp >= 0x05C7 && cp <= 0x05C9) || cp == 0xFB1E;
+  // Keep Arabic shaddah, hamza and maddah significant.
+  return hebrew || (cp >= 0x064B && cp <= 0x0650) || cp == 0x0652 || cp == 0x0670;
+}
+
+std::string strippedLookupFallback(const std::string& word) {
+  const auto* begin = reinterpret_cast<const unsigned char*>(word.c_str());
+  const auto* cursor = begin;
+  // No allocation at all for queries without removable marks. On a miss this
+  // scratch string holds at most word.size() bytes; existing cleanup/NFC may
+  // allocate another result. Runtime-sized phrases are unsuitable for stack storage.
+  std::string stripped;
+  bool changed = false;
+  while (*cursor) {
+    const auto* start = cursor;
+    const uint32_t cp = utf8NextCodepoint(&cursor);
+    if (isLookupVowelMark(cp)) {
+      if (!changed) {
+        stripped.reserve(word.size());
+        stripped.assign(word.data(), static_cast<size_t>(start - begin));
+        changed = true;
+      }
+    } else if (changed) {
+      stripped.append(reinterpret_cast<const char*>(start), static_cast<size_t>(cursor - start));
+    }
+  }
+  // Marks can hide edge punctuation; trim again only after stripping. Retain
+  // CrossInk's case-preserving cleanup and supported NFC composition.
+  return changed ? utf8CleanLookupWord(stripped) : std::string{};
+}
+
 bool isTextDefinitionType(char type) {
   switch (type) {
     case 'm':  // plain meaning
@@ -830,6 +865,15 @@ void Dictionary::closeLookupSession(LookupSession& session) {
 
 DictLocation Dictionary::locateInSession(LookupSession& session, const std::string& word,
                                          const DictLookupCallbacks& cbs) {
+  DictLocation result = locateExactInSession(session, word, cbs);
+  if (result.found || result.readError || (cbs.shouldCancel && cbs.shouldCancel(cbs.ctx))) return result;
+  const std::string fallback = strippedLookupFallback(word);
+  if (!fallback.empty() && fallback != word) result = locateExactInSession(session, fallback, cbs);
+  return result;
+}
+
+DictLocation Dictionary::locateExactInSession(LookupSession& session, const std::string& word,
+                                              const DictLookupCallbacks& cbs) {
   DictLocation result;
   uint32_t startByte = 0;
   uint32_t endByte = session.idxFileSize;
@@ -1031,6 +1075,13 @@ std::string Dictionary::wordAtOrdinal(const std::string& folderPath, uint32_t or
 }
 
 std::string Dictionary::resolveAltForm(const std::string& word, const char* cachePath) {
+  std::string headword = resolveExactAltForm(word, cachePath);
+  if (!headword.empty()) return headword;
+  const std::string fallback = strippedLookupFallback(word);
+  return !fallback.empty() && fallback != word ? resolveExactAltForm(fallback, cachePath) : std::string{};
+}
+
+std::string Dictionary::resolveExactAltForm(const std::string& word, const char* cachePath) {
   std::string folderPath = readDictPath(cachePath);
   if (folderPath.empty()) return "";
 

@@ -115,7 +115,8 @@ class Dictionary {
   // can continue to locate(), which falls back to scanning the full .idx.
   static bool prepareQuickIndex(const DictLookupCallbacks& cbs = {}, const char* cachePath = nullptr);
 
-  // Search .idx via .cspt, .oft, or .qidx when present. Returns file location without reading content.
+  // Search .idx via .cspt, .oft, or .qidx, trying the supplied spelling first,
+  // then a Hebrew/Arabic vowel-stripped query on a miss. Index ordering is unchanged.
   static DictLocation locate(const std::string& word, const DictLookupCallbacks& cbs = {},
                              const char* cachePath = nullptr);
 
@@ -166,6 +167,10 @@ class Dictionary {
     uint8_t suffixBytes = 8;
     LookupAccelerator acceleratorKind = LookupAccelerator::None;
   };
+
+  static std::string resolveExactAltForm(const std::string& word, const char* cachePath);
+  static DictLocation locateExactInSession(LookupSession& session, const std::string& word,
+                                           const DictLookupCallbacks& cbs);
 
   static bool openLookupSession(LookupSession& session, const char* cachePath);
   static void closeLookupSession(LookupSession& session);

@@ -32,7 +32,7 @@ TEST(ProtectedPaths, NamesSdFatWouldTrimOrAliasStillMatch) {
 }
 
 TEST(ProtectedPaths, EverythingElseStaysReachable) {
-  EXPECT_FALSE(isSensitivePath("/.crosspoint/settings.json"));
+  EXPECT_FALSE(isSensitivePath("/.crosspoint/recent.json"));
   EXPECT_FALSE(isSensitivePath("/.crosspoint/library.idx"));
   EXPECT_FALSE(isSensitivePath("/.crosspoint/month-wallpaper.json"));
   EXPECT_FALSE(isSensitivePath("/.fonts/Noto/Noto_14.cpfont"));
@@ -57,4 +57,15 @@ TEST(ProtectedPaths, LegacyStoresAndDirectoryMutationsStayProtected) {
   EXPECT_FALSE(isSensitivePath("/.crosspoint/plugins", true));
   EXPECT_FALSE(isPluginPath(std::string("/books/new.epub\0/other", 22)));
   EXPECT_FALSE(isPluginPath("/books\\..\\.crosspoint\\wifi.json"));
+}
+
+TEST(ProtectedPaths, LegacySettingsAndHashedFatAliasesStayProtected) {
+  for (const char* name : {"/.crosspoint/settings.json", "/.crosspoint/settings.json.bak",
+                           "/.crosspoint/settings.bin.tmp", "/.CrossPoint/crossink-settings.json.davold",
+                           "/CRO~A123/wifi.json", "/cro~fabc/opds.json", "/.crosspoint/SET~ABCD.JSO"}) {
+    EXPECT_TRUE(isSensitivePath(name)) << name;
+    EXPECT_FALSE(isPluginPath(name)) << name;
+  }
+  EXPECT_FALSE(isSensitivePath("/Books/a~b.epub"));
+  EXPECT_FALSE(isSensitivePath("/Books/Photos/CRO~A123.JPG"));
 }

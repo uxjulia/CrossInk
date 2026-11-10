@@ -85,6 +85,7 @@ add_subdirectory(stable_page_navigation)
 add_subdirectory(xtc_navigation)
 add_subdirectory(touch_reader_preview)
 add_subdirectory(dictionary_word_parts)
+add_subdirectory(dictionary_lookup)
 add_subdirectory(ligature_guard)
 add_subdirectory(chapter_html_slim_parser)
 add_subdirectory(korean_line_breaking)
@@ -212,3 +213,8 @@ if(NODE_EXECUTABLE)
     COMMAND ${NODE_EXECUTABLE} ${REPO_ROOT}/test/scripts/test_transfer_websocket.cjs)
 endif()
 add_subdirectory(progress_sync)
+
+add_test(NAME WebDavCredentialsRegression
+  COMMAND ${Python3_EXECUTABLE} ${REPO_ROOT}/test/scripts/test_webdav_credentials.py)
+add_test(NAME TlsFragmentConfigRegression
+  COMMAND ${Python3_EXECUTABLE} ${REPO_ROOT}/scripts/test_tls_fragment_config.py)
