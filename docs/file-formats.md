@@ -123,6 +123,11 @@ layout may shift the destination page.
 
 ## `/.crosspoint/home_carousel_cache_<index>.bin`
 
+### Version 7
+
+Lift the carousel artwork to leave room for the reading details above the menu.
+Version 6 snapshots rebuild automatically; the binary layout is unchanged.
+
 ### Version 6
 
 The v1.6.1 release normalizes development version 8 to version 6, one step
