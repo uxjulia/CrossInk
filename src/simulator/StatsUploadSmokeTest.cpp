@@ -449,6 +449,17 @@ struct SyncDiagnosticsSmokeTest {
       reader->extrasResult.statsHttpCode = 200;
       reader->extrasResult.clippings = StatsUploadClient::Result::Ok;
       capture(portrait ? "reader-failed-portrait" : "reader-failed-landscape", *reader);
+      reader->globalStatsResult = StatsUploadClient::Result::Network;
+      reader->globalStatsFailedStep = ReadingSyncUpload::GlobalStatsStep::Sessions;
+      reader->globalStatsHttpCode = -1;
+      reader->extrasResult.stats = reader->extrasResult.clippings = StatsUploadClient::Result::Network;
+      reader->extrasResult.statsHttpCode = reader->extrasResult.clippingsHttpCode = -1;
+      capture(portrait ? "position-synced-portrait" : "position-synced-landscape", *reader);
+      reader->progressSucceeded = false;
+      reader->progressFailed = true;
+      reader->extrasAttempted = false;
+      reader->statusMessage = tr(STR_CONNECTION_FAILED);
+      capture(portrait ? "position-failed-portrait" : "position-failed-landscape", *reader);
       // Each independent failure category must reject the success heading.
       for (unsigned kind = 0; kind < 4; ++kind) {
         bulk->failed = kind == 0;

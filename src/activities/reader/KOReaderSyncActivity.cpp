@@ -1046,10 +1046,11 @@ void KOReaderSyncActivity::render(RenderLock&&) {
     const bool statsFailed = extrasAttempted && (StatsUploadClient::failed(extrasResult.stats) ||
                                                  StatsUploadClient::failed(globalStatsResult));
     const bool clippingsFailed = extrasAttempted && StatsUploadClient::failed(extrasResult.clippings);
-    top += UITheme::drawCenteredWrappedText(
-               renderer, textArea, UI_10_FONT_ID, top,
-               ReadingSyncUpload::failureHeading(progressFailed, statsFailed, clippingsFailed), 2, true,
-               EpdFontFamily::BOLD, 4) +
+    const char* resultHeading = progressSucceeded
+                                    ? tr(STR_NEARBY_POSITION_SYNCED)
+                                    : ReadingSyncUpload::failureHeading(progressFailed, statsFailed, clippingsFailed);
+    top += UITheme::drawCenteredWrappedText(renderer, textArea, UI_10_FONT_ID, top, resultHeading, 2, true,
+                                            EpdFontFamily::BOLD, 4) +
            8;
     const std::string book = bookTitle.empty() ? ReadingSyncUpload::displayName(epubPath) : bookTitle;
     top += UITheme::drawCenteredWrappedText(renderer, textArea, UI_10_FONT_ID, top, book.c_str(), 2, true,
@@ -1064,7 +1065,7 @@ void KOReaderSyncActivity::render(RenderLock&&) {
     top += UITheme::drawCenteredWrappedText(renderer, textArea, UI_10_FONT_ID, top, SyncLog::PATH, 1, true,
                                             EpdFontFamily::REGULAR, 4) +
            8;
-    drawExtrasResults(textArea, top, true);
+    drawExtrasResults(textArea, top, !progressSucceeded);
     if (folderSync && mappedInput.hasTouchHardware()) {
       const auto actions = bottomActionLayout(screen, metrics, 1);
       const char* labels[] = {tr(STR_SKIP_BOOK)};
