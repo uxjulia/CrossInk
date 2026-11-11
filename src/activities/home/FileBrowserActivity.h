@@ -128,6 +128,8 @@ class FileBrowserActivity final : public Activity {
   const std::string& simulatorFolderPath() const { return basepath; }
   size_t simulatorSelectedIndex() const { return selectorIndex; }
   int simulatorTopIndex() const { return topIndex; }
+  bool simulatorDeleteRevealed() const { return swipeDelete.index >= 0; }
+  bool simulatorTouchActive() const { return app.touchActive(); }
   void simulatorOpenContextMenu() { showFileActionMenu(entryNameAt(selectorIndex)); }
   freeink::ui::Rect simulatorDirectorySelectRect() const { return directorySelectRect; }
 #endif

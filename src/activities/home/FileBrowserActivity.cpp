@@ -1174,7 +1174,17 @@ void FileBrowserActivity::activateSelected() {
 }
 
 void FileBrowserActivity::loop() {
-  if (TouchHeaderBackButton::wasTapped(mappedInput, renderer)) {
+  // Edge Back takes priority over the row-delete handler, which consumes horizontal swipes.
+  if (mappedInput.wasLeftEdgeGesture() || TouchHeaderBackButton::wasTapped(mappedInput, renderer)) {
+    {
+      RenderLock lock(*this);
+      // The parent reuses this app; release the row touched before the swipe.
+      fui::InputSnapshot cancel{};
+      cancel.touchReleased = true;
+      cancel.touchX = cancel.touchY = -1;
+      app.route(cancel);
+      app.clearTapFlash();
+    }
     navigateBack();
     return;
   }

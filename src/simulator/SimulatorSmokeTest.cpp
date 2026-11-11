@@ -2812,6 +2812,8 @@ class SimulatorSmokeTest {
     AssertTtfProfileNative,
     OpenSmokeBook,
     OpenHomeSwipeScreen,
+    OpenBackSwipeBrowser,
+    AssertBackSwipeBrowser,
     OpenFrontlightSettings,
     ClearFrontlightSyncBook,
     PrepareFrontlightSync,
@@ -10371,6 +10373,47 @@ class SimulatorSmokeTest {
       inputScript.push_back(touchRelease(width / 2, endY));
       inputScript.push_back(render("Home swipe result", 4));
     };
+    // Back must win over row-reveal gestures, including in empty folders and pickers.
+    if (!Storage.mkdir("/books/back-swipe/empty", true)) fail("Failed to create browser Back swipe fixture");
+    const auto openBrowser = [&](const char* path, FileBrowserActivity::Mode mode) {
+      inputScript.push_back({ScriptActionType::OpenBackSwipeBrowser, MappedInputManager::Button::Back, path, 0,
+                             static_cast<int>(mode), 0});
+      inputScript.push_back(render("Browser before back swipe", 4));
+    };
+    const auto checkBrowser = [&](const char* path, bool revealed = false) {
+      inputScript.push_back(
+          {ScriptActionType::AssertBackSwipeBrowser, MappedInputManager::Button::Back, path, 0, revealed ? 1 : 0, 0});
+    };
+    const auto horizontalSwipe = [&](int startX, int endX, int y) {
+      inputScript.push_back(touchDown(startX, y));
+      inputScript.push_back(touchMove(endX, y));
+      inputScript.push_back(touchRelease(endX, y));
+      inputScript.push_back(render("Browser after horizontal swipe", 4));
+    };
+    for (const auto mode : {FileBrowserActivity::Mode::Books, FileBrowserActivity::Mode::PickFirmware,
+                            FileBrowserActivity::Mode::PickDirectory}) {
+      openBrowser("/books/back-swipe/empty", mode);
+      horizontalSwipe(8, width / 2, height / 2);
+      checkBrowser("/books/back-swipe");
+      horizontalSwipe(8, width / 2, height / 2);
+      checkBrowser("/books");
+      openBrowser("/", mode);
+      horizontalSwipe(8, width / 2, height / 2);
+      inputScript.push_back(assertActivity("Home"));
+    }
+    openBrowser("/books/back-swipe", FileBrowserActivity::Mode::Books);
+    const int rowY = TouchHeaderBackButton::contentTop(renderer, mappedInputManager) +
+                     UITheme::getInstance().getMetrics().verticalSpacing + 24;
+    horizontalSwipe(width / 3, width * 3 / 4, rowY);
+    checkBrowser("/books/back-swipe");  // Ordinary right swipe only closes a reveal.
+    horizontalSwipe(width * 3 / 4, width / 3, rowY);
+    checkBrowser("/books/back-swipe", true);
+    horizontalSwipe(width / 3, width * 3 / 4, rowY);
+    checkBrowser("/books/back-swipe");
+    horizontalSwipe(width * 3 / 4, width / 3, rowY);
+    checkBrowser("/books/back-swipe", true);
+    horizontalSwipe(width / 8, width / 2, rowY);
+    checkBrowser("/books");  // Edge Back navigates even while a delete action is revealed.
     const char* screens[] = {"Settings",     "FileBrowser",       "About",
                              "ReleaseNotes", "StatusBarSettings", "FileBrowserSettings"};
     for (int screen = 0; screen < 6; ++screen) {
@@ -11191,6 +11234,19 @@ class SimulatorSmokeTest {
         }
 #endif
         break;
+      case ScriptActionType::OpenBackSwipeBrowser:
+        activityManager.replaceActivity(std::make_unique<FileBrowserActivity>(
+            renderer, mappedInputManager, action.label, static_cast<FileBrowserActivity::Mode>(action.x)));
+        break;
+      case ScriptActionType::AssertBackSwipeBrowser: {
+        const auto* browser = dynamic_cast<FileBrowserActivity*>(activityManager.simulatorCurrentActivity());
+        if (!browser || browser->simulatorFolderPath() != action.label ||
+            browser->simulatorDeleteRevealed() != (action.x != 0) || browser->simulatorTouchActive())
+          fail("Browser Back/reveal/press mismatch: expected %s, revealed=%d", action.label, action.x);
+        RenderLock lock;
+        captureStatusBarScreen(action.x ? "browser-delete-revealed" : "browser-back-restored");
+        break;
+      }
       case ScriptActionType::OpenHomeSwipeScreen:
         switch (action.x) {
           case 0:
