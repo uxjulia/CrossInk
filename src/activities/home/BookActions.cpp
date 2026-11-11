@@ -299,21 +299,15 @@ bool toggleBookCompleted(const std::string& fullPath, const std::string& display
   Epub epub(fullPath, "/.crosspoint");
   Xtc xtc(fullPath, "/.crosspoint");
   std::string cachePath;
-  std::string title;
-  std::string author;
   if (isEpub) {
     epub.setupCacheDir();
     cachePath = epub.getCachePath();
-    title = epub.getTitle();
-    author = epub.getAuthor();
   } else {
     if (!xtc.load()) {
       return false;
     }
     xtc.setupCacheDir();
     cachePath = xtc.getCachePath();
-    title = xtc.getTitle();
-    author = xtc.getAuthor();
   }
 
   BookReadingStats stats = BookReadingStats::load(cachePath);
@@ -348,6 +342,14 @@ bool toggleBookCompleted(const std::string& fullPath, const std::string& display
   if (SETTINGS.removeReadBooksFromRecents && completed) RECENT_BOOKS.removeByPath(fullPath);
 
   if (isEpub && completed && SETTINGS.moveFinishedToReadFolder && fullPath.rfind("/Read/", 0) != 0) {
+    // This EPUB has not been opened by the reader, so getTitle()/getAuthor()
+    // would be empty. Load only metadata before migrating the saved items.
+    std::string title;
+    std::string author;
+    if (!epub.loadMetadata(title, author)) {
+      LOG_ERR("BookActions", "Could not load metadata for completed book: %s", fullPath.c_str());
+    }
+    if (title.empty()) title = displayName.empty() ? fullPath.substr(fullPath.find_last_of('/') + 1) : displayName;
     const std::string oldCachePath = epub.getCachePath();
     const std::string dstPath = BookMoveUtils::buildReadFolderDestination(fullPath);
     LOG_INF("BookActions", "Moving completed epub: %s -> %s", fullPath.c_str(), dstPath.c_str());

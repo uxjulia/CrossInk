@@ -1,5 +1,6 @@
 #include "SavedItemsHomeActivity.h"
 
+#include <Epub.h>
 #include <GfxRenderer.h>
 #include <I18n.h>
 #include <Logging.h>
@@ -77,6 +78,25 @@ void SavedItemsHomeActivity::reloadSavedBooks() {
   }
   for (const auto& entry : clippedBooks) {
     mergeClippingEntry(books, entry);
+  }
+
+  for (auto& entry : books) {
+    if (!entry.bookTitle.empty()) continue;
+    if (entry.bookType == "epub") {
+      // Older completion moves could erase the saved title and author. Recover
+      // display metadata without loading CSS, page layouts or location indexes.
+      // Keep the EPUB parser off the activity task's small stack.
+      auto epub = makeUniqueNoThrow<Epub>(entry.bookPath, "/.crosspoint");
+      std::string title;
+      std::string author;
+      if (epub && epub->loadMetadata(title, author)) {
+        entry.bookTitle = std::move(title);
+        if (entry.bookAuthor.empty()) entry.bookAuthor = std::move(author);
+      } else {
+        LOG_ERR("SVA", "Could not recover saved book metadata: %s", entry.bookPath.c_str());
+      }
+    }
+    if (entry.bookTitle.empty()) entry.bookTitle = entry.bookPath.substr(entry.bookPath.find_last_of('/') + 1);
   }
 
   if (books.empty()) {

@@ -1,6 +1,7 @@
 #ifdef SIMULATOR
 #include "BookmarkListSmokeTest.h"
 
+#include <Epub.h>
 #include <Logging.h>
 
 #include <cstdio>
@@ -9,8 +10,10 @@
 #include <filesystem>
 
 #include "BookmarkStore.h"
+#include "ClippingStore.h"
 #include "CrossPointSettings.h"
 #include "activities/ActivityManager.h"
+#include "activities/home/BookActions.h"
 #include "activities/home/HomeActivity.h"
 #include "activities/home/SavedItemsHomeActivity.h"
 #include "activities/reader/EpubReaderActivity.h"
@@ -59,6 +62,7 @@ struct BookmarkListSmokeTest {
   }
 
   static bool tick() {
+    if (std::getenv("CROSSINK_SIMULATOR_SMOKE_CLIPPING_METADATA")) return tickClippingMetadata();
     if (!std::getenv("CROSSINK_SIMULATOR_SMOKE_BOOKMARKS")) return false;
     static unsigned phase = 0;
     switch (phase++) {
@@ -171,6 +175,98 @@ struct BookmarkListSmokeTest {
         LOG_INF("SMOKE",
                 "Simulator smoke test passed: bookmarks Home/reader, shared data, last row, deletion, reopen, jump and "
                 "empty list");
+        std::_Exit(0);
+      }
+    }
+    return true;
+  }
+
+  static bool tickClippingMetadata() {
+    static unsigned phase = 0;
+    static std::string title;
+    static std::string author;
+    static std::string movedPath;
+    constexpr char legacyPath[] = "/books/legacy.epub";
+    constexpr char unreadablePath[] = "/books/unreadable.epub";
+    switch (phase++) {
+      case 0: {
+        const char* path = std::getenv("CROSSINK_SIMULATOR_SMOKE_BOOK");
+        require(path != nullptr, "missing metadata fixture");
+        {
+          Epub epub(path, "/.crosspoint");
+          require(epub.getTitle().empty() && epub.getAuthor().empty(), "constructor unexpectedly loaded metadata");
+          require(epub.loadMetadata(title, author) && !title.empty() && !author.empty(), "metadata fixture load");
+        }
+        require(CLIPPINGS.loadForBook(path, title, author, "epub"), "clipping fixture load");
+        require(CLIPPINGS.addClipping(0, 0, 0, 1, 0, 1, 2, "Chapter", 0, "Saved passage", UINT16_MAX, 0) ==
+                    ClippingStore::AddResult::Added,
+                "clipping fixture save");
+        CLIPPINGS.unload();
+        require(BOOKMARKS.loadForBook(path, title, author, "epub"), "bookmark metadata fixture load");
+        require(BOOKMARKS.addBookmark(0, 0.0f, 0, "Chapter", 1, "Saved passage") == BookmarkStore::AddResult::Added,
+                "bookmark metadata fixture save");
+        BOOKMARKS.unload();
+        SETTINGS.moveFinishedToReadFolder = true;
+        SETTINGS.removeReadBooksFromRecents = false;
+        bool completed = false;
+        require(BookActions::toggleBookCompleted(path, "Filename label", completed) && completed,
+                "mark finished failed");
+        movedPath = "/Read/" + std::string(path).substr(std::string(path).find_last_of('/') + 1);
+        require(!Storage.exists(path) && Storage.exists(movedPath.c_str()), "finished book did not move");
+        std::vector<ClippedBookEntry> clips;
+        require(ClippingStore::getAllClippedBooks(clips) && clips.size() == 1 && clips[0].bookTitle == title &&
+                    clips[0].bookAuthor == author && clips[0].bookPath == movedPath && clips[0].count == 1,
+                "completion move erased clipping metadata");
+        std::vector<BookmarkedBookEntry> bookmarks;
+        require(BookmarkStore::getAllBookmarkedBooks(bookmarks) && bookmarks.size() == 1 &&
+                    bookmarks[0].bookTitle == title && bookmarks[0].bookAuthor == author &&
+                    bookmarks[0].bookPath == movedPath,
+                "completion move erased bookmark metadata");
+
+        // Recreate a file written by the old completion path, plus an EPUB
+        // whose metadata cannot be read, to exercise both recovery and fallback.
+        std::filesystem::copy_file("fs_" + movedPath, std::string("fs_") + legacyPath);
+        auto unreadable = Storage.open(unreadablePath, O_WRONLY | O_CREAT | O_TRUNC);
+        require(bool(unreadable), "unreadable EPUB fixture creation");
+        unreadable.close();
+        for (const auto* book : {legacyPath, unreadablePath}) {
+          require(CLIPPINGS.loadForBook(book, "", "", "epub"), "blank metadata fixture load");
+          require(CLIPPINGS.addClipping(0, 0, 0, 1, 0, 1, 2, "Chapter", 0, "Legacy passage", UINT16_MAX, 0) ==
+                      ClippingStore::AddResult::Added,
+                  "blank metadata fixture save");
+          CLIPPINGS.unload();
+        }
+        activityManager.goHome();
+        break;
+      }
+      case 1:
+        render();
+        current<HomeActivity>().onSavedItemsOpen();
+        break;
+      case 2: {
+        render();
+        auto& saved = current<SavedItemsHomeActivity>();
+        require(saved.books.size() == 3, "saved book count changed");
+        for (const auto& entry : saved.books) {
+          if (entry.bookPath == unreadablePath) {
+            require(entry.bookTitle == "unreadable.epub", "missing filename fallback");
+          } else {
+            require(entry.bookTitle == title && entry.bookAuthor == author, "blank metadata not recovered");
+          }
+          require(entry.clippingCount == 1, "clipping count changed during recovery");
+          require(CLIPPINGS.loadForBook(entry.bookPath, entry.bookTitle, entry.bookAuthor, "epub"),
+                  "recovered clipping load");
+          std::string text;
+          require(CLIPPINGS.readClippingText(0, text) &&
+                      text == (entry.bookPath == movedPath ? "Saved passage" : "Legacy passage"),
+                  "recovery changed saved passage");
+          CLIPPINGS.unload();
+        }
+        capture("clipping-book-metadata");
+        saved.reloadSavedBooks();
+        require(saved.books.size() == 3, "metadata recovery did not survive list reload");
+        LOG_INF("SMOKE",
+                "Simulator smoke test passed: clipping metadata move, recovery, filename fallback and passages");
         std::_Exit(0);
       }
     }
