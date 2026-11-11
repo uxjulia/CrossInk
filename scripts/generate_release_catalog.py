@@ -14,13 +14,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
-DEVICE_TYPE_ORDER = ('x3-x4', 'sticky', 'x4-pro', 'x4-classic', 'picco')
+DEVICE_TYPE_ORDER = ('x3-x4', 'sticky', 'x4-pro', 'x4-classic', 'picco', 'eego_a4')
 DEFAULT_SUPPORTED_DEVICES = {
     'x3-x4': ['x4', 'x3'],
     'sticky': ['sticky'],
     'x4-pro': ['x4pro'],
     'x4-classic': ['x4c'],
     'picco': ['picco'],
+    'eego_a4': ['eego_a4'],
 }
 FIRMWARE_NAME_PATTERN = re.compile(r'^firmware-(?P<variant>.+?)-v[^/]+\.bin$')
 

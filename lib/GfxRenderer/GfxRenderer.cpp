@@ -3237,6 +3237,51 @@ size_t GfxRenderer::getBufferSize() const { return frameBufferSize; }
 // unused
 // void GfxRenderer::grayscaleRevert() const { display.grayscaleRevert(); }
 
+void GfxRenderer::setReaderRefresh(bool reading, bool textOnly) const {
+#ifndef SIMULATOR
+  display.setReaderRefresh(reading);
+  // The reader-only combined waveform merges AA into one gray level. Keep
+  // images/XTCH on their four-tone path; Picco's separate reader waveform stays on.
+  if (reading && !textOnly && combinesGrayscaleBase()) display.setReaderRefresh(false);
+#else
+  // The simulator has no physical panel waveforms.
+  (void)reading;
+  (void)textOnly;
+#endif
+}
+
+bool GfxRenderer::supportsTextGrayscale() const {
+#ifdef SIMULATOR
+  return !display.isInverted();
+#else
+  return display.grayscaleCapabilities(HalDisplay::GrayscaleMode::Overlay).supported();
+#endif
+}
+
+bool GfxRenderer::combinesGrayscaleBase() const {
+#ifdef SIMULATOR
+  return false;
+#else
+  const auto caps = display.grayscaleCapabilities(HalDisplay::GrayscaleMode::Overlay);
+  return caps.supported() && caps.base == HalDisplay::GrayscaleBase::Combined;
+#endif
+}
+
+bool GfxRenderer::displayRetainedGrayscaleOverlay(int x, int y, int width, int height, bool restore) const {
+  if (x < 0 || y < 0 || width <= 0 || height <= 0 || x >= getScreenWidth() || y >= getScreenHeight() ||
+      width > getScreenWidth() - x || height > getScreenHeight() - y)
+    return false;
+#ifdef SIMULATOR
+  return false;
+#else
+  int ax, ay, bx, by;
+  rotateCoordinates(orientation, x, y, &ax, &ay, panelWidth, panelHeight);
+  rotateCoordinates(orientation, x + width - 1, y + height - 1, &bx, &by, panelWidth, panelHeight);
+  return display.displayRetainedGrayscaleOverlay(std::min(ax, bx), std::min(ay, by), std::abs(ax - bx) + 1,
+                                                 std::abs(ay - by) + 1, restore);
+#endif
+}
+
 void GfxRenderer::displayGrayscaleBase(HalDisplay::RefreshMode fallback, const bool turnOffScreen) const {
   absoluteGrayPlanes = false;
   display.displayGrayscaleBase(fallback, fadingFix || turnOffScreen);

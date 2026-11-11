@@ -2,6 +2,19 @@
 
 #include "../../../lib/Memory/Memory.h"
 
+inline bool clippingTestPsramAvailable = false;
+inline size_t maxClippingTestByteAllocation = SIZE_MAX;
+inline HeapByteBuffer clippingTestMakePsramByteBuffer(size_t count) {
+  if (!clippingTestPsramAvailable || count > maxClippingTestByteAllocation) return {};
+  return makeInternalByteBufferNoThrow(count);
+}
+inline HeapByteBuffer clippingTestMakeInternalByteBuffer(size_t count) {
+  if (count > maxClippingTestByteAllocation) return {};
+  return makeInternalByteBufferNoThrow(count);
+}
+#define makePsramByteBufferNoThrow clippingTestMakePsramByteBuffer
+#define makeInternalByteBufferNoThrow clippingTestMakeInternalByteBuffer
+
 // Model a fragmented C3 heap: production arrays must fail rather than abort.
 inline size_t maxClippingTestArrayAllocation = SIZE_MAX;
 template <typename T, typename... Args>

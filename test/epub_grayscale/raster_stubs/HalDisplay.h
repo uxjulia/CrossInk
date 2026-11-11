@@ -9,12 +9,33 @@ class HalDisplay {
   static constexpr int DISPLAY_WIDTH = 792, DISPLAY_HEIGHT = 481, DISPLAY_WIDTH_BYTES = 99, BUFFER_SIZE = 99 * 481;
   enum RefreshMode { FULL_REFRESH, HALF_REFRESH, FAST_REFRESH };
   using GrayscaleMode = freeink::GrayscaleMode;
+  using GrayscaleBase = freeink::GrayscaleBase;
   using GrayscaleCapabilities = freeink::GrayscaleCapabilities;
   bool absoluteSupported = true;
+  bool overlaySupported = true;
+  bool combinedTextSupported = false;
+  bool invertedOverlaySupported = false;
   int canceled = 0;
-  GrayscaleCapabilities grayscaleCapabilities(GrayscaleMode) const {
+  bool readerRefresh = false;
+  std::vector<bool> refreshHints;
+  void setReaderRefresh(bool reading) { readerRefresh = reading; }
+  struct RetainedOverlay {
+    uint16_t x, y, width, height;
+    bool restore;
+  };
+  std::vector<RetainedOverlay> retainedOverlays;
+  bool displayRetainedGrayscaleOverlay(uint16_t x, uint16_t y, uint16_t width, uint16_t height, bool restore) {
+    retainedOverlays.push_back({x, y, width, height, restore});
+    return true;
+  }
+  GrayscaleCapabilities grayscaleCapabilities(GrayscaleMode mode) const {
     GrayscaleCapabilities caps;
-    if (absoluteSupported) caps.encoding = freeink::GrayscaleEncoding::AbsolutePlanes;
+    if (mode == GrayscaleMode::Absolute) {
+      if (absoluteSupported) caps.encoding = freeink::GrayscaleEncoding::AbsolutePlanes;
+    } else if (overlaySupported && (!inverted || invertedOverlaySupported)) {
+      caps.encoding = freeink::GrayscaleEncoding::OverlayMasks;
+      if (readerRefresh && combinedTextSupported) caps.base = GrayscaleBase::Combined;
+    }
     return caps;
   }
   bool displayGrayscaleBase(GrayscaleMode, RefreshMode, bool) { return absoluteSupported; }
@@ -35,7 +56,7 @@ class HalDisplay {
   }
   void returnFrameBufferStorage() {}
   void drawImage(const uint8_t*, int, int, int, int) {}
-  void displayBuffer(RefreshMode, bool) {}
+  void displayBuffer(RefreshMode, bool) { refreshHints.push_back(readerRefresh); }
   void displayBufferAsync(RefreshMode) {}
   void waitRefreshComplete() {}
   bool supportsAsyncRefresh() const { return true; }
@@ -43,12 +64,12 @@ class HalDisplay {
   bool displayGrayscaleBaseAsync(RefreshMode) { return false; }
   void copyGrayscaleBuffers(const uint8_t*, const uint8_t*) {}
   bool supportsAsyncGrayscaleBase() const { return true; }
-  void displayGrayscaleBase(RefreshMode, bool) {}
+  void displayGrayscaleBase(RefreshMode, bool) { refreshHints.push_back(readerRefresh); }
   void preconditionGrayscale() {}
   void preconditionGrayscale(uint16_t, uint16_t, uint16_t, uint16_t) {}
   void copyGrayscaleLsbBuffers(const uint8_t*) {}
   void copyGrayscaleMsbBuffers(const uint8_t*) {}
-  void displayGrayBuffer(bool) {}
+  void displayGrayBuffer(bool) { refreshHints.push_back(readerRefresh); }
   void writeGrayscalePlaneStrip(bool, const uint8_t*, uint16_t, uint16_t) {}
   bool shouldSkipImageBlanking() const { return false; }
   bool supportsStripGrayscale() const { return true; }

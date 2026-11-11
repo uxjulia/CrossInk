@@ -53,7 +53,7 @@ X4 Pro only. See [Home Button (X4 Pro)](#home-button-x4-pro) below.
 ### Side Buttons
 
 - **Orientation Aware**
-- **Up + Down Combo** (X4 and touchscreen devices)
+- **Up + Down Combo** (X4 and touchscreen devices except EEGO)
 - **Left/Up** short-press and long-press actions
 - **Right/Down** short-press and long-press actions
 
@@ -274,11 +274,17 @@ works.
 
 ## Up + Down Shortcut
 
-On the Xteink X4 and on touchscreen devices, **Settings > Controls > Side
-Buttons > Up + Down Combo** runs an action when you press both side buttons
+On the Xteink X4 and on touchscreen devices other than EEGO, **Settings >
+Controls > Side Buttons > Up + Down Combo** runs an action when you press both side buttons
 together. It is off by default. On a touchscreen device, if you have turned the
 reader touchscreen off, this combo does something else instead: it opens a menu
 so you can always turn the touchscreen back on.
+
+On **EEGO**, Up + Down is reserved for the device's hardware reset. It is not
+offered as a shortcut or Quick Actions trigger, on the device or in web settings.
+Previously saved Up + Down assignments do not run. If you disable the
+touchscreen, restarting the EEGO re-enables it automatically. This reboot
+recovery behavior applies only to EEGO.
 
 ## Home Button (X4 Pro)
 
@@ -304,7 +310,7 @@ replaces whatever that button press did before. The available triggers are
 short- or long-press Power, **Power + Up Combo**, **Up + Down Combo**, each
 side-button short or long press, and on X4 Pro, **Tap Home**, **Long-Press
 Home**, or **Double Tap Home**. Button devices can also use **Long-press Back**
-and **Long-press Menu**.
+and **Long-press Menu**. EEGO does not offer **Up + Down Combo** as a trigger.
 
 ## Quick Lock
 

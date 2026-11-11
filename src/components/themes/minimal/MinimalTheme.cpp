@@ -414,7 +414,7 @@ void MinimalTheme::drawHeader(const GfxRenderer& renderer, Rect rect, const char
   (void)subtitle;
   (void)readerContext;
 
-  renderer.fillRect(rect.x, rect.y, rect.width, rect.height, false);
+  renderer.fillRect(0, rect.y, renderer.getScreenWidth(), rect.height, false);
 
   if (title) {
     const int titleFontId = filenameTitle ? renderer.filenameFontId(UI_12_FONT_ID) : UI_12_FONT_ID;
@@ -425,7 +425,7 @@ void MinimalTheme::drawHeader(const GfxRenderer& renderer, Rect rect, const char
     renderer.drawText(titleFontId, rect.x + titleInsetX,
                       rect.y + UITheme::getInstance().getMetrics().batteryBarHeight + 3, truncatedTitle.c_str(), true,
                       EpdFontFamily::BOLD);
-    renderer.drawLine(rect.x, rect.y + rect.height - 3, rect.x + rect.width - 1, rect.y + rect.height - 3, 3, true);
+    renderer.drawLine(0, rect.y + rect.height - 3, renderer.getScreenWidth() - 1, rect.y + rect.height - 3, 3, true);
   }
 
   if (showStatus) {

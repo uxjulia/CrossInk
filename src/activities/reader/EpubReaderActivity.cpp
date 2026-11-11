@@ -60,6 +60,7 @@
 #include "QrDisplayActivity.h"
 #include "QuickActions.h"
 #include "ReaderFontLoading.h"
+#include "ReaderRefreshScope.h"
 #include "ReaderUtils.h"
 #include "ReadingPace.h"
 #include "ReadingSessionStats.h"
@@ -7633,31 +7634,17 @@ bool EpubReaderActivity::ensureGrayscaleStripScratch() {
     return false;
   }
 
-  const size_t requiredSize =
-      static_cast<size_t>(renderer.getDisplayWidthBytes()) * EpubGrayscale::GRAYSCALE_STRIP_ROWS;
+  const size_t requiredSize = static_cast<size_t>(renderer.getDisplayWidthBytes()) *
+                              std::min<int>(renderer.getDisplayHeight(), EpubGrayscale::GRAYSCALE_STRIP_ROWS);
   if (grayscaleStripScratch && grayscaleStripScratchSize >= requiredSize) {
     return true;
   }
 
-  releaseGrayscaleStripScratch();
-  // About 8 KB at 800-pixel width: too large for the render task stack and
-  // runtime-sized, so allocate fallibly once and reuse it while the section is stable.
-  grayscaleStripScratchInPsram = psramHeapAvailable();
-  grayscaleStripScratch =
-      grayscaleStripScratchInPsram ? makePsramByteBufferNoThrow(requiredSize) : makeHeapByteBufferNoThrow(requiredSize);
-  if (!grayscaleStripScratch && grayscaleStripScratchInPsram) {
-    LOG_ERR("ERS", "OOM: PSRAM grayscale strip scratch (%u bytes); trying default heap",
-            static_cast<unsigned>(requiredSize));
-    grayscaleStripScratchInPsram = false;
-    grayscaleStripScratch = makeHeapByteBufferNoThrow(requiredSize);
-  }
-  if (!grayscaleStripScratch) {
-    LOG_ERR("ERS", "OOM: grayscale strip scratch (%u bytes); falling back to BW snapshot",
-            static_cast<unsigned>(requiredSize));
-    return false;
-  }
-  grayscaleStripScratchSize = requiredSize;
-  LOG_INF("EPS", "Grayscale strip scratch: bytes=%u pool=%s", static_cast<unsigned>(requiredSize),
+  releaseGrayscaleStripScratch(true);
+  grayscaleStripScratch = EpubGrayscale::allocateScratch(renderer.getDisplayWidthBytes(), renderer.getDisplayHeight(),
+                                                         grayscaleStripScratchSize, grayscaleStripScratchInPsram);
+  if (!grayscaleStripScratch) return false;
+  LOG_INF("EPS", "Grayscale strip scratch: bytes=%u pool=%s", static_cast<unsigned>(grayscaleStripScratchSize),
           grayscaleStripScratchInPsram ? "psram" : "default");
   return true;
 }
@@ -7763,10 +7750,11 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
 #endif
 
   const bool pageHasImages = page->hasImages();
+  const ReaderUtils::ReaderRefreshScope readerRefresh(renderer, updatePanel, !pageHasImages);
   const bool foregroundBlack = ReaderUtils::readerForegroundBlack();
-  const bool grayscaleAvailable = !renderer.isDisplayInverted();
-  bool needsImageGrayscale = grayscaleAvailable && SETTINGS.imageGrayscale && pageHasImages;
-  bool needsTextGrayscale = grayscaleAvailable && SETTINGS.textAntiAliasing && foregroundBlack && page->hasText() &&
+  bool needsImageGrayscale = !renderer.isDisplayInverted() && SETTINGS.imageGrayscale && pageHasImages;
+  bool needsTextGrayscale = renderer.supportsTextGrayscale() && SETTINGS.textAntiAliasing && foregroundBlack &&
+                            page->hasText() &&
                             !sdFontSystem.fontUsesMonochromeRaster(renderer, fontId, SETTINGS.sdFontFamilyName);
   const int contentBottom = renderer.getScreenHeight() - orientedMarginBottom;
 
@@ -7849,34 +7837,6 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
   }
   composePageBuffer();
   renderStatusBar();
-  if (pendingBookmarkFeedback) {
-    const char* msg = tr(STR_BOOKMARK_ADDED);
-    switch (bookmarkFeedbackType) {
-      case BookmarkFeedbackType::Added:
-        msg = tr(STR_BOOKMARK_ADDED);
-        break;
-      case BookmarkFeedbackType::Removed:
-        msg = tr(STR_BOOKMARK_REMOVED);
-        break;
-      case BookmarkFeedbackType::LimitReached:
-        msg = tr(STR_BOOKMARK_LIMIT_REACHED);
-        break;
-      case BookmarkFeedbackType::Unavailable:
-        msg = tr(STR_UNAVAILABLE);
-        break;
-    }
-    drawToastBuffer(renderer, msg);
-  }
-  if (pendingCompletedFeedback) {
-    const char* msg = completedFeedbackIsFinished ? tr(STR_MARKED_FINISHED) : tr(STR_MARKED_UNFINISHED);
-    drawToastBuffer(renderer, msg);
-  }
-  if (pendingTiltPageTurnFeedback) {
-    const char* msg = homeButtonInReaderFeedback
-                          ? (tiltPageTurnFeedbackEnabled ? tr(STR_HOME_BUTTON_ENABLED) : tr(STR_HOME_BUTTON_DISABLED))
-                          : (tiltPageTurnFeedbackEnabled ? tr(STR_TILT_TO_TURN_ON) : tr(STR_TILT_TO_TURN_OFF));
-    drawToastBuffer(renderer, msg);
-  }
   if (updatePanel && SdCardFont::takeCorruptGlyphNotice()) {
     pendingFontDamagedToast = true;
     renderModeToastShowTime = millis();
@@ -7884,15 +7844,85 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
   // Image blanking may recompose only part of the page. Defer this overlay
   // until that finishes, so its saved region contains only clean page pixels.
   const bool deferFontDamagedToast = updatePanel && pageHasImages && !deferImageLoading;
-  if (pendingFontDamagedToast) {
-    if (!deferFontDamagedToast) drawRenderModeToastBuffer(tr(STR_FONT_DAMAGED));
-  } else if (pendingSafeModeToast) {
-    drawRenderModeToastBuffer(tr(STR_SAFE_MODE));
-  } else if (pendingRenderModeToast) {
-    drawRenderModeToastBuffer(labelForRenderModeToast(normalizeRenderMode(renderModeToastMode)));
-  }
+  const auto drawPageFeedback = [&](bool absolutePlane) {
+    const auto drawModeFeedback = [&](const char* message) {
+      if (absolutePlane)
+        drawToastBuffer(renderer, message);
+      else
+        drawRenderModeToastBuffer(message);
+    };
+    if (pendingBookmarkFeedback) {
+      const char* msg = tr(STR_BOOKMARK_ADDED);
+      switch (bookmarkFeedbackType) {
+        case BookmarkFeedbackType::Added:
+          msg = tr(STR_BOOKMARK_ADDED);
+          break;
+        case BookmarkFeedbackType::Removed:
+          msg = tr(STR_BOOKMARK_REMOVED);
+          break;
+        case BookmarkFeedbackType::LimitReached:
+          msg = tr(STR_BOOKMARK_LIMIT_REACHED);
+          break;
+        case BookmarkFeedbackType::Unavailable:
+          msg = tr(STR_UNAVAILABLE);
+          break;
+      }
+      drawToastBuffer(renderer, msg);
+    }
+    if (pendingCompletedFeedback) {
+      const char* msg = completedFeedbackIsFinished ? tr(STR_MARKED_FINISHED) : tr(STR_MARKED_UNFINISHED);
+      drawToastBuffer(renderer, msg);
+    }
+    if (pendingTiltPageTurnFeedback) {
+      const char* msg = homeButtonInReaderFeedback
+                            ? (tiltPageTurnFeedbackEnabled ? tr(STR_HOME_BUTTON_ENABLED) : tr(STR_HOME_BUTTON_DISABLED))
+                            : (tiltPageTurnFeedbackEnabled ? tr(STR_TILT_TO_TURN_ON) : tr(STR_TILT_TO_TURN_OFF));
+      drawToastBuffer(renderer, msg);
+    }
+    if (pendingFontDamagedToast) {
+      if (absolutePlane || !deferFontDamagedToast) drawModeFeedback(tr(STR_FONT_DAMAGED));
+    } else if (pendingSafeModeToast) {
+      drawModeFeedback(tr(STR_SAFE_MODE));
+    } else if (pendingRenderModeToast) {
+      drawModeFeedback(labelForRenderModeToast(normalizeRenderMode(renderModeToastMode)));
+    }
+  };
+  drawPageFeedback(false);
   if (!updatePanel) {
     return true;
+  }
+#ifndef SIMULATOR
+  const bool absoluteImageGrayscale =
+      needsImageGrayscale && !gpio.deviceIsX3() && renderer.supportsAbsoluteGrayscale() &&
+      (BoardConfig::isPicco() || BoardConfig::ACTIVE.displayController == BoardConfig::DisplayController::UC8279);
+#else
+  constexpr bool absoluteImageGrayscale = false;
+#endif
+  if (absoluteImageGrayscale && ReaderUtils::allocateDeferredGrayscalePlanes(renderer, deferredGrayscalePlanes)) {
+    const auto baseMode = pagesUntilFullRefresh < 0 ? manualScreenRefreshMode()
+                          : cleanImageBasePending   ? HalDisplay::HALF_REFRESH
+                                                    : HalDisplay::FAST_REFRESH;
+    if (pendingFontDamagedToast) drawRenderModeToastBuffer(tr(STR_FONT_DAMAGED));
+    if (renderer.displayAbsoluteGrayscaleBase(baseMode)) {
+      auto renderImageOverlays = [&]() {
+        finalizeBufferComposition();
+        renderStatusBar();
+        drawPageFeedback(true);
+      };
+      if (EpubGrayscale::runAbsoluteImageGrayscalePass(
+              renderer, *page, fontId, orientedMarginLeft, orientedMarginTop, deferredGrayscalePlanes.lsb.get(),
+              deferredGrayscalePlanes.msb.get(), deferredGrayscalePlanes.bytes,
+              [](void* context) { (*static_cast<const decltype(renderImageOverlays)*>(context))(); },
+              &renderImageOverlays)) {
+        cleanImageBasePending = false;
+        pagesUntilFullRefresh = 1;
+        return true;
+      }
+      renderer.setRenderMode(GfxRenderer::BW);
+      renderer.displayBuffer(baseMode);
+      return true;
+    }
+    LOG_ERR("ERS", "Absolute image grayscale unavailable; using overlay");
   }
   const bool needsAnyGrayscale = needsTextGrayscale || needsImageGrayscale;
   if (needsAnyGrayscale && !pageHasImages &&
@@ -7948,7 +7978,11 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
       pagesUntilFullRefresh = 1;
     }
   } else if (needsAnyGrayscale) {
-    if (pagesUntilFullRefresh <= 1) {
+    if (renderer.combinesGrayscaleBase()) {
+      // Begin the combined pass even on cleanup turns: the driver cleans first,
+      // then stages the same text waveform as ordinary turns.
+      ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh, ReaderUtils::PageRefresh::GrayscaleBase);
+    } else if (pagesUntilFullRefresh <= 1) {
       // Cleanup turns still need the stronger HALF pass, but X3 grayscale
       // overlays settle better if the OEM precondition step runs before the
       // gray planes are written.
@@ -7981,6 +8015,9 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
   const bool canApplyGrayscale = needsAnyGrayscale && storedBwBuffer;
   if (needsAnyGrayscale && !storedBwBuffer) {
     LOG_ERR("ERS", "Skipping grayscale enhancement: failed to store BW backup");
+    // A combined driver has not painted this page yet. Complete its B/W fallback
+    // while the live framebuffer still contains the intact page.
+    renderer.cleanupGrayscaleWithFrameBuffer();
   }
 
   // grayscale rendering

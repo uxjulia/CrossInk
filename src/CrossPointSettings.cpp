@@ -29,6 +29,16 @@
 #include "util/ReaderStatusBarJson.h"
 #include "util/TwoFingerSwipe.h"
 
+bool CrossPointSettings::fadingFixSupported() {
+  const auto board = BoardConfig::ACTIVE.board;
+  if (board == BoardConfig::Board::XteinkX4 || board == BoardConfig::Board::XteinkX3) return true;
+#ifndef SIMULATOR
+  return board == BoardConfig::Board::XteinkX3Uc8279;
+#else
+  return false;
+#endif
+}
+
 void readAndValidate(FsFile& file, uint8_t& member, const uint8_t maxValue) {
   uint8_t tempValue;
   serialization::readPod(file, tempValue);
@@ -259,6 +269,8 @@ uint8_t migrateTiltDirectionValue(const uint8_t direction) {
 const char* CrossPointSettings::getDefaultDeviceName() {
 #if (defined(FREEINK_DEVICE_X4CLASSIC) && FREEINK_DEVICE_X4CLASSIC) || defined(SIMULATOR_DEVICE_X4_CLASSIC)
   return "X4 Classic";
+#elif defined(FREEINK_DEVICE_EEGO_A4) && FREEINK_DEVICE_EEGO_A4
+  return "Crossink EEGO A4";
 #endif
   if (BoardConfig::isSticky()) return "Sticky";
   if (BoardConfig::isX4Pro()) return "CrossInk X4 Pro";
@@ -1408,12 +1420,14 @@ bool CrossPointSettings::verifySleepScreenMigrationContract() {
 #endif
 
 bool CrossPointSettings::isRefreshNeverAvailable() {
-#if defined(FREEINK_DEVICE_PICCO) && FREEINK_DEVICE_PICCO
-  // Keep periodic cleanup on Picco until its panels are validated without it.
-  return false;
-#else
-  return Frontlight.present();
-#endif
+  // Never is opt-in per device. A frontlight does not establish that a panel
+  // can run without periodic cleanup; validate new devices before adding them.
+  switch (BoardConfig::ACTIVE.board) {
+    case BoardConfig::Board::XteinkX4Pro:
+      return Frontlight.present();
+    default:
+      return false;
+  }
 }
 
 int CrossPointSettings::getRefreshFrequency() const {

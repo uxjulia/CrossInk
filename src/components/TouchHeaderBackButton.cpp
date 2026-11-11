@@ -4,6 +4,7 @@
 
 #include <algorithm>
 
+#include "UIScale.h"
 #include "UIThemeTokens.h"
 #include "components/CompactHeader.h"
 #include "components/HeaderDate.h"
@@ -18,7 +19,7 @@ namespace TouchHeaderBackButton {
 
 namespace {
 constexpr int actionSize = 52;
-constexpr int touchSize = 68;
+constexpr int touchSize = 80;
 constexpr int titleGap = 8;
 constexpr int defaultRightReserve = 52;
 
@@ -38,11 +39,10 @@ Layout layout(const Rect& header) {
   const int actionX = header.x;
   const int actionY = header.y + (header.height - actionHeight + UITheme::getDisplayStatusBarHeightIncrease()) / 2;
   const int touchWidth = std::min(touchSize, header.width);
-  const int touchHeight = touchSize;
-  const int touchX = std::max(header.x, actionX + (actionWidth - touchWidth) / 2);
-  // The common 45px header is shorter than the minimum touch target. Extend
-  // below the visual band while preserving the calibrated top boundary.
-  const int touchY = std::max(header.y, actionY + (actionHeight - touchHeight) / 2);
+  // Keep the whole navigation target inside its header, above the shared divider.
+  const int touchHeight = std::max(0, header.height - 1);
+  const int touchX = header.x;
+  const int touchY = header.y;
   return {Rect{actionX, actionY, actionWidth, actionHeight}, Rect{touchX, touchY, touchWidth, touchHeight},
           actionX + actionWidth + titleGap};
 }
@@ -83,6 +83,20 @@ bool wasTapped(const MappedInputManager& input, const Rect& header) {
 
 bool wasTapped(const MappedInputManager& input, const GfxRenderer& renderer) {
   return wasTapped(input, headerRect(renderer, input));
+}
+
+bool wasTapped(const MappedInputManager& input, const GfxRenderer& renderer, const char* title) {
+  int x = 0;
+  int y = 0;
+  if (!input.hasTouchHardware() || !input.wasScreenTapped(x, y)) return false;
+  const Rect header = headerRect(renderer, input);
+  const Layout back = layout(header);
+  constexpr int titleEndPadding = 12;
+  const int titleWidth = renderer.getTextWidth(uiScaleSpec().titleFontId, title, EpdFontFamily::BOLD);
+  const int touchWidth =
+      std::min(header.width, std::max(back.touchRect.width, back.titleX - header.x + titleWidth + titleEndPadding));
+  return x >= back.touchRect.x && x < back.touchRect.x + touchWidth && y >= back.touchRect.y &&
+         y < back.touchRect.y + back.touchRect.height;
 }
 
 void draw(GfxRenderer& renderer, const Rect& header, const char* title, const bool readerContext,

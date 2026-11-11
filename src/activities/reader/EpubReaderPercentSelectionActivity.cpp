@@ -447,15 +447,15 @@ void EpubReaderPercentSelectionActivity::buildKeypadScreen(UiApp::ScreenType& sc
   readout.align = fui::TextAlign::Center;
   const int16_t readoutLh = screen.target().lineHeight(readout.font);
   const int16_t rowH = std::max<int16_t>(theme.rowHeight, static_cast<int16_t>(readoutLh + 16));
-  const fui::Rect readoutRow = screen.takeTop(rowH, theme.spaceLg);
-  const int16_t iconSize = readoutRow.height;
-  const fui::Rect iconRect{static_cast<int16_t>(readoutRow.right() - iconSize), readoutRow.y, iconSize,
-                           readoutRow.height};
+  const bool beside = mappedInput.hasTouch() && renderer.getScreenWidth() > renderer.getScreenHeight();
+  const auto layout = fui::keyGridReadoutLayout(
+      screen.contentRect(), rowH, static_cast<int16_t>(screen.target().measureText(readout.font, line, readout).width),
+      theme.spaceLg, theme.spaceLg, beside);
+  const fui::Rect readoutRow = layout.readout;
+  const fui::Rect iconRect = layout.backspace;
 
   if (mappedInput.hasTouch()) {
-    // A backspace icon sits at the row's right edge; the grid itself has no room for a
-    // 13th key without breaking the 1-9/0/./OK layout. It overlays the full-width
-    // readout so the destination stays centered while editing.
+    // Backspace stays outside the familiar 1-9/0/./OK grid.
     screen.target().text(readoutRow, line, readout);
 
     fui::ButtonProps backspaceBtn;
@@ -479,7 +479,7 @@ void EpubReaderPercentSelectionActivity::buildKeypadScreen(UiApp::ScreenType& sc
     screen.button(backspaceBtn, iconRect);
   }
 
-  const fui::Rect gridArea = screen.contentRect().inset(fui::Insets{0, theme.spaceLg, theme.spaceLg, theme.spaceLg});
+  const fui::Rect gridArea = layout.grid;
 
   static const char* const kDigitLabels[10] = {"0", "1", "2", "3", "4", "5", "6", "7", "8", "9"};
   fui::KeyGridKey keys[12];
@@ -504,7 +504,9 @@ void EpubReaderPercentSelectionActivity::buildKeypadScreen(UiApp::ScreenType& sc
   gridProps.labelText = theme.bodyText;
   gridProps.labelText.align = fui::TextAlign::Center;
   gridProps.gap = theme.spaceSm;
-  gridProps.minTouchSize = theme.minTouchSize;
+  const int16_t cellH = static_cast<int16_t>((gridArea.height - gridProps.gap * 3) / 4);
+  const int16_t cellW = static_cast<int16_t>((gridArea.width - gridProps.gap * 2) / 3);
+  gridProps.minTouchSize = std::min<int16_t>(theme.minTouchSize, std::max<int16_t>(1, std::min(cellH, cellW)));
   gridProps.radius = 3;
   // Non-touch shows which key directional nav is on; touch has no such focus concept.
   gridProps.selectedIndex =

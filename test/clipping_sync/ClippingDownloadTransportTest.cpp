@@ -1,5 +1,6 @@
 #include <HalStorage.h>
 #include <KOReaderCredentialStore.h>
+#include <Memory.h>
 #include <SecureHttpClient.h>
 #include <SyncLog.h>
 #include <gtest/gtest.h>
@@ -20,6 +21,9 @@ class ClippingDownloadTransport : public ::testing::Test {
     Storage.files.clear();
     failBookmarkWriteOpen = failBookmarkSync = failBookmarkClose = false;
     maxBookmarkWriteBytes = -1;
+    shortReadAfter = -1;
+    clippingTestPsramAvailable = false;
+    maxClippingTestByteAllocation = SIZE_MAX;
   }
   void TearDown() override {
     EXPECT_FALSE(testHttp.connected);
@@ -27,7 +31,11 @@ class ClippingDownloadTransport : public ::testing::Test {
   }
 };
 
-TEST_F(ClippingDownloadTransport, StreamsUploadAndRequiresCompleteAcknowledgment) {
+TEST_F(ClippingDownloadTransport, UploadsAndRequiresCompleteAcknowledgment) {
+#ifdef CROSSINK_TEST_UPSTREAM_SDK
+  ESP.free = 100000;
+  ESP.largest = 60000;
+#endif
   const std::string body(25000, 'x');
   Storage.files["/upload.tmp"] = body;
   testHttp.body = R"({"until":1,"accepted":1})";
@@ -41,6 +49,47 @@ TEST_F(ClippingDownloadTransport, StreamsUploadAndRequiresCompleteAcknowledgment
   EXPECT_EQ(client.putFile("/clippings", "/upload.tmp", 1), Result::Network);
   shortReadAfter = -1;
 }
+
+#ifdef CROSSINK_TEST_UPSTREAM_SDK
+TEST_F(ClippingDownloadTransport, BufferedUploadPreservesTlsHeadroom) {
+  Storage.files["/upload.tmp"].assign(25000, 'x');
+  testHttp.body = R"({"until":1,"accepted":1})";
+  StatsUploadClient client;
+  EXPECT_EQ(client.putFile("/clippings", "/upload.tmp", 1), Result::LowMemory);
+  EXPECT_EQ(testHttp.streamedRequests, 0U);
+  EXPECT_EQ(Storage.files["/upload.tmp"].size(), 25000U);
+}
+
+TEST_F(ClippingDownloadTransport, BufferedUploadRejectsFragmentedHeap) {
+  ESP.free = 100000;
+  ESP.largest = 20000;
+  Storage.files["/upload.tmp"].assign(25000, 'x');
+  StatsUploadClient client;
+  EXPECT_EQ(client.putFile("/clippings", "/upload.tmp", 1), Result::LowMemory);
+  EXPECT_EQ(testHttp.streamedRequests, 0U);
+}
+
+TEST_F(ClippingDownloadTransport, BufferedUploadUsesPsramWithoutSpendingTlsHeadroom) {
+  clippingTestPsramAvailable = true;
+  const std::string body(25000, 'x');
+  Storage.files["/upload.tmp"] = body;
+  testHttp.body = R"({"until":1,"accepted":1})";
+  StatsUploadClient client;
+  EXPECT_EQ(client.putFile("/clippings", "/upload.tmp", 1), Result::Ok);
+  EXPECT_EQ(testHttp.uploaded, body);
+}
+
+TEST_F(ClippingDownloadTransport, BufferedUploadHandlesAllocationFailure) {
+  ESP.free = 100000;
+  ESP.largest = 60000;
+  maxClippingTestByteAllocation = 0;
+  Storage.files["/upload.tmp"].assign(25000, 'x');
+  StatsUploadClient client;
+  EXPECT_EQ(client.putFile("/clippings", "/upload.tmp", 1), Result::LowMemory);
+  EXPECT_EQ(testHttp.streamedRequests, 0U);
+  EXPECT_EQ(Storage.files["/upload.tmp"].size(), 25000U);
+}
+#endif
 
 TEST_F(ClippingDownloadTransport, CounterUploadsRequireExplicitProtocolAndBatchAcknowledgment) {
   StatsUploadClient client;

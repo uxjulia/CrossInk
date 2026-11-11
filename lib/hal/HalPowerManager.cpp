@@ -11,8 +11,11 @@
 
 #include "HalGPIO.h"
 
-#if FREEINK_DEVICE_PICCO
+#if FREEINK_DEVICE_EEGO_A4 || FREEINK_DEVICE_PICCO
 #include <HalFrontlight.h>
+#endif
+
+#if FREEINK_DEVICE_PICCO
 #include <driver/gpio.h>
 #include <esp_attr.h>
 #include <esp_rtc_time.h>
@@ -143,7 +146,8 @@ void HalPowerManager::setPowerSaving(bool enabled) {
 }
 
 void HalPowerManager::startDeepSleep(HalGPIO& gpio) const {
-#if FREEINK_DEVICE_PICCO
+#if FREEINK_DEVICE_EEGO_A4 || FREEINK_DEVICE_PICCO
+  // The light and touch share I2C. Turn the light off before touch releases it.
   Frontlight.setOn(false);
   if (!gpio.prepareForDeepSleep()) LOG_ERR("PWR", "Touch sleep preparation failed");
 #endif
@@ -210,7 +214,7 @@ void HalPowerManager::startDeepSleep(HalGPIO& gpio) const {
 }
 
 #if FREEINK_DEVICE_PICCO
-bool HalPowerManager::holdWhileUsbPowered(HalGPIO& gpio) const {
+bool HalPowerManager::holdWhileUsbPowered(HalGPIO& gpio, void (*onStatus)(void*, uint16_t), void* context) const {
   if (!gpio.isUsbConnected()) return false;
   disableWiFiBeforeDeepSleep();
   const auto powerPin = static_cast<gpio_num_t>(BoardConfig::ACTIVE.input.power);
@@ -223,7 +227,18 @@ bool HalPowerManager::holdWhileUsbPowered(HalGPIO& gpio) const {
   // Ignore the press that requested sleep. Picco Power is active-low.
   while (digitalRead(powerPin) == LOW) delay(10);
   LOG_INF("PWR", "USB power present, holding sleep screen");
+  unsigned long lastStatusMs = 0;
+  int lastPercent = -1;
   while (gpio.isUsbConnected()) {
+    const auto now = millis();
+    if (onStatus && (lastPercent < 0 || now - lastStatusMs >= BATTERY_POLL_MS)) {
+      lastStatusMs = now;
+      const uint16_t percent = getBatteryPercentage();
+      if (percent != lastPercent) {
+        lastPercent = percent;
+        onStatus(context, percent);
+      }
+    }
     if (canLightSleep) {
       esp_sleep_enable_timer_wakeup(30ULL * 1000 * 1000);
       gpio_wakeup_enable(powerPin, GPIO_INTR_LOW_LEVEL);

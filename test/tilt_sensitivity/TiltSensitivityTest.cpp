@@ -5,6 +5,11 @@
 #include "HalTiltSensor.h"
 #include "ReaderTiltPageTurn.h"
 
+static_assert(TiltSensitivity::LOW_SENSITIVITY == 0);
+static_assert(TiltSensitivity::NORMAL == 1);
+static_assert(TiltSensitivity::HIGH_SENSITIVITY == 2);
+static_assert(LOW == 0 && HIGH == 1);
+
 unsigned long testNow = 0;
 #if defined(FREEINK_DEVICE_STICKY) && FREEINK_DEVICE_STICKY
 constexpr float NORMAL_THRESHOLD = 200.0f;
@@ -55,11 +60,12 @@ int main() {
     sensor.update(1, 1, 0, true);
     assert(sensor.wasTiltedForward());
   }
-  assert(triggers(NORMAL_THRESHOLD - 20, TiltSensitivity::HIGH));
+  assert(triggers(NORMAL_THRESHOLD - 20, TiltSensitivity::HIGH_SENSITIVITY));
   assert(!triggers(NORMAL_THRESHOLD - 20, TiltSensitivity::NORMAL));
-  assert(!triggers(NORMAL_THRESHOLD + 10, TiltSensitivity::LOW));
-  assert(triggers(NORMAL_THRESHOLD * 1.2f, TiltSensitivity::LOW));
-  for (const uint8_t level : {TiltSensitivity::LOW, TiltSensitivity::NORMAL, TiltSensitivity::HIGH}) {
+  assert(!triggers(NORMAL_THRESHOLD + 10, TiltSensitivity::LOW_SENSITIVITY));
+  assert(triggers(NORMAL_THRESHOLD * 1.2f, TiltSensitivity::LOW_SENSITIVITY));
+  for (const uint8_t level :
+       {TiltSensitivity::LOW_SENSITIVITY, TiltSensitivity::NORMAL, TiltSensitivity::HIGH_SENSITIVITY}) {
     const float strong = NORMAL_THRESHOLD * 1.2f;
     // Presets must remain reachable within the physical gyro range.
     assert(strong < (NORMAL_THRESHOLD == 200 ? 245.0f : 512.0f));

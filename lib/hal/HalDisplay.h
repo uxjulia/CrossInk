@@ -10,6 +10,7 @@ class HalDisplay {
  public:
   using GrayscaleMode = freeink::GrayscaleMode;
   using GrayscaleCapabilities = freeink::GrayscaleCapabilities;
+  using GrayscaleBase = freeink::GrayscaleBase;
   GrayscaleCapabilities grayscaleCapabilities(GrayscaleMode mode = GrayscaleMode::Overlay) const;
   // Constructor with pin configuration
   HalDisplay();
@@ -57,6 +58,9 @@ class HalDisplay {
   // Persistently invert panel output while leaving framebuffer drawing in its
   // normal logical colors.
   void setInverted(bool inverted);
+  // Called under RenderLock around book-page presentation, including its AA pass.
+  void setReaderRefresh(bool reading);
+  bool displayRetainedGrayscaleOverlay(uint16_t x, uint16_t y, uint16_t width, uint16_t height, bool restore);
   // Restore the controller's old-image plane from the saved Quick Resume frame.
   // Returns false when the SDK or panel cannot support a differential first paint.
   bool restoreVisibleFrame();

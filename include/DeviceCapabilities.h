@@ -50,7 +50,10 @@ inline bool deviceUsesSideButtonHintGutters(const HalGPIO& gpio) {
 // buttons plus a separate four-button front cluster, so it has the same escape
 // path without a touchscreen.
 inline bool deviceSupportsSideButtonChord(const HalGPIO& gpio) {
-#if CROSSINK_APP_DEVICE_X4CLASSIC || defined(SIMULATOR_DEVICE_X4_CLASSIC)
+#if FREEINK_DEVICE_EEGO_A4
+  // EEGO reserves Up + Down for a hardware reset.
+  return false;
+#elif CROSSINK_APP_DEVICE_X4CLASSIC || defined(SIMULATOR_DEVICE_X4_CLASSIC)
   return true;
 #else
   return gpio.hasTouch();

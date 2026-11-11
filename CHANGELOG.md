@@ -2,6 +2,8 @@
 
 ### Added
 
+- Support BOOX Picco readers, including frontlight controls, the slide switch, touchscreen locking, USB Drive, tilt page turns, and firmware downloads.
+- Support EEGO Reader A4 with touch, optional frontlight, scalable fonts, USB Drive, and dedicated debug, release, and release-candidate firmware assets.
 - Discover and upload static `.otf` fonts on ESP32-S3 readers, including OpenType CFF fonts and CFF files named `.ttf`, from SD or the Fonts web upload. Variable fonts and font collections remain unsupported (CrossPoint #3646, #3717).
 - Assign Select Chapter to shortcuts, Quick Actions, or touch gestures to open the chapter list directly in EPUB and XTC books.
 - Track active reading seconds by local day, sync daily reading time to CrossPoint Sync, and show today's total and 7-day average on the This Device reading stats page.
@@ -41,11 +43,10 @@
 - Uninstall an installed plugin after holding Confirm for one second or long-pressing its row, with confirmation before its files are removed (CrossPoint #4100).
 - Choose Cover Overlay to place a transparent sleep image over the current book cover (CrossPoint #3770).
 - Sync combined reading streaks back from CrossPoint Sync, including reading on other devices, while keeping local reading and upload totals separate.
-- Advanced Wi-Fi transmit-power setting with a per-device limit; Default preserves existing radio behavior.
+- Advanced Wi-Fi transmit-power setting with a per-device limit; Default follows the device's radio limit.
 - Show the publisher’s body font as a disabled Font Family value in the in-book Reader Font menu when "Publisher Font" is set to "All Text"; keep the normal picker available when the body uses the reader font.
 - Choose Low, Normal, or High Tilt Sensitivity in Controls; Normal keeps the existing flick behavior.
 - Add the Estonian (Eesti) interface language pack, contributed by paavoph (discussion #928).
-- Support BOOX Picco readers, including frontlight controls, the slide switch, touchscreen locking, USB Drive, tilt page turns, and firmware downloads.
 
 ### Fixed
 
@@ -157,7 +158,10 @@
 - Preserve book text between dictionary button hints and above inactive button markers.
 - Prevent Page Overlay sleep from triggering an extra reader shortcut, and preserve the page's Dark Mode colors.
 - Center and scale custom sleep BMPs correctly in Fit and Crop modes, including smaller images on X3 (fixes #925; adapted from CrossPoint #4185).
+- Connect to OPDS and other HTTPS servers that require SHA-384 certificate signatures during TLS 1.3 setup.
 - Prepare and verify language and hyphenation downloads before the release workflow creates its firmware draft, so download failures are caught before publication.
+- Apply Sunlight Fading Fix only to the X3 and X4 panels it supports.
+- Keep System settings rows and selection highlights above the CrossInk version footer on every screen size.
 - Keep EPUB clipping highlights on the original passage after font, spacing, orientation, and layout changes, without highlighting repeated phrases elsewhere (#931). Save and sync stable source positions, and upgrade older clippings when their original coordinates can be verified.
 - Keep root fonts, dictionaries, plugins, sleep, and sleep-overlay resource folders out of Library scans; existing indexes refresh after upgrading (CrossPoint #4373).
 - Include combining accent marks when generating latin-ext SD font packs (CrossPoint #4358).

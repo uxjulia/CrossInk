@@ -60,14 +60,6 @@ namespace {
 constexpr uint32_t FILE_TRANSFER_MODE_MASK = 0xFF;
 constexpr uint32_t FILE_TRANSFER_RETURN_TO_READER = 1U << 8;
 
-constexpr bool hasStickyReaderDetailsPanel() {
-#if defined(FREEINK_DEVICE_STICKY) && FREEINK_DEVICE_STICKY
-  return true;
-#else
-  return false;
-#endif
-}
-
 uint32_t fileTransferBootPayload(const NetworkMode mode, const bool returnToReader) {
   return static_cast<uint32_t>(mode) | (returnToReader ? FILE_TRANSFER_RETURN_TO_READER : 0);
 }
@@ -107,8 +99,7 @@ FrontlightPanelContext buildFrontlightPanelContext(Activity& activity, GfxRender
     context.bookPath = currentPath;
     context.activeEpub = activity.isEpubReaderActivity() && currentEpubValid;
     if (activity.getFrontlightPanelBookDetails(context.bookDetails)) {
-      context.showReaderDetails =
-          shouldShowStickyReaderDetails(hasStickyReaderDetailsPanel(), Frontlight.present(), context.activeReaderBook);
+      context.showReaderDetails = shouldShowReaderDetails(Frontlight.present(), context.activeReaderBook);
       context.bookTitle = context.bookDetails.title;
     }
     if (context.showReadingStatsAction) context.readingStatsActivity = activity.createFrontlightReadingStatsActivity();
@@ -162,6 +153,9 @@ FrontlightPanelContext buildFrontlightPanelContext(Activity& activity, GfxRender
 bool openFrontlightPanel(Activity& activity, GfxRenderer& renderer, MappedInputManager& mappedInput,
                          const FrontlightDrawerState* restoredState = nullptr) {
   FrontlightPanelContext context = buildFrontlightPanelContext(activity, renderer, mappedInput);
+  // An unavailable/missing reader book must not fall back to light controls on
+  // a device without a frontlight.
+  if (!Frontlight.present() && !context.showReaderDetails) return false;
   if (restoredState) context.drawerState = *restoredState;
   auto panel = makeUniqueNoThrow<FrontlightPanelActivity>(renderer, mappedInput, std::move(context));
   if (!panel) {
@@ -465,6 +459,9 @@ bool applyTwoFingerRotation(Activity& activity, MappedInputManager& mappedInput)
 }  // namespace
 
 void ActivityManager::begin(const uint32_t renderTaskStackBytes) {
+#if CROSSINK_APP_CAP_TOUCH
+  touchHardwareAvailable = mappedInput.hasTouchHardware();
+#endif
 #if CROSSINK_SCALABLE_FONTS
   ScalableFontAccess::configure(renderingMutex);
 #endif
@@ -543,6 +540,15 @@ void ActivityManager::loop() {
   }
 
 #if CROSSINK_APP_CAP_TOUCH
+  // Touch firmware can finish loading after the first wake render (EEGO A4).
+  // Rebuild the screen and its touch targets when readiness changes, without
+  // waiting for a navigation action or delaying the rest of boot.
+  const bool touchAvailable = mappedInput.hasTouchHardware();
+  if (touchHardwareAvailable != touchAvailable) {
+    touchHardwareAvailable = touchAvailable;
+    LOG_INF("ACT", "Touch hardware %s; refreshing activity", touchAvailable ? "ready" : "unavailable");
+    requestUpdate();
+  }
   if (edgeLightSwipe.active && edgeLightSwipe.owner != currentActivity.get())
     finishLiveLightSwipe(edgeLightSwipe, *this);
   if (twoFingerLightSwipe.tracking && twoFingerLightSwipe.owner != currentActivity.get())
@@ -596,11 +602,10 @@ void ActivityManager::loop() {
       const bool lightPanelGesture = currentActivity->usesFullScreenReaderVerticalSwipes()
                                          ? mappedInput.wasReaderLightPanelGesture()
                                          : mappedInput.wasLightPanelGesture();
-      if (supportsFrontlightDrawer(mappedInput.hasTouchHardware(), Frontlight.present(),
-                                   hasStickyReaderDetailsPanel()) &&
+      if (supportsReaderTopDrawer(mappedInput.hasTouchHardware(), Frontlight.present(),
+                                  currentActivity->isReaderActivity()) &&
           currentActivity->name != "FrontlightPanel" && currentActivity->allowFrontlightPanelGesture() &&
-          lightPanelGesture) {
-        openFrontlightPanel(*currentActivity, renderer, mappedInput);
+          lightPanelGesture && openFrontlightPanel(*currentActivity, renderer, mappedInput)) {
         return;
       }
       // Note: do not hold a lock here, the loop() method must be responsible for acquire one if needed
@@ -761,8 +766,8 @@ void ActivityManager::processPendingActivities() {
             PendingOverlayResume consumed;
             APP_STATE.consumePendingOverlayResume(consumed);
           } else if (resume.overlay == PendingOverlayType::FrontlightDrawer &&
-                     supportsFrontlightDrawer(mappedInput.hasTouchHardware(), Frontlight.present(),
-                                              hasStickyReaderDetailsPanel())) {
+                     supportsReaderTopDrawer(mappedInput.hasTouchHardware(), Frontlight.present(),
+                                             currentActivity->isReaderActivity())) {
             FrontlightDrawerState restoredState;
             restoredState.selectedAction = static_cast<int8_t>(resume.selectedIndex);
             if (openFrontlightPanel(*currentActivity, renderer, mappedInput, &restoredState)) {

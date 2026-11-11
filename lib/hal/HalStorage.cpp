@@ -129,6 +129,15 @@ HalStorage::HalStorage()
 
 HalStorage::~HalStorage() = default;
 
+class HalStorage::StorageLock {
+ public:
+  StorageLock() : spiLock() { xSemaphoreTake(HalStorage::getInstance().storageMutex, portMAX_DELAY); }
+  ~StorageLock() { xSemaphoreGive(HalStorage::getInstance().storageMutex); }
+
+ private:
+  HalSpiBus::Lock spiLock;
+};
+
 // begin() and ready() are only called from setup, no need to acquire mutex for them
 
 bool HalStorage::begin() {
@@ -139,14 +148,15 @@ bool HalStorage::begin() {
 bool HalStorage::ready() const { return SDCard.ready(); }
 
 bool HalStorage::beginUsbDrive() {
-#if FREEINK_CAP_USB_MSC && FREEINK_SD_SDMMC
+#if FREEINK_CAP_USB_MSC
+  StorageLock lock;
   if (!usbDriveContext) {
     LOG_ERR("USB", "USB Drive context allocation failed");
     return false;
   }
   auto* const blockDevice = SDCard.detachFilesystemForRawAccess();
   if (!blockDevice) {
-    LOG_ERR("USB", "USB Drive requires a mounted SDMMC filesystem");
+    LOG_ERR("USB", "USB Drive requires a mounted SD filesystem");
     return false;
   }
   if (!usbDriveContext->massStorage.begin(blockDevice)) {
@@ -166,6 +176,7 @@ bool HalStorage::beginUsbDrive() {
 
 bool HalStorage::disconnectUsbDriveHost() {
 #if FREEINK_CAP_USB_MSC
+  StorageLock lock;
   return usbDriveContext && usbDriveContext->massStorage.disconnectHost();
 #else
   return false;
@@ -174,6 +185,7 @@ bool HalStorage::disconnectUsbDriveHost() {
 
 bool HalStorage::usbDriveHostSuspended() const {
 #if FREEINK_CAP_USB_MSC
+  StorageLock lock;
   return usbDriveContext && usbDriveContext->massStorage.hostSuspended();
 #else
   return false;
@@ -182,12 +194,14 @@ bool HalStorage::usbDriveHostSuspended() const {
 
 void HalStorage::endUsbDrive() {
 #if FREEINK_CAP_USB_MSC
+  StorageLock lock;
   if (usbDriveContext) usbDriveContext->massStorage.end();
 #endif
 }
 
 UsbDriveState HalStorage::usbDriveState() const {
 #if FREEINK_CAP_USB_MSC
+  StorageLock lock;
   if (!usbDriveContext) return UsbDriveState::Unsupported;
   switch (usbDriveContext->massStorage.state()) {
     case freeink::UsbMassStorageState::WaitingForHost:
@@ -210,15 +224,6 @@ UsbDriveState HalStorage::usbDriveState() const {
 }
 
 // For the rest of the methods, we acquire the mutex to ensure thread safety
-
-class HalStorage::StorageLock {
- public:
-  StorageLock() : spiLock() { xSemaphoreTake(HalStorage::getInstance().storageMutex, portMAX_DELAY); }
-  ~StorageLock() { xSemaphoreGive(HalStorage::getInstance().storageMutex); }
-
- private:
-  HalSpiBus::Lock spiLock;
-};
 
 #define HAL_STORAGE_WRAPPED_CALL(method, ...) \
   HalStorage::StorageLock lock;               \

@@ -16,6 +16,20 @@ bool restoreVisibleFrameIfSupported(Display& display) {
   // Older SDK revisions rely on the normal wake refresh instead.
   return false;
 }
+
+template <typename Display>
+void setReaderRefreshIfSupported(Display& display, bool reading) {
+  if constexpr (requires { display.setReaderRefresh(reading); }) display.setReaderRefresh(reading);
+}
+
+template <typename Display>
+bool retainedGrayscaleOverlayIfSupported(Display& display, uint16_t x, uint16_t y, uint16_t width, uint16_t height,
+                                         bool restore) {
+  if constexpr (requires { display.displayRetainedGrayscaleOverlay(x, y, width, height, restore); }) {
+    return display.displayRetainedGrayscaleOverlay(x, y, width, height, restore);
+  }
+  return false;
+}
 }  // namespace
 
 // Global HalDisplay instance
@@ -163,6 +177,21 @@ void HalDisplay::refreshDisplay(HalDisplay::RefreshMode mode, bool turnOffScreen
   }
 
   einkDisplay.refreshDisplay(convertRefreshMode(mode), turnOffScreen);
+}
+
+void HalDisplay::setReaderRefresh(bool reading) {
+#ifndef SIMULATOR
+  // Drivers without reader-specific waveforms ignore the hint.
+  setReaderRefreshIfSupported(einkDisplay, reading);
+#else
+  (void)reading;
+#endif
+}
+
+bool HalDisplay::displayRetainedGrayscaleOverlay(uint16_t x, uint16_t y, uint16_t width, uint16_t height,
+                                                 bool restore) {
+  HalSpiBus::Lock spiLock;
+  return retainedGrayscaleOverlayIfSupported(einkDisplay, x, y, width, height, restore);
 }
 
 bool HalDisplay::isInverted() const { return einkDisplay.isInverted(); }

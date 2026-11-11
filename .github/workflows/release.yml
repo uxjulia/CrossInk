@@ -56,6 +56,8 @@ jobs:
             firmware: firmware-x4-classic
           - environment: picco
             firmware: firmware-picco
+          - environment: eego_a4
+            firmware: firmware-eego_a4
     steps:
       - uses: actions/checkout@v6
         with:
@@ -79,7 +81,7 @@ jobs:
           path: |
             ~/.platformio/packages
             ~/.platformio/platforms
-          key: ${{ runner.os }}-platformio-py3.14-core6.1.19-${{ hashFiles('platformio.ini', 'platformio.local.example.ini') }}
+          key: ${{ runner.os }}-platformio-py3.14-core6.1.19-${{ matrix.environment }}-${{ hashFiles('platformio.ini', 'platformio.local.example.ini') }}
 
       - name: Install PlatformIO Core
         run: uv pip install --system -U https://github.com/pioarduino/platformio-core/archive/refs/tags/v6.1.19.zip
@@ -173,6 +175,7 @@ jobs:
             --firmware "release-firmware/firmware-x4-pro-v${{ env.RELEASE_VERSION }}.bin" \
             --firmware "release-firmware/firmware-x4-classic-v${{ env.RELEASE_VERSION }}.bin" \
             --firmware "release-firmware/firmware-picco-v${{ env.RELEASE_VERSION }}.bin" \
+            --firmware "release-firmware/firmware-eego_a4-v${{ env.RELEASE_VERSION }}.bin" \
             --output ".pio/build/catalog"
 
       - name: Package SD language files and editor template
@@ -234,3 +237,4 @@ jobs:
             release-firmware/firmware-x4-pro-v${{ env.RELEASE_VERSION }}.bin
             release-firmware/firmware-x4-classic-v${{ env.RELEASE_VERSION }}.bin
             release-firmware/firmware-picco-v${{ env.RELEASE_VERSION }}.bin
+            release-firmware/firmware-eego_a4-v${{ env.RELEASE_VERSION }}.bin

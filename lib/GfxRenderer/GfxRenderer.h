@@ -285,6 +285,10 @@ class GfxRenderer {
   // Dark Mode leaves their original polarity unchanged.
   void preserveImagePolarity(int x, int y, int width, int height) const;
   bool isDisplayInverted() const { return display.isInverted(); }
+  void setReaderRefresh(bool reading, bool textOnly = true) const;
+  bool supportsTextGrayscale() const;
+  bool combinesGrayscaleBase() const;
+  bool displayRetainedGrayscaleOverlay(int x, int y, int width, int height, bool restore = false) const;
   // Trapezoidal blit used by Flow/iPod-style carousels. Fits the bitmap into a
   // bounding box of width `w` and height `max(hL, hR)` whose top-left is (x, y).
   void drawPerspectiveBitmap(const Bitmap& bitmap, int x, int y, int w, int hL, int hR) const;

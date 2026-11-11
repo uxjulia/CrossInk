@@ -639,6 +639,7 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   uint8_t uiScale = defaultUiScale();
   // Sunlight fading compensation
   uint8_t fadingFix = 0;
+  static bool fadingFixSupported();
   // Quick-return from footnotes when a footnote shortcut is active.
   uint8_t pwrBtnFootnoteBack = 1;
   // Use book's embedded CSS styles for EPUB rendering (1 = enabled, 0 = disabled)

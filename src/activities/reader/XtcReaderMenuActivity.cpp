@@ -210,27 +210,39 @@ void XtcReaderMenuActivity::render(RenderLock&&) {
   const auto& metrics = UITheme::getInstance().getMetrics();
   const auto pageWidth = renderer.getScreenWidth();
   const auto pageHeight = renderer.getScreenHeight();
-  const Rect standardHeader = UITheme::getHeaderRect(renderer, metrics.headerHeight);
-  const int titleX = mappedInput.hasTouchHardware() ? TouchHeaderBackButton::layout(standardHeader).titleX
-                                                    : standardHeader.x + metrics.contentSidePadding;
+  const bool touchHeader = mappedInput.hasTouchHardware();
+  const Rect standardHeader = touchHeader ? TouchHeaderBackButton::headerRect(renderer, mappedInput)
+                                          : UITheme::getHeaderRect(renderer, metrics.headerHeight);
+  const auto navigation = TouchHeaderBackButton::layout(standardHeader);
+  const int titleX = touchHeader ? navigation.titleX : standardHeader.x + metrics.contentSidePadding;
   const int titleMaxWidth = std::max(
       0, standardHeader.x + standardHeader.width - titleX - metrics.contentSidePadding - kBatteryTextReserveWidth);
-  const int titleFontId = renderer.filenameFontId(kTitleFontId);
-  const auto titleLines =
-      renderer.wrappedText(titleFontId, title.c_str(), titleMaxWidth, kTitleMaxLines, EpdFontFamily::BOLD);
+  int titleFontId = renderer.filenameFontId(kTitleFontId);
+  // A custom filename font must not grow the shared navigation bar or cover its divider.
+  if (touchHeader && renderer.getLineHeight(titleFontId) > navigation.iconRect.height) titleFontId = kTitleFontId;
   const int titleLineHeight = renderer.getLineHeight(titleFontId);
+  const int maxTitleLines =
+      touchHeader ? std::clamp((navigation.iconRect.height + kTitleLineGap) / (titleLineHeight + kTitleLineGap), 1,
+                               kTitleMaxLines)
+                  : kTitleMaxLines;
+  const auto titleLines =
+      renderer.wrappedText(titleFontId, title.c_str(), titleMaxWidth, maxTitleLines, EpdFontFamily::BOLD);
   const int titleBlockHeight = static_cast<int>(titleLines.size()) * titleLineHeight +
                                std::max(0, static_cast<int>(titleLines.size()) - 1) * kTitleLineGap;
-  const int headerHeight = std::max(metrics.headerHeight, metrics.batteryBarHeight + titleBlockHeight + 16);
+  const int headerHeight = touchHeader
+                               ? standardHeader.height
+                               : std::max(metrics.headerHeight, metrics.batteryBarHeight + titleBlockHeight + 16);
   listHeaderHeight = headerHeight;
   const Rect header = UITheme::getHeaderRect(renderer, headerHeight);
-  if (mappedInput.hasTouchHardware()) {
-    TouchHeaderBackButton::draw(renderer, header, "", true, 0, nullptr, 0);
+  if (touchHeader) {
+    TouchHeaderBackButton::draw(renderer, header, "", true);
   } else {
     GUI.drawHeader(renderer, header, "");
   }
 
-  const int titleY = header.y + metrics.batteryBarHeight + 3;
+  const int titleY = touchHeader ? navigation.iconRect.y + TouchHeaderBackButton::TITLE_VERTICAL_OFFSET +
+                                       std::max(0, (navigation.iconRect.height - titleBlockHeight) / 2)
+                                 : header.y + metrics.batteryBarHeight + 3;
   for (int i = 0; i < static_cast<int>(titleLines.size()); ++i) {
     renderer.drawText(titleFontId, titleX, titleY + i * (titleLineHeight + kTitleLineGap), titleLines[i].c_str(), true,
                       EpdFontFamily::BOLD);

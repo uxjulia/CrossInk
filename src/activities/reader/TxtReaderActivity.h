@@ -134,11 +134,7 @@ class TxtReaderActivity final : public Activity {
   bool isBookReaderActivity() const override { return true; }
   bool usesMenuButtonOrientation() const override { return quickActionsPopup.isActive(); }
   bool usesFullScreenReaderVerticalSwipes() const override {
-#if (defined(FREEINK_DEVICE_STICKY) && FREEINK_DEVICE_STICKY) || (defined(FREEINK_DEVICE_PICCO) && FREEINK_DEVICE_PICCO)
-    return true;
-#else
-    return false;
-#endif
+    return mappedInput.hasTouchHardware() && !mappedInput.hasHomeKey();
   }
   bool canSnapshotForSleepOverlay() const override { return true; }
   bool allowPowerAsConfirmInReaderMode() const override { return quickActionsPopup.isActive(); }

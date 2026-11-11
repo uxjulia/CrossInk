@@ -1,7 +1,7 @@
 add_executable(EpubGrayscaleTest EpubGrayscaleTest.cpp
   ${REPO_ROOT}/src/activities/reader/EpubGrayscale.cpp)
 target_include_directories(EpubGrayscaleTest PRIVATE stubs ../memory_policy/stubs
-  ${REPO_ROOT}/lib/Epub ${REPO_ROOT}/lib/Memory ${REPO_ROOT}/lib/MemoryBudget
+  ${REPO_ROOT}/lib/Epub ${REPO_ROOT}/lib/GfxRenderer ${REPO_ROOT}/lib/Memory ${REPO_ROOT}/lib/MemoryBudget
   ${REPO_ROOT}/lib/Serialization ${REPO_ROOT}/src/activities/reader)
 target_compile_definitions(EpubGrayscaleTest PRIVATE ARDUINO_ARCH_ESP32=1 CROSSINK_MEMORY_TEST=1)
 target_link_libraries(EpubGrayscaleTest PRIVATE crosspoint_test_common GTest::gtest_main)
@@ -40,7 +40,7 @@ gtest_discover_tests(EpubTextGrayscaleTest PROPERTIES ENVIRONMENT "UBSAN_OPTIONS
 add_executable(RetainedPxcCacheTest RetainedPxcCacheTest.cpp
   ${REPO_ROOT}/src/activities/reader/EpubGrayscale.cpp)
 target_include_directories(RetainedPxcCacheTest PRIVATE stubs ../memory_policy/stubs
-  ${REPO_ROOT}/lib/Epub ${REPO_ROOT}/lib/Memory ${REPO_ROOT}/lib/MemoryBudget
+  ${REPO_ROOT}/lib/Epub ${REPO_ROOT}/lib/GfxRenderer ${REPO_ROOT}/lib/Memory ${REPO_ROOT}/lib/MemoryBudget
   ${REPO_ROOT}/lib/Serialization ${REPO_ROOT}/src/activities/reader)
 target_compile_definitions(RetainedPxcCacheTest PRIVATE ARDUINO_ARCH_ESP32=1 CROSSINK_MEMORY_TEST=1)
 target_link_libraries(RetainedPxcCacheTest PRIVATE crosspoint_test_common GTest::gtest_main)

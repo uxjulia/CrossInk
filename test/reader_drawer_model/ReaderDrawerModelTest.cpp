@@ -226,19 +226,23 @@ TEST(FrontlightPanelModel, ActiveReaderBookRequiresReaderAndExistingBook) {
   EXPECT_FALSE(hasFrontlightActiveReaderBook(true, false));
 }
 
-TEST(FrontlightPanelModel, StickyReaderDetailsRequireAnOpenReaderWithoutFrontlight) {
-  EXPECT_TRUE(shouldShowStickyReaderDetails(true, false, true));
-  EXPECT_FALSE(shouldShowStickyReaderDetails(false, false, true));
-  EXPECT_FALSE(shouldShowStickyReaderDetails(true, true, true));
-  EXPECT_FALSE(shouldShowStickyReaderDetails(true, false, false));
+TEST(FrontlightPanelModel, ReaderDetailsRequireAnOpenReaderWithoutFrontlight) {
+  EXPECT_TRUE(shouldShowReaderDetails(false, true));
+  EXPECT_FALSE(shouldShowReaderDetails(true, true));
+  EXPECT_FALSE(shouldShowReaderDetails(false, false));
+  EXPECT_FALSE(shouldShowReaderDetails(true, false));
 }
 
-TEST(FrontlightPanelModel, TouchDrawerSupportsFrontlightOrReaderDetails) {
-  EXPECT_TRUE(supportsFrontlightDrawer(true, true));
-  EXPECT_FALSE(supportsFrontlightDrawer(true, false));
-  EXPECT_FALSE(supportsFrontlightDrawer(false, true));
-  EXPECT_TRUE(supportsFrontlightDrawer(true, false, true));
-  EXPECT_FALSE(supportsFrontlightDrawer(false, false, true));
+TEST(FrontlightPanelModel, ReaderTopDrawerRequiresTouchAndUsefulContent) {
+  EXPECT_FALSE(supportsReaderTopDrawer(false, true, true));
+  EXPECT_FALSE(supportsReaderTopDrawer(false, true, false));
+  EXPECT_FALSE(supportsReaderTopDrawer(false, false, true));
+  EXPECT_TRUE(supportsReaderTopDrawer(true, true, false));
+  EXPECT_TRUE(supportsReaderTopDrawer(true, true, true));
+  // A touch device with a Home key but no light must not expose brightness
+  // controls from Home/Settings. The Home key does not decide drawer content.
+  EXPECT_FALSE(supportsReaderTopDrawer(true, false, false));
+  EXPECT_TRUE(supportsReaderTopDrawer(true, false, true));
 }
 
 TEST(ReaderDrawerModel, PercentStepsDoNotBecomeSettingsChanges) {

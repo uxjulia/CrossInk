@@ -118,7 +118,7 @@ class BuildIdentityTest(unittest.TestCase):
         globals_ = function.__globals__
         previous = globals_["get_git_short_sha"]
         self.addCleanup(globals_.__setitem__, "get_git_short_sha", previous)
-        for name in ("default", "sticky", "x4-pro", "x4-classic", "debug", "sticky-debug", "x4-pro-debug", "test", "gh_release_rc", "x4-pro-simulator"):
+        for name in ("default", "sticky", "x4-pro", "x4-classic", "eego_a4", "eego_a4-debug", "debug", "sticky-debug", "x4-pro-debug", "test", "gh_release_rc", "x4-pro-simulator"):
             captures = []
             for sha in ("abc1234", "def5678"):
                 globals_["get_git_short_sha"] = lambda _: sha

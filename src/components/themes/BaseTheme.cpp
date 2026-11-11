@@ -5,6 +5,7 @@
 #include <HalClock.h>
 #include <HalGPIO.h>
 #include <HalPowerManager.h>
+#include <HalScreenCalibration.h>
 #include <HalStorage.h>
 #include <Logging.h>
 #include <Memory.h>
@@ -427,6 +428,9 @@ void BaseTheme::drawHeader(const GfxRenderer& renderer, Rect rect, const char* t
   props.subtitleText = tokens.smallText;
   props.styles = tokens.popup;
   props.sidePadding = tokens.headerSidePadding;
+  // Extend the decoration to the panel edges without moving safe-area content.
+  props.bleed.left = static_cast<int16_t>(rect.x);
+  props.bleed.right = static_cast<int16_t>(renderer.getScreenWidth() - rect.x - rect.width);
   const bool batteryDetached = metrics.headerBatteryDetached;
   if (batteryDetached) {
     const int titleLineHeight = ui.target.lineHeight(fui::GfxRendererTarget::FONT_TITLE);
@@ -851,6 +855,9 @@ void BaseTheme::drawReaderStatusBar(const GfxRenderer& renderer, const ReaderSta
 
   int marginTop, marginRight, marginBottom, marginLeft;
   renderer.getOrientedViewableTRBL(&marginTop, &marginRight, &marginBottom, &marginLeft);
+  const auto corners = renderer.getViewableInsets().corners(static_cast<unsigned>(renderer.getOrientation()));
+  marginLeft = std::max(marginLeft, corners[top ? 0 : 3]);
+  marginRight = std::max(marginRight, corners[top ? 1 : 2]);
   const int screenWidth = renderer.getScreenWidth();
   const int edgeY = content.previewOriginY >= 0
                         ? content.previewOriginY

@@ -9,6 +9,13 @@ namespace {
 
 constexpr char prefix[] = "CROSSPOINT-BOARD-V1:";
 
+#if FREEINK_DEVICE_EEGO_A4
+TEST(FirmwareBoardTag, UsesExpectedA4Identity) {
+  EXPECT_STREQ(board_tag::TAG, "CROSSPOINT-BOARD-V1:eego_a4;");
+  EXPECT_EQ(std::string(board_tag::boardName(), board_tag::boardNameLen()), "eego_a4");
+}
+#endif
+
 TEST(FirmwareBoardTag, MatchesRunningBoardAcrossChunkBoundaries) {
   board_tag::Scanner scanner;
   scanner.feed(reinterpret_cast<const uint8_t*>(prefix), sizeof(prefix) - 1);

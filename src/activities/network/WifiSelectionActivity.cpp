@@ -683,11 +683,10 @@ void WifiSelectionActivity::attemptConnection() {
     }
     return;
   }
-  // Abort any in-progress SDK auto-connect before our explicit begin().
-  // Do not erase the AP config or power-cycle the radio; some routers fail the
-  // next WPA handshake after that heavier reset.
-  if (!WiFi.disconnect(false, false, 1000)) {
-    LOG_DBG("WIFI", "Disconnect before begin timed out; continuing with explicit begin");
+  // Match upstream: clear the driver's AP configuration and restart the radio
+  // before begin(). Saved networks remain in WifiCredentialStore.
+  if (!WiFi.disconnect(true, true)) {
+    LOG_ERR("WIFI", "WiFi reset before begin failed; continuing with explicit begin");
   }
   delay(100);
 #ifndef SIMULATOR
@@ -701,10 +700,23 @@ void WifiSelectionActivity::attemptConnection() {
   WiFi.setSortMethod(WIFI_CONNECT_AP_BY_SIGNAL);
 
   // Set hostname so routers show "CrossPoint-Reader-AABBCCDDEEFF" instead of "esp32-XXXXXXXXXXXX"
-  String mac = WiFi.macAddress();
-  mac.replace(":", "");
-  String hostname = "CrossPoint-Reader-" + mac;
-  WiFi.setHostname(hostname.c_str());
+  // The station is stopped after disconnect(true, true), so read the hardware
+  // address directly rather than depending on an active WiFi interface.
+  uint8_t mac[6] = {};
+#ifndef SIMULATOR
+  const bool macRead = esp_read_mac(mac, ESP_MAC_WIFI_STA) == ESP_OK;
+#else
+  WiFi.macAddress(mac);
+  const bool macRead = true;
+#endif
+  if (macRead) {
+    char hostname[sizeof("CrossPoint-Reader-") + 12];
+    snprintf(hostname, sizeof(hostname), "CrossPoint-Reader-%02X%02X%02X%02X%02X%02X", mac[0], mac[1], mac[2], mac[3],
+             mac[4], mac[5]);
+    WiFi.setHostname(hostname);
+  } else {
+    LOG_ERR("WIFI", "Failed to read station MAC for hostname");
+  }
 
   wl_status_t beginStatus = WL_IDLE_STATUS;
   if (selectedRequiresPassword && !enteredPassword.empty()) {

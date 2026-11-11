@@ -113,6 +113,9 @@ class ActivityManager {
   // with requestUpdateAndWait(), but stale/asynchronous notifications must wait.
   bool enteringActivity = false;
   bool entryRenderRequested = false;
+#if CROSSINK_APP_CAP_TOUCH
+  bool touchHardwareAvailable = false;
+#endif
   void enterCurrentActivity();
   static void renderTaskTrampoline(void* param);
   [[noreturn]] virtual void renderTaskLoop();

@@ -11,8 +11,8 @@ struct DeferredGrayscalePlanes {
   size_t bytes = 0;
 };
 
-// Two whole AA planes in PSRAM, so the gray planes can render while a base
-// refresh still runs. False (nothing allocated) without room for both.
+// Two whole AA planes in PSRAM: render each plane once, either during a base
+// refresh or before a combined presentation. False without room for both.
 inline bool allocateDeferredGrayscalePlanes(const GfxRenderer& renderer, DeferredGrayscalePlanes& planes) {
   if (!psramHeapAvailable()) return false;
   constexpr size_t PSRAM_PLANE_RESERVE = 128 * 1024;
@@ -35,22 +35,30 @@ inline bool allocateDeferredGrayscalePlanes(const GfxRenderer& renderer, Deferre
   return true;
 }
 
-// X4 Pro: the BW page in the framebuffer goes out as the gray base in the
-// background while both AA planes render into PSRAM, as EPUB text pages do.
+// Separate-base drivers refresh BW while both AA planes render into PSRAM.
+// Combined drivers stage BW and AA before presenting once. Reuse these full
+// planes there too, avoiding repeated text traversal for each 80-row strip.
 // The framebuffer stays untouched, so no BW snapshot/restore. renderPlane()
 // draws one plane (clearScreen(0x00) already done, render mode set) and
 // returns false on failure, which drops the gray pass. Returns false, with
-// nothing displayed, on cleanup turns or when the panel/PSRAM can't defer:
+// nothing displayed, on cleanup turns or when the panel/PSRAM cannot use this path:
 // the caller takes its blocking path.
 template <typename PlaneFn>
 bool displayDeferredGrayscale(GfxRenderer& renderer, int& pagesUntilFullRefresh, DeferredGrayscalePlanes& planes,
                               PlaneFn&& renderPlane) {
-  if (pagesUntilFullRefresh <= 1 || !renderer.supportsDeferredGrayscaleBase()) return false;
+  if (pagesUntilFullRefresh <= 1) return false;
+  const bool combined = renderer.combinesGrayscaleBase();
+  if (!combined && !renderer.supportsDeferredGrayscaleBase()) return false;
   if (!allocateDeferredGrayscalePlanes(renderer, planes)) return false;
   auto& lsb = planes.lsb;
   auto& msb = planes.msb;
-  LOG_DBG("READER", "Deferred grayscale: preparing planes during base refresh");
-  renderer.displayGrayscaleBaseAsync(HalDisplay::FAST_REFRESH);
+  if (combined) {
+    LOG_DBG("READER", "Combined grayscale: preparing full-page planes");
+    renderer.displayGrayscaleBase(HalDisplay::FAST_REFRESH);
+  } else {
+    LOG_DBG("READER", "Deferred grayscale: preparing planes during base refresh");
+    renderer.displayGrayscaleBaseAsync(HalDisplay::FAST_REFRESH);
+  }
   pagesUntilFullRefresh--;
   bool ok = true;
   for (const auto mode : {GfxRenderer::GRAYSCALE_LSB, GfxRenderer::GRAYSCALE_MSB}) {
@@ -63,7 +71,7 @@ bool displayDeferredGrayscale(GfxRenderer& renderer, int& pagesUntilFullRefresh,
     renderer.endStripTarget();
   }
   renderer.setRenderMode(GfxRenderer::BW);
-  renderer.waitRefreshComplete();
+  if (!combined) renderer.waitRefreshComplete();
   if (ok) {
     renderer.copyGrayscalePlanes(lsb.get(), msb.get());
     renderer.displayGrayBuffer();

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <BitmapHelpers.h>
 #include <GfxRenderer.h>
 #include <HalDisplay.h>
 #include <stdint.h>
@@ -18,6 +19,7 @@ struct DirectPixelWriter {
   uint8_t* fb;
   GfxRenderer::RenderMode mode;
   bool grayscale;
+  bool absoluteGray;
   int logicalRow;
   uint16_t displayWidthBytes;  // Runtime framebuffer stride (X4: 100, X3: 99)
   // Active write target: for tiled grayscale, fb is the band scratch, originY is
@@ -42,6 +44,7 @@ struct DirectPixelWriter {
     originY = renderer.getWriteOriginY();
     clipRows = renderer.getWriteRows();
     mode = renderer.getRenderMode();
+    absoluteGray = renderer.grayPlanesAreAbsolute();
     // Night Mode suppresses grayscale overlays, so its BW image must retain
     // midtones through dithering instead of leaving an unfinished silhouette.
     grayscale = imageGrayscale && !renderer.isDisplayInverted();
@@ -130,13 +133,12 @@ struct DirectPixelWriter {
         draw = true;
         break;
       case GfxRenderer::GRAYSCALE_MSB:
-        draw = (pixelValue == 1 || pixelValue == 2);
-        state = false;
+      case GfxRenderer::GRAYSCALE_LSB: {
+        const auto pixel = grayPlanePixel(pixelValue, mode == GfxRenderer::GRAYSCALE_MSB, absoluteGray);
+        draw = pixel.write;
+        state = pixel.black;
         break;
-      case GfxRenderer::GRAYSCALE_LSB:
-        draw = (pixelValue == 1);
-        state = false;
-        break;
+      }
       default:
         return;
     }

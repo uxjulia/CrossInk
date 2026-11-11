@@ -44,6 +44,11 @@ constexpr int kStatsColumnWidth = 105;
 constexpr int kStatsColumnWidthWide = 120;
 constexpr int kCoverStatsGap = 15;
 constexpr int kPairInwardShiftX3 = 15;
+#if FREEINK_DEVICE_EEGO_A4
+constexpr int kExtraContentInset = 20;
+#else
+constexpr int kExtraContentInset = 0;
+#endif
 constexpr int kTitleTopGap = 28;
 constexpr int kTitleChapterGap = 8;
 constexpr int kBookTitleMaxLines = 2;
@@ -67,7 +72,7 @@ struct DashboardLayout {
 DashboardLayout layoutForContent(const GfxRenderer& renderer, Rect content) {
   const auto edges = renderer.getViewableInsets().rotated(static_cast<unsigned>(renderer.getOrientation())).edges;
   const int inset = isWideScreen(renderer) ? kContentInsetX3 : kContentInsetX4;
-  const int shift = gpio.deviceIsX3() ? kPairInwardShiftX3 : 0;
+  const int shift = (gpio.deviceIsX3() ? kPairInwardShiftX3 : 0) + kExtraContentInset;
   const int left = std::max(content.x, inset) + shift;
   const int right =
       std::min(content.x + content.width, renderer.getScreenWidth() - std::max<int>(inset, edges[1])) - shift;

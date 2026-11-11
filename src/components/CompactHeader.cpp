@@ -12,7 +12,8 @@
 
 namespace {
 constexpr int kHeaderHeight = 67;
-constexpr int kTouchHeaderHeightIncrease = 10;
+// All touch navigation headers reserve an 80px target above their divider.
+constexpr int kTouchHeaderHeight = 81;
 constexpr int kHeaderTopGap = 6;
 constexpr int kHeaderTitleLift = 5;
 constexpr int kHeaderBaselineLift = 2;
@@ -22,7 +23,8 @@ int visibleHeaderHeight(const ThemeMetrics& metrics) {
 }
 
 int headerHeight(const ThemeMetrics& metrics) {
-  return visibleHeaderHeight(metrics) + (gpio.hasTouch() ? kTouchHeaderHeightIncrease : 0);
+  return gpio.hasTouch() ? kTouchHeaderHeight + UITheme::getDisplayStatusBarHeightIncrease()
+                         : visibleHeaderHeight(metrics);
 }
 
 int titleBaselineY(const GfxRenderer& renderer, const ThemeMetrics& metrics, const Rect& header) {

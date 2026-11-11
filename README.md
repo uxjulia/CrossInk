@@ -7,6 +7,7 @@
 - Xteink X4 Pro
 - Xteink X4 Classic
 - Seeed Studio Sticky
+- EEGO Reader A4
 - BOOX Picco
 
 ## What's different in this fork
@@ -33,7 +34,7 @@ My goal with this fork was to maintain the core Crosspoint firmware while integr
 - Music notation and selected supplemental Unicode glyph support to be able to render Project Hail Mary accurately.
 - Added a custom `Minimal` theme and sleep screen option for the minimalists out there.
 - Added a custom `Dashboard` theme and sleep screen option for reading stats enthusiasts.
-- Reader font sizes: 10 to 16 pt built in on Xteink X3/X4. X4 Classic, X4 Pro, and Sticky use scalable fonts with 1 pt steps from 8 to 22 pt.
+- Reader font sizes: 10 to 16 pt built in on Xteink X3/X4. X4 Classic, X4 Pro, Sticky, and EEGO A4 use scalable fonts with 1 pt steps from 8 to 22 pt.
 - Added ~~strikethrough~~ support.
 - Made <u>underlines</u> thicker for better visibility.
 - Added support for `<hr>` section breaks.
@@ -75,7 +76,7 @@ The UI now uses [Inter](https://fonts.google.com/specimen/Inter) as the display 
 ### Font Sizes
 
 - Xteink X3 and X4: built-in reader font sizes are 10 pt, 12 pt, 14 pt, and 16 pt.
-- X4 Classic, X4 Pro, and Sticky: Lexend Deca and Bitter are scalable, so you can pick any size from 8 pt to 22 pt in 1 pt steps.
+- X4 Classic, X4 Pro, Sticky, and EEGO A4: Lexend Deca and Bitter are scalable, so you can pick any size from 8 pt to 22 pt in 1 pt steps.
 
 See [SD Card Fonts](./docs/sd-card-fonts.md) for installing additional font families and size ranges.
 
@@ -156,7 +157,7 @@ Connect your device to your computer via a USB cable. Before the first build, in
 git submodule update --init --recursive
 ```
 
-Then flash the firmware using the correct environment for the device. The `default` environment is for the X3/X4 devices. The X4 Classic, X4 Pro, and Sticky (ESP32-S3) have their own named environments.
+Then flash the firmware using the correct environment for the device. The `default` environment is for the X3/X4 devices. The ESP32-S3 readers have their own named environments. EEGO A4 uses `eego_a4` (production) and `eego_a4-debug` (debug); see the [EEGO A4 build and hardware guide](docs/development/eego-a4-hardware.md).
 
 ```sh
 pio run -e default --target upload

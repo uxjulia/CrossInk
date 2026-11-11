@@ -27,6 +27,8 @@ jobs:
             firmware: firmware-x4-classic
           - environment: picco
             firmware: firmware-picco
+          - environment: eego_a4
+            firmware: firmware-eego_a4
     env:
       RC_BRANCH: ${{ github.ref_name }}
       RC_HASH: ${{ github.sha }}
@@ -174,3 +176,4 @@ jobs:
             release-candidate-firmware/firmware-x4-pro-${{ env.RC_BRANCH_SAFE }}-${{ env.RC_HASH_SHORT }}-RC.bin
             release-candidate-firmware/firmware-x4-classic-${{ env.RC_BRANCH_SAFE }}-${{ env.RC_HASH_SHORT }}-RC.bin
             release-candidate-firmware/firmware-picco-${{ env.RC_BRANCH_SAFE }}-${{ env.RC_HASH_SHORT }}-RC.bin
+            release-candidate-firmware/firmware-eego_a4-${{ env.RC_BRANCH_SAFE }}-${{ env.RC_HASH_SHORT }}-RC.bin

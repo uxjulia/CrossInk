@@ -119,6 +119,7 @@ inline esp_sleep_wakeup_cause_t esp_sleep_get_wakeup_cause() { return ESP_SLEEP_
 #include "components/icons/tablerFilledIcons.h"
 #include "fontIds.h"
 #include "network/UsbSerialFileTransfer.h"
+#include "platform/UsbSerialJtagHandoff.h"
 #include "util/PluginBundle.h"
 #ifdef SIMULATOR
 #include <SimulatorLifecycle.h>
@@ -391,13 +392,14 @@ using BootResume = SleepWakePolicy::Resume;
 // startDeepSleep() does not return, so a set latch only ends at the wakeup reset.
 static bool deepSleepInProgress = false;
 
-static void restartWithSilentToken() {
+static void restartWithSilentToken(const bool restoreUsbSerial = false) {
   // Capture the live state for every destination without changing wake preferences.
   silentRebootTarget |= SILENT_REBOOT_FRONTLIGHT_VALID;
   if (Frontlight.isOn()) silentRebootTarget |= SILENT_REBOOT_FRONTLIGHT_ON;
 #ifdef SIMULATOR
   SimulatorLifecycle::setSilentRebootToken(silentRebootMagic, silentRebootTarget, silentRebootPayload);
 #endif
+  if (restoreUsbSerial) handoffUsbOtgToSerialJtag();
   ESP.restart();
 }
 
@@ -412,7 +414,8 @@ static void clearSilentRestartReaderPageBuild() {
   silentReaderPageBuildFlags = 0;
 }
 
-static void silentRestartToHome(const uint32_t payload, const char* const description) {
+static void silentRestartToHome(const uint32_t payload, const char* const description,
+                                const bool restoreUsbSerial = false) {
   if (deepSleepInProgress) return;  // sleeping supersedes the heap-defrag reboot
   clearSilentRestartReaderPageBuild();
   silentRebootTarget = SILENT_REBOOT_TARGET_HOME;
@@ -425,7 +428,7 @@ static void silentRestartToHome(const uint32_t payload, const char* const descri
   // book, looking like a trampoline back to the reader they just exited.
   GUI.drawPopup(renderer, tr(STR_LOADING));
   delay(50);
-  restartWithSilentToken();
+  restartWithSilentToken(restoreUsbSerial);
 }
 
 void silentRestart() { silentRestartToHome(0, "target=home"); }
@@ -433,7 +436,7 @@ void silentRestart() { silentRestartToHome(0, "target=home"); }
 void restartToHomeAfterStorageHandoff() {
   // Keep this distinct from other callers: USB Drive has released raw SD
   // storage and must reboot into Home before any normal filesystem work runs.
-  silentRestart();
+  silentRestartToHome(0, "target=home after storage handoff", true);
 }
 
 void armSilentRestartReaderPageBuild(const std::string& bookPath, const uint16_t spineIndex, const uint16_t targetPage,
@@ -1124,6 +1127,60 @@ void mirrorWakeShortPressToNvs() {
 }
 
 // Enter deep sleep mode
+#if FREEINK_DEVICE_PICCO
+struct SleepChargeOverlay {
+  HeapByteBuffer frame;
+  Rect strip;
+  bool painted = false;
+
+  static void draw(void* context, uint16_t percent) {
+    auto& overlay = *static_cast<SleepChargeOverlay*>(context);
+    RenderLock lock;
+    memcpy(renderer.getFrameBuffer(), overlay.frame.get(), renderer.getBufferSize());
+    const auto& metrics = UITheme::getInstance().getMetrics();
+    renderer.fillRect(overlay.strip.x, overlay.strip.y, overlay.strip.width, overlay.strip.height, false);
+    char text[24];
+    snprintf(text, sizeof(text), "%u%%", static_cast<unsigned>(percent));
+    const int x = overlay.strip.x +
+                  (overlay.strip.width - metrics.batteryWidth - renderer.getTextWidth(SMALL_FONT_ID, text) - 8) / 2;
+    GUI.drawBatteryLeft(renderer, Rect{x, overlay.strip.y + 6, metrics.batteryWidth, metrics.batteryHeight}, percent);
+    // An unsupported driver returns without painting. A whole-screen B/W
+    // fallback could destroy retained grays, so leave that sleep image alone.
+    overlay.painted = renderer.displayRetainedGrayscaleOverlay(overlay.strip.x, overlay.strip.y, overlay.strip.width,
+                                                               overlay.strip.height) ||
+                      overlay.painted;
+    memcpy(renderer.getFrameBuffer(), overlay.frame.get(), renderer.getBufferSize());
+  }
+};
+
+static bool holdSleepWhileUsbPowered() {
+  if (!gpio.isUsbConnected()) return false;
+  // One runtime-sized snapshot in PSRAM, only during USB sleep. It restores
+  // the draw buffer after each strip; it is never needed on constrained C3s.
+  int top, right, bottom, left;
+  renderer.getOrientedViewableTRBL(&top, &right, &bottom, &left);
+  const int height =
+      std::max(renderer.getLineHeight(SMALL_FONT_ID), UITheme::getInstance().getMetrics().batteryHeight) + 16;
+  SleepChargeOverlay overlay{
+      makePsramByteBufferNoThrow(renderer.getBufferSize()),
+      Rect{left, renderer.getScreenHeight() - bottom - height, renderer.getScreenWidth() - left - right, height}};
+  if (!overlay.frame) {
+    LOG_ERR("MAIN", "No PSRAM for sleep charge strip; retaining sleep image");
+    return powerManager.holdWhileUsbPowered(gpio);
+  }
+  memcpy(overlay.frame.get(), renderer.getFrameBuffer(), renderer.getBufferSize());
+  const bool buttonPressed = powerManager.holdWhileUsbPowered(gpio, SleepChargeOverlay::draw, &overlay);
+  if (!buttonPressed && overlay.painted) {
+    RenderLock lock;
+    if (!renderer.displayRetainedGrayscaleOverlay(overlay.strip.x, overlay.strip.y, overlay.strip.width,
+                                                  overlay.strip.height, true)) {
+      LOG_ERR("MAIN", "Could not restore retained sleep image after USB hold");
+    }
+  }
+  return buttonPressed;
+}
+#endif
+
 void enterDeepSleep(bool fromTimeout) {
 #ifndef SIMULATOR
   gpio.stopButtonCapture();
@@ -1184,7 +1241,7 @@ void enterDeepSleep(bool fromTimeout) {
 #if FREEINK_DEVICE_PICCO
   // The I2C light retains its state through sleep. Keep the saved preference.
   Frontlight.setOn(false);
-  const bool usbWakeRequested = powerManager.holdWhileUsbPowered(gpio);
+  const bool usbWakeRequested = holdSleepWhileUsbPowered();
 #endif
   putTiltSensorToSleepForDeepSleep();
   display.deepSleep();
@@ -1400,6 +1457,12 @@ void setup() {
       mappedInputManager.suppressNextPowerConfirmRelease();
       break;
     case HalGPIO::WakeupReason::AfterUSBPower:
+#if FREEINK_DEVICE_EEGO_A4
+      // Native-USB resets after flashing can report POWERON. Keep A4 awake
+      // so a flash or USB Drive exit cannot immediately send it back to sleep.
+      LOG_INF("BOOT", "AfterUSBPower route: continuing EEGO A4 boot");
+      break;
+#endif
       LOG_INF("BOOT", "AfterUSBPower route: returning to sleep");
 #if FREEINK_DEVICE_PICCO
       // Keep the retained screen and use the normal USB sleep/wake path.
@@ -1441,6 +1504,10 @@ void setup() {
   // Apply brightness and wake policy only after the saved settings are loaded.
   Frontlight.initializeHardware();
   SETTINGS.loadFromFile();
+#if FREEINK_DEVICE_EEGO_A4
+  // Up + Down resets EEGO, so every boot must restore touch as the recovery path.
+  SETTINGS.disableReaderTouchscreen = 0;
+#endif
   pluginevents::refreshSubscriptions();
   Storage.installDateTimeCallback(&SETTINGS.clockUtcOffsetQ);
   APP_STATE.loadFromFile();
@@ -1798,9 +1865,8 @@ void loop() {
   simulatorHomeKeyInput.update();
 #endif
   if (activityManager.requiresExclusiveStorageLoop()) {
-    // Keep the serial endpoint responsive so Inky receives ERR:not_on_home,
-    // while every filesystem/UI/global path remains suspended by the activity.
-    (void)UsbSerialFileTransfer::process(false);
+    // USB Drive owns the USB PHY and raw SD card. Keep the normal serial
+    // transfer handler suspended with the other filesystem users.
     activityManager.loop();
 #ifdef SIMULATOR
     // Let storage-handoff smoke checks advance while normal app work is paused.
@@ -1830,7 +1896,7 @@ void loop() {
                          activityManager.isReaderActivity(), SETTINGS.tiltSensitivity);
   }
 
-  renderer.setFadingFix(SETTINGS.fadingFix);
+  renderer.setFadingFix(SETTINGS.fadingFix && CrossPointSettings::fadingFixSupported());
 
   // ROM logging works even when Arduino Serial reports no connected listener.
   if ((Serial || FREEINK_LOG_TRANSPORT == FREEINK_LOG_TRANSPORT_ROM_PRINTF) && millis() - lastMemPrint >= 10000) {
@@ -1893,6 +1959,7 @@ void loop() {
     return;
   }
 
+#if !FREEINK_DEVICE_EEGO_A4
   const bool touchscreenEscapeHatch = !modalOwnsInput && !buttonShortcutController.isQuickLocked() && gpio.hasTouch() &&
                                       SETTINGS.disableReaderTouchscreen &&
                                       (activityManager.isReaderActivity() || deviceUsesGlobalTouchscreenLock());
@@ -1903,6 +1970,7 @@ void loop() {
     lastActivityTime = millis();
     return;
   }
+#endif
 
   const bool powerPressed = gpio.isPressed(HalGPIO::BTN_POWER);
   const bool chordButtonPressed = gpio.isPressed(HalGPIO::BTN_UP);

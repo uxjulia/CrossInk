@@ -142,8 +142,8 @@ void HalTiltSensor::update(const uint8_t enabled, const uint8_t direction, const
   // Keep Normal's existing board calibration. Low stays below the Sticky's
   // ±245 dps range; High accepts gentler flicks without changing rearm/cooldown.
   float rateThreshold = RATE_THRESHOLD_DPS;
-  if (sensitivity == TiltSensitivity::LOW) rateThreshold *= 1.15f;
-  if (sensitivity == TiltSensitivity::HIGH) rateThreshold *= 0.75f;
+  if (sensitivity == TiltSensitivity::LOW_SENSITIVITY) rateThreshold *= 1.15f;
+  if (sensitivity == TiltSensitivity::HIGH_SENSITIVITY) rateThreshold *= 0.75f;
 
   if (_inTilt) {
     // Wait for device to return to neutral before allowing next trigger

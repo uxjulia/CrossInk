@@ -26,14 +26,14 @@ constexpr bool hasFrontlightActiveReaderBook(const bool isReaderActivity, const 
   return isReaderActivity && currentBookValid;
 }
 
-constexpr bool shouldShowStickyReaderDetails(const bool hasStickyReaderDetailsPanel, const bool hasFrontlight,
-                                             const bool activeReaderBook) {
-  return hasStickyReaderDetailsPanel && !hasFrontlight && activeReaderBook;
+// Every touch reader can show book details when there are no light controls.
+constexpr bool shouldShowReaderDetails(const bool hasFrontlight, const bool activeReaderBook) {
+  return !hasFrontlight && activeReaderBook;
 }
 
-constexpr bool supportsFrontlightDrawer(const bool hasTouchHardware, const bool hasFrontlight,
-                                        const bool hasReaderDetailsPanel = false) {
-  return hasTouchHardware && (hasFrontlight || hasReaderDetailsPanel);
+constexpr bool supportsReaderTopDrawer(const bool hasTouchHardware, const bool hasFrontlight,
+                                       const bool isReaderActivity) {
+  return hasTouchHardware && (hasFrontlight || isReaderActivity);
 }
 
 struct FrontlightPanelBookDetails {

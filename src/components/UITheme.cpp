@@ -4,6 +4,7 @@
 #include <GfxRenderer.h>
 #include <HalClock.h>
 #include <HalGPIO.h>
+#include <HalScreenCalibration.h>
 #include <HalStorage.h>
 #include <Logging.h>
 #include <Memory.h>
@@ -387,7 +388,8 @@ int UITheme::getHintSafeX(const GfxRenderer& renderer, const int x, const int wi
 
 int UITheme::getTopStatusBarY(const GfxRenderer& renderer) {
   const int legacyY = getInstance().getMetrics().topPadding + getTopStatusBarInset(renderer);
-  return renderer.getViewableInsets().topOrigin(static_cast<unsigned>(renderer.getOrientation()), legacyY);
+  return HalScreenCalibration::panelLayout().topStatusBarY(renderer.getViewableInsets(),
+                                                           static_cast<unsigned>(renderer.getOrientation()), legacyY);
 }
 
 Rect UITheme::getHeaderRect(const GfxRenderer& renderer, const int height) {
@@ -395,7 +397,11 @@ Rect UITheme::getHeaderRect(const GfxRenderer& renderer, const int height) {
   // drawDisplayStatusBar adds the existing board offset exactly once.
   const int y =
       std::max(static_cast<int>(insets.edges[0]), getTopStatusBarY(renderer) - getTopStatusBarInset(renderer));
-  return Rect{insets.edges[3], y, renderer.getScreenWidth() - insets.edges[1] - insets.edges[3], height};
+  const auto panel = HalScreenCalibration::panelLayout();
+  const auto corners = renderer.getViewableInsets().corners(static_cast<unsigned>(renderer.getOrientation()));
+  const int left = std::max<int>(insets.edges[3], corners[0]);
+  const int right = std::max<int>(insets.edges[1], corners[1]);
+  return Rect{left, y + panel.headerOffsetY, renderer.getScreenWidth() - left - right, height};
 }
 
 Rect UITheme::getHeaderRect(const GfxRenderer& renderer, const int height, const Rect& area) {
@@ -420,7 +426,7 @@ int UITheme::getTopStatusBarInset(const GfxRenderer& renderer) {
   return renderer.getOrientation() == GfxRenderer::Orientation::Portrait ? 5 : 0;
 #endif
 
-  return 0;
+  return HalScreenCalibration::panelLayout().statusBarOffsetY;
 }
 
 // Centered text implementation that takes the safe area into account

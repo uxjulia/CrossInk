@@ -157,11 +157,7 @@ class XtcReaderActivity final : public Activity {
   bool isBookReaderActivity() const override { return true; }
   bool usesMenuButtonOrientation() const override;
   bool usesFullScreenReaderVerticalSwipes() const override {
-#if (defined(FREEINK_DEVICE_STICKY) && FREEINK_DEVICE_STICKY) || (defined(FREEINK_DEVICE_PICCO) && FREEINK_DEVICE_PICCO)
-    return true;
-#else
-    return false;
-#endif
+    return mappedInput.hasTouchHardware() && !mappedInput.hasHomeKey();
   }
   void onInputLockChanged(bool locked) override;
   bool handleQuickLockUnlock(QuickLockTrigger trigger) override;

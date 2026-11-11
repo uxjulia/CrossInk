@@ -69,7 +69,7 @@ jobs:
         run: uv pip install --system -U https://github.com/pioarduino/platformio-core/archive/refs/tags/v6.1.19.zip
 
       - name: Run cppcheck
-        run: pio check --fail-on-defect low --fail-on-defect medium --fail-on-defect high
+        run: pio check -e default --fail-on-defect low --fail-on-defect medium --fail-on-defect high
 
   build:
     # Firmware artifacts are validated on pull requests; release builds stay
@@ -79,7 +79,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        environment: [default, x4-pro]
+        environment: [default, x4-pro, eego_a4, eego_a4-debug]
     steps:
       - uses: actions/checkout@v6
         with:
@@ -107,6 +107,12 @@ jobs:
 
       - name: Install PlatformIO Core
         run: uv pip install --system -U https://github.com/pioarduino/platformio-core/archive/refs/tags/v6.1.19.zip
+
+      - name: Verify EEGO A4 build and release contracts
+        if: matrix.environment == 'eego_a4'
+        run: |
+          python3 scripts/test_eego_a4_release.py
+          python3 scripts/test_build_identity.py
 
       - name: Build ${{ matrix.environment }} firmware
         run: |

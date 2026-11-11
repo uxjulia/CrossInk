@@ -18,6 +18,7 @@ It is written for software developers who may be new to embedded development.
 - [File formats](../file-formats.md)
 - [Web server endpoints](../webserver-endpoints.md)
 - [Plugin Development Guide](./plugin-development.md)
+- [EEGO A4 Hardware and Validation](./eego-a4-hardware.md)
 - [Picco Hardware and Validation](./picco-hardware.md)
 - [Local X4 Pro firmware testing](../x4pro-local-testing.md)
 

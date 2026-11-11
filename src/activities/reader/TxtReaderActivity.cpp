@@ -17,6 +17,7 @@
 #include "GlobalActions.h"
 #include "MappedInputManager.h"
 #include "QuickActions.h"
+#include "ReaderRefreshScope.h"
 #include "ReaderUtils.h"
 #include "RecentBooksStore.h"
 #include "SdCardFontSystem.h"
@@ -883,25 +884,28 @@ void TxtReaderActivity::renderPage() {
   if (showOpeningFeedback()) renderer.clearScreen(ReaderUtils::readerBackgroundColor());
   openingFeedback.finish();
 
+  const ReaderUtils::ReaderRefreshScope readerRefresh(renderer);
+
   // BW rendering
   renderLines();
   renderStatusBar();
 
-  const bool deferred =
-      SETTINGS.textAntiAliasing &&
-      ReaderUtils::displayDeferredGrayscale(renderer, pagesUntilFullRefresh, deferredGrayscalePlanes, [&]() {
-        renderLines();
-        return true;
-      });
+  const bool needsTextGrayscale = SETTINGS.textAntiAliasing && renderer.supportsTextGrayscale();
+  const bool deferred = needsTextGrayscale && ReaderUtils::displayDeferredGrayscale(renderer, pagesUntilFullRefresh,
+                                                                                    deferredGrayscalePlanes, [&]() {
+                                                                                      renderLines();
+                                                                                      return true;
+                                                                                    });
   if (!deferred) {
-    auto request = ReaderUtils::PageRefresh::Blocking;
+    auto request = needsTextGrayscale && renderer.combinesGrayscaleBase() ? ReaderUtils::PageRefresh::GrayscaleBase
+                                                                          : ReaderUtils::PageRefresh::Blocking;
 #if FREEINK_DEVICE_PICCO || FREEINK_DEVICE_STICKY
-    if (SETTINGS.textAntiAliasing) request = ReaderUtils::PageRefresh::GrayscaleBase;
+    if (needsTextGrayscale) request = ReaderUtils::PageRefresh::GrayscaleBase;
 #endif
     ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh, request);
   }
 
-  if (SETTINGS.textAntiAliasing && !deferred) {
+  if (needsTextGrayscale && !deferred) {
     ReaderUtils::renderAntiAliased(renderer, [&renderLines]() { renderLines(); });
   }
   pluginEvents.rendered(totalPages > 0 ? static_cast<int>((currentPage + 1LL) * 10000 / totalPages) : 0);

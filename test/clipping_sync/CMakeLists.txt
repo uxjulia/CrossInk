@@ -17,9 +17,14 @@ endif()
 gtest_discover_tests(ClippingSyncTest)
 
 # Compile the real non-simulator download path with chunked transport and SD mocks.
-add_executable(ClippingDownloadTransportTest ClippingDownloadTransportTest.cpp
-  ${REPO_ROOT}/src/network/StatsUploadClient.cpp ${REPO_ROOT}/lib/SyncLog/SyncLog.cpp)
-target_include_directories(ClippingDownloadTransportTest PRIVATE transport_stubs stubs ${REPO_ROOT}/lib/SyncLog
-  ${REPO_ROOT}/src/network ${REPO_ROOT}/lib/Memory)
-target_link_libraries(ClippingDownloadTransportTest PRIVATE crosspoint_test_common GTest::gtest_main ArduinoJson)
-gtest_discover_tests(ClippingDownloadTransportTest)
+foreach(target ClippingDownloadTransportTest ClippingUploadCompatibilityTest)
+  add_executable(${target} ClippingDownloadTransportTest.cpp
+    ${REPO_ROOT}/src/network/StatsUploadClient.cpp ${REPO_ROOT}/lib/SyncLog/SyncLog.cpp)
+  target_include_directories(${target} PRIVATE transport_stubs stubs ${REPO_ROOT}/lib/SyncLog
+    ${REPO_ROOT}/src/network ${REPO_ROOT}/lib/Memory)
+  target_link_libraries(${target} PRIVATE crosspoint_test_common GTest::gtest_main ArduinoJson)
+  if(target STREQUAL ClippingUploadCompatibilityTest)
+    target_compile_definitions(${target} PRIVATE CROSSINK_TEST_UPSTREAM_SDK=1)
+  endif()
+  gtest_discover_tests(${target} TEST_PREFIX "${target}.")
+endforeach()

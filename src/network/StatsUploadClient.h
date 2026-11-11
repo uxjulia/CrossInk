@@ -13,7 +13,8 @@ class StatsUploadClient {
   // Zero for non-book requests; otherwise require acknowledgment of every book.
   Result put(const char* endpoint, const char* payload, unsigned bookCount, bool daily = false,
              const char* sessionId = nullptr);
-  // Upload a staged JSON file through a fixed transport window; no full payload in RAM.
+  // Stream a staged JSON file when supported by the SDK; otherwise buffer in
+  // PSRAM or internal RAM only when the normal TLS headroom can be retained.
   Result putFile(const char* endpoint, const char* path, unsigned bookCount);
   // Bounded extension download to a temporary SD file, closed before returning.
   // Releases TLS before parsing; the caller owns removal of responsePath.

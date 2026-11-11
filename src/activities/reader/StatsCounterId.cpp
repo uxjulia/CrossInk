@@ -1,7 +1,7 @@
 #include "StatsCounterId.h"
 
 #ifndef SIMULATOR
-#include <esp_system.h>
+#include <esp_random.h>
 #else
 #include <random>
 #endif

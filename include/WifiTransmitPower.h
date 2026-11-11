@@ -4,7 +4,7 @@
 #include <cstdint>
 
 namespace WifiTransmitPower {
-// ESP-IDF units are quarter-dBm; zero leaves the driver's default unchanged.
+// ESP-IDF units are quarter-dBm; zero uses the board/radio default.
 inline constexpr uint8_t TRANSMIT_POWER_LEVELS[] = {0, 60, 34, 20, 8};
 
 namespace detail {

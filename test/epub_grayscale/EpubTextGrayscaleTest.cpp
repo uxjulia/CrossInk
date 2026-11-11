@@ -1,6 +1,7 @@
 #include <Epub/blocks/TextBlock.h>
 #include <FontCacheManager.h>
 #include <GfxRenderer.h>
+#include <ReaderRefreshScope.h>
 #include <SdCardFont.h>
 #include <TouchReaderPreviewModel.h>
 #include <gtest/gtest.h>
@@ -161,84 +162,86 @@ TEST(EpubTextGrayscaleTest, CharacterSpacingDecorationsFollowTextWidth) {
 }
 
 TEST(EpubTextGrayscaleTest, RealTextRasterMatchesFullAndStripTargets) {
-  for (bool sd : {false, true})
-    for (int size : {12, 20})
-      for (int orientation = 0; orientation < 4; ++orientation) {
-        SCOPED_TRACE(testing::Message() << sd << ' ' << size << ' ' << orientation);
-        fakeheap::reset(true);
-        Storage.reset();
-        RasterFont fixture(size);
-        SdCardFont sdFont;
-        HalDisplay display(orientation % 2 ? 800 : 792, 481);
-        GfxRenderer renderer(display);
-        renderer.begin();
-        if (sd) {
-          Storage.put("font.cpfont", fixture.file());
-          ASSERT_TRUE(sdFont.load("font.cpfont"));
-          renderer.insertFont(1, EpdFontFamily(sdFont.getEpdFont()));
-          renderer.registerSdCardFont(1, &sdFont);
-        } else
-          renderer.insertFont(1, EpdFontFamily(&fixture.font));
-        renderer.setOrientation(GfxRenderer::Orientation(orientation));
-        FontCacheManager cache(renderer.getFontMap(), renderer.getSdCardFonts());
-        renderer.setFontCacheManager(&cache);
-        const std::vector<std::string> words = {"Abc", "e\u0301", "שלום", "سلام", "一", "\U0001F642", " "};
-        const std::vector<int16_t> offsets = {0, 65, 120, 190, 260, 290, 330};
-        const std::vector<EpdFontFamily::Style> styles = {
-            EpdFontFamily::REGULAR, EpdFontFamily::BOLD,    EpdFontFamily::ITALIC, EpdFontFamily::BOLD_ITALIC,
-            EpdFontFamily::REGULAR, EpdFontFamily::REGULAR, EpdFontFamily::REGULAR};
-        const auto bw = display.bw;
-        for (int feature = 0; feature < 5; ++feature) {
-          auto variants = styles;
-          BlockStyle blockStyle;
-          blockStyle.isRtl = feature == 4;
-          for (auto& style : variants)
-            style = EpdFontFamily::Style(style | (feature == 0 ? EpdFontFamily::UNDERLINE | EpdFontFamily::STRIKETHROUGH
-                                                  : feature == 1 ? EpdFontFamily::SMALL_CAPS
-                                                  : feature == 2 ? EpdFontFamily::SUP
-                                                  : feature == 3 ? EpdFontFamily::SUB
-                                                                 : 0));
-          TextBlock line(words, offsets, variants,
-                         feature == 1 ? std::vector<uint8_t>(words.size(), 1) : std::vector<uint8_t>{},
-                         feature == 1 ? std::vector<uint16_t>(words.size(), 12) : std::vector<uint16_t>{},
-                         std::vector<uint16_t>(words.size(), 6),
-                         std::vector<uint8_t>(words.size(), TextBlock::WORD_FLAG_BACKGROUND_BLACK), {}, blockStyle,
-                         feature == 4 ? std::vector<std::string>(words.size(), "Ab") : std::vector<std::string>{});
-          ASSERT_TRUE(line.valid());
-          auto draw = [&] {
-            for (int y : {-8, 65, 79, 145, 159, 230, 310, 390, 470}) line.render(renderer, 1, 7, y, true);
-          };
-          {
-            auto scan = cache.createPrewarmScope();
-            draw();
-            scan.endScanAndPrewarm();
-          }
-          EXPECT_EQ(display.bw, bw);
-          for (auto mode : {GfxRenderer::BW, GfxRenderer::GRAYSCALE_LSB, GfxRenderer::GRAYSCALE_MSB}) {
-            renderer.setRenderMode(mode);
-            std::vector<uint8_t> full(display.bw.size()), strips(display.bw.size());
-            renderer.beginStripTarget(full.data(), 0, display.height);
-            renderer.clearScreen(mode == GfxRenderer::BW ? 255 : 0);
-            draw();
-            renderer.endStripTarget();
-            for (int y = 0; y < display.height; y += 80) {
-              int rows = std::min(80, display.height - y);
-              renderer.beginStripTarget(strips.data() + size_t(y) * display.stride, y, rows);
+  for (const auto [width, height] : {std::pair{792, 481}, std::pair{800, 481}, std::pair{768, 552}})
+    for (bool sd : {false, true})
+      for (int size : {12, 20})
+        for (int orientation = 0; orientation < 4; ++orientation) {
+          SCOPED_TRACE(testing::Message() << sd << ' ' << size << ' ' << orientation);
+          fakeheap::reset(true);
+          Storage.reset();
+          RasterFont fixture(size);
+          SdCardFont sdFont;
+          HalDisplay display(width, height);
+          GfxRenderer renderer(display);
+          renderer.begin();
+          if (sd) {
+            Storage.put("font.cpfont", fixture.file());
+            ASSERT_TRUE(sdFont.load("font.cpfont"));
+            renderer.insertFont(1, EpdFontFamily(sdFont.getEpdFont()));
+            renderer.registerSdCardFont(1, &sdFont);
+          } else
+            renderer.insertFont(1, EpdFontFamily(&fixture.font));
+          renderer.setOrientation(GfxRenderer::Orientation(orientation));
+          FontCacheManager cache(renderer.getFontMap(), renderer.getSdCardFonts());
+          renderer.setFontCacheManager(&cache);
+          const std::vector<std::string> words = {"Abc", "e\u0301", "שלום", "سلام", "一", "\U0001F642", " "};
+          const std::vector<int16_t> offsets = {0, 65, 120, 190, 260, 290, 330};
+          const std::vector<EpdFontFamily::Style> styles = {
+              EpdFontFamily::REGULAR, EpdFontFamily::BOLD,    EpdFontFamily::ITALIC, EpdFontFamily::BOLD_ITALIC,
+              EpdFontFamily::REGULAR, EpdFontFamily::REGULAR, EpdFontFamily::REGULAR};
+          const auto bw = display.bw;
+          for (int feature = 0; feature < 5; ++feature) {
+            auto variants = styles;
+            BlockStyle blockStyle;
+            blockStyle.isRtl = feature == 4;
+            for (auto& style : variants)
+              style =
+                  EpdFontFamily::Style(style | (feature == 0   ? EpdFontFamily::UNDERLINE | EpdFontFamily::STRIKETHROUGH
+                                                : feature == 1 ? EpdFontFamily::SMALL_CAPS
+                                                : feature == 2 ? EpdFontFamily::SUP
+                                                : feature == 3 ? EpdFontFamily::SUB
+                                                               : 0));
+            TextBlock line(words, offsets, variants,
+                           feature == 1 ? std::vector<uint8_t>(words.size(), 1) : std::vector<uint8_t>{},
+                           feature == 1 ? std::vector<uint16_t>(words.size(), 12) : std::vector<uint16_t>{},
+                           std::vector<uint16_t>(words.size(), 6),
+                           std::vector<uint8_t>(words.size(), TextBlock::WORD_FLAG_BACKGROUND_BLACK), {}, blockStyle,
+                           feature == 4 ? std::vector<std::string>(words.size(), "Ab") : std::vector<std::string>{});
+            ASSERT_TRUE(line.valid());
+            auto draw = [&] {
+              for (int y : {-8, 65, 79, 145, 159, 230, 310, 390, 470}) line.render(renderer, 1, 7, y, true);
+            };
+            {
+              auto scan = cache.createPrewarmScope();
+              draw();
+              scan.endScanAndPrewarm();
+            }
+            EXPECT_EQ(display.bw, bw);
+            for (auto mode : {GfxRenderer::BW, GfxRenderer::GRAYSCALE_LSB, GfxRenderer::GRAYSCALE_MSB}) {
+              renderer.setRenderMode(mode);
+              std::vector<uint8_t> full(display.bw.size()), strips(display.bw.size());
+              renderer.beginStripTarget(full.data(), 0, display.height);
               renderer.clearScreen(mode == GfxRenderer::BW ? 255 : 0);
               draw();
               renderer.endStripTarget();
+              for (int y = 0; y < display.height; y += 80) {
+                int rows = std::min(80, display.height - y);
+                renderer.beginStripTarget(strips.data() + size_t(y) * display.stride, y, rows);
+                renderer.clearScreen(mode == GfxRenderer::BW ? 255 : 0);
+                draw();
+                renderer.endStripTarget();
+              }
+              EXPECT_EQ(full, strips) << "feature=" << feature << " mode=" << mode;
+              EXPECT_TRUE(std::any_of(full.begin(), full.end(),
+                                      [&](auto b) { return b != (mode == GfxRenderer::BW ? 255 : 0); }));
+              EXPECT_EQ(display.bw, bw);
+              EXPECT_EQ(renderer.getWriteTarget(), display.bw.data());
             }
-            EXPECT_EQ(full, strips) << "feature=" << feature << " mode=" << mode;
-            EXPECT_TRUE(std::any_of(full.begin(), full.end(),
-                                    [&](auto b) { return b != (mode == GfxRenderer::BW ? 255 : 0); }));
-            EXPECT_EQ(display.bw, bw);
-            EXPECT_EQ(renderer.getWriteTarget(), display.bw.data());
+            renderer.setRenderMode(GfxRenderer::BW);
           }
-          renderer.setRenderMode(GfxRenderer::BW);
+          renderer.setFontCacheManager(nullptr);
+          renderer.removeFont(1);
         }
-        renderer.setFontCacheManager(nullptr);
-        renderer.removeFont(1);
-      }
 }
 }  // namespace
 
@@ -355,6 +358,46 @@ TEST(AbsoluteImageRaster, BitmapPlanesPreserveFourTonesAndWhiteMargins) {
   renderer.setRenderMode(GfxRenderer::BW);
   EXPECT_EQ(display.canceled, 1);
   file.close();
+}
+
+TEST(RetainedGrayscaleOverlay, RotatesTheRegionAndRejectsInvalidBoundsWithoutPainting) {
+  fakeheap::reset(true);
+  HalDisplay display(792, 481);
+  GfxRenderer renderer(display);
+  renderer.begin();
+  for (int orientation = 0; orientation < 4; ++orientation) {
+    renderer.setOrientation(static_cast<GfxRenderer::Orientation>(orientation));
+    ASSERT_TRUE(renderer.displayRetainedGrayscaleOverlay(7, 11, 24, 35, true));
+    const auto& region = display.retainedOverlays.back();
+    EXPECT_TRUE(region.restore);
+    if (orientation == GfxRenderer::Portrait) {
+      EXPECT_EQ(region.x, 11);
+      EXPECT_EQ(region.y, 450);
+      EXPECT_EQ(region.width, 35);
+      EXPECT_EQ(region.height, 24);
+    } else if (orientation == GfxRenderer::PortraitInverted) {
+      EXPECT_EQ(region.x, 746);
+      EXPECT_EQ(region.y, 7);
+      EXPECT_EQ(region.width, 35);
+      EXPECT_EQ(region.height, 24);
+    } else if (orientation == GfxRenderer::LandscapeClockwise) {
+      EXPECT_EQ(region.x, 761);
+      EXPECT_EQ(region.y, 435);
+      EXPECT_EQ(region.width, 24);
+      EXPECT_EQ(region.height, 35);
+    } else {
+      EXPECT_EQ(region.x, 7);
+      EXPECT_EQ(region.y, 11);
+      EXPECT_EQ(region.width, 24);
+      EXPECT_EQ(region.height, 35);
+    }
+    const auto calls = display.retainedOverlays.size();
+    EXPECT_FALSE(renderer.displayRetainedGrayscaleOverlay(-1, 0, 1, 1));
+    EXPECT_FALSE(renderer.displayRetainedGrayscaleOverlay(0, 0, 0, 1));
+    EXPECT_FALSE(renderer.displayRetainedGrayscaleOverlay(0, 0, renderer.getScreenWidth() + 1, 1));
+    EXPECT_FALSE(renderer.displayRetainedGrayscaleOverlay(0, renderer.getScreenHeight(), 1, 1));
+    EXPECT_EQ(display.retainedOverlays.size(), calls);
+  }
 }
 
 // A font switch begins with no resident glyphs. A wide replacement glyph makes
@@ -497,4 +540,94 @@ TEST(PageTextDetection, OnlyTextAndTablesNeedTextAntialiasing) {
     EXPECT_TRUE(page.hasText());
     page.elements.pop_back();
   }
+}
+
+TEST(ReaderRefreshScope, PageAndAaUseReadingWaveformThenMenuReturnsToUi) {
+  HalDisplay display(800, 480);
+  GfxRenderer renderer(display);
+  renderer.begin();
+  renderer.displayBuffer();  // Home before entering a reader.
+  {
+    const ReaderUtils::ReaderRefreshScope reading(renderer);
+    renderer.displayGrayscaleBase(HalDisplay::FAST_REFRESH);
+    renderer.displayGrayBuffer();
+  }
+  renderer.displayBuffer();  // Menu pushed over the reader.
+  {
+    const ReaderUtils::ReaderRefreshScope reading(renderer);
+    renderer.displayBuffer(HalDisplay::HALF_REFRESH);  // Return and periodic cleanup.
+  }
+  renderer.displayBuffer();  // Leave the book.
+  EXPECT_EQ(display.refreshHints, (std::vector<bool>{false, true, true, false, true, false}));
+}
+
+TEST(ReaderRefreshScope, EarlyReturnDoesNotLeaveReaderHintEnabled) {
+  HalDisplay display(800, 480);
+  GfxRenderer renderer(display);
+  renderer.begin();
+  const auto failedPage = [&]() {
+    const ReaderUtils::ReaderRefreshScope reading(renderer);
+    renderer.displayGrayscaleBase(HalDisplay::FAST_REFRESH);
+    return false;  // For example, a failed grayscale allocation or image read.
+  };
+  EXPECT_FALSE(failedPage());
+  renderer.displayBuffer();
+  EXPECT_EQ(display.refreshHints, (std::vector<bool>{true, false}));
+}
+
+TEST(ReaderRefreshScope, BufferOnlyCompositionLeavesRefreshPolicyAlone) {
+  HalDisplay display(800, 480);
+  GfxRenderer renderer(display);
+  for (bool initial : {false, true}) {
+    display.setReaderRefresh(initial);
+    {
+      const ReaderUtils::ReaderRefreshScope bufferOnly(renderer, false);
+      EXPECT_EQ(display.readerRefresh, initial);
+    }
+    EXPECT_EQ(display.readerRefresh, initial);
+  }
+}
+
+TEST(ReaderRefreshScope, CombinedTextIsOptedInOnlyForTextPages) {
+  HalDisplay display(800, 480);
+  display.combinedTextSupported = true;
+  GfxRenderer renderer(display);
+  EXPECT_FALSE(renderer.combinesGrayscaleBase());
+  {
+    const ReaderUtils::ReaderRefreshScope text(renderer);
+    EXPECT_TRUE(display.readerRefresh);
+    EXPECT_TRUE(renderer.supportsTextGrayscale());
+    EXPECT_TRUE(renderer.combinesGrayscaleBase());
+  }
+  {
+    const ReaderUtils::ReaderRefreshScope images(renderer, true, false);
+    EXPECT_FALSE(display.readerRefresh);
+    EXPECT_FALSE(renderer.combinesGrayscaleBase());
+    EXPECT_TRUE(renderer.supportsTextGrayscale());
+  }
+  EXPECT_FALSE(display.readerRefresh);
+}
+
+TEST(ReaderRefreshScope, SeparatePanelsAndAllocationFallbackRetainReaderWaveform) {
+  HalDisplay display(800, 480);
+  GfxRenderer renderer(display);
+  // Models Picco, C3, and Pro/Classic when the SDK's PSRAM allocation fails.
+  for (bool textOnly : {false, true}) {
+    const ReaderUtils::ReaderRefreshScope reading(renderer, true, textOnly);
+    EXPECT_TRUE(display.readerRefresh);
+    EXPECT_FALSE(renderer.combinesGrayscaleBase());
+    EXPECT_TRUE(renderer.supportsTextGrayscale());
+  }
+}
+
+TEST(ReaderRefreshScope, NightTextUsesTheActivePanelsCapabilities) {
+  HalDisplay display(800, 480);
+  display.inverted = true;
+  GfxRenderer renderer(display);
+  const ReaderUtils::ReaderRefreshScope reading(renderer);
+  EXPECT_FALSE(renderer.supportsTextGrayscale());
+  display.invertedOverlaySupported = true;
+  EXPECT_TRUE(renderer.supportsTextGrayscale());
+  display.overlaySupported = false;
+  EXPECT_FALSE(renderer.supportsTextGrayscale());
 }

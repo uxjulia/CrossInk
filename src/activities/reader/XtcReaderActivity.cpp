@@ -25,6 +25,7 @@
 #include "GlobalActions.h"
 #include "MappedInputManager.h"
 #include "QuickActions.h"
+#include "ReaderRefreshScope.h"
 #include "ReaderUtils.h"
 #include "ReadingSessionStats.h"
 #include "RecentBooksStore.h"
@@ -1392,6 +1393,8 @@ void XtcReaderActivity::renderStatusBarOverlay(const StatusBarOverlayPosition po
 }
 
 void XtcReaderActivity::renderPage(const uint32_t pageToRender) {
+  // Pre-rendered XTCH shades need the image waveform, not the text-only AA mode.
+  const ReaderUtils::ReaderRefreshScope readerRefresh(renderer, true, false);
   const uint16_t pageWidth = xtc->getPageWidth();
   const uint16_t pageHeight = xtc->getPageHeight();
   const uint8_t bitDepth = xtc->getBitDepth();

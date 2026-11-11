@@ -1375,15 +1375,15 @@ void EpubReaderDrawerActivity::buildDrawerKeypad(UiApp::ScreenType& screen, cons
   readout.align = fui::TextAlign::Center;
   const int16_t readoutLh = screen.target().lineHeight(readout.font);
   const int16_t readoutRowH = std::max<int16_t>(theme.rowHeight, static_cast<int16_t>(readoutLh + 16));
-  const fui::Rect readoutRow = screen.takeTop(readoutRowH, theme.spaceLg);
-  const int16_t iconSize = readoutRow.height;
-  const fui::Rect iconRect{static_cast<int16_t>(readoutRow.right() - iconSize), readoutRow.y, iconSize,
-                           readoutRow.height};
-  // The icon sits in unused space at the row's edge; keep the readout centered
-  // in the full row instead of shifting it left when the icon appears.
+  const bool beside = mappedInput.hasTouchHardware() && isLandscapeOrientation(renderer.getOrientation());
+  const auto layout = fui::keyGridReadoutLayout(
+      screen.body(), readoutRowH, static_cast<int16_t>(screen.target().measureText(readout.font, value, readout).width),
+      theme.spaceLg, theme.spaceLg, beside);
+  const fui::Rect readoutRow = layout.readout;
+  const fui::Rect iconRect = layout.backspace;
   screen.target().text(readoutRow, value, readout);
 
-  if (entryLen > 0 || !mappedInput.hasTouchHardware()) {
+  if (entryLen > 0 || !mappedInput.hasTouchHardware() || beside) {
     fui::ButtonProps backspaceBtn;
     backspaceBtn.icon = fui::bitmapFromIcon(icon_backspace_28);
     backspaceBtn.action = ACTION_KEYPAD_BACKSPACE;
@@ -1393,8 +1393,7 @@ void EpubReaderDrawerActivity::buildDrawerKeypad(UiApp::ScreenType& screen, cons
     screen.button(backspaceBtn, iconRect);
   }
 
-  fui::Rect gridArea = screen.body().inset(fui::Insets{0, theme.spaceLg, theme.spaceLg, theme.spaceLg});
-  gridArea.height = std::max<int16_t>(0, gridArea.height);
+  const fui::Rect gridArea = layout.grid;
 
   static const char* const kDigitLabels[10] = {"0", "1", "2", "3", "4", "5", "6", "7", "8", "9"};
   for (int i = 0; i < 9; ++i) {

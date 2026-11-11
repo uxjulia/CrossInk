@@ -76,6 +76,29 @@ int main(int argc, char** argv) {
     WifiTransmitPower::setLimit(0);
     assert(__wrap_esp_wifi_start() == ESP_OK);
     assert(radioPower == 44);
+  } else if (test == "profile-default") {
+    assert(__wrap_esp_wifi_start() == ESP_OK);
+    assert(radioPower == 60);
+    assert((calls == std::vector<std::string>{"start", "get", "set"}));
+  } else if (test == "profile-restore") {
+    for (const uint8_t power : {0, 34, 0, 60, 8, 0}) {
+      WifiTransmitPower::setLimit(power);
+      assert(__wrap_esp_wifi_start() == ESP_OK);
+      assert(radioPower == (power == 0 ? 60 : power));
+      assert(esp_wifi_stop() == ESP_OK);
+    }
+  } else if (test == "profile-lower-radio") {
+    radioPower = 44;
+    assert(__wrap_esp_wifi_start() == ESP_OK);
+    assert(radioPower == 44);
+    WifiTransmitPower::setLimit(60);
+    assert(__wrap_esp_wifi_start() == ESP_OK);
+    assert(radioPower == 44);
+  } else if (test == "profile-read-failure") {
+    readResult = ESP_FAIL;
+    assert(__wrap_esp_wifi_start() == ESP_FAIL);
+    assert(!running);
+    assert((calls == std::vector<std::string>{"start", "get", "stop"}));
   } else if (test == "bad-setting") {
     for (const uint8_t value : {1, 15, 33, 80, 255}) {
       WifiTransmitPower::setLimit(value);

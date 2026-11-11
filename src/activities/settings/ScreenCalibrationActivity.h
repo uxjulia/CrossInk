@@ -16,13 +16,14 @@ class ScreenCalibrationActivity final : public Activity {
   void render(RenderLock&&) override;
   bool allowGlobalHomeSwipeGesture() const override { return false; }
 #ifdef SIMULATOR
+  friend struct ScreenCalibrationSmokeTest;
   const ScreenInsets& simulatorDraft() const { return draft; }
   bool simulatorSaveFailed() const { return saveFailed; }
   bool simulatorHit(int x, int y, freeink::ui::Interaction& hit) const { return app.hitPublished(x, y, 1, hit); }
 #endif
 
  private:
-  using UiApp = freeink::ui::FreeInkApp<15, 1>;
+  using UiApp = freeink::ui::FreeInkApp<21, 1>;
   freeink::ui::GfxRendererTarget uiTarget;
   UiApp app;
   ButtonNavigator navigator;

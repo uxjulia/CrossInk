@@ -62,11 +62,15 @@ git submodule update --init --recursive
 ## Build
 
 ```sh
-pio run -e simulator
-pio run -e default
+pio run -e simulator -j1
+pio run -e default -j1
 ```
 
-`pio run` without an environment builds the X3/X4 and Sticky firmware targets listed in `platformio.ini`.
+Always select one environment and use `-j1`. EEGO A4 uses `eego_a4`
+for production builds and `eego_a4-debug` for development with verbose serial
+logs. Both are included in PR build validation; stable and RC workflows publish
+`firmware-eego_a4-*.bin`. See [EEGO A4](./eego-a4-hardware.md) for flashing and
+hardware checks.
 
 ### Font download hosting
 
@@ -101,8 +105,8 @@ pio run -e default --target upload
 
 ```sh
 ./bin/clang-format-fix
-pio check --fail-on-defect low --fail-on-defect medium --fail-on-defect high
-pio run
+pio check -e default --fail-on-defect low --fail-on-defect medium --fail-on-defect high
+pio run -e default -j1
 ```
 
 ## What to read next

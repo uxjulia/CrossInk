@@ -32,6 +32,45 @@ bool insufficientTlsHeap() {
 void recordMissingApi(const int status) {
   if (status == 404 || status == 405) KOREADER_STORE.setServerSupport(SyncServerSupport::UNSUPPORTED);
 }
+
+template <typename HttpClient, typename Receive>
+int sendFileBody(HttpClient& http, FsFile& source, const Receive& receive, bool& lowMemory) {
+  const auto read = [](void* context, size_t offset, uint8_t* data, size_t length) -> size_t {
+    auto& file = *static_cast<FsFile*>(context);
+    if (!file.seekSet(offset)) return 0;
+    const int count = file.read(data, length);
+    return count < 0 ? 0 : static_cast<size_t>(count);
+  };
+  if constexpr (requires { http.sendRequestStream("PUT", source.size(), read, &source, receive); }) {
+    return http.sendRequestStream("PUT", source.size(), read, &source, receive);
+  } else {
+    // Upstream SDK accepts only a contiguous request body. This upload-scoped
+    // buffer prefers PSRAM; C3 must retain the normal TLS headroom throughout.
+    const size_t length = source.size();
+    auto payload = makePsramByteBufferNoThrow(length);
+    if (!payload) {
+      const auto free = ESP.getFreeHeap();
+      if (free < KOReaderSyncClient::MIN_FREE_HEAP_FOR_TLS ||
+          length > free - KOReaderSyncClient::MIN_FREE_HEAP_FOR_TLS || length > ESP.getMaxAllocHeap()) {
+        LOG_ERR("StatsSync", "Insufficient memory for SDK upload buffer");
+        lowMemory = true;
+        return -1;
+      }
+      payload = makeInternalByteBufferNoThrow(length);
+    }
+    if (!payload || insufficientTlsHeap()) {
+      LOG_ERR("StatsSync", "Cannot reserve SDK upload buffer with TLS headroom");
+      lowMemory = true;
+      return -1;
+    }
+    const int count = source.read(payload.get(), length);
+    if (count < 0 || static_cast<size_t>(count) != length) {
+      LOG_ERR("StatsSync", "Cannot read complete upload body");
+      return -1;
+    }
+    return http.sendRequest("PUT", payload.get(), length, receive);
+  }
+}
 }  // namespace
 
 struct StatsUploadClient::Impl {
@@ -121,6 +160,7 @@ StatsUploadClient::Result StatsUploadClient::putBody(const char* endpoint, const
   ScopedCleanup closeSource{[&] { source.close(); }};
   size_t size = 0;
   bool complete = true;
+  bool uploadLowMemory = false;
 #ifdef SIMULATOR
   std::string simulated;
   if (filePath) {
@@ -142,14 +182,8 @@ StatsUploadClient::Result StatsUploadClient::putBody(const char* endpoint, const
     size += length;
     return true;
   };
-  const auto read = [](void* context, size_t offset, uint8_t* data, size_t length) -> size_t {
-    auto& file = *static_cast<FsFile*>(context);
-    if (!file.seekSet(offset)) return 0;
-    const int count = file.read(data, length);
-    return count < 0 ? 0 : static_cast<size_t>(count);
-  };
   const int status = filePath
-                         ? http.sendRequestStream("PUT", source.size(), read, &source, receive)
+                         ? sendFileBody(http, source, receive, uploadLowMemory)
                          : http.sendRequest("PUT", reinterpret_cast<const uint8_t*>(payload), strlen(payload), receive);
   complete = http.responseComplete();
 #endif
@@ -169,6 +203,7 @@ StatsUploadClient::Result StatsUploadClient::putBody(const char* endpoint, const
     http.end();
     return request.finish(result);
   };
+  if (uploadLowMemory) return failure(Result::LowMemory);
   if (status <= 0) return failure(Result::Network);
   if (status == 401) return failure(Result::Auth);
   if (status == 404 || status == 405) {

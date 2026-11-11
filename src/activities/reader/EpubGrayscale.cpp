@@ -8,8 +8,76 @@
 #include <MemoryBudget.h>
 
 #include <algorithm>
+#include <cstring>
 
 namespace EpubGrayscale {
+
+HeapByteBuffer allocateScratch(const int widthBytes, const int height, size_t& size, bool& inPsram) {
+  size = 0;
+  inPsram = false;
+  if (widthBytes <= 0 || height <= 0) return {};
+
+  const size_t stripBytes = static_cast<size_t>(widthBytes) * std::min(height, GRAYSCALE_STRIP_ROWS);
+  const size_t planeBytes = static_cast<size_t>(widthBytes) * height;
+  if (psramHeapAvailable()) {
+    // One runtime-sized mask (52,992 bytes on Eego), reused for both gray
+    // planes. Too large for the task stack; never request this from internal RAM.
+    constexpr size_t PSRAM_RESERVE = 128 * 1024;
+    const auto psram = byteHeapSnapshot(MemoryPool::Psram);
+    if (psram.free >= planeBytes + PSRAM_RESERVE && psram.largest >= planeBytes) {
+      auto buffer = makePsramByteBufferNoThrow(planeBytes);
+      if (buffer) {
+        size = planeBytes;
+        inPsram = true;
+        return buffer;
+      }
+      LOG_ERR("EPS", "OOM: PSRAM grayscale plane (%u bytes); trying strip", static_cast<unsigned>(planeBytes));
+    }
+    auto buffer = makePsramByteBufferNoThrow(stripBytes);
+    if (buffer) {
+      size = stripBytes;
+      inPsram = true;
+      return buffer;
+    }
+    LOG_ERR("EPS", "OOM: PSRAM grayscale strip (%u bytes); trying default heap", static_cast<unsigned>(stripBytes));
+  }
+  auto buffer = makeHeapByteBufferNoThrow(stripBytes);
+  if (buffer) {
+    size = stripBytes;
+  } else {
+    LOG_ERR("EPS", "OOM: grayscale strip (%u bytes); falling back to BW snapshot", static_cast<unsigned>(stripBytes));
+  }
+  return buffer;
+}
+
+bool runAbsoluteImageGrayscalePass(GfxRenderer& renderer, const Page& page, const int fontId, const int marginLeft,
+                                   const int marginTop, uint8_t* lsb, uint8_t* msb, const size_t planeSize,
+                                   void (*renderOverlays)(void*), void* context) {
+  const int height = renderer.getDisplayHeight();
+  const size_t bytes = static_cast<size_t>(renderer.getDisplayWidthBytes()) * height;
+  if (!renderer.grayPlanesAreAbsolute() || !lsb || !msb || planeSize < bytes) {
+    LOG_ERR("EPS", "Cannot render complete absolute image planes");
+    return false;
+  }
+  for (const auto mode : {GfxRenderer::GRAYSCALE_LSB, GfxRenderer::GRAYSCALE_MSB}) {
+    auto* plane = mode == GfxRenderer::GRAYSCALE_LSB ? lsb : msb;
+    // Black/white have the same bit in both absolute planes. Seed the complete
+    // page, including non-AA text and transient overlays, before replacing images.
+    memcpy(plane, renderer.getFrameBuffer(), bytes);
+    renderer.setRenderMode(mode);
+    renderer.beginStripTarget(plane, 0, height);
+    page.renderImages(renderer, fontId, marginLeft, marginTop);
+    // Feedback or clipping highlights may overlap the image itself.
+    if (renderOverlays) renderOverlays(context);
+    renderer.endStripTarget();
+  }
+  renderer.copyGrayscalePlanes(lsb, msb);
+  // BW mode cancels an unfinished absolute pass, so commit the planes first.
+  renderer.displayGrayBuffer();
+  renderer.setRenderMode(GfxRenderer::BW);
+  renderer.cleanupGrayscaleWithFrameBuffer();
+  return true;
+}
 
 bool runTiledGrayscalePass(GfxRenderer& renderer, const Page& page, const int fontId, const int marginLeft,
                            const int marginTop, const bool foregroundBlack, const bool needsTextGrayscale,
@@ -38,9 +106,9 @@ bool runTiledGrayscalePass(GfxRenderer& renderer, const Page& page, const int fo
     renderer.endStripTarget();
   };
 
-  // Whole-plane buffers are about 48 KB each, so they are unsuitable for the
-  // task stack or permanent activity storage. Each transient allocation must
-  // leave enough total and contiguous heap for the next render allocations.
+  // Async overlap uses up to two additional whole-plane buffers (~48 KB each).
+  // Keep these transient and off the task stack, leaving enough total and
+  // contiguous heap for the next render allocations.
   constexpr size_t PLANE_BUFFER_FREE_HEAP_RESERVE = 60000;
   constexpr size_t PLANE_BUFFER_MAX_ALLOC_RESERVE = 16 * 1024;
   const bool usePsramPlanes = psramHeapAvailable();
@@ -90,7 +158,8 @@ bool runTiledGrayscalePass(GfxRenderer& renderer, const Page& page, const int fo
     renderer.waitRefreshComplete();
   }
 
-  const size_t requiredScratchSize = static_cast<size_t>(displayWidthBytes) * GRAYSCALE_STRIP_ROWS;
+  const size_t requiredScratchSize =
+      static_cast<size_t>(displayWidthBytes) * std::min(displayHeight, GRAYSCALE_STRIP_ROWS);
   if (!scratch || scratchSize < requiredScratchSize) {
     if (asyncRefreshPending) {
       // The shadow-free async update does not rebuild the controller's
@@ -100,12 +169,15 @@ bool runTiledGrayscalePass(GfxRenderer& renderer, const Page& page, const int fo
     return false;
   }
 
-  // Keep the live BW framebuffer intact, stream grayscale planes by row-band,
-  // then re-sync the controller BW state from the framebuffer.
+  // Use all available scratch rows: a retained PSRAM plane visits the page
+  // once per mask instead of once per 80-row band. The live BW framebuffer
+  // and the display/cleanup sequence remain unchanged.
+  const int scratchRows =
+      static_cast<int>(std::min(scratchSize / displayWidthBytes, static_cast<size_t>(displayHeight)));
   const auto renderPlane = [&](const GfxRenderer::RenderMode mode, const bool lsbPlane) {
     renderer.setRenderMode(mode);
-    for (int y = 0; y < displayHeight; y += GRAYSCALE_STRIP_ROWS) {
-      const int rows = std::min(GRAYSCALE_STRIP_ROWS, displayHeight - y);
+    for (int y = 0; y < displayHeight; y += scratchRows) {
+      const int rows = std::min(scratchRows, displayHeight - y);
       renderer.beginStripTarget(scratch, y, rows);
       renderer.clearScreen(0x00);
       if (needsTextGrayscale) {

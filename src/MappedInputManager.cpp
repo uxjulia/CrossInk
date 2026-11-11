@@ -12,6 +12,8 @@
 #include "DeviceCapabilities.h"
 #include "GlobalActions.h"
 #if CROSSINK_APP_CAP_TOUCH
+#include <CrossInkHalFrontlight.h>
+
 #include "components/TouchRegistry.h"
 #endif
 #include "components/UITheme.h"
@@ -793,17 +795,7 @@ bool MappedInputManager::wasBackGesture() const {
 
 bool MappedInputManager::wasLeftEdgeGesture() const { return wasBackGesture(); }
 
-bool MappedInputManager::hasHomeKeyHardware() const {
-#ifdef SIMULATOR
-#ifdef SIMULATOR_DEVICE_X4_PRO
-  return true;
-#else
-  return false;
-#endif
-#else
-  return gpio.hasHomeKey();
-#endif
-}
+bool MappedInputManager::hasHomeKeyHardware() const { return gpio.hasHomeKey(); }
 
 bool MappedInputManager::wasTopEdgeDownSwipe() const {
   // Downward swipe starting at the top edge (mirror of the bottom-edge swipe).
@@ -834,51 +826,24 @@ bool MappedInputManager::wasBottomEdgeUpSwipe() const {
   return false;
 }
 
-// Picco shares the X4 Pro drawer layout without pretending to have a Home key.
-bool MappedInputManager::usesFrontlightSwipeLayout() const {
-#if FREEINK_DEVICE_PICCO
-  return true;
-#else
-  return hasHomeKeyHardware();
-#endif
-}
+// Outside books, a Home key or frontlight reserves the top edge for the
+// quick panel. Touch-only devices keep their existing top-edge menu gesture.
+bool MappedInputManager::usesFrontlightSwipeLayout() const { return hasHomeKeyHardware() || Frontlight.present(); }
 
-// Drawer-layout boards use the bottom edge for menus and the top for light controls.
 bool MappedInputManager::wasMenuGesture() const {
   return usesFrontlightSwipeLayout() ? wasBottomEdgeUpSwipe() : wasTopEdgeDownSwipe();
 }
 
-bool MappedInputManager::wasReaderMenuGesture() const {
-  const SwipeDir direction = wasSwipe();
-#if defined(FREEINK_DEVICE_STICKY) && FREEINK_DEVICE_STICKY
-  return direction == SwipeDir::Up;
-#else
-  return usesFrontlightSwipeLayout() ? direction == SwipeDir::Up : direction == SwipeDir::Down;
-#endif
-}
+// All touch readers share the same drawer gestures, independent of hardware.
+bool MappedInputManager::wasReaderMenuGesture() const { return wasSwipe() == SwipeDir::Up; }
 
 bool MappedInputManager::wasReaderHomeGesture() const {
-  // Drawer-layout boards reserve upward reader swipes for the menu.
-  // X4 Pro retains its Home key; Picco uses the drawer's Home action.
-#if defined(FREEINK_DEVICE_STICKY) && FREEINK_DEVICE_STICKY
-  // Sticky uses swipe up for the bottom reader drawer and swipe down for the
-  // reader-details panel. Home remains available from that panel's header.
-  return false;
-#else
-  if (usesFrontlightSwipeLayout()) {
-    return hasHomeKeyHardware() && wasHomeGesture();
-  }
-  return wasSwipe() == SwipeDir::Up;
-#endif
+  // Vertical swipes belong to the drawers; Home stays available from the top
+  // drawer's header and from a physical Home key when the device has one.
+  return hasHomeKeyHardware() && wasHomeGesture();
 }
 
-bool MappedInputManager::wasReaderLightPanelGesture() const {
-#if defined(FREEINK_DEVICE_STICKY) && FREEINK_DEVICE_STICKY
-  return wasSwipe() == SwipeDir::Down;
-#else
-  return usesFrontlightSwipeLayout() && wasSwipe() == SwipeDir::Down;
-#endif
-}
+bool MappedInputManager::wasReaderLightPanelGesture() const { return wasSwipe() == SwipeDir::Down; }
 
 bool MappedInputManager::wasHomeGesture() const {
   if (!hasHomeKeyHardware()) return wasBottomEdgeUpSwipe();

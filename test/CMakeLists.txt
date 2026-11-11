@@ -133,6 +133,7 @@ add_subdirectory(keyboard_tips)
 add_subdirectory(interval_selection_layout)
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 add_subdirectory(frontlight_settings_boot)
+add_subdirectory(eego_frontlight)
 add_test(NAME TransferReliabilityRegression
   COMMAND ${Python3_EXECUTABLE} ${REPO_ROOT}/test/scripts/test_transfer_reliability.py)
 add_test(NAME WebDavGetRegression
@@ -167,6 +168,10 @@ add_test(NAME LanguageAssetPublicationRegression
   COMMAND ${Python3_EXECUTABLE} ${REPO_ROOT}/test/scripts/test_language_asset_publication.py)
 add_test(NAME ReleaseDownloadPreparationRegression
   COMMAND ${Python3_EXECUTABLE} ${REPO_ROOT}/test/scripts/test_release_download_preparation.py)
+add_test(NAME SleepChargeOverlayRegression
+  COMMAND ${Python3_EXECUTABLE} ${REPO_ROOT}/test/scripts/test_sleep_charge_overlay.py)
+add_test(NAME DisplaySdkCompatibilityRegression
+  COMMAND ${Python3_EXECUTABLE} ${REPO_ROOT}/test/scripts/test_display_sdk_compatibility.py)
 
 add_subdirectory(reading_session_journal)
 add_subdirectory(reading_session_checkpoint)
