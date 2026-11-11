@@ -49,8 +49,8 @@
 
 ### Fixed
 
+- Prevent extra spacing in runtime TrueType/OpenType fonts by rounding glyph advances only at pixel placement; existing EPUB layouts rebuild automatically (adapted from gkaindl, CrossPoint #4431).
 - Preserve previously synced reading history when replacing an SD card or resetting local stats. New reading adds to cloud history without counting retries twice. Requires an updated CrossPoint Sync server; older servers leave stats pending.
-
 - Keep publisher CSS styles active when free heap falls below 48 KiB; existing EPUB page caches rebuild automatically (CrossPoint #4032).
 - Keep font upload and delete feedback visible while scrolling on the web portal, including mobile, and prevent older notification timers from hiding newer messages (adapted from CrossPoint #3984).
 - Keep web dialogs open when a text-selection drag ends outside the dialog, while preserving backdrop clicks and upload-in-progress protection (adapted from Crestwave, CrossPoint #3931).

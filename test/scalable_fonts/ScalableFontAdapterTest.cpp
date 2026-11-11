@@ -1,5 +1,6 @@
 #include <HalScalableFont.h>
 
+#include <algorithm>
 #include <array>
 #include <cassert>
 #include <chrono>
@@ -20,6 +21,46 @@ static size_t tableCount(const char* path) {
   return (size_t(header[4]) << 8) | header[5];
 }
 
+static void checkRuntimeAdvances(HalScalableFont& adapter, const std::vector<uint8_t>& bytes,
+                                 size_t& doubleRoundedSteps, size_t& shapedGlyphs) {
+  using freeink::font::FtFont;
+  FtFont reference;
+  assert(reference.init(bytes.data(), static_cast<uint32_t>(bytes.size()), 1));
+  FtFont::RenderOptions options;
+  options.hinting = FtFont::HintingMode::Auto;
+  assert(reference.setRenderOptions(options));
+  for (uint8_t points = ScalableContentMinPointSize; points <= ScalableContentMaxPointSize; ++points) {
+    const auto* data = adapter.atSize(points)->data;
+    const auto checkGlyph = [&](uint32_t cp) {
+      const auto* glyph = data->dynamicGlyphHandler(data->glyphMissCtx, cp);
+      assert(glyph);
+      // Ligatures can use a GSUB glyph ID rather than a Unicode cmap entry.
+      const uint32_t id = glyph->dataOffset & 0x80000000u ? glyph->dataOffset & 0x7fffffffu : reference.glyphId(cp);
+      if (glyph->dataOffset & 0x80000000u) ++shapedGlyphs;
+      FtFont::GlyphMetrics metrics;
+      assert(reference.metricsGlyph26_6(id, scalableFontPixelSize26_6(points), metrics));
+      const auto expected = std::clamp<int32_t>(metrics.advance26_6 >> 2, 0, UINT16_MAX);
+      assert(glyph->advanceX == expected);
+      // A second lookup exercises the cached metric, including blank spaces.
+      assert(data->dynamicGlyphHandler(data->glyphMissCtx, cp)->advanceX == expected);
+      if (fp4::toPixel((metrics.advance26_6 + 2) >> 2) != fp4::toPixel(expected)) ++doubleRoundedSteps;
+      for (const uint32_t right : {'A', 'V', 'T', 'o'}) {
+        const auto rawKern =
+            reference.kerningGlyphs26_6(id, reference.glyphId(right), scalableFontPixelSize26_6(points));
+        const int64_t wide = rawKern;
+        const auto expectedKern = std::clamp<int32_t>(wide >= 0 ? (wide + 2) / 4 : -((-wide + 2) / 4), -128, 127);
+        const auto kern = data->kerningHandler(data->glyphMissCtx, cp, right);
+        assert(kern == expectedKern);
+        assert(data->kerningHandler(data->glyphMissCtx, cp, right) == expectedKern);
+        // Compare against a single pixel snap of SDK metrics plus existing fp4 kerning.
+        assert(fp4::toPixel(expected + kern) == (metrics.advance26_6 + kern * 4 + 32) >> 6);
+      }
+    };
+    for (uint32_t cp = 32; cp < 127; ++cp) checkGlyph(cp);
+    for (uint32_t cp = 0xfb00; cp <= 0xfb04; ++cp) checkGlyph(cp);
+  }
+}
+
 int main(int argc, char** argv) {
   assert(argc >= 2);
   // Match the reader's eight built-in faces, which stay alive beside SD fonts.
@@ -35,6 +76,15 @@ int main(int argc, char** argv) {
   }
   freeink::font::FtFont::RenderOptions options;
   options.hinting = freeink::font::FtFont::HintingMode::Auto;
+  size_t doubleRoundedSteps = 0;
+  size_t shapedGlyphs = 0;
+  for (size_t i = 0; i < builtin.size(); ++i) {
+    checkRuntimeAdvances(builtin[i], bytes[i], doubleRoundedSteps, shapedGlyphs);
+  }
+  assert(doubleRoundedSteps > 0);
+  assert(shapedGlyphs > 0);
+  assert(HalScalableFont::renderingRevision() == 10);
+  std::printf("ADVANCE regression cases=%zu shaped glyphs=%zu\n", doubleRoundedSteps, shapedGlyphs);
   uint32_t residentIdentity = 0;
   uint64_t residentPixels = 0;
   uint32_t temporaryIdentity = 0;

@@ -1121,7 +1121,17 @@ clippings, progress or statistics. The PXC byte layout itself is unchanged.
 
 ## `section.bin`
 
-### Version 107 (current development)
+### Version 108 (current development)
+
+Complete caches use `108` and suspended partial caches use `0xDD`. Both rebuild
+automatically because runtime TrueType/OpenType advances no longer round up
+before the final pixel snap, which can change line breaks and word positions.
+The scalable-font adapter revision advances to `10` so built-in and SD outline
+font identities also reflect the changed metrics. Kerning, bitmap fonts and
+`.cpfont` metrics are unchanged. The binary payload, book metadata and saved
+reading progress are preserved.
+
+### Version 107
 
 Complete caches use `107` and suspended partial caches use `0xDC`. Both rebuild
 to apply publisher spacing and subtitle alignment in chapter heading groups.

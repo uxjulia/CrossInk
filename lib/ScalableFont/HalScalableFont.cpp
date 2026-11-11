@@ -31,7 +31,7 @@ constexpr size_t PixelBytes = 512 * 1024;
 constexpr size_t PixelCacheSlots = 512;
 constexpr size_t MetricCacheSlots = 512;
 constexpr size_t KerningCacheSlots = 512;
-constexpr uint32_t AdapterRevision = 9;
+constexpr uint32_t AdapterRevision = 10;
 constexpr uint32_t SfntChecksumMagic = 0xB1B0AFBAu;
 // Unicode ends at 0x10FFFF, so the high bit safely marks a shaped glyph ID in
 // EpdGlyph::dataOffset without adding renderer-specific state to the SDK.
@@ -181,7 +181,10 @@ struct Runtime {
     failedMetricHeight = metrics.height;
     if (!measured || metrics.width > UINT8_MAX || metrics.height > UINT8_MAX) return false;
 
-    const auto advance16 = uint16_t(std::clamp<int32_t>(round26_6To16(metrics.advance26_6), 0, UINT16_MAX));
+    // Keep the final advance + kerning pixel snap from rounding twice.
+    // Kerning retains its existing signed rounding below.
+    const auto advance16 =
+        uint16_t(std::clamp<int32_t>(fp4::truncate26_6_to_4(metrics.advance26_6), 0, UINT16_MAX));
     glyph = {uint8_t(metrics.width),
              uint8_t(metrics.height),
              advance16,

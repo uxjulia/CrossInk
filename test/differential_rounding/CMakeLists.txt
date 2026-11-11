@@ -15,4 +15,5 @@ target_link_libraries(DifferentialRoundingTest PRIVATE
   GTest::gtest_main
 )
 
-gtest_discover_tests(DifferentialRoundingTest)
+# This executable uses its own assertion runner, not GoogleTest registration.
+add_test(NAME differential_rounding COMMAND DifferentialRoundingTest)
