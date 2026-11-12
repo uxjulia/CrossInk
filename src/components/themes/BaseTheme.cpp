@@ -407,8 +407,12 @@ void BaseTheme::drawList(const GfxRenderer& renderer, Rect rect, int itemCount, 
   }
 }
 
-void BaseTheme::drawHeader(const GfxRenderer& renderer, Rect rect, const char* title, const char* subtitle,
-                           const bool readerContext, const bool showStatus, const bool filenameTitle) const {
+namespace {
+// Keep FreeInkUI's header props/theme scratch off the status-bar call chain.
+// On C3 this frame is ~4.5 KiB; nesting the status formatter under it can
+// overflow the 8 KiB network render task. A scope alone does not split frames.
+[[gnu::noinline]] void drawHeaderBand(const GfxRenderer& renderer, Rect rect, const char* title, const char* subtitle,
+                                      const bool filenameTitle) {
   namespace fui = freeink::ui;
   const auto spec = uiScaleSpec();
   fui::GfxRendererFrame<1> ui(renderer, spec.smallFontId, spec.bodyFontId, spec.titleFontId);
@@ -442,7 +446,12 @@ void BaseTheme::drawHeader(const GfxRenderer& renderer, Rect rect, const char* t
     props.styles.normal.borderWidth = tokens.headerUnderline;
   }
   fui::header(ui.frame, band, props);
+}
+}  // namespace
 
+void BaseTheme::drawHeader(const GfxRenderer& renderer, Rect rect, const char* title, const char* subtitle,
+                           const bool readerContext, const bool showStatus, const bool filenameTitle) const {
+  drawHeaderBand(renderer, rect, title, subtitle, filenameTitle);
   if (showStatus) drawDisplayStatusBar(renderer, rect.y);
 }
 

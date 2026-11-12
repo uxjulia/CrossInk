@@ -15,6 +15,7 @@ std::string response;
 std::function<void()> beforeValidation;
 int downloads = 0;
 bool cancelledTransfer = false;
+HttpDownloader::DownloadError transferResult = HttpDownloader::OK;
 int companionPreparations = 0;
 Result companionResult = Result::Ok;
 Result AssetCompanionStore::prepare(const AssetCatalog::Catalog&, const AssetCatalog::Entry&, const Endpoints&,
@@ -34,6 +35,7 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
   assert(options.bufferSize == 1024 && options.maxBytes == 262144 && options.maxRedirects == 2);
   assert(options.allowUrl(url, options.urlContext));
   if (options.shouldCancel && options.shouldCancel()) return ABORTED;
+  if (transferResult != OK) return transferResult;
   if (response.size() != options.expectedBytes || response.size() > options.maxBytes) return HTTP_ERROR;
   const auto partial = destination + ".part";
   files[partial] = response;
@@ -73,6 +75,7 @@ void reset() {
   response = yaml;
   beforeValidation = {};
   cancelledTransfer = false;
+  transferResult = HttpDownloader::OK;
   companionPreparations = 0;
   companionResult = Result::Ok;
 }
@@ -99,6 +102,35 @@ void pinResponse(AssetCatalog::Entry& entry, const std::string& bytes) {
   response = bytes;
   entry.bytes = bytes.size();
   std::strcpy(entry.sha256, digest(bytes).c_str());
+}
+void missingSourceTests(const Endpoints& endpoints) {
+  for (const auto kind : {AssetCatalog::Kind::Translation, AssetCatalog::Kind::Hyphenation}) {
+    for (const bool misplaced : {false, true}) {
+      reset();
+      auto cat = catalog(kind);
+      const bool translation = kind == AssetCatalog::Kind::Translation;
+      const std::string suffix = translation ? "/languages/DE.yaml" : "/hyphenation/hyph-de.cphyph";
+      const std::string legacy = "/.crosspoint" + suffix;
+      const std::string destination = "/.crossink" + suffix;
+      if (misplaced) put(legacy, yaml);
+      const auto original = files;
+      Source source;
+      assert(discover(kind, cat.entries[0], source) == Result::Ok && source.status == Status::Missing);
+
+      // A failed online fallback must preserve misplaced files and publish no
+      // source. A later retry must remain possible after releasing its guard.
+      transferResult = HttpDownloader::HTTP_ERROR;
+      assert(download(cat, cat.entries[0], endpoints, false) == Result::Network);
+      assert(files == original && downloads == 1);
+      assert(discover(kind, cat.entries[0], source) == Result::Ok && source.status == Status::Missing);
+      transferResult = HttpDownloader::OK;
+      assert(download(cat, cat.entries[0], endpoints, false) == Result::Ok && downloads == 2);
+      assert(files.at(destination) == yaml && files.size() == original.size() + 1);
+      if (misplaced) assert(files.at(legacy) == yaml);
+      assert(discover(kind, cat.entries[0], source) == Result::Ok && source.status == Status::Current);
+      for (const auto& reader : openReaders) assert(reader.second == 0);
+    }
+  }
 }
 void fillSources(size_t count) {
   for (size_t i = 0; i < count; ++i) {
@@ -508,6 +540,7 @@ int main() {
   assert(discover(cat.kind, entry, source) == Result::Collision);
   for (const auto& reader : openReaders) assert(reader.second == 0);
   capacityTests(endpoints);
+  missingSourceTests(endpoints);
   cleanupRetryTests(endpoints);
   companionGateTests(endpoints);
   std::cout << "Asset download tests passed (real SHA-256, storage fault injection, transport contract stub)\n";
