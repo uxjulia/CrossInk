@@ -37,6 +37,6 @@ struct Snapshot {
 };
 Snapshot capture();
 // On-screen EEGO identity only; intentionally separate from the exportable snapshot.
-// The caller provides seven bytes for six uppercase hex digits plus the terminator.
-bool readEegoUid(char (&uid)[7]);
+// The caller provides nine bytes for up to eight decimal digits plus the terminator.
+bool readEegoUid(char (&uid)[9]);
 }  // namespace HalDeviceInfo

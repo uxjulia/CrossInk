@@ -35,20 +35,31 @@ inline int esp_efuse_mac_get_default(uint8_t* out) {
 #include <cassert>
 #include <cstring>
 int main() {
-  char uid[7] = "stale";
+  char uid[9] = "stale";
 #if FREEINK_DEVICE_EEGO_A4 && !defined(SIMULATOR)
   assert(HalDeviceInfo::readEegoUid(uid));
-  assert(strcmp(uid, "BB0408") == 0);
+  assert(strcmp(uid, "12256264") == 0);
   factoryMac[0] = 0; factoryMac[1] = 0; factoryMac[2] = 0;
   factoryMac[3] = 0; factoryMac[4] = 0x0A; factoryMac[5] = 0xBC;
   assert(HalDeviceInfo::readEegoUid(uid));
-  assert(strcmp(uid, "000ABC") == 0);
+  assert(strcmp(uid, "2748") == 0);
   factoryMac[4] = 0; factoryMac[5] = 0;
   assert(HalDeviceInfo::readEegoUid(uid));
-  assert(strcmp(uid, "000000") == 0);
+  assert(strcmp(uid, "0") == 0);
+  // The known stock About UID uses decimal, not hexadecimal.
+  factoryMac[3] = 0x3E; factoryMac[4] = 0x60; factoryMac[5] = 0x4C;
+  assert(HalDeviceInfo::readEegoUid(uid));
+  assert(strcmp(uid, "4087884") == 0);
+  // The full 24-bit range needs eight digits plus the terminator.
+  factoryMac[3] = factoryMac[4] = factoryMac[5] = 0xFF;
+  assert(HalDeviceInfo::readEegoUid(uid));
+  assert(strcmp(uid, "16777215") == 0);
+  factoryMac[3] = factoryMac[4] = 0; factoryMac[5] = 1;
+  assert(HalDeviceInfo::readEegoUid(uid));
+  assert(strcmp(uid, "1") == 0);
   macResult = -1;
   assert(!HalDeviceInfo::readEegoUid(uid));
-  assert(uid[0] == '\\0' && errors == 1 && macReads == 4);
+  assert(uid[0] == '\\0' && errors == 1 && macReads == 7);
 #else
   assert(!HalDeviceInfo::readEegoUid(uid));
   assert(uid[0] == '\\0' && errors == 0 && macReads == 0);
@@ -65,4 +76,4 @@ int main() {
                         str(work / "test.cpp"), str(ROOT / "lib/DeviceInfo/HalDeviceIdentity.cpp"),
                         "-o", str(binary)], check=True)
         subprocess.run([str(binary)], check=True)
-print("PASS: EEGO UID byte order, hex formatting/leading zeros, read failure, other devices and simulator")
+print("PASS: EEGO UID byte order, stock decimal formatting, full 24-bit range, read failure, other devices and simulator")

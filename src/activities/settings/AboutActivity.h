@@ -39,7 +39,7 @@ class AboutActivity final : public Activity {
   UiApp app;
   HalDeviceInfo::Snapshot snapshot;
 #if FREEINK_DEVICE_EEGO_A4
-  char uid[7]{};
+  char uid[9]{};
 #endif
   // Reused by the render-only row provider; no strings/arrays per row or frame.
   char valueBuffer[96]{};

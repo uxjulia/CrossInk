@@ -10,7 +10,7 @@
 #endif
 
 namespace HalDeviceInfo {
-bool readEegoUid(char (&uid)[7]) {
+bool readEegoUid(char (&uid)[9]) {
   uid[0] = '\0';
 #if FREEINK_DEVICE_EEGO_A4 && !defined(SIMULATOR)
   uint32_t value = 0;
@@ -18,7 +18,7 @@ bool readEegoUid(char (&uid)[7]) {
     LOG_ERR("ABOUT", "Failed to read EEGO factory UID");
     return false;
   }
-  snprintf(uid, sizeof(uid), "%06lX", static_cast<unsigned long>(value));
+  snprintf(uid, sizeof(uid), "%lu", static_cast<unsigned long>(value));
   return true;
 #else
   return false;
