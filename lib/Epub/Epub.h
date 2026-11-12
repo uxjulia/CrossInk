@@ -190,6 +190,9 @@ class Epub {
   // Returns false on missing cache/cover, unsupported image format, or conversion failure.
   bool generateThumbBmp(int width, int height, const GfxRenderer* renderer = nullptr, int readerFontId = 0) const;
   // Generate a Home thumbnail from the EPUB cover without building reader pages or indexes.
+  // Called with two distinct, missing carousel sizes. False requests the single-size fallback.
+  bool tryGenerateJpegThumbPair(int width, int height, int secondWidth, int secondHeight, const GfxRenderer& renderer,
+                                int readerFontId) const;
   bool generateThumbBmpFromSource(int height, const GfxRenderer* renderer = nullptr, int readerFontId = 0);
   bool generateThumbBmpFromSource(int width, int height, const GfxRenderer* renderer = nullptr, int readerFontId = 0);
   // Writes a thumbnail that can either crop-to-fill or contain unusual cover

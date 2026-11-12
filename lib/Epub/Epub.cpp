@@ -1009,7 +1009,7 @@ bool Epub::load(const bool buildIfMissing, const bool skipLoadingCss, const XLoc
         if (cssStatus == CssParseStatus::Complete ||
             (cssStatus == CssParseStatus::Partial && !retryingPartialCssCache)) {
           // Invalidate section caches so they are rebuilt with the new CSS.
-          Storage.removeDir((cachePath + "/sections").c_str());
+          Storage.removeDir((cachePath + "/layout").c_str());
         } else if (cssStatus == CssParseStatus::Partial) {
           LOG_ERR("EBP", "CSS cache is still partial after rebuild; preserving existing section caches");
         } else {
@@ -1120,7 +1120,7 @@ bool Epub::load(const bool buildIfMissing, const bool skipLoadingCss, const XLoc
     // Parse CSS before reloading book.bin to keep heap as open as possible for rule-table growth.
     bookMetadataCache.reset();
     if (parseCssFiles() != CssParseStatus::Failed) {
-      Storage.removeDir((cachePath + "/sections").c_str());
+      Storage.removeDir((cachePath + "/layout").c_str());
     } else {
       LOG_ERR("EBP", "CSS cache build failed; leaving any existing section caches in place");
     }
@@ -1432,6 +1432,47 @@ bool Epub::generateThumbBmp(int height, const GfxRenderer* renderer, const int r
 
 bool Epub::generateThumbBmp(int width, int height, const GfxRenderer* renderer, const int readerFontId) const {
   return generateThumbBmpInternal(width, height, false, renderer, readerFontId);
+}
+
+// Both files are disposable derived data. Publish each complete BMP only after the
+// shared decoder and both writers have finished, so an interrupted build can retry.
+bool Epub::tryGenerateJpegThumbPair(int width, int height, int secondWidth, int secondHeight,
+                                    const GfxRenderer& renderer, int readerFontId) const {
+  if (!bookMetadataCache || !bookMetadataCache->isLoaded()) return false;
+  const auto& href = bookMetadataCache->coreMetadata.coverItemHref;
+  if (!FsHelpers::hasJpgExtension(href)) return false;
+
+  std::string sourcePath;
+  if (!ensureCachedCoverImage(href, sourcePath)) return false;
+  const auto firstPath = getThumbBmpPathForDimensions(cachePath, width, height);
+  const auto secondPath = getThumbBmpPathForDimensions(cachePath, secondWidth, secondHeight);
+  const auto firstTmp = firstPath + ".tmp";
+  const auto secondTmp = secondPath + ".tmp";
+  FsFile source, first, second;
+  if (!Storage.openFileForRead("EBP", sourcePath, source)) return false;
+  const bool opened =
+      Storage.openFileForWrite("EBP", firstTmp, first) && Storage.openFileForWrite("EBP", secondTmp, second);
+  bool converted = false;
+  if (opened) {
+    releaseReaderSdFontCachesBeforeCoverDecode(&renderer, readerFontId, "carousel JPEG decode");
+    converted = JpegToBmpConverter::jpegFileToThumbnailPair(source, {first, width, height},
+                                                            {second, secondWidth, secondHeight});
+    // Header helpers write a byte at a time. Detect a short header as well as a short row.
+    constexpr size_t headerBytes = 14 + 40 + 8;
+    converted = converted && first.size() == headerBytes + ((width + 31) / 32 * 4) * height &&
+                second.size() == headerBytes + ((secondWidth + 31) / 32 * 4) * secondHeight;
+  }
+  if (first && !first.close()) converted = false;
+  if (second && !second.close()) converted = false;
+  source.close();
+  if (converted && Storage.rename(firstTmp.c_str(), firstPath.c_str()) &&
+      Storage.rename(secondTmp.c_str(), secondPath.c_str()))
+    return true;
+
+  Storage.remove(firstTmp.c_str());
+  Storage.remove(secondTmp.c_str());
+  LOG_ERR("EBP", "Could not create paired thumbnails; retrying individual sizes");
+  return false;
 }
 
 bool Epub::generateThumbBmpFromSource(int height, const GfxRenderer* renderer, const int readerFontId) {

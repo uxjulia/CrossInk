@@ -21,6 +21,7 @@ struct HostFileData {
   uint32_t modified = 0;
   bool failClose = false;
   size_t readCalls = 0;
+  size_t writeCalls = 0;
   size_t seekCalls = 0;
   size_t readFailAt = std::numeric_limits<size_t>::max();
   size_t failAt = std::numeric_limits<size_t>::max();
@@ -35,7 +36,7 @@ class HalFile : public Print {
   size_t size() const { return data_ ? data_->bytes.size() : 0; }
   uint32_t modificationTime() const { return data_ ? data_->modified : 0; }
   size_t fileSize() const { return size(); }
-  int available() const { return data_ && cursor_ < data_->bytes.size(); }
+  int available() const { return data_ ? static_cast<int>(data_->bytes.size() - cursor_) : 0; }
   size_t position() const { return cursor_; }
 
   int read(void* output, const size_t length) {
@@ -60,6 +61,7 @@ class HalFile : public Print {
   size_t write(const uint8_t value) override { return write(&value, 1); }
   size_t write(const uint8_t* input, const size_t length) override {
     if (!data_ || cursor_ >= data_->failAt) return 0;
+    ++data_->writeCalls;
     const size_t writable = std::min(length, data_->failAt - cursor_);
     if (cursor_ + writable > data_->bytes.size()) data_->bytes.resize(cursor_ + writable);
     if (writable > 0) std::copy_n(input, writable, data_->bytes.begin() + static_cast<std::ptrdiff_t>(cursor_));
@@ -129,6 +131,7 @@ class HalStorage {
     return true;
   }
 
+  size_t writeCalls(const std::string& path) const { return files_.at(path)->writeCalls; }
   size_t readCalls(const std::string& path) const { return files_.at(path)->readCalls; }
   size_t seekCalls(const std::string& path) const { return files_.at(path)->seekCalls; }
   void failClose(const std::string& path) { files_.at(path)->failClose = true; }

@@ -678,14 +678,18 @@ void HomeActivity::loadRecentCovers(int coverHeight) {
               progress++;
               continue;
             }
+            const int fontId = SETTINGS.getReaderFontId();
+            const bool paired = centerMissing && sideMissing &&
+                                epub.tryGenerateJpegThumbPair(
+                                    LyraCarouselTheme::kCenterThumbW, LyraCarouselTheme::kCenterThumbH,
+                                    LyraCarouselTheme::kSideCoverW, LyraCarouselTheme::kSideCoverH, renderer, fontId);
             bool success = true;
-            if (centerMissing)
+            if (!paired && centerMissing)
               success = epub.generateThumbBmp(LyraCarouselTheme::kCenterThumbW, LyraCarouselTheme::kCenterThumbH,
-                                              &renderer, SETTINGS.getReaderFontId()) &&
-                        success;
-            if (sideMissing)
+                                              &renderer, fontId);
+            if (!paired && sideMissing)
               success = epub.generateThumbBmp(LyraCarouselTheme::kSideCoverW, LyraCarouselTheme::kSideCoverH, &renderer,
-                                              SETTINGS.getReaderFontId()) &&
+                                              fontId) &&
                         success;
             if (!success) {
               if (!epub.hasCoverImage()) markCoverMissing(book);

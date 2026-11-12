@@ -223,6 +223,9 @@
 - Move dictionary definition pagination to the bottom right and add a tappable close icon at the top right on touch devices.
 - Release settings descriptors after use and allocate plugin job storage only when automation submits a job, leaving more heap available for reading and ordinary File Transfer. File Transfer now reserves two WebSocket connections (adapted from CrossPoint #4085 and #4288).
 - Use side-by-side number-pad layouts in landscape on touch and button devices.
+- Illustrated EPUBs write newly decoded images to the SD card in batches. Large books group chapter caches into smaller folders for quicker lookups.
+- Calibre uploads refresh the progress display every four seconds while transferring a book.
+- Lyra Carousel can generate both thumbnail sizes from a single JPEG cover decode.
 
 ## [v1.6.1] - 2026-10-03
 

@@ -84,6 +84,11 @@ size_t sectionHtmlStreamChunkSize(const bool preview) {
   return SECTION_HTML_STREAM_CHUNK_SIZE;
 }
 
+// Each FAT directory holds at most 32 chapter numbers (plus their layout variants).
+std::string chapterDirectory(const Epub& epub, const char* root, int spine) {
+  return epub.getCachePath() + root + "/" + std::to_string(spine / 32);
+}
+
 std::string sectionBackupPath(const std::string& filePath) { return filePath + ".bak"; }
 
 void recoverSectionCacheBackup(const std::string& filePath) {
@@ -136,8 +141,8 @@ Section::Section(Epub& epub, const int spineIndex, GfxRenderer& renderer, const 
     : epub(&epub),
       spineIndex(spineIndex),
       renderer(renderer),
-      filePath(epub.getCachePath() + "/sections/" + std::to_string(spineIndex) + (cacheSuffix ? cacheSuffix : "") +
-               ".bin") {
+      filePath(chapterDirectory(epub, "/layout", spineIndex) + "/" + std::to_string(spineIndex) +
+               (cacheSuffix ? cacheSuffix : "") + ".bin") {
   recoverSectionCacheBackup(filePath);
 }
 
@@ -239,7 +244,8 @@ uint32_t Section::publisherBodyFontFamily() {
     return 0;
   }
   const std::string path =
-      build_ ? build_->parsePath : epub->getCachePath() + "/html/" + std::to_string(spineIndex) + ".html";
+      build_ ? build_->parsePath
+             : chapterDirectory(*epub, "/content", spineIndex) + "/" + std::to_string(spineIndex) + ".html";
   const auto family = ChapterHtmlSlimParser::publisherBodyFontFamily(path, *css);
   if (ownsCss) css->clear();
   return family;
@@ -515,7 +521,7 @@ bool Section::createSectionFile(const ReaderRenderSpec& spec, const std::functio
   const uint8_t wordSpacing = spec.wordSpacing;
   const EpubRenderMode renderMode = spec.renderMode;
   const auto localPath = epub->getSpineItem(spineIndex).href;
-  const auto htmlDir = epub->getCachePath() + "/html";
+  const auto htmlDir = chapterDirectory(*epub, "/content", spineIndex);
   const auto htmlPath = htmlDir + "/" + std::to_string(spineIndex) + ".html";
   const auto tmpHtmlPath = htmlDir + "/.tmp_" + std::to_string(spineIndex) + ".html";
   const auto tmpSectionPath = filePath + ".tmp";
@@ -552,7 +558,7 @@ bool Section::createSectionFile(const ReaderRenderSpec& spec, const std::functio
 
   // Create cache directory if it doesn't exist
   {
-    const auto sectionsDir = epub->getCachePath() + "/sections";
+    const auto sectionsDir = chapterDirectory(*epub, "/layout", spineIndex);
     Storage.mkdir(sectionsDir.c_str());
   }
 
@@ -891,7 +897,7 @@ bool Section::startBuild(const ReaderRenderSpec& spec, const SectionBuildOptions
   }
 
   const auto localPath = epub->getSpineItem(spineIndex).href;
-  const auto htmlDir = epub->getCachePath() + "/html";
+  const auto htmlDir = chapterDirectory(*epub, "/content", spineIndex);
   const auto htmlPath = htmlDir + "/" + std::to_string(spineIndex) + ".html";
   const auto tmpHtmlPath = htmlDir + "/.tmp_" + std::to_string(spineIndex) + ".html";
   const auto tmpSectionPath = binTmpPath();
@@ -916,7 +922,7 @@ bool Section::startBuild(const ReaderRenderSpec& spec, const SectionBuildOptions
           ESP.getMaxAllocHeap());
 
   {
-    const auto sectionsDir = epub->getCachePath() + "/sections";
+    const auto sectionsDir = chapterDirectory(*epub, "/layout", spineIndex);
     Storage.mkdir(sectionsDir.c_str());
   }
 
@@ -1129,7 +1135,8 @@ bool Section::buildSomeMore(const int maxPages) {
 }
 
 bool Section::hasHtmlCache() const {
-  const std::string htmlPath = epub->getCachePath() + "/html/" + std::to_string(spineIndex) + ".html";
+  const std::string htmlPath =
+      chapterDirectory(*epub, "/content", spineIndex) + "/" + std::to_string(spineIndex) + ".html";
   return Storage.exists(htmlPath.c_str());
 }
 

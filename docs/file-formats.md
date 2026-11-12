@@ -1347,7 +1347,11 @@ geometry, oversized-word wrapping, inline-image margins, and ruby continuation
 layout. Full and suspended section caches rebuild together; complete files use
 version byte `61`, and suspended partials use sentinel byte `0xF8`.
 
-Each file in `sections/*.bin` stores one laid-out spine section. The header is
+Chapter layouts live in `layout/<bucket>/<spine>[suffix].bin`. Extracted chapter
+HTML lives in `content/<bucket>/<spine>.html`. The bucket number is the spine
+index divided by 32, rounded down. Layout invalidation preserves the HTML.
+Older flat `sections/` and `html/` caches rebuild on demand and are removed
+when the book cache is cleared. The section header is
 also the cache-busting key: if any layout-affecting setting differs from the
 current reader settings, the section is discarded and rebuilt.
 
