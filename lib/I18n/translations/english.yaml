@@ -945,7 +945,7 @@ STR_LANGUAGE_CATALOG_LIMIT: "Too many language files or long names. Keep fewer o
 STR_FILENAME_FALLBACK_FONT: "UI Fallback Font"
 STR_FILENAME_FONT_HINT: "TTF: /.crossink/languages/fonts. Regular required; bold optional."
 STR_HYPHENATION_PACKS: "Hyphenation Packs"
-STR_HYPHENATION_APPLY_HINT: "Changes restart to Home."
+STR_HYPHENATION_APPLY_HINT: "SD: /.crossink/hyphenation. Changes restart to Home."
 STR_HYPHENATION_BUILT_IN: "Built in"
 STR_HYPHENATION_FAILED: "Check the SD files and device log."
 STR_HYPHENATION_MISSING: "Hyphenation pack missing. Open the manager?"

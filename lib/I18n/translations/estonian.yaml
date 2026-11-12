@@ -944,7 +944,7 @@ STR_LANGUAGE_CATALOG_LIMIT: "Liiga palju keelefaile või liiga pikkade nimedega.
 STR_FILENAME_FALLBACK_FONT: "Varu-kirjatüüp"
 STR_FILENAME_FONT_HINT: "TTF: /.crossink/languages/fonts. Tavastiil nõutav; paks kirjastiil valikuline."
 STR_HYPHENATION_PACKS: "Poolituspaketid"
-STR_HYPHENATION_APPLY_HINT: "Muudatused viivad algvaatesse."
+STR_HYPHENATION_APPLY_HINT: "Mälukaart: /.crossink/hyphenation. Muudatused viivad algvaatesse."
 STR_HYPHENATION_BUILT_IN: "Sisseehitatud"
 STR_HYPHENATION_FAILED: "Kontrolli mälukaardi faile ja seadme logifaili."
 STR_HYPHENATION_MISSING: "Poolituspakett on puudu. Ava haldur?"
