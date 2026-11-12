@@ -10,8 +10,9 @@ inline unsigned long millis() {
       .count();
 }
 inline uint32_t freeHeap = 1024 * 1024, maxAllocHeap = 1024 * 1024;
+inline uint32_t (*freeHeapProbe)() = nullptr;
 inline struct {
-  uint32_t getFreeHeap() const { return freeHeap; }
+  uint32_t getFreeHeap() const { return freeHeapProbe ? freeHeapProbe() : freeHeap; }
   uint32_t getMaxAllocHeap() const { return maxAllocHeap; }
 } ESP;
 class HalFile {

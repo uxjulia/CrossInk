@@ -347,12 +347,28 @@ void streamingChecks(const std::string& path) {
 void contentSizeChecks(const std::string& path) {
   fixture(path, {{0, table({{0x41, 0x5A}})}, {1, table({{0x41, 0x5A}})}});
   constexpr size_t limit = 12U * 1024U;
+  const size_t budget = sizeof(SdCardFont) + 2 * sizeof(EpdUnicodeInterval) + 1;
+  const auto arraysBefore = arrayBytes();
+  readCalls = 0;
+  assert(SdCardFont::contentResidentBytes(path.c_str(), limit) == budget);
+  const int inspectionReads = readCalls;
+  assert(arrayBytes() == arraysBefore && openFiles == 0);
+  assert(SdCardFont::contentResidentBytes(path.c_str(), budget - 1) == 0);
+  // Every preflight read failure closes the file and allocates nothing.
+  for (int failure = 0; failure < inspectionReads; ++failure) {
+    readCalls = 0;
+    failReadCall = failure;
+    assert(SdCardFont::contentResidentBytes(path.c_str(), limit) == 0);
+    failReadCall = -1;
+    assert(arrayBytes() == arraysBefore && openFiles == 0);
+  }
   {
     SdCardFont font;
-    assert(!font.load(path.c_str(), sizeof(font) + 4095));
+    assert(!font.load(path.c_str(), budget - 1));
     clean(font);  // Reject before any interval or bitmap allocation.
-    assert(font.load(path.c_str(), limit));
-    assert(arrayBytes() + sizeof(font) <= limit);
+    assert(font.load(path.c_str(), budget));
+    assert(font.contentBitmapBytes_ == 1);
+    assert(arrayBytes() + sizeof(font) <= budget);
     const auto baseline = arrayBytes();
     const auto allocationCalls = arrayCalls;
     const uint32_t cps[] = {0x41, 0x42};
@@ -389,6 +405,24 @@ void contentSizeChecks(const std::string& path) {
     failArrayCall = -1;
     clean(font);
   }
+  // A file changed after load must not overrun its now-smaller scratch.
+  {
+    SdCardFont font;
+    assert(font.load(path.c_str(), limit) && font.contentBitmapBytes_ == 1);
+    {
+      std::fstream out(path, std::ios::in | std::ios::out | std::ios::binary);
+      EpdGlyph larger{};
+      larger.width = 9;
+      larger.height = 1;
+      larger.dataLength = 2;  // Valid 1-bit packing, larger than the loaded scratch.
+      out.seekp(96 + sizeof(EpdUnicodeInterval));
+      out.write(reinterpret_cast<const char*>(&larger), sizeof(larger));
+    }
+    assert(font.getEpdFont()->getGlyph(0x41) == nullptr);
+    font.freeAll();
+    clean(font);
+    fixture(path, {{0, table({{0x41, 0x5A}})}, {1, table({{0x41, 0x5A}})}});
+  }
   // A supported file whose glyphs cannot fit scratch falls back before registration.
   {
     std::fstream out(path, std::ios::in | std::ios::out | std::ios::binary);
@@ -398,6 +432,7 @@ void contentSizeChecks(const std::string& path) {
   }
   {
     SdCardFont font;
+    assert(SdCardFont::contentResidentBytes(path.c_str(), limit) == 0);
     assert(!font.load(path.c_str(), limit));
     clean(font);
   }
@@ -417,13 +452,13 @@ void contentSizeChecks(const std::string& path) {
   manager.unloadAll(renderer);
   assert(renderer.getFontMap().empty() && renderer.getSdCardFonts().empty());
   assert(arrayBytes() == 0);
-  freeHeap = 100 * 1024;  // Enough for body, below the optional-size reserve.
+  freeHeap = 97 * 1024;  // Enough for body, below reserve plus actual optional bytes.
   assert(manager.loadFamilyClosest(family, renderer, 12));
   const int lowId = manager.getFontId(family.name);
   assert(lowId != highId && renderer.getFontMap().size() == 1);
   manager.unloadAll(renderer);
   freeHeap = 1024 * 1024;
-  maxAllocHeap = 52 * 1024;  // Fragmented heap must also decline optional sizes.
+  maxAllocHeap = 49 * 1024;  // Fragmented heap must also decline optional sizes.
   assert(manager.loadFamilyClosest(family, renderer, 12));
   assert(manager.getFontId(family.name) == lowId && renderer.getFontMap().size() == 1);
   manager.unloadAll(renderer);
@@ -431,6 +466,26 @@ void contentSizeChecks(const std::string& path) {
   assert(manager.loadFamilyClosest(family, renderer, 12));
   assert(manager.getFontId(family.name) == highId);
   manager.unloadAll(renderer);
+  // Real byte costs admit small fonts that the old fixed 12KB allowance
+  // rejected, while still leaving the full 96KB/48KB reserves.
+  freeHeap = 104 * 1024;
+  maxAllocHeap = 56 * 1024;
+  assert(manager.loadFamilyClosest(family, renderer, 12));
+  assert(manager.getFontId(family.name) == highId && renderer.getFontMap().size() == 3);
+  const size_t optionalBytes = arrayBytes() - sizeof(SdCardFont::PerStyle::BmpInterval16) +
+                               2 * (sizeof(SdCardFont) + 512);  // Objects and registration overhead.
+  assert(freeHeap - optionalBytes >= 96 * 1024 && maxAllocHeap - optionalBytes >= 48 * 1024);
+  manager.unloadAll(renderer);
+  freeHeap = maxAllocHeap = 1024 * 1024;
+  // Simulate another allocation consuming headroom during the optional load.
+  // Body has one compact interval; extra scratch/tables trigger the drop.
+  freeHeapProbe = []() -> uint32_t {
+    return arrayBytes() > sizeof(SdCardFont::PerStyle::BmpInterval16) ? 95U * 1024U : freeHeap;
+  };
+  assert(manager.loadFamilyClosest(family, renderer, 12));
+  assert(manager.getFontId(family.name) == lowId && renderer.getFontMap().size() == 1);
+  manager.unloadAll(renderer);
+  freeHeapProbe = nullptr;
   // Book-aware content choices remain limited to two budgeted font objects.
   // Changing the preferences changes the identity, and a dictionary-style
   // unload/reload must restore that same identity and actual size set.
@@ -448,7 +503,7 @@ void contentSizeChecks(const std::string& path) {
   assert(manager.loadFamilyClosest(family, renderer, 12));
   assert(manager.getFontId(family.name) == bookId);
   manager.unloadAll(renderer);
-  freeHeap = 100 * 1024;
+  freeHeap = 97 * 1024;
   assert(manager.loadFamilyClosest(family, renderer, 12));
   assert(renderer.getFontMap().size() == 1 && manager.getFontId(family.name) == lowId);
   manager.unloadAll(renderer);

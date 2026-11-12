@@ -40,11 +40,42 @@ constexpr char CPFONT_MAGIC[8] = {'C', 'P', 'F', 'O', 'N', 'T', '\0', '\0'};
 // stringified into FONT_MANIFEST_URL.
 constexpr uint32_t HEADER_SIZE = 32;
 constexpr uint32_t STYLE_TOC_ENTRY_SIZE = 32;
+constexpr uint16_t CONTENT_BITMAP_BYTES = 4096;
+constexpr uint32_t MAX_INTERVALS = 4096;
+constexpr uint32_t MAX_GLYPHS = 65536;
+constexpr uint32_t MAX_KERN_ENTRIES = 4096;
 
 // Helper to read little-endian values from byte buffer
 inline uint16_t readU16(const uint8_t* p) { return p[0] | (p[1] << 8); }
 inline int16_t readI16(const uint8_t* p) { return static_cast<int16_t>(p[0] | (p[1] << 8)); }
 inline uint32_t readU32(const uint8_t* p) { return p[0] | (p[1] << 8) | (p[2] << 16) | (p[3] << 24); }
+
+bool inspectContentGlyphs(HalFile& file, const uint32_t offset, const uint32_t count, uint16_t& bitmapBytes) {
+  if (uint64_t(offset) + uint64_t(count) * sizeof(EpdGlyph) > file.fileSize() || !file.seekSet(offset)) {
+    LOG_ERR("SDCF", "Cannot inspect content-size glyphs");
+    return false;
+  }
+  // 128-byte batches keep SD reads small without one read per glyph.
+  constexpr uint32_t BATCH_GLYPHS = 8;
+  EpdGlyph glyphs[BATCH_GLYPHS];
+  for (uint32_t i = 0; i < count;) {
+    const uint32_t batch = std::min(count - i, BATCH_GLYPHS);
+    const size_t bytes = batch * sizeof(EpdGlyph);
+    if (file.read(glyphs, bytes) != static_cast<int>(bytes)) {
+      LOG_ERR("SDCF", "Cannot read content-size glyphs");
+      return false;
+    }
+    for (uint32_t j = 0; j < batch; ++j) {
+      if (glyphs[j].dataLength > CONTENT_BITMAP_BYTES) {
+        LOG_ERR("SDCF", "Content-size glyph exceeds scratch");
+        return false;
+      }
+      bitmapBytes = std::max(bitmapBytes, glyphs[j].dataLength);
+    }
+    i += batch;
+  }
+  return true;
+}
 
 // Adapted from CrossPoint #3948. Keep only the lowest entries a capped merge
 // can retain. The caller provides two extra slots for injected space/hyphen.
@@ -248,6 +279,7 @@ void SdCardFont::freeAll() {
   contentHash_ = 0;
   loaded_ = false;
   contentBitmap_.reset();
+  contentBitmapBytes_ = 0;
   leanContent_ = false;
 }
 
@@ -579,10 +611,57 @@ void SdCardFont::computeStyleFileOffsets(PerStyle& s, uint32_t baseOffset) {
 
 // --- Load ---
 
+size_t SdCardFont::contentResidentBytes(const char* path, const size_t limit) {
+  HalFile file;
+  if (!Storage.openFileForRead("SDCF", path, file)) {
+    LOG_ERR("SDCF", "Cannot inspect content font: %s", path);
+    return 0;
+  }
+  // Only one small TOC/glyph record is held at a time. Close this handle
+  // before the normal loader reopens the same path on hardware.
+  const size_t bytes = [&]() -> size_t {
+    uint8_t header[HEADER_SIZE];
+    if (file.read(header, sizeof(header)) != sizeof(header) || memcmp(header, CPFONT_MAGIC, 8) != 0 ||
+        readU16(header + 8) != CPFONT_VERSION || header[12] == 0 || header[12] > MAX_STYLES) {
+      LOG_ERR("SDCF", "Invalid content-font header");
+      return 0;
+    }
+    size_t resident = sizeof(SdCardFont);
+    uint16_t bitmapBytes = 0;
+    uint8_t styles = 0;
+    for (uint8_t i = 0; i < header[12]; ++i) {
+      uint8_t toc[STYLE_TOC_ENTRY_SIZE];
+      if (!file.seekSet(HEADER_SIZE + i * STYLE_TOC_ENTRY_SIZE) || file.read(toc, sizeof(toc)) != sizeof(toc) ||
+          toc[0] >= MAX_STYLES || (styles & (1U << toc[0]))) {
+        LOG_ERR("SDCF", "Invalid content-font style TOC");
+        return 0;
+      }
+      styles |= 1U << toc[0];
+      const uint32_t intervals = readU32(toc + 4);
+      const uint32_t glyphs = readU32(toc + 8);
+      if (intervals > MAX_INTERVALS || glyphs > MAX_GLYPHS || readU16(toc + 17) > MAX_KERN_ENTRIES ||
+          readU16(toc + 19) > MAX_KERN_ENTRIES) {
+        LOG_ERR("SDCF", "Invalid content-font counts");
+        return 0;
+      }
+      // Budget full-width, unshared tables: compact/shared tables can only
+      // reduce actual residency. Kerning and page caches stay disabled.
+      resident += size_t(intervals) * sizeof(EpdUnicodeInterval) + size_t(toc[23]) * sizeof(EpdLigaturePair);
+      if (resident > limit) return 0;
+      const uint64_t offset = uint64_t(readU32(toc + 24)) + uint64_t(intervals) * sizeof(EpdUnicodeInterval);
+      if (offset > UINT32_MAX || !inspectContentGlyphs(file, static_cast<uint32_t>(offset), glyphs, bitmapBytes))
+        return 0;
+    }
+    return bitmapBytes <= limit - resident ? resident + bitmapBytes : 0;
+  }();
+  file.close();
+  return bytes;
+}
+
 bool SdCardFont::load(const char* path, const size_t residentLimit) {
   freeAll();
   leanContent_ = residentLimit != 0;
-  size_t residentBytes = sizeof(SdCardFont) + CONTENT_BITMAP_BYTES;
+  size_t residentBytes = sizeof(SdCardFont);
   if (strlen(path) >= sizeof(filePath_)) {
     LOG_ERR("SDCF", "Path too long (%zu bytes, max %zu)", strlen(path), sizeof(filePath_) - 1);
     return false;
@@ -665,9 +744,6 @@ bool SdCardFont::load(const char* path, const size_t residentLimit) {
     // Sanity-check counts to reject malformed files before allocating.
     // Kern class counts are uint8 (bounded by type). Entry counts are uint16
     // but in practice a sane font has far fewer than 4096 per-side kern entries.
-    static constexpr uint32_t MAX_INTERVALS = 4096;
-    static constexpr uint32_t MAX_GLYPHS = 65536;
-    static constexpr uint32_t MAX_KERN_ENTRIES = 4096;
     if (s.header.intervalCount > MAX_INTERVALS || s.header.glyphCount > MAX_GLYPHS ||
         s.header.kernLeftEntryCount > MAX_KERN_ENTRIES || s.header.kernRightEntryCount > MAX_KERN_ENTRIES) {
       LOG_ERR("SDCF", "Style %u: unreasonable counts (iv=%u, gl=%u, kL=%u, kR=%u)", styleId, s.header.intervalCount,
@@ -694,28 +770,22 @@ bool SdCardFont::load(const char* path, const size_t residentLimit) {
         freeAll();
         return false;
       }
-      // Validate the glyph scratch requirement before this font can affect
-      // pagination. Metrics stream through one small local glyph, no buffer.
-      if (!file.seekSet(s.glyphsFileOffset)) {
-        LOG_ERR("SDCF", "Cannot inspect content-size glyphs");
+      if (!inspectContentGlyphs(file, s.glyphsFileOffset, s.header.glyphCount, contentBitmapBytes_)) {
         file.close();
         freeAll();
         return false;
       }
-      for (uint32_t glyph = 0; glyph < s.header.glyphCount; ++glyph) {
-        EpdGlyph metrics{};
-        if (file.read(&metrics, sizeof(metrics)) != sizeof(metrics) || metrics.dataLength > CONTENT_BITMAP_BYTES) {
-          LOG_ERR("SDCF", "Content-size glyph exceeds scratch or is unreadable");
-          file.close();
-          freeAll();
-          return false;
-        }
-      }
     }
-    // Font-lifetime 4KB scratch is too large for the stack; reused for every
-    // glyph and freed with the optional font, avoiding render-time heap churn.
-    contentBitmap_ = makeUniqueNoThrow<uint8_t[]>(CONTENT_BITMAP_BYTES);
-    if (!contentBitmap_) {
+    if (contentBitmapBytes_ > residentLimit - residentBytes) {
+      LOG_DBG("SDCF", "Content size exceeds %zu-byte resident budget", residentLimit);
+      file.close();
+      freeAll();
+      return false;
+    }
+    // Font-lifetime scratch (0..4KB) is reused for every glyph. Size it to
+    // this file rather than reserving 4KB even for tiny glyphs.
+    if (contentBitmapBytes_) contentBitmap_ = makeUniqueNoThrow<uint8_t[]>(contentBitmapBytes_);
+    if (contentBitmapBytes_ && !contentBitmap_) {
       LOG_ERR("SDCF", "Cannot allocate content-size glyph scratch");
       file.close();
       freeAll();
@@ -1948,7 +2018,7 @@ const EpdGlyph* SdCardFont::onGlyphMiss(void* ctx, uint32_t codepoint) {
   // Read bitmap data into temporary (if any)
   uint8_t* tempBitmap = nullptr;
   if (tempGlyph.dataLength > 0) {
-    if (self->leanContent_ && tempGlyph.dataLength > CONTENT_BITMAP_BYTES) {
+    if (self->leanContent_ && tempGlyph.dataLength > self->contentBitmapBytes_) {
       LOG_ERR("SDCF", "Content bitmap changed beyond its fixed scratch");
       file.close();
       return nullptr;

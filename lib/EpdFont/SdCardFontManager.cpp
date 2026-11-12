@@ -121,6 +121,9 @@ void SdCardFontManager::loadContentSizes(const SdCardFontFamilyInfo& family, Gfx
   constexpr size_t SIZE_BUDGET = 12U * 1024U;
   constexpr size_t FREE_RESERVE = 96U * 1024U;
   constexpr size_t BLOCK_RESERVE = 48U * 1024U;
+  // Covers allocator headers/alignment and both renderer map registrations;
+  // the font preflight accounts for its object, tables and glyph scratch.
+  constexpr size_t REGISTRATION_BYTES = 512;
   for (const uint8_t target : contentSizeTargetsForBody(loadedPointSize_)) {
     const auto* file = family.findClosestFile(target);
     // Match the renderer's growth tie-break. Body selection still prefers the
@@ -139,11 +142,27 @@ void SdCardFontManager::loadContentSizes(const SdCardFontFamilyInfo& family, Gfx
     bool present = false;
     for (const auto& loaded : loaded_) present |= loaded.size == file->pointSize;
     if (present) continue;
-    if (ESP.getFreeHeap() < FREE_RESERVE + SIZE_BUDGET || ESP.getMaxAllocHeap() < BLOCK_RESERVE + SIZE_BUDGET) {
+    const auto hasHeadroom = [&](const size_t bytes) {
+      if (ESP.getFreeHeap() >= FREE_RESERVE + bytes && ESP.getMaxAllocHeap() >= BLOCK_RESERVE + bytes) return true;
       LOG_DBG("SDMGR", "Skipping optional size %u: preserving heap reserve", file->pointSize);
-      continue;
+      return false;
+    };
+    // Avoid scanning a file when even the empty font object cannot fit.
+    if (!hasHeadroom(sizeof(SdCardFont) + REGISTRATION_BYTES)) continue;
+    const size_t residentBytes = SdCardFont::contentResidentBytes(file->path.c_str(), SIZE_BUDGET - REGISTRATION_BYTES);
+    if (!residentBytes) continue;
+    const size_t allocationBytes = residentBytes + REGISTRATION_BYTES;
+    if (!hasHeadroom(allocationBytes)) continue;
+    if (!loadFilePath(file->path.c_str(), family.name.c_str(), file->pointSize, renderer, residentBytes)) continue;
+    // Recheck actual allocator state before publishing this size to layout.
+    // Unexpected overhead or concurrent allocations must preserve both reserves.
+    if (ESP.getFreeHeap() < FREE_RESERVE || ESP.getMaxAllocHeap() < BLOCK_RESERVE) {
+      auto& extra = loaded_.back();
+      renderer.removeFont(extra.fontId);
+      delete extra.font;
+      loaded_.pop_back();
+      LOG_DBG("SDMGR", "Released optional size %u: preserving heap reserve", file->pointSize);
     }
-    loadFilePath(file->path.c_str(), family.name.c_str(), file->pointSize, renderer, SIZE_BUDGET);
   }
   if (loaded_.size() < 2) return;
 

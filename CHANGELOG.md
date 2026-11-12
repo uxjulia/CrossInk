@@ -168,6 +168,7 @@
 - Restore publisher spacing around grouped EPUB chapter headings and align subtitles with the chapter number (#940).
 - Prevent an X4 Pro startup crash after KOReader sync by giving the ESP32-S3 core-to-core tasks enough stack for input interrupt setup (#938).
 - Preserve clipping and bookmark titles and authors when marking EPUBs finished and moving them to Read; recover existing blank saved-book labels from EPUB metadata (#945).
+- Keep more EPUB heading and text sizes available with SD bitmap fonts by sizing glyph buffers to the font's actual needs, while preserving the existing memory reserves (#952).
 
 ### Changed
 

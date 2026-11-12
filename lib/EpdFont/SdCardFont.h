@@ -42,8 +42,13 @@ class SdCardFont {
   // Supports v4 (multi-style) format.
   // Returns true on success.
   // A nonzero ceiling is for optional C3 content sizes: includes this object,
-  // conservative interval/ligature residency, and one reusable 4KB bitmap.
+  // conservative interval/ligature residency, and one reusable bitmap sized
+  // to the largest glyph (at most 4KB).
   bool load(const char* path, size_t residentLimit = 0);
+
+  // Allocation-free preflight for optional sizes. Returns a conservative
+  // resident-byte ceiling, or 0 if unreadable, oversized, or above limit.
+  static size_t contentResidentBytes(const char* path, size_t limit);
 
   // Pre-read glyphs needed for the given UTF-8 text from SD card.
   // styleMask: bitmask of styles to prewarm (bit 0=regular, 1=bold, 2=italic, 3=bolditalic).
@@ -259,8 +264,8 @@ class SdCardFont {
   // Optional sizes never allocate page/advance caches or per-glyph bitmaps.
   // 4KB covers normal content glyphs through 44pt; larger files are rejected
   // before registration so layout falls back to a supported physical size.
-  static constexpr size_t CONTENT_BITMAP_BYTES = 4096;
   std::unique_ptr<uint8_t[]> contentBitmap_;
+  uint16_t contentBitmapBytes_ = 0;
   bool leanContent_ = false;
   char filePath_[128] = {};
 
