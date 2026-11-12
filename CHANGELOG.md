@@ -208,6 +208,7 @@
 - Default to Incremental EPUB indexing on ESP32-S3 readers, while preserving saved global choices and per-book overrides.
 - Move dictionary definition pagination to the bottom right and add a tappable close icon at the top right on touch devices.
 - Release settings descriptors after use and allocate plugin job storage only when automation submits a job, leaving more heap available for reading and ordinary File Transfer. File Transfer now reserves two WebSocket connections (adapted from CrossPoint #4085 and #4288).
+- Use side-by-side number-pad layouts in landscape on touch and button devices.
 
 ## [v1.6.1] - 2026-10-03
 

@@ -447,7 +447,7 @@ void EpubReaderPercentSelectionActivity::buildKeypadScreen(UiApp::ScreenType& sc
   readout.align = fui::TextAlign::Center;
   const int16_t readoutLh = screen.target().lineHeight(readout.font);
   const int16_t rowH = std::max<int16_t>(theme.rowHeight, static_cast<int16_t>(readoutLh + 16));
-  const bool beside = mappedInput.hasTouch() && renderer.getScreenWidth() > renderer.getScreenHeight();
+  const bool beside = renderer.getScreenWidth() > renderer.getScreenHeight();
   const auto layout = fui::keyGridReadoutLayout(
       screen.contentRect(), rowH, static_cast<int16_t>(screen.target().measureText(readout.font, line, readout).width),
       theme.spaceLg, theme.spaceLg, beside);

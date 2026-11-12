@@ -1375,7 +1375,7 @@ void EpubReaderDrawerActivity::buildDrawerKeypad(UiApp::ScreenType& screen, cons
   readout.align = fui::TextAlign::Center;
   const int16_t readoutLh = screen.target().lineHeight(readout.font);
   const int16_t readoutRowH = std::max<int16_t>(theme.rowHeight, static_cast<int16_t>(readoutLh + 16));
-  const bool beside = mappedInput.hasTouchHardware() && isLandscapeOrientation(renderer.getOrientation());
+  const bool beside = isLandscapeOrientation(renderer.getOrientation());
   const auto layout = fui::keyGridReadoutLayout(
       screen.body(), readoutRowH, static_cast<int16_t>(screen.target().measureText(readout.font, value, readout).width),
       theme.spaceLg, theme.spaceLg, beside);

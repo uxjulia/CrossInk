@@ -35,6 +35,7 @@ struct PickerLayout {
   Rect minuteRect;
   Rect periodRect;
   Rect backspaceRect;
+  fui::Rect keyboard;
   int colonX;
   int textY;
 };
@@ -71,13 +72,27 @@ PickerLayout getPickerLayout(const GfxRenderer& renderer, const MappedInputManag
   const int fieldsWidth = kHourWidth + kFieldGap + kColonGap + colonWidth + kColonGap + kMinuteWidth + kFieldGap +
                           kPeriodWidth + backspaceWidth;
   const auto safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
-  const int startX = safe.x + (safe.width - fieldsWidth) / 2;
+  int startX = safe.x + (safe.width - fieldsWidth) / 2;
+  fui::Rect keyboard = keyboardRect(renderer);
   int fieldY = renderer.getScreenHeight() / 2 - kFieldHeight / 2;
   if (mappedInput.hasTouch()) {
     const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput);
     const int contentTop = header.y + header.height;
-    const int contentHeight = keyboardRect(renderer).y - contentTop;
+    const int contentHeight = keyboard.y - contentTop;
     fieldY = contentTop + (contentHeight - kFieldHeight) / 2;
+    if (renderer.getScreenWidth() > renderer.getScreenHeight()) {
+      const auto& metrics = UITheme::getInstance().getMetrics();
+      const fui::Rect body{static_cast<int16_t>(safe.x), static_cast<int16_t>(contentTop),
+                           static_cast<int16_t>(safe.width),
+                           static_cast<int16_t>(std::max(0, safe.y + safe.height - contentTop))};
+      const auto split = fui::keyGridReadoutLayout(body, kFieldHeight, fieldsWidth - backspaceWidth, kFieldGap,
+                                                   metrics.verticalSpacing, true);
+      if (split.grid.y == body.y) {
+        startX = split.readout.x;
+        fieldY = split.readout.y;
+        keyboard = split.grid;
+      }
+    }
   }
 
   int x = startX;
@@ -90,8 +105,13 @@ PickerLayout getPickerLayout(const GfxRenderer& renderer, const MappedInputManag
   const Rect periodRect{x, fieldY, kPeriodWidth, kFieldHeight};
   x += kPeriodWidth + kFieldGap;
   const Rect backspaceRect{x, fieldY, kFieldHeight, kFieldHeight};
-  return {hourRect,      minuteRect, periodRect,
-          backspaceRect, colonX,     fieldY + (kFieldHeight - renderer.getLineHeight(UI_12_FONT_ID)) / 2};
+  return {hourRect,
+          minuteRect,
+          periodRect,
+          backspaceRect,
+          keyboard,
+          colonX,
+          fieldY + (kFieldHeight - renderer.getLineHeight(UI_12_FONT_ID)) / 2};
 }
 }  // namespace
 
@@ -359,8 +379,10 @@ void FrontlightTimePickerActivity::render(RenderLock&&) {
     props.labelText.font = fui::GfxRendererTarget::FONT_BODY;
     const auto& metrics = UITheme::getInstance().getMetrics();
     props.gap = static_cast<int16_t>(metrics.keyboardKeySpacing);
-    const fui::Rect kbRect = keyboardRect(renderer);
-    fui::keyGrid(frame, kbRect, props);
+    const int16_t cellH = static_cast<int16_t>((layout.keyboard.height - props.gap * 3) / kKeyboardRows);
+    const int16_t cellW = static_cast<int16_t>((layout.keyboard.width - props.gap * 2) / 3);
+    props.minTouchSize = std::min<int16_t>(props.minTouchSize, std::max<int16_t>(1, std::min(cellH, cellW)));
+    fui::keyGrid(frame, layout.keyboard, props);
     keyboardInteractions.publish();
     keyboardInteractionsReady.store(true, std::memory_order_release);
   }
