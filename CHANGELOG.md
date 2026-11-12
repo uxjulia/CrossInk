@@ -3,7 +3,7 @@
 ### Added
 
 - Discover linked OpenSearch descriptions in OPDS catalogs and negotiate advertised Basic authentication without sending catalog credentials on the first request. Reuse a same-origin HTTPS connection during discovery when internal memory permits, then close it before browsing. OAuth and federated sign-in remain unsupported.
-
+- Include all-time and per-book reading stats, daily totals, reading sessions, and two-way clippings in Inky USB sync using your computer’s internet connection.
 - Support BOOX Picco readers, including frontlight controls, the slide switch, touchscreen locking, USB Drive, tilt page turns, and firmware downloads.
 - Support EEGO Reader A4 with touch, optional frontlight, scalable fonts, USB Drive, and dedicated debug, release, and release-candidate firmware assets.
 - Discover and upload static `.otf` fonts on ESP32-S3 readers, including OpenType CFF fonts and CFF files named `.ttf`, from SD or the Fonts web upload. Variable fonts and font collections remain unsupported (CrossPoint #3646, #3717).

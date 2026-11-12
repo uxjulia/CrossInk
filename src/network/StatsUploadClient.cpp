@@ -13,6 +13,7 @@
 #ifndef SIMULATOR
 #endif
 
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -79,7 +80,7 @@ struct StatsUploadClient::Impl {
 };
 
 // Keep the client and bounded reply buffer off the small main-task stack.
-StatsUploadClient::StatsUploadClient() : impl(makeUniqueNoThrow<Impl>()) {}
+StatsUploadClient::StatsUploadClient(Relay* relay) : relay(relay), impl(relay ? nullptr : makeUniqueNoThrow<Impl>()) {}
 StatsUploadClient::~StatsUploadClient() = default;
 void StatsUploadClient::close() {
   if (impl) impl->http.end();
@@ -124,6 +125,11 @@ StatsUploadClient::Result StatsUploadClient::putBody(const char* endpoint, const
                                                      bool daily, const char* sessionId, const char* filePath) {
   StatsRequest request("PUT", endpoint, lastHttpCode);
 
+  if (relay) {
+    const int status = relay->request(relay->context, "PUT", endpoint, payload, filePath, relay->response,
+                                      sizeof(relay->response), nullptr);
+    return request.finish(acceptUpload(endpoint, bookCount, daily, sessionId, status, status > 0, relay->response));
+  }
   if (!impl) {
     LOG_ERR("StatsSync", "Cannot allocate HTTP client");
     return request.finish(Result::LowMemory);
@@ -193,47 +199,63 @@ StatsUploadClient::Result StatsUploadClient::putBody(const char* endpoint, const
     http.end();
     complete = complete && closed;
   }
+  if (uploadLowMemory) {
+    http.end();
+    return request.finish(Result::LowMemory);
+  }
+  impl->response[std::min(size, sizeof(impl->response) - 1)] = '\0';
+  const auto result = acceptUpload(endpoint, bookCount, daily, sessionId, status, complete, impl->response);
+  if (result != Result::Ok) http.end();
+  return request.finish(result);
+}
+
+StatsUploadClient::Result StatsUploadClient::acceptUpload(const char* endpoint, unsigned bookCount, bool daily,
+                                                          const char* sessionId, int status, bool complete,
+                                                          const char* response) {
   lastHttpCode = status;
   LOG_INF("StatsSync", "PUT %s: HTTP %d", endpoint, status);
   // A missing sessions endpoint on an older Sync server does not invalidate
   // support for the existing stats endpoints. Keep the outbox for an upgrade.
   const bool counterIds = strncmp(endpoint, "/api/v1/stats/counters/", 23) == 0;
-  if (!sessionId && !counterIds) recordMissingApi(status);
-  auto failure = [&](Result result) {
-    http.end();
-    return request.finish(result);
-  };
-  if (uploadLowMemory) return failure(Result::LowMemory);
-  if (status <= 0) return failure(Result::Network);
-  if (status == 401) return failure(Result::Auth);
+  if (!relay && !sessionId && !counterIds) recordMissingApi(status);
+  if (status <= 0) return Result::Network;
+  if (status == 401 || status == 403) return Result::Auth;
   if (status == 404 || status == 405) {
     // A confirmed stats server must accept the reset-safe counter API. An
     // older server keeps the outbox, but must not turn this upload into Done.
-    const bool required = counterIds && KOREADER_STORE.getServerSupport() == SyncServerSupport::SUPPORTED;
-    return failure(required ? Result::Server : Result::Unsupported);
+    const bool required = !relay && counterIds && KOREADER_STORE.getServerSupport() == SyncServerSupport::SUPPORTED;
+    return required ? Result::Server : Result::Unsupported;
   }
-  if (status != 200) return failure(Result::Server);
-  if (!complete) return failure(Result::InvalidResponse);
-  impl->response[size] = '\0';
+  if (status != 200) return Result::Server;
+  if (!complete) return Result::InvalidResponse;
   JsonDocument reply;
-  if (deserializeJson(reply, impl->response) || !reply["until"].is<uint64_t>() ||
+  if (deserializeJson(reply, response) || !reply["until"].is<uint64_t>() ||
       (counterIds && (!reply["counter_ids"].is<unsigned>() || reply["counter_ids"].as<unsigned>() != 1)) ||
       (sessionId && (!reply["accepted_session_ids"].is<JsonArray>() || reply["accepted_session_ids"].size() != 1 ||
                      !reply["accepted_session_ids"][0].is<const char*>() ||
                      strcmp(reply["accepted_session_ids"][0].as<const char*>(), sessionId) != 0)) ||
       (bookCount && (!reply["accepted"].is<unsigned>() || reply["accepted"].as<unsigned>() != bookCount)) ||
       (daily && (!reply["accepted_daily"].is<unsigned>() || reply["accepted_daily"].as<unsigned>() != 1))) {
-    return failure(Result::InvalidResponse);
+    return Result::InvalidResponse;
   }
   // Only a valid extension reply proves support; a catch-all 200 page does not.
-  KOREADER_STORE.setServerSupport(SyncServerSupport::SUPPORTED);
-  return request.finish(Result::Ok);
+  if (!relay) KOREADER_STORE.setServerSupport(SyncServerSupport::SUPPORTED);
+  return Result::Ok;
 }
 
 StatsUploadClient::Result StatsUploadClient::get(const char* endpoint, const char* responsePath,
                                                  const size_t maxBytes) {
   StatsRequest request("GET", endpoint, lastHttpCode);
 
+  if (relay) {
+    const int status =
+        relay->request(relay->context, "GET", endpoint, nullptr, nullptr, nullptr, maxBytes, responsePath);
+    lastHttpCode = status;
+    if (status <= 0) return request.finish(Result::Network);
+    if (status == 401 || status == 403) return request.finish(Result::Auth);
+    if (status == 404 || status == 405) return request.finish(Result::Unsupported);
+    return request.finish(status == 200 ? Result::Ok : Result::Server);
+  }
   if (!impl) {
     LOG_ERR("StatsSync", "Cannot allocate download HTTP client");
     return request.finish(Result::LowMemory);
@@ -282,7 +304,7 @@ StatsUploadClient::Result StatsUploadClient::get(const char* endpoint, const cha
   lastHttpCode = status;
   LOG_INF("StatsSync", "Download response: HTTP %d", status);
   if (status <= 0) return request.finish(Result::Network);
-  if (status == 401) return request.finish(Result::Auth);
+  if (status == 401 || status == 403) return request.finish(Result::Auth);
   if (status == 404 || status == 405) return request.finish(Result::Unsupported);
   if (status != 200) return request.finish(Result::Server);
   if (!stored || !complete || !file.sync() || !file.close()) {
@@ -339,7 +361,7 @@ StatsUploadClient::Result StatsUploadClient::probe(const bool trustHtml) {
   LOG_INF("StatsSync", "Capability probe: HTTP %d", status);
   recordMissingApi(status);
   if (status <= 0) return request.finish(Result::Network);
-  if (status == 401) return request.finish(Result::Auth);
+  if (status == 401 || status == 403) return request.finish(Result::Auth);
   if (status == 404 || status == 405) return request.finish(Result::Unsupported);
   if (status != 200) return request.finish(Result::Server);
   if (first != '{') {
@@ -356,6 +378,14 @@ StatsUploadClient::Result StatsUploadClient::probe(const bool trustHtml) {
 StatsUploadClient::Result StatsUploadClient::downloadStreak() {
   StatsRequest request("GET", "/api/v1/stats/streak", lastHttpCode);
 
+  if (relay) {
+    char endpoint[48];
+    const int tz = -(int(SETTINGS.clockUtcOffsetQ) - 48) * 15;
+    snprintf(endpoint, sizeof(endpoint), "/api/v1/stats/streak?tz=%d", tz);
+    const int status = relay->request(relay->context, "GET", endpoint, nullptr, nullptr, relay->response,
+                                      sizeof(relay->response), nullptr);
+    return request.finish(acceptStreak(status, status > 0, relay->response));
+  }
   if (!impl) {
     LOG_ERR("StatsSync", "Cannot allocate streak HTTP client");
     return request.finish(Result::LowMemory);
@@ -399,21 +429,25 @@ StatsUploadClient::Result StatsUploadClient::downloadStreak() {
   complete = http.responseComplete();
 #endif
   http.end();
+  impl->response[std::min(size, sizeof(impl->response) - 1)] = '\0';
+  return request.finish(acceptStreak(status, complete, impl->response));
+}
+
+StatsUploadClient::Result StatsUploadClient::acceptStreak(int status, bool complete, const char* response) {
   lastHttpCode = status;
   LOG_INF("StatsSync", "Streak download: HTTP %d", status);
   // Do not downgrade the existing stats API when just the new endpoint is absent.
-  if (status == 404 || status == 405) return request.finish(Result::Skipped);
-  if (status <= 0) return request.finish(Result::Network);
-  if (status == 401) return request.finish(Result::Auth);
-  if (status != 200) return request.finish(Result::Server);
+  if (status == 404 || status == 405) return Result::Skipped;
+  if (status <= 0) return Result::Network;
+  if (status == 401 || status == 403) return Result::Auth;
+  if (status != 200) return Result::Server;
   const auto invalid = [&]() {
     LOG_ERR("StatsSync", "Invalid server reading calendar");
-    return request.finish(Result::InvalidResponse);
+    return Result::InvalidResponse;
   };
   if (!complete) return invalid();
-  impl->response[size] = '\0';
   JsonDocument reply;
-  if (deserializeJson(reply, impl->response) || reply["v"] != 1 || !reply["anchor_day"].is<uint32_t>() ||
+  if (deserializeJson(reply, response) || reply["v"] != 1 || !reply["anchor_day"].is<uint32_t>() ||
       reply["anchor_day"].as<uint32_t>() == 0 || reply["anchor_day"].as<uint32_t>() > 36524 ||
       !reply["streak"].is<uint16_t>() || !reply["history_b64"].is<const char*>()) {
     return invalid();
@@ -429,7 +463,7 @@ StatsUploadClient::Result StatsUploadClient::downloadStreak() {
   }
   streak.readingHistoryAnchorDay = reply["anchor_day"].as<uint32_t>();
   streak.longestReadingStreak = reply["streak"].as<uint16_t>();
-  return request.finish(GlobalReadingStats::saveServerStreak(streak) ? Result::Ok : Result::InvalidResponse);
+  return GlobalReadingStats::saveServerStreak(streak) ? Result::Ok : Result::InvalidResponse;
 }
 
 const char* StatsUploadClient::resultString(Result result) {

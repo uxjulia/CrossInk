@@ -114,7 +114,7 @@ void SyncPending::SessionMarker::mark(const std::string&, uint8_t) {}
 // store and retry flow; no test code substitutes the merge implementation.
 int StatsUploadClient::lastHttpCode = 0;
 struct StatsUploadClient::Impl {};
-StatsUploadClient::StatsUploadClient() = default;
+StatsUploadClient::StatsUploadClient(Relay* relay) : relay(relay) {}
 StatsUploadClient::~StatsUploadClient() = default;
 void StatsUploadClient::close() {}
 Result StatsUploadClient::put(const char*, const char* payload, unsigned, bool, const char*) {

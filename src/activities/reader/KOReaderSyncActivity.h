@@ -76,6 +76,7 @@ class KOReaderSyncActivity final : public Activity {
                                               const KOReaderProgress& remote, DocumentMatchMethod method,
                                               int localSpineIndex, int localSpinePages,
                                               bool requireSavedCoordinate = false);
+  static bool sameReadingProgress(float reader, float server);
 
   void onEnter() override;
   void onExit() override;

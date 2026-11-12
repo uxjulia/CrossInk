@@ -636,6 +636,7 @@ class EpubReaderActivity final : public Activity {
   bool isBookReaderActivity() const override { return true; }
   bool usesMenuButtonOrientation() const override;
   bool isEpubReaderActivity() const override { return true; }
+  bool checkpointForUsbSync() { return saveProgressBeforeRestart(); }
   void onInputLockChanged(bool locked) override;
   void onUserInput() override;
   bool handleQuickLockUnlock(QuickLockTrigger trigger) override;

@@ -482,7 +482,7 @@ void KOReaderSyncActivity::performSync() {
 
   const bool sameAnchor = localProgress.valid && !localProgressDeferred && result == KOReaderSyncClient::OK &&
                           localProgress.xpath == remoteProgress.progress &&
-                          std::fabs(localProgress.percentage - remoteProgress.percentage) <= 0.001f;
+                          sameReadingProgress(localProgress.percentage, remoteProgress.percentage);
   const bool needsMap = result == KOReaderSyncClient::OK && !sameAnchor;
   const bool suspendWifi = folderSync && (localProgressDeferred || needsMap) && hasActiveStationWifiConnection();
   if (suspendWifi) wifiOff();
@@ -528,6 +528,10 @@ void KOReaderSyncActivity::performSync() {
   finishComparison(result);
 }
 
+bool KOReaderSyncActivity::sameReadingProgress(float reader, float server) {
+  return std::fabs(reader - server) <= 0.001f;  // 0.1 percentage points
+}
+
 void KOReaderSyncActivity::finishComparison(const KOReaderSyncClient::Error result) {
   if (!folderSync && localPositionUnavailable && result == KOReaderSyncClient::OK && remotePosition.valid) {
     // Recovery is explicitly download-only, even when smart sync is enabled.
@@ -554,13 +558,12 @@ void KOReaderSyncActivity::finishComparison(const KOReaderSyncClient::Error resu
     performUpload();
     return;
   }
-  static constexpr float SAME_PROGRESS_EPSILON = 0.001f;  // 0.1 percentage points
   const float delta = localProgress.percentage - remoteProgress.percentage;
   LOG_DBG("KOSync", "Sync decision: doc=%s local=%.6f remote=%.6f delta=%.6f remoteXpath=%s mapped=%d/%d",
           documentHash.c_str(), localProgress.percentage, remoteProgress.percentage, delta,
           remoteProgress.progress.c_str(), remotePosition.spineIndex, remotePosition.pageNumber);
   // Matching positions are not a conflict: neither sync behavior asks.
-  if (std::fabs(delta) <= SAME_PROGRESS_EPSILON) {
+  if (sameReadingProgress(localProgress.percentage, remoteProgress.percentage)) {
     completeAlreadySynced();
     return;
   }

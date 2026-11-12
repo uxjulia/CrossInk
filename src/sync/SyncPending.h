@@ -28,6 +28,8 @@ bool ensureExists();
 bool mark(const std::string& path, uint8_t bits);
 // Clears `bits` after a successful upload; the entry goes when none remain.
 bool clear(const std::string& path, uint8_t bits);
+// Clears a USB sync acknowledgement without creating a previously missing queue.
+bool clearExisting(const std::string& path, uint8_t bits);
 // clear() for several books in one rewrite (a batched stats upload).
 bool clearPaths(const std::vector<std::string>& paths, uint8_t bits);
 // Clears `bits` on every entry (a What to Sync toggle was turned off).

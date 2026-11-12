@@ -24,7 +24,8 @@
 #include "sync/BookSyncFile.h"
 #include "sync/PreparedProgress.h"
 
-bool ReadingSyncUpload::prepareProgress(const std::string& path, KOReaderProgress& progress) {
+bool ReadingSyncUpload::prepareProgress(const std::string& path, KOReaderProgress& progress, bool* localUnavailable) {
+  if (localUnavailable) *localUnavailable = false;
   if (!FsHelpers::hasEpubExtension(path)) return false;
   // ProgressMapper requires shared ownership. Release the whole EPUB before TLS.
   std::shared_ptr<Epub> epub = makeUniqueNoThrow<Epub>(path, "/.crosspoint");
@@ -33,10 +34,11 @@ bool ReadingSyncUpload::prepareProgress(const std::string& path, KOReaderProgres
     return false;
   }
   EpubReaderUtils::Progress saved;
-  if (!EpubReaderUtils::loadProgress(*epub, saved) ||
-      !epub->load(true, true, Epub::XLocationLoadMode::Immediate, true) || saved.spineIndex < 0 ||
-      saved.spineIndex >= epub->getSpineItemsCount() || !saved.hasPageCount || saved.pageCount < 1 ||
-      saved.pageNumber >= saved.pageCount) {
+  const bool loaded = EpubReaderUtils::loadProgress(*epub, saved);
+  if (loaded && !epub->load(true, true, Epub::XLocationLoadMode::Immediate, true)) return false;
+  if (!loaded || saved.spineIndex < 0 || saved.spineIndex >= epub->getSpineItemsCount() || !saved.hasPageCount ||
+      saved.pageCount < 1 || saved.pageNumber < 0 || saved.pageNumber >= saved.pageCount) {
+    if (localUnavailable) *localUnavailable = true;
     LOG_DBG("ReadingSync", "Skipping book without usable saved progress: %s", path.c_str());
     return false;
   }
@@ -148,7 +150,7 @@ StatsUploadClient::Result globalOutcome(const StatsUploadClient::Result result,
 }
 }  // namespace
 
-StatsUploadClient::Result ReadingSyncUpload::globalStats(GlobalStatsStep* failedStep) {
+StatsUploadClient::Result ReadingSyncUpload::globalStats(GlobalStatsStep* failedStep, StatsUploadClient::Relay* relay) {
   StatsUploadClient::lastHttpCode = 0;
   using Result = StatsUploadClient::Result;
   if (failedStep) *failedStep = GlobalStatsStep::None;
@@ -158,7 +160,7 @@ StatsUploadClient::Result ReadingSyncUpload::globalStats(GlobalStatsStep* failed
   char deviceId[32];
   if (!payload || !StatsUploadClient::deviceId(deviceId, sizeof(deviceId)))
     return globalOutcome(Result::LowMemory, GlobalStatsStep::Setup, failedStep);
-  StatsUploadClient client;
+  StatsUploadClient client(relay);
   return globalStats(client, payload.get(), StatsUploadPayload::CAPACITY, deviceId, failedStep);
 }
 
@@ -259,7 +261,8 @@ bool ReadingSyncUpload::canSyncClippings() {
          KOREADER_STORE.getSyncClippings();
 }
 
-StatsUploadClient::Result ReadingSyncUpload::stats(const std::string& path, const std::string& document) {
+StatsUploadClient::Result ReadingSyncUpload::stats(const std::string& path, const std::string& document,
+                                                   StatsUploadClient::Relay* relay) {
   StatsUploadClient::lastHttpCode = 0;
   using Result = StatsUploadClient::Result;
   BookReadingStats book;
@@ -269,7 +272,7 @@ StatsUploadClient::Result ReadingSyncUpload::stats(const std::string& path, cons
   if (!payload || !StatsUploadClient::deviceId(deviceId, sizeof(deviceId))) return Result::LowMemory;
   if (!StatsUploadPayload::book(payload.get(), StatsUploadPayload::CAPACITY, deviceId, document.c_str(), book))
     return Result::InvalidResponse;
-  StatsUploadClient client;
+  StatsUploadClient client(relay);
   return client.put("/api/v1/stats/counters/books", payload.get(), 1);
 }
 

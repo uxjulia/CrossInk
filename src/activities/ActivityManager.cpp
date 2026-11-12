@@ -46,6 +46,7 @@
 #include "reader/BookReadingStats.h"
 #include "reader/BookStatsActivity.h"
 #include "reader/BookStatsTracking.h"
+#include "reader/EpubReaderActivity.h"
 #include "reader/GlobalReadingStats.h"
 #include "reader/ReaderActivity.h"
 #include "settings/OpdsServerListActivity.h"
@@ -1259,6 +1260,19 @@ bool ActivityManager::requiresExclusiveStorageLoop() const {
 bool ActivityManager::blocksGlobalInput() const { return currentActivity && currentActivity->blocksGlobalInput(); }
 
 bool ActivityManager::isHomeActivity() const { return currentActivity && currentActivity->name == "Home"; }
+
+bool ActivityManager::canSyncOpenEpubOverUsb() const {
+  return pendingAction == PendingAction::None && currentActivity && currentActivity->isEpubReaderActivity();
+}
+
+bool ActivityManager::closeOpenEpubForUsbSync(std::string& path) {
+  if (!canSyncOpenEpubOverUsb()) return false;
+  auto& reader = static_cast<EpubReaderActivity&>(*currentActivity);
+  path = reader.getCurrentBookPath();
+  if (path.empty() || !reader.checkpointForUsbSync()) return false;
+  goHome();
+  return true;
+}
 
 bool ActivityManager::isReaderActivity() const {
   if (currentActivity && currentActivity->isReaderActivity()) {

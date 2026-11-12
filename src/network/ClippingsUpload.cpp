@@ -71,9 +71,9 @@ StatsUploadClient::Result readResponse(const char* path, JsonDocument& json) {
   return Result::Ok;
 }
 
-bool clippingScope(const std::string& document, char (&scope)[17]) {
-  const auto& server = KOREADER_STORE.getBaseUrl();
-  const auto& user = KOREADER_STORE.getUsername();
+bool clippingScope(const std::string& document, char (&scope)[17], StatsUploadClient::Relay* relay) {
+  const std::string server = relay ? relay->server : KOREADER_STORE.getBaseUrl();
+  const std::string user = relay ? relay->username : KOREADER_STORE.getUsername();
   return clippingSyncIdentity(0, std::to_string(server.size()) + ":" + server + user + ":" + document, scope);
 }
 uint64_t readCursor(const std::string& path, const char* scope) {
@@ -95,15 +95,16 @@ bool writeCursor(const std::string& path, const char* scope, const uint64_t curs
 }  // namespace
 
 StatsUploadClient::Result ClippingsUpload::upload(const std::string& path, const std::string& document, Cancel cancel,
-                                                  void* context) {
+                                                  void* context, StatsUploadClient::Relay* relay) {
   StatsUploadClient::lastHttpCode = 0;
   using Result = StatsUploadClient::Result;
   if (document.size() != 32 || document.find_first_not_of("0123456789abcdefABCDEF") != std::string::npos)
     return Result::InvalidResponse;
   char scope[17];
-  if (!clippingScope(document, scope) || !ClippingStore::prepareUploads(path, scope)) return Result::InvalidResponse;
+  if (!clippingScope(document, scope, relay) || !ClippingStore::prepareUploads(path, scope))
+    return Result::InvalidResponse;
   const auto endpoint = "/api/v1/clippings/" + document;
-  StatsUploadClient client;
+  StatsUploadClient client(relay);
   std::string text;
   // One clipping at a time; never hold the up-to-256-record index across TLS.
   constexpr const char* UPLOAD_PATH = "/.crosspoint/clipping-sync/upload.tmp";
@@ -198,7 +199,7 @@ StatsUploadClient::Result ClippingsUpload::upload(const std::string& path, const
 }
 
 StatsUploadClient::Result ClippingsUpload::download(const std::string& path, const std::string& document, Cancel cancel,
-                                                    void* context) {
+                                                    void* context, StatsUploadClient::Relay* relay) {
   StatsUploadClient::lastHttpCode = 0;
   using Result = StatsUploadClient::Result;
   if (document.size() != 32 || document.find_first_not_of("0123456789abcdefABCDEF") != std::string::npos)
@@ -213,10 +214,10 @@ StatsUploadClient::Result ClippingsUpload::download(const std::string& path, con
     return Result::InvalidResponse;
   }
   ScopedCleanup cleanup{[&] { Storage.remove(RESPONSE_PATH); }};
-  StatsUploadClient client;
+  StatsUploadClient client(relay);
   const std::string statePath = ClippingStore::syncStatePath(path);
   char scope[17];
-  if (!clippingScope(document, scope)) return Result::InvalidResponse;
+  if (!clippingScope(document, scope, relay)) return Result::InvalidResponse;
   // A small CRC-protected sidecar keeps the cursor tied to this server, user
   // and document. Renames/cache loss safely replay through the same ID merge.
   const uint64_t startingCursor =
@@ -328,13 +329,13 @@ StatsUploadClient::Result ClippingsUpload::download(const std::string& path, con
 }
 
 StatsUploadClient::Result ClippingsUpload::sync(const std::string& path, const std::string& document, Cancel cancel,
-                                                void* context) {
+                                                void* context, StatsUploadClient::Relay* relay) {
   StatsUploadClient::lastHttpCode = 0;
   using Result = StatsUploadClient::Result;
   const auto perform = [&]() {
-    const auto sent = upload(path, document, cancel, context);
+    const auto sent = upload(path, document, cancel, context, relay);
     if (!StatsUploadClient::settled(sent)) return sent;
-    const auto received = download(path, document, cancel, context);
+    const auto received = download(path, document, cancel, context, relay);
     // Older servers remain upload-compatible; a version-2 download is required
     // before any remote data is applied locally.
     if (received == Result::Unsupported) return sent;

@@ -207,6 +207,8 @@ class ActivityManager {
   // gestures until it is dismissed.
   bool blocksGlobalInput() const;
   bool isHomeActivity() const;
+  bool canSyncOpenEpubOverUsb() const;
+  bool closeOpenEpubForUsbSync(std::string& path);
   bool isReaderActivity() const;
   bool openReaderSettingsForTouchscreenEscapeHatch();
   bool handleHomeButtonBackOrHome();
