@@ -69,7 +69,7 @@ void SdFirmwareUpdateActivity::onPickerResult(const ActivityResult& result) {
 bool SdFirmwareUpdateActivity::validateFirmware() {
   HalFile file;
   if (!Storage.openFileForRead("FW", firmwarePath.c_str(), file) || !file) {
-    errorMessage = tr(STR_FIRMWARE_FILE_OPEN_FAILED);
+    setError(firmware_flash::Result::OPEN_FAIL);
     return false;
   }
   firmwareSize = file.fileSize();
@@ -82,14 +82,14 @@ bool SdFirmwareUpdateActivity::validateFirmware() {
   const esp_partition_t* dest = esp_ota_get_next_update_partition(nullptr);
   if (!dest) {
     LOG_ERR("FW", "no next-update partition available");
-    errorMessage = tr(STR_INVALID_FIRMWARE);
+    setError(firmware_flash::Result::NO_PARTITION);
     return false;
   }
   const size_t partitionLimit = dest->size;
   if (firmwareSize > partitionLimit) {
     LOG_ERR("FW", "firmware (%u bytes) exceeds partition (%u bytes)", static_cast<unsigned>(firmwareSize),
             static_cast<unsigned>(partitionLimit));
-    errorMessage = tr(STR_FIRMWARE_TOO_LARGE);
+    setError(firmware_flash::Result::TOO_LARGE);
     return false;
   }
 
@@ -100,18 +100,44 @@ bool SdFirmwareUpdateActivity::validateFirmware() {
   const auto vr = firmware_flash::validateImageFile(firmwarePath.c_str(), partitionLimit);
   if (vr != firmware_flash::Result::OK) {
     LOG_ERR("FW", "image validation failed: %s", firmware_flash::resultName(vr));
-    if (vr == firmware_flash::Result::TOO_LARGE) {
-      errorMessage = tr(STR_FIRMWARE_TOO_LARGE);
-    } else if (vr == firmware_flash::Result::TOO_SMALL) {
-      errorMessage = tr(STR_FIRMWARE_TOO_SMALL);
-    } else if (vr == firmware_flash::Result::BAD_CHIP || vr == firmware_flash::Result::WRONG_BOARD) {
-      errorMessage = tr(STR_FIRMWARE_WRONG_DEVICE);
-    } else {
-      errorMessage = tr(STR_INVALID_FIRMWARE);
-    }
+    setError(vr);
     return false;
   }
   return true;
+}
+
+void SdFirmwareUpdateActivity::setError(firmware_flash::Result result) {
+  errorResult = result;
+  switch (result) {
+    case firmware_flash::Result::OPEN_FAIL:
+      errorMessage = tr(STR_FIRMWARE_FILE_OPEN_FAILED);
+      break;
+    case firmware_flash::Result::TOO_LARGE:
+      errorMessage = tr(STR_FIRMWARE_TOO_LARGE);
+      break;
+    case firmware_flash::Result::TOO_SMALL:
+      errorMessage = tr(STR_FIRMWARE_TOO_SMALL);
+      break;
+    case firmware_flash::Result::BAD_CHIP:
+    case firmware_flash::Result::WRONG_BOARD:
+      errorMessage = tr(STR_FIRMWARE_WRONG_DEVICE);
+      break;
+    case firmware_flash::Result::BAD_CHECKSUM:
+    case firmware_flash::Result::BAD_SHA:
+      errorMessage = tr(STR_UPDATE_HASH_MISMATCH);
+      break;
+    case firmware_flash::Result::OOM:
+      errorMessage = tr(STR_MEMORY_ERROR);
+      break;
+    case firmware_flash::Result::ERASE_FAIL:
+    case firmware_flash::Result::WRITE_FAIL:
+    case firmware_flash::Result::OTADATA_FAIL:
+      errorMessage = tr(STR_FIRMWARE_WRITE_FAILED);
+      break;
+    default:
+      errorMessage = tr(STR_INVALID_FIRMWARE);
+      break;
+  }
 }
 
 void SdFirmwareUpdateActivity::promptConfirmation() {
@@ -170,9 +196,7 @@ void SdFirmwareUpdateActivity::performUpdate() {
   const auto result = firmware_flash::flashFromSdPath(firmwarePath.c_str(), progressCb, this);
   if (result != firmware_flash::Result::OK) {
     LOG_ERR("FW", "flash failed: %s", firmware_flash::resultName(result));
-    errorMessage = result == firmware_flash::Result::BAD_CHIP || result == firmware_flash::Result::WRONG_BOARD
-                       ? tr(STR_FIRMWARE_WRONG_DEVICE)
-                       : tr(STR_FIRMWARE_WRITE_FAILED);
+    setError(result);
     RenderLock lock(*this);
     state = State::FAILED;
     requestUpdate();
@@ -254,9 +278,15 @@ void SdFirmwareUpdateActivity::render(RenderLock&&) {
                                      tr(STR_RESTARTING_HINT), 3);
   } else if (state == State::FAILED) {
     renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_UPDATE_FAILED), true, EpdFontFamily::BOLD);
+    int y = top + lineHeight + metrics.verticalSpacing;
     if (!errorMessage.empty()) {
-      UITheme::drawCenteredWrappedText(renderer, textArea, UI_10_FONT_ID, top + lineHeight + metrics.verticalSpacing,
-                                       errorMessage.c_str(), 3);
+      y += UITheme::drawCenteredWrappedText(renderer, textArea, UI_10_FONT_ID, y, errorMessage.c_str(), 3);
+    }
+    if (errorResult != firmware_flash::Result::OK) {
+      // Stable diagnostic identifiers are deliberately not translated, so a
+      // photo carries the same exact failure reason as the serial log.
+      UITheme::drawCenteredWrappedText(renderer, textArea, UI_10_FONT_ID, y + metrics.verticalSpacing,
+                                       firmware_flash::resultName(errorResult), 2);
     }
     const auto labels = mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), "", "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
