@@ -130,6 +130,7 @@ class GfxRenderer {
   void freeBitmapScratchBuffers();
   bool ensureBitmapScratchBuffers(size_t outputRowSize, size_t rowBytesSize) const;
   bool bitmapScratchLockHeldByCurrentTask() const;
+  void drawLegacyIcon(const uint8_t bitmap[], int x, int y, int width, int height, bool black) const;
   template <Color color>
   void drawPixelDither(int x, int y) const;
   template <Color color>

@@ -164,19 +164,20 @@ void drawCenteredStatsRow(const GfxRenderer& renderer, const uint8_t* icon, cons
     return;
   }
 
-  const int labelLineHeight = renderer.getLineHeight(UI_10_FONT_ID);
-  const int rowHeight = std::max(labelLineHeight, iconSize);
-  if (regionHeight < rowHeight) return;
-  const int topY = regionTop + (regionHeight - rowHeight) / 2;
   const int availableWidth = std::max(1, safe.width - kStatsFooterSideInset * 2);
   const int iconTextGap = 10;
   const std::string text = renderer.truncatedText(UI_10_FONT_ID, label, availableWidth - iconSize - iconTextGap);
+  const auto ink = renderer.getTextVerticalBounds(UI_10_FONT_ID, text.c_str());
+  const int textHeight = ink.bottom - ink.top;
+  const int rowHeight = std::max(textHeight, iconSize);
+  if (regionHeight < rowHeight) return;
+  const int topY = regionTop + (regionHeight - rowHeight) / 2;
   const int textWidth = renderer.getTextWidth(UI_10_FONT_ID, text.c_str());
   const int blockWidth = iconSize + iconTextGap + textWidth;
   const int iconX = safe.x + (safe.width - blockWidth) / 2;
   const int iconY = topY + (rowHeight - iconSize) / 2;
   const int textX = iconX + iconSize + iconTextGap;
-  const int textY = topY + (rowHeight - labelLineHeight) / 2;
+  const int textY = topY + (rowHeight - textHeight) / 2 - ink.top;
 
   if (inverted) {
     renderer.drawIcon(icon, iconX, iconY, iconSize, iconSize);

@@ -1914,58 +1914,7 @@ void GfxRenderer::drawIcon(const uint8_t bitmap[], const int x, const int y, con
 }
 
 void GfxRenderer::drawIcon(const uint8_t bitmap[], const int x, const int y, const int width, const int height) const {
-  if (fontCacheManager_ && fontCacheManager_->isScanning()) return;
-
-  // Portrait-mode coordinate transform (x<->y swap). Draw black source pixels
-  // transparently while preserving sub-byte x offsets; EInkDisplay's transparent
-  // blit is byte-aligned, which can visually shift icons when y is not /8.
-  const int physX = y;
-  const int physY = getScreenWidth() - width - x;
-  const int imgW = height;
-  const int imgH = width;
-  const int srcStride = (imgW + 7) / 8;
-
-  if (physX + imgW <= 0 || physX >= panelWidth) return;
-  if (physY + imgH <= 0 || physY >= panelHeight) return;
-
-  const int baseByte = (physX >= 0) ? (physX >> 3) : -(((-physX) + 7) >> 3);
-  const int bitShift = ((physX % 8) + 8) % 8;
-  const int trail = srcStride * 8 - imgW;
-  const uint8_t trailMask = static_cast<uint8_t>(0xFF << trail);
-  const int lastCol = srcStride - 1;
-
-  for (int row = 0; row < imgH; ++row) {
-    const int destY = physY + row;
-    if (destY < 0 || destY >= panelHeight) continue;
-    const int rowBase = destY * panelWidthBytes;
-    const int srcOffset = row * srcStride;
-
-    if (bitShift == 0) {
-      for (int col = 0; col < srcStride; ++col) {
-        const int dst = baseByte + col;
-        if (dst < 0) continue;
-        if (dst >= panelWidthBytes) break;
-        uint8_t blackPixels = ~bitmap[srcOffset + col];
-        if (col == lastCol && trail > 0) blackPixels &= trailMask;
-        frameBuffer[rowBase + dst] &= static_cast<uint8_t>(~blackPixels);
-      }
-    } else {
-      const int rsh = bitShift;
-      const int lsh = 8 - bitShift;
-      for (int col = 0; col < srcStride; ++col) {
-        uint8_t blackPixels = ~bitmap[srcOffset + col];
-        if (col == lastCol && trail > 0) blackPixels &= trailMask;
-        const int dstHi = baseByte + col;
-        const int dstLo = dstHi + 1;
-        if (dstHi >= 0 && dstHi < panelWidthBytes) {
-          frameBuffer[rowBase + dstHi] &= static_cast<uint8_t>(~static_cast<uint8_t>(blackPixels >> rsh));
-        }
-        if (dstLo >= 0 && dstLo < panelWidthBytes) {
-          frameBuffer[rowBase + dstLo] &= static_cast<uint8_t>(~static_cast<uint8_t>(blackPixels << lsh));
-        }
-      }
-    }
-  }
+  drawLegacyIcon(bitmap, x, y, width, height, true);
 }
 
 void GfxRenderer::drawIconInverted(const uint8_t bitmap[], const int x, const int y, const int size) const {
@@ -1974,55 +1923,21 @@ void GfxRenderer::drawIconInverted(const uint8_t bitmap[], const int x, const in
 
 void GfxRenderer::drawIconInverted(const uint8_t bitmap[], const int x, const int y, const int width,
                                    const int height) const {
+  drawLegacyIcon(bitmap, x, y, width, height, false);
+}
+
+void GfxRenderer::drawLegacyIcon(const uint8_t bitmap[], const int x, const int y, const int width, const int height,
+                                 const bool black) const {
   if (fontCacheManager_ && fontCacheManager_->isScanning()) return;
 
-  // Portrait-mode coordinate transform (x<->y swap), matching drawIcon.
-  // OR with ~srcByte sets framebuffer bits to 1 (white) wherever the icon
-  // bitmap is 0 (black), producing a white icon on a black background.
-  const int physX = y;
-  const int physY = getScreenWidth() - width - x;
-  const int imgW = height;
-  const int imgH = width;
-  const int srcStride = (imgW + 7) / 8;
-
-  if (physX + imgW <= 0 || physX >= panelWidth) return;
-  if (physY + imgH <= 0 || physY >= panelHeight) return;
-
-  const int baseByte = (physX >= 0) ? (physX >> 3) : -(((-physX) + 7) >> 3);
-  const int bitShift = ((physX % 8) + 8) % 8;
-  const int trail = srcStride * 8 - imgW;
-  const uint8_t trailMask = static_cast<uint8_t>(0xFF << trail);
-  const int lastCol = srcStride - 1;
-
-  for (int row = 0; row < imgH; ++row) {
-    const int destY = physY + row;
-    if (destY < 0 || destY >= panelHeight) continue;
-    const int rowBase = destY * panelWidthBytes;
-    const int srcOffset = row * srcStride;
-
-    if (bitShift == 0) {
-      for (int col = 0; col < srcStride; ++col) {
-        const int dst = baseByte + col;
-        if (dst < 0) continue;
-        if (dst >= panelWidthBytes) break;
-        uint8_t inv = ~bitmap[srcOffset + col];
-        if (col == lastCol && trail > 0) inv &= trailMask;
-        frameBuffer[rowBase + dst] |= inv;
-      }
-    } else {
-      const int rsh = bitShift;
-      const int lsh = 8 - bitShift;
-      for (int col = 0; col < srcStride; ++col) {
-        uint8_t inv = ~bitmap[srcOffset + col];
-        if (col == lastCol && trail > 0) inv &= trailMask;
-        const int dstHi = baseByte + col;
-        const int dstLo = dstHi + 1;
-        if (dstHi >= 0 && dstHi < panelWidthBytes) {
-          frameBuffer[rowBase + dstHi] |= static_cast<uint8_t>(inv >> rsh);
-        }
-        if (dstLo >= 0 && dstLo < panelWidthBytes) {
-          frameBuffer[rowBase + dstLo] |= static_cast<uint8_t>(inv << lsh);
-        }
+  // These small icons are packed for the portrait panel. Each source row
+  // represents a logical column, starting at the right edge of the icon.
+  const int stride = (height + 7) / 8;
+  for (int row = 0; row < width; ++row) {
+    const uint8_t* column = bitmap + row * stride;
+    for (int dy = 0; dy < height; ++dy) {
+      if ((column[dy / 8] & (0x80 >> (dy % 8))) == 0) {
+        drawPixel(x + width - 1 - row, y + dy, black);
       }
     }
   }
