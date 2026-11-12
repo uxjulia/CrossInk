@@ -18,6 +18,9 @@ namespace fui = freeink::ui;
 namespace {
 enum Row {
   Device,
+#if FREEINK_DEVICE_EEGO_A4
+  Uid,
+#endif
   Firmware,
   Build,
   Chip,
@@ -43,6 +46,9 @@ enum Row {
   RowCount
 };
 constexpr StrId labels[] = {StrId::STR_ABOUT_DEVICE,
+#if FREEINK_DEVICE_EEGO_A4
+                            StrId::STR_ABOUT_UID,
+#endif
                             StrId::STR_ABOUT_FIRMWARE,
                             StrId::STR_ABOUT_BUILD,
                             StrId::STR_ABOUT_CHIP,
@@ -89,6 +95,9 @@ AboutActivity::AboutActivity(GfxRenderer& renderer, MappedInputManager& mappedIn
 void AboutActivity::onEnter() {
   Activity::onEnter();
   snapshot = HalDeviceInfo::capture();
+#if FREEINK_DEVICE_EEGO_A4
+  HalDeviceInfo::readEegoUid(uid);
+#endif
   LOG_DBG("ABOUT", "Activity allocation: %u bytes; snapshot: %u bytes", static_cast<unsigned>(sizeof(*this)),
           static_cast<unsigned>(sizeof(snapshot)));
   applySharedUiTheme(app, uiTarget);
@@ -214,6 +223,11 @@ void AboutActivity::provideRow(void* user, uint16_t index, fui::ListItem& item) 
     case Device:
       item.subtitle = s.device;
       break;
+#if FREEINK_DEVICE_EEGO_A4
+    case Uid:
+      item.subtitle = self.uid[0] ? self.uid : tr(STR_UNAVAILABLE);
+      break;
+#endif
     case Firmware:
       item.subtitle = AppVersion::version();
       break;

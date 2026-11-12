@@ -136,6 +136,7 @@ add_test(NAME CrashTaskContextRegression
   COMMAND ${Python3_EXECUTABLE} ${REPO_ROOT}/test/scripts/test_crash_task_context.py)
 add_subdirectory(frontlight_settings_boot)
 add_subdirectory(eego_frontlight)
+add_subdirectory(eego_uid)
 add_test(NAME TransferReliabilityRegression
   COMMAND ${Python3_EXECUTABLE} ${REPO_ROOT}/test/scripts/test_transfer_reliability.py)
 add_test(NAME WebDavGetRegression
