@@ -2,6 +2,11 @@ name: Compile Release Candidate
 
 on:
   workflow_dispatch:
+    inputs:
+      source_commit:
+        description: "Optional full firmware source SHA for a workflow-only rebuild"
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -31,10 +36,11 @@ jobs:
             firmware: firmware-eego_a4
     env:
       RC_BRANCH: ${{ github.ref_name }}
-      RC_HASH: ${{ github.sha }}
+      RC_HASH: ${{ inputs.source_commit || github.sha }}
     steps:
       - uses: actions/checkout@v6
         with:
+          ref: ${{ inputs.source_commit || github.sha }}
           submodules: recursive
 
       - uses: actions/setup-python@v6
@@ -55,15 +61,26 @@ jobs:
           path: |
             ~/.platformio/packages
             ~/.platformio/platforms
-          key: ${{ runner.os }}-platformio-py3.14-core6.1.19-${{ matrix.environment }}-${{ hashFiles('platformio.ini', 'platformio.local.example.ini') }}
+          key: ${{ runner.os }}-platformio-py3.14-core6.1.19-penv-v2-${{ matrix.environment }}-${{ hashFiles('platformio.ini', 'platformio.local.example.ini') }}
 
       - name: Install PlatformIO Core
-        run: uv pip install --system -U https://github.com/pioarduino/platformio-core/archive/refs/tags/v6.1.19.zip
+        run: |
+          # The ESP platform invokes pio from this penv for its second pass.
+          # Pin the package name it checks, so it cannot install a newer Core
+          # and replace SCons while a build is already running.
+          uv venv --python "$pythonLocation/bin/python" "$HOME/.platformio/penv"
+          uv pip install --python "$HOME/.platformio/penv/bin/python" "pioarduino==6.1.19"
+          echo "$HOME/.platformio/penv/bin" >> "$GITHUB_PATH"
+          "$HOME/.platformio/penv/bin/pio" --version
 
       - name: Resolve release-candidate metadata
         id: metadata
         shell: bash
         run: |
+          [[ "$RC_HASH" =~ ^[0-9a-f]{40}$ && "$(git rev-parse HEAD)" == "$RC_HASH" ]] || {
+            echo "Firmware checkout must match the exact source commit"
+            exit 1
+          }
           branch_without_prefix="${RC_BRANCH#release/}"
           branch_safe=$(printf '%s\n' "$branch_without_prefix" | sed -E 's/[^A-Za-z0-9._-]+/-/g; s/^-+//; s/-+$//')
           hash_short="${RC_HASH::7}"
@@ -99,17 +116,28 @@ jobs:
           path: .pio/build/${{ matrix.environment }}/${{ matrix.firmware }}-${{ env.RC_BRANCH_SAFE }}-${{ env.RC_HASH_SHORT }}-RC.bin
           if-no-files-found: error
 
+      - name: Upload matching symbols and configuration
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-candidate-symbols-${{ matrix.environment }}
+          path: |
+            .pio/build/${{ matrix.environment }}/firmware.elf
+            .pio/build/${{ matrix.environment }}/firmware.map
+            sdkconfig.${{ matrix.environment }}
+          if-no-files-found: error
+
   prepare-language-assets:
     needs: build-release-candidate
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
       RELEASE_TAG: ${{ needs.build-release-candidate.outputs.rc_tag }}
-      SOURCE_COMMIT: ${{ github.sha }}
+      SOURCE_COMMIT: ${{ inputs.source_commit || github.sha }}
       GH_TOKEN: ${{ secrets.RELEASE_PAT }}
     steps:
       - uses: actions/checkout@v6
         with:
+          ref: ${{ inputs.source_commit || github.sha }}
           fetch-depth: 0
       - uses: actions/setup-python@v6
         with:
@@ -125,13 +153,19 @@ jobs:
     runs-on: ubuntu-latest
     env:
       RC_BRANCH: ${{ github.ref_name }}
-      RC_HASH: ${{ github.sha }}
+      RC_HASH: ${{ inputs.source_commit || github.sha }}
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.source_commit || github.sha }}
 
       - name: Resolve release-candidate metadata
         shell: bash
         run: |
+          [[ "$RC_HASH" =~ ^[0-9a-f]{40}$ && "$(git rev-parse HEAD)" == "$RC_HASH" ]] || {
+            echo "Firmware checkout must match the exact source commit"
+            exit 1
+          }
           branch_without_prefix="${RC_BRANCH#release/}"
           branch_safe=$(printf '%s\n' "$branch_without_prefix" | sed -E 's/[^A-Za-z0-9._-]+/-/g; s/^-+//; s/-+$//')
           hash_short="${RC_HASH::7}"
@@ -152,7 +186,7 @@ jobs:
         run: |
           python3 scripts/package_languages.py \
             --version "${{ env.RC_TAG }}" \
-            --source-commit "${{ github.sha }}" --status release-build \
+            --source-commit "$RC_HASH" --status release-build \
             --output "release-candidate-firmware/crossink-languages-${{ env.RC_TAG }}.zip" \
             --template-output-dir "release-candidate-firmware/language-template"
 
@@ -161,7 +195,7 @@ jobs:
         with:
           token: ${{ secrets.RELEASE_PAT }}
           tag_name: ${{ env.RC_TAG }}
-          target_commitish: ${{ github.sha }}
+          target_commitish: ${{ inputs.source_commit || github.sha }}
           name: RC ${{ env.RC_BRANCH_SAFE }} ${{ env.RC_HASH_SHORT }}
           body: |
             Draft release candidate build from `release/${{ env.RC_BRANCH_RAW }}` at `${{ env.RC_HASH_SHORT }}`.
