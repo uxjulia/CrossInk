@@ -20,7 +20,11 @@ class OptionPopup {
  public:
 #ifdef SIMULATOR
   int simulatorSelectedIndex() const { return selectedIndex; }
-  Rect simulatorOptionRect(const int index) const { return layout.options.at(index); }
+  Rect simulatorOptionRect(const int index) const {
+    const int visibleIndex = index - layout.firstOptionIndex;
+    if (visibleIndex < 0 || visibleIndex >= static_cast<int>(layout.options.size())) return Rect{};
+    return layout.options[visibleIndex];
+  }
   bool simulatorOptionDisabled(const int index) const { return isDisabled(index); }
   const char* simulatorOptionLabel(const int index) const { return labels()[index]; }
 #endif

@@ -16,6 +16,7 @@
 #include <vector>
 
 // Scale policy and settings persistence are outside this font-loader test.
+uint8_t CrossPointSettings::defaultIndexingMethod() { return INDEXING_FULL_SECTION; }
 uint8_t CrossPointSettings::defaultUiScale() { return UI_SCALE_SMALL; }
 
 // Registry/cache persistence is outside this test; use its file-list lookup contract.

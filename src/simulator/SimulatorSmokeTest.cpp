@@ -1106,6 +1106,7 @@ struct StatusBarFeatureSmokeTest {
 #if CROSSINK_APP_CAP_TOUCH
     if (mappedInputManager.hasTouchHardware()) {
       const auto hit = editor.optionPopup.simulatorOptionRect(index);
+      if (hit.width <= 0 || hit.height <= 0) return false;
       mappedInputManager.simulatorInjectTouchDown(hit.x + hit.width / 2, hit.y + hit.height / 2);
       editor.loop();
       mappedInputManager.simulatorClearInputFrame();
@@ -1682,12 +1683,37 @@ struct ScreenCalibrationSmokeTest {
     }
     return true;
   }
+  static bool legacyIconPixels() {
+    // Three columns stored right to left, with two bytes per nine-pixel column.
+    constexpr uint8_t icon[] = {0x7f, 0x7f, 0xf7, 0xff, 0xfe, 0xff};
+    for (int rotation = 0; rotation < 4; ++rotation) {
+      renderer.setOrientation(static_cast<GfxRenderer::Orientation>(rotation));
+      for (bool black : {true, false}) {
+        renderer.clearScreen(black ? 0xff : 0);
+        if (black) {
+          renderer.drawIcon(icon, 13, 17, 3, 9);
+        } else {
+          renderer.drawIconInverted(icon, 13, 17, 3, 9);
+        }
+        for (int y = -1; y <= 9; ++y) {
+          for (int x = -1; x <= 3; ++x) {
+            const bool marked = (x == 2 && (y == 0 || y == 8)) || (x == 1 && y == 4) || (x == 0 && y == 7);
+            if (renderer.isPixelBlack(13 + x, 17 + y) != (marked == black)) {
+              LOG_ERR("SMOKE", "Legacy icon pixel mismatch: rotation=%d at %d,%d", rotation, x, y);
+              return false;
+            }
+          }
+        }
+      }
+    }
+    return true;
+  }
   static bool themeArtwork(const StatusBarFeatureSmokeTest::Capture& capture) {
     const auto originalInsets = renderer.getViewableInsets();
     const auto originalOrientation = renderer.getOrientation();
     const auto originalTheme = SETTINGS.uiTheme;
     const auto originalTracking = SETTINGS.trackReadingStats;
-    bool valid = true;
+    bool valid = legacyIconPixels();
     const ScreenInsets cases[] = {ScreenInsets{}, ScreenInsets{{{32, 32, 32, 32}}}, ScreenInsets{{{32, 0, 32, 32}}},
                                   ScreenInsets{{{0, 32, 0, 0}}}};
     RecentBook book;
@@ -1785,6 +1811,10 @@ struct ScreenCalibrationSmokeTest {
               }
               if (tracking && rotation == 0 && index == 2)
                 capture("calibrated-sleep-" + std::to_string(theme) + (inverted ? "-inverted" : ""));
+              if (tracking && !inverted && index == 2 &&
+                  ((theme == CrossPointSettings::MINIMAL && gpio.deviceIsX3() && rotation == 3) ||
+                   (theme == CrossPointSettings::DASHBOARD && rotation == 2)))
+                capture("calibrated-sleep-rotated-" + std::to_string(theme));
             }
           }
         }
@@ -2108,17 +2138,26 @@ struct ScreenCalibrationSmokeTest {
           const auto& metrics = UITheme::getInstance().getMetrics();
           const auto headerBand =
               UITheme::getHeaderRect(renderer, std::max(metrics.headerHeight, CompactHeader::height(metrics)));
-          const auto fullWidthInk = [&](int y) {
-            for (int x = 0; x < renderer.getScreenWidth(); ++x) {
+          const auto solidRow = [&](int y, int left, int right) {
+            for (int x = left; x < right; ++x) {
               if (!renderer.isPixelBlack(x, y)) return false;
             }
             return true;
           };
-          const auto checkInk = [&](const char* screen) {
+          const auto checkInkInHeader = [&](const char* screen, const Rect& screenHeaderBand, bool frontHints) {
+            // Landscape button hints paint over the separator at one end. Its
+            // entire uncovered span must still be solid to qualify as header bleed.
+            const int reserve =
+                frontHints && !mappedInputManager.hasTouchHardware() ? UITheme::getButtonHintsReserve(renderer) : 0;
+            const int left = rotation == GfxRenderer::LandscapeClockwise ? reserve : 0;
+            const int right =
+                renderer.getScreenWidth() - (rotation == GfxRenderer::LandscapeCounterClockwise ? reserve : 0);
             for (int y = 0; y < renderer.getScreenHeight(); ++y) {
               // Only solid header separators may cross the horizontal safe
               // margins. Text, controls and the remaining UI stay inset.
-              if (y >= headerBand.y && y < headerBand.y + headerBand.height && fullWidthInk(y)) continue;
+              if (y >= screenHeaderBand.y && y < screenHeaderBand.y + screenHeaderBand.height &&
+                  solidRow(y, left, right))
+                continue;
               for (int x = 0; x < renderer.getScreenWidth(); ++x) {
                 if (renderer.isPixelBlack(x, y) &&
                     (x < edges[3] || y < edges[0] || x >= renderer.getScreenWidth() - edges[1] ||
@@ -2131,12 +2170,13 @@ struct ScreenCalibrationSmokeTest {
             }
             return true;
           };
+          const auto checkInk = [&](const char* screen) { return checkInkInHeader(screen, headerBand, false); };
           renderer.clearScreen();
           const auto titleHeader = UITheme::getHeaderRect(renderer, metrics.headerHeight);
           GUI.drawHeader(renderer, titleHeader, "Calibration header", nullptr, false, false);
           bool separatorSpansScreen = false;
           for (int y = titleHeader.y + titleHeader.height - 4; y < titleHeader.y + titleHeader.height; ++y) {
-            separatorSpansScreen |= fullWidthInk(y);
+            separatorSpansScreen |= solidRow(y, 0, renderer.getScreenWidth());
           }
           const bool hasSeparator = metrics.headerUnderlineSize > 0 || variant == CrossPointSettings::MINIMAL ||
                                     variant == CrossPointSettings::DASHBOARD;
@@ -2147,7 +2187,8 @@ struct ScreenCalibrationSmokeTest {
           auto list = std::make_unique<EpubReaderFootnotesActivity>(renderer, mappedInputManager, entries);
           list->onEnter();
           list->render(std::move(lock));
-          valid &= checkInk("Footnotes");
+          valid &= checkInkInHeader("Footnotes", TouchHeaderBackButton::headerRect(renderer, mappedInputManager, safe),
+                                    true);
           const auto deviceSafe = list->app.device().safeRect();
           valid &= deviceSafe.x == edges[3] && deviceSafe.y == edges[0];
           list->onExit();
@@ -4093,11 +4134,36 @@ class SimulatorSmokeTest {
           drawer.loop();
         };
         const auto initialTab = drawer.simulatorState().tab;
-        tapDrawer(SETTINGS.frontButtonConfirm);
-        if (drawer.simulatorState().tab == initialTab) fail("Confirm can no longer navigate reader tabs");
+#if CROSSINK_APP_CAP_TOUCH
+        if (input.hasTouchHardware()) {
+          tapDrawer(SETTINGS.frontButtonConfirm);
+          if (drawer.simulatorState().tab != initialTab || drawer.simulatorState().pane != ReaderDrawerPane::ReaderFont)
+            fail("Confirm did not activate the selected touch drawer row");
+          const auto nextTab = adjacentReaderDrawerTab(initialTab, true);
+          const int tabX = (static_cast<int>(nextTab) * 2 + 1) * renderer.getScreenWidth() /
+                           (2 * static_cast<int>(READER_DRAWER_TAB_COUNT));
+          const int tabY = renderer.getScreenHeight() - 28;
+          input.simulatorInjectTouchDown(tabX, tabY);
+          drawer.loop();
+          input.simulatorClearInputFrame();
+          input.simulatorInjectTouchRelease(tabX, tabY);
+          drawer.loop();
+          input.simulatorClearInputFrame();
+          if (drawer.simulatorState().tab != nextTab) fail("Touch could not navigate reader tabs");
+        } else {
+#endif
+          tapDrawer(SETTINGS.frontButtonConfirm);
+          if (drawer.simulatorState().tab == initialTab) fail("Confirm can no longer navigate reader tabs");
+#if CROSSINK_APP_CAP_TOUCH
+        }
+#endif
         const auto tab = drawer.simulatorState().tab;
-        tapDrawer(frontNext);  // Focus the first row from the tab band.
-        tapDrawer(frontNext);
+        if (input.hasTouchHardware()) {
+          tapDrawer(frontNext);
+        } else {
+          tapDrawer(frontNext);  // Focus the first row from the tab band.
+          tapDrawer(frontNext);
+        }
         if (drawer.simulatorState().selectedIndex != 1 || drawer.simulatorState().tab != tab)
           fail("Reader front Down changed tabs instead of moving rows");
         tapDrawer(frontPrevious);
@@ -5429,6 +5495,9 @@ class SimulatorSmokeTest {
         shortcuts.update(mappedInputManager, 2900).triggered)
       fail("Side-button long release leaked into the next activity");
     mappedInputManager.simulatorClearInputFrame();
+    // The synthetic release above is not a physical GPIO release, so update
+    // once after the frame ends to expire the physical release suppression.
+    mappedInputManager.update();
     if (shortcuts.update(mappedInputManager, 3000).triggered) fail("Side-button long action dispatched twice");
 
     ButtonShortcutController lock;
@@ -5462,6 +5531,21 @@ class SimulatorSmokeTest {
     parked.device = "Phone";
     parked.timestamp = 2;
     return !parked.document.empty() && SyncParked::park(parked);
+  }
+
+  static bool writeProgressSnapshot(const char* bookPath, const char* outputPath = "/progress-result.json") {
+    const Epub epub(bookPath, "/.crosspoint");
+    EpubReaderUtils::Progress progress;
+    if (!EpubReaderUtils::loadProgress(epub, progress, "SMOKE")) return false;
+    JsonDocument snapshot;
+    snapshot["spine"] = progress.spineIndex;
+    snapshot["page"] = progress.pageNumber;
+    snapshot["pages"] = progress.pageCount;
+    snapshot["offset"] = progress.visibleTextOffset;
+    snapshot["hasOffset"] = progress.hasVisibleTextOffset;
+    std::string serialized;
+    serializeJson(snapshot, serialized);
+    return Storage.writeFile(outputPath, serialized.c_str());
   }
 
   [[noreturn]] static void fail(const char* message) {
@@ -8467,6 +8551,7 @@ class SimulatorSmokeTest {
     if (!about || !about->simulatorScopePopupActive()) fail("Support scope popup missing");
 #if CROSSINK_APP_CAP_TOUCH
     const auto hit = about->simulatorScopePopup().simulatorOptionRect(scope);
+    if (hit.width <= 0 || hit.height <= 0) fail("Support scope option is not visible");
     inputScript = {touchDown(hit.x + hit.width / 2, hit.y + hit.height / 2),
                    touchRelease(hit.x + hit.width / 2, hit.y + hit.height / 2)};
 #else
@@ -10221,6 +10306,9 @@ class SimulatorSmokeTest {
           if (std::getenv("CROSSINK_READING_TEST_FEED")) {
             // Incremental Sync Folder: the first walk prepared /read, so this run
             // pulls the change feed and pushes only the book marked pending.
+            if (std::getenv("CROSSINK_READING_TEST_PROGRESS_SNAPSHOT") &&
+                !writeProgressSnapshot("/read/first.epub", "/progress-before-pull.json"))
+              fail("Cannot read the progress slot before change-feed pull");
             if (!Storage.writeFile("/second-sync-started", "1")) fail("Cannot mark second sync");
             if (!SyncPending::mark("/read/sub/second.EPUB", SyncPending::PROGRESS_BIT))
               fail("Cannot mark book progress pending");
@@ -10266,10 +10354,14 @@ class SimulatorSmokeTest {
         }
         if (std::getenv("CROSSINK_READING_TEST_STATS_ENTRY") && !statsParentHandlerRan)
           fail("Reading Stats parent handler did not run before the sync replaced the stack");
+        if (std::getenv("CROSSINK_READING_TEST_PROGRESS_SNAPSHOT") && !writeProgressSnapshot("/read/first.epub"))
+          fail("Cannot read the winning saved progress slot");
         LOG_INF("SMOKE", "Stats upload transport smoke passed");
         std::_Exit(0);
 
       case SmokeStep::KeptPositionDone: {
+        if (std::getenv("CROSSINK_READING_TEST_PROGRESS_SNAPSHOT") && !writeProgressSnapshot("/read/first.epub"))
+          fail("Cannot read the winning saved progress slot");
         const bool prepared = std::strcmp(std::getenv("CROSSINK_READING_TEST_OPEN_KEPT"), "unprepared") != 0;
         // Offered (and settled either way) only inside a prepared scope.
         if (SyncParked::empty() != prepared) fail("Kept position not settled as expected");
@@ -11084,6 +11176,7 @@ class SimulatorSmokeTest {
         inputScript.push_back(touchDown(width / (static_cast<int>(READER_DRAWER_TAB_COUNT) * 2), tabY));
         inputScript.push_back(touchRelease(width / (static_cast<int>(READER_DRAWER_TAB_COUNT) * 2), tabY));
         addTap(MappedInputManager::Button::Confirm);
+        addTap(mappedInputManager.menuButton(MappedInputManager::Button::Down));
         addTap(mappedInputManager.menuButton(MappedInputManager::Button::Down));
         addTap(mappedInputManager.menuButton(MappedInputManager::Button::Down));
         addTap(MappedInputManager::Button::Confirm);

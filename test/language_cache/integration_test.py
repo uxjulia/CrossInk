@@ -131,7 +131,7 @@ with tempfile.TemporaryDirectory(prefix="crossink-language-") as temporary:
         "STR_HOLD_FOR_KEYBOARD": ("%u", "Hold %s for Keyboard"),
         "STR_LIBRARY_SCAN_COUNT": ("%s", "Reading your books... %u"),
         "STR_LIBRARY_FILES_COUNT": ("%s", "%u files"),
-        "STR_FOLDER_SYNC_COUNTS": ("%s", "Synced: %u · Skipped: %u · Failed: %u"),
+        "STR_FOLDER_SYNC_COUNTS": ("%s", "Synced: %u · Skipped: %u · Failed attempts: %u"),
     }
     sample.write_text('_language_code: "TEST-FMT"\n_language_name: "Unsafe format fixture"\n' +
                       ''.join(f'{key}: "{bad}"\n' for key, (bad, _) in contracts.items()))

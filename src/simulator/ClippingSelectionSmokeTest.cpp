@@ -2,11 +2,13 @@
 #include "ClippingSelectionSmokeTest.h"
 
 #include <Arduino.h>
+#include <I18n.h>
 #include <Logging.h>
 
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
+#include <string_view>
 #include <tuple>
 
 #include "ClippingStore.h"
@@ -374,6 +376,7 @@ bool ClippingSelectionSmokeTest::tick() {
   static DictionaryClippingRequest savedCrossPageRequest;
   static DictionaryWordSelectActivity::ReaderPageLoadFn originalPageLoad = nullptr;
   static int x = 0, y = 0, initialIndex = 0;
+  static uint8_t dictionaryDefinitionWaitTicks = 0;
   if (millis() - lastStep < 250 || RenderLock::peek()) return false;
   lastStep = millis();
   auto* reader = dynamic_cast<EpubReaderActivity*>(activityManager.simulatorCurrentActivity());
@@ -720,11 +723,25 @@ bool ClippingSelectionSmokeTest::tick() {
       stage = 40;
       break;
     case 26:
-      require((selection && selection->controller.isActive()) ||
-                  activityManager.isCurrentActivityNamed("DictionaryDefinition"),
-              "Lookup action did not start dictionary flow");
+    case 27: {
+      const bool followedSuggestion = stage == 28;
+      if (!followedSuggestion && activityManager.isCurrentActivityNamed("DictionarySuggestions")) {
+        mappedInputManager.simulatorInjectRelease(MappedInputManager::Button::Confirm);
+        break;
+      }
+      if (!followedSuggestion && selection && selection->controller.hasFailureFeedback()) {
+        const auto& lookup = selection->controller;
+        require(!lookup.getLookupWord().empty(), "Lookup searched for an empty word");
+        require(std::string_view(lookup.getFailureMessage()) == tr(STR_NOT_FOUND), "Fixture dictionary read failed");
+        LOG_INF("SMOKE", "Fixture dictionary has no match for '%s'", lookup.getLookupWord().c_str());
+      } else if (!activityManager.isCurrentActivityNamed("DictionaryDefinition")) {
+        require(++dictionaryDefinitionWaitTicks <= 20, "Dictionary lookup did not finish");
+        --stage;
+        break;
+      }
       require(CLIPPINGS.clippingCount() == initialCount + 2, "Other actions unexpectedly saved a clipping");
       return true;
+    }
   }
   return false;
 }

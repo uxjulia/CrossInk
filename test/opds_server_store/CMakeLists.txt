@@ -6,6 +6,7 @@ add_executable(OpdsServerStoreTest
 )
 target_include_directories(OpdsServerStoreTest PRIVATE
   stubs
+  ${REPO_ROOT}/include
   ${REPO_ROOT}/test/persistable_store_atomic/stubs
   ${REPO_ROOT}/src
   ${REPO_ROOT}/lib/Serialization

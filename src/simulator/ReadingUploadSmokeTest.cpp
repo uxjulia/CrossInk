@@ -217,6 +217,9 @@ bool prepareReadingUploadSmokeTest() {
         require(EpubReaderUtils::saveProgress(epub, 0, 2, std::strcmp(variant, "zero") == 0 ? 0 : 2),
                 "unusable saved page count fixture");
       } else if (std::strcmp(variant, "legacy4") == 0) {
+        const std::string backup = primary + ".bak";
+        if (Storage.exists(backup.c_str()))
+          require(Storage.remove(backup.c_str()), "remove recoverable progress backup");
         auto file = Storage.open(primary.c_str(), O_WRONLY | O_TRUNC);
         const uint8_t data[4] = {0, 0, 2, 0};
         require(file && file.write(data, sizeof(data)) == sizeof(data), "legacy progress fixture");

@@ -32,6 +32,11 @@ def read_sync_ids(fs):
     return out
 
 
+def read_progress_snapshot(fs, name='progress-result.json'):
+    """Reads the logical position selected by EpubReaderUtils in the simulator."""
+    return json.loads((fs / name).read_text())
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--program', type=Path, default=ROOT / '.pio/build/simulator/program')
@@ -86,8 +91,7 @@ def main():
                 if mode == 'feed-404':
                     status, reply = 404, {}
                 elif since == 5:
-                    cache = fs / (fs / 'first-cache.txt').read_text().lstrip('/')
-                    snapshot['first'] = (cache / 'progress.bin').read_bytes()
+                    snapshot['first'] = read_progress_snapshot(fs, 'progress-before-pull.json')
                     # first.epub moved ahead on another reader, plus a book this
                     # reader does not have (parked for when it is opened).
                     remote = json.loads((fs / 'remote-progress.json').read_text())
@@ -139,20 +143,24 @@ def main():
             assert self.headers['x-auth-key'] == hashlib.md5(b'smoke-password').hexdigest()
             (second if (fs / 'second-sync-started').exists() else requests).append((self.path, body))
             status = 200
-            reply = {'until': 1, 'accepted': 1, 'timestamp': 1, 'document': body.get('document', '')}
-            if self.path == '/api/v1/stats/books':
+            reply = {'until': 1, 'accepted': 1, 'timestamp': 1, 'counter_ids': 1, 'accepted_daily': 1, 'document': body.get('document', '')}
+            if self.path == '/api/v1/stats/sessions':
+                reply['accepted_session_ids'] = [item['session_id'] for item in body['items']]
+            if self.path == '/api/v1/stats/counters/books':
                 reply['accepted'] = len(body['items'])
             if mode == 'auth':
                 status = 401
             if mode == 'unsupported' and self.path.startswith('/api/v1/'):
                 status = 404
-            if mode == 'folder-global-failure' and self.path == '/api/v1/stats/global':
+            if mode == 'counter-unsupported' and self.path.startswith('/api/v1/stats/counters/'):
+                status = 404
+            if mode == 'folder-global-failure' and self.path == '/api/v1/stats/counters/global':
                 status = 500
             if mode == 'feed-batch-404' and self.path == '/api/v1/progress/batch':
                 status = 404  # a server with the change feed but no batch route
             if mode == 'feed-batch-500' and self.path == '/api/v1/progress/batch':
                 status = 500
-            failure_endpoint = ('/api/v1/stats/books' if mode == 'folder-skip-stats' else
+            failure_endpoint = ('/api/v1/stats/counters/books' if mode == 'folder-skip-stats' else
                                 '/api/v1/clippings/' if mode == 'folder-skip-clippings' else '/syncs/progress')
             if mode.startswith('folder-skip-') and 'invalid' not in mode and self.path.startswith(failure_endpoint):
                 document = body.get('document') or (body.get('items') or [{}])[0].get('document') or self.path.rsplit('/', 1)[-1]
@@ -171,7 +179,7 @@ def main():
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
-        modes = ['clippings-download', 'folder-download', 'ok', 'folder-xtc', 'all-books', 'stats-entry', 'stats-twice', 'clippings-only', 'clippings-twice', 'xtc-book', 'disabled', 'cancel', 'auth', 'unsupported', 'folder-mixed', 'folder-equal', 'folder-local-ahead', 'folder-ask', 'folder-ask-cancel', 'folder-ask-skip', 'folder-ask-skip-landscape', 'folder-ask-exit-held', 'folder-exit-held', 'folder-missing-cache', 'folder-skip-progress', 'folder-skip-stats', 'folder-skip-clippings', 'folder-skip-invalid', 'folder-skip-all', 'current-upload', 'current-upload-crosspoint', 'current-equal', 'current-ask-upload', 'current-ask-equal', 'current-download', 'current-menu', 'current-menu-cold', 'folder-no-progress', 'folder-legacy-progress', 'folder-zero-count', 'folder-past-end', 'folder-empty', 'folder-global-failure', 'folder-no-stats', 'folder-tracking-disabled', 'feed-twice', 'feed-parked', 'feed-404', 'feed-batch-404', 'feed-batch-500', 'current-menu-kept', 'open-kept-accept', 'open-kept-decline', 'open-kept-behind', 'open-kept-unprepared', 'matching-confirm', 'matching-cancel', 'matching-web']
+        modes = ['clippings-download', 'folder-download', 'ok', 'folder-xtc', 'all-books', 'stats-entry', 'stats-twice', 'clippings-only', 'clippings-twice', 'xtc-book', 'disabled', 'cancel', 'auth', 'unsupported', 'counter-unsupported', 'folder-mixed', 'folder-equal', 'folder-local-ahead', 'folder-ask', 'folder-ask-cancel', 'folder-ask-skip', 'folder-ask-skip-landscape', 'folder-ask-exit-held', 'folder-exit-held', 'folder-missing-cache', 'folder-skip-progress', 'folder-skip-stats', 'folder-skip-clippings', 'folder-skip-invalid', 'folder-skip-all', 'current-upload', 'current-upload-crosspoint', 'current-equal', 'current-ask-upload', 'current-ask-equal', 'current-download', 'current-menu', 'current-menu-cold', 'folder-no-progress', 'folder-legacy-progress', 'folder-zero-count', 'folder-past-end', 'folder-empty', 'folder-global-failure', 'folder-no-stats', 'folder-tracking-disabled', 'feed-twice', 'feed-parked', 'feed-404', 'feed-batch-404', 'feed-batch-500', 'current-menu-kept', 'open-kept-accept', 'open-kept-decline', 'open-kept-behind', 'open-kept-unprepared', 'matching-confirm', 'matching-cancel', 'matching-web']
         if args.touch:
             modes += ['folder-done-touch']
         modes += ['folder-done-confirm']
@@ -274,6 +282,14 @@ def main():
                     env['CROSSINK_READING_TEST_MATCHING'] = mode.removeprefix('matching-')
                 if mode.startswith('open-kept-'):
                     env['CROSSINK_READING_TEST_OPEN_KEPT'] = mode.removeprefix('open-kept-')
+                if mode.startswith('open-kept-') or mode in (
+                        'folder-mixed', 'folder-equal', 'folder-ask', 'folder-ask-cancel', 'folder-ask-skip',
+                        'folder-ask-skip-landscape', 'folder-ask-exit-held', 'feed-twice', 'feed-parked',
+                        'feed-batch-404', 'feed-batch-500'):
+                    env['CROSSINK_READING_TEST_PROGRESS_SNAPSHOT'] = '1'
+                (fs / '.crosspoint').mkdir(exist_ok=True)
+                (fs / '.crosspoint/wifi.json').write_text(json.dumps({'lastConnectedSsid':'reading-smoke','credentials':[{'ssid':'reading-smoke','password':''}]}))
+                env['CROSSPOINT_SIM_WIFI_NETWORKS'] = 'reading-smoke:-40:open'
                 result = subprocess.run([str(args.program.resolve())], cwd=directory, env=env,
                                         capture_output=True, text=True, timeout=120)
                 log = result.stdout + result.stderr
@@ -282,14 +298,16 @@ def main():
                     raise RuntimeError(f'{mode}: simulator failed ({result.returncode})')
                 if mode in ('folder-mixed', 'folder-ask', 'folder-equal', 'folder-ask-cancel', 'folder-ask-skip',
                             'folder-ask-skip-landscape', 'folder-ask-exit-held'):
-                    cache = fs / (fs / 'first-cache.txt').read_text().lstrip('/')
-                    saved = (cache / 'progress.bin').read_bytes()
-                    page = int.from_bytes(saved[2:4], 'little')
-                    assert (page > 2 if mode in ('folder-mixed', 'folder-ask') else page == 2), (mode, page)
+                    saved = read_progress_snapshot(fs)
+                    assert saved is not None, (mode, 'no readable progress slot')
+                    if mode in ('folder-mixed', 'folder-ask'):
+                        assert (saved['spine'], saved['page'], saved['pages']) == (0, 7, 10), (mode, saved)
+                    else:
+                        assert saved['spine'] == 0 and saved['page'] == 2, (mode, saved)
                 progress = [body for path, body in requests if path == '/syncs/progress']
-                stats = [body for path, body in requests if path == '/api/v1/stats/books']
+                stats = [body for path, body in requests if path == '/api/v1/stats/counters/books']
                 clippings = [(path, body) for path, body in requests if path.startswith('/api/v1/clippings/')]
-                globals_sent = [body for path, body in requests if path == '/api/v1/stats/global']
+                globals_sent = [body for path, body in requests if path == '/api/v1/stats/counters/global']
                 assert mode == 'auth' or not probes, (mode, probes)
                 if mode in ('clippings-download', 'folder-download'):
                     files = list((fs / '.crosspoint/clippings').glob('*.bin'))
@@ -308,7 +326,17 @@ def main():
                     assert 'Extras: global=0 stats=2 statsFailed=0 clippings=1 clippingsFailed=0' in log
                 elif mode == 'folder-empty':
                     assert not progress and not stats and not clippings and len(globals_sent) == 1, requests
-                elif mode in ('folder-no-stats', 'folder-tracking-disabled'):
+                elif mode == 'folder-no-stats':
+                    # Reset-safe stats removal keeps a zeroed snapshot with a new
+                    # counter ID, so the books remain syncable after local resets.
+                    expected = {hashlib.md5(name.encode()).hexdigest() for name in ('first.epub', 'second.EPUB')}
+                    items = [item for body in stats for item in body['items']]
+                    assert len(progress) == 2 and len(stats) == 2 and not globals_sent and len(clippings) == 1, requests
+                    assert {item['document'] for item in items} == expected and len(items) == 2, stats
+                    assert all(item['sessions'] == 0 and item['seconds'] == 0 and item['pages'] == 0 and
+                               len(item['counter_id']) == 32 and item['counter_id'] != '0' * 32 for item in items), items
+                    assert 'Extras: global=0 stats=2 statsFailed=0 clippings=1 clippingsFailed=0' in log
+                elif mode == 'folder-tracking-disabled':
                     assert len(progress) == 2 and not stats and not globals_sent and len(clippings) == 1, requests
                     assert 'Extras: global=7 stats=0 statsFailed=0 clippings=1 clippingsFailed=0' in log
                 elif mode == 'folder-global-failure':
@@ -332,7 +360,7 @@ def main():
                         assert 'Extras: global=0 stats=2 statsFailed=0 clippings=1 clippingsFailed=1' in log
                 elif mode == 'current-menu-cold':
                     assert not progress and not stats and not clippings, requests
-                    assert sum(path == '/api/v1/stats/global' for path, _ in requests) == 1
+                    assert sum(path == '/api/v1/stats/counters/global' for path, _ in requests) == 1
                 elif mode.startswith('current-'):
                     # Ask on conflicts asks only when positions differ: no remote position
                     # uploads silently, and an equal one finishes as Already synced. A prompt
@@ -347,21 +375,21 @@ def main():
                     assert all(body['document'] == expected for body in progress)
                     assert stats[0]['items'][0]['document'] == expected
                     assert clippings[0][0].endswith(expected)
-                    assert sum(path == '/api/v1/stats/global' for path, _ in requests) == 1
+                    assert sum(path == '/api/v1/stats/counters/global' for path, _ in requests) == 1
                 elif mode == 'cancel':
                     assert not requests, requests
                 elif mode.startswith('matching-'):
                     assert not requests and not gets, (requests, gets)
                 elif mode.startswith('open-kept-'):
                     # Offering a kept position on open never touches the network. Accepting it
-                    # maps the other reader's position (77.8% into chapter 1) onto this layout's
-                    # 2-page chapter; staying keeps the saved page 2 of 10 (behind: chapter 2's start).
+                    # maps the other reader's text position onto this layout; staying keeps the
+                    # saved page 2 of 10 (behind: chapter 2's start).
                     assert not requests and not gets, (requests, gets)
-                    cache = fs / (fs / 'first-cache.txt').read_text().lstrip('/')
-                    page = int.from_bytes((cache / 'progress.bin').read_bytes()[2:4], 'little')
-                    applied = 'Applied kept position: spine=0 page=1/2' in log
-                    assert applied == (mode == 'open-kept-accept'), log[-6000:]
-                    assert page == (1 if applied else 0 if mode == 'open-kept-behind' else 2), (mode, page)
+                    saved = read_progress_snapshot(fs)
+                    assert saved is not None, (mode, 'no readable progress slot')
+                    expected_position = ((0, 1) if mode == 'open-kept-accept' else
+                                         (1, 0) if mode == 'open-kept-behind' else (0, 2))
+                    assert (saved['spine'], saved['page']) == expected_position, (mode, saved)
                 elif mode in ('folder-ask-cancel', 'folder-ask-exit-held'):
                     # Choices come after the run: both books' extras and second.EPUB's position
                     # (no remote one) go first. Leaving at first.epub's choice sends nothing
@@ -433,11 +461,17 @@ def main():
                     assert not any(p.endswith('.xtc') for p in read_sync_ids(fs)), read_sync_ids(fs)
                     assert 'Extras: global=0 stats=3 statsFailed=0 clippings=1 clippingsFailed=0' in log, log[-10000:]
                 elif mode == 'unsupported':
-                    # The first 404 marks the server progress-only: later books skip extras
-                    # and the folder finishes instead of stopping on an "extra upload failed" error.
-                    assert len(globals_sent) == 1 and len(progress) == 2 and not stats and not clippings, requests
+                    # A 404 from the clipping route marks extras unsupported after the
+                    # first book, while both books' independent progress still syncs.
+                    assert len(globals_sent) == 1 and len(progress) == 2 and len(stats) == 1 and len(clippings) == 1, requests
                     assert 'Finished: synced=2 skipped=1 failed=0' in log, log[-10000:]
                     assert 'Extras: global=3 stats=0 statsFailed=0 clippings=0 clippingsFailed=0' in log, log[-10000:]
+                elif mode == 'counter-unsupported':
+                    # Missing counter routes leave capability unknown. Progress continues
+                    # and the separately supported clipping route remains available.
+                    assert len(globals_sent) == 1 and len(progress) == 2 and len(stats) == 2 and len(clippings) == 1, requests
+                    assert 'Finished: synced=2 skipped=1 failed=1' in log, log[-10000:]
+                    assert 'Extras: global=3 stats=0 statsFailed=1 clippings=1 clippingsFailed=0' in log, log[-10000:]
                 else:
                     assert len(progress) == (1 if mode in ('folder-mixed', 'folder-equal', 'folder-ask') else 2), requests
                     assert all(0 < body['percentage'] < 1 and body['progress'] for body in progress)
@@ -457,7 +491,7 @@ def main():
                         assert len(requests) == 2
                     else:
                         assert len(stats) == 2 and {b['items'][0]['document'] for b in stats} == expected
-                        assert sum(path == '/api/v1/stats/global' for path, _ in requests) == 1
+                        assert sum(path == '/api/v1/stats/counters/global' for path, _ in requests) == 1
                         assert len(clippings) == 1
                         item = clippings[0][1]['items'][0]
                         assert len(item['id']) == 32 and all(c in '0123456789abcdef' for c in item['id'])
@@ -522,11 +556,12 @@ def main():
                         assert 'Comparing with a parked remote position: /read/sub/second.EPUB' in log, log[-10000:]
                     assert 'Pull done: applied=1 parked=1' in log, log[-10000:]
                     # Applying first.epub's pulled position left its pending stats for the push.
-                    stats_docs = {i['document'] for p, b in second if p == '/api/v1/stats/books' for i in b['items']}
+                    stats_docs = {i['document'] for p, b in second if p == '/api/v1/stats/counters/books' for i in b['items']}
                     assert hashlib.md5(b'first.epub').hexdigest() in stats_docs, second
                     # The pulled position was applied to first.epub (page 7 of 10).
-                    cache = fs / (fs / 'first-cache.txt').read_text().lstrip('/')
-                    assert (cache / 'progress.bin').read_bytes() != snapshot['first'], 'pulled position not applied'
+                    saved = read_progress_snapshot(fs)
+                    assert (saved['spine'], saved['page'], saved['pages']) == (0, 7, 10), ('pulled position not applied', saved)
+                    assert saved != snapshot['first'], 'pulled position did not change saved progress'
                     # One parked slot: the unknown book (second.EPUB's was resolved).
                     parked = (fs / '.crosspoint/sync_parked.bin').read_bytes()
                     slots = [parked[i:i + 384] for i in range(0, len(parked), 384)]
