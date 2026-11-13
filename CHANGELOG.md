@@ -51,6 +51,7 @@
 ### Fixed
 
 - Reserve and reuse the TLS receive buffer for HTTPS font file downloads, reducing repeated buffer growth during large transfers.
+- Read saved settings and state in bounded SD transfers, and try reclaiming inactive reader caches once before pausing background pagination for low memory.
 - Prevent extra spacing in runtime TrueType/OpenType fonts by rounding glyph advances only at pixel placement; existing EPUB layouts rebuild automatically (adapted from gkaindl, CrossPoint #4431).
 - Preserve previously synced reading history when replacing an SD card or resetting local stats. New reading adds to cloud history without counting retries twice. Requires an updated CrossPoint Sync server; older servers leave stats pending.
 - Keep publisher CSS styles active when free heap falls below 48 KiB; existing EPUB page caches rebuild automatically (CrossPoint #4032).

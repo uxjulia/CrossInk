@@ -2938,9 +2938,22 @@ bool EpubReaderActivity::backgroundBuildCanUsePageBuffer() const {
 }
 
 bool EpubReaderActivity::backgroundSectionBuildHasHeap() {
-  const auto heap = MemoryBudget::snapshot();
-  if (MemoryBudget::hasHeap(heap, MemoryBudget::EPUB_TEXT_LAYOUT_MIN_FREE,
-                            MemoryBudget::EPUB_TEXT_LAYOUT_MIN_MAX_ALLOC)) {
+  auto heap = MemoryBudget::snapshot();
+  if (backgroundBuildMemoryGuard.shouldReclaim(heap)) {
+    // Both callers hold RenderLock, between layout ticks. Drop only rebuildable
+    // pixel/decompression caches and inactive SD fonts, never the active font's
+    // advance tables, section/parser state, page buffer, or durable SD caches.
+    const auto before = heap;
+    ImageBlock::releaseSessionPixelCache();
+    if (auto* fontCache = renderer.getFontCacheManager()) {
+      fontCache->releaseInactiveSdFontCaches(activeSectionFontId != 0 ? activeSectionFontId
+                                                                    : SETTINGS.getReaderFontId());
+    }
+    heap = MemoryBudget::snapshot();
+    LOG_DBG("ERS", "Background pressure reclaim: free=%u->%u maxAlloc=%u->%u", before.freeHeap, heap.freeHeap,
+            before.maxAllocHeap, heap.maxAllocHeap);
+  }
+  if (BackgroundBuildMemoryGuard::hasHeap(heap)) {
     backgroundBuildPausedForLowMemory = false;
     return true;
   }

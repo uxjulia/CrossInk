@@ -18,6 +18,9 @@ class FontCacheManager {
 
   void clearCache();
   void releaseSdFontCaches();
+  // Call only between render/layout operations with the render lock held.
+  // Keep all caches of the active SD font (including aliases) warm for layout.
+  void releaseInactiveSdFontCaches(int activeFontId);
   bool prewarmCache(int fontId, const char* utf8Text, uint8_t styleMask = 0x0F,
                     PreparationPolicy policy = PreparationPolicy::Normal);
   void logStats(const char* label = "render");

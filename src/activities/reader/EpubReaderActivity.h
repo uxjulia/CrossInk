@@ -1,4 +1,6 @@
 #pragma once
+#include "BackgroundBuildMemoryGuard.h"
+
 #include <Epub.h>
 #include <Epub/FootnoteEntry.h>
 #include <Epub/Section.h>
@@ -346,6 +348,7 @@ class EpubReaderActivity final : public Activity {
   // restores this guard after boot so the resumed attempt can fall through to those modes.
   bool lowMemoryPartialRestartAttempted = false;
   bool backgroundBuildPausedForLowMemory = false;
+  BackgroundBuildMemoryGuard backgroundBuildMemoryGuard;
   // Input should win the next RenderLock race. Keep the incremental parser alive,
   // but do not start another background chunk until the requested render begins.
   std::atomic<bool> backgroundBuildYieldForInput{false};

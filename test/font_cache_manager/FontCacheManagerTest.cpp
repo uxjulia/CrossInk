@@ -161,3 +161,31 @@ TEST(FontCacheManagerTest, PrewarmScanDoesNotAllocateHeapMemory) {
 
   EXPECT_EQ(0U, heapAllocationCount);
 }
+
+TEST(FontCacheManagerTest, BackgroundReclaimPreservesActiveSdFontAndAliases) {
+  SdCardFont activeFont;
+  SdCardFont inactiveFont;
+  FontDecompressor decompressor;
+  const std::map<int, EpdFontFamily> noBuiltinFonts;
+  const std::map<int, SdCardFont*> sdFonts{{-17, &activeFont}, {23, &inactiveFont}, {42, &activeFont}};
+  FontCacheManager manager(noBuiltinFonts, sdFonts);
+  manager.setFontDecompressor(&decompressor);
+  countHeapAllocations = true;
+  heapAllocationCount = 0;
+  manager.releaseInactiveSdFontCaches(-17);
+  countHeapAllocations = false;
+  EXPECT_EQ(0U, heapAllocationCount);
+  EXPECT_EQ(1, decompressor.clearCacheCallCount);
+  EXPECT_EQ(0, activeFont.releaseForLowMemoryCallCount);
+  EXPECT_EQ(1, inactiveFont.releaseForLowMemoryCallCount);
+  EXPECT_FALSE(inactiveFont.lastPreserveAdvanceTable);
+}
+
+TEST(FontCacheManagerTest, BackgroundReclaimWithBuiltinFontReleasesInactiveSdFonts) {
+  SdCardFont fallbackFont;
+  const std::map<int, EpdFontFamily> noBuiltinFonts;
+  const std::map<int, SdCardFont*> sdFonts{{23, &fallbackFont}};
+  FontCacheManager manager(noBuiltinFonts, sdFonts);
+  manager.releaseInactiveSdFontCaches(7);
+  EXPECT_EQ(1, fallbackFont.releaseForLowMemoryCallCount);
+}

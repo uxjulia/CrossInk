@@ -54,6 +54,15 @@ void FontCacheManager::releaseSdFontCaches() {
   }
 }
 
+void FontCacheManager::releaseInactiveSdFontCaches(const int activeFontId) {
+  if (fontDecompressor_) fontDecompressor_->clearCache();
+  const auto active = sdCardFonts_.find(activeFontId);
+  const SdCardFont* activeFont = active == sdCardFonts_.end() ? nullptr : active->second;
+  for (auto& [id, font] : sdCardFonts_) {
+    if (font && font != activeFont) font->releaseForLowMemory(false);
+  }
+}
+
 bool FontCacheManager::prewarmCache(int fontId, const char* utf8Text, uint8_t styleMask,
                                     const PreparationPolicy policy) {
 #if CROSSINK_SCALABLE_FONTS
