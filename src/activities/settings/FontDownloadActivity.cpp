@@ -876,6 +876,9 @@ void FontDownloadActivity::downloadFamily(ManifestFamily& family) {
     downloadOptions.resumePartial = true;
     if (std::string_view(url).starts_with("https://")) {
       downloadOptions.transport = HttpDownloader::Transport::WOLFSSL;
+      // Reuse a full TLS record buffer for bulk font payloads, as OPDS does.
+      // The SDK falls back to normal growth if the reservation cannot fit.
+      downloadOptions.reserveFullRecord = true;
     }
     // Poll Back and the touch Cancel controls from shouldCancel, which
     // HttpDownloader checks at the top of every read-loop iteration. The
