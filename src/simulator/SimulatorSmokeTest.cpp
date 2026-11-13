@@ -6529,6 +6529,8 @@ class SimulatorSmokeTest {
 
   void verifyBitmapBook(const int fontId, const char* label) {
     if (!std::getenv("CROSSINK_SIMULATOR_SMOKE_FONT_SIZE_BOOK")) return;
+    const char* initial = std::getenv("CROSSINK_SIMULATOR_SMOKE_FONT_SIZE_INITIAL");
+    if (!initial) initial = "R";
     RenderLock lock;
     Epub book(std::getenv("CROSSINK_SIMULATOR_SMOKE_BOOK"), "/.crosspoint");
     if (!book.load()) fail("Cannot load supplied font-size book");
@@ -6550,7 +6552,7 @@ class SimulatorSmokeTest {
           for (const auto& element : page->elements) {
             if (element->getTag() == TAG_PageDropCap) {
               const auto& cap = static_cast<const PageDropCap&>(*element);
-              if (std::strcmp(cap.getText(), "R")) fail("Opening drop cap lost its letter");
+              if (std::strcmp(cap.getText(), initial)) fail("Opening drop cap lost its letter");
               ++dropCaps;
             }
           }

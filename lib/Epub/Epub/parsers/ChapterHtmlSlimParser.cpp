@@ -3721,7 +3721,9 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
                 ? 0
                 : family;
       }
-    } else if (strcmp(name, "span") == 0 && (cssStyle.floatLeft || cssStyle.initialLetter >= 2)) {
+    } else if (strcmp(name, "span") == 0 && self->dropCap.spanDepth < 0 && !self->dropCap.firstLetterPending) {
+      // Publishers also mark opening initials with font-size alone. Keep the
+      // outer capture scope when the letter is wrapped in nested styled spans.
       const auto lines = dropCapLines(cssStyle);
       if (lines) {
         self->dropCap.lines = lines;
@@ -3832,6 +3834,10 @@ void XMLCALL ChapterHtmlSlimParser::characterData(void* userData, const XML_Char
         self->dropCap.visibleOffset = codepointOffset;
         self->dropCap.sourceOffset = codepointSourceOffset;
         self->dropCap.referenceOffset = codepointReferenceOffset;
+        if (self->dropCap.spanDepth >= 0) {
+          self->dropCap.bold = self->effectiveBold;
+          self->dropCap.fontFamily = self->effectiveFontFamily;
+        }
       }
       if (self->captureDropCapCodepoint(s + i, bytes)) {
         i += bytes - 1;

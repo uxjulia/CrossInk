@@ -1129,7 +1129,14 @@ body-only and built-in font identities stay unchanged. No binary payload changes
 
 ## `section.bin`
 
-### Version 108 (current development)
+### Version 109 (current development)
+
+Complete caches use `109` and suspended partial caches use `0xDE`. Both rebuild
+automatically to restore drop caps marked only by an oversized opening span,
+including initials inside nested bold or font-family spans. The binary payload
+and saved reading progress are unchanged.
+
+### Version 108
 
 Complete caches use `108` and suspended partial caches use `0xDD`. Both rebuild
 automatically because runtime TrueType/OpenType advances no longer round up

@@ -441,6 +441,7 @@ def run_smoke(args: argparse.Namespace) -> int:
             env["CROSSINK_SIMULATOR_SMOKE_CPFONT_HEADINGS"] = "1"
         if args.font_size_book:
             env["CROSSINK_SIMULATOR_SMOKE_FONT_SIZE_BOOK"] = "1"
+            env["CROSSINK_SIMULATOR_SMOKE_FONT_SIZE_INITIAL"] = args.font_size_initial
         if args.gesture_shortcuts:
             env["CROSSINK_SIMULATOR_SMOKE_GESTURE_SHORTCUTS"] = "1"
         if args.font_recovery:
@@ -660,6 +661,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--font-cache-identity", action="store_true", help="Check equivalent bitmap size hints preserve fonts and cached pages (requires a cpfont family with 14/17/21pt files)")
     parser.add_argument("--cpfont-heading-sizes", action="store_true", help="Check publisher heading targets with an 8-20pt cpfont family (requires --c3-font-sizes, --font-dir and --font-family)")
     parser.add_argument("--font-size-book", action="store_true", help="Also render every page of --book with C3 fonts, checking its opening drop cap")
+    parser.add_argument("--font-size-initial", default="R", help="Expected drop-cap text in --font-size-book (default: R)")
     parser.add_argument("--font-dir", help="Font fixtures copied into isolated /fonts")
     parser.add_argument("--filename-font-dir", help="TTF family fixtures copied into /.crossink/languages/fonts")
     parser.add_argument("--filename-font-family", help="Check filename font picker, mixed glyphs and storage lifecycle (S3)")

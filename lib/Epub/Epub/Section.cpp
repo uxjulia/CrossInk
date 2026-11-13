@@ -44,11 +44,12 @@ constexpr uint32_t SECTION_CACHE_MAGIC = 0x535843FF;  // bytes: 0xFF, "CXS"
 // v106: Persist per-word source ranges for stable clipping anchors.
 // v107: Lay out chapter heading groups with their publisher spacing and alignment.
 // v108: Runtime outline advances defer rounding until pixel placement.
-constexpr uint8_t SECTION_FILE_VERSION = 108;
+// v109: Recognize oversized opening spans as drop caps, including nested styles.
+constexpr uint8_t SECTION_FILE_VERSION = 109;
 // Suspended incremental build: valid pages plus LUTs and a parse-watermark trailer.
 // Change this with layout or payload changes so stale partial pages cannot resume
 // under a different layout contract.
-constexpr uint8_t SECTION_FILE_PARTIAL_VERSION = 0xDD;
+constexpr uint8_t SECTION_FILE_PARTIAL_VERSION = 0xDE;
 constexpr uint32_t HEADER_SIZE =
     4 * sizeof(uint32_t) + sizeof(PublisherFonts) + sizeof(SECTION_CACHE_MAGIC) + sizeof(uint8_t) + sizeof(int) +
     sizeof(float) + sizeof(bool) + sizeof(bool) + sizeof(uint8_t) + sizeof(uint16_t) + sizeof(uint16_t) + sizeof(bool) +

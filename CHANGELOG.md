@@ -182,6 +182,7 @@
 - Avoid repeated SD font reads while indexing EPUBs whose book styles use a different text size from the selected size (#954).
 - Preserve unreadable reading statistics and offer backup recovery instead of silently replacing history. Protect stats backups with checksums, prevent invalid positions from being uploaded, and finish reader and SD-card saves before sync restarts, sleep, or USB Drive handoff.
 - Fixed prepared dictionaries missing words and alternate spellings that share a long prefix.
+- Restore EPUB drop caps marked by an enlarged opening letter, including nested styled spans; existing page caches rebuild automatically.
 
 ### Changed
 
