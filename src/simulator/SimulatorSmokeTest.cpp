@@ -32,6 +32,7 @@
 #include "SilentRestart.h"
 #include "StatsUploadSmokeTest.h"
 #include "UpstreamFeatureSmokeTest.h"
+#include "util/DictionaryRegistry.h"
 #include "util/ImageDisplayMode.h"
 #include "util/WordSelectNavigator.h"
 #if CROSSINK_SCALABLE_FONTS
@@ -1562,6 +1563,12 @@ struct DictionaryPagingSmokeTest {
     location.folderPath = "/.crosspoint/paging-dictionary";
     location.size = static_cast<uint32_t>(definition.size());
     location.found = true;
+    const bool compressed = getenv("CROSSINK_SIMULATOR_SMOKE_DICTZIP") != nullptr;
+    if (compressed) {
+      location.folderPath = "/.dictionaries/Dictzip/dict";
+      DictionaryRegistry registry;
+      if (!registry.discover() || registry.indexOf(location.folderPath) < 0) return false;
+    }
     SETTINGS.sideButtonUpShort = C::PREVIOUS_PAGE;
     SETTINGS.sideButtonDownShort = C::QUICK_LOCK;
     mappedInputManager.setReaderMode(false);
@@ -1575,6 +1582,9 @@ struct DictionaryPagingSmokeTest {
       }
       dictionary->wrapText();
       if (dictionary->definitionReadFailed_ || dictionary->totalPages < 3) return false;
+      const std::string sourcePath = dictionary->definitionSource_.path();
+      if (compressed && (sourcePath == location.folderPath + ".dict" || !Storage.exists(sourcePath.c_str())))
+        return false;
       const auto checkPage = [&](const int expected) {
         if (dictionary->currentPage == expected && !dictionary->isWordSelectMode) return true;
         LOG_ERR("SMOKE", "Dictionary page expected=%d actual=%d word-select=%d", expected, dictionary->currentPage,
@@ -1628,6 +1638,11 @@ struct DictionaryPagingSmokeTest {
       dictionary->loop();
       mappedInputManager.simulatorClearInputFrame();
       valid &= dictionary->isWordSelectMode;
+      if (compressed) {
+        valid &= dictionary->definitionSource_.path() == sourcePath;
+        dictionary.reset();
+        valid &= !Storage.exists(sourcePath.c_str());
+      }
     }
     return valid;
   }

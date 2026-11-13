@@ -371,6 +371,7 @@ void DictionaryDefinitionActivity::onEnter() {
 
 void DictionaryDefinitionActivity::onExit() {
   controller.onExit();
+  definitionSource_.reset();
   Dictionary::clearLookupDictPathOverride();
   if (renderer.isSdCardFont(definitionFontId_)) {
     // The dictionary can reuse the reader's family and size, in which case
@@ -621,7 +622,10 @@ void DictionaryDefinitionActivity::wrapText() {
   // Resolve the immutable definition slice once. Page turns reuse it instead
   // of reopening the dictionary metadata files before every layout pass.
   const DictInfo info = Dictionary::readInfo(foundLocation.folderPath.c_str());
-  const DictDefinitionSlice slice = Dictionary::resolveDefinitionSlice(foundLocation, info);
+  DictDefinitionSlice slice;
+  if (definitionSource_.open(foundLocation)) {
+    slice = Dictionary::resolveDefinitionSlice(foundLocation, info, definitionSource_);
+  }
   definitionReadFailed_ = !slice.found;
   if (definitionReadFailed_) {
     LOG_ERR("DICT", "Failed to resolve definition slice for %s", foundLocation.folderPath.c_str());
@@ -735,7 +739,7 @@ void DictionaryDefinitionActivity::prepareDefinitionFontAdvances() {
   collectDefinitionAdvanceText(headword.c_str(), EpdFontFamily::BOLD);
   collectDefinitionAdvanceText(kBullet, EpdFontFamily::REGULAR);
 
-  const std::string dictPath = foundLocation.folderPath + ".dict";
+  const std::string& dictPath = definitionSource_.path();
   if (definitionIsHtml_) {
     const DictHtmlRenderer::SpanSink sink{this, &DictionaryDefinitionActivity::collectSpanForAdvances};
     if (!htmlRenderer_.renderFromFileStreaming(dictPath.c_str(), definitionOffset_, definitionSize_, sink)) {
@@ -883,7 +887,7 @@ void DictionaryDefinitionActivity::wrapHtml() {
   // Wrapper emits completed lines to the page collector, and the collector keeps
   // only the current page. Neither the whole-definition span/textBuf (renderer)
   // nor all pages of lines (here) is ever materialized.
-  const std::string dictPath = foundLocation.folderPath + ".dict";
+  const std::string& dictPath = definitionSource_.path();
   const auto streamIntoLayout = [&](const bool plainTextFallback) {
     DictLayout::Measurer measure{this, &DictionaryDefinitionActivity::measureWidthAdapter};
     DictLayout::LineSink lineSink{this, &DictionaryDefinitionActivity::collectLineSink};
@@ -978,7 +982,7 @@ void DictionaryDefinitionActivity::wrapPlain() {
   const StyledSpan space{.text = " "};
 
   // Stream from .dict file — the full definition is never held in RAM.
-  const std::string dictPath = foundLocation.folderPath + ".dict";
+  const std::string& dictPath = definitionSource_.path();
   HalFile dictFile;
   if (!Storage.openFileForRead("DICT", dictPath.c_str(), dictFile)) {
     LOG_ERR("DICT", "Failed to open definition %s", dictPath.c_str());

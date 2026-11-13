@@ -7,8 +7,10 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdio>
 #include <cstring>
 
+#include "DictZip.h"
 #include "TextPool.h"
 
 // Static member definitions
@@ -244,7 +246,7 @@ bool Dictionary::exists(const char* cachePath) {
   if (folderPath.empty()) return false;
   DictPaths dp(folderPath);
   if (!Storage.exists(dp.idx().c_str())) return false;
-  return Storage.exists(dp.dict().c_str());
+  return Storage.exists(dp.dict().c_str()) || Storage.exists(dp.dictDz().c_str());
 }
 
 bool Dictionary::hasAltForms(const char* cachePath) {
@@ -258,7 +260,7 @@ bool Dictionary::isValidDictionary() {
   if (folderPath.empty()) return false;
   DictPaths dp(folderPath);
   const bool idxExists = Storage.exists(dp.idx().c_str());
-  const bool valid = idxExists && Storage.exists(dp.dict().c_str());
+  const bool valid = idxExists && (Storage.exists(dp.dict().c_str()) || Storage.exists(dp.dictDz().c_str()));
   if (!valid) {
     LOG_DBG("DICT", "Stored dictionary path no longer valid, resetting");
     saveGlobalDictPath("");
@@ -727,9 +729,68 @@ void Dictionary::findPageBounds(HalFile& oft, HalFile& src, uint32_t srcFileSize
 // Reading helpers
 // ---------------------------------------------------------------------------
 
-std::string Dictionary::readDefinition(const std::string& folderPath, uint32_t offset, uint32_t size) {
+void DictionaryDefinitionSource::reset() {
+  if (temporary_ && !path_.empty() && Storage.exists(path_.c_str()) && !Storage.remove(path_.c_str())) {
+    LOG_ERR("DICT", "Failed to remove temporary definition %s", path_.c_str());
+  }
+  path_.clear();
+  dictionaryPath_.clear();
+  entryOffset_ = entrySize_ = 0;
+  offset_ = 0;
+  temporary_ = false;
+}
+
+bool DictionaryDefinitionSource::open(const DictLocation& location) {
+  // Font fallback and modal redraw reflow an unchanged definition, sometimes
+  // under memory pressure. Keep its backing without allocating inflate buffers
+  // again or discarding a usable scratch file.
+  if (location.found && dictionaryPath_ == location.folderPath && entryOffset_ == location.offset &&
+      entrySize_ == location.size && !path_.empty() && Storage.exists(path_.c_str())) {
+    return true;
+  }
+  reset();
+  if (!location.found || location.folderPath.empty() || location.size == 0) return false;
+  dictionaryPath_ = location.folderPath;
+  entryOffset_ = location.offset;
+  entrySize_ = location.size;
+  const DictPaths paths(location.folderPath);
+  path_ = paths.dict();
+  if (Storage.exists(path_.c_str())) {
+    offset_ = location.offset;
+    return true;
+  }
+  path_.clear();
+  if (!Storage.ensureDirectoryExists("/.crosspoint")) {
+    LOG_ERR("DICT", "Cannot create temporary definition directory");
+    return false;
+  }
+  // Each owner gets its own scratch file, so another lookup cannot overwrite
+  // the entry being paged. Only the selected entry is written, never the book.
+  char temporaryPath[80];
+  snprintf(temporaryPath, sizeof(temporaryPath), "/.crosspoint/dict-entry-%p.tmp", static_cast<void*>(this));
+  path_ = temporaryPath;
+  temporary_ = true;
+  HalFile output;
+  if (!Storage.openFileForWrite("DICT", path_.c_str(), output)) {
+    LOG_ERR("DICT", "Cannot create temporary definition");
+    reset();
+    return false;
+  }
+  DictZip::ExtractError error = DictZip::ExtractError::None;
+  const bool extracted = DictZip::extractEntry(paths.dictDz().c_str(), location.offset, location.size, output, &error);
+  const bool synced = extracted && output.sync();
+  output.close();  // Hardware cannot reopen the same file until its writer closes.
+  if (!synced) {
+    LOG_ERR("DICT", "Cannot extract definition (dictzip error %u)", static_cast<unsigned>(error));
+    reset();
+    return false;
+  }
+  return true;
+}
+
+std::string Dictionary::readDefinition(const std::string& path, uint32_t offset, uint32_t size) {
   HalFile dict;
-  if (!Storage.openFileForRead("DICT", DictPaths(folderPath).dict().c_str(), dict)) return "";
+  if (!Storage.openFileForRead("DICT", path.c_str(), dict)) return "";
 
   dict.seekSet(offset);
 
@@ -742,16 +803,23 @@ std::string Dictionary::readDefinition(const std::string& folderPath, uint32_t o
   return def;
 }
 
-DictDefinitionSlice Dictionary::resolveDefinitionSlice(const DictLocation& location, const DictInfo& info) {
+DictDefinitionSlice Dictionary::resolveDefinitionSlice(const DictLocation& location, const DictInfo& info,
+                                                       const DictionaryDefinitionSource& source) {
   DictDefinitionSlice slice;
   slice.folderPath = location.folderPath;
   if (!location.found || location.folderPath.empty() || location.size == 0) return slice;
 
-  const uint32_t entryEnd = location.offset + location.size;
-  if (entryEnd < location.offset) return slice;
+  const uint32_t entryStart = source.offset();
+  const uint32_t entryEnd = entryStart + location.size;
+  if (entryEnd < entryStart) return slice;
 
   HalFile dict;
-  if (!Storage.openFileForRead("DICT", DictPaths(location.folderPath).dict().c_str(), dict)) return slice;
+  if (!Storage.openFileForRead("DICT", source.path().c_str(), dict)) return slice;
+  if (entryEnd > dict.fileSize()) {
+    LOG_ERR("DICT", "Definition exceeds data bounds");
+    dict.close();
+    return slice;
+  }
 
   auto setSlice = [&](uint32_t offset, uint32_t size, char type) {
     slice.offset = offset;
@@ -762,7 +830,7 @@ DictDefinitionSlice Dictionary::resolveDefinitionSlice(const DictLocation& locat
   };
 
   if (info.valid && info.sametypesequence[0] != '\0') {
-    uint32_t pos = location.offset;
+    uint32_t pos = entryStart;
     for (size_t i = 0; info.sametypesequence[i] != '\0' && pos < entryEnd; i++) {
       const char type = info.sametypesequence[i];
       if (isTextDefinitionType(type)) {
@@ -776,7 +844,7 @@ DictDefinitionSlice Dictionary::resolveDefinitionSlice(const DictLocation& locat
       break;
     }
   } else if (info.valid) {
-    uint32_t pos = location.offset;
+    uint32_t pos = entryStart;
     while (pos < entryEnd) {
       dict.seekSet(pos);
       const int typeRaw = dict.read();
@@ -797,7 +865,7 @@ DictDefinitionSlice Dictionary::resolveDefinitionSlice(const DictLocation& locat
 
   // Fallback for dictionaries without usable .ifo metadata: preserve the old
   // behavior and render the raw range as plain text.
-  setSlice(location.offset, location.size, 'm');
+  setSlice(entryStart, location.size, 'm');
   dict.close();
   return slice;
 }
@@ -1019,9 +1087,11 @@ std::string Dictionary::lookup(const std::string& word, const DictLookupCallback
   auto loc = locate(word, cbs, cachePath);
   if (!loc.found) return "";
   const DictInfo info = readInfo(loc.folderPath.c_str());
-  const DictDefinitionSlice slice = resolveDefinitionSlice(loc, info);
+  DictionaryDefinitionSource source;
+  if (!source.open(loc)) return "";
+  const DictDefinitionSlice slice = resolveDefinitionSlice(loc, info, source);
   if (!slice.found) return "";
-  return readDefinition(slice.folderPath, slice.offset, slice.size);
+  return readDefinition(source.path(), slice.offset, slice.size);
 }
 
 // ---------------------------------------------------------------------------

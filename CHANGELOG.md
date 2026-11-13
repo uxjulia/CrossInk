@@ -49,6 +49,7 @@
 - Show the publisher’s body font as a disabled Font Family value in the in-book Reader Font menu when "Publisher Font" is set to "All Text"; keep the normal picker available when the body uses the reader font.
 - Choose Low, Normal, or High Tilt Sensitivity in Controls; Normal keeps the existing flick behavior.
 - Add the Estonian (Eesti) interface language pack, contributed by paavoph (discussion #928).
+- Use compressed StarDict `.dict.dz` dictionaries directly from SD, with automatic lookup indexing and streamed definition pages.
 
 ### Fixed
 

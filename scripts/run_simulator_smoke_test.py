@@ -45,6 +45,19 @@ THEMES = {
 }
 
 
+def dictzip_bytes(data: bytes, chunk_length: int = 60000) -> bytes:
+    """Create a real dictzip RA fixture with independently readable chunks."""
+    compressor = zlib.compressobj(wbits=-15)
+    chunks = [compressor.compress(data[pos:pos + chunk_length]) + compressor.flush(zlib.Z_FULL_FLUSH)
+              for pos in range(0, len(data), chunk_length)]
+    table = struct.pack("<HHH", 1, chunk_length, len(chunks))
+    table += b"".join(struct.pack("<H", len(chunk)) for chunk in chunks)
+    extra = b"RA" + struct.pack("<H", len(table)) + table
+    return (b"\x1f\x8b\x08\x04" + b"\0" * 6 + struct.pack("<H", len(extra)) + extra
+            + b"".join(chunks) + compressor.flush(zlib.Z_FINISH)
+            + struct.pack("<II", zlib.crc32(data), len(data)))
+
+
 def program_path(env_name: str) -> Path:
     build_dir = Path(os.environ.get("PLATFORMIO_BUILD_DIR", ROOT / ".pio" / "build"))
     return build_dir / env_name / "program"
@@ -394,13 +407,24 @@ def run_smoke(args: argparse.Namespace) -> int:
                 index.extend(word.encode() + b"\0" + struct.pack(">II", len(definitions), len(definition)))
                 definitions.extend(definition)
             (dictionary / "dict.idx").write_bytes(index)
-            (dictionary / "dict.dict").write_bytes(definitions)
+            if args.dictionary_dictzip:
+                (dictionary / "dict.dict.dz").write_bytes(dictzip_bytes(definitions))
+            else:
+                (dictionary / "dict.dict").write_bytes(definitions)
             (dictionary / "dict.ifo").write_text(
                 "StarDict's dict ifo file\nversion=2.4.2\nbookname=French smoke\n"
                 f"wordcount={len(words)}\nidxfilesize={len(index)}\nsametypesequence=m\n"
             )
             if args.dictionary and not args.clipping_selection:
                 env["CROSSINK_SIMULATOR_SMOKE_DICTIONARY"] = "1"
+        if args.dictionary_dictzip:
+            env["CROSSINK_SIMULATOR_SMOKE_DICTZIP"] = "1"
+            compressed_dictionary = temp_root / "fs_" / ".dictionaries" / "Dictzip"
+            compressed_dictionary.mkdir(parents=True)
+            definitions = b"Dictionary power button paging keeps this definition readable.\n" * 60
+            (compressed_dictionary / "dict.dict.dz").write_bytes(dictzip_bytes(definitions))
+            (compressed_dictionary / "dict.idx").write_bytes(b"Paging\0" + struct.pack(">II", 0, len(definitions)))
+            (compressed_dictionary / "dict.ifo").write_text("StarDict's dict ifo file\nsametypesequence=m\n")
         if args.dictionary_paging:
             env["CROSSINK_SIMULATOR_SMOKE_DICTIONARY_PAGING"] = "1"
         if args.font_dir and args.font_family:
@@ -629,6 +653,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--hyphenation-captures", help="Directory for hyphenation manager framebuffer captures (PGM)")
     parser.add_argument("--clipping-selection", action="store_true", help="Check floating text actions, selection handles, dismissal and saving")
     parser.add_argument("--dictionary", action="store_true", help="Check French contractions and exact dictionary matches")
+    parser.add_argument("--dictionary-dictzip", action="store_true", help="Use dictzip fixtures with dictionary lookup/paging checks")
     parser.add_argument("--dictionary-paging", action="store_true", help="Check power-button dictionary page turns")
     parser.add_argument("--gesture-shortcuts", action="store_true", help="Check page gesture and front-button shortcut migrations, input, catalogs and UI")
     parser.add_argument("--c3-font-sizes", "--bitmap-font-sizes", dest="c3_font_sizes", action="store_true", help="Check bitmap font sizes, inline layout, page cache, selection and SD reload")

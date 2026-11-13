@@ -60,6 +60,28 @@ struct DictLocation {
   bool readError = false;
 };
 
+// Owns a definition's readable backing. Compressed entries are extracted once
+// to an activity-owned SD temporary file, then reused by the streaming renderer.
+class DictionaryDefinitionSource {
+ public:
+  DictionaryDefinitionSource() = default;
+  ~DictionaryDefinitionSource() { reset(); }
+  DictionaryDefinitionSource(const DictionaryDefinitionSource&) = delete;
+  DictionaryDefinitionSource& operator=(const DictionaryDefinitionSource&) = delete;
+  bool open(const DictLocation& location);
+  void reset();
+  const std::string& path() const { return path_; }
+  uint32_t offset() const { return offset_; }
+
+ private:
+  std::string path_;
+  std::string dictionaryPath_;
+  uint32_t entryOffset_ = 0;
+  uint32_t entrySize_ = 0;
+  uint32_t offset_ = 0;
+  bool temporary_ = false;
+};
+
 struct DictDefinitionSlice {
   std::string folderPath;
   uint32_t offset = 0;
@@ -133,7 +155,8 @@ class Dictionary {
   // dictionaries store typed multi-field entries, so the raw .idx byte range can
   // include type bytes, null terminators, or binary resources that must not be
   // rendered as text.
-  static DictDefinitionSlice resolveDefinitionSlice(const DictLocation& location, const DictInfo& info);
+  static DictDefinitionSlice resolveDefinitionSlice(const DictLocation& location, const DictInfo& info,
+                                                    const DictionaryDefinitionSource& source);
 
   // Look up word in .syn (via .syn.oft if present).
   // Returns the canonical headword from .idx, or empty string if not found.
@@ -184,7 +207,7 @@ class Dictionary {
   // folderPath is the dictionary base path (e.g. /dictionary/dict-en-en/dict-data).
   static std::string wordAtOrdinal(const std::string& folderPath, uint32_t ordinal);
 
-  static std::string readDefinition(const std::string& folderPath, uint32_t offset, uint32_t size);
+  static std::string readDefinition(const std::string& path, uint32_t offset, uint32_t size);
 
   // Binary search .oft to find the page boundary bytes in src containing target.
   // On return, *startByte and *endByte delimit the 32-word page to scan linearly.

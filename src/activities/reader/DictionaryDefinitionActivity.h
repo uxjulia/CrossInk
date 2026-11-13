@@ -144,6 +144,7 @@ class DictionaryDefinitionActivity final : public Activity {
   int currentPage = 0;
   int linesPerPage = 0;
   int totalPages = 0;
+  DictionaryDefinitionSource definitionSource_;
   uint32_t definitionOffset_ = 0;
   uint32_t definitionSize_ = 0;
   bool definitionIsHtml_ = false;

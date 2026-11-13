@@ -88,7 +88,8 @@ bool DictionaryRegistry::discover() {
       const bool isDirectory = subEntry.isDirectory();
       const bool isIdx = !isDirectory && subLen > 4 && strcmp(subName + subLen - 4, ".idx") == 0;
       const bool isIfo = !isDirectory && subLen > 4 && strcmp(subName + subLen - 4, ".ifo") == 0;
-      const bool isDict = !isDirectory && subLen > 5 && strcmp(subName + subLen - 5, ".dict") == 0;
+      const bool isDict = !isDirectory && ((subLen > 5 && strcmp(subName + subLen - 5, ".dict") == 0) ||
+                                           (subLen > 8 && strcmp(subName + subLen - 8, ".dict.dz") == 0));
       subEntry.close();
 
       if (isDirectory) foundNestedDirectory = true;
@@ -112,6 +113,12 @@ bool DictionaryRegistry::discover() {
       LOG_DBG("DREG", "Skipping %s: multiple .ifo files found", name);
     }
 
+    if (foundStem[0] != '\0') {
+      const std::string base = subPath + "/" + foundStem;
+      const DictPaths paths(base);
+      foundDict = Storage.exists(paths.dict().c_str()) || Storage.exists(paths.dictDz().c_str());
+    }
+
     if (!ambiguous && foundStem[0] != '\0' && foundDict) {
       DictionaryEntry e;
       e.name = name;
@@ -122,10 +129,10 @@ bool DictionaryRegistry::discover() {
     } else if (!ambiguous) {
       if (foundNestedDirectory) {
         LOG_DBG("DREG", "Skipping %s: missing%s%s at folder root; nested directories are not scanned", name,
-                foundStem[0] == '\0' ? " .idx" : "", foundDict ? "" : " .dict");
+                foundStem[0] == '\0' ? " .idx" : "", foundDict ? "" : " .dict/.dict.dz");
       } else {
         LOG_DBG("DREG", "Skipping %s: missing%s%s at folder root", name, foundStem[0] == '\0' ? " .idx" : "",
-                foundDict ? "" : " .dict");
+                foundDict ? "" : " .dict/.dict.dz");
       }
     }
   }
