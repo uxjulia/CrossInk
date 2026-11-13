@@ -12,6 +12,7 @@
 #include <LibraryIndexFile.h>
 #include <Logging.h>
 #include <SDL.h>
+#include <SdCardFont.h>
 #include <Utf8.h>
 #include <WiFi.h>
 
@@ -6625,6 +6626,56 @@ class SimulatorSmokeTest {
     LOG_INF("SMOKE", "Publisher cpfont headings: sizes, layout, reload, dictionary and resize passed");
   }
 
+  void verifyFontCacheIdentity() {
+    RenderLock lock;
+    const char* family = std::getenv("CROSSINK_SIMULATOR_SMOKE_FONT_FAMILY");
+    Epub book(std::getenv("CROSSINK_SIMULATOR_SMOKE_BOOK"), "/.crosspoint");
+    if (!family || !book.load() || book.getSpineItemsCount() == 0) fail("Font identity fixtures unavailable");
+    std::snprintf(SETTINGS.sdFontFamilyName, sizeof(SETTINGS.sdFontFamilyName), "%s", family);
+    SETTINGS.readerFontPointSize = 17;
+    sdFontSystem.setContentSizeScales({512, 192});
+    sdFontSystem.ensureLoaded(renderer);
+    const int original = SETTINGS.getReaderFontId();
+    if (!renderer.isSdCardFont(original) || renderer.getFontPointSize(original) != 17 ||
+        renderer.getFontPointSize(renderer.getFontIdForSize(original, 14)) != 14 ||
+        renderer.getFontPointSize(renderer.getFontIdForSize(original, 21)) != 21)
+      fail("Font identity requires installed bitmap sizes 14, 17 and 21");
+    auto spec = SETTINGS.readerRenderSpec(renderer.getScreenWidth() - 40, renderer.getScreenHeight() - 40);
+    spec.fontId = original;
+    Section section(book, std::min(4, book.getSpineItemsCount() - 1), renderer, "-font-identity-smoke");
+    if (!section.createSectionFile(spec) || !section.loadSectionFile(spec)) fail("Cannot create font identity cache");
+    renderer.ensureSdCardFontReady(original, "Cache identity probe", 0x01);
+    for (unsigned pass = 0; pass < 4; ++pass) {
+      // At 17pt both policies choose 14/21pt, in opposite admission order.
+      sdFontSystem.releaseRegistry();
+      sdFontSystem.setContentSizeScales(pass % 2 ? std::array<uint16_t, 2>{512, 192}
+                                                 : std::array<uint16_t, 2>{192, 363});
+      sdFontSystem.ensureLoaded(renderer);
+      const int current = SETTINGS.getReaderFontId();
+      if (current != original || !renderer.getSdCardFonts().at(current)->hasAdvanceTable())
+        fail("Equivalent size hints reloaded the active font or changed its identity");
+      spec.fontId = current;
+      if (!section.loadSectionFile(spec)) fail("Equivalent size hints rejected cached pages");
+    }
+    // A genuinely different font-size set must still invalidate the layout.
+    sdFontSystem.setContentSizeScales({256, 256});
+    sdFontSystem.ensureLoaded(renderer);
+    spec.fontId = SETTINGS.getReaderFontId();
+    if (spec.fontId == original || section.loadSectionFile(spec)) fail("Changed size set reused stale layout");
+    sdFontSystem.setContentSizeScales({192, 363});
+    sdFontSystem.ensureLoaded(renderer);
+    spec.fontId = SETTINGS.getReaderFontId();
+    if (spec.fontId != original) fail("Restored font set lost its cache identity");
+    // Section removes an incompatible file when rejecting the changed set.
+    if (!section.createSectionFile(spec) || !section.loadSectionFile(spec)) fail("Cannot rebuild restored font cache");
+    renderer.ensureSdCardFontReady(original, "Cache identity probe", 0x01);
+    sdFontSystem.markRegistryDirty();
+    sdFontSystem.ensureLoaded(renderer);
+    if (SETTINGS.getReaderFontId() != original || renderer.getSdCardFonts().at(original)->hasAdvanceTable())
+      fail("Font file invalidation did not force reload");
+    LOG_INF("SMOKE", "Font identity: equivalent requests reuse fonts/pages; changed sets and files reload");
+  }
+
   void verifyBitmapFontSizes() {
     const auto orientation = renderer.getOrientation();
 #if CROSSINK_SCALABLE_FONTS
@@ -9447,6 +9498,11 @@ class SimulatorSmokeTest {
           verifyMixedPageGestures();
           verifySideButtonMigrationAndInput();
           LOG_INF("SMOKE", "Simulator smoke test passed: gesture shortcuts");
+          std::_Exit(0);
+        }
+        if (std::getenv("CROSSINK_SIMULATOR_SMOKE_FONT_CACHE_IDENTITY")) {
+          verifyFontCacheIdentity();
+          LOG_INF("SMOKE", "Simulator smoke test passed: font cache identity");
           std::_Exit(0);
         }
         if (std::getenv("CROSSINK_SIMULATOR_SMOKE_C3_FONT_SIZES")) {

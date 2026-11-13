@@ -1119,6 +1119,14 @@ includes those paths and thumbnail availability, invalidating old snapshots.
 Images regenerate as needed; this does not change book paths, bookmarks,
 clippings, progress or statistics. The PXC byte layout itself is unchanged.
 
+## SD bitmap content-size identity
+
+SD `.cpfont` families with optional EPUB sizes include content-layout revision `1`
+in their combined reader font identity. Secondary-size ligatures remain resident
+through cache cleanup, so measurement and drawing use the same glyph substitutions.
+The new identity rebuilds existing full and partial layouts for these families;
+body-only and built-in font identities stay unchanged. No binary payload changes.
+
 ## `section.bin`
 
 ### Version 108 (current development)

@@ -344,6 +344,86 @@ void streamingChecks(const std::string& path) {
   assert(arrayBytes() == 0 && openFiles == 0);
 }
 
+void contentPreparationChecks(const std::string& path) {
+  constexpr size_t limit = 12U * 1024U;
+  kernFixture(path);
+  {
+    SdCardFont font;
+    assert(font.load(path.c_str(), limit));
+    const EpdFontFamily family(font.getEpdFont());
+    const auto text = kernText(0x100, 3);
+    const auto* ligatures = font.styles_[0].ligaturePairs;
+    assert(ligatures && font.getEpdFont()->getLigature(0x100, 0x101) == 0x102);
+    int expectedWidth = 0, expectedHeight = 0;
+    {
+      SdCardFont::MetricsScope scope(&font);
+      family.getTextDimensions(text.c_str(), &expectedWidth, &expectedHeight);
+    }
+    const int allocationCalls = arrayCalls;
+    // Section builds and reader exit release all caches. Ligature measurement
+    // must remain identical before and after the visible page is prewarmed.
+    for (bool preserve : {false, true}) {
+      font.releaseForLowMemory(preserve);
+      font.clearCache();
+      font.clearPersistentCache();
+      assert(font.styles_[0].ligaturePairs == ligatures);
+      assert(font.getEpdFont()->getLigature(0x100, 0x101) == 0x102);
+      assert(font.buildAdvanceTable(text.c_str(), 1) == 0);
+      const uint32_t cps[] = {0x100, 0x101, 0x102};
+      assert(font.buildAdvanceTableForCodepoints(cps, 3, false, false, 1) == 0);
+      for (bool prewarm : {false, true}) {
+        if (prewarm) assert(font.prewarm(text.c_str(), 1) == 0);
+        int width = 0, height = 0;
+        SdCardFont::MetricsScope scope(&font);
+        family.getTextDimensions(text.c_str(), &width, &height);
+        assert(width == expectedWidth && height == expectedHeight);
+      }
+      assert(arrayCalls == allocationCalls);  // Resident tables survive, no reload churn.
+    }
+  }
+  assert(arrayBytes() == 0 && openFiles == 0);
+
+  fixture(path, {{0, table({{'A', 'Z'}})}, {1, table({{'A', 'Z'}})}});
+  const size_t budget = SdCardFont::contentResidentBytes(path.c_str(), limit);
+  const size_t remaining = budget - sizeof(SdCardFont);
+  constexpr size_t freeReserve = 96U * 1024U, blockReserve = 48U * 1024U;
+  {
+    SdCardFont font;
+    const int allocationCalls = arrayCalls;
+    freeHeap = freeReserve + remaining - 1;
+    assert(!font.load(path.c_str(), limit, freeReserve, blockReserve));
+    clean(font);
+    assert(arrayCalls == allocationCalls);  // Reject after inspection, before resident arrays.
+    freeHeap = freeReserve + remaining;
+    maxAllocHeap = blockReserve + remaining - 1;
+    assert(!font.load(path.c_str(), limit, freeReserve, blockReserve));
+    clean(font);
+    assert(arrayCalls == allocationCalls);
+    maxAllocHeap = blockReserve + remaining;
+    assert(font.load(path.c_str(), limit, freeReserve, blockReserve));
+  }
+  freeHeap = maxAllocHeap = 1024 * 1024;
+  assert(arrayBytes() == 0 && openFiles == 0);
+  // Moving admission into the loader must retain the preflight's malformed-TOC checks.
+  for (bool duplicate : {false, true}) {
+    fixture(path, {{0, table({{'A', 'Z'}})}, {1, table({{'A', 'Z'}})}});
+    {
+      std::fstream out(path, std::ios::in | std::ios::out | std::ios::binary);
+      if (duplicate) {
+        out.seekp(64);
+        out.put(0);
+      } else {
+        const uint32_t overflowingOffset = UINT32_MAX - 1;
+        out.seekp(32 + 24);
+        out.write(reinterpret_cast<const char*>(&overflowingOffset), sizeof(overflowingOffset));
+      }
+    }
+    SdCardFont font;
+    assert(!font.load(path.c_str(), limit, freeReserve, blockReserve));
+    clean(font);
+  }
+}
+
 void contentSizeChecks(const std::string& path) {
   fixture(path, {{0, table({{0x41, 0x5A}})}, {1, table({{0x41, 0x5A}})}});
   constexpr size_t limit = 12U * 1024U;
@@ -497,10 +577,38 @@ void contentSizeChecks(const std::string& path) {
   }
   GfxRenderer renderer;
   SdCardFontManager manager;
+  // Manager admission must read each selected file exactly once. The prior
+  // separate preflight added a second scan of every optional glyph table.
+  int expectedReads = 0;
+  for (const uint8_t size : {12, 24, 8}) {
+    SdCardFont font;
+    readCalls = 0;
+    assert(font.load(family.findFile(size)->path.c_str(), size == 12 ? 0 : limit));
+    expectedReads += readCalls;
+  }
+  readCalls = 0;
   assert(manager.loadFamilyClosest(family, renderer, 12));
+  assert(readCalls == expectedReads);
   const int highId = manager.getFontId(family.name);
   assert(renderer.getFontMap().size() == 3 && renderer.getSdCardFonts().size() == 3);
   for (const auto& [id, font] : renderer.getFontMap()) assert(font.sizeFamilyId() == highId);
+  // Reordered/rounded CSS hints request the same installed sizes. A low-heap
+  // reentry must reuse this live profile instead of rerunning admission.
+  assert(manager.setContentSizeScales({192, 512}));
+  const int reads = readCalls;
+  freeHeap = 97 * 1024;
+  maxAllocHeap = 49 * 1024;
+  assert(manager.matchesContentSizeRequests(family));
+  assert(manager.getFontId(family.name) == highId && readCalls == reads);
+  freeHeap = maxAllocHeap = 1024 * 1024;
+  manager.unloadAll(renderer);
+  assert(manager.loadFamilyClosest(family, renderer, 12));
+  assert(manager.getFontId(family.name) == highId);  // Same set, opposite load order.
+  assert(manager.setContentSizeScales({191, 513}));
+  assert(manager.matchesContentSizeRequests(family));
+  manager.setContentSizeScales({341, 299});
+  assert(!manager.matchesContentSizeRequests(family));
+  manager.setContentSizeScales({512, 192});
   manager.unloadAll(renderer);
   assert(renderer.getFontMap().empty() && renderer.getSdCardFonts().empty());
   assert(arrayBytes() == 0);
@@ -508,6 +616,11 @@ void contentSizeChecks(const std::string& path) {
   assert(manager.loadFamilyClosest(family, renderer, 12));
   const int lowId = manager.getFontId(family.name);
   assert(lowId != highId && renderer.getFontMap().size() == 1);
+  assert(manager.matchesContentSizeRequests(family));  // Remembers skipped requests too.
+  manager.setContentSizeScales({192, 512});
+  freeHeap = 1024 * 1024;
+  assert(manager.matchesContentSizeRequests(family) && manager.getFontId(family.name) == lowId);
+  manager.setContentSizeScales({512, 192});
   manager.unloadAll(renderer);
   freeHeap = 1024 * 1024;
   maxAllocHeap = 49 * 1024;  // Fragmented heap must also decline optional sizes.
@@ -542,6 +655,7 @@ void contentSizeChecks(const std::string& path) {
   // Changing the preferences changes the identity, and a dictionary-style
   // unload/reload must restore that same identity and actual size set.
   assert(manager.setContentSizeScales({341, 299}));
+  assert(!manager.matchesContentSizeRequests(family));
   assert(!manager.setContentSizeScales({341, 299}));
   assert((manager.contentSizeTargetsForBody(12) == std::array<uint8_t, 2>{16, 14}));
   assert(manager.loadFamilyClosest(family, renderer, 12));
@@ -807,6 +921,7 @@ int main() {
     clean(font);
   }
   streamingChecks(path);
+  contentPreparationChecks(path);
   contentSizeChecks(path);
   std::filesystem::remove_all(dir);
   std::puts("SD font interval regression checks passed");

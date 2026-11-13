@@ -409,6 +409,8 @@ def run_smoke(args: argparse.Namespace) -> int:
             env["CROSSINK_SIMULATOR_SMOKE_FONT_FAMILY"] = args.font_family
         if args.reader_font_layout:
             env["CROSSINK_SIMULATOR_SMOKE_READER_FONT_LAYOUT"] = "1"
+        if args.font_cache_identity:
+            env["CROSSINK_SIMULATOR_SMOKE_FONT_CACHE_IDENTITY"] = "1"
         if args.c3_font_sizes:
             env["CROSSINK_SIMULATOR_SMOKE_C3_FONT_SIZES"] = "1"
         if args.cpfont_heading_sizes:
@@ -575,7 +577,11 @@ def run_smoke(args: argparse.Namespace) -> int:
         print("Simulator did not complete the font browser return checks", file=sys.stderr)
         return 2
 
-    if args.font_family and not args.c3_font_sizes and not args.reader_font_layout and not args.font_browser_return:
+    if args.font_cache_identity and "Simulator smoke test passed: font cache identity" not in proc.stdout:
+        print("Simulator did not complete font cache identity checks", file=sys.stderr)
+        return 2
+
+    if args.font_family and not args.c3_font_sizes and not args.reader_font_layout and not args.font_browser_return and not args.font_cache_identity:
         tab_change = proc.stdout.find("Reader Menu tab changed after TTF Native selection")
         reader_return = proc.stdout.find("Reader restored after TTF Native selection", tab_change)
         if tab_change < 0 or reader_return < 0 or "Loading file:" not in proc.stdout[tab_change:reader_return]:
@@ -626,6 +632,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dictionary-paging", action="store_true", help="Check power-button dictionary page turns")
     parser.add_argument("--gesture-shortcuts", action="store_true", help="Check page gesture and front-button shortcut migrations, input, catalogs and UI")
     parser.add_argument("--c3-font-sizes", "--bitmap-font-sizes", dest="c3_font_sizes", action="store_true", help="Check bitmap font sizes, inline layout, page cache, selection and SD reload")
+    parser.add_argument("--font-cache-identity", action="store_true", help="Check equivalent bitmap size hints preserve fonts and cached pages (requires a cpfont family with 14/17/21pt files)")
     parser.add_argument("--cpfont-heading-sizes", action="store_true", help="Check publisher heading targets with an 8-20pt cpfont family (requires --c3-font-sizes, --font-dir and --font-family)")
     parser.add_argument("--font-size-book", action="store_true", help="Also render every page of --book with C3 fonts, checking its opening drop cap")
     parser.add_argument("--font-dir", help="Font fixtures copied into isolated /fonts")
@@ -685,6 +692,8 @@ def parse_args() -> argparse.Namespace:
         parser.error("--bitmap-font-sizes on S3 requires --font-dir and --font-family with cpfont fixtures")
     if args.cpfont_heading_sizes and not (args.c3_font_sizes and args.font_dir and args.font_family):
         parser.error("--cpfont-heading-sizes requires --c3-font-sizes, --font-dir and --font-family")
+    if args.font_cache_identity and not (args.font_dir and args.font_family):
+        parser.error("--font-cache-identity requires --font-dir and --font-family with 14/17/21pt cpfonts")
     if args.font_size_book and not args.c3_font_sizes:
         parser.error("--font-size-book requires --c3-font-sizes")
     if args.language_file and not args.language_installer:

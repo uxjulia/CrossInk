@@ -163,14 +163,16 @@ void SdCardFontSystem::ensureLoaded(GfxRenderer& renderer) {
       manager_.unloadAll(renderer);
       loadedFontPointSize_ = 0;
     }
+    contentSizesPending_ = false;
 #if CROSSINK_SCALABLE_FONTS
     ensureBuiltInReaderFont(renderer);
 #endif
     return;
   }
 
-  if (!registryWasDirty && !manager_.hasTemporaryScalableFamily() && currentFamily == wantedFamily &&
-      loadedFontPointSize_ == targetPointSize && SETTINGS.legacySdFontSizeStep == UINT8_MAX) {
+  if (!registryWasDirty && !contentSizesPending_ && !manager_.hasTemporaryScalableFamily() &&
+      currentFamily == wantedFamily && loadedFontPointSize_ == targetPointSize &&
+      SETTINGS.legacySdFontSizeStep == UINT8_MAX) {
     return;
   }
 
@@ -220,7 +222,12 @@ void SdCardFontSystem::ensureLoaded(GfxRenderer& renderer) {
     }
     const auto* wantedFile = family->findClosestFile(targetPointSize);
     uint8_t wantedPt = family->isScalable() ? targetPointSize : (wantedFile ? wantedFile->pointSize : 0);
-    if (!registryWasDirty && !manager_.hasTemporaryScalableFamily() && wantedPt == manager_.currentPointSize()) return;
+    if (!registryWasDirty && !manager_.hasTemporaryScalableFamily() && wantedPt == manager_.currentPointSize() &&
+        (!contentSizesPending_ || family->isScalable() || manager_.matchesContentSizeRequests(*family))) {
+      contentSizesPending_ = false;
+      loadedFontPointSize_ = targetPointSize;
+      return;
+    }
     LOG_DBG("SDFS", "Reloading %s: size %u -> %u (target %u)%s", wantedFamily, manager_.currentPointSize(), wantedPt,
             targetPointSize, registryWasDirty ? " [registry dirty]" : "");
   }
@@ -241,6 +248,7 @@ void SdCardFontSystem::ensureLoaded(GfxRenderer& renderer) {
     if (loaded) {
       loadedFontPointSize_ = targetPointSize;
       fontReloadPending_ = false;
+      contentSizesPending_ = false;
       loadedRegistryRevision_ = registry_.revision();
       LOG_DBG("SDFS", "Loaded SD font family: %s", wantedFamily);
     } else {

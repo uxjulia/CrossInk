@@ -35,10 +35,12 @@ class SdCardFontSystem {
 
   // Book-level bitmap size preferences, in 1/256 em. Font loading and cache
   // identities are settled before layout; dictionary return reuses these hints.
+  // Changed hints may still select the same files; ensureLoaded checks that
+  // separately from catalog/file invalidation before replacing a live font.
   void setContentSizeScales(std::array<uint16_t, 2> scales) {
     if (manager_.setContentSizeScales(scales) &&
         !manager_.hasResidentScalableFamily(manager_.currentFamilyName().c_str()))
-      fontReloadPending_ = true;
+      contentSizesPending_ = true;
   }
 
   /// Prepare the selected built-in family before using it as a reader fallback.
@@ -144,6 +146,7 @@ class SdCardFontSystem {
   bool registryLoaded_ = false;
   uint8_t loadedFontPointSize_ = 0;
   bool fontReloadPending_ = false;
+  bool contentSizesPending_ = false;
   uint32_t loadedRegistryRevision_ = 0;
   uint32_t scalableRenderOptionsGeneration_ = 0;
   SettingsPersistenceCallback settingsPersistenceCallback_ = nullptr;

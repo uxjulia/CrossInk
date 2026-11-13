@@ -12,6 +12,7 @@
 #include <SdCardFont.h>
 #include <SdCardFontRegistry.h>
 
+#include <algorithm>
 #include <cstdlib>
 
 SdCardFontManager::~SdCardFontManager() {
@@ -41,14 +42,15 @@ int SdCardFontManager::loadFile(const SdCardFontFileInfo& file, const char* fami
 }
 
 int SdCardFontManager::loadFilePath(const char* path, const char* familyName, uint8_t pointSize, GfxRenderer& renderer,
-                                    const size_t residentLimit) {
+                                    const size_t residentLimit, const size_t freeHeapReserve,
+                                    const size_t maxAllocHeapReserve) {
   auto font = makeUniqueNoThrow<SdCardFont>();
   if (!font) {
     LOG_ERR("SDMGR", "Failed to allocate SdCardFont for %s", path);
     return 0;
   }
 
-  if (!font->load(path, residentLimit)) {
+  if (!font->load(path, residentLimit, freeHeapReserve, maxAllocHeapReserve)) {
     LOG_ERR("SDMGR", "Failed to load %s", path);
     return 0;
   }
@@ -114,17 +116,22 @@ std::array<uint8_t, 2> SdCardFontManager::contentSizeTargets(const uint8_t bodyS
   return sizes;
 }
 
-void SdCardFontManager::loadContentSizes(const SdCardFontFamilyInfo& family, GfxRenderer& renderer) {
-  if (loadedPointSize_ < 8 || loadedPointSize_ > 44) return;
-  // At most 24KB for two complete optional font objects, tables and reusable
-  // glyph scratch. Body font ownership/caches keep their existing policy.
-  constexpr size_t SIZE_BUDGET = 12U * 1024U;
-  constexpr size_t FREE_RESERVE = 96U * 1024U;
-  constexpr size_t BLOCK_RESERVE = 48U * 1024U;
-  // Covers allocator headers/alignment and both renderer map registrations;
-  // the font preflight accounts for its object, tables and glyph scratch.
-  constexpr size_t REGISTRATION_BYTES = 512;
-  for (const uint8_t target : contentSizeTargetsForBody(loadedPointSize_)) {
+namespace {
+std::array<uint8_t, 2> contentSizeKey(const std::array<const SdCardFontFileInfo*, 2>& files) {
+  std::array<uint8_t, 2> sizes{files[0] ? files[0]->pointSize : uint8_t{0},
+                               files[1] ? files[1]->pointSize : uint8_t{0}};
+  std::sort(sizes.begin(), sizes.end());
+  return sizes;
+}
+}  // namespace
+
+std::array<const SdCardFontFileInfo*, 2> SdCardFontManager::selectContentFiles(
+    const SdCardFontFamilyInfo& family) const {
+  std::array<const SdCardFontFileInfo*, 2> files{};
+  if (loadedPointSize_ < 8 || loadedPointSize_ > 44) return files;
+  const auto targets = contentSizeTargetsForBody(loadedPointSize_);
+  for (size_t i = 0; i < targets.size(); ++i) {
+    const auto target = targets[i];
     const auto* file = family.findClosestFile(target);
     // Match the renderer's growth tie-break. Body selection still prefers the
     // smaller file, but a 13pt heading with only 12/14pt files should use 14pt.
@@ -138,7 +145,33 @@ void SdCardFontManager::loadContentSizes(const SdCardFontFamilyInfo& family, Gfx
           file = &candidate;
       }
     }
-    if (!file || file->pointSize < 8 || file->pointSize > 44) continue;
+    if (!file || file->pointSize < 8 || file->pointSize > 44 || file->pointSize == loadedPointSize_) continue;
+    if (i && files[0] && files[0]->pointSize == file->pointSize) continue;
+    files[i] = file;
+  }
+  return files;
+}
+
+bool SdCardFontManager::matchesContentSizeRequests(const SdCardFontFamilyInfo& family) const {
+  return !loaded_.empty() && family.name == loadedFamilyName_ &&
+         contentSizeKey(selectContentFiles(family)) == requestedContentSizes_;
+}
+
+void SdCardFontManager::loadContentSizes(const SdCardFontFamilyInfo& family, GfxRenderer& renderer) {
+  if (loadedPointSize_ < 8 || loadedPointSize_ > 44) return;
+  // At most 24KB internal RAM for two optional font objects, tables and reusable
+  // glyph scratch. PSRAM bitmap caches have a separate pool reserve.
+  // Body font ownership/caches keep their existing policy.
+  constexpr size_t SIZE_BUDGET = 12U * 1024U;
+  constexpr size_t FREE_RESERVE = 96U * 1024U;
+  constexpr size_t BLOCK_RESERVE = 48U * 1024U;
+  // Covers allocator headers/alignment and both renderer map registrations;
+  // the loader accounts for its object, tables and glyph scratch.
+  constexpr size_t REGISTRATION_BYTES = 512;
+  const auto files = selectContentFiles(family);
+  requestedContentSizes_ = contentSizeKey(files);
+  for (const auto* file : files) {
+    if (!file) continue;
     bool present = false;
     for (const auto& loaded : loaded_) present |= loaded.size == file->pointSize;
     if (present) continue;
@@ -149,11 +182,11 @@ void SdCardFontManager::loadContentSizes(const SdCardFontFamilyInfo& family, Gfx
     };
     // Avoid scanning a file when even the empty font object cannot fit.
     if (!hasHeadroom(sizeof(SdCardFont) + REGISTRATION_BYTES)) continue;
-    const size_t residentBytes = SdCardFont::contentResidentBytes(file->path.c_str(), SIZE_BUDGET - REGISTRATION_BYTES);
-    if (!residentBytes) continue;
-    const size_t allocationBytes = residentBytes + REGISTRATION_BYTES;
-    if (!hasHeadroom(allocationBytes)) continue;
-    if (!loadFilePath(file->path.c_str(), family.name.c_str(), file->pointSize, renderer, residentBytes)) continue;
+    // The loader scans glyphs once and checks actual residency before allocating.
+    if (!loadFilePath(file->path.c_str(), family.name.c_str(), file->pointSize, renderer,
+                      SIZE_BUDGET - REGISTRATION_BYTES, FREE_RESERVE + REGISTRATION_BYTES,
+                      BLOCK_RESERVE + REGISTRATION_BYTES))
+      continue;
     // Recheck actual allocator state before publishing this size to layout.
     // Unexpected overhead or concurrent allocations must preserve both reserves.
     if (ESP.getFreeHeap() < FREE_RESERVE || ESP.getMaxAllocHeap() < BLOCK_RESERVE) {
@@ -169,7 +202,13 @@ void SdCardFontManager::loadContentSizes(const SdCardFontFamilyInfo& family, Gfx
   // Cache identity includes the sizes actually loaded and their content. A
   // reboot under memory pressure must rebuild pages instead of drawing cached
   // large text with body metrics. Changed extra-size files invalidate too.
-  uint32_t hash = static_cast<uint32_t>(loaded_.front().fontId);
+  // Admission order expresses CSS priority; identity depends only on the
+  // physical set that was admitted, not which hint mentioned a size first.
+  std::sort(loaded_.begin() + 1, loaded_.end(), [](const auto& a, const auto& b) { return a.size < b.size; });
+  // Revision 1 keeps optional ligatures resident through layout/cache release.
+  // Rebuild old SD-size layouts without invalidating unrelated built-in/body-only caches.
+  constexpr uint32_t CONTENT_LAYOUT_REVISION = 1;
+  uint32_t hash = (static_cast<uint32_t>(loaded_.front().fontId) * 16777619U) ^ CONTENT_LAYOUT_REVISION;
   for (size_t i = 1; i < loaded_.size(); ++i) hash = (hash * 16777619U) ^ uint32_t(loaded_[i].fontId);
   const int oldId = loaded_.front().fontId;
   const int newId = computeFontId(hash, family.name.c_str(), loadedPointSize_);
@@ -259,6 +298,7 @@ void SdCardFontManager::unloadAll(GfxRenderer& renderer) {
 #endif
   loadedFamilyName_.clear();
   loadedPointSize_ = 0;
+  requestedContentSizes_ = {};
 }
 
 int SdCardFontManager::getFontId(const std::string& familyName) const {

@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <HalStorage.h>
+#include <PoolBudget.h>
 #include <SdCardFont.h>
 #include <gtest/gtest.h>
 
@@ -233,4 +234,164 @@ TEST_F(SdFontBitmapStorageTest, FailureAfterSharedStylesCanUnloadAndRetry) {
   ASSERT_EQ(font.prewarm("ABC", 0x0F), 0);
   font.clearCache();
   ASSERT_EQ(font.prewarm("A", 0x0F), 0);
+}
+
+TEST_F(SdFontBitmapStorageTest, ContentGlyphsSurviveRedrawsAndReleaseTheirPsram) {
+  SdCardFont font;
+  const size_t budget = SdCardFont::contentResidentBytes("font.cpfont", 12 * 1024);
+  ASSERT_TRUE(font.load("font.cpfont", budget));
+  ASSERT_EQ(font.prewarm("ABC", 1, true), 0);
+  EXPECT_TRUE(fakeheap::live.empty());
+  ASSERT_EQ(font.prewarm("ABC", 1), 0);
+  ASSERT_EQ(fakeheap::live.size(), 1);
+  EXPECT_TRUE(fakeheap::live.begin()->second.external);
+  EXPECT_EQ(fakeheap::live.begin()->second.bytes, 128 * 8);
+  EXPECT_EQ(fakeheap::internal.attempts, 0);
+  const EpdGlyph* last = nullptr;
+  for (unsigned pass = 0; pass < 10; ++pass) {
+    const size_t reads = Storage.data("font.cpfont").readCalls;
+    for (unsigned i = 0; i < 3; ++i) {
+      const auto* glyph = font.getEpdFont()->findGlyph('A' + i);
+      ASSERT_NE(glyph, nullptr);
+      EXPECT_TRUE(font.isOverflowGlyph(glyph));
+      const auto* pixels = font.getOverflowBitmap(glyph);
+      ASSERT_NE(pixels, nullptr);
+      for (unsigned j = 0; j < 8; ++j) EXPECT_EQ(pixels[j], i * 8 + j);
+      last = glyph;
+    }
+    if (pass) EXPECT_EQ(Storage.data("font.cpfont").readCalls, reads);
+    // Menus and grayscale passes clear ordinary overflow slots between redraws.
+    font.clearCache();
+    {
+      SdCardFont::MetricsScope measure(&font);
+      EXPECT_EQ(font.getEpdFont()->findGlyph('C'), last);
+    }
+  }
+  const size_t attempts = fakeheap::external.attempts;
+  font.releaseForLowMemory(true);
+  EXPECT_TRUE(fakeheap::live.empty());
+  EXPECT_EQ(font.getOverflowBitmap(last), nullptr);
+  ASSERT_EQ(font.prewarm("ABC", 1), 0);
+  EXPECT_EQ(fakeheap::external.attempts, attempts + 1);
+  const auto* glyph = font.getEpdFont()->findGlyph('A');
+  ASSERT_NE(glyph, nullptr);
+  ASSERT_NE(font.getOverflowBitmap(glyph), nullptr);
+  EXPECT_EQ(font.getOverflowBitmap(glyph)[0], 0);
+  font.clearPersistentCache();
+  EXPECT_EQ(font.getOverflowBitmap(glyph), nullptr);
+  glyph = font.getEpdFont()->findGlyph('B');
+  ASSERT_NE(glyph, nullptr);
+  EXPECT_EQ(font.getOverflowBitmap(glyph)[0], 8);
+  ASSERT_TRUE(font.load("font.cpfont", budget));
+  EXPECT_TRUE(fakeheap::live.empty());
+}
+
+TEST_F(SdFontBitmapStorageTest, ContentCacheNeverFallsBackToInternalRamOrRetriesEachFrame) {
+  for (unsigned failure = 0; failure < 4; ++failure) {
+    fakeheap::reset(failure != 0);
+    SdCardFont font;
+    ASSERT_TRUE(font.load("font.cpfont", 12 * 1024));
+    if (failure == 1) fakeheap::external.free = MemoryBudget::EPUB_PSRAM_RESERVE;
+    if (failure == 2) fakeheap::external.largest = 1;
+    if (failure == 3) fakeheap::external.fail = 1;
+    for (unsigned pass = 0; pass < 3; ++pass) {
+      ASSERT_EQ(font.prewarm("ABC", 1), 0);
+      const auto* glyph = font.getEpdFont()->findGlyph('B');
+      ASSERT_NE(glyph, nullptr);
+      ASSERT_NE(font.getOverflowBitmap(glyph), nullptr);
+      EXPECT_EQ(font.getOverflowBitmap(glyph)[0], 8);
+      font.clearCache();
+      EXPECT_TRUE(fakeheap::live.empty());
+      EXPECT_EQ(fakeheap::internal.attempts, 0);
+      EXPECT_EQ(fakeheap::external.attempts, failure == 3 ? 1 : 0);
+    }
+  }
+}
+
+TEST_F(SdFontBitmapStorageTest, ContentBitmapReadFailureDoesNotPublishPartialPixels) {
+  SdCardFont font;
+  ASSERT_TRUE(font.load("font.cpfont", 12 * 1024));
+  ASSERT_EQ(font.prewarm("ABC", 1), 0);
+  // A's eight-byte bitmap begins after the 4-glyph metadata table.
+  auto& file = Storage.data("font.cpfont");
+  file.readFailAt = 64 + 2 * sizeof(EpdUnicodeInterval) + 4 * sizeof(EpdGlyph) + 3;
+  EXPECT_EQ(font.getEpdFont()->findGlyph('A'), nullptr);
+  EXPECT_EQ(Storage.openHandles("font.cpfont"), 0);
+  file.readFailAt = std::numeric_limits<size_t>::max();
+  const auto* glyph = font.getEpdFont()->findGlyph('A');
+  ASSERT_NE(glyph, nullptr);
+  const auto* pixels = font.getOverflowBitmap(glyph);
+  ASSERT_NE(pixels, nullptr);
+  for (unsigned i = 0; i < 8; ++i) EXPECT_EQ(pixels[i], i);
+}
+
+TEST_F(SdFontBitmapStorageTest, ContentBitmapsKeepStylesAndSupplementaryCharactersDistinct) {
+  Storage.put("styles.cpfont", multiStyleFixture(true));
+  SdCardFont font;
+  ASSERT_TRUE(font.load("styles.cpfont", 12 * 1024));
+  ASSERT_EQ(font.prewarm("", 0x0F), 0);
+  for (unsigned pass = 0; pass < 3; ++pass) {
+    for (uint8_t style = 0; style < 4; ++style) {
+      for (uint32_t cp = 0x10000; cp < 0x10003; ++cp) {
+        const auto* glyph = font.getEpdFont(style)->findGlyph(cp);
+        ASSERT_NE(glyph, nullptr);
+        EXPECT_EQ(glyph->advanceX, 128 + style * 16);
+        const auto* bitmap = font.getOverflowBitmap(glyph);
+        ASSERT_NE(bitmap, nullptr);
+        for (unsigned i = 0; i < 8; ++i) EXPECT_EQ(bitmap[i], style);
+      }
+    }
+    font.clearCache();
+  }
+}
+
+TEST_F(SdFontBitmapStorageTest, ContentCacheCollisionsAndOversizedGlyphsPreservePixels) {
+  constexpr uint32_t count = 512, largeBytes = 640;
+  std::vector<uint8_t> bytes(64, 0);
+  memcpy(bytes.data(), "CPFONT\0\0", 8);
+  put16(bytes, 8, CPFONT_VERSION);
+  bytes[12] = 1;
+  put32(bytes, 36, 2);
+  put32(bytes, 40, count + 1);
+  bytes[44] = 16;
+  put16(bytes, 45, 12);
+  put32(bytes, 56, 64);
+  append(bytes, EpdUnicodeInterval{0x100, 0x100 + count - 1, 0});
+  append(bytes, EpdUnicodeInterval{0x10000, 0x10000, count});
+  for (uint32_t i = 0; i <= count; ++i) {
+    EpdGlyph glyph{};
+    glyph.width = i == count ? 64 : 8;
+    glyph.height = i == count ? 80 : 8;
+    glyph.advanceX = 128;
+    glyph.dataLength = i == count ? largeBytes : 8;
+    glyph.dataOffset = i * 8;
+    append(bytes, glyph);
+  }
+  for (uint32_t i = 0; i < count; ++i) bytes.insert(bytes.end(), 8, uint8_t(i));
+  bytes.insert(bytes.end(), largeBytes, 0x5A);
+  Storage.put("collisions.cpfont", bytes);
+  SdCardFont font;
+  ASSERT_TRUE(font.load("collisions.cpfont", 12 * 1024));
+  ASSERT_EQ(font.prewarm("", 1), 0);
+  ASSERT_EQ(fakeheap::live.size(), 1);
+  EXPECT_EQ(fakeheap::live.begin()->second.bytes, 64 * 1024);  // 640-byte glyphs cannot grow slots.
+  for (unsigned pass = 0; pass < 2; ++pass) {
+    // More distinct keys than slots forces eviction without knowing the hash.
+    for (uint32_t i = 0; i < count; ++i) {
+      const auto* glyph = font.getEpdFont()->findGlyph(0x100 + i);
+      ASSERT_NE(glyph, nullptr);
+      const auto* bitmap = font.getOverflowBitmap(glyph);
+      ASSERT_NE(bitmap, nullptr);
+      for (unsigned j = 0; j < 8; ++j) EXPECT_EQ(bitmap[j], uint8_t(i));
+    }
+    const auto* large = font.getEpdFont()->findGlyph(0x10000);
+    ASSERT_NE(large, nullptr);
+    ASSERT_EQ(large->dataLength, largeBytes);
+    const auto* bitmap = font.getOverflowBitmap(large);
+    ASSERT_NE(bitmap, nullptr);
+    for (unsigned j = 0; j < largeBytes; ++j) EXPECT_EQ(bitmap[j], 0x5A);
+    font.clearCache();
+  }
+  EXPECT_EQ(fakeheap::internal.attempts, 0);
+  EXPECT_EQ(Storage.openHandles("collisions.cpfont"), 0);
 }

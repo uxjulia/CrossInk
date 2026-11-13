@@ -58,10 +58,13 @@ class SdCardFont {
   // Load .cpfont file: reads header + intervals into RAM, records file layout offsets.
   // Supports v4 (multi-style) format.
   // Returns true on success.
-  // A nonzero ceiling is for optional C3 content sizes: includes this object,
+  // A nonzero internal-RAM ceiling is for optional content sizes: includes this object,
   // conservative interval/ligature residency, and one reusable bitmap sized
   // to the largest glyph (at most 4KB), plus a 3KB glyph-metrics cache.
-  bool load(const char* path, size_t residentLimit = 0);
+  // An optional PSRAM bitmap cache uses its own pool reserve, never internal RAM.
+  // Optional reserves are checked after inspecting glyphs, before allocating tables/scratch.
+  // The font object already exists; its size is excluded from the remaining allocation.
+  bool load(const char* path, size_t residentLimit = 0, size_t freeHeapReserve = 0, size_t maxAllocHeapReserve = 0);
 
   // Allocation-free preflight for optional sizes. Returns a conservative
   // resident-byte ceiling, or 0 if unreadable, oversized, or above limit.
@@ -318,12 +321,21 @@ class SdCardFont {
     uint32_t codepoint = 0;
     EpdGlyph glyph{};
     uint8_t style = MAX_STYLES;  // Invalid until a successful read.
+    bool bitmapValid = false;
   };
   static constexpr uint32_t CONTENT_METRICS_CACHE_SIZE = 128;
   static constexpr size_t CONTENT_METRICS_CACHE_BYTES = CONTENT_METRICS_CACHE_SIZE * sizeof(ContentMetricsEntry);
   std::unique_ptr<ContentMetricsEntry[]> contentMetrics_;
+  // Up to 64KB in PSRAM only. Fixed slots reuse the metric keys, so drawing
+  // needs no per-glyph allocations and C3 keeps its single-bitmap fallback.
+  static constexpr uint16_t CONTENT_BITMAP_SLOT_MAX = 512;
+  HeapByteBuffer contentBitmaps_;
+  uint16_t contentBitmapStride_ = 0;
+  bool contentBitmapsAttempted_ = false;
   uint16_t metricsDepth_ = 0;
-  const EpdGlyph* contentGlyphMetrics(uint32_t codepoint, uint8_t styleIdx, int32_t glyphIndex) const;
+  ContentMetricsEntry* contentGlyphMetrics(uint32_t codepoint, uint8_t styleIdx, int32_t glyphIndex) const;
+  void prepareContentBitmaps();
+  int contentMetricsIndex(const EpdGlyph* glyph) const;
   // Per-style advance table. Sorted by codepoint for binary lookup.
   // Bounded to ADVANCE_CACHE_LIMIT entries; persists across layout passes
   // (across calls to clearCache()) so repeated indexing of the same font
