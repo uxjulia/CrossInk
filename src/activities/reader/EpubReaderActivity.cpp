@@ -1683,9 +1683,12 @@ void EpubReaderActivity::finalizeReadingStatsOnExit() {
   const uint32_t previousEstimate = stats.estimatedTimeLeftSeconds;
   refreshCachedTimeLeftEstimate();
   if (statsTrackingActive || paceDirty || pendingStatsCommit || stats.estimatedTimeLeftSeconds != previousEstimate) {
-    if (stats.save(epub->getCachePath())) {
-      if (statsTrackingActive || pendingStatsCommit) globalStats.save();
+    const bool bookSaved = stats.save(epub->getCachePath());
+    const bool globalSaved = !(statsTrackingActive || pendingStatsCommit) || globalStats.save();
+    if (bookSaved && globalSaved) {
       pendingSync.mark(epub->getPath(), SyncPending::STATS_BIT);
+    } else {
+      LOG_ERR("ERS", "Could not finish saving reading history on exit");
     }
   }
 }
@@ -4475,7 +4478,7 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuAction action, const 
       } else {
         // Persist current position so the reader resumes at the right page on return.
         // goToReader() depends on this file, so abort the sync if the write fails.
-        const bool saved = saveReadingProgress();
+        const bool saved = saveProgressBeforeRestart();
         if (!saved) {
           LOG_ERR("KOSync", "Aborting sync because current progress could not be saved");
           pendingSyncSaveError = true;
@@ -6514,8 +6517,7 @@ void EpubReaderActivity::render(RenderLock&& lock) {
     armSilentRestartReaderPageBuild(epub->getPath(), static_cast<uint16_t>(currentSpineIndex),
                                     static_cast<uint16_t>(targetPage), automaticPageTurnActive);
     lowMemoryPartialRestartAttempted = true;
-    silentRestartToReader();
-    return true;
+    return silentRestartToReader();
   };
 
   // edge case handling for sub-zero spine index

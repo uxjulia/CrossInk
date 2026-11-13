@@ -1059,3 +1059,6 @@ STR_CALIBRATION_TOP_CORNERS: "Cantos superiores"
 STR_CALIBRATION_BOTTOM_CORNERS: "Cantos inferiores"
 STR_CALIBRATION_CORNER_HELP: "Afaste o relógio e a bateria do canto ou da moldura curva."
 STR_ABOUT_UID: "UID"
+
+STR_RESTORE_STATS: "Restaurar estatísticas"
+STR_STATS_RESTORED: "Estatísticas restauradas"

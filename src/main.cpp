@@ -23,6 +23,8 @@
 #include <SPI.h>
 #include <TrustedTime.h>
 
+#include <cstdlib>
+
 #include "util/PluginEvents.h"
 #if !defined(SIMULATOR) && !FREEINK_MCU_C3
 #include <XteinkDetect.h>
@@ -388,19 +390,64 @@ using BootResume = SleepWakePolicy::Resume;
 // the current activity. WiFi activities call silentRestart() in onExit() to
 // clear heap fragmentation on the way out, but deep sleep is a full chip reset
 // on wake and already clears the heap, so rebooting here would just power the
-// device back up against the user's sleep gesture. Never cleared:
-// startDeepSleep() does not return, so a set latch only ends at the wakeup reset.
+// device back up against the user's sleep gesture. Cleared only if a failed
+// storage shutdown cancels sleep before peripheral power is cut.
 static bool deepSleepInProgress = false;
 
-static void restartWithSilentToken(const bool restoreUsbSerial = false) {
-  // Capture the live state for every destination without changing wake preferences.
-  silentRebootTarget |= SILENT_REBOOT_FRONTLIGHT_VALID;
+static void clearSilentRestartReaderPageBuild();
+static std::atomic<bool> storageTransitionAborted{false};
+
+static void queueStorageSaveAlert() {
+  LOG_ERR("MAIN", "SD save failed; automatic storage transition cancelled");
+  snprintf(APP_STATE.pendingAlertTitle, sizeof(APP_STATE.pendingAlertTitle), "%s", tr(STR_SD_CARD));
+  snprintf(APP_STATE.pendingAlertBody, sizeof(APP_STATE.pendingAlertBody), "%s\n%s", tr(STR_ERROR_GENERAL_FAILURE),
+           tr(STR_CHECK_SERIAL_OUTPUT));
+  APP_STATE.pendingAlertGoHomeOnBack.store(false, std::memory_order_relaxed);
+  APP_STATE.hasPendingAlert.store(true, std::memory_order_release);
+  storageTransitionAborted.store(true, std::memory_order_relaxed);
+}
+
+static bool syncStorageBeforeTransition() {
+#ifdef SIMULATOR
+  // The simulator uses its own POSIX HAL, without the SDK volume API. Keep a
+  // fault-injection seam to exercise transition cancellation on the real UI.
+  const char* failure = std::getenv("CROSSINK_FAIL_STORAGE_SYNC");
+  return !failure || strcmp(failure, "1") != 0;
+#else
+  return !Storage.ready() || Storage.syncFilesystem();
+#endif
+}
+
+static bool restartWithSilentToken(const uint32_t target, const uint32_t payload, const bool restoreUsbSerial = false) {
+  if (deepSleepInProgress) return false;
+  std::optional<RenderLock> lock;
+  if (!RenderLock::heldByCurrentTask()) lock.emplace();
+  if (target == static_cast<uint32_t>(NetworkBootTarget::KOREADER_SYNC)) renderer.clearScreen();
+  GUI.drawPopup(renderer, tr(STR_LOADING));
+  delay(50);
+  // The last popup can read SD fonts. Flush after it, while rendering is
+  // quiescent; a successfully detached USB volume must never be reopened here.
+  if (!syncStorageBeforeTransition()) {
+    silentRebootMagic = 0;
+    silentRebootTarget = 0;
+    silentRebootPayload = 0;
+    clearSilentRestartReaderPageBuild();
+    queueStorageSaveAlert();
+    return false;
+  }
+#ifdef SIMULATOR
+  if (isNetworkBootTargetValue(target) && simulatorInterceptNetworkRestart(target, payload)) return true;
+#endif
+  silentRebootTarget = target | SILENT_REBOOT_FRONTLIGHT_VALID;
   if (Frontlight.isOn()) silentRebootTarget |= SILENT_REBOOT_FRONTLIGHT_ON;
+  silentRebootPayload = payload;
+  silentRebootMagic = SILENT_REBOOT_MAGIC;
 #ifdef SIMULATOR
   SimulatorLifecycle::setSilentRebootToken(silentRebootMagic, silentRebootTarget, silentRebootPayload);
 #endif
   if (restoreUsbSerial) handoffUsbOtgToSerialJtag();
   ESP.restart();
+  return true;
 }
 
 static uint32_t silentRestartBookHash(const std::string& bookPath) {
@@ -414,30 +461,17 @@ static void clearSilentRestartReaderPageBuild() {
   silentReaderPageBuildFlags = 0;
 }
 
-static void silentRestartToHome(const uint32_t payload, const char* const description,
+static bool silentRestartToHome(const uint32_t payload, const char* const description,
                                 const bool restoreUsbSerial = false) {
-  if (deepSleepInProgress) return;  // sleeping supersedes the heap-defrag reboot
+  if (deepSleepInProgress) return false;
   clearSilentRestartReaderPageBuild();
-  silentRebootTarget = SILENT_REBOOT_TARGET_HOME;
-  silentRebootPayload = payload;
-  silentRebootMagic = SILENT_REBOOT_MAGIC;
   LOG_DBG("MAIN", "Silent restart (%s)", description);
-  // E-ink retains the previous frame until Home's first paint lands (~2-3s).
-  // Without an overlay, users don't see the reboot and fire input through to
-  // Home. Select on the default selectorIndex=0 then opens the most-recent
-  // book, looking like a trampoline back to the reader they just exited.
-  GUI.drawPopup(renderer, tr(STR_LOADING));
-  delay(50);
-  restartWithSilentToken(restoreUsbSerial);
+  return restartWithSilentToken(SILENT_REBOOT_TARGET_HOME, payload, restoreUsbSerial);
 }
 
-void silentRestart() { silentRestartToHome(0, "target=home"); }
+bool silentRestart() { return silentRestartToHome(0, "target=home"); }
 
-void restartToHomeAfterStorageHandoff() {
-  // Keep this distinct from other callers: USB Drive has released raw SD
-  // storage and must reboot into Home before any normal filesystem work runs.
-  silentRestartToHome(0, "target=home after storage handoff", true);
-}
+bool restartToHomeAfterStorageHandoff() { return silentRestartToHome(0, "target=home after storage handoff", true); }
 
 void armSilentRestartReaderPageBuild(const std::string& bookPath, const uint16_t spineIndex, const uint16_t targetPage,
                                      const bool autoPageTurnActive) {
@@ -465,44 +499,21 @@ bool consumeSilentRestartReaderPageBuild(const std::string& bookPath, uint16_t& 
   return true;
 }
 
-static void silentRestartToReaderImpl(const bool cleanImageBaseOnEntry) {
-  if (deepSleepInProgress) return;  // sleeping supersedes the heap-defrag reboot
-  silentRebootTarget = SILENT_REBOOT_TARGET_READER;
-  silentRebootPayload = cleanImageBaseOnEntry ? SILENT_REBOOT_READER_CLEAN_IMAGE_BASE : 0;
-  silentRebootMagic = SILENT_REBOOT_MAGIC;
+bool silentRestartToReader(const bool cleanImageBaseOnEntry) {
   LOG_DBG("MAIN", "Silent restart (target=reader cleanImageBase=%d)", cleanImageBaseOnEntry ? 1 : 0);
-  GUI.drawPopup(renderer, tr(STR_LOADING));
-  delay(50);
-  restartWithSilentToken();
+  return restartWithSilentToken(SILENT_REBOOT_TARGET_READER,
+                                cleanImageBaseOnEntry ? SILENT_REBOOT_READER_CLEAN_IMAGE_BASE : 0);
 }
 
-void silentRestartToReader(const bool cleanImageBaseOnEntry) { silentRestartToReaderImpl(cleanImageBaseOnEntry); }
-
-void silentRestartToNetwork(const NetworkBootTarget target, const uint32_t payload) {
-  if (deepSleepInProgress) return;
-#ifdef SIMULATOR
-  if (simulatorInterceptNetworkRestart(static_cast<uint32_t>(target), payload)) return;
-#endif
+bool silentRestartToNetwork(const NetworkBootTarget target, const uint32_t payload) {
+  if (deepSleepInProgress) return false;
   clearSilentRestartReaderPageBuild();
-  silentRebootTarget = static_cast<uint32_t>(target);
-  silentRebootPayload = payload;
-  silentRebootMagic = SILENT_REBOOT_MAGIC;
-  LOG_DBG("MAIN", "Silent restart (target=network/%lu payload=%lu)", static_cast<unsigned long>(silentRebootTarget),
+  LOG_DBG("MAIN", "Silent restart (target=network/%lu payload=%lu)", static_cast<unsigned long>(target),
           static_cast<unsigned long>(payload));
-  if (target == NetworkBootTarget::KOREADER_SYNC) {
-    RenderLock lock;
-    // A drawer close can queue a backdrop repaint. Serialize the handoff and
-    // replace that frame so only one loading notice remains visible.
-    renderer.clearScreen();
-    GUI.drawPopup(renderer, tr(STR_LOADING));
-  } else {
-    GUI.drawPopup(renderer, tr(STR_LOADING));
-  }
-  delay(50);
-  restartWithSilentToken();
+  return restartWithSilentToken(static_cast<uint32_t>(target), payload);
 }
 
-void silentRestartToManageFonts() { silentRestartToNetwork(NetworkBootTarget::MANAGE_FONTS); }
+bool silentRestartToManageFonts() { return silentRestartToNetwork(NetworkBootTarget::MANAGE_FONTS); }
 
 static uint32_t encodeKOReaderSyncOrientation(const uint8_t orientation) {
   return orientation < CrossPointSettings::ORIENTATION_COUNT ? static_cast<uint32_t>(orientation) + 1 : 0;
@@ -538,8 +549,7 @@ bool startGlobalSyncProgress(const bool networkBootReady, const uint8_t readerOr
   }
 
   if (!networkBootReady) {
-    silentRestartToNetwork(NetworkBootTarget::KOREADER_SYNC, encodeKOReaderSyncOrientation(readerOrientation));
-    return true;
+    return silentRestartToNetwork(NetworkBootTarget::KOREADER_SYNC, encodeKOReaderSyncOrientation(readerOrientation));
   }
 
   const DocumentMatchMethod matchMethod = KOREADER_STORE.getMatchMethod();
@@ -1135,7 +1145,8 @@ struct SleepChargeOverlay {
 
   static void draw(void* context, uint16_t percent) {
     auto& overlay = *static_cast<SleepChargeOverlay*>(context);
-    RenderLock lock;
+    std::optional<RenderLock> lock;
+    if (!RenderLock::heldByCurrentTask()) lock.emplace();
     memcpy(renderer.getFrameBuffer(), overlay.frame.get(), renderer.getBufferSize());
     const auto& metrics = UITheme::getInstance().getMetrics();
     renderer.fillRect(overlay.strip.x, overlay.strip.y, overlay.strip.width, overlay.strip.height, false);
@@ -1171,7 +1182,8 @@ static bool holdSleepWhileUsbPowered() {
   memcpy(overlay.frame.get(), renderer.getFrameBuffer(), renderer.getBufferSize());
   const bool buttonPressed = powerManager.holdWhileUsbPowered(gpio, SleepChargeOverlay::draw, &overlay);
   if (!buttonPressed && overlay.painted) {
-    RenderLock lock;
+    std::optional<RenderLock> lock;
+    if (!RenderLock::heldByCurrentTask()) lock.emplace();
     if (!renderer.displayRetainedGrayscaleOverlay(overlay.strip.x, overlay.strip.y, overlay.strip.width,
                                                   overlay.strip.height, true)) {
       LOG_ERR("MAIN", "Could not restore retained sleep image after USB hold");
@@ -1234,9 +1246,31 @@ void enterDeepSleep(bool fromTimeout) {
   // can be written again until the next wake.
   BatteryDiagnosticLog::record(BatteryDiagnosticLog::Event::Sleep, BoardConfig::ACTIVE.name);
   // All sleep-time file writes are complete. Stop SDMMC before the power path
-  // cuts peripheral rails and isolates the bus pads; SPI boards are a no-op.
+  // cuts peripheral rails and isolates the bus pads. SPI boards flush metadata
+  // while keeping their mount until sleep cuts power.
+  std::optional<RenderLock> storageSleepLock;
+  if (!RenderLock::heldByCurrentTask()) storageSleepLock.emplace();
   libraryScanSleepToken.save(!library::libraryIndexNeedsRefresh());
-  Storage.shutdown();
+#ifdef SIMULATOR
+  const bool storageStopped = syncStorageBeforeTransition();
+  if (storageStopped) Storage.shutdown();
+#else
+  const bool storageStopped = Storage.shutdown();
+#endif
+  if (!storageStopped) {
+    deepSleepInProgress = false;
+    APP_STATE.quickLockResumePending = false;
+    APP_STATE.quickLockRestoreFrontlight = false;
+    if (buttonShortcutController.isQuickLocked()) {
+      buttonShortcutController.toggleQuickLock(millis(), buttonShortcutController.quickLockTrigger());
+    }
+#ifndef SIMULATOR
+    gpio.startButtonCapture();
+#endif
+    queueStorageSaveAlert();
+    activityManager.goHome();
+    return;
+  }
 
 #if FREEINK_DEVICE_PICCO
   // The I2C light retains its state through sleep. Keep the saved preference.
@@ -1927,7 +1961,8 @@ void loop() {
 
   // Check for any user activity (button press or release) or active background work
   static unsigned long lastActivityTime = millis();
-  if (userInputReceived || activityManager.preventAutoSleep()) {
+  const bool transitionWasAborted = storageTransitionAborted.exchange(false, std::memory_order_relaxed);
+  if (userInputReceived || activityManager.preventAutoSleep() || transitionWasAborted) {
     lastActivityTime = millis();         // Reset inactivity timer
     powerManager.setPowerSaving(false);  // Restore normal CPU frequency on user activity
   }

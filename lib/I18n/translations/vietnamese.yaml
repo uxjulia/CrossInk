@@ -1059,3 +1059,6 @@ STR_CALIBRATION_TOP_CORNERS: "Góc trên"
 STR_CALIBRATION_BOTTOM_CORNERS: "Góc dưới"
 STR_CALIBRATION_CORNER_HELP: "Dịch đồng hồ và pin ra khỏi góc hoặc cạnh cong."
 STR_ABOUT_UID: "UID"
+
+STR_RESTORE_STATS: "Khôi phục thống kê"
+STR_STATS_RESTORED: "Đã khôi phục thống kê"

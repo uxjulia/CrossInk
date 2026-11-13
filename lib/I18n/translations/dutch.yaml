@@ -1059,3 +1059,6 @@ STR_CALIBRATION_TOP_CORNERS: "Bovenhoeken"
 STR_CALIBRATION_BOTTOM_CORNERS: "Onderhoeken"
 STR_CALIBRATION_CORNER_HELP: "Schuif klok en batterij weg van de hoek of de gebogen rand."
 STR_ABOUT_UID: "UID"
+
+STR_RESTORE_STATS: "Statistieken herstellen"
+STR_STATS_RESTORED: "Statistieken hersteld"

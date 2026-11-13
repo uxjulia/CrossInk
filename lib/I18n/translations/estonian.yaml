@@ -1061,3 +1061,6 @@ STR_CALIBRATION_TOP_CORNERS: "Ülemised nurgad"
 STR_CALIBRATION_BOTTOM_CORNERS: "Alumised nurgad"
 STR_CALIBRATION_CORNER_HELP: "Nihuta kell ja aku nurgast või kaardus servast eemale."
 STR_ABOUT_UID: "UID"
+
+STR_RESTORE_STATS: "Taasta statistika"
+STR_STATS_RESTORED: "Statistika taastatud"

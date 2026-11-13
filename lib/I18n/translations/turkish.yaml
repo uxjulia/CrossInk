@@ -1059,3 +1059,6 @@ STR_CALIBRATION_TOP_CORNERS: "Üst köşeler"
 STR_CALIBRATION_BOTTOM_CORNERS: "Alt köşeler"
 STR_CALIBRATION_CORNER_HELP: "Saat ve pili köşeden veya kavisli kenardan uzaklaştırın."
 STR_ABOUT_UID: "UID"
+
+STR_RESTORE_STATS: "İstatistikleri geri yükle"
+STR_STATS_RESTORED: "İstatistikler geri yüklendi"

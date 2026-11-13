@@ -150,6 +150,8 @@ add_test(NAME UploadFailureRegression
   COMMAND ${Python3_EXECUTABLE} ${REPO_ROOT}/test/scripts/test_upload_cancellation.py)
 add_test(NAME StorageAndBrowsingRegression
   COMMAND ${Python3_EXECUTABLE} ${REPO_ROOT}/test/scripts/test_storage_and_browsing_ports.py)
+add_test(NAME PiccoSleepRenderLockRegression
+  COMMAND ${Python3_EXECUTABLE} ${REPO_ROOT}/scripts/test_picco_sleep_render_lock.py)
 add_test(NAME RecentTxtProgressRegression
   COMMAND ${Python3_EXECUTABLE} ${REPO_ROOT}/test/scripts/test_recent_txt_progress.py)
 add_test(NAME DecodedImageRevisionRegression

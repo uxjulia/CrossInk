@@ -1059,3 +1059,6 @@ STR_CALIBRATION_TOP_CORNERS: "الزوايا العلوية"
 STR_CALIBRATION_BOTTOM_CORNERS: "الزوايا السفلية"
 STR_CALIBRATION_CORNER_HELP: "أبعد الساعة والبطارية عن الزاوية أو الإطار المنحني."
 STR_ABOUT_UID: "UID"
+
+STR_RESTORE_STATS: "استعادة الإحصاءات"
+STR_STATS_RESTORED: "تمت استعادة الإحصاءات"

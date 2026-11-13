@@ -23,13 +23,18 @@ struct GlobalReadingStats {
   static constexpr size_t CURRENT_FILE_SIZE = 175;
   static constexpr size_t MIN_SUPPORTED_FILE_SIZE = 13;
 
-  // Loads this reader's device-qualified stats. Returns default-constructed
-  // stats if the file is missing or the version byte does not match.
+  // Loads this reader's device-qualified stats. Only a genuinely new history
+  // receives a fresh identity; unreadable existing slots protect future saves.
   static GlobalReadingStats load();
 
   // Checked local export, never includes nearby-device snapshots.
   static bool exportLocal(uint8_t* data, size_t capacity);
   static bool loadForUpload(GlobalReadingStats& stats);
+  // A failed read is not an empty history. Only explicit backup recovery (or
+  // restarting after repairing storage) may clear this write protection.
+  static bool recoveryRequired();
+  static bool readBackup(const char* path, GlobalReadingStats& stats);
+  static bool restoreBackup(const char* path);
 
   // Returns true when the optional synced stats directory exists.
   static bool hasSyncedStats();

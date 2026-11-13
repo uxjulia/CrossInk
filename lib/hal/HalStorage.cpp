@@ -229,9 +229,14 @@ UsbDriveState HalStorage::usbDriveState() const {
   HalStorage::StorageLock lock;               \
   return SDCard.method(__VA_ARGS__);
 
-void HalStorage::shutdown() {
+bool HalStorage::shutdown() {
   StorageLock lock;
-  SDCard.shutdown();
+  return SDCard.shutdown();
+}
+
+bool HalStorage::syncFilesystem() {
+  StorageLock lock;
+  return SDCard.syncFilesystem();
 }
 
 uint64_t HalStorage::totalBytes() const { return SDCard.sdTotalBytes(); }

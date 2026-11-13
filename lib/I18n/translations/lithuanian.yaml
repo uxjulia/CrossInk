@@ -1059,3 +1059,6 @@ STR_CALIBRATION_TOP_CORNERS: "Viršutiniai kampai"
 STR_CALIBRATION_BOTTOM_CORNERS: "Apatiniai kampai"
 STR_CALIBRATION_CORNER_HELP: "Patraukite laikrodį ir bateriją nuo kampo arba lenkto krašto."
 STR_ABOUT_UID: "UID"
+
+STR_RESTORE_STATS: "Atkurti statistiką"
+STR_STATS_RESTORED: "Statistika atkurta"

@@ -1059,3 +1059,6 @@ STR_CALIBRATION_TOP_CORNERS: "Obere Ecken"
 STR_CALIBRATION_BOTTOM_CORNERS: "Untere Ecken"
 STR_CALIBRATION_CORNER_HELP: "Uhr und Batterie von der Ecke oder der Rundung wegbewegen."
 STR_ABOUT_UID: "UID"
+
+STR_RESTORE_STATS: "Statistik wiederherstellen"
+STR_STATS_RESTORED: "Statistik wiederhergestellt"

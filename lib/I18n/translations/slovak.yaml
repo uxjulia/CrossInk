@@ -1059,3 +1059,6 @@ STR_CALIBRATION_TOP_CORNERS: "Horné rohy"
 STR_CALIBRATION_BOTTOM_CORNERS: "Dolné rohy"
 STR_CALIBRATION_CORNER_HELP: "Posuňte hodiny a batériu ďalej od rohu alebo zakriveného okraja."
 STR_ABOUT_UID: "UID"
+
+STR_RESTORE_STATS: "Obnoviť štatistiky"
+STR_STATS_RESTORED: "Štatistiky obnovené"

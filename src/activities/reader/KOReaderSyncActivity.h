@@ -74,7 +74,8 @@ class KOReaderSyncActivity final : public Activity {
   // Reads section caches, so the caller must keep the render task off the book.
   static CrossPointPosition mapRemotePosition(const std::shared_ptr<Epub>& epub, GfxRenderer& renderer,
                                               const KOReaderProgress& remote, DocumentMatchMethod method,
-                                              int localSpineIndex, int localSpinePages);
+                                              int localSpineIndex, int localSpinePages,
+                                              bool requireSavedCoordinate = false);
 
   void onEnter() override;
   void onExit() override;
@@ -121,6 +122,7 @@ class KOReaderSyncActivity final : public Activity {
   // Resolved before Wi-Fi on a fresh single-book network boot; deferred in batches.
   KOReaderPosition localProgress;
   bool localProgressDeferred = false;
+  bool localPositionUnavailable = false;
   bool restartBeforeNetwork = false;
   bool folderSync = false;
   bool includeGlobalStats = true;

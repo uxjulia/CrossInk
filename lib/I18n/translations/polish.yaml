@@ -1059,3 +1059,6 @@ STR_CALIBRATION_TOP_CORNERS: "Górne narożniki"
 STR_CALIBRATION_BOTTOM_CORNERS: "Dolne narożniki"
 STR_CALIBRATION_CORNER_HELP: "Odsuń zegar i baterię od narożnika lub zaokrąglonej krawędzi."
 STR_ABOUT_UID: "UID"
+
+STR_RESTORE_STATS: "Przywróć statystyki"
+STR_STATS_RESTORED: "Statystyki przywrócone"

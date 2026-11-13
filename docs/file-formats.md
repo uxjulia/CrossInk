@@ -2152,3 +2152,27 @@ Save writes all six values together; Reset and Cancel only affect the working
 copy until Save. Eight-byte version 1 records retain their four edges and inherit
 the device's default corner clearances; the next saved adjustment writes version 2.
 Older firmware does not understand version 2 and falls back to its defaults.
+
+
+## Reading-stat backup recovery
+
+New files in `/.crossink-stats-backup/` use the global-stats payload followed by
+the existing alternating-slot trailer: little-endian `u32` sequence and IEEE
+CRC-32 of payload plus sequence. The current payload is 175 bytes (version 4),
+so a checked snapshot is 183 bytes. `<name>.bin` and `<name>.bin.bak` retain
+alternating snapshots. Keep both when copying a backup. Existing raw version
+1–4 snapshots remain readable for explicit recovery. No EPUB cache change is
+required.
+
+If neither local global-stat slot can be read, automatic saves, exports, resets
+and backups are blocked for that boot. Settings → Reading Stats → Backup Now
+offers recovery from a readable backup and displays its filename for confirmation.
+Recovery preserves the original counter ID. Existing local slots are renamed
+to `.damaged.0` through `.damaged.15` without replacing earlier archives.
+
+`global_stats_<reader>.bin.recovery` is a one-byte recovery marker (value 1).
+Any presence, including an interrupted empty marker, blocks ordinary saves. It
+is written before archiving originals and removed only after the replacement
+has been saved and read back. An interrupted recovery remains protected on the
+next boot. A confirmed restore advances the same live-reader refresh revision
+as an explicit statistics reset, so an open reader imports the recovered totals.

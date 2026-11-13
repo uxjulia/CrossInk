@@ -106,20 +106,18 @@ bool KOReaderSyncActivity::ensureLocalProgressLoaded() {
   if (!epub) return false;
 
   EpubReaderUtils::Progress progress;
-  if (EpubReaderUtils::loadProgress(*epub, progress, "KOSync")) {
-    currentSpineIndex = progress.spineIndex;
-    currentPage = progress.pageNumber;
-    if (progress.hasPageCount) totalPagesInSpine = std::max(1, progress.pageCount);
-  }
-
-  if (folderSync && (!progress.hasPageCount || progress.pageCount < 1 || progress.pageNumber < 0 ||
-                     progress.pageNumber >= progress.pageCount || progress.spineIndex < 0 ||
-                     progress.spineIndex >= epub->getSpineItemsCount())) {
-    LOG_ERR("KOSync", "Saved position is outside this EPUB");
+  if (!EpubReaderUtils::loadProgress(*epub, progress, "KOSync") || !progress.hasPageCount || progress.pageCount < 1 ||
+      progress.pageNumber < 0 || progress.pageNumber >= progress.pageCount || progress.spineIndex < 0 ||
+      progress.spineIndex >= epub->getSpineItemsCount()) {
+    LOG_ERR("KOSync", "Saved position is missing, unreadable or outside this EPUB; upload disabled");
     localProgressDeferred = false;
+    localPositionUnavailable = true;
     localProgress.valid = false;
     return false;
   }
+  currentSpineIndex = progress.spineIndex;
+  currentPage = progress.pageNumber;
+  totalPagesInSpine = progress.pageCount;
   if (currentSpineIndex < 0 || currentSpineIndex >= epub->getSpineItemsCount()) currentSpineIndex = 0;
   CrossPointPosition localPos = {currentSpineIndex, currentPage, totalPagesInSpine};
   if (progress.hasVisibleTextOffset) {
@@ -186,6 +184,8 @@ void KOReaderSyncActivity::returnToSource() {
     activityManager.goToFileBrowser(resume.fileBrowserPath);
   } else if (resume.origin == PendingOverlayOrigin::Library && resume.valid()) {
     activityManager.goToLibrary();
+  } else if (epubPath.empty()) {
+    activityManager.goHome();
   } else {
     activityManager.goToReader(epubPath, false, false, true);
   }
@@ -326,7 +326,8 @@ void KOReaderSyncActivity::onWifiSelectionComplete(const bool success) {
 CrossPointPosition KOReaderSyncActivity::mapRemotePosition(const std::shared_ptr<Epub>& epub, GfxRenderer& renderer,
                                                            const KOReaderProgress& remote,
                                                            const DocumentMatchMethod method, const int localSpineIndex,
-                                                           const int localSpinePages) {
+                                                           const int localSpinePages,
+                                                           const bool requireSavedCoordinate) {
   const PositionCoordinateSpace remoteCoordinateSpace = method == DocumentMatchMethod::FILENAME
                                                             ? PositionCoordinateSpace::SourceDocument
                                                             : PositionCoordinateSpace::CurrentDocument;
@@ -348,6 +349,14 @@ CrossPointPosition KOReaderSyncActivity::mapRemotePosition(const std::shared_ptr
     remotePosition = ProgressMapper::toCrossPoint(epub, koPos, localSpineIndex, localSpinePages, remoteCoordinateSpace);
   }
   if (!remotePosition.valid) return remotePosition;
+  if (requireSavedCoordinate && !usedRichPosition && !remotePosition.hasVisibleTextOffset) {
+    // Without a local record there is no real page-count hint. A percentage
+    // alone would turn an arbitrary remote location into page 0/1. Keep the
+    // server record untouched until a text/rich coordinate can be resolved.
+    LOG_ERR("KOSync", "Remote position has no usable recovery coordinate");
+    remotePosition.valid = false;
+    return remotePosition;
+  }
 
   // Refine page using the content-offset LUT first, then structural anchors.
   // A partial cache deliberately returns no page for an offset outside its
@@ -471,7 +480,7 @@ void KOReaderSyncActivity::performSync() {
           result, KOReaderSyncClient::lastHttpCode, documentHash.c_str(), remoteProgress.percentage,
           remoteProgress.progress.c_str());
 
-  const bool sameAnchor = !localProgressDeferred && result == KOReaderSyncClient::OK &&
+  const bool sameAnchor = localProgress.valid && !localProgressDeferred && result == KOReaderSyncClient::OK &&
                           localProgress.xpath == remoteProgress.progress &&
                           std::fabs(localProgress.percentage - remoteProgress.percentage) <= 0.001f;
   const bool needsMap = result == KOReaderSyncClient::OK && !sameAnchor;
@@ -485,11 +494,11 @@ void KOReaderSyncActivity::performSync() {
     if (folderSync) loan.emplace(renderer);
     localProgress.valid = ensureLocalProgressLoaded();
     remotePosition.valid = sameAnchor;
-    if (localProgress.valid && needsMap) {
+    if ((localProgress.valid || (localPositionUnavailable && !folderSync)) && needsMap) {
       ensureEpubLoaded();
       if (epub)
-        remotePosition =
-            mapRemotePosition(epub, renderer, remoteProgress, primaryMatchMethod, currentSpineIndex, totalPagesInSpine);
+        remotePosition = mapRemotePosition(epub, renderer, remoteProgress, primaryMatchMethod, currentSpineIndex,
+                                           totalPagesInSpine, localPositionUnavailable);
     }
     if (folderSync && epub && KOREADER_STORE.getSendMetadata() && !preparedMetadata) {
       auto& meta = preparedMetadata.emplace();
@@ -520,6 +529,14 @@ void KOReaderSyncActivity::performSync() {
 }
 
 void KOReaderSyncActivity::finishComparison(const KOReaderSyncClient::Error result) {
+  if (!folderSync && localPositionUnavailable && result == KOReaderSyncClient::OK && remotePosition.valid) {
+    // Recovery is explicitly download-only, even when smart sync is enabled.
+    RenderLock lock(*this);
+    state = SHOWING_RESULT;
+    selectedOption = 0;
+    requestUpdate(true);
+    return;
+  }
   if (!localProgress.valid || (result == KOReaderSyncClient::OK && !remotePosition.valid) ||
       (result != KOReaderSyncClient::OK && result != KOReaderSyncClient::NOT_FOUND)) {
     {
@@ -576,6 +593,15 @@ void KOReaderSyncActivity::finishComparison(const KOReaderSyncClient::Error resu
 }
 
 void KOReaderSyncActivity::performUpload() {
+  if (!localProgress.valid || localPositionUnavailable) {
+    LOG_ERR("KOSync", "Refusing to upload without a validated saved position");
+    RenderLock lock(*this);
+    state = SYNC_FAILED;
+    progressFailed = true;
+    statusMessage = tr(STR_SYNC_FAILED_MSG);
+    requestUpdate(true);
+    return;
+  }
   if (batchExitRequested()) {
     exitBatch();
     return;
@@ -803,7 +829,16 @@ void KOReaderSyncActivity::onEnter() {
     if (hasReaderOrientation) ReaderUtils::applyOrientation(renderer, readerOrientation);
     // Zero means no reader override; valid orientations are encoded one-based.
     const uint32_t orientationPayload = hasReaderOrientation ? static_cast<uint32_t>(readerOrientation) + 1 : 0;
-    silentRestartToNetwork(NetworkBootTarget::KOREADER_SYNC, orientationPayload);
+    if (!silentRestartToNetwork(NetworkBootTarget::KOREADER_SYNC, orientationPayload)) {
+      // This handoff has no book object/path of its own. Keep Back functional
+      // after the checked restart refuses to discard a dirty filesystem.
+      epubPath = APP_STATE.openEpubPath;
+      RenderLock lock(*this);
+      state = SYNC_FAILED;
+      progressFailed = true;
+      statusMessage = tr(STR_SYNC_FAILED_MSG);
+      requestUpdate(true);
+    }
     return;
   }
 
@@ -873,7 +908,7 @@ void KOReaderSyncActivity::onEnter() {
     LOG_INF("KOSync", "local mapping before WiFi free=%u maxAlloc=%u", ESP.getFreeHeap(), ESP.getMaxAllocHeap());
     const bool loaded = ensureLocalProgressLoaded();
     epub.reset();
-    if (!loaded) {
+    if (!loaded && !localPositionUnavailable) {
       LOG_ERR("KOSync", "Cannot resolve saved position before WiFi");
       {
         RenderLock lock(*this);
@@ -1002,15 +1037,17 @@ void KOReaderSyncActivity::render(RenderLock&&) {
     const long localTenths = ProgressSyncComparison::displayedTenths(localProgress.percentage);
     const ProgressSyncComparison::Card cards[] = {
         {tr(STR_SYNC_REMOTE_TITLE), remoteProgress.device.c_str(), remotePageStr, remoteChapter.c_str(),
-         remoteProgress.percentage, remoteTenths > localTenths},
-        {tr(STR_STATS_THIS_DEVICE_SCREEN), nullptr, localPageStr, localChapter.c_str(), localProgress.percentage,
-         localTenths > remoteTenths},
+         remoteProgress.percentage, localProgress.valid && remoteTenths > localTenths},
+        {tr(STR_STATS_THIS_DEVICE_SCREEN), nullptr, localProgress.valid ? localPageStr : "",
+         localProgress.valid ? localChapter.c_str() : "", localProgress.percentage,
+         localProgress.valid && localTenths > remoteTenths, localProgress.valid},
     };
 
     ProgressSyncComparison::drawCards(renderer, screen, metrics, top, cards[0], cards[1]);
 
     const auto actions = ProgressSyncComparison::actionLayout(renderer, screen, metrics, hasTouch, folderSync ? 3 : 2);
-    const char* actionLabels[] = {tr(STR_APPLY_REMOTE), tr(STR_UPLOAD_LOCAL), tr(STR_SKIP_BOOK)};
+    const char* actionLabels[] = {tr(STR_APPLY_REMOTE), localProgress.valid ? tr(STR_UPLOAD_LOCAL) : tr(STR_CANCEL),
+                                  tr(STR_SKIP_BOOK)};
     TouchActionButtons::draw(renderer, actions, actionLabels, selectedOption, selectedOption, UI_10_FONT_ID);
 
     // Bottom button hints. In a bulk sync Back leaves the whole sync, not this book.
@@ -1145,7 +1182,10 @@ void KOReaderSyncActivity::loop() {
       if (selectedOption == 0) {
         saveProgressAndReturn(remotePosition);
       } else if (selectedOption == 1) {
-        performUpload();
+        if (localProgress.valid)
+          performUpload();
+        else
+          returnToSource();
       } else if (selectedOption == 2) {
         skipBook();
       }

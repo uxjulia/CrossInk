@@ -9122,6 +9122,12 @@ class SimulatorSmokeTest {
             // Sync Book reconciled the book, so the position kept for it is gone.
             if (std::getenv("CROSSINK_READING_TEST_MENU_KEPT") && !SyncParked::empty())
               fail("Sync Book left the book's kept position");
+            if (std::getenv("CROSSINK_READING_TEST_COLD")) {
+              const bool expected = !std::getenv("CROSSINK_READING_TEST_RECOVERY_CANCEL") &&
+                                    !std::getenv("CROSSINK_READING_TEST_PERCENT_ONLY");
+              if (writeProgressSnapshot("/read/unread.epub", "/unread-progress.json") != expected)
+                fail("Unread-book recovery must save only after a valid, confirmed remote position");
+            }
             LOG_INF("SMOKE", "Stats upload transport smoke passed");
             std::_Exit(0);
           }
@@ -9134,6 +9140,11 @@ class SimulatorSmokeTest {
           scriptIndex = 0;
           inputCompletionStep = SmokeStep::StatsUploadEmptyDone;
           inputScript.push_back(render("Selected book combined sync", 100));
+          if (std::getenv("CROSSINK_READING_TEST_COLD") && !std::getenv("CROSSINK_READING_TEST_PERCENT_ONLY")) {
+            if (std::getenv("CROSSINK_READING_TEST_RECOVERY_CANCEL")) addTap(MappedInputManager::Button::Down);
+            addTap(MappedInputManager::Button::Confirm);
+            inputScript.push_back(render("Explicit remote progress recovery", 100));
+          }
           step = SmokeStep::ReaderInput;
           break;
         }

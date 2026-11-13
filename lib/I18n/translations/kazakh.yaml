@@ -1059,3 +1059,6 @@ STR_CALIBRATION_TOP_CORNERS: "Жоғарғы бұрыштар"
 STR_CALIBRATION_BOTTOM_CORNERS: "Төменгі бұрыштар"
 STR_CALIBRATION_CORNER_HELP: "Сағат пен батареяны бұрыштан немесе иілген жиектен алыстатыңыз."
 STR_ABOUT_UID: "UID"
+
+STR_RESTORE_STATS: "Статистиканы қалпына келтіру"
+STR_STATS_RESTORED: "Статистика қалпына келтірілді"

@@ -1059,3 +1059,6 @@ STR_CALIBRATION_TOP_CORNERS: "Felső sarkok"
 STR_CALIBRATION_BOTTOM_CORNERS: "Alsó sarkok"
 STR_CALIBRATION_CORNER_HELP: "Húzza beljebb az órát és az akkumulátort a saroktól vagy az ívelt kerettől."
 STR_ABOUT_UID: "UID"
+
+STR_RESTORE_STATS: "Statisztikák visszaállítása"
+STR_STATS_RESTORED: "Statisztikák visszaállítva"

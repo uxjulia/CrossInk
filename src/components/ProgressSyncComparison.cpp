@@ -108,8 +108,9 @@ void drawProgressCard(const GfxRenderer& renderer, const Rect& card, const Card&
   // Row 2: large percentage with the page position right-aligned on the same baseline.
   char percentStr[16];
   snprintf(percentStr, sizeof(percentStr), "%.1f%%", info.percentage * 100);
-  renderer.drawText(UI_12_FONT_ID, x, y, percentStr, true, EpdFontFamily::BOLD);
-  const int percentRight = x + renderer.getTextWidth(UI_12_FONT_ID, percentStr, EpdFontFamily::BOLD) + smallGap;
+  const char* percentLabel = info.available ? percentStr : tr(STR_UNAVAILABLE);
+  renderer.drawText(UI_12_FONT_ID, x, y, percentLabel, true, EpdFontFamily::BOLD);
+  const int percentRight = x + renderer.getTextWidth(UI_12_FONT_ID, percentLabel, EpdFontFamily::BOLD) + smallGap;
   if (right - percentRight > 0) {
     const std::string page = renderer.truncatedText(UI_10_FONT_ID, info.pageText, right - percentRight);
     const int pageX = right - renderer.getTextWidth(UI_10_FONT_ID, page.c_str());
@@ -118,10 +119,10 @@ void drawProgressCard(const GfxRenderer& renderer, const Rect& card, const Card&
   y += renderer.getLineHeight(UI_12_FONT_ID) + RESULT_CARD_ROW_GAP;
 
   // Row 3: progress bar.
-  renderer.drawRect(x, y, innerWidth, RESULT_CARD_BAR_HEIGHT, true);
+  if (info.available) renderer.drawRect(x, y, innerWidth, RESULT_CARD_BAR_HEIGHT, true);
   const float clamped = std::min(1.0f, std::max(0.0f, info.percentage));
   const int fillWidth = static_cast<int>((innerWidth - 4) * clamped);
-  if (fillWidth > 0) {
+  if (info.available && fillWidth > 0) {
     renderer.fillRect(x + 2, y + 2, fillWidth, RESULT_CARD_BAR_HEIGHT - 4, true);
   }
   y += RESULT_CARD_BAR_HEIGHT + RESULT_CARD_ROW_GAP;

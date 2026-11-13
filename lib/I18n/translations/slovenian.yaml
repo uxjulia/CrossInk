@@ -1059,3 +1059,6 @@ STR_CALIBRATION_TOP_CORNERS: "Zgornji koti"
 STR_CALIBRATION_BOTTOM_CORNERS: "Spodnji koti"
 STR_CALIBRATION_CORNER_HELP: "Premaknite uro in baterijo stran od kota ali ukrivljenega roba."
 STR_ABOUT_UID: "UID"
+
+STR_RESTORE_STATS: "Obnovi statistiko"
+STR_STATS_RESTORED: "Statistika obnovljena"

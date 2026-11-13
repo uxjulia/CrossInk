@@ -10,3 +10,7 @@ bool backupGlobalStats(bool manual, char* outFileName = nullptr, size_t outFileN
 // Keeps at least one backup, and up to keep in each daily/manual/clockless set.
 // Returns the number removed; negative keep disables pruning.
 int pruneBackups(int keep = 7);
+
+// Find a readable dated snapshot for the existing backup/recovery screen.
+// A backup is restored only after the user confirms its displayed filename.
+bool findLatestStatsBackup(char* outFileName, size_t capacity);

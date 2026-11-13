@@ -119,6 +119,7 @@ class HalStorage {
     return true;
   }
   bool exists(const char* path) const { return files.contains(path); }
+  bool ensureDirectoryExists(const char* path) { return exists(path) || mkdir(path); }
   bool remove(const char* path) {
     if (failRemovePath_ == path) {
       failRemovePath_.clear();

@@ -5,8 +5,10 @@
 #include <Logging.h>
 
 #include <algorithm>
+#include <string>
 
 #include "MappedInputManager.h"
+#include "activities/reader/GlobalReadingStats.h"
 #include "activities/reader/StatsBackup.h"
 #include "components/TouchActionButtons.h"
 #include "components/TouchHeaderBackButton.h"
@@ -30,6 +32,9 @@ void BackupStatsActivity::onEnter() {
   Activity::onEnter();
   state = WARNING;
   backupFileName[0] = '\0';
+  GlobalReadingStats::load();
+  recovering = GlobalReadingStats::recoveryRequired();
+  if (recovering && !findLatestStatsBackup(backupFileName, sizeof(backupFileName))) state = FAILED;
   requestUpdate();
 }
 
@@ -42,14 +47,16 @@ void BackupStatsActivity::render(RenderLock&&) {
 
   renderer.clearScreen();
   const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput);
+  const char* title = recovering ? tr(STR_RESTORE_STATS) : tr(STR_BACKUP_NOW);
   if (mappedInput.hasTouchHardware()) {
-    TouchHeaderBackButton::draw(renderer, header, tr(STR_BACKUP_NOW), false);
+    TouchHeaderBackButton::draw(renderer, header, title, false);
   } else {
-    GUI.drawHeader(renderer, header, tr(STR_BACKUP_NOW));
+    GUI.drawHeader(renderer, header, title);
   }
 
   if (state == WARNING) {
-    renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2 - 20, tr(STR_BACKUP_STATS_CONFIRM), true);
+    renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2 - 20,
+                              recovering ? backupFileName : tr(STR_BACKUP_STATS_CONFIRM), true);
 
     if (mappedInput.hasTouchHardware()) {
       const auto actions = backupActions(renderer, metrics);
@@ -64,7 +71,9 @@ void BackupStatsActivity::render(RenderLock&&) {
   }
 
   if (state == SUCCESS) {
-    renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2 - 20, tr(STR_BACKUP_STATS_DONE), true, EpdFontFamily::BOLD);
+    renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2 - 20,
+                              recovering ? tr(STR_STATS_RESTORED) : tr(STR_BACKUP_STATS_DONE), true,
+                              EpdFontFamily::BOLD);
     renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2 + 10, backupFileName[0] != '\0' ? backupFileName : "-");
 
     const auto labels = mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), "", "", "");
@@ -73,7 +82,9 @@ void BackupStatsActivity::render(RenderLock&&) {
     return;
   }
 
-  renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2 - 20, tr(STR_BACKUP_STATS_FAILED), true, EpdFontFamily::BOLD);
+  renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2 - 20,
+                            recovering ? tr(STR_ERROR_GENERAL_FAILURE) : tr(STR_BACKUP_STATS_FAILED), true,
+                            EpdFontFamily::BOLD);
   renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2 + 10, tr(STR_CHECK_SERIAL_OUTPUT));
 
   const auto labels = mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), "", "", "");
@@ -82,7 +93,10 @@ void BackupStatsActivity::render(RenderLock&&) {
 }
 
 void BackupStatsActivity::runBackup() {
-  state = backupGlobalStats(true, backupFileName, sizeof(backupFileName)) ? SUCCESS : FAILED;
+  const bool success =
+      recovering ? GlobalReadingStats::restoreBackup((std::string("/.crossink-stats-backup/") + backupFileName).c_str())
+                 : backupGlobalStats(true, backupFileName, sizeof(backupFileName));
+  state = success ? SUCCESS : FAILED;
   requestUpdate();
 }
 

@@ -1059,3 +1059,6 @@ STR_CALIBRATION_TOP_CORNERS: "Esquinas superiores"
 STR_CALIBRATION_BOTTOM_CORNERS: "Esquinas inferiores"
 STR_CALIBRATION_CORNER_HELP: "Aleja el reloj y la batería de la esquina o del borde curvo."
 STR_ABOUT_UID: "UID"
+
+STR_RESTORE_STATS: "Restaurar estadísticas"
+STR_STATS_RESTORED: "Estadísticas restauradas"
