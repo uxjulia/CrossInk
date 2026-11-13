@@ -190,16 +190,17 @@ DictionaryLookupController::LookupEvent DictionaryLookupController::handleInput(
 #endif
     ) {
       state = LookupState::Idle;
-      std::string canonical = Dictionary::resolveAltForm(altFormWord, cachePath.c_str());
-      if (!canonical.empty()) {
-        auto loc = Dictionary::locate(canonical, {}, cachePath.c_str());
-        if (loc.found) {
-          foundWord = std::move(loc.headword);
-          foundLocation = std::move(loc);
-          foundStatus = nextIsSuggestion ? FoundStatus::Suggestion : FoundStatus::AltForm;
-          nextIsSuggestion = false;
-          return LookupEvent::FoundDefinition;
-        }
+      auto loc = Dictionary::resolveAltForm(altFormWord, cachePath.c_str());
+      if (loc.found) {
+        foundWord = std::move(loc.headword);
+        foundLocation = std::move(loc);
+        foundStatus = nextIsSuggestion ? FoundStatus::Suggestion : FoundStatus::AltForm;
+        nextIsSuggestion = false;
+        return LookupEvent::FoundDefinition;
+      }
+      if (loc.readError) {
+        showReadError();
+        return LookupEvent::None;
       }
       handleLookupFailed();
       return LookupEvent::None;

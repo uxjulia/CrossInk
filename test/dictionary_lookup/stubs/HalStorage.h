@@ -9,6 +9,7 @@
 namespace dictionary_test {
 inline std::map<std::string, std::string> files;
 inline std::map<std::string, int> readers;
+inline std::map<std::string, size_t> bytesRead;
 inline bool failRead = false;
 inline bool failWrite = false;
 inline bool failSync = false;
@@ -40,6 +41,7 @@ class HalFile {
   int read(void* out, size_t count) {
     if (!opened || dictionary_test::failRead) return -1;
     count = std::min(count, fileSize() - pos);
+    dictionary_test::bytesRead[path] += count;
     std::memcpy(out, dictionary_test::files.at(path).data() + pos, count);
     pos += count;
     return static_cast<int>(count);

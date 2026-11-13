@@ -50,6 +50,7 @@
 - Choose Low, Normal, or High Tilt Sensitivity in Controls; Normal keeps the existing flick behavior.
 - Add the Estonian (Eesti) interface language pack, contributed by paavoph (discussion #928).
 - Use compressed StarDict `.dict.dz` dictionaries directly from SD, with automatic lookup indexing and streamed definition pages.
+- Unprepared dictionaries now index alternate spellings automatically and open the exact definition each spelling points to.
 
 ### Fixed
 
@@ -180,6 +181,7 @@
 - Keep more EPUB heading and text sizes available with SD bitmap fonts by sizing glyph buffers to the font's actual needs, while preserving the existing memory reserves (#952).
 - Avoid repeated SD font reads while indexing EPUBs whose book styles use a different text size from the selected size (#954).
 - Preserve unreadable reading statistics and offer backup recovery instead of silently replacing history. Protect stats backups with checksums, prevent invalid positions from being uploaded, and finish reader and SD-card saves before sync restarts, sleep, or USB Drive handoff.
+- Fixed prepared dictionaries missing words and alternate spellings that share a long prefix.
 
 ### Changed
 

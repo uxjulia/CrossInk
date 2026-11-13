@@ -18,6 +18,7 @@ class DictionaryLookup : public ::testing::Test {
   void SetUp() override {
     files.clear();
     readers.clear();
+    bytesRead.clear();
     failRead = false;
     duplicateOpens = 0;
     Dictionary::setLookupDictPathOverride("/test");
@@ -139,9 +140,124 @@ TEST_F(DictionaryLookup, SynonymsPreferExactThenRetryStripped) {
   syn.push_back('\0');
   be32(syn, 1);
   files["/test.syn"] = syn;
-  EXPECT_EQ(Dictionary::resolveAltForm("שָׁלוֹם"), "exact");
-  EXPECT_EQ(Dictionary::resolveAltForm("שֻׁלוֹם"), "fallback");
+  EXPECT_EQ(Dictionary::resolveAltForm("שָׁלוֹם").headword, "exact");
+  EXPECT_EQ(Dictionary::resolveAltForm("שֻׁלוֹם").headword, "fallback");
 }
+TEST_F(DictionaryLookup, PreparedPrefixTiesFindEveryHeadwordAndSynonym) {
+  // Sixteen bytes includes only the first byte of the accented character.
+  const std::string prefix = "abcdefghijklmnoé";
+  std::vector<std::string> words;
+  std::string syn, synCspt("CSPT\1\20\20\0", 8);
+  le32(synCspt, 4);
+  for (unsigned i = 0; i < 64; ++i) {
+    char suffix[4];
+    std::snprintf(suffix, sizeof(suffix), "%02u", i);
+    words.push_back(prefix + suffix);
+    if (i % 16 == 0) {
+      synCspt += words.back().substr(0, 16);
+      le32(synCspt, syn.size());
+    }
+    syn += words.back();
+    syn.push_back('\0');
+    be32(syn, 63 - i);
+  }
+  index(words, "cspt");
+  files["/test.syn"] = syn;
+  files["/test.syn.oft.cspt"] = synCspt;
+  for (unsigned i = 0; i < words.size(); ++i) {
+    auto direct = lookup(words[i]);
+    ASSERT_TRUE(direct.found) << i;
+    EXPECT_EQ(direct.offset, i);
+    auto alias = Dictionary::resolveAltForm(words[i]);
+    ASSERT_TRUE(alias.found) << i;
+    EXPECT_EQ(alias.offset, 63 - i);
+  }
+}
+
+TEST_F(DictionaryLookup, AutomaticallyIndexesAliasesAndUsesTheirExactNumberedDefinition) {
+  std::vector<std::string> words(600, "same");
+  index(words);
+  std::string syn;
+  for (unsigned i = 0; i < words.size(); ++i) {
+    char word[16];
+    std::snprintf(word, sizeof(word), "alias%03u", i);
+    syn += word;
+    syn.push_back('\0');
+    be32(syn, i);
+  }
+  files["/test.syn"] = syn;
+  ASSERT_TRUE(Dictionary::prepareQuickIndex());
+  ASSERT_EQ(files.at("/test.syn.qidx").size(), 20 + 3 * 4);
+  const auto savedIdx = files.at("/test.qidx");
+  for (unsigned i : {0u, 255u, 256u, 511u, 512u, 599u}) {
+    char word[16];
+    std::snprintf(word, sizeof(word), "alias%03u", i);
+    bytesRead.clear();
+    auto result = Dictionary::resolveAltForm(word);
+    ASSERT_TRUE(result.found);
+    EXPECT_EQ(result.headword, "same");
+    EXPECT_EQ(result.folderPath, "/test");
+    EXPECT_EQ(result.offset, i);
+    EXPECT_EQ(result.size, 1u);
+    // A numbered jump reads at most one 256-entry block. Synonym bisection also probes sample words.
+    EXPECT_LE(bytesRead["/test.idx"], 256u * 13);
+    EXPECT_LE(bytesRead["/test.syn"], 260u * 13);
+  }
+  files["/test.syn"] += std::string("bad\0", 4);
+  be32(files["/test.syn"], 600);
+  const auto oldSynIndex = files.at("/test.syn.qidx");
+  ASSERT_TRUE(Dictionary::prepareQuickIndex());
+  EXPECT_NE(files.at("/test.syn.qidx"), oldSynIndex);
+  EXPECT_EQ(files.at("/test.qidx"), savedIdx);
+  EXPECT_FALSE(Dictionary::resolveAltForm("bad").found);
+}
+
+TEST_F(DictionaryLookup, PreparedHeadwordOffsetsDoNotSuppressSynonymIndexing) {
+  index(std::vector<std::string>(64, "same"), "oft");
+  files["/test.syn"] = std::string("alias\0", 6);
+  be32(files["/test.syn"], 63);
+  ASSERT_TRUE(Dictionary::prepareQuickIndex());
+  EXPECT_TRUE(files.count("/test.syn.qidx"));
+  EXPECT_FALSE(files.count("/test.qidx"));
+  const auto result = Dictionary::resolveAltForm("alias");
+  ASSERT_TRUE(result.found);
+  EXPECT_EQ(result.offset, 63u);
+}
+
+TEST_F(DictionaryLookup, NumberedDefinitionsUse64BitIndexRecordWidth) {
+  files["/test.ifo"] = "StarDict's dict ifo file\nidxoffsetbits=64\n";
+  for (uint32_t i = 0; i < 258; ++i) {
+    auto& idx = files["/test.idx"];
+    idx += std::string("same\0", 5);
+    be32(idx, i == 257 ? 1 : 0);
+    be32(idx, i);
+    be32(idx, 3);
+  }
+  files["/test.syn"] = std::string("alias\0", 6);
+  be32(files["/test.syn"], 256);
+  files["/test.syn"] += std::string("huge\0", 5);
+  be32(files["/test.syn"], 257);
+  ASSERT_TRUE(Dictionary::prepareQuickIndex());
+  auto result = Dictionary::resolveAltForm("alias");
+  ASSERT_TRUE(result.found);
+  EXPECT_EQ(result.offset, 256u);
+  EXPECT_EQ(result.size, 3u);
+  EXPECT_FALSE(Dictionary::resolveAltForm("huge").found);
+}
+
+TEST_F(DictionaryLookup, IncompleteSynonymBuildLeavesHeadwordsUsableAndCanRetry) {
+  index({"word"}, "qidx");
+  files["/test.syn"] = "alias";
+  EXPECT_FALSE(Dictionary::prepareQuickIndex());
+  EXPECT_FALSE(files.count("/test.syn.qidx"));
+  EXPECT_FALSE(files.count("/test.syn.qidx.tmp"));
+  EXPECT_TRUE(lookup("word").found);
+  files["/test.syn"].push_back('\0');
+  be32(files["/test.syn"], 0);
+  ASSERT_TRUE(Dictionary::prepareQuickIndex());
+  EXPECT_EQ(Dictionary::resolveAltForm("alias").headword, "word");
+}
+
 TEST_F(DictionaryLookup, ReadErrorsAndCancellationDoNotBecomeFallbackHits) {
   index({"שלום"});
   failRead = true;

@@ -12,6 +12,7 @@ This guide describes the dictionary implementation currently shipped on this bra
 | `.syn` | Optional | Alternate forms mapped to `.idx` ordinals |
 | `.idx.oft` / `.syn.oft` | Optional | Coarse page offsets used to narrow a scan |
 | `.idx.oft.cspt` / `.syn.oft.cspt` | Optional | CrossInk prefix indexes used as the fastest lookup path |
+| `.syn.qidx` | Generated | Sampled offsets for unprepared synonym lists |
 | `.qidx` | Generated | Disposable sampled index built by the device when `.idx` has no prepared accelerator |
 
 The device reads `.dict.dz` directly; `.idx` and `.syn` must be uncompressed. Use `scripts/dictionary_tools.py prep` on a computer when decompression is needed or to generate the fastest `.oft`/`.cspt` accelerators. For a dictionary without those accelerators, the device automatically generates `.qidx` on first lookup.
@@ -27,9 +28,9 @@ Dictionary discovery is implemented by `DictionaryRegistry`. It checks `/.dictio
 3. Fall back to the device-generated `.qidx` sampled index.
 4. Fall back to scanning `.idx` from the beginning if the sidecar cannot be read or written.
 
-`Dictionary::resolveAltForm` uses `.syn.oft.cspt`, then `.syn.oft`, then a full `.syn` scan. `Dictionary::findSimilar` uses `.idx.oft` when available and otherwise uses `.qidx` to scan a bounded neighborhood. If neither index accelerator is usable, spelling suggestions are skipped so a large dictionary cannot block the reader UI; direct lookup still works with the uncompressed `.dict` and `.idx` files.
+`Dictionary::resolveAltForm` uses `.syn.oft.cspt`, then `.syn.oft`, then a device-generated `.syn.qidx`. Without a usable index it can still scan the synonym list. The matched synonym names an exact entry number in `.idx`. CrossInk seeks to the nearest `.idx.oft` or `.qidx` sample and reads that entry’s headword and definition range together. `Dictionary::findSimilar` uses `.idx.oft` when available and otherwise uses `.qidx` to scan a bounded neighborhood. If neither index accelerator is usable, spelling suggestions are skipped so a large dictionary cannot block the reader UI; direct lookup still works with the uncompressed `.dict` and `.idx` files.
 
-`.qidx` uses a 20-byte little-endian header containing `QIDX`, format version, sample interval, sample count, and source `.idx` size, followed by the byte offset of every 256th `.idx` entry. It is written through a temporary file and installed only after the complete scan succeeds. A size mismatch or invalid header causes it to be rebuilt.
+`.qidx` uses a 20-byte little-endian header containing `QIDX`, format version, sample interval, sample count, and source `.idx` size, followed by the byte offset of every 256th `.idx` entry. It is written through a temporary file and installed only after the complete scan succeeds. The sibling `.syn.qidx` uses the same format and samples its own `.syn` source. Each is rebuilt independently when its header is invalid or its source size changes.
 
 StarDict files with `idxoffsetbits=64` are parsed, but entries whose definition offset exceeds the device's supported 32-bit range fail safely.
 
@@ -143,13 +144,13 @@ Both `.idx.oft.cspt` and `.syn.oft.cspt` use the same format:
 | 8 | 4 | Entry count (little-endian) |
 | 12... | 20 each | 16-byte, zero-padded prefix plus 4-byte source offset |
 
-The reader performs a case-insensitive binary search for the last prefix less than or equal to the target, then scans only until the next recorded source offset. Invalid or missing `.cspt` data falls back to `.oft`, then to a full scan.
+The reader binary-searches the samples, comparing the full source headword when the stored prefix cannot distinguish it from the query. It starts before case-equivalent matches so it can select the exact spelling even across a sample boundary. Invalid or missing `.cspt` data falls back to `.oft`, then to a full scan.
 
 The header's stride field is currently informational. Producers must continue to emit `16` until the format version and readers are updated together.
 
 ## Verification
 
-There is no dictionary-specific host fixture suite in this branch. For changes:
+Run the native `DictionaryLookupTest` suite. For device and tool validation:
 
 1. Run `python3 scripts/dictionary_tools.py prep` and `lookup` against a representative StarDict dictionary.
 2. Build the simulator with `pio run -e simulator` for reader/UI integration.
