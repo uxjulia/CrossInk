@@ -64,6 +64,7 @@ class StatsStorageTest : public ::testing::Test {
   void SetUp() override {
     Storage.reset();
     switchReader(5);
+    ASSERT_TRUE(Storage.mkdir(CACHE));
   }
 };
 
@@ -298,6 +299,74 @@ TEST_F(StatsStorageTest, ReadOnlyCompletionDoesNotWriteOrMigrate) {
   EXPECT_TRUE(Storage.exists(LEGACY_BOOK));
   EXPECT_FALSE(Storage.exists(ROOT_OWNER));
 }
+TEST_F(StatsStorageTest, CompletionSkipsAbsentStatsAndFindsOlderFilesOnTheirOwningReader) {
+  ASSERT_FALSE(StatsStorage::localPath("/.crosspoint/global_stats.bin").empty());
+  writeBytes(std::string(CACHE) + "/progress.bin", {1});
+  faults = {};
+  EXPECT_FALSE(BookReadingStats::peekCompleted(CACHE));
+  EXPECT_LE(faults.existsChecks, 7u);
+  EXPECT_EQ(faults.readOpens, 1u);  // Card origin for the current format.
+  EXPECT_EQ(faults.directoryOpens, 1u);
+  EXPECT_EQ(faults.directorySteps, 2u);
+  legacyBook(3600);
+  Storage.files.at(LEGACY_BOOK)->bytes[11] = 1;
+  faults = {};
+  EXPECT_TRUE(BookReadingStats::peekCompleted(CACHE));
+  EXPECT_LE(faults.existsChecks, 16u);
+  EXPECT_EQ(faults.readOpens, 3u);  // Two origin checks and the legacy payload.
+  EXPECT_EQ(faults.directoryOpens, 1u);
+  EXPECT_EQ(faults.directorySteps, 3u);
+  EXPECT_EQ(faults.writes, 0u);
+  switchReader(6);
+  EXPECT_FALSE(BookReadingStats::peekCompleted(CACHE));
+  EXPECT_TRUE(Storage.exists(LEGACY_BOOK));
+}
+
+TEST_F(StatsStorageTest, CurrentCompletionUsesNewestSlotWithoutWalkingImageFiles) {
+  for (int i = 0; i < 40; ++i) writeBytes(std::string(CACHE) + "/image_" + std::to_string(i), {0});
+  BookReadingStats book;
+  ASSERT_TRUE(book.save(CACHE));
+  book.isCompleted = true;
+  ASSERT_TRUE(book.save(CACHE));
+  faults = {};
+  EXPECT_TRUE(BookReadingStats::peekCompleted(CACHE));
+  EXPECT_EQ(faults.directoryOpens, 0u);
+  EXPECT_EQ(faults.directorySteps, 0u);
+  EXPECT_LE(faults.existsChecks, 7u);
+  EXPECT_LE(faults.readOpens, 3u);
+  EXPECT_EQ(faults.writes, 0u);
+}
+
+TEST_F(StatsStorageTest, CompletionFallsBackWhenDirectoryWalkIsIncomplete) {
+  legacyBook(3600);
+  Storage.files.at(LEGACY_BOOK)->bytes[11] = 1;
+  faults.failScan = true;
+  EXPECT_TRUE(BookReadingStats::peekCompleted(CACHE));
+  faults.failScan = false;
+  for (int i = 0; i < 40; ++i) writeBytes(std::string(CACHE) + "/image_" + std::to_string(i), {0});
+  faults = {};
+  EXPECT_TRUE(BookReadingStats::peekCompleted(CACHE));
+  EXPECT_LE(faults.directorySteps, 32u);
+  EXPECT_EQ(faults.writes, 0u);
+}
+
+TEST_F(StatsStorageTest, CompletionUsesLegacyRecoveryWithoutMixingReadersOrWriting) {
+  legacyBook(3600);
+  Storage.files.at(LEGACY_BOOK)->bytes[11] = 1;
+  ASSERT_FALSE(StatsStorage::localPath("/.crosspoint/global_stats.bin").empty());
+  ASSERT_TRUE(Storage.rename(LEGACY_BOOK, (std::string(LEGACY_BOOK) + ".bak").c_str()));
+  writeBytes(std::string(LEGACY_BOOK) + ".tmp", {6});
+  EXPECT_TRUE(BookReadingStats::peekCompleted(CACHE));
+  switchReader(6);
+  EXPECT_FALSE(BookReadingStats::peekCompleted(CACHE));
+  BookReadingStats own;
+  ASSERT_TRUE(own.save(CACHE));
+  switchReader(5);
+  EXPECT_TRUE(BookReadingStats::peekCompleted(CACHE));
+  EXPECT_TRUE(Storage.exists((std::string(LEGACY_BOOK) + ".tmp").c_str()));
+  EXPECT_FALSE(Storage.exists(LEGACY_BOOK));
+}
+
 TEST_F(StatsStorageTest, PendingSessionsAreNotUploadedByTheReceivingReader) {
   const auto record = session();
   ASSERT_TRUE(ReadingSessionJournal::save(record));
@@ -591,6 +660,7 @@ TEST_F(StatsStorageTest, InterruptedMigrationStillRecoversTheNewerLegacyBackup) 
   book.totalReadingSeconds = 100;
   ASSERT_TRUE(book.save(CACHE));
   book.totalReadingSeconds = 200;
+  book.isCompleted = true;
   ASSERT_TRUE(book.save(CACHE));
   const std::string generic = std::string(CACHE) + "/stats_v7.bin";
   const auto local = StatsStorage::localPath(generic);
@@ -601,7 +671,11 @@ TEST_F(StatsStorageTest, InterruptedMigrationStillRecoversTheNewerLegacyBackup) 
   EXPECT_EQ(BookReadingStats::load(CACHE).totalReadingSeconds, 0u);
   EXPECT_TRUE(Storage.exists(local.c_str()));
   EXPECT_TRUE(Storage.exists((generic + ".bak").c_str()));
+  switchReader(6);
+  EXPECT_FALSE(BookReadingStats::peekCompleted(CACHE));
   switchReader(5);
+  EXPECT_TRUE(BookReadingStats::peekCompleted(CACHE));
+  EXPECT_TRUE(Storage.exists((generic + ".bak").c_str()));
   EXPECT_EQ(BookReadingStats::load(CACHE).totalReadingSeconds, 200u);
   EXPECT_FALSE(Storage.exists((generic + ".bak").c_str()));
 }

@@ -4,7 +4,9 @@
 #include <HalStorage.h>
 #include <KOReaderSyncClient.h>
 #include <Logging.h>
+#include <strings.h>
 
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 
@@ -94,7 +96,13 @@ bool owner(const std::string& path, const char* fallback, char* out, bool create
 }
 }  // namespace
 
-static std::string resolvePath(const std::string& legacyPath, bool directory, bool readOnly) {
+// Any slot establishes a family. Usually the primary alone answers the question.
+static bool familyExists(const std::string& path, bool directory) {
+  return Storage.exists(path.c_str()) ||
+         (!directory && (Storage.exists((path + ".bak").c_str()) || Storage.exists((path + ".tmp").c_str())));
+}
+
+static std::string resolvePath(const std::string& legacyPath, bool directory, bool readOnly, bool* splitRecovery) {
   char id[32]{};
   if (!KOReaderSyncClient::readerId(id, sizeof(id)) || !validId(id)) {
     LOG_ERR("StatsOrigin", "Cannot read device identity");
@@ -110,10 +118,7 @@ static std::string resolvePath(const std::string& legacyPath, bool directory, bo
   }
   char rootOwner[32];
   if (!owner(std::string(ROOT) + OWNER, id, rootOwner, !readOnly)) return {};
-  bool legacyExists = Storage.exists(legacyPath.c_str());
-  if (!directory)
-    for (const char* suffix : {".bak", ".tmp"}) legacyExists |= Storage.exists((legacyPath + suffix).c_str());
-  if (!legacyExists) return local;
+  if (!familyExists(legacyPath, directory)) return local;
 
   // A per-book claim also travels with a partial cache-folder copy. The root
   // claim covers old book files not opened yet when a whole card is copied.
@@ -125,11 +130,12 @@ static std::string resolvePath(const std::string& legacyPath, bool directory, bo
   // established local family without mixing its slots or totals with that copy.
   // A remaining legacy primary identifies a separate family: migration moves
   // it first. If only legacy recovery slots remain, finish that interrupted move.
-  bool localExists = Storage.exists(local.c_str());
-  if (!directory)
-    for (const char* suffix : {".bak", ".tmp"}) localExists |= Storage.exists((local + suffix).c_str());
+  const bool localExists = familyExists(local, directory);
+  if (readOnly) {
+    if (splitRecovery && localExists) *splitRecovery = !Storage.exists(legacyPath.c_str());
+    return localExists ? local : legacyPath;
+  }
   if (localExists && Storage.exists(legacyPath.c_str())) return local;
-  if (readOnly) return localExists ? local : legacyPath;
   for (const char* suffix : {"", ".bak", ".tmp"}) {
     if (directory && *suffix) break;
     const std::string from = legacyPath + suffix;
@@ -147,13 +153,61 @@ static std::string resolvePath(const std::string& legacyPath, bool directory, bo
 namespace {
 bool blocked = false;
 }
-std::string StatsStorage::localPath(const std::string& path, bool directory, bool readOnly) {
+static std::string checkedPath(const std::string& path, bool directory, bool readOnly, bool* splitRecovery) {
   if (blocked) return {};
-  std::string local = resolvePath(path, directory, readOnly);
+  std::string local = resolvePath(path, directory, readOnly, splitRecovery);
   // load() returns empty counters on failure. Do not later save those empty
   // counters over recovered history after a transient migration failure.
   if (local.empty()) blocked = true;
   return local;
+}
+
+std::string StatsStorage::localPath(const std::string& path, bool directory, bool readOnly) {
+  return checkedPath(path, directory, readOnly, nullptr);
+}
+
+std::string StatsStorage::bookReadPath(const std::string& legacyPath, bool& splitRecovery) {
+  splitRecovery = false;
+  return checkedPath(legacyPath, false, true, &splitRecovery);
+}
+
+StatsStorage::BookFiles StatsStorage::bookFiles(const std::string& cachePath) {
+  BookFiles result;
+  auto dir = Storage.open(cachePath.c_str());
+  bool complete = false;
+  if (dir && dir.isDirectory()) {
+    // Image-heavy EPUBs can have hundreds of cached files. Bound the walk,
+    // then fall back to looking up the known names directly.
+    for (int i = 0; i < 32; ++i) {
+      auto entry = dir.openNextFile();
+      if (!entry) {
+        complete = !FsHelpers::directoryIterationFailed(dir);
+        break;
+      }
+      char name[64]{};
+      const size_t len = entry.getName(name, sizeof(name));
+      if (!entry.close() || !len) break;
+      if (strncasecmp(name, "stats", 5) != 0) continue;
+      const char* tail = name + 5;
+      unsigned version = 0;  // Unversioned stats.bin.
+      if (strncasecmp(tail, "_v", 2) == 0) {
+        if (tail[2] < '0' || tail[2] > '9') continue;
+        version = tail[2] - '0';
+        if (!version || version >= std::size(result.slots)) continue;
+        tail += 3;
+      }
+      // Device-qualified filenames carry an origin between the stem and .bin.
+      if (*tail == '_') tail = strchr(tail, '.');
+      if (!tail) continue;
+      if (strcasecmp(tail, ".bin") == 0) result.slots[version] |= BookFiles::Primary;
+      if (strcasecmp(tail, ".bin.bak") == 0) result.slots[version] |= BookFiles::Backup;
+      if (strcasecmp(tail, ".bin.tmp") == 0) result.slots[version] |= BookFiles::Temp;
+    }
+  }
+  if (!dir.close() || !complete) {
+    std::fill(std::begin(result.slots), std::end(result.slots), BookFiles::All);
+  }
+  return result;
 }
 
 bool StatsStorage::directoryCounterId(const std::string& directory, StatsCounterId& id) {

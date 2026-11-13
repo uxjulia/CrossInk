@@ -331,7 +331,7 @@ void LibraryActivity::resolveRecents() {
       library::foldInto(combined, folded);
       if (!library::matchesQuery(folded, needle)) continue;
     }
-    if (SETTINGS.libraryHideFinishedBooks && BookActions::isBookCompleted(book.path)) continue;
+    if (SETTINGS.libraryHideFinishedBooks && BookActions::isBookCompletedForList(book.path)) continue;
     recentRows[recentCount++] = static_cast<uint16_t>(row);
   }
 }
@@ -1052,6 +1052,8 @@ void LibraryActivity::handleInput(const LibraryInputBuffer::Event& input) {
 }
 
 bool LibraryActivity::isFinishedRow(const int row) {
+  // Every recent row passed the same read-only check when the filter was built.
+  if (sort == Sort::RecentlyRead && SETTINGS.libraryHideFinishedBooks) return false;
   // Rows are drawn with only the file name (or the full path for recents).
   if (rowScratch.path.empty() || UITheme::getFileIcon(rowScratch.path) != UIIcon::Book) return false;
   const bool recentRow = sort == Sort::RecentlyRead;
@@ -1089,6 +1091,10 @@ void LibraryActivity::onFrontlightPanelClosed() {
   // The panel's Reading Stats page can set or clear a book's finished date.
   // ActivityManager calls this while it already holds the render lock.
   finishedCache.clear();
+  if (sort == Sort::RecentlyRead && SETTINGS.libraryHideFinishedBooks) {
+    reloadAfterBookAction();
+    return;
+  }
   requestUpdate();
 }
 

@@ -196,40 +196,67 @@ ReadingStatsDate readDate(const uint8_t* data, const int offset) {
   return date;
 }
 
-}  // namespace
+// Read each candidate once. Keep only the finished flag and slot sequence after
+// validation so comparing primary and backup needs just one payload buffer at a time.
+struct CompletionSlot {
+  progress_record::Slot slot;
+  std::optional<bool> finished;
+};
 
-bool BookReadingStats::peekCompleted(const std::string& cachePath) {
-  // Inspect in place, including recovery snapshots from older firmware.
-  const auto inspect = [](const std::string& path, const uint8_t version, const bool temp) -> std::optional<bool> {
-    if (!Storage.exists(path.c_str())) return std::nullopt;
-    FsFile f;
-    if (!Storage.openFileForRead("STATS", path, f)) return false;
-    uint8_t data[STATS_FILE_SIZE] = {};
-    const size_t fileSize = two_slot::payloadLength(f, statsSizeForVersion(version));
-    const int n = f.read(data, std::min(fileSize, sizeof(data)));
-    f.close();
-    const bool complete = n >= 0 && static_cast<size_t>(n) == fileSize;
-    const bool known =
-        complete && ((n == STATS_FILE_SIZE_V2 && data[0] == STATS_FILE_VERSION_V2) ||
+CompletionSlot readCompletionSlot(const std::string& path, const uint8_t version, const bool temp = false) {
+  uint8_t data[two_slot::MAX_FILE_BYTES];
+  const auto read = two_slot::readSlot("STATS", path.c_str(), statsSizeForVersion(version), data);
+  if (!read.present) return {};
+  const auto n = read.size;
+  const bool known = (n == STATS_FILE_SIZE_V2 && data[0] == STATS_FILE_VERSION_V2) ||
                      (n == STATS_FILE_SIZE_V3 && data[0] == STATS_FILE_VERSION_V3) ||
                      (n == STATS_FILE_SIZE_V4 && data[0] == STATS_FILE_VERSION_V4) ||
                      (n == STATS_FILE_SIZE_V5 && data[0] == STATS_FILE_VERSION_V5) ||
                      (n == STATS_FILE_SIZE_V6 && data[0] == STATS_FILE_VERSION_V6 && validPaceFraction(data)) ||
-                     (n == STATS_FILE_SIZE && data[0] == STATS_FILE_VERSION && validPaceFraction(data)));
-    if (temp && !(known && n == statsSizeForVersion(version) && data[0] == version)) return std::nullopt;
-    return known && data[11] != 0;
-  };
+                     (n == STATS_FILE_SIZE && data[0] == STATS_FILE_VERSION && validPaceFraction(data));
+  if (temp && !(known && n == static_cast<size_t>(statsSizeForVersion(version)) && data[0] == version)) return {};
+  return {read.slot, known && data[11] != 0};
+}
+
+}  // namespace
+
+bool BookReadingStats::peekCompleted(const std::string& cachePath) {
+  StatsStorage::BookFiles files;
+  static_assert(STATS_FILE_VERSION < std::size(files.slots));
+  // Try the current format directly. Most actively read books have it, and an
+  // illustrated book may have hundreds of unrelated files in its cache.
   for (uint8_t version = STATS_FILE_VERSION; version >= OLDEST_VERSIONED_STATS_FILE_VERSION; --version) {
-    const std::string path = StatsStorage::localPath(cachePath + "/" + statsFileNameForVersion(version), false, true);
+    if (version == STATS_FILE_VERSION - 1) files = StatsStorage::bookFiles(cachePath);
+    const uint8_t slots =
+        version == STATS_FILE_VERSION ? static_cast<uint8_t>(StatsStorage::BookFiles::All) : files.slots[version];
+    if (!slots) continue;
+    const auto legacyPath = cachePath + "/" + statsFileNameForVersion(version);
+    bool splitRecovery;
+    const auto path = StatsStorage::bookReadPath(legacyPath, splitRecovery);
     if (path.empty()) return false;
-    const std::string selected = two_slot::preferredPath("STATS", path, statsSizeForVersion(version), true);
-    for (const char* suffix : {"", ".tmp", ".bak"}) {
-      const auto completed = inspect(suffix[0] == 0 ? selected : path + suffix, version, strcmp(suffix, ".tmp") == 0);
-      if (completed.has_value()) return *completed;
+    // Mirror migration's per-slot precedence without moving anything during rendering.
+    const auto recoveryPath = [&](const char* suffix) {
+      auto local = path + suffix;
+      return splitRecovery && !Storage.exists(local.c_str()) ? legacyPath + suffix : local;
+    };
+    CompletionSlot primary, backup;
+    if (slots & StatsStorage::BookFiles::Primary) primary = readCompletionSlot(path, version);
+    if (slots & StatsStorage::BookFiles::Backup) backup = readCompletionSlot(recoveryPath(".bak"), version);
+    // Among checksum-protected slots, prefer the newest valid sequence. Older
+    // unsequenced saves use primary, valid temporary, then backup precedence.
+    if (backup.slot.kind == progress_record::SlotKind::Versioned &&
+        progress_record::newest(primary.slot, backup.slot) == progress_record::BACKUP)
+      return *backup.finished;
+    if (primary.finished.has_value()) return *primary.finished;
+    if (slots & StatsStorage::BookFiles::Temp) {
+      if (auto temp = readCompletionSlot(recoveryPath(".tmp"), version, true); temp.finished.has_value())
+        return *temp.finished;
     }
+    if (backup.finished.has_value()) return *backup.finished;
   }
+  if (!(files.slots[0] & StatsStorage::BookFiles::Primary)) return false;
   const std::string legacy = StatsStorage::localPath(cachePath + "/" + LEGACY_STATS_FILE_NAME, false, true);
-  return !legacy.empty() && inspect(legacy, 0, false).value_or(false);
+  return !legacy.empty() && readCompletionSlot(legacy, 0).finished.value_or(false);
 }
 
 BookReadingStats BookReadingStats::load(const std::string& cachePath) {
