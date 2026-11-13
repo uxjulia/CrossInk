@@ -12,6 +12,7 @@
 #include <Memory.h>
 #include <OpdsFeedParser.h>
 #include <OpdsSearchTemplate.h>
+#include <OpenSearchDescParser.h>
 #include <WiFi.h>
 #include <ZipFile.h>
 
@@ -34,6 +35,7 @@
 #include "components/icons/listIcons.h"
 #include "fontIds.h"
 #include "network/HttpDownloader.h"
+#include "network/HttpRedirectPolicy.h"
 #include "util/BookCacheUtils.h"
 #include "util/OpdsDownloadFolder.h"
 #include "util/OpdsFeedError.h"
@@ -89,6 +91,7 @@ void OpdsBookBrowserActivity::onEnter() {
   catalogReleasedForDownload = false;
   navigationHistory.clear();
   searchTemplate = "";
+  searchBaseUrl.clear();
   currentPath = "";
   selectorIndex = 0;
   errorMessage.clear();
@@ -120,6 +123,7 @@ void OpdsBookBrowserActivity::onEnter() {
 }
 
 void OpdsBookBrowserActivity::onExit() {
+  catalogClient.reset();
   library::invalidateLibraryIndex();
   Activity::onExit();
   clearEntries();
@@ -667,13 +671,17 @@ void OpdsBookBrowserActivity::fetchFeed(const std::string& path) {
   OpdsFeedParser parser(entries.get(), MAX_OPDS_FEED_ENTRIES);
   parser.setPreferredLanguage(I18n::getInstance().getCode());
   HttpRequestDiagnostics diagnostics;
+  HttpDownloader::Session requestSession;
+  std::string finalFeedUrl;
   auto result = HttpDownloader::OK;
   if (parser) {
     HttpDownloader::DownloadOptions downloadOptions;
     downloadOptions.transport = HttpDownloader::Transport::WOLFSSL;
     downloadOptions.authorizationOrigin = authorizationOrigin;
-    result = HttpDownloader::streamUrl(
-        url, [&parser](const uint8_t* data, const size_t len) { return parser.write(data, len) == len; }, nullptr,
+    downloadOptions.session = &requestSession;
+    downloadOptions.finalUrl = &finalFeedUrl;
+    result = catalogClient.get(
+        url, [&parser](const uint8_t* data, const size_t len) { return parser.write(data, len) == len; },
         server.username, server.password, std::move(downloadOptions), &diagnostics);
   }
   parser.flush();  // Finalize before publishing or discarding the bounded entry array.
@@ -720,6 +728,44 @@ void OpdsBookBrowserActivity::fetchFeed(const std::string& path) {
   }
 
   searchTemplate = parser.getSearchTemplate();
+  const std::string& feedBase = finalFeedUrl.empty() ? url : finalFeedUrl;
+  searchBaseUrl = feedBase;
+  if (searchTemplate.empty() && !parser.getSearchDescriptionUrl().empty()) {
+    const auto descriptionUrl = UrlUtils::resolveReference(feedBase, parser.getSearchDescriptionUrl());
+    HttpRedirectPolicy::Url feedOrigin, descriptionOrigin;
+    // Linked discovery cannot downgrade an HTTPS catalog. Credentials remain
+    // scoped to the configured origin, even for a legitimate external descriptor.
+    if (HttpRedirectPolicy::parseUrl(feedBase, feedOrigin) &&
+        HttpRedirectPolicy::parseUrl(descriptionUrl, descriptionOrigin) &&
+        HttpRedirectPolicy::isAllowedRedirect(feedOrigin, descriptionOrigin)) {
+      OpenSearchDescParser description;
+      HttpDownloader::DownloadOptions options;
+      options.transport = HttpDownloader::Transport::WOLFSSL;
+      options.authorizationOrigin = authorizationOrigin;
+      options.session = &requestSession;
+      options.maxBytes = 16 * 1024;
+      std::string finalDescriptionUrl;
+      options.finalUrl = &finalDescriptionUrl;
+      const auto fetched = catalogClient.get(
+          descriptionUrl,
+          [&description](const uint8_t* bytes, size_t size) { return description.write(bytes, size) == size; },
+          server.username, server.password, options);
+      description.flush();
+      if (fetched == HttpDownloader::OK && !description.error() && !description.getTemplate().empty()) {
+        const std::string& descriptionBase = finalDescriptionUrl.empty() ? descriptionUrl : finalDescriptionUrl;
+        const auto resolved =
+            UrlUtils::resolveReference(descriptionBase, expandOpdsSearchTemplate(description.getTemplate(), ""));
+        HttpRedirectPolicy::Url target;
+        if (HttpRedirectPolicy::parseUrl(resolved, target) &&
+            HttpRedirectPolicy::isAllowedRedirect(feedOrigin, target)) {
+          searchTemplate = description.getTemplate();
+          searchBaseUrl = descriptionBase;
+        }
+      } else
+        LOG_ERR("OPDS", "Linked search description unavailable");
+    }
+  }
+  requestSession.reset();
   const auto& nextUrl = parser.getNextPageUrl();
   const auto& prevUrl = parser.getPrevPageUrl();
   entryCount = parser.getEntryCount();
@@ -817,7 +863,7 @@ bool OpdsBookBrowserActivity::loadPublication(OpdsEntry& book, const std::string
   const std::string authorizationOrigin = UrlUtils::ensureProtocol(server.url);
   options.authorizationOrigin = authorizationOrigin;
   size_t received = 0;
-  const auto result = HttpDownloader::streamUrl(
+  const auto result = catalogClient.get(
       url,
       [&](const uint8_t* data, size_t length) {
         // A metadata document is small; do not accept an unbounded mistaken download.
@@ -825,7 +871,7 @@ bool OpdsBookBrowserActivity::loadPublication(OpdsEntry& book, const std::string
         received += length;
         return parser->write(data, length) == length;
       },
-      nullptr, server.username, server.password, std::move(options));
+      server.username, server.password, std::move(options));
   parser->flush();
   if (result != HttpDownloader::OK || parser->error() || parser->getEntryCount() != 1) {
     LOG_ERR("OPDS", "Failed to load publication details");
@@ -1128,7 +1174,8 @@ void OpdsBookBrowserActivity::performSearch(const std::string& query) {
   }
 
   const std::string expanded = expandOpdsSearchTemplate(searchTemplate, opdsPercentEncode(query));
-  const std::string feedUrl = UrlUtils::buildUrl(UrlUtils::ensureProtocol(server.url), currentPath);
+  const std::string feedUrl =
+      searchBaseUrl.empty() ? UrlUtils::buildUrl(UrlUtils::ensureProtocol(server.url), currentPath) : searchBaseUrl;
   const std::string url = UrlUtils::resolveReference(feedUrl, expanded);
 
   navigationHistory.push_back(currentPath);

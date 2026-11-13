@@ -18,6 +18,7 @@ class OpdsFeedParser final : public Print {
   OpdsParserError getErrorReason() const;
   size_t getEntryCount() const { return xml ? xml->getEntryCount() : json ? json->getEntryCount() : 0; }
   bool wasTruncated() const { return xml ? xml->wasTruncated() : json && json->truncated(); }
+  const std::string& getSearchDescriptionUrl() const;
   const std::string& getSearchTemplate() const;
   const std::string& getNextPageUrl() const;
   const std::string& getPrevPageUrl() const;

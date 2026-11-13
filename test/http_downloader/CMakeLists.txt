@@ -25,3 +25,12 @@ target_include_directories(HttpDownloaderDevicePathTest PRIVATE stubs ${REPO_ROO
 target_compile_definitions(HttpDownloaderDevicePathTest PRIVATE FREEINK_NET_WOLFSSL=1)
 target_link_libraries(HttpDownloaderDevicePathTest PRIVATE EXPAT::EXPAT crosspoint_test_common GTest::gtest_main)
 gtest_discover_tests(HttpDownloaderDevicePathTest TEST_SUFFIX .DevicePath)
+
+foreach(target HttpDownloaderTest HttpDownloaderDevicePathTest)
+  target_sources(${target} PRIVATE ${REPO_ROOT}/src/network/OpdsCatalogClient.cpp
+    ${REPO_ROOT}/lib/OpdsParser/OpdsAuthChallenge.cpp
+    ${REPO_ROOT}/freeink-sdk/libs/network/JsonSax/src/StreamingJsonParser.cpp)
+  target_include_directories(${target} PRIVATE ${REPO_ROOT}/freeink-sdk/libs/network/JsonSax/include)
+endforeach()
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+add_test(NAME HttpSdkSessionRegression COMMAND ${Python3_EXECUTABLE} ${REPO_ROOT}/test/scripts/test_http_sdk_session.py)

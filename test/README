@@ -127,3 +127,29 @@ Rebuild your usual debug environment and retry a download on the device. Use
 default selection: versions ending in `-RC` use RC; all others use stable.
 The override applies to both language and hyphenation catalogs and keeps the
 firmware version and language compatibility checks unchanged.
+
+OPDS discovery and scoped requests:
+
+- `OpdsParserTest` checks linked OpenSearch parsing, bounded authentication
+  documents, and strict JSON grammar before accepting Basic offers.
+- `python3 test/scripts/test_http_sdk_session.py` uses the production pinned SDK
+  with a scripted transport under ASan/UBSan to check fixed-length reuse, stale
+  reconnect, abort/truncation closure, and the chunked-trailer safety workaround.
+- `HttpDownloaderTest` and `HttpDownloaderDevicePathTest` exercise challenge-first
+  Basic negotiation, combined/repeated challenge headers, foreign-origin
+  rejection, truncated challenges, final response URLs, and session admission,
+  origin rotation, cancellation/failure/destruction cleanup with host doubles.
+- `python3 test/scripts/test_opds_feed_recovery.py` executes production browser
+  methods under ASan/UBSan, including redirected description URLs, expansion
+  before URL encoding, broken description fallback and downgrade rejection.
+- OPDS reuse is opt-in for one synchronous feed/description operation. It needs
+  at least 64 KiB free internal RAM and a 32 KiB largest block; lower memory
+  uses the existing one-shot transport. A session rotates before its ninth
+  request or after 30 seconds at the next request, and closes before UI returns.
+  Chunked/close-delimited sockets are always closed because the pinned SDK
+  cannot prove trailer completion. It does not change certificate verification: OPDS WOLFSSL retains its existing
+  verification limitation; asset companions stay on CA-verified ESP HTTP.
+- These doubles do not establish hardware TLS peak memory, stale-socket timing
+  or power-loss behavior. Test a Basic-protected local catalog on X3/X4, linked
+  search, repeated entry/exit, an interrupted EPUB download and low-memory
+  fallback. OAuth/token grants, federated sign-in and LCP remain unsupported.

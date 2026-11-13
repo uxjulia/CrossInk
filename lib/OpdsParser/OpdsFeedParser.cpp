@@ -80,3 +80,8 @@ const std::string& OpdsFeedParser::getPrevPageUrl() const {
   static const std::string empty;
   return xml ? xml->getPrevPageUrl() : json ? json->getPrevPageUrl() : empty;
 }
+
+const std::string& OpdsFeedParser::getSearchDescriptionUrl() const {
+  static const std::string empty;
+  return xml ? xml->getSearchDescriptionUrl() : empty;
+}

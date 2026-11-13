@@ -4,12 +4,17 @@
 
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
 
 #include "HttpRequestDiagnostics.h"
+
+namespace freeink {
+class SecureHttpClient;
+}
 
 /**
  * HTTP client utility for fetching content and downloading files.
@@ -40,6 +45,25 @@ class HttpDownloader {
     WOLFSSL,
   };
 
+  // Stack-scoped synchronous operation only, never an activity member. Opt-in
+  // WOLFSSL reuse; no transport or authentication policy changes. At most eight
+  // acquisitions or 30 seconds may share a client before the next request
+  // replaces it. Destruction ends retention immediately; no idle/background task.
+  class Session {
+   public:
+    Session();
+    ~Session();
+    Session(const Session&) = delete;
+    Session& operator=(const Session&) = delete;
+    void reset();
+    // Downloader implementation hook; callers only pass this via options.
+    freeink::SecureHttpClient* acquire(const std::string& url);
+
+   private:
+    struct State;
+    std::unique_ptr<State> state_;
+  };
+
   struct DownloadOptions {
     explicit DownloadOptions(bool preservePartial = false, bool resumePartial = false,
                              CancelCallback shouldCancel = nullptr, size_t bufferSize = 0,
@@ -50,8 +74,14 @@ class HttpDownloader {
           bufferSize(bufferSize),
           transport(transport) {}
 
+    Session* session = nullptr;       // Borrowed; default preserves one-request lifetime.
+    std::string* finalUrl = nullptr;  // Receives only a successful final response URL.
+    uint8_t maxAttempts = 20;         // File reconnect budget, clamped to [1, 20].
     // Borrowed for the synchronous call; never forwarded to a different origin.
     const std::vector<Header>* headers = nullptr;
+    // Opt-in, bounded 401 body sink. Never feeds an error body to a file/parser.
+    // A captured challenge is still UNAUTHORIZED; callers decide whether to retry.
+    DataCallback authChallenge;
     bool preservePartial;
     bool resumePartial;
     CancelCallback shouldCancel;

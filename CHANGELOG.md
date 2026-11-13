@@ -2,6 +2,8 @@
 
 ### Added
 
+- Discover linked OpenSearch descriptions in OPDS catalogs and negotiate advertised Basic authentication without sending catalog credentials on the first request. Reuse a same-origin HTTPS connection during discovery when internal memory permits, then close it before browsing. OAuth and federated sign-in remain unsupported.
+
 - Support BOOX Picco readers, including frontlight controls, the slide switch, touchscreen locking, USB Drive, tilt page turns, and firmware downloads.
 - Support EEGO Reader A4 with touch, optional frontlight, scalable fonts, USB Drive, and dedicated debug, release, and release-candidate firmware assets.
 - Discover and upload static `.otf` fonts on ESP32-S3 readers, including OpenType CFF fonts and CFF files named `.ttf`, from SD or the Fonts web upload. Variable fonts and font collections remain unsupported (CrossPoint #3646, #3717).
@@ -55,6 +57,7 @@
 - Display PNG images with complete grayscale passes and a dithered monochrome fallback; use combined image refreshes only when the display supports them.
 - Preserve text anti-aliasing on mixed text-and-image EPUB pages using complete grayscale planes.
 - Improve downscaled inline PNG detail with bounded area resampling before dithering, retaining the low-memory fallback.
+- Retry interrupted or corrupt asset companion files within bounded limits, verify replacements, and preserve the previously complete source bundle on failure.
 - Prevent extra spacing in runtime TrueType/OpenType fonts by rounding glyph advances only at pixel placement; existing EPUB layouts rebuild automatically (adapted from gkaindl, CrossPoint #4431).
 - Preserve previously synced reading history when replacing an SD card or resetting local stats. New reading adds to cloud history without counting retries twice. Requires an updated CrossPoint Sync server; older servers leave stats pending.
 - Keep publisher CSS styles active when free heap falls below 48 KiB; existing EPUB page caches rebuild automatically (CrossPoint #4032).

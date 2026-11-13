@@ -21,6 +21,9 @@ prefix = r'''
 #include <OpdsParser.h>
 #include <OpdsFeedParser.h>
 #include <OpdsSearchTemplate.h>
+#include <OpenSearchDescParser.h>
+#include "network/HttpRedirectPolicy.h"
+#include <map>
 #include "util/UrlUtils.h"
 #include <vector>
 #include <Memory.h>
@@ -49,7 +52,11 @@ const char* tr(const char* text) { return text; }
 struct HttpDownloader {
   enum DownloadError { OK, HTTP_ERROR, UNAUTHORIZED, FILE_ERROR };
   enum class Transport { WOLFSSL };
-  struct DownloadOptions { Transport transport; std::string_view authorizationOrigin; };
+  struct Session { void reset() {} };
+  struct DownloadOptions { Transport transport; std::string_view authorizationOrigin; Session* session = nullptr;
+    std::string* finalUrl = nullptr; size_t maxBytes = 0; };
+  static inline std::map<std::string, std::pair<std::string,std::string>> documents;
+  static inline std::vector<std::string> urls;
   static inline std::string response, requestedUrl;
   static inline DownloadError outcome = OK;
   static inline int status = 200;
@@ -59,15 +66,19 @@ struct HttpDownloader {
                                 std::nullptr_t, const std::string&, const std::string&, DownloadOptions options,
                                 HttpRequestDiagnostics* diagnostics = nullptr) {
     requestedUrl = url;
+    urls.push_back(url);
+    const auto it = documents.find(url);
+    const auto& payload = it == documents.end() ? response : it->second.first;
+    if (options.finalUrl) *options.finalUrl = it == documents.end() ? url : it->second.second;
     assert(options.authorizationOrigin == "http://opds.example/recent");
     HttpRequestDiagnostics local;
     if (!diagnostics) diagnostics = &local;
-    *diagnostics = {status, true, withheld, false};
+    *diagnostics = {}; diagnostics->status = status; diagnostics->attempted = true; diagnostics->authorizationWithheld = withheld;
     delivered = 0;
-    for (size_t offset = 0; offset < response.size(); offset += 37) {
-      const size_t n = std::min(size_t{37}, response.size() - offset);
+    for (size_t offset = 0; offset < payload.size(); offset += 37) {
+      const size_t n = std::min(size_t{37}, payload.size() - offset);
       delivered += n;
-      if (!cb(reinterpret_cast<const uint8_t*>(response.data() + offset), n)) {
+      if (!cb(reinterpret_cast<const uint8_t*>(payload.data() + offset), n)) {
         diagnostics->callbackRejected = true;
         return FILE_ERROR;
       }
@@ -75,7 +86,15 @@ struct HttpDownloader {
     return outcome;
   }
 };
+struct CatalogDouble {
+  auto get(const std::string& url, const std::function<bool(const uint8_t*, size_t)>& body,
+           const std::string& user, const std::string& password, HttpDownloader::DownloadOptions options,
+           HttpRequestDiagnostics* diagnostics = nullptr) {
+    return HttpDownloader::streamUrl(url, body, nullptr, user, password, options, diagnostics);
+  }
+};
 struct OpdsBookBrowserActivity {
+  CatalogDouble catalogClient;
   enum class BrowserState { ERROR, BROWSING };
   static constexpr size_t OPDS_BROWSER_ENTRY_CAPACITY = MAX_OPDS_FEED_ENTRIES + 2;
   std::unique_ptr<OpdsEntry[]> entries;
@@ -83,7 +102,7 @@ struct OpdsBookBrowserActivity {
   bool uiReady = true, hasPrevPageRow = false, hasNextPageRow = false;
   int selectorIndex = 0, topIndex = 0;
   BrowserState state = BrowserState::ERROR;
-  std::string errorMessage, searchTemplate, currentPath;
+  std::string errorMessage, searchTemplate, searchBaseUrl, currentPath;
   std::vector<std::string> navigationHistory;
   void showLoadingBeforeFetch() {}
   void performSearch(const std::string&);
@@ -214,19 +233,42 @@ int main() {
   HttpDownloader::outcome = HttpDownloader::OK;
   HttpDownloader::status = 200;
   HttpDownloader::response = R"({"navigation":[{"title":"Result","href":"result"}]})";
+  browser.searchBaseUrl.clear();
   browser.currentPath = "/catalog/fiction/index.json?page=1";
   browser.searchTemplate = "search{?query,title,author}";
   browser.performSearch("a & café");
   assert(HttpDownloader::requestedUrl == "http://opds.example/catalog/fiction/search?query=a%20%26%20caf%C3%A9");
   assert(browser.navigationHistory.back() == "/catalog/fiction/index.json?page=1");
+  browser.searchBaseUrl.clear();
   browser.currentPath = "/catalog/fiction/index.json?page=1";
   browser.searchTemplate = "{?query}";
   browser.performSearch("book");
   assert(HttpDownloader::requestedUrl == "http://opds.example/catalog/fiction/index.json?query=book");
+  browser.searchBaseUrl.clear();
   browser.searchTemplate = "../search?q={searchTerms}&page={startPage?}";
   browser.performSearch("new book");
   assert(HttpDownloader::requestedUrl == "http://opds.example/catalog/search?q=new%20book&page=");
-  std::puts("OPDS Atom/JSON cleanup, retry, pagination, parser OOM, publication fetch and HTTP errors passed");
+  HttpDownloader::response = "<feed>" + book + "<link rel='search' type='application/opensearchdescription+xml' href='../search/description.xml'/></feed>";
+  HttpDownloader::documents["http://opds.example/search/description.xml"] = {
+    "<OpenSearchDescription><Url type='application/atom+xml' template='results?q={searchTerms}'/></OpenSearchDescription>",
+    "http://opds.example/redirected/description.xml"};
+  browser.fetchFeed("http://opds.example/catalog/index.xml");
+  assert(browser.entryCount == 1 && browser.state == OpdsBookBrowserActivity::BrowserState::BROWSING);
+  assert(browser.searchTemplate == "results?q={searchTerms}");
+  assert(browser.searchBaseUrl == "http://opds.example/redirected/description.xml");
+  HttpDownloader::response = "<feed>" + book + "</feed>";
+  browser.performSearch("a & café");
+  assert(HttpDownloader::requestedUrl == "http://opds.example/redirected/results?q=a%20%26%20caf%C3%A9");
+  HttpDownloader::response = "<feed>" + book + "<link rel='search' type='application/opensearchdescription+xml' href='../search/description.xml'/></feed>";
+  HttpDownloader::documents["http://opds.example/search/description.xml"].first = "<invalid>";
+  browser.fetchFeed("http://opds.example/catalog/index.xml");
+  assert(browser.entryCount == 1 && browser.searchTemplate.empty());
+  HttpDownloader::documents.clear();
+  const auto callsBefore = HttpDownloader::urls.size();
+  HttpDownloader::response = "<feed>" + book + "<link rel='search' type='application/opensearchdescription+xml' href='http://opds.example/insecure'/></feed>";
+  browser.fetchFeed("https://opds.example/catalog/index.xml");
+  assert(HttpDownloader::urls.size() == callsBefore + 1 && browser.searchTemplate.empty());
+  std::puts("OPDS linked OpenSearch, Atom/JSON cleanup, retry, pagination, parser OOM, publication fetch and HTTP errors passed");
 }
 '''
 
@@ -255,6 +297,7 @@ with tempfile.TemporaryDirectory(prefix="crossink-opds-recovery-") as temp:
     subprocess.run([os.environ.get("CXX", "c++"), "-std=c++20", *flags, *includes,
                     str(harness), str(root / "lib/OpdsParser/OpdsParser.cpp"),
                     str(root / "lib/OpdsParser/OpdsFeedParser.cpp"),
+                    str(root / "lib/OpdsParser/OpenSearchDescParser.cpp"),
                     str(root / "lib/OpdsParser/OpdsJsonParser.cpp"),
                     str(root / "lib/OpdsParser/OpdsSearchTemplate.cpp"), str(root / "src/util/UrlUtils.cpp"),
                     str(root / "freeink-sdk/libs/network/JsonSax/src/StreamingJsonParser.cpp"), *objects, "-o", str(binary)], check=True)

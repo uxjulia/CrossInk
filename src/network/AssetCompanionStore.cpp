@@ -20,6 +20,7 @@ constexpr size_t PATH_BYTES = 384;
 constexpr uint32_t FILE_LIMIT = 2097152;
 constexpr uint32_t TOTAL_LIMIT = 8388608;
 constexpr size_t REFERENCE_LIMIT = 32;
+constexpr unsigned FILE_ATTEMPTS = 3;
 constexpr size_t WALK_LIMIT = 8192;
 constexpr size_t METADATA_RESERVE = 1048576;
 static constexpr const char* INDEX_NAMES[] = {"notices.json", "sources.json"};
@@ -48,6 +49,7 @@ struct Workspace {
   const AssetDownloadService::Endpoints* endpoints = nullptr;
   AssetDownloadService::Callbacks callbacks;
   Result result = Result::Ok;
+  bool retryable = false;
   Workspace() {
     mbedtls_sha256_init(&spoolContext);
     mbedtls_sha256_init(&indexContext);
@@ -180,7 +182,20 @@ bool validateFile(const std::string& path, void* context) {
   }
   return true;
 }
-bool download(Workspace& w, const char* relative, uint32_t expected = 0, bool verify = false) {
+bool retryFile(Workspace& w, unsigned attempt) {
+  if (stopped(w) || attempt + 1 >= FILE_ATTEMPTS) return false;
+  LOG_INF("SOURCE", "Retrying companion file (attempt %u/%u)", attempt + 2, FILE_ATTEMPTS);
+  // Bounded, cancellable delay, with no extra task or allocation. Keep already
+  // verified companions; only the failing file is restarted and reverified.
+  for (unsigned i = 0; i < 10; ++i) {
+    if (stopped(w)) return false;
+    delay(20);
+  }
+  w.result = Result::Ok;
+  return true;
+}
+bool downloadOnce(Workspace& w, const char* relative, uint32_t expected, bool verify) {
+  w.retryable = false;
   if (stopped(w)) return false;
   if (!AssetDownloadService::buildUrl(*w.endpoints, relative, w.url, sizeof(w.url))) {
     w.result = Result::Unavailable;
@@ -191,6 +206,7 @@ bool download(Workspace& w, const char* relative, uint32_t expected = 0, bool ve
     return false;
   }
   HttpDownloader::DownloadOptions options(false, false, [&] { return stopped(w); }, 1024);
+  options.maxAttempts = 3;
   options.stageAsPart = true;
   options.requireBackupCleanup = true;
   options.checkFreeSpace = true;
@@ -210,13 +226,24 @@ bool download(Workspace& w, const char* relative, uint32_t expected = 0, bool ve
       },
       nullptr, "", "", options);
   if (result == HttpDownloader::OK) return !stopped(w);
+  w.retryable = result == HttpDownloader::HTTP_ERROR && (w.result == Result::Ok || w.result == Result::Invalid);
   if (w.result == Result::Ok)
     w.result = result == HttpDownloader::ABORTED ? Result::Cancelled
                : result == HttpDownloader::FILE_ERROR || result == HttpDownloader::INSUFFICIENT_SPACE ? Result::Io
                                                                                                       : Result::Network;
   return false;
 }
-bool downloadIndex(Workspace& w, size_t index) {
+bool download(Workspace& w, const char* relative, uint32_t expected, bool verify) {
+  for (unsigned attempt = 0;; ++attempt) {
+    if (downloadOnce(w, relative, expected, verify)) return true;
+    // SD errors, cancellation and rejected endpoints cannot be repaired by
+    // fetching again. A fresh transfer can repair a truncated or corrupt body.
+    if (!w.retryable || !retryFile(w, attempt)) return false;
+  }
+}
+bool downloadIndexOnce(Workspace& w, size_t index) {
+  w.retryable = false;
+  w.indexBytes[index] = 0;
   if (stopped(w) || !stagePath(w, INDEX_NAMES[index])) return false;
   std::snprintf(w.other, sizeof(w.other), "snapshots/%s/%s", w.catalog->revision, INDEX_NAMES[index]);
   if (!AssetDownloadService::buildUrl(*w.endpoints, w.other, w.url, sizeof(w.url))) {
@@ -263,7 +290,11 @@ bool downloadIndex(Workspace& w, size_t index) {
   const bool synced = file.sync();
   const bool closed = file.close();
   if (result != HttpDownloader::OK || !synced || !closed || stopped(w)) {
-    if (w.result == Result::Ok) w.result = !synced || !closed ? Result::Io : Result::Network;
+    w.retryable = result == HttpDownloader::HTTP_ERROR && synced && closed && w.result == Result::Ok;
+    if (w.result == Result::Ok)
+      w.result = !synced || !closed                  ? Result::Io
+                 : result == HttpDownloader::ABORTED ? Result::Cancelled
+                                                     : Result::Network;
     return false;
   }
   uint8_t digest[32];
@@ -273,6 +304,14 @@ bool downloadIndex(Workspace& w, size_t index) {
   }
   for (size_t i = 0; i < sizeof(digest); ++i) std::snprintf(w.hashes[index] + 2 * i, 3, "%02x", digest[i]);
   return true;
+}
+bool downloadIndex(Workspace& w, size_t index) {
+  for (unsigned attempt = 0;; ++attempt) {
+    if (downloadIndexOnce(w, index)) return true;
+    if (!w.retryable || !retryFile(w, attempt)) return false;
+    // downloadIndexOnce truncates the staged file and resets the digest and
+    // received-byte count. No reference parsing happens until it is complete.
+  }
 }
 char lower(char value) { return value >= 'A' && value <= 'Z' ? char(value + 'a' - 'A') : value; }
 bool collision(const char* a, const char* b) {

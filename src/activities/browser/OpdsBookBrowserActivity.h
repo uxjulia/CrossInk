@@ -15,6 +15,7 @@
 #include "activities/Activity.h"
 #include "activities/ScreenTransitionRefresh.h"
 #include "network/HttpDownloader.h"
+#include "network/OpdsCatalogClient.h"
 #include "util/ButtonNavigator.h"
 
 /**
@@ -74,12 +75,14 @@ class OpdsBookBrowserActivity final : public Activity {
   std::vector<std::string> navigationHistory;
   std::string currentPath;
   std::string searchTemplate;
+  std::string searchBaseUrl;  // Final feed/descriptor URL; templates remain unencoded until expansion.
   int selectorIndex = 0;
   std::string errorMessage;
   std::string statusMessage;
   size_t downloadProgress = 0;
   size_t downloadTotal = 0;
 
+  OpdsCatalogClient catalogClient;
   OpdsServer server;  // Copied at construction — safe even if the store changes during browsing
 
   freeink::ui::GfxRendererTarget uiTarget;  // must precede `app`: the app holds a reference to it
