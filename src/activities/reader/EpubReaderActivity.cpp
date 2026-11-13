@@ -7824,12 +7824,13 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
     finalizeBufferComposition();
   };
 
+  bool imageReplayOk = true;
   const auto composeGrayscaleBuffer = [&]() {
     if (needsTextGrayscale) {
       page->renderText(renderer, fontId, orientedMarginLeft, orientedMarginTop, foregroundBlack);
     }
     if (needsImageGrayscale) {
-      page->renderImages(renderer, fontId, orientedMarginLeft, orientedMarginTop);
+      imageReplayOk = page->renderImages(renderer, fontId, orientedMarginLeft, orientedMarginTop) && imageReplayOk;
     }
     finalizeBufferComposition();
   };
@@ -7906,6 +7907,18 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
   if (!updatePanel) {
     return true;
   }
+  const auto displayMonochromePage = [&]() {
+    renderer.setRenderMode(GfxRenderer::BW);
+    renderer.clearScreen(ReaderUtils::readerBackgroundColor());
+    page->render(renderer, fontId, orientedMarginLeft, orientedMarginTop, foregroundBlack, false);
+    finalizeBufferComposition();
+    renderStatusBar();
+    drawPageFeedback(false);
+    renderer.cleanupGrayscaleWithFrameBuffer();
+    renderer.displayBuffer(HalDisplay::HALF_REFRESH);
+    pagesUntilFullRefresh = 1;
+    return true;
+  };
 #ifndef SIMULATOR
   const bool absoluteImageGrayscale =
       needsImageGrayscale && !gpio.deviceIsX3() && renderer.supportsAbsoluteGrayscale() &&
@@ -7918,7 +7931,11 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
                           : cleanImageBasePending   ? HalDisplay::HALF_REFRESH
                                                     : HalDisplay::FAST_REFRESH;
     if (pendingFontDamagedToast) drawRenderModeToastBuffer(tr(STR_FONT_DAMAGED));
-    if (renderer.displayAbsoluteGrayscaleBase(baseMode)) {
+    // Preserve manual/strong cleanup turns. On ordinary image turns the
+    // controller may fold the base into its complete-plane waveform.
+    const bool directImagePass = baseMode == HalDisplay::FAST_REFRESH && renderer.supportsDirectGrayscale();
+    if ((directImagePass && renderer.displayDirectGrayscaleBase(baseMode)) ||
+        renderer.displayAbsoluteGrayscaleBase(baseMode)) {
       auto renderImageOverlays = [&]() {
         finalizeBufferComposition();
         renderStatusBar();
@@ -7928,14 +7945,12 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
               renderer, *page, fontId, orientedMarginLeft, orientedMarginTop, deferredGrayscalePlanes.lsb.get(),
               deferredGrayscalePlanes.msb.get(), deferredGrayscalePlanes.bytes,
               [](void* context) { (*static_cast<const decltype(renderImageOverlays)*>(context))(); },
-              &renderImageOverlays)) {
+              &renderImageOverlays, needsTextGrayscale, foregroundBlack)) {
         cleanImageBasePending = false;
         pagesUntilFullRefresh = 1;
         return true;
       }
-      renderer.setRenderMode(GfxRenderer::BW);
-      renderer.displayBuffer(baseMode);
-      return true;
+      return displayMonochromePage();
     }
     LOG_ERR("ERS", "Absolute image grayscale unavailable; using overlay");
   }
@@ -8019,11 +8034,14 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
   if (needsAnyGrayscale) {
     ensureGrayscaleStripScratch();
   }
+  bool imageReplayFailed = false;
   if (EpubGrayscale::runTiledGrayscalePass(renderer, *page, fontId, orientedMarginLeft, orientedMarginTop,
                                            foregroundBlack, needsTextGrayscale, needsImageGrayscale,
-                                           grayscaleStripScratch.get(), grayscaleStripScratchSize, overlapRefresh)) {
+                                           grayscaleStripScratch.get(), grayscaleStripScratchSize, overlapRefresh,
+                                           &imageReplayFailed)) {
     return true;
   }
+  if (imageReplayFailed) return displayMonochromePage();
 
   // Save bw buffer to reset buffer state after grayscale data sync
   const bool storedBwBuffer = needsAnyGrayscale && renderer.storeBwBuffer();
@@ -8040,12 +8058,22 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
     renderer.clearScreen(0x00);
     renderer.setRenderMode(GfxRenderer::GRAYSCALE_LSB);
     composeGrayscaleBuffer();
+    if (!imageReplayOk) {
+      renderer.setRenderMode(GfxRenderer::BW);
+      renderer.restoreBwBuffer();
+      return displayMonochromePage();
+    }
     renderer.copyGrayscaleLsbBuffers();
 
     // Render and copy to MSB buffer
     renderer.clearScreen(0x00);
     renderer.setRenderMode(GfxRenderer::GRAYSCALE_MSB);
     composeGrayscaleBuffer();
+    if (!imageReplayOk) {
+      renderer.setRenderMode(GfxRenderer::BW);
+      renderer.restoreBwBuffer();
+      return displayMonochromePage();
+    }
     renderer.copyGrayscaleMsbBuffers();
 
     // display grayscale part

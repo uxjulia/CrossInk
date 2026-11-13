@@ -280,7 +280,7 @@ TEST(EpubTextRaster, VariationSelectorsDoNotDrawOrAdvance) {
   }
 }
 
-TEST(AbsoluteImageRaster, TextMatchesBlackWhiteInBothPlanesAndCancellationResetsMode) {
+TEST(AbsoluteImageRaster, TextCoverageMatchesOverlayShadesInCompletePlanes) {
   fakeheap::reset(true);
   Storage.reset();
   RasterFont fixture(12);
@@ -290,20 +290,38 @@ TEST(AbsoluteImageRaster, TextMatchesBlackWhiteInBothPlanesAndCancellationResets
   renderer.insertFont(1, EpdFontFamily(&fixture.font));
   for (int orientation = 0; orientation < 4; ++orientation) {
     renderer.setOrientation(GfxRenderer::Orientation(orientation));
-    renderer.clearScreen();
-    renderer.drawText(1, 25, 40, "Book cover");
-    const auto expected = display.bw;
-    ASSERT_TRUE(renderer.displayAbsoluteGrayscaleBase());
-    for (auto mode : {GfxRenderer::GRAYSCALE_LSB, GfxRenderer::GRAYSCALE_MSB}) {
+    for (auto style : {EpdFontFamily::REGULAR, EpdFontFamily::SMALL_CAPS}) {
+      const auto draw = [&] { renderer.drawText(1, 25, 40, "Book cover", true, style); };
+      renderer.setRenderMode(GfxRenderer::BW);
       renderer.clearScreen();
-      renderer.setRenderMode(mode);
-      renderer.drawText(1, 25, 40, "Book cover");
-      EXPECT_EQ(display.bw, expected);
+      draw();
+      const auto base = display.bw;
+      std::array<std::vector<uint8_t>, 2> masks;
+      int index = 0;
+      for (auto mode : {GfxRenderer::GRAYSCALE_LSB, GfxRenderer::GRAYSCALE_MSB}) {
+        renderer.setRenderMode(mode);
+        renderer.clearScreen(0);
+        draw();
+        masks[index++] = display.bw;
+      }
+      ASSERT_TRUE(renderer.displayAbsoluteGrayscaleBase());
+      index = 0;
+      for (auto mode : {GfxRenderer::GRAYSCALE_LSB, GfxRenderer::GRAYSCALE_MSB}) {
+        display.bw = base;
+        renderer.setRenderMode(mode);
+        draw();
+        auto expected = base;
+        for (size_t byte = 0; byte < base.size(); ++byte)
+          expected[byte] |= index ? masks[1][byte] & ~masks[0][byte] : masks[0][byte];
+        EXPECT_EQ(display.bw, expected);
+        EXPECT_NE(display.bw, base);
+        ++index;
+      }
+      renderer.setRenderMode(GfxRenderer::BW);
+      EXPECT_FALSE(renderer.grayPlanesAreAbsolute());
     }
-    renderer.setRenderMode(GfxRenderer::BW);
-    EXPECT_FALSE(renderer.grayPlanesAreAbsolute());
   }
-  EXPECT_EQ(display.canceled, 4);
+  EXPECT_EQ(display.canceled, 8);
   display.absoluteSupported = false;
   EXPECT_FALSE(renderer.supportsAbsoluteGrayscale());
   EXPECT_FALSE(renderer.displayAbsoluteGrayscaleBase());
@@ -494,7 +512,7 @@ TEST(EpubTextGrayscaleTest, CachedNightModeImagesMatchMonochromeAcrossStoragePat
       std::vector<uint8_t> pixels(4 + 16 * 4, 0x1B);
       pixels[0] = pixels[2] = 16;
       pixels[1] = pixels[3] = 0;
-      Storage.put("image_v2.pxc", pixels);
+      Storage.put("image_png_v3.pxc", pixels);
       HalDisplay display(800, 480);
       GfxRenderer renderer(display);
       renderer.begin();

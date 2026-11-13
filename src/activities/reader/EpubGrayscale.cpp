@@ -52,7 +52,8 @@ HeapByteBuffer allocateScratch(const int widthBytes, const int height, size_t& s
 
 bool runAbsoluteImageGrayscalePass(GfxRenderer& renderer, const Page& page, const int fontId, const int marginLeft,
                                    const int marginTop, uint8_t* lsb, uint8_t* msb, const size_t planeSize,
-                                   void (*renderOverlays)(void*), void* context) {
+                                   void (*renderOverlays)(void*), void* context, const bool needsTextGrayscale,
+                                   const bool foregroundBlack) {
   const int height = renderer.getDisplayHeight();
   const size_t bytes = static_cast<size_t>(renderer.getDisplayWidthBytes()) * height;
   if (!renderer.grayPlanesAreAbsolute() || !lsb || !msb || planeSize < bytes) {
@@ -66,7 +67,11 @@ bool runAbsoluteImageGrayscalePass(GfxRenderer& renderer, const Page& page, cons
     memcpy(plane, renderer.getFrameBuffer(), bytes);
     renderer.setRenderMode(mode);
     renderer.beginStripTarget(plane, 0, height);
-    page.renderImages(renderer, fontId, marginLeft, marginTop);
+    if (needsTextGrayscale) page.renderText(renderer, fontId, marginLeft, marginTop, foregroundBlack);
+    if (!page.renderImages(renderer, fontId, marginLeft, marginTop)) {
+      renderer.endStripTarget();
+      return false;
+    }
     // Feedback or clipping highlights may overlap the image itself.
     if (renderOverlays) renderOverlays(context);
     renderer.endStripTarget();
@@ -82,7 +87,14 @@ bool runAbsoluteImageGrayscalePass(GfxRenderer& renderer, const Page& page, cons
 bool runTiledGrayscalePass(GfxRenderer& renderer, const Page& page, const int fontId, const int marginLeft,
                            const int marginTop, const bool foregroundBlack, const bool needsTextGrayscale,
                            const bool needsImageGrayscale, uint8_t* scratch, const size_t scratchSize,
-                           const bool asyncRefreshPending) {
+                           const bool asyncRefreshPending, bool* imageReplayFailed) {
+  if (imageReplayFailed) *imageReplayFailed = false;
+  const auto failedImageReplay = [&]() {
+    if (asyncRefreshPending) renderer.waitRefreshComplete();
+    renderer.setRenderMode(GfxRenderer::BW);
+    if (imageReplayFailed) *imageReplayFailed = true;
+    return false;
+  };
   if ((!needsTextGrayscale && !needsImageGrayscale) || !renderer.supportsStripGrayscale()) {
     return false;
   }
@@ -100,10 +112,9 @@ bool runTiledGrayscalePass(GfxRenderer& renderer, const Page& page, const int fo
     if (needsTextGrayscale) {
       page.renderText(renderer, fontId, marginLeft, marginTop, foregroundBlack);
     }
-    if (needsImageGrayscale) {
-      page.renderImages(renderer, fontId, marginLeft, marginTop);
-    }
+    const bool ok = !needsImageGrayscale || page.renderImages(renderer, fontId, marginLeft, marginTop);
     renderer.endStripTarget();
+    return ok;
   };
 
   // Async overlap uses up to two additional whole-plane buffers (~48 KB each).
@@ -132,17 +143,15 @@ bool runTiledGrayscalePass(GfxRenderer& renderer, const Page& page, const int fo
       LOG_INF("EPS", "Using PSRAM grayscale planes: bytes=%u count=%u", static_cast<unsigned>(planeBytes),
               msbPlaneBuf ? 2U : 1U);
     }
-    renderPlaneToBuffer(GfxRenderer::GRAYSCALE_LSB, lsbPlaneBuf.get());
-    if (msbPlaneBuf) {
-      renderPlaneToBuffer(GfxRenderer::GRAYSCALE_MSB, msbPlaneBuf.get());
-    }
+    if (!renderPlaneToBuffer(GfxRenderer::GRAYSCALE_LSB, lsbPlaneBuf.get())) return failedImageReplay();
+    if (msbPlaneBuf && !renderPlaneToBuffer(GfxRenderer::GRAYSCALE_MSB, msbPlaneBuf.get())) return failedImageReplay();
 
     renderer.waitRefreshComplete();
     renderer.writeGrayscalePlaneStrip(true, lsbPlaneBuf.get(), 0, displayHeight);
     if (msbPlaneBuf) {
       renderer.writeGrayscalePlaneStrip(false, msbPlaneBuf.get(), 0, displayHeight);
     } else {
-      renderPlaneToBuffer(GfxRenderer::GRAYSCALE_MSB, lsbPlaneBuf.get());
+      if (!renderPlaneToBuffer(GfxRenderer::GRAYSCALE_MSB, lsbPlaneBuf.get())) return failedImageReplay();
       renderer.writeGrayscalePlaneStrip(false, lsbPlaneBuf.get(), 0, displayHeight);
     }
 
@@ -183,17 +192,16 @@ bool runTiledGrayscalePass(GfxRenderer& renderer, const Page& page, const int fo
       if (needsTextGrayscale) {
         page.renderText(renderer, fontId, marginLeft, marginTop, foregroundBlack);
       }
-      if (needsImageGrayscale) {
-        page.renderImages(renderer, fontId, marginLeft, marginTop);
-      }
+      const bool ok = !needsImageGrayscale || page.renderImages(renderer, fontId, marginLeft, marginTop);
       renderer.endStripTarget();
+      if (!ok) return false;
       renderer.writeGrayscalePlaneStrip(lsbPlane, scratch, y, rows);
     }
+    return true;
   };
 
-  renderPlane(GfxRenderer::GRAYSCALE_LSB, true);
-
-  renderPlane(GfxRenderer::GRAYSCALE_MSB, false);
+  if (!renderPlane(GfxRenderer::GRAYSCALE_LSB, true) || !renderPlane(GfxRenderer::GRAYSCALE_MSB, false))
+    return failedImageReplay();
 
   renderer.setRenderMode(GfxRenderer::BW);
   renderer.displayGrayBuffer();

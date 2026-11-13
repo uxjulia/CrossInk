@@ -52,3 +52,9 @@ target_include_directories(DeferredGrayscaleTest PRIVATE stubs ../memory_policy/
 target_compile_definitions(DeferredGrayscaleTest PRIVATE ARDUINO_ARCH_ESP32=1 CROSSINK_MEMORY_TEST=1)
 target_link_libraries(DeferredGrayscaleTest PRIVATE crosspoint_test_common GTest::gtest_main)
 gtest_discover_tests(DeferredGrayscaleTest)
+
+add_executable(ImageViewerGrayscaleTest ImageViewerGrayscaleTest.cpp)
+target_include_directories(ImageViewerGrayscaleTest PRIVATE stubs ../memory_policy/stubs
+  ${REPO_ROOT}/src/activities/util)
+target_link_libraries(ImageViewerGrayscaleTest PRIVATE crosspoint_test_common GTest::gtest_main)
+gtest_discover_tests(ImageViewerGrayscaleTest)

@@ -39,7 +39,7 @@ struct Rect {
 };
 
 void compare(int orientation, int rotation, bool twoBit, Plane plane, bool state, int width, int height, int x, int y,
-             int originY, int rows, Rect clip) {
+             int originY, int rows, Rect clip, bool absolute = false) {
   SCOPED_TRACE(::testing::Message() << orientation << ',' << rotation << ',' << twoBit << ',' << static_cast<int>(plane)
                                     << ',' << state << " size=" << width << 'x' << height << " at=" << x << ',' << y
                                     << " band=" << originY << ',' << rows);
@@ -66,7 +66,14 @@ void compare(int orientation, int rotation, bool twoBit, Plane plane, bool state
         if (plane == Plane::BW) draw = value < 3;
         if (plane == Plane::GrayLSB) draw = value == 1;
         if (plane == Plane::GrayMSB) draw = value == 1 || value == 2;
-        if (plane != Plane::BW) black = false;
+        if (plane != Plane::BW) {
+          black = false;
+          if (absolute) {
+            draw = value != 3;
+            const int level = state ? value : 3 - value;
+            black = !(level & (plane == Plane::GrayMSB ? 2 : 1));
+          }
+        }
       } else {
         draw = (bitmap[source / 8] >> (7 - source % 8)) & 1;
       }
@@ -87,7 +94,7 @@ void compare(int orientation, int rotation, bool twoBit, Plane plane, bool state
   const auto [yx, yy] = physical(orientation, x + dyX, y + dyY);
   const glyphBitmap::Target target{
       actual.data() + 16, PANEL_WIDTH, STRIDE, originY, rows, {px, py, xx - px, xy - py, yx - px, yy - py}};
-  glyphBitmap::draw(bitmap.data(), width, height, twoBit, plane, state, target, local);
+  glyphBitmap::draw(bitmap.data(), width, height, twoBit, plane, state, target, local, absolute);
   EXPECT_EQ(expected, actual);
 }
 }  // namespace
@@ -123,4 +130,16 @@ TEST(GlyphBitmap, EmptyAndFullyClippedGlyphsDoNotWrite) {
       compare(orientation, rotation, true, Plane::BW, true, 11, 9, 0, 0, 0, 32, {12, 10, 15, 20});
     }
   }
+}
+
+TEST(GlyphBitmap, AbsoluteCoveragePreservesTransparencyAndMatchesAllOrientations) {
+  for (int orientation = 0; orientation < 4; ++orientation)
+    for (int rotation = 0; rotation < 2; ++rotation)
+      for (bool twoBit : {false, true})
+        for (bool black : {false, true})
+          for (Plane plane : {Plane::GrayLSB, Plane::GrayMSB})
+            for (int width : {1, 3, 7, 16, 31})
+              for (const auto [origin, rows] : {std::pair{0, 32}, std::pair{7, 11}})
+                compare(orientation, rotation, twoBit, plane, black, width, 13, 9, 11, origin, rows, {2, 3, 28, 30},
+                        true);
 }

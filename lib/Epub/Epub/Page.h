@@ -57,7 +57,7 @@ class PageImage final : public PageElement {
   PageImage(std::unique_ptr<ImageBlock> block, const int16_t xPos, const int16_t yPos, const bool inlineImage = false)
       : PageElement(xPos, yPos), imageBlock(std::move(block)), inlineImage(inlineImage) {}
   void render(GfxRenderer& renderer, int fontId, int xOffset, int yOffset, bool foregroundBlack = true) override;
-  void render(GfxRenderer& renderer, int fontId, int xOffset, int yOffset, bool foregroundBlack, bool imageGrayscale);
+  bool render(GfxRenderer& renderer, int fontId, int xOffset, int yOffset, bool foregroundBlack, bool imageGrayscale);
   void renderPlaceholder(GfxRenderer& renderer, int xOffset, int yOffset, bool foregroundBlack) const;
   bool serialize(Print& file) override;
   PageElementTag getTag() const override { return TAG_PageImage; }
@@ -244,7 +244,7 @@ class Page {
   void render(GfxRenderer& renderer, int fontId, int xOffset, int yOffset, bool foregroundBlack = true,
               bool imageGrayscale = true) const;
   void renderText(GfxRenderer& renderer, int fontId, int xOffset, int yOffset, bool foregroundBlack = true) const;
-  void renderImages(GfxRenderer& renderer, int fontId, int xOffset, int yOffset, bool foregroundBlack = true,
+  bool renderImages(GfxRenderer& renderer, int fontId, int xOffset, int yOffset, bool foregroundBlack = true,
                     bool imageGrayscale = true) const;
   // When renderCachedImages is false, draw placeholders without checking or
   // reading image caches. This keeps transient queued pages free of image I/O.

@@ -6,6 +6,7 @@
 
 namespace {
 int failRowAllocations = 0;
+int decoderRequests = 0;
 std::vector<size_t> rowAllocations;
 void* rasterMalloc(size_t n) {
   rowAllocations.push_back(n);
@@ -25,7 +26,10 @@ bool ImageDecoderFactory::supportsMemorySource(const std::string& path) {
   return path.ends_with(".jpg") || path.ends_with(".png");
 }
 
-ImageToFramebufferDecoder* ImageDecoderFactory::getDecoder(const std::string&) { return nullptr; }
+ImageToFramebufferDecoder* ImageDecoderFactory::getDecoder(const std::string&) {
+  ++decoderRequests;
+  return nullptr;
+}
 
 namespace {
 std::vector<uint8_t> cache(int w, int h) {
@@ -453,6 +457,13 @@ TEST_F(EpubGrayscaleTest, MissingScratchAndUnsupportedPathsPreserveFallbackContr
     EXPECT_EQ(r.events, reason == 3 ? (std::vector<std::string>{"wait", "cleanup"}) : std::vector<std::string>{});
   }
 }
+TEST_F(EpubGrayscaleTest, PngCacheRevisionDoesNotReuseOldPixelsOrInvalidateJpeg) {
+  EXPECT_EQ(getCachePath("chapter/image.png"), "chapter/image_png_v3.pxc");
+  EXPECT_EQ(getCachePath("chapter/image.PNG"), "chapter/image_png_v3.pxc");
+  EXPECT_EQ(getCachePath("chapter/image.jpg"), "chapter/image_v2.pxc");
+  EXPECT_EQ(getCachePath("chapter/image.gif"), "chapter/image_v2.pxc");
+}
+
 TEST_F(EpubGrayscaleTest, AbsoluteImagesReplaceAllFourLevelsAndPreserveTheRestOfThePage) {
   for (int orientation = 0; orientation < 4; ++orientation) {
     ImageBlock::releaseSessionPixelCache();
@@ -465,7 +476,8 @@ TEST_F(EpubGrayscaleTest, AbsoluteImagesReplaceAllFourLevelsAndPreserveTheRestOf
     Page page;
     page.images = {{&image, 9, 13}};
     std::vector<uint8_t> low(base.size()), high(base.size());
-    ASSERT_TRUE(EpubGrayscale::runAbsoluteImageGrayscalePass(r, page, 1, 0, 0, low.data(), high.data(), low.size()));
+    ASSERT_TRUE(EpubGrayscale::runAbsoluteImageGrayscalePass(r, page, 1, 0, 0, low.data(), high.data(), low.size(),
+                                                             nullptr, nullptr, true));
     for (int plane = 0; plane < 2; ++plane) {
       auto expected = base;
       for (int y = 0; y < 23; ++y) {
@@ -499,7 +511,7 @@ TEST_F(EpubGrayscaleTest, AbsoluteImagesReplaceAllFourLevelsAndPreserveTheRestOf
     EXPECT_FALSE(r.absolute);
     EXPECT_EQ(r.mode, GfxRenderer::BW);
     EXPECT_EQ(r.events, (std::vector<std::string>{"copy", "gray", "cleanup"}));
-    EXPECT_EQ(page.allVisits, 0);
+    EXPECT_EQ(page.allVisits, 2);
     EXPECT_EQ(page.imageVisits, 2);
   }
 }
@@ -549,5 +561,61 @@ TEST_F(EpubGrayscaleTest, AbsoluteFeedbackIsDrawnAfterImagesInBothPlanes) {
   EXPECT_EQ(r.msb[0], 0x96);
   EXPECT_EQ(r.bw, base);
   EXPECT_EQ(r.events, (std::vector<std::string>{"copy", "gray", "cleanup"}));
+}
+
+TEST_F(EpubGrayscaleTest, CacheReadFailureAfterBwCannotRegenerateDifferentGrayPixels) {
+  fakeheap::reset(false);  // Stream from storage rather than retained PSRAM.
+  GfxRenderer r(32, 32);
+  r.orientation = GfxRenderer::LandscapeCounterClockwise;
+  const auto pixels = cache(16, 16);
+  Storage.put("mapped_png_v3.pxc", pixels);
+  Storage.put("mapped.png", {1, 2, 3});
+  ImageBlock image("mapped.png", "", 16, 16);
+  ASSERT_TRUE(image.render(r, 0, 0, true));
+  const auto base = r.bw;
+  Storage.data("mapped_png_v3.pxc").readFailAt = 4;
+  const int requestsBefore = decoderRequests;
+  for (auto mode : {GfxRenderer::GRAYSCALE_LSB, GfxRenderer::GRAYSCALE_MSB}) {
+    r.mode = mode;
+    EXPECT_FALSE(image.render(r, 0, 0, true));
+    EXPECT_EQ(Storage.data("mapped_png_v3.pxc").bytes, pixels);
+    EXPECT_EQ(decoderRequests, requestsBefore);
+    EXPECT_EQ(r.bw, base);
+  }
+}
+
+TEST_F(EpubGrayscaleTest, AbsoluteReplayFailureDiscardsBothPlanesBeforePresenting) {
+  for (int fail : {1, 2}) {
+    GfxRenderer r(32, 32);
+    r.absolute = true;
+    const auto base = r.bw;
+    Page page;
+    page.failImageVisit = fail;
+    std::vector<uint8_t> low(base.size()), high(base.size());
+    EXPECT_FALSE(EpubGrayscale::runAbsoluteImageGrayscalePass(r, page, 1, 0, 0, low.data(), high.data(), low.size()));
+    EXPECT_EQ(r.bw, base);
+    EXPECT_FALSE(r.active);
+    EXPECT_TRUE(r.events.empty());
+  }
+}
+
+TEST_F(EpubGrayscaleTest, TiledReplayFailureStopsBeforeDisplayingGrayAndSignalsMonoFallback) {
+  for (bool async : {false, true}) {
+    for (int fail : {1, 2}) {
+      GfxRenderer r(32, 32);
+      const auto base = r.bw;
+      Page page;
+      page.failImageVisit = fail;
+      std::vector<uint8_t> scratch(base.size());
+      bool failed = false;
+      EXPECT_FALSE(EpubGrayscale::runTiledGrayscalePass(r, page, 1, 0, 0, true, true, true, scratch.data(),
+                                                        scratch.size(), async, &failed));
+      EXPECT_TRUE(failed);
+      EXPECT_EQ(r.bw, base);
+      EXPECT_FALSE(r.active);
+      EXPECT_EQ(r.mode, GfxRenderer::BW);
+      EXPECT_EQ(std::count(r.events.begin(), r.events.end(), "gray"), 0);
+    }
+  }
 }
 }  // namespace

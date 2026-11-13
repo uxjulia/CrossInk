@@ -81,7 +81,12 @@ int scaled75SourceEnd(const int dst, const int srcLimit) {
 void draw2BitFontPixel(const GfxRenderer& renderer, const GfxRenderer::RenderMode renderMode, const int x, const int y,
                        const uint8_t raw, const bool pixelState) {
   const uint8_t bmpVal = 3 - raw;
-  if (renderMode == GfxRenderer::BW && bmpVal < 3) {
+  if (renderer.grayPlanesAreAbsolute() && renderMode != GfxRenderer::BW) {
+    if (raw) {
+      const auto pixel = grayPlanePixel(pixelState ? bmpVal : raw, renderMode == GfxRenderer::GRAYSCALE_MSB, true);
+      renderer.drawPixel(x, y, pixel.black);
+    }
+  } else if (renderMode == GfxRenderer::BW && bmpVal < 3) {
     renderer.drawPixel(x, y, pixelState);
   } else if (renderMode == GfxRenderer::GRAYSCALE_MSB && (bmpVal == 1 || bmpVal == 2)) {
     renderer.drawPixel(x, y, false);
@@ -771,7 +776,6 @@ static void renderCharScaled(const GfxRenderer& renderer, GfxRenderer::RenderMod
 static void renderCharSmallCaps(const GfxRenderer& renderer, GfxRenderer::RenderMode renderMode,
                                 const EpdFontFamily& fontFamily, const uint32_t cp, int cursorX, int cursorY,
                                 const bool pixelState, const EpdFontFamily::Style style) {
-  if (renderer.grayPlanesAreAbsolute()) renderMode = GfxRenderer::BW;
   const EpdGlyph* glyph = fontFamily.getGlyph(cp, style);
   if (!glyph) return;
 
@@ -836,7 +840,6 @@ template <TextRotation rotation = TextRotation::None>
 static void renderCharImpl(const GfxRenderer& renderer, GfxRenderer::RenderMode renderMode,
                            const EpdFontFamily& fontFamily, const uint32_t cp, int cursorX, int cursorY,
                            const bool pixelState, const EpdFontFamily::Style style) {
-  if (renderer.grayPlanesAreAbsolute()) renderMode = GfxRenderer::BW;
   const auto glyphData = fontFamily.getGlyphData(cp, style);
   const EpdGlyph* glyph = glyphData.glyph;
   const EpdFontData* fontData = glyphData.fontData;
@@ -915,7 +918,7 @@ void GfxRenderer::drawGlyphBitmap(const uint8_t* bitmap, const int width, const 
   const glyphBitmap::Plane plane = mode == BW              ? glyphBitmap::Plane::BW
                                    : mode == GRAYSCALE_MSB ? glyphBitmap::Plane::GrayMSB
                                                            : glyphBitmap::Plane::GrayLSB;
-  glyphBitmap::draw(bitmap, width, height, twoBit, plane, state, target, clip);
+  glyphBitmap::draw(bitmap, width, height, twoBit, plane, state, target, clip, absoluteGrayPlanes);
 }
 
 // IMPORTANT: This function is in critical rendering path and is called for every pixel. Please keep it as simple and

@@ -21,6 +21,21 @@ class GfxRenderer {
   bool combinedBase = false;
   bool failBwBackup = false;
   bool absolute = false;
+  bool absoluteSupported = true, directSupported = true, rejectBase = false;
+  bool supportsAbsoluteGrayscale() const { return absoluteSupported; }
+  bool supportsDirectGrayscale() const { return directSupported; }
+  bool supportsTextGrayscale() const { return supported; }
+  bool displayDirectGrayscaleBase() {
+    events.push_back("direct");
+    absolute = !rejectBase;
+    return absolute;
+  }
+  bool displayAbsoluteGrayscaleBase() {
+    events.push_back("absolute");
+    absolute = !rejectBase;
+    return absolute;
+  }
+  void displayBuffer(int) { events.push_back("display"); }
   std::vector<uint8_t> savedBw;
   bool supported = true, inverted = false, active = false;
   int origin = 0, rows = 0, placeholders = 0;
@@ -64,7 +79,7 @@ class GfxRenderer {
     target = nullptr;
     origin = rows = 0;
   }
-  void clearScreen(uint8_t c) { memset(getWriteTarget(), c, size_t(stride) * getWriteRows()); }
+  void clearScreen(uint8_t c = 0xff) { memset(getWriteTarget(), c, size_t(stride) * getWriteRows()); }
   bool combinesGrayscaleBase() const { return combinedBase && !inverted; }
   void displayGrayscaleBase(int) { events.push_back("combined-base"); }
   bool supportsDeferredGrayscaleBase() const { return deferredSupported && !inverted; }
