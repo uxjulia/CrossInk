@@ -30,6 +30,23 @@ class SdCardFont {
   SdCardFont() = default;
   ~SdCardFont();
 
+  // Measurement needs glyph metrics, not pixels. Nested renderer measurements
+  // share the same scope; drawing outside it retains the normal bitmap path.
+  class MetricsScope {
+   public:
+    explicit MetricsScope(SdCardFont* font) : font_(font) {
+      if (font_) ++font_->metricsDepth_;
+    }
+    ~MetricsScope() {
+      if (font_) --font_->metricsDepth_;
+    }
+    MetricsScope(const MetricsScope&) = delete;
+    MetricsScope& operator=(const MetricsScope&) = delete;
+
+   private:
+    SdCardFont* font_;
+  };
+
   static bool takeCorruptGlyphNotice() { return corruptGlyphNotice_.exchange(false); }
   // Owns raw buffers freed in dtor — no shallow-copy semantics. Make any
   // accidental pass-by-value or move a compile-time error.
@@ -43,7 +60,7 @@ class SdCardFont {
   // Returns true on success.
   // A nonzero ceiling is for optional C3 content sizes: includes this object,
   // conservative interval/ligature residency, and one reusable bitmap sized
-  // to the largest glyph (at most 4KB).
+  // to the largest glyph (at most 4KB), plus a 3KB glyph-metrics cache.
   bool load(const char* path, size_t residentLimit = 0);
 
   // Allocation-free preflight for optional sizes. Returns a conservative
@@ -261,7 +278,8 @@ class SdCardFont {
   PerStyle styles_[MAX_STYLES] = {};
   uint8_t styleCount_ = 0;
 
-  // Optional sizes never allocate page/advance caches or per-glyph bitmaps.
+  // Optional sizes never allocate page caches, full per-style advance tables,
+  // or per-glyph bitmaps. Their shared metrics cache is budgeted separately.
   // 4KB covers normal content glyphs through 44pt; larger files are rejected
   // before registration so layout falls back to a supported physical size.
   std::unique_ptr<uint8_t[]> contentBitmap_;
@@ -294,6 +312,18 @@ class SdCardFont {
     uint32_t codepoint;
     uint16_t advanceX;  // 12.4 fixed-point
   };
+  // Optional content sizes cannot afford the body's per-style advance tables.
+  // One shared, direct-mapped cache keeps metric lookups off the SD card.
+  struct ContentMetricsEntry {
+    uint32_t codepoint = 0;
+    EpdGlyph glyph{};
+    uint8_t style = MAX_STYLES;  // Invalid until a successful read.
+  };
+  static constexpr uint32_t CONTENT_METRICS_CACHE_SIZE = 128;
+  static constexpr size_t CONTENT_METRICS_CACHE_BYTES = CONTENT_METRICS_CACHE_SIZE * sizeof(ContentMetricsEntry);
+  std::unique_ptr<ContentMetricsEntry[]> contentMetrics_;
+  uint16_t metricsDepth_ = 0;
+  const EpdGlyph* contentGlyphMetrics(uint32_t codepoint, uint8_t styleIdx, int32_t glyphIndex) const;
   // Per-style advance table. Sorted by codepoint for binary lookup.
   // Bounded to ADVANCE_CACHE_LIMIT entries; persists across layout passes
   // (across calls to clearCache()) so repeated indexing of the same font

@@ -1054,6 +1054,8 @@ int GfxRenderer::getTextWidth(const int fontId, const char* text, const EpdFontF
   }
 
   const int resolvedFontId = fontId;
+  const auto sdIt = sdCardFonts_.find(resolvedFontId);
+  SdCardFont::MetricsScope metrics(sdIt == sdCardFonts_.end() ? nullptr : sdIt->second);
 
   if (characterSpacing != 0) {
     return getTextAdvanceX(resolvedFontId, text, style, 0, characterSpacing);
@@ -1065,7 +1067,6 @@ int GfxRenderer::getTextWidth(const int fontId, const char* text, const EpdFontF
   }
 
   // SD-card fonts can measure from their persistent advance table during layout.
-  auto sdIt = sdCardFonts_.find(resolvedFontId);
   if (sdIt != sdCardFonts_.end() && sdIt->second->hasAdvanceTable()) {
     int32_t widthFP = 0;
     const uint8_t styleIdx = resolveSdCardStyle(*sdIt->second, style);
@@ -2730,6 +2731,9 @@ int GfxRenderer::getTextAdvanceX(const int fontId, const char* text, const EpdFo
   ScalableFontAccess access;
 #endif
   const int resolvedFontId = fontId;
+  const auto sdIt = sdCardFonts_.find(resolvedFontId);
+  SdCardFont::MetricsScope metrics(sdIt == sdCardFonts_.end() ? nullptr : sdIt->second);
+
   // Measure the exact codepoint stream drawText renders: bidi-reordered and
   // Arabic-shaped (contextual presentation forms, Lam-Alef collapse).
   // Measuring the raw logical text counts the Alef a ligature absorbs and
@@ -2742,7 +2746,6 @@ int GfxRenderer::getTextAdvanceX(const int fontId, const char* text, const EpdFo
   // Advance table fast-path for SD card fonts during layout.
   // No kerning/ligature lookup — consistent with previous metadataOnly behavior
   // where kern/lig data was not loaded.
-  auto sdIt = sdCardFonts_.find(resolvedFontId);
   if (sdIt != sdCardFonts_.end() && sdIt->second->hasAdvanceTable()) {
     int widthPx = 0;
     int trackingGaps = 0;
