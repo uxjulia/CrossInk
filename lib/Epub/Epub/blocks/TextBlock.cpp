@@ -345,7 +345,7 @@ void TextBlock::render(const GfxRenderer& renderer, int fontId, const int x, con
     const auto baseDir =
         static_cast<BidiUtils::BidiBaseDir>(BidiUtils::detectParagraphLevel(word, blockStyle.isRtl ? 1 : 0));
 
-    if ((wordFlags(i) & WORD_FLAG_BACKGROUND_BLACK) != 0 && isWhitespaceOnlyBackgroundToken(word)) {
+    if (!scanning && (wordFlags(i) & WORD_FLAG_BACKGROUND_BLACK) != 0 && isWhitespaceOnlyBackgroundToken(word)) {
       const uint16_t backgroundWidth = measureBackgroundWidth(renderer, fontId, word, currentStyle, characterSpacing);
       if (backgroundWidth > 0) {
         renderer.fillRect(wordX, y, backgroundWidth, renderer.getFontAscenderSize(fontId), true);
@@ -376,20 +376,25 @@ void TextBlock::render(const GfxRenderer& renderer, int fontId, const int x, con
     }
 
     if (i < rubyTexts.size() && !rubyTexts[i].empty() && (currentStyle & EpdFontFamily::RUBY_CONTINUE) == 0) {
-      uint16_t groupWords = 1;
-      while (i + groupWords < numWords && (wordStyle(i + groupWords) & EpdFontFamily::RUBY_CONTINUE) != 0) {
-        ++groupWords;
+      int rubyX = wordX;
+      if (!scanning) {
+        uint16_t groupWords = 1;
+        while (i + groupWords < numWords && (wordStyle(i + groupWords) & EpdFontFamily::RUBY_CONTINUE) != 0) {
+          ++groupWords;
+        }
+        int groupWidth = 0;
+        for (uint16_t j = 0; j < groupWords; ++j) {
+          groupWidth += renderer.getTextAdvanceX(wordFontId(renderer, baseFont, i + j), wordText(i + j),
+                                                 wordStyle(i + j), 0, characterSpacing);
+        }
+        const int rubyWidth =
+            renderer.getTextAdvanceX(fontId, rubyTexts[i].c_str(), EpdFontFamily::SUP, 0, characterSpacing);
+        // ParsedText reserves any edge overhang in the line layout, so the ruby
+        // can remain centered over its base text without screen-edge clamping.
+        rubyX += (groupWidth - rubyWidth) / 2;
       }
-      int groupWidth = 0;
-      for (uint16_t j = 0; j < groupWords; ++j) {
-        groupWidth += renderer.getTextAdvanceX(wordFontId(renderer, baseFont, i + j), wordText(i + j), wordStyle(i + j),
-                                               0, characterSpacing);
-      }
-      const int rubyWidth =
-          renderer.getTextAdvanceX(fontId, rubyTexts[i].c_str(), EpdFontFamily::SUP, 0, characterSpacing);
-      // ParsedText reserves any edge overhang in the line layout, so the ruby
-      // can remain centered over its base text without screen-edge clamping.
-      const int rubyX = wordX + (groupWidth - rubyWidth) / 2;
+      // Scan coordinates are irrelevant. Still collect the ruby run with its
+      // exact font/style without measuring (which can rasterize monochrome TTFs).
       renderer.drawText(fontId, rubyX, wordY - ascender, rubyTexts[i].c_str(), foregroundBlack, EpdFontFamily::SUP,
                         baseDir, characterSpacing);
     }
@@ -431,7 +436,7 @@ void TextBlock::render(const GfxRenderer& renderer, int fontId, const int x, con
       renderer.drawLine(startX, underlineY, underlineEndX, underlineY, 3, foregroundBlack);
     }
 
-    if ((currentStyle & EpdFontFamily::STRIKETHROUGH) != 0) {
+    if (!scanning && (currentStyle & EpdFontFamily::STRIKETHROUGH) != 0) {
       int startX = wordX;
       int strikeWidth = renderer.getTextWidth(fontId, word, currentStyle, baseDir, characterSpacing);
       int32_t unusedAdvance = 0;

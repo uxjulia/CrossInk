@@ -129,6 +129,7 @@ struct Runtime {
   KerningEntry* kerningEntries = nullptr;
   uint8_t* pixelData = nullptr;
   size_t pixelUsed = 0;
+  bool idlePrewarm = false;
   uint32_t nextCacheId = 1;
   uint16_t failedMetricWidth = 0;
   uint16_t failedMetricHeight = 0;
@@ -183,8 +184,7 @@ struct Runtime {
 
     // Keep the final advance + kerning pixel snap from rounding twice.
     // Kerning retains its existing signed rounding below.
-    const auto advance16 =
-        uint16_t(std::clamp<int32_t>(fp4::truncate26_6_to_4(metrics.advance26_6), 0, UINT16_MAX));
+    const auto advance16 = uint16_t(std::clamp<int32_t>(fp4::truncate26_6_to_4(metrics.advance26_6), 0, UINT16_MAX));
     glyph = {uint8_t(metrics.width),
              uint8_t(metrics.height),
              advance16,
@@ -192,7 +192,7 @@ struct Runtime {
              metrics.top,
              uint16_t((unsigned(metrics.width) * metrics.height + 3) / 4),
              glyphOrCodepoint};
-    entry = {key, glyph};
+    if (!idlePrewarm || entry.key == 0) entry = {key, glyph};
     return true;
   }
 
@@ -205,7 +205,7 @@ struct Runtime {
 
     const auto measured = font.kerningGlyphs26_6(leftGlyph, rightGlyph, scalableFontPixelSize26_6(points));
     const auto value = int8_t(std::clamp<int32_t>(round26_6To16(measured), -128, 127));
-    entry = {leftKey, rightGlyph, value};
+    if (!idlePrewarm || entry.leftKey == 0) entry = {leftKey, rightGlyph, value};
     return value;
   }
 
@@ -214,6 +214,10 @@ struct Runtime {
     const uint64_t key = cacheKey(cacheId, glyphOrCodepoint, points);
     auto& entry = pixelEntries[cacheIndex(cacheId, glyphOrCodepoint, points, PixelCacheSlots)];
     if (entry.key == key) return pixelData + entry.offset;
+    const size_t bytes = (size_t(width) * height + 3) / 4;
+    // Speculation must not evict nearer pages or flush the shared arena. Check
+    // before rasterization so cache pressure also bounds wasted CPU work.
+    if (idlePrewarm && (entry.key != 0 || bytes > PixelBytes - pixelUsed)) return nullptr;
 
     allocator.clearFailure();
     const auto* bitmap =
@@ -223,7 +227,6 @@ struct Runtime {
     lastBitmapWidth = bitmap ? bitmap->width : 0;
     lastBitmapHeight = bitmap ? bitmap->height : 0;
     if (!bitmap || bitmap->width != width || bitmap->height != height) return nullptr;
-    const size_t bytes = (size_t(width) * height + 3) / 4;
     if (!bytes || bytes > PixelBytes) return nullptr;
     if (pixelUsed + bytes > PixelBytes) clearPixels();
 
@@ -326,6 +329,10 @@ ScalableFontAccess::ScalableFontAccess() {
 ScalableFontAccess::~ScalableFontAccess() {
   if (owned_) xSemaphoreGive(renderMutex);
 }
+HalScalableFont::IdlePrewarmScope::IdlePrewarmScope() : previous_(runtime().idlePrewarm) {
+  runtime().idlePrewarm = true;
+}
+HalScalableFont::IdlePrewarmScope::~IdlePrewarmScope() { runtime().idlePrewarm = previous_; }
 HalScalableFont::~HalScalableFont() {
   ScalableFontAccess access;
   if (font_.ready() && liveRuntime) liveRuntime->clearCaches();
@@ -919,6 +926,8 @@ const uint8_t* HalScalableFont::bitmap(void* ctx, const EpdGlyph* g) {
   s.owner->fontDataFailure_ = false;
   const auto* pixels =
       runtime().packedBitmap(s.owner->font_, s.owner->cacheId_, g->dataOffset, s.points, g->width, g->height);
+  // Admission refusal is not a broken font and must not poison error flags.
+  if (!pixels && runtime().idlePrewarm) return nullptr;
   if (!pixels && g->width && g->height) {
     const auto failure = s.owner->font_.lastGlyphFailure();
     const int error = s.owner->font_.lastGlyphError();

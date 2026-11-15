@@ -13,7 +13,13 @@
 #include <GfxRenderer.h>
 #include <HalPowerManager.h>
 #include <HalStorage.h>
+#if CROSSINK_SCALABLE_FONTS
+#include <HalScalableFont.h>
+#endif
 #include <I18n.h>
+#ifndef SIMULATOR
+#include <InputWake.h>
+#endif
 #include <Logging.h>
 #include <Memory.h>
 #include <MemoryBudget.h>
@@ -2947,7 +2953,7 @@ bool EpubReaderActivity::backgroundSectionBuildHasHeap() {
     ImageBlock::releaseSessionPixelCache();
     if (auto* fontCache = renderer.getFontCacheManager()) {
       fontCache->releaseInactiveSdFontCaches(activeSectionFontId != 0 ? activeSectionFontId
-                                                                    : SETTINGS.getReaderFontId());
+                                                                      : SETTINGS.getReaderFontId());
     }
     heap = MemoryBudget::snapshot();
     LOG_DBG("ERS", "Background pressure reclaim: free=%u->%u maxAlloc=%u->%u", before.freeHeap, heap.freeHeap,
@@ -2969,6 +2975,14 @@ bool EpubReaderActivity::backgroundSectionBuildHasHeap() {
 void EpubReaderActivity::idlePrewarmNextPage() {
   RenderLock lock(*this, RenderLock::Mode::Try);
   if (!lock.ownsLock()) return;
+
+#if CROSSINK_SCALABLE_FONTS
+  const int ttfFontId = activeSectionFontId != 0 ? activeSectionFontId : SETTINGS.getReaderFontId();
+  if (auto* manager = renderer.getFontCacheManager(); manager && manager->isScalableFont(ttfFontId)) {
+    idlePrewarmTtf(ttfFontId, *manager);
+    return;
+  }
+#endif
 
   if (!section || section->isBuilding() || activeFootnotePreview || automaticPageTurnActive ||
       !renderer.hasFrameBuffer() || lastRenderCompleteMs == 0 ||
@@ -3017,6 +3031,75 @@ void EpubReaderActivity::idlePrewarmNextPage() {
   scope.endScanAndPrewarm();
   LOG_DBG("ERS", "Idle SD font prewarm: spine=%d page=%d in %lums", currentSpineIndex, nextPage, millis() - startedAt);
 }
+
+#if CROSSINK_SCALABLE_FONTS
+namespace {
+bool idleFontInputWakePending() {
+#ifndef SIMULATOR
+  return InputWake::hasPendingEdge() || InputWake::hasPendingButtons();
+#else
+  // The simulator injects input via MappedInputManager rather than hardware IRQs.
+  return false;
+#endif
+}
+}  // namespace
+void EpubReaderActivity::idlePrewarmTtf(const int fontId, FontCacheManager& manager) {
+  // Called with RenderLock held after foreground input handling. No font/page
+  // pointers in the job are borrowed across ticks; every render starts a new job.
+  if (!idleTtfReady.load(std::memory_order_relaxed) || !section || section.get() != idleTtfSection ||
+      currentSpineIndex != idleTtfSpine || section->currentPage != idleTtfVisiblePage || fontId != idleTtfFont ||
+      section->isBuilding() || activeFootnotePreview || automaticPageTurnActive || !renderer.hasFrameBuffer() ||
+      pageBufferStale.load(std::memory_order_relaxed) || idleTtfOffset > 5 ||
+      idleTtfVisiblePage + idleTtfOffset >= section->pageCount)
+    return;
+
+  struct Slice {
+    EpubReaderActivity* reader;
+    unsigned long started;
+  } slice{this, millis()};
+  const auto inputPending = [](void* context) {
+    const auto* reader = static_cast<Slice*>(context)->reader;
+    return idleFontInputWakePending() || reader->mappedInput.hasPendingActivity() ||
+           !reader->idleTtfReady.load(std::memory_order_relaxed);
+  };
+  const auto shouldYield = [](void* context) {
+    const auto& slice = *static_cast<Slice*>(context);
+    return millis() - slice.started >= 8 || idleFontInputWakePending() ||
+           slice.reader->mappedInput.hasPendingActivity() ||
+           !slice.reader->idleTtfReady.load(std::memory_order_relaxed);
+  };
+  if (shouldYield(&slice)) return;
+  const auto heap = MemoryBudget::snapshot();
+  if (!MemoryBudget::hasHeap(heap, IDLE_SD_FONT_PREWARM_MIN_FREE, IDLE_SD_FONT_PREWARM_MIN_MAX_ALLOC)) return;
+
+  if (idleTtfJob.count == 0) {
+    // Reuse the existing bounded page loader once per lookahead page, release
+    // its allocation before cold rasterization, and never retain its section.
+    auto page = section->loadPage(idleTtfVisiblePage + idleTtfOffset);
+    if (!page) {
+      LOG_DBG("ERS", "Idle TTF lookahead stopped: page load failed");
+      idleTtfReady.store(false, std::memory_order_relaxed);
+      return;
+    }
+    // Even a slow cold page load must make progress. Scan once, then the time
+    // budget prevents any raster work in this tick; input remains unconsumed.
+    HalScalableFont::IdlePrewarmScope admission;
+    auto scope = manager.createPrewarmScope(FontCacheManager::PreparationPolicy::IdleScalable);
+    if (!page->renderText(renderer, fontId, 0, 0, true, inputPending, &slice)) return;
+    scope.endScanForIdle(idleTtfJob);
+  }
+  const auto result = manager.prewarmIdleSlice(idleTtfJob, shouldYield, &slice, 16, inputPending);
+  if (result == FontCacheManager::IdleResult::Failed) {
+    LOG_DBG("ERS", "Idle TTF lookahead stopped: glyph preparation failed");
+    idleTtfReady.store(false, std::memory_order_relaxed);
+    idleTtfJob.reset();
+  } else if (result == FontCacheManager::IdleResult::Complete) {
+    LOG_DBG("ERS", "Idle TTF lookahead ready: spine=%d page=%d", idleTtfSpine, idleTtfVisiblePage + idleTtfOffset);
+    ++idleTtfOffset;
+    idleTtfJob.reset();
+  }
+}
+#endif
 
 // One dismissal rule for every transient reader confirmation: it clears when its
 // dwell time elapses or the reader presses a navigation button.
@@ -6423,6 +6506,10 @@ void EpubReaderActivity::pageTurn(bool isForwardTurn, const char* source) {
 
 // TODO: Failure handling
 void EpubReaderActivity::render(RenderLock&& lock) {
+#if CROSSINK_SCALABLE_FONTS
+  idleTtfReady.store(false, std::memory_order_relaxed);
+  idleTtfJob.reset();
+#endif
   // Also drain on error/end screens and early returns, while the render lock
   // still protects the session. Normal pages drain before starting their timer.
   struct FlushStatsOnReturn {
@@ -7233,6 +7320,14 @@ void EpubReaderActivity::render(RenderLock&& lock) {
     }
     pageBufferStale.store(false, std::memory_order_relaxed);
     lastRenderCompleteMs = millis();
+#if CROSSINK_SCALABLE_FONTS
+    idleTtfSection = section.get();
+    idleTtfSpine = currentSpineIndex;
+    idleTtfVisiblePage = section->currentPage;
+    idleTtfFont = renderFontId;
+    idleTtfOffset = 1;
+    idleTtfReady.store(true, std::memory_order_relaxed);
+#endif
     const uint8_t heapShapeRedrawStages = pendingHeapShapeReaderRedrawStages.exchange(0, std::memory_order_relaxed);
     if (heapShapeRedrawStages & HEAP_SHAPE_REDRAW_CLIP) {
       MemoryBudget::logHeapShape("clip.reader_redrawn");

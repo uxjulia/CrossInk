@@ -2,8 +2,15 @@
 
 #include <cstdint>
 
+struct EpdGlyph {
+  uint8_t width = 1, height = 1;
+  uint32_t dataOffset = 0;
+};
 struct EpdFontData {
   const void* groups = nullptr;
+  void* glyphMissCtx = nullptr;
+  const uint8_t* (*bitmapHandler)(void*, const EpdGlyph*) = nullptr;
+  const EpdGlyph* (*dynamicGlyphHandler)(void*, uint32_t) = nullptr;
 };
 
 class EpdFontFamily {
@@ -22,6 +29,17 @@ class EpdFontFamily {
     if ((requested & ITALIC) && styleData[ITALIC]) return styleData[ITALIC];
     return styleData[REGULAR];
   }
+
+  struct GlyphData {
+    const EpdGlyph* glyph;
+    const EpdFontData* fontData;
+  };
+  GlyphData getGlyphData(uint32_t cp, Style style) const {
+    const auto* data = getData(style);
+    return {data && data->dynamicGlyphHandler ? data->dynamicGlyphHandler(data->glyphMissCtx, cp) : nullptr, data};
+  }
+  bool hasCodepoint(uint32_t, Style) const { return true; }
+  uint32_t applyLigatures(uint32_t cp, const char*&, Style) const { return cp; }
 
  private:
   const EpdFontData* styleData[4] = {};

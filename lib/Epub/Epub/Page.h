@@ -243,7 +243,9 @@ class Page {
 
   void render(GfxRenderer& renderer, int fontId, int xOffset, int yOffset, bool foregroundBlack = true,
               bool imageGrayscale = true) const;
-  void renderText(GfxRenderer& renderer, int fontId, int xOffset, int yOffset, bool foregroundBlack = true) const;
+  // Optional cancellation is checked between elements; used only by idle font scans.
+  bool renderText(GfxRenderer& renderer, int fontId, int xOffset, int yOffset, bool foregroundBlack = true,
+                  bool (*shouldStop)(void*) = nullptr, void* context = nullptr) const;
   bool renderImages(GfxRenderer& renderer, int fontId, int xOffset, int yOffset, bool foregroundBlack = true,
                     bool imageGrayscale = true) const;
   // When renderCachedImages is false, draw placeholders without checking or

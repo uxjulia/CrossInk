@@ -78,8 +78,11 @@ int main(int argc, char** argv) {
       assert(wakeHandlers[pin].type == GPIO_INTR_ANYEDGE);
       for (int transition = 0; transition < 2; ++transition) {
         edge(pin);
+        assert(InputWake::hasPendingEdge());
+        assert(InputWake::hasPendingEdge());  // Reading the latch never consumes it.
         const auto start = fakeNow;
         assert(wait(50));
+        assert(!InputWake::hasPendingEdge());
         assert(fakeNow == start);
       }
     }
@@ -135,7 +138,10 @@ int main(int argc, char** argv) {
   }
   if (board.touch.controller == BoardConfig::TouchController::Gt911) {
     edge(board.touch.irq);
+    assert(InputWake::hasPendingEdge());
+    assert(InputWake::hasPendingEdge());
     assert(wait(50));
+    assert(!InputWake::hasPendingEdge());
   }
   if (board.input.toggleSwitch >= 0) {
     edge(board.input.toggleSwitch);

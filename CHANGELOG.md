@@ -186,6 +186,8 @@
 
 ### Changed
 
+- Warm upcoming EPUB text in short, input-interruptible idle slices on S3 readers using TTF fonts, without evicting cached glyphs or changing C3 font behavior.
+
 - SD fonts containing both BMP and supplementary Unicode ranges use less resident lookup-table memory, and TTF fonts validate faster while preserving font integrity checks.
 - English is the only built-in interface language. Other languages are included in a separate release download and installed through Language settings.
 - Display → Hide Battery % is replaced by the Battery option in each status bar's settings; existing choices carry over.

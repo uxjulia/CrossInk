@@ -58,3 +58,14 @@ target_include_directories(ImageViewerGrayscaleTest PRIVATE stubs ../memory_poli
   ${REPO_ROOT}/src/activities/util)
 target_link_libraries(ImageViewerGrayscaleTest PRIVATE crosspoint_test_common GTest::gtest_main)
 gtest_discover_tests(ImageViewerGrayscaleTest)
+
+# Exercise real text/renderer scan paths with instrumented scalable glyph hooks.
+get_target_property(idle_text_sources EpubTextGrayscaleTest SOURCES)
+list(REMOVE_ITEM idle_text_sources EpubTextGrayscaleTest.cpp)
+get_target_property(idle_text_includes EpubTextGrayscaleTest INCLUDE_DIRECTORIES)
+get_target_property(idle_text_definitions EpubTextGrayscaleTest COMPILE_DEFINITIONS)
+add_executable(IdleTextScanTest IdleTextScanTest.cpp ${idle_text_sources})
+target_include_directories(IdleTextScanTest PRIVATE scalable_stubs ${idle_text_includes})
+target_compile_definitions(IdleTextScanTest PRIVATE ${idle_text_definitions} CROSSINK_SCALABLE_FONTS=1)
+target_link_libraries(IdleTextScanTest PRIVATE crosspoint_test_common GTest::gtest_main)
+gtest_discover_tests(IdleTextScanTest)

@@ -74,6 +74,35 @@ int main(int argc, char** argv) {
     assert(builtin[i].openMemory(bytes[i].data(), bytes[i].size()));
     assert(builtin[i].probeGlyph('T', 12));
   }
+  // Speculative lookahead must leave a foreground glyph resident even when
+  // later pages collide with its slot or fill the shared pixel arena.
+  {
+    const auto* data = builtin[0].atSize(ScalableContentMaxPointSize)->data;
+    const auto* glyph = data->dynamicGlyphHandler(data->glyphMissCtx, 'A');
+    assert(glyph && glyph->width && glyph->height);
+    const EpdGlyph savedGlyph = *glyph;
+    const auto* savedPixels = data->bitmapHandler(data->glyphMissCtx, glyph);
+    assert(savedPixels);
+    const size_t count = (size_t(glyph->width) * glyph->height + 3) / 4;
+    const std::vector<uint8_t> expected(savedPixels, savedPixels + count);
+    size_t refused = 0;
+    {
+      HalScalableFont::IdlePrewarmScope admission;
+      for (uint8_t points = ScalableContentMinPointSize; points <= ScalableContentMaxPointSize; ++points) {
+        const auto* candidate = builtin[1].atSize(points)->data;
+        for (uint32_t cp = 33; cp < 127; ++cp) {
+          const auto* g = candidate->dynamicGlyphHandler(candidate->glyphMissCtx, cp);
+          assert(g);
+          if (g->width && g->height && !candidate->bitmapHandler(candidate->glyphMissCtx, g)) ++refused;
+        }
+      }
+    }
+    assert(refused > 0);
+    assert(data->bitmapHandler(data->glyphMissCtx, &savedGlyph) == savedPixels);
+    assert(std::equal(expected.begin(), expected.end(), savedPixels));
+    // Normal foreground rasterization is still allowed after the scope exits.
+    assert(builtin[1].probeGlyph('Z', ScalableContentMaxPointSize));
+  }
   freeink::font::FtFont::RenderOptions options;
   options.hinting = freeink::font::FtFont::HintingMode::Auto;
   size_t doubleRoundedSteps = 0;

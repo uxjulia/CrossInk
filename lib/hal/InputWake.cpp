@@ -262,6 +262,8 @@ void InputWake::stopCapture() {
 
 bool InputWake::capturing() { return captureEnabled; }
 
+bool InputWake::hasPendingEdge() { return wakeSignal && uxSemaphoreGetCount(wakeSignal) != 0; }
+
 bool InputWake::hasPendingButtons() {
   if (!captureEnabled) return false;
   portENTER_CRITICAL(&bufferMux);
@@ -307,6 +309,7 @@ bool InputWake::startCapture() { return false; }
 void InputWake::stopCapture() {}
 bool InputWake::capturing() { return false; }
 bool InputWake::hasPendingButtons() { return false; }
+bool InputWake::hasPendingEdge() { return false; }
 ButtonInputBuffer::Frame InputWake::takeFrame() { return {}; }
 void InputWake::setSharedConfirmPowerShortPressEmitsPower(bool enabled) {
   InputManager::setSharedConfirmPowerShortPressEmitsPower(enabled);

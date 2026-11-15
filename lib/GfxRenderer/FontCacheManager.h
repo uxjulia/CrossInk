@@ -10,7 +10,7 @@ class SdCardFont;
 
 class FontCacheManager {
  public:
-  enum class PreparationPolicy : uint8_t { Normal, DictionaryLean };
+  enum class PreparationPolicy : uint8_t { Normal, DictionaryLean, IdleScalable };
 
   FontCacheManager(const std::map<int, EpdFontFamily>& fontMap, const std::map<int, SdCardFont*>& sdCardFonts);
 
@@ -33,12 +33,30 @@ class FontCacheManager {
   // The FontDecompressor pointer, needed by GfxRenderer::getGlyphBitmap()
   FontDecompressor* getDecompressor() const { return fontDecompressor_; }
 
+#if CROSSINK_SCALABLE_FONTS
+  // Fixed scratch owned by the reader, not the stack. No page/font pointers survive a tick.
+  struct IdleScalableJob {
+    uint32_t codepoints[512] = {};
+    int fontIds[4] = {};
+    uint16_t count = 0;
+    uint16_t cursor = 0;
+    void reset() { count = cursor = 0; }
+  };
+  enum class IdleResult : uint8_t { Complete, Yielded, Failed };
+  bool isScalableFont(int fontId) const;
+  IdleResult prewarmIdleSlice(IdleScalableJob& job, bool (*shouldYield)(void*), void* context, uint16_t maxGlyphs = 16,
+                              bool (*cancelled)(void*) = nullptr);
+#endif
+
   // RAII scope for two-pass prewarm pattern
   class PrewarmScope {
    public:
     explicit PrewarmScope(FontCacheManager& manager, PreparationPolicy policy);
     ~PrewarmScope();
     bool endScanAndPrewarm();
+#if CROSSINK_SCALABLE_FONTS
+    void endScanForIdle(IdleScalableJob& job);
+#endif
     PrewarmScope(PrewarmScope&& other) noexcept;
     PrewarmScope& operator=(PrewarmScope&&) = delete;
     PrewarmScope(const PrewarmScope&) = delete;

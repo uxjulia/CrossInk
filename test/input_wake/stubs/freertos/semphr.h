@@ -18,6 +18,7 @@ inline SemaphoreHandle_t xSemaphoreCreateMutexStatic(StaticSemaphore_t* storage)
   storage->pending = true;
   return storage;
 }
+inline unsigned uxSemaphoreGetCount(SemaphoreHandle_t signal) { return signal->pending ? 1u : 0u; }
 inline BaseType_t xSemaphoreGive(SemaphoreHandle_t signal) {
   signal->pending = true;
   return pdTRUE;

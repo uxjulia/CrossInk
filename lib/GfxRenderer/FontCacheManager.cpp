@@ -209,8 +209,10 @@ void FontCacheManager::recordText(const char* text, int fontId, EpdFontFamily::S
 FontCacheManager::PrewarmScope::PrewarmScope(FontCacheManager& manager, const PreparationPolicy policy)
     : manager_(&manager), policy_(policy) {
   manager_->scanMode_ = ScanMode::Scanning;
-  manager_->clearCache();
-  manager_->resetStats();
+  if (policy_ != PreparationPolicy::IdleScalable) {
+    manager_->clearCache();
+    manager_->resetStats();
+  }
   manager_->scanCodepointCount_ = 0;
   manager_->scanFontCount_ = 0;
   manager_->scanOverflowWarned_ = false;
@@ -260,8 +262,14 @@ bool FontCacheManager::PrewarmScope::endScanAndPrewarm() {
 
 FontCacheManager::PrewarmScope::~PrewarmScope() {
   if (active_) {
-    endScanAndPrewarm();  // no-op if already called
-    manager_->clearCache();
+    if (policy_ == PreparationPolicy::IdleScalable) {
+      // Abandoned optional scans must never turn into synchronous cold raster work.
+      manager_->scanMode_ = ScanMode::None;
+      manager_->scanCodepointCount_ = manager_->scanFontCount_ = 0;
+    } else {
+      endScanAndPrewarm();  // no-op if already called
+      manager_->clearCache();
+    }
   }
 }
 
@@ -273,3 +281,54 @@ FontCacheManager::PrewarmScope::PrewarmScope(PrewarmScope&& other) noexcept
 FontCacheManager::PrewarmScope FontCacheManager::createPrewarmScope(const PreparationPolicy policy) {
   return PrewarmScope(*this, policy);
 }
+
+#if CROSSINK_SCALABLE_FONTS
+bool FontCacheManager::isScalableFont(const int fontId) const {
+  const auto it = fontMap_.find(fontId);
+  if (it == fontMap_.end() || sdCardFonts_.count(fontId)) return false;
+  const auto* data = it->second.getData(EpdFontFamily::REGULAR);
+  return data && data->bitmapHandler;
+}
+
+void FontCacheManager::PrewarmScope::endScanForIdle(IdleScalableJob& job) {
+  manager_->scanMode_ = ScanMode::None;
+  job.reset();
+  job.count = manager_->scanCodepointCount_;
+  std::copy_n(manager_->scanCodepoints_, job.count, job.codepoints);
+  std::copy_n(manager_->scanFontIds_, manager_->scanFontCount_, job.fontIds);
+  manager_->scanCodepointCount_ = manager_->scanFontCount_ = 0;
+}
+
+FontCacheManager::IdleResult FontCacheManager::prewarmIdleSlice(IdleScalableJob& job, bool (*shouldYield)(void*),
+                                                                void* context, const uint16_t maxGlyphs,
+                                                                bool (*cancelled)(void*)) {
+  HalScalableFont::IdlePrewarmScope admission;
+  uint16_t attempted = 0;
+  while (job.cursor < job.count) {
+    if (attempted >= maxGlyphs || (shouldYield && shouldYield(context))) return IdleResult::Yielded;
+    const uint32_t packed = job.codepoints[job.cursor];
+    const auto font = fontMap_.find(job.fontIds[packed >> SCAN_FONT_SHIFT]);
+    const auto style = static_cast<EpdFontFamily::Style>((packed >> SCAN_STYLE_SHIFT) & 3);
+    const uint32_t cp = packed & SCAN_CODEPOINT_MASK;
+    if (font != fontMap_.end()) {
+      const auto* data = font->second.getData(style);
+      // Leave cpfont and built-in fallback caches alone during speculative work.
+      if (data && data->bitmapHandler) {
+        const auto gd = font->second.getGlyphData(cp, style);
+        // Time budgets apply between whole glyphs so a slow metrics lookup
+        // cannot starve the same glyph forever. Input can still cancel here.
+        if (cancelled && cancelled(context)) return IdleResult::Yielded;
+        if (!gd.glyph) {
+          if (font->second.hasCodepoint(cp, style)) return IdleResult::Failed;
+        } else if (gd.glyph->width && gd.glyph->height && gd.fontData->bitmapHandler &&
+                   !gd.fontData->bitmapHandler(gd.fontData->glyphMissCtx, gd.glyph)) {
+          return IdleResult::Failed;
+        }
+      }
+    }
+    ++job.cursor;
+    ++attempted;
+  }
+  return IdleResult::Complete;
+}
+#endif

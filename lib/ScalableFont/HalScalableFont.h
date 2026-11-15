@@ -31,6 +31,19 @@ class ScalableFontAccess {
 // existing 2-bit and fractional-metric conventions. Call under RenderLock.
 class HalScalableFont {
  public:
+  // Optional rasterization may fill empty slots, never evict visible-page pixels.
+  // Hold the render lock for the lifetime of this scope.
+  class IdlePrewarmScope {
+   public:
+    IdlePrewarmScope();
+    ~IdlePrewarmScope();
+    IdlePrewarmScope(const IdlePrewarmScope&) = delete;
+    IdlePrewarmScope& operator=(const IdlePrewarmScope&) = delete;
+
+   private:
+    ScalableFontAccess access_;
+    bool previous_;
+  };
   static constexpr size_t MaxFileBytes = 2 * 1024 * 1024;
   static constexpr size_t MaxFilenameFileBytes = 32 * 1024 * 1024;
   static constexpr size_t MaxFamilyBytes = 6 * 1024 * 1024;
