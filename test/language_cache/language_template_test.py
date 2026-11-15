@@ -151,7 +151,13 @@ for invalid in ["", "bad\nversion", "bad\x00version"]:
 
 for workflow in ["release.yml", "release_candidate.yml"]:
     text = (root / ".github/workflows" / workflow).read_text()
-    assert '--source-commit "${{ github.sha }}" --status release-build' in text
+    # Stable builds package the triggering commit; RC rebuilds may select an
+    # older exact firmware commit and must use that same source for languages.
+    source = '${{ github.sha }}' if workflow == "release.yml" else '$RC_HASH'
+    assert f'--source-commit "{source}" --status release-build' in text
+    if workflow == "release_candidate.yml":
+        assert 'RC_HASH: ${{ inputs.source_commit || github.sha }}' in text
+        assert 'ref: ${{ inputs.source_commit || github.sha }}' in text
     assert '/language-template/english_template.yaml' in text
     assert '/language-template/language-template.json' in text
 assert "cp -R release-firmware/language-template/." in (root / ".github/workflows/release.yml").read_text()

@@ -17,11 +17,13 @@ harness = r'''
 #include <cstdio>
 #include <cstring>
 #include <memory>
+#include <optional>
 #include <vector>
 constexpr int SMALL_FONT_ID = 1;
 bool allocationFails = false, locked = false, usb = true, wake = false;
 bool retainedSupported = true, restoreFails = false;
-int logs = 0, callbacks = 0, paints = 0, restores = 0;
+int logs = 0, callbacks = 0, paints = 0, restores = 0, lockAcquisitions = 0;
+bool callerOwnsLock = false;
 #define LOG_ERR(...) ++logs
 using HeapByteBuffer = std::unique_ptr<uint8_t[]>;
 HeapByteBuffer makePsramByteBufferNoThrow(size_t bytes) {
@@ -29,7 +31,8 @@ HeapByteBuffer makePsramByteBufferNoThrow(size_t bytes) {
 }
 struct Rect { int x, y, width, height; };
 struct RenderLock {
-  RenderLock() { assert(!locked); locked = true; }
+  static bool heldByCurrentTask() { return locked; }
+  RenderLock() { assert(!locked); locked = true; ++lockAcquisitions; }
   ~RenderLock() { locked = false; }
 };
 struct Renderer {
@@ -64,7 +67,7 @@ struct Theme {
 struct GPIO { bool isUsbConnected() { return usb; } } gpio;
 struct PowerManager {
   bool holdWhileUsbPowered(GPIO&, void (*callback)(void*, uint16_t) = nullptr, void* context = nullptr) {
-    assert(!locked);
+    assert(locked == callerOwnsLock);
     if (callback) {
       for (auto percent : {42, 43}) {
         ++callbacks;
@@ -81,12 +84,30 @@ void reset() {
   renderer.frame.fill(0xa5);
   allocationFails = locked = wake = restoreFails = false;
   usb = retainedSupported = true;
-  logs = callbacks = paints = restores = 0;
+  logs = callbacks = paints = restores = lockAcquisitions = 0;
+  callerOwnsLock = false;
 }
 int main() {
   reset();
   assert(!holdSleepWhileUsbPowered());
   assert(callbacks == 2 && paints == 2 && restores == 1 && logs == 0 && !locked);
+  assert(lockAcquisitions == 3);
+  // Sleep can be entered while ActivityManager already owns its non-recursive lock.
+  // Both painting and restoring must preserve that ownership without reacquiring.
+  reset(); callerOwnsLock = true;
+  {
+    RenderLock callerLock;
+    assert(!holdSleepWhileUsbPowered());
+    assert(locked && lockAcquisitions == 1 && paints == 2 && restores == 1);
+  }
+  assert(!locked);
+  reset(); callerOwnsLock = true; wake = true;
+  {
+    RenderLock callerLock;
+    assert(holdSleepWhileUsbPowered());
+    assert(locked && lockAcquisitions == 1 && paints == 2 && restores == 0);
+  }
+  assert(!locked);
   reset(); wake = true;
   assert(holdSleepWhileUsbPowered());
   assert(paints == 2 && restores == 0);

@@ -86,6 +86,8 @@ uint32_t smallCapsUppercaseCodepoint(uint32_t cp) { return cp - 'a' + 'A'; }
 '''
 for signature in ['bool characterSpacingBoundary(', 'int characterSpacingPixels(', 'int32_t halfAdvanceFP(', 'int32_t smallCapsAdvanceFP(']:
     source += function(gfx, signature)
+lookup_start = gfx.index('  const auto sdIt = sdCardFonts_.find(resolvedFontId);', gfx.index('int GfxRenderer::getTextAdvanceX('))
+lookup = gfx[lookup_start:gfx.index('\n', lookup_start)]
 start = gfx.index('  // Advance table fast-path for SD card fonts during layout.', gfx.index('int GfxRenderer::getTextAdvanceX('))
 end = gfx.index('\n  const auto fontIt = fontMap.find(resolvedFontId);', start + 300)
 source += r'''
@@ -95,7 +97,7 @@ int measure(const char* text, int advance = 17, EpdFontFamily::Style style = Epd
   SdCardFont sd{advance};
   std::map<int, SdCardFont*> sdCardFonts_{{1, &sd}};
   std::map<int, EpdFontFamily> fontMap{{1, EpdFontFamily{kern}}};
-'''+gfx[start:end]+r'''
+'''+lookup+'\n'+gfx[start:end]+r'''
   assert(false); return 0;
 }
 int main() {
