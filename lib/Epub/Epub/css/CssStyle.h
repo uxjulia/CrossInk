@@ -119,6 +119,7 @@ struct CssPropertyFlags {
   uint32_t floatLeft : 1;
   uint32_t initialLetter : 1;
   uint32_t fontFamily : 1;
+  uint32_t backgroundImage : 1;
 
   CssPropertyFlags()
       : textAlign(0),
@@ -150,14 +151,15 @@ struct CssPropertyFlags {
         shaded(0),
         floatLeft(0),
         initialLetter(0),
-        fontFamily(0) {}
+        fontFamily(0),
+        backgroundImage(0) {}
 
   [[nodiscard]] bool anySet() const {
-    return fontFamily || shaded || floatLeft || initialLetter || whiteSpace || border || fontSize || textAlign ||
-           fontStyle || fontWeight || textDecoration || textIndent || marginTop || marginBottom || marginLeft ||
-           marginRight || paddingTop || paddingBottom || paddingLeft || paddingRight || imageHeight || imageWidth ||
-           display || backgroundBlack || verticalAlign || direction || pageBreakBefore || pageBreakAfter ||
-           fontVariantCaps || listStyleType;
+    return backgroundImage || fontFamily || shaded || floatLeft || initialLetter || whiteSpace || border || fontSize ||
+           textAlign || fontStyle || fontWeight || textDecoration || textIndent || marginTop || marginBottom ||
+           marginLeft || marginRight || paddingTop || paddingBottom || paddingLeft || paddingRight || imageHeight ||
+           imageWidth || display || backgroundBlack || verticalAlign || direction || pageBreakBefore ||
+           pageBreakAfter || fontVariantCaps || listStyleType;
   }
 
   void clearAll() {
@@ -166,7 +168,7 @@ struct CssPropertyFlags {
     paddingTop = paddingBottom = paddingLeft = paddingRight = 0;
     imageHeight = imageWidth = display = backgroundBlack = verticalAlign = direction = 0;
     pageBreakBefore = pageBreakAfter = fontVariantCaps = listStyleType = fontSize = border = whiteSpace = shaded =
-        floatLeft = initialLetter = fontFamily = 0;
+        floatLeft = initialLetter = fontFamily = backgroundImage = 0;
   }
 };
 
@@ -207,7 +209,8 @@ struct CssStyle {
                        [](const CssBorderSide& side) { return side.visible(); });
   }
   bool preserveWhitespace = false;
-  bool backgroundBlack = false;                                 // Simple black inline/block background support
+  bool backgroundBlack = false;  // Simple black inline/block background support
+  bool backgroundImage = false;  // Presence only: unsupported background images need an hr fallback.
   CssVerticalAlign verticalAlign = CssVerticalAlign::Baseline;  // vertical-align (super/sub positioning)
   bool pageBreakBefore = false;
   bool pageBreakAfter = false;
@@ -221,7 +224,7 @@ struct CssStyle {
   uint8_t borderWidthDefined = 0;
 
   [[nodiscard]] bool suppressesHorizontalRule() const {
-    return (borderStyleSuppressed | borderWidthSuppressed) == 0x0F;
+    return !backgroundImage && (borderStyleSuppressed | borderWidthSuppressed) == 0x0F;
   }
 
   CssPropertyFlags defined;  // Tracks which properties were explicitly set
@@ -331,6 +334,10 @@ struct CssStyle {
     if (base.hasBackgroundBlack()) {
       backgroundBlack = base.backgroundBlack;
       defined.backgroundBlack = 1;
+    }
+    if (base.defined.backgroundImage) {
+      backgroundImage = base.backgroundImage;
+      defined.backgroundImage = 1;
     }
     if (base.hasDirection()) {
       direction = base.direction;

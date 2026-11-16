@@ -1509,6 +1509,54 @@ TEST_F(ChapterHtmlSlimParserTest, SuppressedRuleRetainsExplicitSpacing) {
   EXPECT_EQ(parser.currentPageNextY, 21);
 }
 
+TEST_F(ChapterHtmlSlimParserTest, ImageBackedTransitionKeepsVisibleFallback) {
+  // Publisher CSS from Monsters of Ohio, chapter 21 (two thematic breaks).
+  cssParser.rulesBySelector_["hr.transition"] = CssParser::parseInlineStyle(
+      "background: url(../images/asterisks.jpg) no-repeat center; height: 1em; border: none; margin: 1em 0");
+  const XML_Char* attrs[] = {"class", "transition", nullptr};
+  for (int i = 0; i < 2; ++i) {
+    ChapterHtmlSlimParser::startElement(&parser, "hr", attrs);
+    ChapterHtmlSlimParser::endElement(&parser, "hr");
+  }
+  ASSERT_NE(parser.currentPage, nullptr);
+  ASSERT_EQ(parser.currentPage->elements.size(), 2u);
+  for (const auto& element : parser.currentPage->elements) EXPECT_EQ(element->getTag(), TAG_PageHorizontalRule);
+}
+
+TEST(CssBackgroundImageTest, BorderlessFallbackFollowsBackgroundCascade) {
+  auto style = CssParser::parseInlineStyle("border: none; background: url(ornament.jpg) no-repeat center");
+  EXPECT_FALSE(style.suppressesHorizontalRule());
+  style.applyOver(CssParser::parseInlineStyle("background-color: white"));
+  EXPECT_FALSE(style.suppressesHorizontalRule());
+  style.applyOver(CssParser::parseInlineStyle("background-image: none"));
+  EXPECT_TRUE(style.suppressesHorizontalRule());
+  style.applyOver(CssParser::parseInlineStyle("background-image: URL( 'ornament.jpg' ) !important"));
+  EXPECT_FALSE(style.suppressesHorizontalRule());
+  style.applyOver(CssParser::parseInlineStyle("background: white"));
+  EXPECT_TRUE(style.suppressesHorizontalRule());
+  EXPECT_FALSE(
+      CssParser::parseInlineStyle("border: none; background-image: url(ornament.jpg)").suppressesHorizontalRule());
+  EXPECT_TRUE(CssParser::parseInlineStyle("border: none; background: none").suppressesHorizontalRule());
+  style.reset();
+  EXPECT_FALSE(style.defined.anySet());
+}
+
+TEST_F(ChapterHtmlSlimParserTest, HiddenImageBackedTransitionStaysHidden) {
+  const XML_Char* attrs[] = {"style", "display: none; border: none; background-image: url(ornament.jpg)", nullptr};
+  ChapterHtmlSlimParser::startElement(&parser, "hr", attrs);
+  ChapterHtmlSlimParser::endElement(&parser, "hr");
+  EXPECT_TRUE(!parser.currentPage || parser.currentPage->elements.empty());
+}
+
+TEST_F(ChapterHtmlSlimParserTest, ParentBackgroundDoesNotRevealBorderlessRule) {
+  const XML_Char* parent[] = {"style", "background-image: url(ornament.jpg)", nullptr};
+  const XML_Char* attrs[] = {"style", "border: none", nullptr};
+  ChapterHtmlSlimParser::startElement(&parser, "div", parent);
+  ChapterHtmlSlimParser::startElement(&parser, "hr", attrs);
+  ChapterHtmlSlimParser::endElement(&parser, "hr");
+  EXPECT_TRUE(!parser.currentPage || parser.currentPage->elements.empty());
+}
+
 TEST_F(ChapterHtmlSlimParserTest, PlainAndExplicitlyVisibleRulesStillRender) {
   ChapterHtmlSlimParser::startElement(&parser, "hr", nullptr);
   ChapterHtmlSlimParser::endElement(&parser, "hr");

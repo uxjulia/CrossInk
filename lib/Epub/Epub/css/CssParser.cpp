@@ -68,8 +68,8 @@ constexpr size_t MAX_SELECTOR_LENGTH = 256;
 constexpr size_t CSS_LENGTH_FIELD_COUNT = 12;
 constexpr size_t CSS_LENGTH_BYTES = sizeof(float) + sizeof(uint8_t);
 constexpr size_t CSS_FIXED_STYLE_BYTES = 5 * sizeof(uint8_t) + (CSS_LENGTH_FIELD_COUNT * CSS_LENGTH_BYTES) +
-                                         4 * sizeof(uint8_t) + 19 * sizeof(uint8_t) + 2 * sizeof(uint32_t);
-static_assert(CSS_FIXED_STYLE_BYTES == 96,
+                                         4 * sizeof(uint8_t) + 20 * sizeof(uint8_t) + 2 * sizeof(uint32_t);
+static_assert(CSS_FIXED_STYLE_BYTES == 97,
               "CssStyle cache payload changed; update read/writeCssStylePayload and bump CSS_CACHE_VERSION");
 
 // Check if character is CSS whitespace
@@ -203,6 +203,23 @@ bool tryInterpretCssPageBreak(std::string_view value, bool& out) {
   if (iequalsAscii(value, "auto") || iequalsAscii(value, "avoid") || iequalsAscii(value, "avoid-page")) {
     out = false;
     return true;
+  }
+  return false;
+}
+
+// Only retain presence, not the URL or decoded image: hr uses the normal line fallback.
+bool hasBackgroundImageUrl(std::string_view value) {
+  for (size_t i = 0; i + 4 < value.size(); ++i) {
+    if (i > 0 && !isCssWhitespace(value[i - 1]) && value[i - 1] != ',') continue;
+    if (!iequalsAscii(value.substr(i, 4), "url(")) continue;
+    const auto end = value.find(')', i + 4);
+    if (end == std::string_view::npos) return false;
+    auto url = trimCssWhitespace(value.substr(i + 4, end - i - 4));
+    if (url.size() >= 2 && ((url.front() == '\'' && url.back() == '\'') || (url.front() == '"' && url.back() == '"'))) {
+      url = trimCssWhitespace(url.substr(1, url.size() - 2));
+    }
+    if (!url.empty()) return true;
+    i = end;
   }
   return false;
 }
@@ -751,7 +768,19 @@ void CssParser::parseDeclarationIntoStyle(std::string_view decl, CssStyle& style
                     : iequalsAscii(displayValue, "inline") ? CssDisplay::Inline
                                                            : CssDisplay::Block;
     style.defined.display = 1;
+  } else if (iequalsAscii(name, "background-image")) {
+    const auto image = trimCssWhitespace(stripTrailingImportant(value));
+    const bool hasImage = hasBackgroundImageUrl(image);
+    if (hasImage || iequalsAscii(image, "none")) {
+      style.backgroundImage = hasImage;
+      style.defined.backgroundImage = 1;
+    }
   } else if (iequalsAscii(name, "background") || iequalsAscii(name, "background-color")) {
+    if (iequalsAscii(name, "background")) {
+      // The shorthand also resets any earlier background-image.
+      style.backgroundImage = hasBackgroundImageUrl(value);
+      style.defined.backgroundImage = 1;
+    }
     const auto color = trimCssWhitespace(stripTrailingImportant(value));
     if (iequalsAscii(color, "gray") || iequalsAscii(color, "grey") || iequalsAscii(color, "lightgray") ||
         iequalsAscii(color, "lightgrey") || iequalsAscii(color, "silver") ||
@@ -1383,7 +1412,9 @@ bool CssParser::writeCssStylePayload(FsFile& file, const CssStyle& style) {
   for (const auto& side : style.borders) {
     if (!writeByte(side.width) || !writeByte(static_cast<uint8_t>(side.style))) return false;
   }
-  if (!writeByte(style.shaded) || !writeByte(style.floatLeft) || !writeByte(style.initialLetter)) return false;
+  if (!writeByte(style.shaded) || !writeByte(style.floatLeft) || !writeByte(style.initialLetter) ||
+      !writeByte(style.backgroundImage))
+    return false;
   uint32_t definedBits = 0;
   if (style.defined.textAlign) definedBits |= 1 << 0;
   if (style.defined.fontStyle) definedBits |= 1 << 1;
@@ -1415,6 +1446,7 @@ bool CssParser::writeCssStylePayload(FsFile& file, const CssStyle& style) {
   if (style.defined.floatLeft) definedBits |= 1u << 27;
   if (style.defined.initialLetter) definedBits |= 1u << 28;
   if (style.defined.fontFamily) definedBits |= 1u << 29;
+  if (style.defined.backgroundImage) definedBits |= 1u << 30;
   return writeBytes(&definedBits, sizeof(definedBits)) && writeBytes(&style.fontFamily, sizeof(style.fontFamily));
 }
 
@@ -1487,6 +1519,9 @@ bool CssParser::readCssStylePayload(FsFile& file, CssStyle& style) {
     return false;
   style.shaded = shaded;
   style.floatLeft = floated;
+  uint8_t backgroundImage = 0;
+  if (file.read(&backgroundImage, 1) != 1 || backgroundImage > 1) return false;
+  style.backgroundImage = backgroundImage != 0;
   uint32_t definedBits = 0;
   if (file.read(&definedBits, sizeof(definedBits)) != sizeof(definedBits)) return false;
   style.defined.textAlign = (definedBits & 1 << 0) != 0;
@@ -1519,6 +1554,7 @@ bool CssParser::readCssStylePayload(FsFile& file, CssStyle& style) {
   style.defined.floatLeft = (definedBits & 1u << 27) != 0;
   style.defined.initialLetter = (definedBits & 1u << 28) != 0;
   style.defined.fontFamily = (definedBits & 1u << 29) != 0;
+  style.defined.backgroundImage = (definedBits & 1u << 30) != 0;
   if (file.read(&style.fontFamily, sizeof(style.fontFamily)) != sizeof(style.fontFamily)) return false;
   if (style.hasFontSize() && (!std::isfinite(style.fontSize.value) || style.fontSize.value <= 0 ||
                               static_cast<uint8_t>(style.fontSize.unit) > static_cast<uint8_t>(CssUnit::Percent)))

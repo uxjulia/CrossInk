@@ -1129,7 +1129,16 @@ body-only and built-in font identities stay unchanged. No binary payload changes
 
 ## `section.bin`
 
-### Version 109 (current development)
+### Version 110 (current development)
+
+Image-backed `<hr>` elements retain a visible fallback line when publisher CSS
+hides their borders. Complete section caches use byte `110`; suspended partial
+caches use `0xDF`. Earlier layouts rebuild automatically. CSS rule cache revision
+`22` adds one background-image-presence byte after `initialLetter` and defined
+bit 30, making the style payload 97 bytes. Image URLs and pixels are not cached;
+the existing centered rule is used instead of decoding CSS background images.
+
+### Version 109
 
 Complete caches use `109` and suspended partial caches use `0xDE`. Both rebuild
 automatically to restore drop caps marked only by an oversized opening span,

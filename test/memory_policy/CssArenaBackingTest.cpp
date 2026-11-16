@@ -193,6 +193,33 @@ TEST_F(CssArenaBackingTest, BorderSuppressionSurvivesHydrationAndDiskFallback) {
   }
 }
 
+TEST_F(CssArenaBackingTest, ImageBackedDividersSurviveHydrationAndDiskFallback) {
+  for (int mode = 0; mode < 3; ++mode) {
+    fakeheap::reset(mode != 0);
+    const std::string text =
+        "hr { border: none; } "
+        "hr.transition { background: url(../images/asterisks.jpg) no-repeat center; } "
+        "hr.cleared { background-image: url(ornament.jpg); background-image: none; } "
+        "hr.reset { background-image: url(ornament.jpg); background: white; }";
+    Storage.put("input.css", {text.begin(), text.end()});
+    FsFile file;
+    ASSERT_TRUE(Storage.openFileForRead("test", "input.css", file));
+    CssParser css("book");
+    ASSERT_TRUE(css.loadFromStream(file));
+    file.close();
+    EXPECT_FALSE(css.resolveStyle("hr", "transition").suppressesHorizontalRule());
+    ASSERT_TRUE(css.saveToCache());
+    css.clear();
+    if (mode == 2) fakeheap::external.fail = 1;
+    ASSERT_TRUE(css.loadFromCache());
+    if (mode == 2) EXPECT_TRUE(fakeheap::live.empty());
+    EXPECT_FALSE(css.resolveStyle("hr", "transition").suppressesHorizontalRule());
+    EXPECT_TRUE(css.resolveStyle("hr", "cleared").suppressesHorizontalRule());
+    EXPECT_TRUE(css.resolveStyle("hr", "reset").suppressesHorizontalRule());
+    EXPECT_TRUE(css.resolveStyle("hr", "").suppressesHorizontalRule());
+  }
+}
+
 TEST_F(CssArenaBackingTest, PublisherDecorationsAndContextSurviveAllCacheBackings) {
   for (int mode = 0; mode < 3; ++mode) {
     fakeheap::reset(mode != 0);
