@@ -1871,16 +1871,10 @@ static bool handleSlideSwitch() {
 }
 #endif
 
-// Adapted from Justin Mitchell, CrossPoint #4494. EEGO needs its panel rails
-// parked promptly on every screen, not just screens that block device sleep.
-// Keep this separate from lastActivityTime: background work resets that clock.
-static void idleDisplayWhileAwake([[maybe_unused]] const bool userInputReceived) {
+// Adapted from Justin Mitchell, CrossPoint #4494. The A4 driver keeps panel
+// power on for 500 ms after a completed refresh, regardless of input activity.
+static void idleDisplayWhileAwake() {
 #if FREEINK_DEVICE_EEGO_A4
-  // Upstream counts from boot until the first input, not from the first loop.
-  static unsigned long lastPanelInputTime = 0;
-  const unsigned long now = millis();
-  if (userInputReceived) lastPanelInputTime = now;
-  if (now - lastPanelInputTime < 500) return;
   RenderLock lock(RenderLock::Mode::Try);
   if (lock.ownsLock()) display.controllerIdle();
 #endif
@@ -1917,7 +1911,7 @@ void loop() {
     // USB Drive owns the USB PHY and raw SD card. Keep the normal serial
     // transfer handler suspended with the other filesystem users.
     activityManager.loop();
-    idleDisplayWhileAwake(gpio.wasAnyPressed() || gpio.wasAnyReleased() || gpio.wasTouchActivity());
+    idleDisplayWhileAwake();
 #ifdef SIMULATOR
     // Let storage-handoff smoke checks advance while normal app work is paused.
     runSimulatorSmokeTestTick();
@@ -1975,7 +1969,7 @@ void loop() {
 #endif
                                  || halTiltSensor.hadActivity();
   // Match upstream after all input sources have been sampled, before shortcut returns.
-  idleDisplayWhileAwake(userInputReceived);
+  idleDisplayWhileAwake();
 
   // Check for any user activity (button press or release) or active background work
   static unsigned long lastActivityTime = millis();
