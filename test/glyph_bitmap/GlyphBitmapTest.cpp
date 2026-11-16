@@ -39,7 +39,7 @@ struct Rect {
 };
 
 void compare(int orientation, int rotation, bool twoBit, Plane plane, bool state, int width, int height, int x, int y,
-             int originY, int rows, Rect clip, bool absolute = false) {
+             int originY, int rows, Rect clip, bool absolute = false, uint8_t darkness = 0) {
   SCOPED_TRACE(::testing::Message() << orientation << ',' << rotation << ',' << twoBit << ',' << static_cast<int>(plane)
                                     << ',' << state << " size=" << width << 'x' << height << " at=" << x << ',' << y
                                     << " band=" << originY << ',' << rows);
@@ -62,7 +62,12 @@ void compare(int orientation, int rotation, bool twoBit, Plane plane, bool state
       bool draw = false;
       bool black = state;
       if (twoBit) {
-        const int value = 3 - ((bitmap[source / 4] >> ((3 - source % 4) * 2)) & 3);
+        int ink = (bitmap[source / 4] >> ((3 - source % 4) * 2)) & 3;
+        if (plane != Plane::BW && darkness == 1 && ink == 1)
+          ink = 2;
+        else if (plane != Plane::BW && darkness == 2 && ink > 0 && ink < 3)
+          ++ink;
+        const int value = 3 - ink;
         if (plane == Plane::BW) draw = value < 3;
         if (plane == Plane::GrayLSB) draw = value == 1;
         if (plane == Plane::GrayMSB) draw = value == 1 || value == 2;
@@ -94,7 +99,7 @@ void compare(int orientation, int rotation, bool twoBit, Plane plane, bool state
   const auto [yx, yy] = physical(orientation, x + dyX, y + dyY);
   const glyphBitmap::Target target{
       actual.data() + 16, PANEL_WIDTH, STRIDE, originY, rows, {px, py, xx - px, xy - py, yx - px, yy - py}};
-  glyphBitmap::draw(bitmap.data(), width, height, twoBit, plane, state, target, local, absolute);
+  glyphBitmap::draw(bitmap.data(), width, height, twoBit, plane, state, target, local, absolute, darkness);
   EXPECT_EQ(expected, actual);
 }
 }  // namespace
@@ -142,4 +147,32 @@ TEST(GlyphBitmap, AbsoluteCoveragePreservesTransparencyAndMatchesAllOrientations
               for (const auto [origin, rows] : {std::pair{0, 32}, std::pair{7, 11}})
                 compare(orientation, rotation, twoBit, plane, black, width, 13, 9, 11, origin, rows, {2, 3, 28, 30},
                         true);
+}
+
+TEST(GlyphBitmap, DarknessPreservesClippingRotationsTransparencyAndMonochrome) {
+  for (uint8_t darkness : {0, 1, 2, 255}) {
+    for (bool absolute : {false, true}) {
+      for (int orientation = 0; orientation < 4; ++orientation) {
+        for (int rotation = 0; rotation < 2; ++rotation) {
+          for (bool twoBit : {false, true}) {
+            for (bool state : {false, true}) {
+              for (Plane plane : {Plane::BW, Plane::GrayLSB, Plane::GrayMSB}) {
+                compare(orientation, rotation, twoBit, plane, state, 31, 13, 9, 11, 7, 11, {2, 3, 28, 25}, absolute,
+                        darkness);
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+TEST(GlyphBitmap, StrongerTextRetainsGrayEdgesAndSolidCores) {
+  for (uint8_t level : {0, 1, 2}) {
+    EXPECT_EQ(textDarkness::coverage(0, level), 0);
+    EXPECT_EQ(textDarkness::coverage(3, level), 3);
+    EXPECT_LT(textDarkness::coverage(1, level), 3);
+    for (uint8_t ink = 1; ink < 3; ++ink) EXPECT_GE(textDarkness::coverage(ink, level), ink);
+  }
 }

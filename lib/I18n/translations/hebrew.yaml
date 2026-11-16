@@ -1062,3 +1062,5 @@ STR_ABOUT_UID: "UID"
 
 STR_RESTORE_STATS: "שחזור נתונים"
 STR_STATS_RESTORED: "הנתונים שוחזרו"
+STR_TEXT_DARKNESS: "כהות טקסט"
+STR_DARKER: "כהה יותר"

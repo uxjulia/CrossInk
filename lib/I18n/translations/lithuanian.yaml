@@ -1062,3 +1062,5 @@ STR_ABOUT_UID: "UID"
 
 STR_RESTORE_STATS: "Atkurti statistiką"
 STR_STATS_RESTORED: "Statistika atkurta"
+STR_TEXT_DARKNESS: "Teksto tamsumas"
+STR_DARKER: "Tamsesnis"

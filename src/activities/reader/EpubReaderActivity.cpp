@@ -116,7 +116,8 @@ constexpr uint8_t PRE_FIELD_OVERRIDES_READER_SETTINGS_FILE_VERSION = 9;
 constexpr uint8_t PRE_IMAGE_GRAYSCALE_READER_SETTINGS_FILE_VERSION = 10;
 constexpr uint8_t PRE_CHARACTER_SPACING_READER_SETTINGS_FILE_VERSION = 11;
 constexpr uint8_t PRE_PUBLISHER_FONTS_READER_SETTINGS_FILE_VERSION = 12;
-constexpr uint8_t READER_SETTINGS_FILE_VERSION = 13;
+constexpr uint8_t PRE_TEXT_DARKNESS_READER_SETTINGS_FILE_VERSION = 13;
+constexpr uint8_t READER_SETTINGS_FILE_VERSION = 14;
 constexpr uint8_t READER_SETTINGS_FLAG_CUSTOM = 1 << 0;
 constexpr uint8_t READER_SETTINGS_FLAG_AUTO_PAGE_TURN = 1 << 1;
 constexpr uint8_t READER_SETTINGS_FLAG_RENDER_MODE = 1 << 2;
@@ -1208,6 +1209,7 @@ void captureReaderSettings(EpubReaderActivity::ReaderSettingsSnapshot& out) {
   out.publisherFonts = SETTINGS.publisherFonts;
   out.hyphenationEnabled = SETTINGS.hyphenationEnabled;
   out.textAntiAliasing = SETTINGS.textAntiAliasing;
+  out.textDarkness = SETTINGS.textDarkness;
   out.imageRendering = SETTINGS.imageRendering;
   out.imageGrayscale = SETTINGS.imageGrayscale;
   out.extraParagraphSpacing = SETTINGS.extraParagraphSpacing;
@@ -1250,6 +1252,7 @@ void applyReaderSettings(const EpubReaderActivity::ReaderSettingsSnapshot& in) {
   SETTINGS.publisherFonts = in.publisherFonts <= static_cast<uint8_t>(PublisherFonts::All) ? in.publisherFonts : 0;
   SETTINGS.hyphenationEnabled = in.hyphenationEnabled ? 1 : 0;
   SETTINGS.textAntiAliasing = in.textAntiAliasing ? 1 : 0;
+  SETTINGS.textDarkness = in.textDarkness <= 2 ? in.textDarkness : 0;
   SETTINGS.imageRendering =
       in.imageRendering < CrossPointSettings::IMAGE_RENDERING_COUNT ? in.imageRendering : SETTINGS.imageRendering;
   SETTINGS.imageGrayscale = in.imageGrayscale ? 1 : 0;
@@ -1264,7 +1267,7 @@ void applyReaderSettings(const EpubReaderActivity::ReaderSettingsSnapshot& in) {
 }
 
 using ReaderSettingsSnapshot = EpubReaderActivity::ReaderSettingsSnapshot;
-constexpr std::array<uint8_t ReaderSettingsSnapshot::*, 21> READER_SETTING_FIELDS = {
+constexpr std::array<uint8_t ReaderSettingsSnapshot::*, 22> READER_SETTING_FIELDS = {
     &ReaderSettingsSnapshot::fontFamily,
     &ReaderSettingsSnapshot::readerFontPointSize,
     &ReaderSettingsSnapshot::lineHeightPercent,
@@ -1286,18 +1289,20 @@ constexpr std::array<uint8_t ReaderSettingsSnapshot::*, 21> READER_SETTING_FIELD
     &ReaderSettingsSnapshot::imageGrayscale,
     &ReaderSettingsSnapshot::characterSpacing,
     &ReaderSettingsSnapshot::publisherFonts,
+    &ReaderSettingsSnapshot::textDarkness,
 };
 // Preserve the existing SD-family bit when appending the new field.
 constexpr uint32_t SD_FONT_FAMILY_OVERRIDE = 1U << 19;
 constexpr uint32_t CHARACTER_SPACING_OVERRIDE = 1U << 20;
 constexpr uint32_t PUBLISHER_FONTS_OVERRIDE = 1U << 21;
-constexpr uint32_t ALL_READER_SETTING_OVERRIDES = (PUBLISHER_FONTS_OVERRIDE << 1) - 1;
+constexpr uint32_t TEXT_DARKNESS_OVERRIDE = 1U << 22;
+constexpr uint32_t ALL_READER_SETTING_OVERRIDES = (TEXT_DARKNESS_OVERRIDE << 1) - 1;
 constexpr uint32_t readerSettingBit(size_t index) { return 1U << (index < 19 ? index : index + 1); }
 constexpr uint32_t READER_FONT_OVERRIDES = (1U << 0) | (1U << 1) | SD_FONT_FAMILY_OVERRIDE;
 constexpr uint32_t IMAGE_GRAYSCALE_OVERRIDE = 1U << 18;
 // Text AA and image grayscale change drawing, not saved line/page layout.
 constexpr uint32_t READER_LAYOUT_SETTING_OVERRIDES =
-    ALL_READER_SETTING_OVERRIDES & ~((1U << 11) | IMAGE_GRAYSCALE_OVERRIDE);
+    ALL_READER_SETTING_OVERRIDES & ~((1U << 11) | IMAGE_GRAYSCALE_OVERRIDE | TEXT_DARKNESS_OVERRIDE);
 constexpr uint32_t SAFE_MODE_SETTING_OVERRIDES = (1U << 9) | (1U << 15) | (1U << 16);
 
 uint32_t changedReaderSettingsMask(const ReaderSettingsSnapshot& current, const ReaderSettingsSnapshot& global) {
@@ -1425,7 +1430,8 @@ BookReaderSettingsData loadBookReaderSettingsFile(const std::string& cachePath,
       version != PRE_FIELD_OVERRIDES_READER_SETTINGS_FILE_VERSION &&
       version != PRE_IMAGE_GRAYSCALE_READER_SETTINGS_FILE_VERSION &&
       version != PRE_CHARACTER_SPACING_READER_SETTINGS_FILE_VERSION &&
-      version != PRE_PUBLISHER_FONTS_READER_SETTINGS_FILE_VERSION && version != READER_SETTINGS_FILE_VERSION) {
+      version != PRE_PUBLISHER_FONTS_READER_SETTINGS_FILE_VERSION &&
+      version != PRE_TEXT_DARKNESS_READER_SETTINGS_FILE_VERSION && version != READER_SETTINGS_FILE_VERSION) {
     file.close();
     LOG_DBG("ERS", "Reader settings version mismatch, using defaults");
     return data;
@@ -1458,8 +1464,9 @@ BookReaderSettingsData loadBookReaderSettingsFile(const std::string& cachePath,
   if (ok && version >= PRE_IMAGE_GRAYSCALE_READER_SETTINGS_FILE_VERSION) {
     const uint32_t validMask = version == PRE_IMAGE_GRAYSCALE_READER_SETTINGS_FILE_VERSION     ? (1U << 19) - 1
                                : version == PRE_CHARACTER_SPACING_READER_SETTINGS_FILE_VERSION ? (1U << 20) - 1
-                               : version == PRE_PUBLISHER_FONTS_READER_SETTINGS_FILE_VERSION
-                                   ? (1U << 21) - 1
+                               : version == PRE_PUBLISHER_FONTS_READER_SETTINGS_FILE_VERSION   ? (1U << 21) - 1
+                               : version == PRE_TEXT_DARKNESS_READER_SETTINGS_FILE_VERSION
+                                   ? (1U << 22) - 1
                                    : ALL_READER_SETTING_OVERRIDES;
     ok = readU32(file, overrideMask) && (overrideMask & ~validMask) == 0;
     if (version == PRE_IMAGE_GRAYSCALE_READER_SETTINGS_FILE_VERSION) {
@@ -1476,8 +1483,11 @@ BookReaderSettingsData loadBookReaderSettingsFile(const std::string& cachePath,
     ok = readU8(file, snapshot.characterSpacing) &&
          snapshot.characterSpacing <= CrossPointSettings::MAX_CHARACTER_SPACING;
   }
-  if (ok && version >= READER_SETTINGS_FILE_VERSION) {
+  if (ok && version >= PRE_TEXT_DARKNESS_READER_SETTINGS_FILE_VERSION) {
     ok = readU8(file, snapshot.publisherFonts) && snapshot.publisherFonts <= static_cast<uint8_t>(PublisherFonts::All);
+  }
+  if (ok && version >= READER_SETTINGS_FILE_VERSION) {
+    ok = readU8(file, snapshot.textDarkness) && snapshot.textDarkness <= 2;
   }
   file.close();
   if (!ok) {
@@ -1494,8 +1504,8 @@ BookReaderSettingsData loadBookReaderSettingsFile(const std::string& cachePath,
     // the reader actually changed, so unrelated global defaults still apply.
     data.readerSettingsOverrideMask =
         version < PRE_IMAGE_GRAYSCALE_READER_SETTINGS_FILE_VERSION
-            ? ALL_READER_SETTING_OVERRIDES &
-                  ~(IMAGE_GRAYSCALE_OVERRIDE | CHARACTER_SPACING_OVERRIDE | PUBLISHER_FONTS_OVERRIDE)
+            ? ALL_READER_SETTING_OVERRIDES & ~(IMAGE_GRAYSCALE_OVERRIDE | CHARACTER_SPACING_OVERRIDE |
+                                               PUBLISHER_FONTS_OVERRIDE | TEXT_DARKNESS_OVERRIDE)
             : overrideMask;
     data.hasCustomReaderSettings = data.readerSettingsOverrideMask != 0;
     applyReaderSettingsOverrides(data.readerSettings, snapshot, data.readerSettingsOverrideMask);
@@ -1546,7 +1556,8 @@ bool saveBookReaderSettingsFile(const std::string& cachePath, const BookReaderSe
                   writeU8(file, normalizedReaderSettings.imageGrayscale ? 1 : 0) &&
                   writeU8(file, std::min<uint8_t>(normalizedReaderSettings.characterSpacing,
                                                   CrossPointSettings::MAX_CHARACTER_SPACING)) &&
-                  writeU8(file, normalizedReaderSettings.publisherFonts);
+                  writeU8(file, normalizedReaderSettings.publisherFonts) &&
+                  writeU8(file, normalizedReaderSettings.textDarkness <= 2 ? normalizedReaderSettings.textDarkness : 0);
   file.close();
   if (!ok) {
     LOG_ERR("ERS", "Short write saving reader settings");
@@ -7808,6 +7819,7 @@ void EpubReaderActivity::prepareCurrentSectionForRelayout(const bool preserveSta
 bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fontId, const int orientedMarginTop,
                                         const int orientedMarginRight, const int orientedMarginBottom,
                                         const int orientedMarginLeft, const bool updatePanel) {
+  const GfxRenderer::TextDarknessScope darkness(renderer, SETTINGS.textDarkness);
 #if defined(ENABLE_SERIAL_LOG) && LOG_LEVEL >= 2
   // Log after presentation so serial output does not delay the first pixels.
   // The final stage includes AA rendering, upload, panel waits and history.

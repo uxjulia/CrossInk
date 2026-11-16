@@ -1062,3 +1062,5 @@ STR_ABOUT_UID: "UID"
 
 STR_RESTORE_STATS: "Restaurează statisticile"
 STR_STATS_RESTORED: "Statistici restaurate"
+STR_TEXT_DARKNESS: "Întunecare text"
+STR_DARKER: "Mai închis"

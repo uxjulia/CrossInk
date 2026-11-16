@@ -1062,3 +1062,5 @@ STR_ABOUT_UID: "UID"
 
 STR_RESTORE_STATS: "Restaura estadístiques"
 STR_STATS_RESTORED: "Estadístiques restaurades"
+STR_TEXT_DARKNESS: "Foscor del text"
+STR_DARKER: "Més fosc"

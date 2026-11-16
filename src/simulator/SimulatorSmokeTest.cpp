@@ -37,6 +37,7 @@
 #include "util/WordSelectNavigator.h"
 #if CROSSINK_SCALABLE_FONTS
 #include <HalScalableFont.h>
+#include <builtinFonts/bitter_12_regular.h>
 
 #include <fstream>
 
@@ -522,6 +523,105 @@ struct SliderOrientationSmokeTest {
 };
 
 struct ReaderDrawerLayoutSmokeTest {
+#if CROSSINK_SCALABLE_FONTS
+  template <typename Capture>
+  static bool verifyTextDarkness(const Capture& capture) {
+    RenderLock lock;
+    JsonDocument original;
+    SETTINGS.toJson(original);
+    bool valid = true;
+    const auto settings = buildReaderFontSettingsList(getBaseSettingsList());
+    valid &= std::any_of(settings.begin(), settings.end(), [](const SettingInfo& info) {
+      return settingKeyIs(info, "textDarkness") && info.enumValues.size() == 3;
+    });
+    for (uint8_t level = 0; level <= 2; ++level) {
+      SETTINGS.textDarkness = level;
+      valid &= SETTINGS.saveToFile();
+      SETTINGS.textDarkness = 255;
+      SETTINGS.loadFromFile();
+      valid &= SETTINGS.textDarkness == level;
+    }
+    EpubReaderDrawerActivity drawer(renderer, mappedInputManager, {}, nullptr, 0.0f, 0, 0, false, false, false, false,
+                                    false, false, false, false, true, true, 0, 0, 5, false);
+    drawer.onEnter();
+    drawer.state.tab = ReaderDrawerTab::Font;
+    for (uint8_t level = 0; level <= 2; ++level) {
+      drawer.showEnumOptions(ReaderDrawerCatalogItem::TextDarkness);
+      valid &= drawer.enumOptionValues.size() == 3;
+      drawer.selectEnumOption(level);
+      valid &= drawer.draft.textDarkness == level;
+    }
+    drawer.showEnumOptions(ReaderDrawerCatalogItem::TextDarkness);
+    drawer.render(std::move(lock));
+    capture("text-darkness-menu");
+    drawer.onExit();
+
+    // Test real bitmap and TTF glyphs through the same renderer. Host-only
+    // vectors reconstruct the display's three passes for visual comparison.
+    EpdFont bitmapFont(&bitter_12_regular);
+    constexpr int bitmapId = 29000;
+    renderer.insertFont(bitmapId, EpdFontFamily(&bitmapFont));
+    const int ttfId = sdFontSystem.ensureBuiltInReaderFont(renderer);
+    const int width = renderer.getScreenWidth(), height = renderer.getScreenHeight();
+    const size_t count = static_cast<size_t>(width) * height;
+    const char* output = std::getenv("CROSSINK_SIMULATOR_SMOKE_STATUS_BAR_CAPTURES");
+    for (const int fontId : {bitmapId, ttfId}) {
+      std::vector<uint8_t> previous;
+      for (uint8_t level = 0; level <= 2; ++level) {
+        std::vector<uint8_t> pixels(count, 255), msb(count);
+        {
+          const GfxRenderer::TextDarknessScope darkness(renderer, level);
+          for (const auto plane : {GfxRenderer::BW, GfxRenderer::GRAYSCALE_MSB, GfxRenderer::GRAYSCALE_LSB}) {
+            renderer.setRenderMode(plane);
+            renderer.clearScreen(plane == GfxRenderer::BW ? 0xff : 0x00);
+            renderer.drawText(fontId, 24, 70, "The quick brown fox jumps.");
+            renderer.drawText(fontId, 24, 115, "Smooth curves: a e g o s 012345");
+            for (int y = 0; y < height; ++y) {
+              for (int x = 0; x < width; ++x) {
+                const size_t i = static_cast<size_t>(y) * width + x;
+                const bool black = renderer.isPixelBlack(x, y);
+                if (plane == GfxRenderer::BW)
+                  pixels[i] = black ? 0 : 255;
+                else if (plane == GfxRenderer::GRAYSCALE_MSB)
+                  msb[i] = !black;
+                else if (pixels[i] == 0 && msb[i])
+                  pixels[i] = black ? 170 : 85;
+              }
+            }
+          }
+        }
+        valid &= renderer.getTextDarkness() == 0;
+        valid &= std::find(pixels.begin(), pixels.end(), 85) != pixels.end();
+        if (!previous.empty()) {
+          bool darker = false;
+          for (size_t i = 0; i < count; ++i) {
+            valid &= pixels[i] <= previous[i];
+            darker |= pixels[i] < previous[i];
+          }
+          valid &= darker;
+        }
+        previous = pixels;
+        if (output) {
+          const auto path = std::filesystem::path(output) /
+                            (std::string(fontId == bitmapId ? "bitmap-" : "ttf-") + std::to_string(level) + ".pgm");
+          FILE* file = std::fopen(path.c_str(), "wb");
+          if (!file) {
+            valid = false;
+            continue;
+          }
+          std::fprintf(file, "P5\n%d %d\n255\n", width, height);
+          valid &= std::fwrite(pixels.data(), 1, pixels.size(), file) == pixels.size();
+          std::fclose(file);
+        }
+      }
+    }
+    renderer.setRenderMode(GfxRenderer::BW);
+    renderer.removeFont(bitmapId);
+    SETTINGS.fromJson(original.as<JsonVariantConst>());
+    valid &= SETTINGS.saveToFile();
+    return valid;
+  }
+#endif
 #if CROSSINK_APP_CAP_TOUCH
   template <typename Capture>
   static bool verifySettingsBackZones(RenderLock& lock, const Capture& capture) {
@@ -9454,6 +9554,13 @@ class SimulatorSmokeTest {
                   lock, [&](const std::string& name) { captureStatusBarScreen(name.c_str()); }))
             fail("Reader Font rows overlapped navigation or became unreachable");
           LOG_INF("SMOKE", "Simulator smoke test passed: reader font layout");
+          std::_Exit(0);
+        }
+        if (std::getenv("CROSSINK_SIMULATOR_SMOKE_TEXT_DARKNESS")) {
+          if (!ReaderDrawerLayoutSmokeTest::verifyTextDarkness(
+                  [&](const std::string& name) { captureStatusBarScreen(name.c_str()); }))
+            fail("Text darkness persistence, menu or glyph comparison failed");
+          LOG_INF("SMOKE", "Simulator smoke test passed: text darkness");
           std::_Exit(0);
         }
         if (std::getenv("CROSSINK_SIMULATOR_SMOKE_PUBLISHER_FONTS")) {

@@ -1062,3 +1062,5 @@ STR_ABOUT_UID: "UID"
 
 STR_RESTORE_STATS: "Відновити статистику"
 STR_STATS_RESTORED: "Статистику відновлено"
+STR_TEXT_DARKNESS: "Темність тексту"
+STR_DARKER: "Темніше"

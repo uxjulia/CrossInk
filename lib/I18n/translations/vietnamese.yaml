@@ -1062,3 +1062,5 @@ STR_ABOUT_UID: "UID"
 
 STR_RESTORE_STATS: "Khôi phục thống kê"
 STR_STATS_RESTORED: "Đã khôi phục thống kê"
+STR_TEXT_DARKNESS: "Độ đậm chữ"
+STR_DARKER: "Đậm hơn"

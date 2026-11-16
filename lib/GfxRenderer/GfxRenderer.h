@@ -55,6 +55,7 @@ class GfxRenderer {
 
   HalDisplay& display;
   RenderMode renderMode;
+  uint8_t textDarkness_ = 0;
   mutable bool absoluteGrayPlanes = false;
   Orientation orientation;
   bool fadingFix;
@@ -392,6 +393,23 @@ class GfxRenderer {
   bool supportsDirectGrayscale() const;
   bool displayDirectGrayscaleBase(HalDisplay::RefreshMode fallback = HalDisplay::HALF_REFRESH) const;
   RenderMode getRenderMode() const { return renderMode; }
+  uint8_t getTextDarkness() const { return textDarkness_; }
+
+  // Scope reader-only drawing, including all grayscale replays. Restores on
+  // every return path so menus and other activities keep their normal text.
+  class TextDarknessScope {
+   public:
+    TextDarknessScope(GfxRenderer& renderer, uint8_t level) : renderer_(renderer), previous_(renderer.textDarkness_) {
+      renderer_.textDarkness_ = level <= 2 ? level : 0;
+    }
+    ~TextDarknessScope() { renderer_.textDarkness_ = previous_; }
+    TextDarknessScope(const TextDarknessScope&) = delete;
+    TextDarknessScope& operator=(const TextDarknessScope&) = delete;
+
+   private:
+    GfxRenderer& renderer_;
+    uint8_t previous_;
+  };
   // Grayscale preconditioning settle pass (no-op on X4). The rect overload
   // takes the gray region in LOGICAL screen coordinates and rotates it to the
   // panel; the no-arg overload settles the full frame. Call after the BW base

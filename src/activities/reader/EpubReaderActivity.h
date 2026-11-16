@@ -84,6 +84,7 @@ class EpubReaderActivity final : public Activity {
     uint8_t publisherFonts = 0;
     uint8_t hyphenationEnabled = 0;
     uint8_t textAntiAliasing = 1;
+    uint8_t textDarkness = 0;
     uint8_t imageRendering = 0;
     uint8_t imageGrayscale = 1;
     uint8_t extraParagraphSpacing = 1;

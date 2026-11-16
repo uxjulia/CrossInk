@@ -1062,3 +1062,5 @@ STR_ABOUT_UID: "UID"
 
 STR_RESTORE_STATS: "İstatistikleri geri yükle"
 STR_STATS_RESTORED: "İstatistikler geri yüklendi"
+STR_TEXT_DARKNESS: "Metin koyuluğu"
+STR_DARKER: "Daha koyu"

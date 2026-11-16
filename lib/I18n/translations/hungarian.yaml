@@ -1062,3 +1062,5 @@ STR_ABOUT_UID: "UID"
 
 STR_RESTORE_STATS: "Statisztikák visszaállítása"
 STR_STATS_RESTORED: "Statisztikák visszaállítva"
+STR_TEXT_DARKNESS: "Szöveg sötétsége"
+STR_DARKER: "Sötétebb"

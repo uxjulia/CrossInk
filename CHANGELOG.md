@@ -51,6 +51,7 @@
 - Add the Estonian (Eesti) interface language pack, contributed by paavoph (discussion #928).
 - Use compressed StarDict `.dict.dz` dictionaries directly from SD, with automatic lookup indexing and streamed definition pages.
 - Unprepared dictionaries now index alternate spellings automatically and open the exact definition each spelling points to.
+- Choose Normal, Dark, or Darker text in Reader settings or the EPUB reader menu, retaining anti-aliasing for bitmap and TTF fonts.
 
 ### Fixed
 

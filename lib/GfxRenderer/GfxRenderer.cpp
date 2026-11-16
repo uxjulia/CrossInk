@@ -79,7 +79,8 @@ int scaled75SourceEnd(const int dst, const int srcLimit) {
 }
 
 void draw2BitFontPixel(const GfxRenderer& renderer, const GfxRenderer::RenderMode renderMode, const int x, const int y,
-                       const uint8_t raw, const bool pixelState) {
+                       uint8_t raw, const bool pixelState) {
+  if (renderMode != GfxRenderer::BW) raw = textDarkness::coverage(raw, renderer.getTextDarkness());
   const uint8_t bmpVal = 3 - raw;
   if (renderer.grayPlanesAreAbsolute() && renderMode != GfxRenderer::BW) {
     if (raw) {
@@ -918,7 +919,7 @@ void GfxRenderer::drawGlyphBitmap(const uint8_t* bitmap, const int width, const 
   const glyphBitmap::Plane plane = mode == BW              ? glyphBitmap::Plane::BW
                                    : mode == GRAYSCALE_MSB ? glyphBitmap::Plane::GrayMSB
                                                            : glyphBitmap::Plane::GrayLSB;
-  glyphBitmap::draw(bitmap, width, height, twoBit, plane, state, target, clip, absoluteGrayPlanes);
+  glyphBitmap::draw(bitmap, width, height, twoBit, plane, state, target, clip, absoluteGrayPlanes, textDarkness_);
 }
 
 // IMPORTANT: This function is in critical rendering path and is called for every pixel. Please keep it as simple and

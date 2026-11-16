@@ -830,6 +830,7 @@ void TxtReaderActivity::render(RenderLock&&) {
 }
 
 void TxtReaderActivity::renderPage() {
+  const GfxRenderer::TextDarknessScope darkness(renderer, SETTINGS.textDarkness);
   const int lineHeight = getReaderLineHeight(renderer, cachedFontId);
   const int contentWidth = viewportWidth;
 

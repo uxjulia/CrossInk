@@ -1062,3 +1062,5 @@ STR_ABOUT_UID: "UID"
 
 STR_RESTORE_STATS: "Obnoviť štatistiky"
 STR_STATS_RESTORED: "Štatistiky obnovené"
+STR_TEXT_DARKNESS: "Tmavosť textu"
+STR_DARKER: "Tmavší"

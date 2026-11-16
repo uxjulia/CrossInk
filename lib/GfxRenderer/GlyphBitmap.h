@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <cstdint>
 
+#include "TextDarkness.h"
+
 // Glyph rasterizer that resolves orientation, clipping and framebuffer
 // addressing once per glyph instead of once per pixel. It has no dependency
 // on GfxRenderer so it can be unit-tested on the host.
@@ -94,7 +96,7 @@ __attribute__((always_inline)) inline void paint(uint8_t* buffer, int destinatio
 // zero coverage leaves the seeded background untouched.
 // Clipping happens before pixel decoding, so fully hidden glyphs cost nothing.
 inline void draw(const uint8_t* bitmap, int width, int height, bool twoBit, Plane plane, bool state,
-                 const Target& target, Clip clip, bool absolute = false) {
+                 const Target& target, Clip clip, bool absolute = false, uint8_t darkness = 0) {
   // Bit n of levels set means source value n is painted.
   uint8_t levels = 0x02;
   uint8_t clearLevels = state ? 0xff : 0;
@@ -108,6 +110,19 @@ inline void draw(const uint8_t* bitmap, int width, int height, bool twoBit, Plan
         levels = 0x0e;
         clearLevels = plane == Plane::GrayMSB ? (state ? 0x0c : 0x02) : (state ? 0x0a : 0x04);
       }
+    }
+  }
+
+  // Remap the four source-level masks once per glyph, keeping the pixel
+  // loop unchanged. BW and one-bit fonts retain their existing output.
+  if (twoBit && plane != Plane::BW && darkness != 0) {
+    const uint8_t originalLevels = levels;
+    const uint8_t originalClearLevels = clearLevels;
+    levels = clearLevels = 0;
+    for (uint8_t ink = 1; ink <= 3; ++ink) {
+      const uint8_t mapped = textDarkness::coverage(ink, darkness);
+      if (originalLevels & (1u << mapped)) levels |= 1u << ink;
+      if (originalClearLevels & (1u << mapped)) clearLevels |= 1u << ink;
     }
   }
 

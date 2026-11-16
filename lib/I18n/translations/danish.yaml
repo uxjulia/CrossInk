@@ -1062,3 +1062,5 @@ STR_ABOUT_UID: "UID"
 
 STR_RESTORE_STATS: "Gendan statistik"
 STR_STATS_RESTORED: "Statistik gendannet"
+STR_TEXT_DARKNESS: "Tekstmørkhed"
+STR_DARKER: "Mørkere"

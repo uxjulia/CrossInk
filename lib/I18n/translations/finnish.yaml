@@ -1062,3 +1062,5 @@ STR_ABOUT_UID: "UID"
 
 STR_RESTORE_STATS: "Palauta tilastot"
 STR_STATS_RESTORED: "Tilastot palautettu"
+STR_TEXT_DARKNESS: "Tekstin tummuus"
+STR_DARKER: "Tummempi"

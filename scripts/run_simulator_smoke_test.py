@@ -253,6 +253,8 @@ def run_smoke(args: argparse.Namespace) -> int:
         if args.font_dir:
             shutil.copytree(Path(args.font_dir), temp_root / "fs_" / "fonts", dirs_exist_ok=True)
         env = os.environ.copy()
+        if args.text_darkness:
+            env["CROSSINK_SIMULATOR_SMOKE_TEXT_DARKNESS"] = "1"
         if args.touch_availability:
             env["CROSSINK_SIMULATOR_SMOKE_TOUCH_AVAILABILITY"] = "1"
         if args.sleep_screen_colors:
@@ -539,6 +541,10 @@ def run_smoke(args: argparse.Namespace) -> int:
         print("Simulator smoke test did not print its success marker", file=sys.stderr)
         return 2
 
+    if args.text_darkness and "Simulator smoke test passed: text darkness" not in proc.stdout:
+        print("Simulator did not complete text darkness checks", file=sys.stderr)
+        return 2
+
     if args.bookmarks and "Simulator smoke test passed: bookmarks" not in proc.stdout:
         print("Simulator did not complete bookmark checks", file=sys.stderr)
         return 2
@@ -667,6 +673,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--filename-font-family", help="Check filename font picker, mixed glyphs and storage lifecycle (S3)")
     parser.add_argument("--filename-font-error-family", help="Family that must remain visible with a load error and preserve the previous choice")
     parser.add_argument("--filename-font-captures", help="Directory for filename font framebuffer captures (PGM)")
+    parser.add_argument("--text-darkness", action="store_true", help="Check text darkness persistence, reader menu and bitmap/TTF shading (S3); captures via --about-captures")
     parser.add_argument("--font-recovery", action="store_true", help="Check reader selection recovery after font catalog memory pressure")
     parser.add_argument("--font-browser-return", action="store_true", help="Check SD font lookup and book rendering after leaving a minimal-network font browser boot")
     parser.add_argument("--font-family", help="Exercise custom-font size and dictionary lifecycle")

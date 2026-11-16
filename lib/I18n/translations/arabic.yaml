@@ -1062,3 +1062,5 @@ STR_ABOUT_UID: "UID"
 
 STR_RESTORE_STATS: "استعادة الإحصاءات"
 STR_STATS_RESTORED: "تمت استعادة الإحصاءات"
+STR_TEXT_DARKNESS: "قتامة النص"
+STR_DARKER: "أغمق"
