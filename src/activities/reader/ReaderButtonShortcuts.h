@@ -7,8 +7,9 @@
 #include "ReaderUtils.h"
 #include "util/QuickLockTrigger.h"
 
-// A reader owns one tracker for each logical side/front navigation button. Short actions fire
-// on release; long actions fire once when the hold threshold is reached.
+// A reader owns one tracker for each logical side/front navigation button. Page turns fire
+// on press when no long action is assigned; other short actions wait for release.
+// Long actions fire once when the hold threshold is reached.
 // Tracking only starts on a press edge, so a button already held while a
 // reader activity opens cannot turn into an accidental shortcut.
 class ReaderButtonShortcuts {
@@ -35,7 +36,7 @@ class ReaderButtonShortcuts {
            !input.hasInjectedRelease(MappedInputManager::Button::Left);
   }
 
-  Result update(const MappedInputManager& input, const unsigned long now) {
+  Result update(MappedInputManager& input, const unsigned long now) {
     Result upResult = updateOne(input, MappedInputManager::Button::Up, true, up_, now, SETTINGS.sideButtonUpShort,
                                 SETTINGS.sideButtonUpLong);
     Result downResult = updateOne(input, MappedInputManager::Button::Down, false, down_, now,
@@ -57,36 +58,50 @@ class ReaderButtonShortcuts {
   struct ButtonState {
     unsigned long pressedAt = 0;
     bool tracking = false;
-    bool longFired = false;
+    bool actionFired = false;
   };
   ButtonState up_;
   ButtonState down_;
   ButtonState left_;
   ButtonState right_;
 
-  static Result updateOne(const MappedInputManager& input, const MappedInputManager::Button button, const bool up,
+  static Result updateOne(MappedInputManager& input, const MappedInputManager::Button button, const bool up,
                           ButtonState& state, const unsigned long now, const uint8_t shortAction,
                           const uint8_t longAction) {
     Result result;
     result.up = up;
-    if (input.wasPressed(button)) {
+    const bool pressEdge = input.wasPressed(button);
+    if (pressEdge) {
       state.pressedAt = now;
       state.tracking = true;
-      state.longFired = false;
+      state.actionFired = false;
     }
     if (!state.tracking) return result;
 
     result.consumed = true;
     const bool pressed = input.isPressed(button);
     const bool released = input.wasReleased(button);
-    if (!state.longFired && longAction != CrossPointSettings::IGNORE &&
-        now - state.pressedAt >= ReaderUtils::SKIP_HOLD_MS && (pressed || released)) {
-      state.longFired = true;
+    const bool immediatePageTurn =
+        longAction == CrossPointSettings::IGNORE &&
+        (shortAction == CrossPointSettings::PAGE_TURN || shortAction == CrossPointSettings::PREVIOUS_PAGE);
+    if (pressEdge && immediatePageTurn) {
+      state.actionFired = true;
+      result.triggered = true;
+      result.action = shortAction;
+      // A page turn can open the end-of-book menu before release. Suppress at
+      // the input layer so earlier menu handlers cannot reuse this press.
+      if (button == MappedInputManager::Button::Left || button == MappedInputManager::Button::Right)
+        input.suppressNextFrontRelease(button);
+      else
+        input.suppressNextSideRelease(button);
+    } else if (!state.actionFired && longAction != CrossPointSettings::IGNORE &&
+               now - state.pressedAt >= ReaderUtils::SKIP_HOLD_MS && (pressed || released)) {
+      state.actionFired = true;
       result.triggered = true;
       result.longPress = true;
       result.action = longAction;
     } else if (released) {
-      if (!state.longFired) {
+      if (!state.actionFired) {
         result.triggered = true;
         result.action = shortAction;
       }

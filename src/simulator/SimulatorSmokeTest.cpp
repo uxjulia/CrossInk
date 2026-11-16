@@ -3657,6 +3657,68 @@ class SimulatorSmokeTest {
            std::find(setting.enumRawValues.begin(), setting.enumRawValues.end(), raw) == setting.enumRawValues.end()))
         fail("Page gesture shortcut missing from catalog");
     }
+    std::filesystem::create_directories("fs_/page-button-end");
+    for (const char* name : {"a.epub", "b.epub"}) {
+      const auto path = std::filesystem::path("fs_/page-button-end") / name;
+      FILE* file = std::fopen(path.c_str(), "wb");
+      if (!file) fail("Cannot create page-button end-menu fixture");
+      std::fclose(file);
+    }
+    // Page-only buttons should respond before release, exactly once per press.
+    SETTINGS.frontButtonLeftLong = SETTINGS.frontButtonRightLong = C::IGNORE;
+    SETTINGS.sideButtonUpLong = SETTINGS.sideButtonDownLong = C::IGNORE;
+    SETTINGS.sideButtonUpShort = C::PREVIOUS_PAGE;
+    SETTINGS.sideButtonDownShort = C::PAGE_TURN;
+    mappedInputManager.setReaderMode(true);
+    for (const auto button : {MappedInputManager::Button::Left, MappedInputManager::Button::Right,
+                              MappedInputManager::Button::Up, MappedInputManager::Button::Down}) {
+      ReaderButtonShortcuts tracker;
+      const auto action = (button == MappedInputManager::Button::Left || button == MappedInputManager::Button::Up)
+                              ? C::PREVIOUS_PAGE
+                              : C::PAGE_TURN;
+      for (const unsigned long start : {100UL, 2000UL}) {
+        mappedInputManager.simulatorInjectPress(button);
+        const auto result = tracker.update(mappedInputManager, start);
+        if (!result.consumed || !result.triggered || result.longPress || result.action != action)
+          fail("Page-only button did not fire on press");
+        mappedInputManager.simulatorClearInputFrame();
+        if (tracker.update(mappedInputManager, start + 1000).triggered) fail("Page-only hold repeated");
+        mappedInputManager.simulatorInjectRelease(button);
+        // End-of-book menus run before the reader tracker: they must not see
+        // the release from the page turn that opened them.
+        EndOfBookOptions suggestions(renderer);
+        suggestions.loadOnce("/page-button-end/a.epub");
+        if (!suggestions.menuActive()) fail("Page-button end-menu fixture has no suggestions");
+        mappedInputManager.setMenuMode(true);
+        if (suggestions.handleMenuInput(mappedInputManager, nullptr) != EndOfBookOptions::Action::None)
+          fail("Page-button release moved the end-of-book menu");
+        mappedInputManager.setMenuMode(false);
+        if (mappedInputManager.wasReleased(button) || tracker.update(mappedInputManager, start + 1100).triggered)
+          fail("Page-only release was not swallowed");
+        mappedInputManager.simulatorClearInputFrame();
+        mappedInputManager.update();
+        if (tracker.update(mappedInputManager, start + 1200).triggered) fail("Page-only release repeated");
+      }
+      mappedInputManager.simulatorInjectPress(button);
+      mappedInputManager.simulatorClearInputFrame();
+      ReaderButtonShortcuts freshTracker;
+      if (freshTracker.update(mappedInputManager, 4000).triggered) fail("Already-held button fired on reader entry");
+      mappedInputManager.simulatorInjectRelease(button);
+      if (freshTracker.update(mappedInputManager, 4100).triggered) fail("Untracked release fired a shortcut");
+      mappedInputManager.simulatorClearInputFrame();
+    }
+    // Non-page shortcuts still wait for release even without a long action.
+    SETTINGS.sideButtonUpShort = C::LIBRARY;
+    ReaderButtonShortcuts nonPageTracker;
+    mappedInputManager.simulatorInjectPress(MappedInputManager::Button::Up);
+    if (nonPageTracker.update(mappedInputManager, 100).triggered) fail("Non-page shortcut fired on press");
+    mappedInputManager.simulatorClearInputFrame();
+    mappedInputManager.simulatorInjectRelease(MappedInputManager::Button::Up);
+    const auto nonPage = nonPageTracker.update(mappedInputManager, 200);
+    if (!nonPage.triggered || nonPage.longPress || nonPage.action != C::LIBRARY)
+      fail("Non-page shortcut did not fire on release");
+    mappedInputManager.simulatorClearInputFrame();
+    static_assert(ReaderUtils::SKIP_HOLD_MS == 600);
     SETTINGS.frontButtonLeftLong = C::LIBRARY;
     SETTINGS.frontButtonRightLong = C::FORCE_REFRESH;
     mappedInputManager.setReaderMode(true);
@@ -3666,7 +3728,8 @@ class SimulatorSmokeTest {
       auto result = tracker.update(mappedInputManager, 100);
       if (result.triggered || !result.consumed) fail("Front shortcut fired on press");
       mappedInputManager.simulatorClearInputFrame();
-      result = tracker.update(mappedInputManager, 100 + ReaderUtils::SKIP_HOLD_MS);
+      if (tracker.update(mappedInputManager, 699).triggered) fail("Front hold fired before 600 ms");
+      result = tracker.update(mappedInputManager, 700);
       if (!result.triggered || !result.longPress || !result.front ||
           result.action != (button == MappedInputManager::Button::Left ? C::LIBRARY : C::FORCE_REFRESH))
         fail("Independent front long action failed");
