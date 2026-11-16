@@ -12,6 +12,9 @@
 // DirectPixelWriter; this adapter only supplies geometry and owned buffers.
 class GfxRenderer {
  public:
+  struct TextCullingScope {
+    explicit TextCullingScope(const GfxRenderer&, bool = true) {}
+  };
   enum Orientation { Portrait, LandscapeClockwise, PortraitInverted, LandscapeCounterClockwise };
   enum RenderMode { BW, GRAYSCALE_LSB, GRAYSCALE_MSB };
   int width, height, stride;

@@ -12,6 +12,12 @@ enum class BidiBaseDir : signed char { AUTO = -1, LTR = 0, RTL = 1 };
 
 class GfxRenderer {
  public:
+  uint64_t textCullGeneration() const { return 0; }
+  int getWriteOriginY() const { return 0; }
+  int getWriteRows() const { return 480; }
+  int getDisplayHeight() const { return 480; }
+  void beginTextBounds(int*) const {}
+  void endTextBounds() const {}
   bool getCodepointMetrics(int, uint32_t, EpdFontFamily::Style, int32_t&, int&) const { return false; }
   bool scalable = false;
   int publisherFont = 0;

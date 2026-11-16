@@ -201,15 +201,20 @@ TEST(EpubTextGrayscaleTest, RealTextRasterMatchesFullAndStripTargets) {
                                                 : feature == 2 ? EpdFontFamily::SUP
                                                 : feature == 3 ? EpdFontFamily::SUB
                                                                : 0));
-            TextBlock line(words, offsets, variants,
-                           feature == 1 ? std::vector<uint8_t>(words.size(), 1) : std::vector<uint8_t>{},
-                           feature == 1 ? std::vector<uint16_t>(words.size(), 12) : std::vector<uint16_t>{},
-                           std::vector<uint16_t>(words.size(), 6),
-                           std::vector<uint8_t>(words.size(), TextBlock::WORD_FLAG_BACKGROUND_BLACK), {}, blockStyle,
-                           feature == 4 ? std::vector<std::string>(words.size(), "Ab") : std::vector<std::string>{});
-            ASSERT_TRUE(line.valid());
+            const std::array<int, 9> lineY = {-8, 65, 79, 145, 159, 230, 310, 390, 470};
+            std::vector<std::unique_ptr<TextBlock>> lines;
+            for (size_t i = 0; i < lineY.size(); ++i) {
+              lines.emplace_back(new TextBlock(
+                  words, offsets, variants,
+                  feature == 1 ? std::vector<uint8_t>(words.size(), 1) : std::vector<uint8_t>{},
+                  feature == 1 ? std::vector<uint16_t>(words.size(), 12) : std::vector<uint16_t>{},
+                  std::vector<uint16_t>(words.size(), 6),
+                  std::vector<uint8_t>(words.size(), TextBlock::WORD_FLAG_BACKGROUND_BLACK), {}, blockStyle,
+                  feature == 4 ? std::vector<std::string>(words.size(), "Ab") : std::vector<std::string>{}));
+              ASSERT_TRUE(lines.back()->valid());
+            }
             auto draw = [&] {
-              for (int y : {-8, 65, 79, 145, 159, 230, 310, 390, 470}) line.render(renderer, 1, 7, y, true);
+              for (size_t i = 0; i < lines.size(); ++i) lines[i]->render(renderer, 1, 7, lineY[i], true);
             };
             {
               auto scan = cache.createPrewarmScope();
@@ -224,12 +229,15 @@ TEST(EpubTextGrayscaleTest, RealTextRasterMatchesFullAndStripTargets) {
               renderer.clearScreen(mode == GfxRenderer::BW ? 255 : 0);
               draw();
               renderer.endStripTarget();
-              for (int y = 0; y < display.height; y += 80) {
-                int rows = std::min(80, display.height - y);
-                renderer.beginStripTarget(strips.data() + size_t(y) * display.stride, y, rows);
-                renderer.clearScreen(mode == GfxRenderer::BW ? 255 : 0);
-                draw();
-                renderer.endStripTarget();
+              {
+                const GfxRenderer::TextCullingScope culling(renderer);
+                for (int y = 0; y < display.height; y += 80) {
+                  int rows = std::min(80, display.height - y);
+                  renderer.beginStripTarget(strips.data() + size_t(y) * display.stride, y, rows);
+                  renderer.clearScreen(mode == GfxRenderer::BW ? 255 : 0);
+                  draw();
+                  renderer.endStripTarget();
+                }
               }
               EXPECT_EQ(full, strips) << "feature=" << feature << " mode=" << mode;
               EXPECT_TRUE(std::any_of(full.begin(), full.end(),
@@ -648,4 +656,54 @@ TEST(ReaderRefreshScope, NightTextUsesTheActivePanelsCapabilities) {
   EXPECT_TRUE(renderer.supportsTextGrayscale());
   display.overlaySupported = false;
   EXPECT_FALSE(renderer.supportsTextGrayscale());
+}
+
+TEST(EpubTextGrayscaleTest, CullingIncludesFallbackSyntheticInkAndDecorations) {
+  fakeheap::reset(true);
+  Storage.reset();
+  RasterFont fixture(12), fallback(40);
+  // ASCII primary, taller native CJK fallback, and synthetic Greek/blocks.
+  fixture.data.intervalCount = 1;
+  fallback.intervals = {{0x4e00, 0x4e00, 0}};
+  fallback.data.intervals = fallback.intervals.data();
+  fallback.data.intervalCount = 1;
+  HalDisplay display(800, 481);
+  GfxRenderer renderer(display);
+  renderer.begin();
+  renderer.insertFont(1, EpdFontFamily(&fixture.font, nullptr, nullptr, nullptr, &fallback.font));
+  const auto underline = EpdFontFamily::UNDERLINE;
+  TextBlock line({"一", "εωΓ■█🙂", "   ", "Test"}, {0, 120, 240, 360},
+                 {underline, underline, EpdFontFamily::REGULAR, EpdFontFamily::STRIKETHROUGH}, {}, {}, {},
+                 {0, 0, TextBlock::WORD_FLAG_BACKGROUND_BLACK, 0}, {});
+  ASSERT_TRUE(line.valid());
+  for (int orientation = 0; orientation < 4; ++orientation) {
+    renderer.setOrientation(static_cast<GfxRenderer::Orientation>(orientation));
+    for (bool black : {false, true}) {
+      auto render = [&](bool optimized) {
+        std::vector<uint8_t> result(display.bw.size() * 2);
+        auto replay = [&] {
+          for (int plane = 0; plane < 2; ++plane) {
+            renderer.setRenderMode(plane ? GfxRenderer::GRAYSCALE_MSB : GfxRenderer::GRAYSCALE_LSB);
+            for (int row = 0; row < display.height; row += 17) {
+              renderer.beginStripTarget(result.data() + display.bw.size() * plane + row * display.stride, row,
+                                        std::min(17, display.height - row));
+              renderer.beginTextClip(10, 10, 400, 150);
+              line.render(renderer, 1, 0, 78, black);
+              renderer.endTextClip();
+              renderer.endStripTarget();
+            }
+          }
+        };
+        if (optimized) {
+          const GfxRenderer::TextCullingScope culling(renderer);
+          replay();
+        } else
+          replay();
+        return result;
+      };
+      const auto expected = render(false);
+      EXPECT_TRUE(std::any_of(expected.begin(), expected.end(), [](uint8_t b) { return b != 0; }));
+      EXPECT_EQ(render(true), expected) << orientation << ' ' << black;
+    }
+  }
 }

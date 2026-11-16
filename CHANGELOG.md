@@ -234,6 +234,7 @@
 - Lyra Carousel can generate both thumbnail sizes from a single JPEG cover decode.
 - Load only missing characters when extending a custom .cpfont cache, avoiding repeated SD reads for characters already prepared.
 - Reuse temporary decompression memory while preparing built-in fonts, reducing repeated allocations without keeping extra memory between pages.
+- Skip off-strip text during anti-aliasing to reduce repeated page-rendering work.
 
 ## [v1.6.1] - 2026-10-03
 

@@ -88,6 +88,9 @@ class GfxRenderer {
   mutable int _stripY0 = 0;
   mutable int _stripRows = 0;
   mutable bool _stripActive = false;
+  mutable uint64_t textCullGeneration_ = 0;
+  mutable uint32_t textBoundsLookupFailures_ = 0;
+  mutable int* textBounds_ = nullptr;  // two physical row bounds, owned by the line render
 
   // Optional logical-space clip used while a TextBlock is rendered inside a
   // table cell. Glyph bitmaps and background fills both pass through this
@@ -247,6 +250,21 @@ class GfxRenderer {
   void beginStripTarget(uint8_t* scratch, int stripY0, int stripRows) const;
   void endStripTarget() const;
   bool glyphIntersectsStrip(int x0, int y0, int x1, int y1) const;
+  // One immutable page replay, under the renderer's RenderLock. Bounds must not
+  // survive font/layout changes or the next page turn. No heap allocation.
+  class TextCullingScope {
+    const GfxRenderer& renderer_;
+
+   public:
+    explicit TextCullingScope(const GfxRenderer& renderer, bool enabled = true);
+    ~TextCullingScope();
+    TextCullingScope(const TextCullingScope&) = delete;
+    TextCullingScope& operator=(const TextCullingScope&) = delete;
+  };
+  uint64_t textCullGeneration() const { return _stripActive ? textCullGeneration_ : 0; }
+  void beginTextBounds(int* bounds) const;
+  void endTextBounds() const;
+  void recordTextBounds(int x0, int y0, int x1, int y1) const;
   bool isStripTargetActive() const { return _stripActive; }
   uint8_t* getWriteTarget() const { return _stripActive ? _stripBuf : frameBuffer; }
   int getWriteOriginY() const { return _stripActive ? _stripY0 : 0; }

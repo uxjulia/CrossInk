@@ -584,6 +584,7 @@ static void drawSyntheticReplacementGlyph(const GfxRenderer& renderer, const Syn
   const int w = metrics.width;
   const int h = metrics.height;
   if (w <= 0 || h <= 0) return;
+  renderer.recordTextBounds(x, y, x + w - 1, y + h - 1);
 
   const int limit = w < h ? w : h;
   for (int gy = 0; gy < h; gy++) {
@@ -652,6 +653,7 @@ static void drawSyntheticGreekGlyph(const GfxRenderer& renderer, const Synthetic
   const int h = metrics.height;
   const int s = syntheticStroke(metrics);
   if (w <= 0 || h <= 0) return;
+  renderer.recordTextBounds(x, y, x + w - 1, y + h - 1);
 
   if (cp == syntheticGlyph::GREEK_CAPITAL_GAMMA) {
     fillRectClipped(renderer, x, y, s, h, pixelState);
@@ -714,8 +716,6 @@ static void renderCharScaled(const GfxRenderer& renderer, GfxRenderer::RenderMod
   const EpdGlyph* glyph = glyphData.glyph;
   const EpdFontData* fontData = glyphData.fontData;
   if (!glyph || !fontData) return;
-  const uint8_t* bitmap = renderer.getGlyphBitmap(fontData, glyph);
-  if (!bitmap) return;
 
   const int srcW = glyph->width;
   const int srcH = glyph->height;
@@ -725,6 +725,10 @@ static void renderCharScaled(const GfxRenderer& renderer, GfxRenderer::RenderMod
   // pixel offset from the (already-shifted) cursor position.
   const int baseX = cursorX + glyph->left / 2;
   const int baseY = cursorY - glyph->top / 2;
+
+  if (!renderer.glyphIntersectsStrip(baseX, baseY, baseX + dstW - 1, baseY + dstH - 1)) return;
+  const uint8_t* bitmap = renderer.getGlyphBitmap(fontData, glyph);
+  if (!bitmap) return;
 
   if (fontData->is2Bit) {
     // 2-bit packed format: 4 pixels per byte, MSB first, 2 bits per pixel.
@@ -781,8 +785,6 @@ static void renderCharSmallCaps(const GfxRenderer& renderer, GfxRenderer::Render
   const EpdGlyph* glyph = glyphData.glyph;
   const EpdFontData* fontData = glyphData.fontData;
   if (!glyph || !fontData) return;
-  const uint8_t* bitmap = renderer.getGlyphBitmap(fontData, glyph);
-  if (!bitmap) return;
 
   const int srcW = glyph->width;
   const int srcH = glyph->height;
@@ -790,6 +792,10 @@ static void renderCharSmallCaps(const GfxRenderer& renderer, GfxRenderer::Render
   const int dstH = smallCapsScaledExtent(srcH);
   const int baseX = cursorX + scaleSmallCapsMetric(glyph->left);
   const int baseY = cursorY - scaleSmallCapsMetric(glyph->top);
+
+  if (!renderer.glyphIntersectsStrip(baseX, baseY, baseX + dstW - 1, baseY + dstH - 1)) return;
+  const uint8_t* bitmap = renderer.getGlyphBitmap(fontData, glyph);
+  if (!bitmap) return;
 
   if (fontData->is2Bit) {
     for (int dstY = 0; dstY < dstH; dstY++) {
@@ -1305,6 +1311,7 @@ void GfxRenderer::drawText(const int fontId, const int x, const int y, const cha
 }
 
 void GfxRenderer::drawLine(int x1, int y1, int x2, int y2, const bool state) const {
+  recordTextBounds(x1, y1, x2, y2);
   if (fontCacheManager_ && fontCacheManager_->isScanning()) return;
   const int sw = getScreenWidth();
   const int sh = getScreenHeight();
@@ -1536,6 +1543,8 @@ void GfxRenderer::fillRectImpl(const int x, const int y, const int width, const 
   if constexpr (C == Color::Clear) return;
   if (width <= 0 || height <= 0) return;
   if (fontCacheManager_ && fontCacheManager_->isScanning()) return;
+
+  recordTextBounds(x, y, x + width - 1, y + height - 1);
 
   // Clip in logical space.
   const int screenW = getScreenWidth();
@@ -2280,7 +2289,50 @@ void GfxRenderer::endStripTarget() const {
   _stripRows = 0;
 }
 
+GfxRenderer::TextCullingScope::TextCullingScope(const GfxRenderer& renderer, const bool enabled) : renderer_(renderer) {
+  assert(renderer_.textCullGeneration_ == 0);
+  // Rendering is serialized by RenderLock. A process-wide generation also
+  // prevents stale bounds if a renderer is recreated at the same address.
+  static uint64_t nextGeneration = 0;
+  if (enabled) renderer_.textCullGeneration_ = ++nextGeneration;
+}
+
+GfxRenderer::TextCullingScope::~TextCullingScope() {
+  assert(renderer_.textBounds_ == nullptr);
+  renderer_.textCullGeneration_ = 0;
+}
+
+void GfxRenderer::beginTextBounds(int* bounds) const {
+  assert(textBounds_ == nullptr);
+  bounds[0] = panelHeight;
+  bounds[1] = -1;
+  textBounds_ = bounds;
+  textBoundsLookupFailures_ = EpdFont::glyphLookupFailureCount();
+}
+
+void GfxRenderer::endTextBounds() const {
+  assert(textBounds_ != nullptr);
+  if (textBoundsLookupFailures_ != EpdFont::glyphLookupFailureCount()) {
+    // A temporary SD/TTF miss may have drawn a smaller fallback (or no mark).
+    // Keep retrying this group in every strip instead of caching partial ink.
+    textBounds_[0] = 0;
+    textBounds_[1] = panelHeight - 1;
+  }
+  textBounds_ = nullptr;
+}
+
+void GfxRenderer::recordTextBounds(int x0, int y0, int x1, int y1) const {
+  if (!textBounds_) return;
+  int ax, ay, bx, by;
+  rotateCoordinates(orientation, x0, y0, &ax, &ay, panelWidth, panelHeight);
+  rotateCoordinates(orientation, x1, y1, &bx, &by, panelWidth, panelHeight);
+  // Conservative, inclusive physical rows, before strip or text clipping.
+  textBounds_[0] = std::min(textBounds_[0], std::min(ay, by));
+  textBounds_[1] = std::max(textBounds_[1], std::max(ay, by));
+}
+
 bool GfxRenderer::glyphIntersectsStrip(int x0, int y0, int x1, int y1) const {
+  recordTextBounds(x0, y0, x1, y1);
   if (!_stripActive) {
     return true;
   }

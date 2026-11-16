@@ -3,6 +3,20 @@
 #include <Utf8.h>
 
 #include <algorithm>
+#include <atomic>
+
+namespace {
+// Background font preparation can also perform lookups. Those failures may
+// conservatively disable culling for a foreground run, but cannot race it.
+std::atomic<uint32_t> glyphLookupFailures{0};
+
+const EpdGlyph* recordGlyphLookup(const EpdGlyph* glyph) {
+  if (!glyph) glyphLookupFailures.fetch_add(1, std::memory_order_relaxed);
+  return glyph;
+}
+}  // namespace
+
+uint32_t EpdFont::glyphLookupFailureCount() { return glyphLookupFailures.load(std::memory_order_relaxed); }
 
 void EpdFont::getTextBounds(const char* string, const int startX, const int startY, int* minX, int* minY, int* maxX,
                             int* maxY) const {
@@ -223,7 +237,7 @@ uint32_t EpdFont::applyLigatures(uint32_t cp, const char*& text) const {
 
 const EpdGlyph* EpdFont::findGlyph(const uint32_t cp) const {
 #if CROSSINK_SCALABLE_FONTS
-  if (data->dynamicGlyphHandler) return data->dynamicGlyphHandler(data->glyphMissCtx, cp);
+  if (data->dynamicGlyphHandler) return recordGlyphLookup(data->dynamicGlyphHandler(data->glyphMissCtx, cp));
 #endif
   const int count = data->intervalCount;
   if (count == 0 && !data->glyphMissHandler) return nullptr;
@@ -248,7 +262,7 @@ const EpdGlyph* EpdFont::findGlyph(const uint32_t cp) const {
 
   // SD content sizes deliberately skip page-sized glyph caches. Exact family
   // lookups must still reach their bounded on-demand loader before fallback.
-  return data->glyphMissHandler ? data->glyphMissHandler(data->glyphMissCtx, cp) : nullptr;
+  return data->glyphMissHandler ? recordGlyphLookup(data->glyphMissHandler(data->glyphMissCtx, cp)) : nullptr;
 }
 
 const EpdGlyph* EpdFont::getGlyph(const uint32_t cp) const {

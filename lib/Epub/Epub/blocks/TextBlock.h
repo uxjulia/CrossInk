@@ -40,6 +40,13 @@ class TextBlock final : public Block {
   bool wordSizesPresent = false;
   const uint8_t* wordSizesArr = nullptr;
   bool isValid = true;
+  // Ephemeral physical ink bounds: reused only within one grayscale replay.
+  // Inline metadata avoids allocations and is deliberately not serialized.
+  mutable uint64_t stripBoundsGeneration = 0;
+  static constexpr uint16_t STRIP_GROUPS = 4;
+  mutable uint16_t stripBounds[STRIP_GROUPS][2] = {};  // half-open, clipped to physical rows
+  mutable int stripBoundsX = 0, stripBoundsY = 0, stripBoundsFont = 0;
+
   std::unique_ptr<uint8_t[]> arena;
 
   const uint16_t* textOffArr = nullptr;
@@ -79,7 +86,10 @@ class TextBlock final : public Block {
   TextBlock(const TextBlock&) = delete;
   TextBlock& operator=(const TextBlock&) = delete;
 
-  void setBlockStyle(const BlockStyle& blockStyle) { this->blockStyle = blockStyle; }
+  void setBlockStyle(const BlockStyle& blockStyle) {
+    this->blockStyle = blockStyle;
+    stripBoundsGeneration = 0;
+  }
   const BlockStyle& getBlockStyle() const { return blockStyle; }
   bool isEmpty() override { return numWords == 0; }
   bool valid() const { return isValid; }

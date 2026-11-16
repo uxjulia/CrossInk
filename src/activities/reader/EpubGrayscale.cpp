@@ -183,6 +183,9 @@ bool runTiledGrayscalePass(GfxRenderer& renderer, const Page& page, const int fo
   // and the display/cleanup sequence remain unchanged.
   const int scratchRows =
       static_cast<int>(std::min(scratchSize / displayWidthBytes, static_cast<size_t>(displayHeight)));
+  // Capture complete line bounds on the first strip; later strips skip all
+  // word shaping, font lookups and decorations for lines they cannot touch.
+  const GfxRenderer::TextCullingScope textCulling(renderer, scratchRows < displayHeight);
   const auto renderPlane = [&](const GfxRenderer::RenderMode mode, const bool lsbPlane) {
     renderer.setRenderMode(mode);
     for (int y = 0; y < displayHeight; y += scratchRows) {
