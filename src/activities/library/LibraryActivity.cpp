@@ -1649,7 +1649,11 @@ void LibraryActivity::showBookActionMenu(const size_t bookIndex, const bool igno
                    if (!BookActions::toggleBookStatsTracking(book.path, enabled)) {
                      const std::string error = std::string(tr(STR_TRACK_READING_STATS)) + " " + tr(STR_FAILED_LOWER);
                      BookActions::drawToast(renderer, error.c_str());
+                   } else {
+                     BookActions::drawToast(renderer, tr(STR_TRACK_READING_STATS),
+                                            enabled ? tr(STR_ENABLED) : tr(STR_DISABLED));
                    }
+                   delay(1000);
                    reloadAfterBookAction();
                    return;
                  }

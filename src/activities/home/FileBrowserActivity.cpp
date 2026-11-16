@@ -795,10 +795,17 @@ void FileBrowserActivity::showFileActionMenu(const std::string& entry, bool igno
             return;
           case FileBrowserAction::ToggleBookStatsTracking: {
             bool enabled = false;
-            if (!BookActions::toggleBookStatsTracking(fullPath, enabled)) {
-              const std::string error = std::string(tr(STR_TRACK_READING_STATS)) + " " + tr(STR_FAILED_LOWER);
-              BookActions::drawToast(renderer, error.c_str());
+            {
+              RenderLock lock(*this);
+              if (!BookActions::toggleBookStatsTracking(fullPath, enabled)) {
+                const std::string error = std::string(tr(STR_TRACK_READING_STATS)) + " " + tr(STR_FAILED_LOWER);
+                BookActions::drawToast(renderer, error.c_str());
+              } else {
+                BookActions::drawToast(renderer, tr(STR_TRACK_READING_STATS),
+                                       enabled ? tr(STR_ENABLED) : tr(STR_DISABLED));
+              }
             }
+            delay(1000);
             requestUpdate();
             return;
           }
