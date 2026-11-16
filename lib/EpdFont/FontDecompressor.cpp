@@ -2,6 +2,7 @@
 
 #include <Arduino.h>
 #include <Logging.h>
+#include <Memory.h>
 #include <Utf8.h>
 
 #include <cstdlib>
@@ -463,7 +464,11 @@ int FontDecompressor::prewarmCache(const EpdFontData* fontData, const char* utf8
     }
   }
 
-  // Step 4: For each unique group, decompress to temp buffer and extract needed glyphs
+  // Step 4: Reuse one call-local scratch buffer, bounded by the largest requested
+  // group (up to 64 KiB in generated fonts). Heap storage avoids a large stack or
+  // permanent RAM reservation; release before growing so two groups never coexist.
+  HeapByteBuffer tempBuf;
+  uint32_t tempCapacity = 0;
   uint32_t writeOffset = 0;
   int missed = 0;
 
@@ -471,7 +476,11 @@ int FontDecompressor::prewarmCache(const EpdFontData* fontData, const char* utf8
     uint16_t groupIdx = neededGroups[g];
     const EpdFontGroup& group = fontData->groups[groupIdx];
 
-    auto* tempBuf = static_cast<uint8_t*>(malloc(group.uncompressedSize));
+    if (!tempBuf || tempCapacity < group.uncompressedSize) {
+      tempBuf.reset();
+      tempBuf = makeDefaultByteBufferNoThrow(group.uncompressedSize);
+      tempCapacity = tempBuf ? group.uncompressedSize : 0;
+    }
     if (!tempBuf) {
       LOG_ERR("FDC", "Failed to allocate temp buffer (%u bytes) for group %u", group.uncompressedSize, groupIdx);
       missed++;
@@ -481,8 +490,7 @@ int FontDecompressor::prewarmCache(const EpdFontData* fontData, const char* utf8
       stats.peakTempBytes = group.uncompressedSize;
     }
 
-    if (!decompressGroup(fontData, groupIdx, tempBuf, group.uncompressedSize)) {
-      free(tempBuf);
+    if (!decompressGroup(fontData, groupIdx, tempBuf.get(), group.uncompressedSize)) {
       missed++;
       continue;
     }
@@ -498,8 +506,6 @@ int FontDecompressor::prewarmCache(const EpdFontData* fontData, const char* utf8
       slot.glyphs[i].bufferOffset = writeOffset;
       writeOffset += glyph.dataLength;
     }
-
-    free(tempBuf);
   }
 
   LOG_DBG("FDC", "Prewarm: %u glyphs in %u bytes from %u groups (%d missed)", glyphCount, writeOffset, groupCount,

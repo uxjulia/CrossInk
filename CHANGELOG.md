@@ -185,6 +185,7 @@
 - Preserve unreadable reading statistics and offer backup recovery instead of silently replacing history. Protect stats backups with checksums, prevent invalid positions from being uploaded, and finish reader and SD-card saves before sync restarts, sleep, or USB Drive handoff.
 - Fixed prepared dictionaries missing words and alternate spellings that share a long prefix.
 - Restore EPUB drop caps marked by an enlarged opening letter, including nested styled spans; existing page caches rebuild automatically.
+- Render fallback characters correctly in superscripts, subscripts, and small caps.
 
 ### Changed
 
@@ -231,6 +232,7 @@
 - Calibre uploads refresh the progress display every four seconds while transferring a book.
 - Lyra Carousel can generate both thumbnail sizes from a single JPEG cover decode.
 - Load only missing characters when extending a custom .cpfont cache, avoiding repeated SD reads for characters already prepared.
+- Reuse temporary decompression memory while preparing built-in fonts, reducing repeated allocations without keeping extra memory between pages.
 
 ## [v1.6.1] - 2026-10-03
 

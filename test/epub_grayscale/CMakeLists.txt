@@ -8,7 +8,7 @@ target_link_libraries(EpubGrayscaleTest PRIVATE crosspoint_test_common GTest::gt
 gtest_discover_tests(EpubGrayscaleTest PROPERTIES ENVIRONMENT "UBSAN_OPTIONS=halt_on_error=1")
 
 # Real text/glyph rasterization with a memory-only display and storage backend.
-add_executable(EpubTextGrayscaleTest EpubTextGrayscaleTest.cpp
+add_executable(EpubTextGrayscaleTest EpubTextGrayscaleTest.cpp FontRenderingTest.cpp
   ${REPO_ROOT}/lib/GfxRenderer/GfxRenderer.cpp
   ${REPO_ROOT}/lib/GfxRenderer/Bitmap.cpp
   ${REPO_ROOT}/lib/GfxRenderer/BitmapHelpers.cpp
