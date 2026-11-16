@@ -7808,6 +7808,22 @@ void EpubReaderActivity::prepareCurrentSectionForRelayout(const bool preserveSta
 bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fontId, const int orientedMarginTop,
                                         const int orientedMarginRight, const int orientedMarginBottom,
                                         const int orientedMarginLeft, const bool updatePanel) {
+#if defined(ENABLE_SERIAL_LOG) && LOG_LEVEL >= 2
+  // Log after presentation so serial output does not delay the first pixels.
+  // The final stage includes AA rendering, upload, panel waits and history.
+  struct RenderTiming {
+    unsigned long started = millis();
+    unsigned long previewDone = started;
+    unsigned long fontsDone = started;
+    unsigned long bwDone = started;
+    bool composed = false;
+    ~RenderTiming() {
+      if (composed)
+        LOG_DBG("ERS", "Page render ms: preview=%lu fonts=%lu draw=%lu display=%lu total=%lu", previewDone - started,
+                fontsDone - previewDone, bwDone - fontsDone, millis() - bwDone, millis() - started);
+    }
+  } timing;
+#endif
 #if CROSSINK_APP_CAP_TOUCH
   if (mappedInput.hasTouchHardware()) {
     if (!touchReaderPreviewAllocationAttempted) {
@@ -7823,6 +7839,9 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
       LOG_DBG("ERDM", "Skipping touch reader preview outside the 8 KiB/256-run snapshot budget");
     }
   }
+#endif
+#if defined(ENABLE_SERIAL_LOG) && LOG_LEVEL >= 2
+  timing.previewDone = millis();
 #endif
   // Font prewarm: scan pass accumulates text, then prewarm, then real render.
   // SD fonts depend on the prepared bitmap cache; drawing after a failed
@@ -7856,6 +7875,9 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
     }
   }
 
+#if defined(ENABLE_SERIAL_LOG) && LOG_LEVEL >= 2
+  timing.fontsDone = millis();
+#endif
 #if CROSSINK_APP_CAP_TOUCH
   buildFootnoteTouchTargets(*page, fontId, orientedMarginTop, orientedMarginLeft);
 #endif
@@ -7949,6 +7971,10 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
   }
   composePageBuffer();
   renderStatusBar();
+#if defined(ENABLE_SERIAL_LOG) && LOG_LEVEL >= 2
+  timing.bwDone = millis();
+  timing.composed = true;
+#endif
   if (updatePanel && SdCardFont::takeCorruptGlyphNotice()) {
     pendingFontDamagedToast = true;
     renderModeToastShowTime = millis();

@@ -145,6 +145,21 @@ struct Runtime {
     return (glyphOrCodepoint * 31u + points * 7u + cacheId) % slots;
   }
 
+  // Four candidates within the existing table let different faces/sizes share
+  // a hash without rebuilding each other's glyphs on every BW/AA pass. Keep
+  // lookup bounded and leave the idle no-eviction admission rule unchanged.
+  template <typename Entry>
+  static Entry& cacheEntry(Entry* entries, const size_t index, const uint64_t key) {
+    constexpr size_t ways = 4;
+    const size_t first = index & ~(ways - 1);
+    Entry* empty = nullptr;
+    for (size_t i = first; i < first + ways; ++i) {
+      if (entries[i].key == key) return entries[i];
+      if (!entries[i].key && !empty) empty = &entries[i];
+    }
+    return empty ? *empty : entries[index];
+  }
+
   void clearPixels() {
     pixelUsed = 0;
     if (pixelEntries)
@@ -166,7 +181,7 @@ struct Runtime {
   bool glyphMetrics(freeink::font::FtFont& font, const uint32_t cacheId, const uint32_t glyphOrCodepoint,
                     const uint8_t points, EpdGlyph& glyph) {
     const uint64_t key = cacheKey(cacheId, glyphOrCodepoint, points);
-    auto& entry = metricEntries[cacheIndex(cacheId, glyphOrCodepoint, points, MetricCacheSlots)];
+    auto& entry = cacheEntry(metricEntries, cacheIndex(cacheId, glyphOrCodepoint, points, MetricCacheSlots), key);
     if (entry.key == key) {
       glyph = entry.glyph;
       return true;
@@ -212,7 +227,7 @@ struct Runtime {
   const uint8_t* packedBitmap(freeink::font::FtFont& font, const uint32_t cacheId, uint32_t glyphOrCodepoint,
                               uint8_t points, uint8_t width, uint8_t height) {
     const uint64_t key = cacheKey(cacheId, glyphOrCodepoint, points);
-    auto& entry = pixelEntries[cacheIndex(cacheId, glyphOrCodepoint, points, PixelCacheSlots)];
+    auto& entry = cacheEntry(pixelEntries, cacheIndex(cacheId, glyphOrCodepoint, points, PixelCacheSlots), key);
     if (entry.key == key) return pixelData + entry.offset;
     const size_t bytes = (size_t(width) * height + 3) / 4;
     // Speculation must not evict nearer pages or flush the shared arena. Check
