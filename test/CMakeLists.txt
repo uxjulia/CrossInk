@@ -226,11 +226,10 @@ if(NODE_EXECUTABLE)
     COMMAND ${NODE_EXECUTABLE} ${REPO_ROOT}/test/scripts/test_transfer_websocket.cjs)
 endif()
 add_subdirectory(progress_sync)
-
 add_test(NAME WebDavCredentialsRegression
   COMMAND ${Python3_EXECUTABLE} ${REPO_ROOT}/test/scripts/test_webdav_credentials.py)
 add_test(NAME TlsFragmentConfigRegression
   COMMAND ${Python3_EXECUTABLE} ${REPO_ROOT}/scripts/test_tls_fragment_config.py)
-
 add_test(NAME IdleTtfLookaheadGuardsTest
   COMMAND ${Python3_EXECUTABLE} ${REPO_ROOT}/test/scripts/test_idle_ttf_lookahead.py)
+add_subdirectory(xtc_parser)
