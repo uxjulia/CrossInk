@@ -88,6 +88,8 @@ class HalDisplay {
 
   // Power management
   void deepSleep();
+  // Caller holds RenderLock; parks the controller without changing device sleep or frontlight.
+  void controllerIdle();
 
   // Access to frame buffer
   uint8_t* getFrameBuffer() const;

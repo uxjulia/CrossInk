@@ -235,3 +235,6 @@ add_test(NAME TlsFragmentConfigRegression
 add_test(NAME IdleTtfLookaheadGuardsTest
   COMMAND ${Python3_EXECUTABLE} ${REPO_ROOT}/test/scripts/test_idle_ttf_lookahead.py)
 add_subdirectory(xtc_parser)
+
+add_test(NAME EegoPanelIdleRegression
+  COMMAND ${Python3_EXECUTABLE} ${REPO_ROOT}/test/scripts/test_eego_panel_idle.py)

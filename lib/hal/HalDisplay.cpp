@@ -285,3 +285,10 @@ bool HalDisplay::displayGrayscaleBaseAsync(RefreshMode fallback) {
   return einkDisplay.displayGrayscaleBaseAsync(convertRefreshMode(fallback));
 #endif
 }
+
+void HalDisplay::controllerIdle() {
+#ifndef SIMULATOR
+  HalSpiBus::Lock spiLock;
+  einkDisplay.controllerIdle();
+#endif
+}
