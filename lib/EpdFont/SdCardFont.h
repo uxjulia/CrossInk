@@ -61,7 +61,7 @@ class SdCardFont {
   // A nonzero internal-RAM ceiling is for optional content sizes: includes this object,
   // conservative interval/ligature residency, and one reusable bitmap sized
   // to the largest glyph (at most 4KB), plus a 3KB glyph-metrics cache.
-  // An optional PSRAM bitmap cache uses its own pool reserve, never internal RAM.
+  // A lazy bitmap cache uses spare bytes inside this ceiling on C3, or PSRAM on S3.
   // Optional reserves are checked after inspecting glyphs, before allocating tables/scratch.
   // The font object already exists; its size is excluded from the remaining allocation.
   bool load(const char* path, size_t residentLimit = 0, size_t freeHeapReserve = 0, size_t maxAllocHeapReserve = 0);
@@ -271,8 +271,8 @@ class SdCardFont {
   PerStyle styles_[MAX_STYLES] = {};
   uint8_t styleCount_ = 0;
 
-  // Optional sizes never allocate page caches, full per-style advance tables,
-  // or per-glyph bitmaps. Their shared metrics cache is budgeted separately.
+  // Optional sizes never allocate page caches or full per-style advance tables.
+  // Their shared metrics and bounded bitmap cache fit the resident ceiling.
   // 4KB covers normal content glyphs through 44pt; larger files are rejected
   // before registration so layout falls back to a supported physical size.
   std::unique_ptr<uint8_t[]> contentBitmap_;
@@ -312,15 +312,20 @@ class SdCardFont {
     EpdGlyph glyph{};
     uint8_t style = MAX_STYLES;  // Invalid until a successful read.
     bool bitmapValid = false;
+    uint16_t bitmapOffset = 0;  // Packed cache offset; uses the entry's existing padding.
   };
+  static_assert(sizeof(ContentMetricsEntry) == 24, "Content metrics must retain their 3KB budget");
   static constexpr uint32_t CONTENT_METRICS_CACHE_SIZE = 128;
   static constexpr size_t CONTENT_METRICS_CACHE_BYTES = CONTENT_METRICS_CACHE_SIZE * sizeof(ContentMetricsEntry);
   std::unique_ptr<ContentMetricsEntry[]> contentMetrics_;
-  // Up to 64KB in PSRAM only. Fixed slots reuse the metric keys, so drawing
-  // needs no per-glyph allocations and C3 keeps its single-bitmap fallback.
+  // Packed FIFO storage reuses metric keys, with no per-glyph allocations.
+  // PSRAM keeps its 64KB cap; C3 uses at most 8KB of the remaining resident
+  // ceiling. Both retain the single-bitmap fallback when the cache cannot fit.
   static constexpr uint16_t CONTENT_BITMAP_SLOT_MAX = 512;
   HeapByteBuffer contentBitmaps_;
-  uint16_t contentBitmapStride_ = 0;
+  uint32_t contentBitmapCapacity_ = 0;
+  uint32_t contentBitmapNext_ = 0;
+  uint16_t contentBitmapInternalLimit_ = 0;
   bool contentBitmapsAttempted_ = false;
   uint16_t metricsDepth_ = 0;
   ContentMetricsEntry* contentGlyphMetrics(uint32_t codepoint, uint8_t styleIdx, int32_t glyphIndex) const;
