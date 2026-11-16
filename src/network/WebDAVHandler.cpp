@@ -755,7 +755,11 @@ void WebDAVHandler::handleCopy(WebServer& s) {
   bool copyOk = true;
   while (srcFile.available()) {
     int bytesRead = srcFile.read(buf.get(), COPY_BUFFER_SIZE);
-    if (bytesRead <= 0) break;
+    if (bytesRead <= 0) {
+      copyOk = bytesRead == 0;
+      if (!copyOk) LOG_ERR("DAV", "Source read failed during COPY");
+      break;
+    }
     size_t written = dstFile.write(buf.get(), bytesRead);
     if (written != (size_t)bytesRead) {
       copyOk = false;

@@ -54,6 +54,8 @@
 
 ### Fixed
 
+- Report WebDAV copy read failures instead of success, preserve saved EPUB positions in the first spine item, and prefer exact chapter paths over same-named files when following links (CrossPoint #4472).
+
 - Reserve and reuse the TLS receive buffer for HTTPS font file downloads, reducing repeated buffer growth during large transfers.
 - Read saved settings and state in bounded SD transfers, and try reclaiming inactive reader caches once before pausing background pagination for low memory.
 - Display PNG images with complete grayscale passes and a dithered monochrome fallback; use combined image refreshes only when the display supports them.
