@@ -218,22 +218,12 @@ class SdCardFont {
     // Stub EpdFontData returned when not prewarmed
     EpdFontData stubData{};
 
-    // Mini EpdFontData built during prewarm. Buffers are kept-if-fits across pages
-    // (capacities below track allocated sizes): freeing and reallocating slightly
-    // different sizes on every page turn was a primary heap fragmenter — each page's
-    // freed hole rarely fit the next page's need, so maxAlloc eroded all session.
-    // The per-render PrewarmScope calls clearCache() -> resetStyleMiniData(), which
-    // keeps both the allocations AND the loaded data. Buffers: reuse means
-    // ensureArrayCapacity early-returns once capacities converge on the book's
-    // max, so page turns stop touching the allocator (the free/realloc-per-page
-    // pattern was a primary heap fragmenter). Data: the next prewarm
-    // subset-checks against the resident tables (see prewarmStyle), so the idle
-    // prewarm of page N+1 serves the actual turn with zero SD reads. Retention
-    // is bounded two ways in resetStyleMiniData(): a heap floor frees outright
-    // under pressure, and sustained underuse (an outlier page's oversized bitmap
-    // arena) frees after a few consecutive low-use rebuilds. freeStyleMiniData()
-    // remains the full teardown (zeroes capacities) for style eviction / font
-    // unload.
+    // Mini cache survives PrewarmScopes: subset hits need no SD reads. A bounded
+    // union extends it by copying resident glyphs and reading only missing data.
+    // Incremental updates stage metadata and any growing bitmap until I/O succeeds;
+    // cold rebuilds reuse capacities and free before growing under memory pressure.
+    // resetStyleMiniData releases on low heap or sustained bitmap underuse.
+    // freeStyleMiniData is the full teardown for style eviction/font unload.
     EpdFontData miniData{};
     EpdUnicodeInterval* miniIntervals = nullptr;
     EpdGlyph* miniGlyphs = nullptr;

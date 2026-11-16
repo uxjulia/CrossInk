@@ -344,6 +344,78 @@ void streamingChecks(const std::string& path) {
   assert(arrayBytes() == 0 && openFiles == 0);
 }
 
+void incrementalChecks(const std::string& path) {
+  fixture(path, {{0, table({{'A', 'D'}, {0xFFFD, 0xFFFD}})}});
+  enforceSingleReader = true;
+  int allocations = 0, reads = 0, seeks = 0;
+  {
+    SdCardFont font;
+    assert(font.load(path.c_str()));
+    assert(font.prewarm("ABC", 1) == 0);
+    arrayCalls = readCalls = seekCalls = 0;
+    assert(font.prewarm("ABCD", 1) == 0);
+    allocations = arrayCalls;
+    reads = readCalls;
+    seeks = seekCalls;
+    assert(reads == 2);  // Only D metadata and bitmap, not all five residents.
+    const auto* data = font.getEpdFont()->data;
+    for (uint32_t cp : {uint32_t('A'), uint32_t('B'), uint32_t('C'), uint32_t('D'), 0xFFFDu}) {
+      const auto* glyph = font.getEpdFont()->findGlyph(cp);
+      assert(glyph && data->bitmap[glyph->dataOffset] == 0x80);
+      assert(glyph->advanceX == advance(cp == 0xFFFD ? 4 : cp - 'A', 0));
+    }
+    assert(font.prewarm("DCBA", 1) == 0 && readCalls == reads);
+    std::puts("Incremental cpfont: ABC -> ABCD reads only D (2 reads); repeated ABCD needs 0 reads");
+  }
+  // Fail every array allocation and file read in an extension. The published
+  // metadata/pixels and their addresses must remain intact until a retry succeeds.
+  for (int mode = 0; mode < 4; ++mode) {
+    for (int n = 0; n < (mode == 0 ? allocations : mode == 1 ? reads : mode == 2 ? seeks : 1); ++n) {
+      SdCardFont font;
+      assert(font.load(path.c_str()));
+      assert(font.prewarm("ABC", 1) == 0);
+      const auto* before = font.getEpdFont()->data;
+      const auto* glyphs = before->glyph;
+      const auto* pixels = before->bitmap;
+      const size_t bytes = arrayBytes();
+      arrayCalls = readCalls = seekCalls = 0;
+      if (mode == 0)
+        failArrayCall = n;
+      else if (mode == 1)
+        failReadCall = n;
+      else if (mode == 2)
+        failSeekCall = n;
+      else
+        failOpen = true;
+      assert(font.prewarm("ABCD", 1) != 0 && font.lastPrewarmFailed());
+      failReadCall = failArrayCall = failSeekCall = -1;
+      failOpen = false;
+      assert(openFiles == 0 && arrayBytes() == bytes);
+      assert(font.getEpdFont()->data == before && before->glyph == glyphs && before->bitmap == pixels);
+      const auto* glyph = font.getEpdFont()->findGlyph('A');
+      assert(glyph && before->bitmap[glyph->dataOffset] == 0x80);
+      assert(font.prewarm("ABCD", 1) == 0 && !font.lastPrewarmFailed());
+    }
+  }
+  // The union's kerning coverage must include the new characters; disabling
+  // kerning for dictionary text must not discard ligatures or reader coverage.
+  kernFixture(path);
+  {
+    SdCardFont font;
+    assert(font.load(path.c_str()));
+    assert(font.prewarm(kernText(0x100, 1).c_str(), 1) == 0);
+    assert(font.prewarm(kernText(0x101, 1).c_str(), 1, false, false) == 0);
+    assert(font.getEpdFont()->getKerning(0x100, 0x101) == 0);
+    assert(font.prewarm(kernText(0x100, 3).c_str(), 1) == 0);
+    assert(font.getEpdFont()->getKerning(0x100, 0x101) == -4);
+    assert(font.getEpdFont()->getLigature(0x100, 0x101) == 0x102);
+    const int after = readCalls;
+    assert(font.prewarm(kernText(0x100, 3).c_str(), 1) == 0 && readCalls == after);
+  }
+  assert(arrayBytes() == 0 && openFiles == 0);
+  enforceSingleReader = false;
+}
+
 void contentPreparationChecks(const std::string& path) {
   constexpr size_t limit = 12U * 1024U;
   kernFixture(path);
@@ -921,6 +993,7 @@ int main() {
     clean(font);
   }
   streamingChecks(path);
+  incrementalChecks(path);
   contentPreparationChecks(path);
   contentSizeChecks(path);
   std::filesystem::remove_all(dir);

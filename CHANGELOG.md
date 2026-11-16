@@ -230,6 +230,7 @@
 - Illustrated EPUBs write newly decoded images to the SD card in batches. Large books group chapter caches into smaller folders for quicker lookups.
 - Calibre uploads refresh the progress display every four seconds while transferring a book.
 - Lyra Carousel can generate both thumbnail sizes from a single JPEG cover decode.
+- Load only missing characters when extending a custom .cpfont cache, avoiding repeated SD reads for characters already prepared.
 
 ## [v1.6.1] - 2026-10-03
 
