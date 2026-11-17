@@ -189,6 +189,7 @@
 - Render fallback characters correctly in superscripts, subscripts, and small caps.
 - Reduce repeated SD reads when rendering CSS-sized custom fonts on X3/X4, including anti-aliased text, with a bounded glyph cache inside the existing font memory budget.
 - Free download catalog and payload scratch memory before fetching language and hyphenation licenses, and use smaller HTTP receive buffers to leave more room for certificate checks on X3/X4.
+- Show the Picco charging indicator and battery level on black-and-white sleep screens as well as supported grayscale covers; update it when charging stops or resumes, even if the percentage stays the same.
 
 ### Changed
 

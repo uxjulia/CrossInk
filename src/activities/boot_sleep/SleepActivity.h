@@ -19,6 +19,7 @@ class SleepActivity final : public Activity {
   void onEnter() override;
   // Whether this screen is independent of the outgoing activity's saves.
   bool rendersBeforeExit() const;
+  bool hasMonochromeFrame() const { return monochromeFrame; }
 
  private:
 #ifdef SIMULATOR
@@ -42,6 +43,7 @@ class SleepActivity final : public Activity {
   void renderLastScreenSleepScreen() const;
   void renderBlankSleepScreen() const;
   void renderOverlaySleepScreen(Bitmap* cover = nullptr) const;
+  mutable bool monochromeFrame = false;
   bool canSnapshotOverlayBackground = false;
   bool overlayBackgroundBufferStored = false;
   std::string currentBookPath;

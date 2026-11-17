@@ -1150,12 +1150,13 @@ void ActivityManager::goToReaderAndRunMenuAction(std::string path, const uint8_t
   goToReader(std::move(path));
 }
 
-void ActivityManager::goToSleep(bool fromTimeout) {
+bool ActivityManager::goToSleep(bool fromTimeout) {
   const bool canSnapshotOverlay = currentActivity && currentActivity->canSnapshotForSleepOverlay();
   const GfxRenderer::Orientation sleepPopupOrientation = renderer.getOrientation();
   std::string currentBookPath = getCurrentBookPath();
   auto sleepActivity = makeUniqueNoThrow<SleepActivity>(renderer, mappedInput, canSnapshotOverlay,
                                                         std::move(currentBookPath), fromTimeout, sleepPopupOrientation);
+  const auto* sleepScreen = sleepActivity.get();
   const bool renderBeforeExit = currentActivity && sleepActivity && sleepActivity->rendersBeforeExit();
   if (!sleepActivity) {
     LOG_ERR("ACT", "Could not allocate sleep activity; saving outgoing activities before sleep");
@@ -1174,13 +1175,14 @@ void ActivityManager::goToSleep(bool fromTimeout) {
     pendingActivity.reset();
     pendingAction = PendingAction::None;
     currentActivity = std::move(sleepActivity);
-    return;
+    return sleepScreen && currentActivity.get() == sleepScreen && sleepScreen->hasMonochromeFrame();
   }
   replaceActivity(std::move(sleepActivity));
   // Input capture has stopped. Do not poll the outgoing reader again: the
   // fallback input state can still contain the Power hold from boot, turning a
   // short sleep press into a reader long-press shortcut. onExit still saves it.
   processPendingActivities();  // Sleep renders synchronously in onEnter before the caller powers down.
+  return sleepScreen && currentActivity.get() == sleepScreen && sleepScreen->hasMonochromeFrame();
 }
 
 void ActivityManager::goToBoot() { replaceActivity(std::make_unique<BootActivity>(renderer, mappedInput)); }

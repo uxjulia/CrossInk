@@ -214,7 +214,7 @@ void HalPowerManager::startDeepSleep(HalGPIO& gpio) const {
 }
 
 #if FREEINK_DEVICE_PICCO
-bool HalPowerManager::holdWhileUsbPowered(HalGPIO& gpio, void (*onStatus)(void*, uint16_t), void* context) const {
+bool HalPowerManager::holdWhileUsbPowered(HalGPIO& gpio, void (*onStatus)(void*, bool, uint16_t), void* context) const {
   if (!gpio.isUsbConnected()) return false;
   disableWiFiBeforeDeepSleep();
   const auto powerPin = static_cast<gpio_num_t>(BoardConfig::ACTIVE.input.power);
@@ -229,14 +229,20 @@ bool HalPowerManager::holdWhileUsbPowered(HalGPIO& gpio, void (*onStatus)(void*,
   LOG_INF("PWR", "USB power present, holding sleep screen");
   unsigned long lastStatusMs = 0;
   int lastPercent = -1;
+  bool lastCharging = false;
+  const BatteryMonitor battery;
   while (gpio.isUsbConnected()) {
     const auto now = millis();
     if (onStatus && (lastPercent < 0 || now - lastStatusMs >= BATTERY_POLL_MS)) {
       lastStatusMs = now;
       const uint16_t percent = getBatteryPercentage();
-      if (percent != lastPercent) {
+      const auto status = battery.readStatus();
+      // USB presence is not active charging; omit the bolt on unknown status.
+      const bool charging = status.chargingKnown && status.charging;
+      if (percent != lastPercent || charging != lastCharging) {
         lastPercent = percent;
-        onStatus(context, percent);
+        lastCharging = charging;
+        onStatus(context, charging, percent);
       }
     }
     if (canLightSleep) {

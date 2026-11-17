@@ -178,7 +178,8 @@ class ActivityManager {
                   bool cleanImageBaseOnEntry = false, bool keepWakeFrame = false);
   void goToReaderAndRunMenuAction(std::string path, uint8_t action);
   void preparePluginSleep();
-  void goToSleep(bool fromTimeout = false);
+  // Returns true only when sleep rendered a known complete B/W frame.
+  bool goToSleep(bool fromTimeout = false);
   void goToBoot();
   void goToFullScreenMessage(std::string message, EpdFontFamily::Style style = EpdFontFamily::REGULAR);
   void goToCrashReport();

@@ -20,10 +20,13 @@ harness = r'''
 #include <optional>
 #include <vector>
 constexpr int SMALL_FONT_ID = 1;
+namespace HalDisplay { constexpr int FAST_REFRESH = 1; }
+int monoPaints = 0;
 bool allocationFails = false, locked = false, usb = true, wake = false;
 bool retainedSupported = true, restoreFails = false;
 int logs = 0, callbacks = 0, paints = 0, restores = 0, lockAcquisitions = 0;
 bool callerOwnsLock = false;
+int bolts = 0;
 #define LOG_ERR(...) ++logs
 using HeapByteBuffer = std::unique_ptr<uint8_t[]>;
 HeapByteBuffer makePsramByteBufferNoThrow(size_t bytes) {
@@ -45,9 +48,12 @@ struct Renderer {
   int getTextWidth(int, const char*) { return 18; }
   void getOrientedViewableTRBL(int* t, int* r, int* b, int* l) { *t=3; *r=5; *b=7; *l=9; }
   void fillRect(int x, int y, int w, int h, bool) {
-    assert(locked && x == 9 && y == 165 && w == 86 && h == 28);
+    assert(locked);
+    if (x == 9) assert(y == 165 && w == 86 && h == 28);
     frame[0] = 0;
   }
+  void displayBuffer(int) { assert(locked); ++monoPaints; }
+  void drawText(int, int, int, const char*) { assert(locked); }
   bool displayRetainedGrayscaleOverlay(int x, int y, int w, int h, bool restore = false) {
     assert(locked && x == 9 && y == 165 && w == 86 && h == 28);
     if (!retainedSupported) return false;
@@ -61,17 +67,22 @@ struct UITheme {
   static UITheme& getInstance() { static UITheme theme; return theme; }
   Metrics getMetrics() { return {}; }
 };
+struct BaseTheme {
+  static constexpr int batteryPercentSpacing = 4;
+  static void drawBatteryOutline(Renderer&, int, int, int, int) { assert(locked); }
+  static void drawBatteryLightningBolt(Renderer&, int, int, bool black) { assert(locked && black); ++bolts; }
+};
 struct Theme {
   void drawBatteryLeft(Renderer& r, Rect, uint16_t) { assert(locked); r.frame[1] = 0; }
 } GUI;
 struct GPIO { bool isUsbConnected() { return usb; } } gpio;
 struct PowerManager {
-  bool holdWhileUsbPowered(GPIO&, void (*callback)(void*, uint16_t) = nullptr, void* context = nullptr) {
+  bool holdWhileUsbPowered(GPIO&, void (*callback)(void*, bool, uint16_t) = nullptr, void* context = nullptr) {
     assert(locked == callerOwnsLock);
     if (callback) {
       for (auto percent : {42, 43}) {
         ++callbacks;
-        callback(context, percent);
+        callback(context, percent == 42, percent);
         assert(std::all_of(renderer.frame.begin(), renderer.frame.end(), [](auto b) { return b == 0xa5; }));
       }
     }
@@ -85,13 +96,13 @@ void reset() {
   allocationFails = locked = wake = restoreFails = false;
   usb = retainedSupported = true;
   logs = callbacks = paints = restores = lockAcquisitions = 0;
-  callerOwnsLock = false;
+  callerOwnsLock = false; bolts = monoPaints = 0;
 }
 int main() {
   reset();
   assert(!holdSleepWhileUsbPowered());
   assert(callbacks == 2 && paints == 2 && restores == 1 && logs == 0 && !locked);
-  assert(lockAcquisitions == 3);
+  assert(lockAcquisitions == 3 && bolts == 1);
   // Sleep can be entered while ActivityManager already owns its non-recursive lock.
   // Both painting and restoring must preserve that ownership without reacquiring.
   reset(); callerOwnsLock = true;
@@ -120,6 +131,12 @@ int main() {
   reset(); usb = false;
   assert(!holdSleepWhileUsbPowered());
   assert(callbacks == 0 && logs == 0);
+  reset(); retainedSupported = false;
+  assert(!holdSleepWhileUsbPowered(true));
+  assert(monoPaints == 3 && paints == 0 && restores == 0);
+  reset(); wake = true;
+  assert(holdSleepWhileUsbPowered(true));
+  assert(monoPaints == 2);
   reset(); restoreFails = true;
   assert(!holdSleepWhileUsbPowered());
   assert(restores == 1 && logs == 1);
@@ -148,6 +165,12 @@ unsigned long tick = 0;
 int batteryReads = 0, timerSleeps = 0;
 bool connected = true, interruptMaskWorks = true, wakeByButton = false;
 std::vector<uint16_t> percentages;
+std::vector<bool> charges;
+bool changeCharging = false, statusKnown = true, resumeCharging = false;
+struct BatteryMonitor {
+  struct Status { bool chargingKnown, charging; };
+  Status readStatus() const { return {statusKnown, resumeCharging ? tick >= 30000 : (!changeCharging || tick < 30000)}; }
+};
 std::vector<unsigned long> callbackTimes;
 #define LOG_INF(...) do {} while (0)
 #define LOG_ERR(...) do {} while (0)
@@ -168,11 +191,12 @@ void esp_sleep_disable_wakeup_source(int) {}
 struct HalPowerManager {
   static constexpr unsigned long BATTERY_POLL_MS = 30000;
   uint16_t getBatteryPercentage() const { ++batteryReads; return 42 + tick / 60000; }
-  bool holdWhileUsbPowered(HalGPIO&, void (*)(void*, uint16_t) = nullptr, void* = nullptr) const;
+  bool holdWhileUsbPowered(HalGPIO&, void (*)(void*, bool, uint16_t) = nullptr, void* = nullptr) const;
 };
-void status(void* context, uint16_t percent) {
+void status(void* context, bool charging, uint16_t percent) {
   assert(context == &percentages);
   percentages.push_back(percent);
+  charges.push_back(charging);
   callbackTimes.push_back(tick);
 }
 '''
@@ -180,7 +204,8 @@ power_checks = r'''
 void reset() {
   tick = 0; batteryReads = timerSleeps = 0;
   connected = interruptMaskWorks = true; wakeByButton = false;
-  percentages.clear(); callbackTimes.clear();
+  percentages.clear(); callbackTimes.clear(); charges.clear();
+  changeCharging = resumeCharging = false; statusKnown = true;
 }
 int main() {
   HalGPIO gpio;
@@ -192,6 +217,20 @@ int main() {
     assert((callbackTimes == std::vector<unsigned long>{0, 60000}));
     assert(batteryReads == 3 && timerSleeps == (lightSleep ? 3 : 0));
   }
+  for (bool lightSleep : {true, false}) {
+    reset(); interruptMaskWorks = lightSleep; changeCharging = true;
+    assert(!power.holdWhileUsbPowered(gpio, status, &percentages));
+    assert((percentages == std::vector<uint16_t>{42, 42, 43}));
+    assert((charges == std::vector<bool>{true, false, false}));
+    assert((callbackTimes == std::vector<unsigned long>{0, 30000, 60000}));
+  }
+  reset(); resumeCharging = true;
+  assert(!power.holdWhileUsbPowered(gpio, status, &percentages));
+  assert((percentages == std::vector<uint16_t>{42, 42, 43}));
+  assert((charges == std::vector<bool>{false, true, true}));
+  reset(); statusKnown = false;
+  assert(!power.holdWhileUsbPowered(gpio, status, &percentages));
+  assert((charges == std::vector<bool>{false, false}));
   reset(); wakeByButton = true;
   assert(power.holdWhileUsbPowered(gpio, status, &percentages));
   assert(timerSleeps == 1 && percentages.size() == 1);

@@ -70,7 +70,7 @@ class HalPowerManager {
   // Called once at startup. USB light-sleep wakes use an intentional restart.
   void restoreBatteryAfterSleep(bool usbSleepWake);
   // Remain in light sleep on USB power; true means Power requested wake.
-  bool holdWhileUsbPowered(HalGPIO& gpio, void (*onStatus)(void*, uint16_t percent) = nullptr,
+  bool holdWhileUsbPowered(HalGPIO& gpio, void (*onStatus)(void*, bool charging, uint16_t percent) = nullptr,
                            void* context = nullptr) const;
 #endif
 

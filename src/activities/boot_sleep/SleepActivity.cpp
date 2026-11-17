@@ -573,6 +573,7 @@ bool selectRandomSleepImage(SleepImageMode mode, SleepImageSelection& selection,
 
 void SleepActivity::onEnter() {
   Activity::onEnter();
+  monochromeFrame = false;
   const bool renderQuickResume =
       SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::QUICK_RESUME ||
       (fromTimeout &&
@@ -794,6 +795,7 @@ void SleepActivity::renderDefaultSleepScreen() const {
 #endif
 
   renderer.displayBuffer(HalDisplay::HALF_REFRESH, TURN_OFF_SCREEN_AFTER_SLEEP_REFRESH);
+  monochromeFrame = true;
 }
 
 SleepActivity::BitmapPlacement SleepActivity::prepareSleepBitmap(Bitmap& bitmap) const {
@@ -880,6 +882,7 @@ bool SleepActivity::renderBitmapSleepScreen(Bitmap& bitmap) const {
 
   if (!hasGreyscale) {
     renderer.displayBuffer(HalDisplay::HALF_REFRESH, TURN_OFF_SCREEN_AFTER_SLEEP_REFRESH);
+    monochromeFrame = true;
     return true;
   }
 
@@ -984,6 +987,7 @@ void SleepActivity::renderReadingStatsSleepScreen() const {
     renderer.invertScreen();
   }
   renderer.displayBuffer(HalDisplay::HALF_REFRESH, TURN_OFF_SCREEN_AFTER_SLEEP_REFRESH);
+  monochromeFrame = true;
 }
 
 void SleepActivity::renderMinimalSleepScreen() const {
@@ -1005,6 +1009,7 @@ void SleepActivity::renderMinimalSleepScreen() const {
                         BookStatsTracking::isEnabled(bookStatsCachePathFor(path)) ? &bookStats : nullptr,
                         progressPercent, sleepCoverFilterInvertsGeneratedScreen());
   renderer.displayBuffer(HalDisplay::HALF_REFRESH, TURN_OFF_SCREEN_AFTER_SLEEP_REFRESH);
+  monochromeFrame = true;
 }
 
 void SleepActivity::renderMinimalStatsSleepScreen() const {
@@ -1026,6 +1031,7 @@ void SleepActivity::renderMinimalStatsSleepScreen() const {
   theme.drawStatsSleepScreen(renderer, book, &bookStats, &globalStats, progressPercent,
                              sleepCoverFilterInvertsGeneratedScreen());
   renderer.displayBuffer(HalDisplay::HALF_REFRESH, TURN_OFF_SCREEN_AFTER_SLEEP_REFRESH);
+  monochromeFrame = true;
 }
 
 void SleepActivity::renderDashboardSleepScreen() const {
@@ -1052,6 +1058,7 @@ void SleepActivity::renderDashboardSleepScreen() const {
   theme.drawSleepScreen(renderer, book, &bookStats, &globalStats, progressPercent, chapterTitle.c_str(),
                         sleepCoverFilterInvertsGeneratedScreen());
   renderer.displayBuffer(HalDisplay::HALF_REFRESH, TURN_OFF_SCREEN_AFTER_SLEEP_REFRESH);
+  monochromeFrame = true;
 }
 
 void SleepActivity::renderLastScreenSleepScreen() const {
@@ -1074,6 +1081,7 @@ void SleepActivity::renderLastScreenSleepScreen() const {
 void SleepActivity::renderBlankSleepScreen() const {
   renderer.clearScreen();
   renderer.displayBuffer(HalDisplay::HALF_REFRESH, TURN_OFF_SCREEN_AFTER_SLEEP_REFRESH);
+  monochromeFrame = true;
 }
 
 void SleepActivity::renderOverlaySleepScreen(Bitmap* cover) const {

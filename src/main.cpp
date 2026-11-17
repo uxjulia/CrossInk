@@ -1141,9 +1141,10 @@ void mirrorWakeShortPressToNvs() {
 struct SleepChargeOverlay {
   HeapByteBuffer frame;
   Rect strip;
+  bool monochrome = false;
   bool painted = false;
 
-  static void draw(void* context, uint16_t percent) {
+  static void draw(void* context, bool charging, uint16_t percent) {
     auto& overlay = *static_cast<SleepChargeOverlay*>(context);
     std::optional<RenderLock> lock;
     if (!RenderLock::heldByCurrentTask()) lock.emplace();
@@ -1152,19 +1153,34 @@ struct SleepChargeOverlay {
     renderer.fillRect(overlay.strip.x, overlay.strip.y, overlay.strip.width, overlay.strip.height, false);
     char text[24];
     snprintf(text, sizeof(text), "%u%%", static_cast<unsigned>(percent));
-    const int x = overlay.strip.x +
-                  (overlay.strip.width - metrics.batteryWidth - renderer.getTextWidth(SMALL_FONT_ID, text) - 8) / 2;
-    GUI.drawBatteryLeft(renderer, Rect{x, overlay.strip.y + 6, metrics.batteryWidth, metrics.batteryHeight}, percent);
-    // An unsupported driver returns without painting. A whole-screen B/W
-    // fallback could destroy retained grays, so leave that sleep image alone.
-    overlay.painted = renderer.displayRetainedGrayscaleOverlay(overlay.strip.x, overlay.strip.y, overlay.strip.width,
-                                                               overlay.strip.height) ||
-                      overlay.painted;
+    const int x = overlay.strip.x + (overlay.strip.width - metrics.batteryWidth -
+                                     renderer.getTextWidth(SMALL_FONT_ID, text) - BaseTheme::batteryPercentSpacing) /
+                                        2;
+    const int textY = overlay.strip.y + 6;
+    const int iconY = textY + 5;
+    // The shared status-bar icon uses USB presence. This strip must distinguish
+    // a plugged-in battery from one that is actively charging.
+    BaseTheme::drawBatteryOutline(renderer, x, iconY, metrics.batteryWidth, metrics.batteryHeight);
+    if (charging) {
+      BaseTheme::drawBatteryLightningBolt(renderer, x + 4, iconY + 2, true);
+    } else {
+      renderer.fillRect(x + 2, iconY + 2, (metrics.batteryWidth - 5) * percent / 100, metrics.batteryHeight - 4, true);
+    }
+    renderer.drawText(SMALL_FONT_ID, x + metrics.batteryWidth + BaseTheme::batteryPercentSpacing, textY, text);
+    if (overlay.monochrome) {
+      renderer.displayBuffer(HalDisplay::FAST_REFRESH);
+      overlay.painted = true;
+    } else {
+      // Do not flatten grayscale frames when the retained overlay is unavailable.
+      overlay.painted = renderer.displayRetainedGrayscaleOverlay(overlay.strip.x, overlay.strip.y, overlay.strip.width,
+                                                                 overlay.strip.height) ||
+                        overlay.painted;
+    }
     memcpy(renderer.getFrameBuffer(), overlay.frame.get(), renderer.getBufferSize());
   }
 };
 
-static bool holdSleepWhileUsbPowered() {
+static bool holdSleepWhileUsbPowered(bool monochrome = false) {
   if (!gpio.isUsbConnected()) return false;
   // One runtime-sized snapshot in PSRAM, only during USB sleep. It restores
   // the draw buffer after each strip; it is never needed on constrained C3s.
@@ -1174,7 +1190,8 @@ static bool holdSleepWhileUsbPowered() {
       std::max(renderer.getLineHeight(SMALL_FONT_ID), UITheme::getInstance().getMetrics().batteryHeight) + 16;
   SleepChargeOverlay overlay{
       makePsramByteBufferNoThrow(renderer.getBufferSize()),
-      Rect{left, renderer.getScreenHeight() - bottom - height, renderer.getScreenWidth() - left - right, height}};
+      Rect{left, renderer.getScreenHeight() - bottom - height, renderer.getScreenWidth() - left - right, height},
+      monochrome};
   if (!overlay.frame) {
     LOG_ERR("MAIN", "No PSRAM for sleep charge strip; retaining sleep image");
     return powerManager.holdWhileUsbPowered(gpio);
@@ -1184,8 +1201,10 @@ static bool holdSleepWhileUsbPowered() {
   if (!buttonPressed && overlay.painted) {
     std::optional<RenderLock> lock;
     if (!RenderLock::heldByCurrentTask()) lock.emplace();
-    if (!renderer.displayRetainedGrayscaleOverlay(overlay.strip.x, overlay.strip.y, overlay.strip.width,
-                                                  overlay.strip.height, true)) {
+    if (overlay.monochrome) {
+      renderer.displayBuffer(HalDisplay::FAST_REFRESH);
+    } else if (!renderer.displayRetainedGrayscaleOverlay(overlay.strip.x, overlay.strip.y, overlay.strip.width,
+                                                         overlay.strip.height, true)) {
       LOG_ERR("MAIN", "Could not restore retained sleep image after USB hold");
     }
   }
@@ -1219,7 +1238,7 @@ void enterDeepSleep(bool fromTimeout) {
                                powerManager.getBatteryPercentage() >= 20);
   }
   trustedtime::note();
-  activityManager.goToSleep(fromTimeout);
+  [[maybe_unused]] const bool monochromeSleepFrame = activityManager.goToSleep(fromTimeout);
   // Reader exit may already have saved this state. Save after the sleep screen
   // appears, skipping an unchanged snapshot while still retrying failed saves.
   APP_STATE.saveToFile();
@@ -1275,7 +1294,7 @@ void enterDeepSleep(bool fromTimeout) {
 #if FREEINK_DEVICE_PICCO
   // The I2C light retains its state through sleep. Keep the saved preference.
   Frontlight.setOn(false);
-  const bool usbWakeRequested = holdSleepWhileUsbPowered();
+  const bool usbWakeRequested = holdSleepWhileUsbPowered(monochromeSleepFrame);
 #endif
   putTiltSensorToSleepForDeepSleep();
   display.deepSleep();

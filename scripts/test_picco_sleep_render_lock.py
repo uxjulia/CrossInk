@@ -28,6 +28,7 @@ FIXTURE = r'''
 #include <optional>
 #define LOG_ERR(...) ((void)0)
 constexpr int SMALL_FONT_ID=0;
+namespace HalDisplay {constexpr int FAST_REFRESH=1;}
 bool held=false, usb=true, wake=false, allocation=true;
 unsigned locks=0, paints=0, restores=0, holds=0;
 struct RenderLock {
@@ -48,6 +49,8 @@ struct Renderer {
  uint8_t* getFrameBuffer(){return buffer.data();}
  size_t getBufferSize(){return buffer.size();}
  void fillRect(int,int,int,int,bool){assert(held);}
+ void displayBuffer(int){assert(held);}
+ void drawText(int,int,int,const char*){assert(held);}
  int getTextWidth(int,const char*){return 20;}
  int getLineHeight(int){return 12;}
  int getScreenWidth(){return 480;}
@@ -57,11 +60,15 @@ struct Renderer {
    assert(held);if(restore)++restores;else ++paints;return true;
  }
 } renderer;
-struct Gui {void drawBatteryLeft(Renderer&,Rect,uint16_t){assert(held);}} GUI;
+struct BaseTheme {
+ static constexpr int batteryPercentSpacing=4;
+ static void drawBatteryOutline(Renderer&,int,int,int,int){assert(held);}
+ static void drawBatteryLightningBolt(Renderer&,int,int,bool){assert(held);}
+};
 struct Gpio {bool isUsbConnected(){return usb;}} gpio;
 struct Power {
- bool holdWhileUsbPowered(Gpio&,void(*draw)(void*,uint16_t)=nullptr,void*context=nullptr){
-  ++holds;if(draw){draw(context,63);draw(context,64);}return wake;
+ bool holdWhileUsbPowered(Gpio&,void(*draw)(void*,bool,uint16_t)=nullptr,void*context=nullptr){
+  ++holds;if(draw){draw(context,true,63);draw(context,false,64);}return wake;
  }
 } powerManager;
 '''
@@ -89,7 +96,7 @@ int main(){
 def main():
     source = (ROOT / "src/main.cpp").read_text()
     production = definition(source, "struct SleepChargeOverlay {") + ";\n"
-    production += definition(source, "static bool holdSleepWhileUsbPowered() {")
+    production += definition(source, "static bool holdSleepWhileUsbPowered(bool monochrome = false) {")
     with tempfile.TemporaryDirectory(prefix="crossink-picco-sleep-lock-") as temp:
         path = Path(temp)
         (path / "test.cpp").write_text(FIXTURE + production + CASES)

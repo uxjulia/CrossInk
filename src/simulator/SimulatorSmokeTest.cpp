@@ -9135,6 +9135,8 @@ class SimulatorSmokeTest {
     if (outgoingLoops || !outgoingExited || !activityManager.isCurrentActivityNamed("Sleep"))
       fail("Sleep dispatched outgoing input or skipped reader cleanup");
 
+    SETTINGS.sleepScreen = CrossPointSettings::BLANK;
+    if (!activityManager.goToSleep()) fail("Blank sleep frame was not reported as monochrome");
     RenderLock lock;
     SETTINGS.shortPwrBtn = CrossPointSettings::SLEEP;
     SETTINGS.longPwrBtn = CrossPointSettings::TOGGLE_DARK_MODE;
@@ -9157,6 +9159,9 @@ class SimulatorSmokeTest {
         SleepActivity sleep(renderer, mappedInputManager, false);
         sleep.onEnter();
         const bool retained = mode == CrossPointSettings::OVERLAY || mode == CrossPointSettings::QUICK_RESUME;
+        if (!retained && !sleep.hasMonochromeFrame()) fail("Generated sleep screen lost monochrome classification");
+        if (mode == CrossPointSettings::QUICK_RESUME && sleep.hasMonochromeFrame())
+          fail("Quick Resume must not assume the retained page is monochrome");
         if (display.isInverted() != (retained && inverted)) fail("Sleep screen changed page colors");
         if (SETTINGS.screenInverted != inverted) fail("Sleep screen changed the Dark Mode preference");
         if (mode == CrossPointSettings::OVERLAY && renderer.isPixelBlack(10, 10))
@@ -9185,6 +9190,7 @@ class SimulatorSmokeTest {
     SleepActivity timeout(renderer, mappedInputManager, false, {}, true);
     timeout.onEnter();
     if (!display.isInverted()) fail("Timed Quick Resume lost Dark Mode");
+    if (timeout.hasMonochromeFrame()) fail("Timed Quick Resume must preserve unknown retained colors");
     LOG_INF("SMOKE", "Simulator smoke test passed: sleep screen colors and fallback");
     std::_Exit(0);
   }
