@@ -490,6 +490,7 @@ struct SliderOrientationSmokeTest {
 #endif
   }
   static int value(const EpubReaderPercentSelectionActivity& slider) { return slider.value; }
+  static void enterKeypad(EpubReaderPercentSelectionActivity& slider) { slider.enterKeypad(); }
   static void open(EpubReaderDrawerActivity& drawer, const ReaderDrawerPane pane, const uint8_t focus) {
     drawer.openPane(pane);
     drawer.buttonSliderState.focus = focus;
@@ -4462,7 +4463,37 @@ class SimulatorSmokeTest {
         EpubReaderPercentSelectionActivity percentSlider(renderer, input, 50.0f);
         percentSlider.onEnter();
         checkDirections(percentSlider);
+        if (!aware) {
+          percentSlider.render(std::move(lock));
+          captureStatusBarScreen(("slider-percent-" + std::to_string(orientation)).c_str());
+          SliderOrientationSmokeTest::enterKeypad(percentSlider);
+          percentSlider.render(std::move(lock));
+          captureStatusBarScreen(("keypad-percent-" + std::to_string(orientation)).c_str());
+        }
         percentSlider.onExit();
+        EpubReaderPercentSelectionActivity stableSlider(renderer, input, uint32_t{50}, uint32_t{100});
+        stableSlider.onEnter();
+        checkDirections(stableSlider);
+        if (!aware) {
+          const bool swapFront =
+              orientation == GfxRenderer::PortraitInverted || orientation == GfxRenderer::LandscapeCounterClockwise;
+          const uint8_t frontDecrease = swapFront ? SETTINGS.frontButtonRight : SETTINGS.frontButtonLeft;
+          const uint8_t frontIncrease = swapFront ? SETTINGS.frontButtonLeft : SETTINGS.frontButtonRight;
+          const int stableBefore = SliderOrientationSmokeTest::value(stableSlider);
+          tap(stableSlider, frontDecrease);
+          if (SliderOrientationSmokeTest::value(stableSlider) != stableBefore - 1)
+            fail("Stable page front Left did not decrease by one page");
+          tap(stableSlider, frontIncrease);
+          if (SliderOrientationSmokeTest::value(stableSlider) != stableBefore)
+            fail("Stable page front Right did not increase by one page");
+          checks += 2;
+          stableSlider.render(std::move(lock));
+          captureStatusBarScreen(("slider-stable-page-" + std::to_string(orientation)).c_str());
+          SliderOrientationSmokeTest::enterKeypad(stableSlider);
+          stableSlider.render(std::move(lock));
+          captureStatusBarScreen(("keypad-stable-page-" + std::to_string(orientation)).c_str());
+        }
+        stableSlider.onExit();
         EpubReaderDrawerActivity drawer(renderer, input, {}, nullptr, 50.0f, 0, 0, false, false, false, false, false,
                                         false, false, false, true, true, 0, 0, 30, false);
         drawer.onEnter();
