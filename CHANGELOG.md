@@ -237,6 +237,7 @@
 - Reuse temporary decompression memory while preparing built-in fonts, reducing repeated allocations without keeping extra memory between pages.
 - Skip off-strip text during anti-aliasing to reduce repeated page-rendering work.
 - Turn pages on button-down when the button has no long-press action, and reduce reader page-button long presses from 700 to 600 ms.
+- Reduce memory used by publisher CSS and extra SD font sizes on X3/X4, keeping more heading sizes available within the existing safety limits.
 
 ## [v1.6.1] - 2026-10-03
 

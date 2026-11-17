@@ -234,6 +234,13 @@ void SdCardFontManager::loadContentSizes(const SdCardFontFamilyInfo& family, Gfx
         loaded.fontId, EpdFontFamily(font->getEpdFont(0), font->getEpdFont(1), font->getEpdFont(2), font->getEpdFont(3))
                            .withSize(newId, loaded.size));
   }
+  // Optional sizes draw one glyph at a time. Keep only the largest fallback
+  // scratch allocation; its owner tag prevents reuse after another size draws.
+  // Consolidate after admission/rollback so no borrower can outlive its owner.
+  auto* scratchOwner = loaded_[1].font;
+  for (size_t i = 2; i < loaded_.size(); ++i)
+    if (loaded_[i].font->contentBitmapBytes_ > scratchOwner->contentBitmapBytes_) scratchOwner = loaded_[i].font;
+  for (size_t i = 1; i < loaded_.size(); ++i) loaded_[i].font->shareContentScratchWith(*scratchOwner);
 }
 
 #if CROSSINK_SCALABLE_FONTS

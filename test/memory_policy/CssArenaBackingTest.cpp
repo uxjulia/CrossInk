@@ -33,9 +33,9 @@ struct CssArenaBackingTest : testing::Test {
     EXPECT_TRUE(style.hasFontStyle());
     EXPECT_TRUE(style.hasTextAlign());
     EXPECT_TRUE(style.hasMarginTop());
-    EXPECT_EQ(style.marginTop.value, 12);
+    EXPECT_EQ(style.marginTop.value(), 12);
     ASSERT_TRUE(style.hasFontSize());
-    EXPECT_EQ(style.fontSize.value, 150);
+    EXPECT_EQ(style.fontSize.value(), 150);
     EXPECT_EQ(style.fontSize.unit, CssUnit::Percent);
     EXPECT_EQ(style.fontWeight, CssFontWeight::Bold);
     EXPECT_EQ(style.fontStyle, CssFontStyle::Italic);
@@ -385,5 +385,31 @@ TEST_F(CssArenaBackingTest, StylesSurviveLowHeapWithHydratedAndDiskBackedRules) 
       }
     }
     EXPECT_TRUE(fakeheap::live.empty());
+  }
+}
+
+TEST_F(CssArenaBackingTest, CompactLengthsPreservePrecisionAndCacheBytes) {
+  EXPECT_EQ(sizeof(CssLength), 5u);
+  EXPECT_EQ(sizeof(CssStyle), 100u);
+  for (const bool psram : {false, true}) {
+    fakeheap::reset(psram);
+    const std::string text = "p { font-size: 137.125%; margin-left: -1.2345em; padding-top: 2.75pt; }";
+    Storage.put("compact.css", {text.begin(), text.end()});
+    FsFile source;
+    ASSERT_TRUE(Storage.openFileForRead("test", "compact.css", source));
+    CssParser css("compact");
+    ASSERT_TRUE(css.loadFromStream(source));
+    source.close();
+    const auto before = css.resolveStyle("p", "");
+    ASSERT_TRUE(css.saveToCache());
+    css.clear();
+    ASSERT_TRUE(css.loadFromCache());
+    const auto after = css.resolveStyle("p", "");
+    EXPECT_FLOAT_EQ(after.fontSize.value(), 137.125f);
+    EXPECT_FLOAT_EQ(after.marginLeft.toPixels(20), before.marginLeft.toPixels(20));
+    EXPECT_FLOAT_EQ(after.paddingTop.toPixels(20), before.paddingTop.toPixels(20));
+    EXPECT_EQ(after.fontSize.unit, CssUnit::Percent);
+    EXPECT_EQ(after.marginLeft.unit, CssUnit::Em);
+    EXPECT_EQ(after.paddingTop.unit, CssUnit::Points);
   }
 }

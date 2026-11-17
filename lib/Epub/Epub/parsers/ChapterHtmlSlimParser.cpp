@@ -456,7 +456,7 @@ void ChapterHtmlSlimParser::applyInlineFontSize(StyleStackEntry& entry, const Cs
   if (!base) return;
   const float parent =
       effectiveInlineFontSize ? effectiveInlineFontSize : renderer.getFontPointSize(currentTextFontId());
-  float size = css.fontSize.value;
+  float size = css.fontSize.value();
   switch (css.fontSize.unit) {
     case CssUnit::Em:
       size *= parent;
@@ -783,7 +783,7 @@ uint8_t ChapterHtmlSlimParser::dropCapLines(const CssStyle& style) {
   if (style.defined.initialLetter && style.initialLetter > 0) {
     return style.initialLetter >= 2 ? style.initialLetter : 0;
   }
-  float em = style.fontSize.value;
+  float em = style.fontSize.value();
   if (style.fontSize.unit == CssUnit::Pixels)
     em /= 16;
   else if (style.fontSize.unit == CssUnit::Points)
@@ -1259,20 +1259,20 @@ void ChapterHtmlSlimParser::applyBlockFontSize(const CssStyle& cssStyle, const c
     const auto& size = cssStyle.fontSize;
     switch (size.unit) {
       case CssUnit::Em:
-        scale = parent * size.value;
+        scale = parent * size.value();
         break;
       case CssUnit::Rem:
-        scale = rootFontScale / 256.0f * size.value;
+        scale = rootFontScale / 256.0f * size.value();
         break;
       case CssUnit::Percent:
-        scale = parent * size.value / 100.0f;
+        scale = parent * size.value() / 100.0f;
         break;
       // Reader zoom: CSS medium (16px/12pt) maps to the user's body size.
       case CssUnit::Points:
-        scale = size.value / 12.0f;
+        scale = size.value() / 12.0f;
         break;
       case CssUnit::Pixels:
-        scale = size.value / 16.0f;
+        scale = size.value() / 16.0f;
         break;
     }
   }

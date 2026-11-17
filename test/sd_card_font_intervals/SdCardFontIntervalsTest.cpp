@@ -496,11 +496,79 @@ void contentPreparationChecks(const std::string& path) {
   }
 }
 
+void compactContentBudgetChecks(const std::string& path) {
+  Table intervals;
+  for (uint32_t i = 0; i < 400; ++i) intervals.push_back({0x100 + i * 2, 0x100 + i * 2, i});
+  fixture(path, {{0, intervals}, {1, intervals}, {2, intervals}, {3, intervals}});
+  const size_t expected = sizeof(SdCardFont) + SdCardFont::CONTENT_METRICS_CACHE_BYTES + 400 * 6 + 1;
+  assert(expected <= 12U * 1024U);
+  assert(SdCardFont::contentResidentBytes(path.c_str(), expected) == expected);
+  {
+    SdCardFont font;
+    assert(font.load(path.c_str(), expected));
+    assert(arrayBytes() + sizeof(font) == expected);
+    for (uint8_t i = 0; i < 4; ++i) {
+      uint16_t width = 0;
+      assert(font.readAdvance(0x100, i, &width) && width == advance(0, i));
+    }
+    assert(font.styles_[3].intervalsShared);
+  }
+  assert(arrayBytes() == 0 && openFiles == 0);
+}
+
+void sharedContentScratchChecks(const std::string& path) {
+  // Two distinguishable glyphs larger than the bitmap-cache slot limit ensure
+  // the fallback scratch is used, even if bitmap caching is enabled later.
+  const auto second = path + "-scratch";
+  for (const auto& file : {path, second}) {
+    fixture(file, {{0, table({{'A', 'A'}})}});
+    std::fstream out(file, std::ios::in | std::ios::out | std::ios::binary);
+    EpdGlyph glyph{};
+    glyph.width = 64;
+    glyph.height = 128;
+    glyph.dataLength = 1024;
+    glyph.advanceX = 64 * 16;
+    out.seekp(64 + sizeof(EpdUnicodeInterval));
+    out.write(reinterpret_cast<const char*>(&glyph), sizeof(glyph));
+    const std::string bitmap(1024, file == path ? char(0xAA) : char(0x55));
+    out.write(bitmap.data(), bitmap.size());
+  }
+  {
+    SdCardFont owner, borrower;
+    assert(owner.load(path.c_str(), 12U * 1024U));
+    assert(borrower.load(second.c_str(), 12U * 1024U));
+    const size_t before = arrayBytes();
+    borrower.shareContentScratchWith(owner);
+    assert(arrayBytes() == before - 1024);
+    const int allocations = arrayCalls;
+    for (int i = 0; i < 5; ++i) {
+      const auto* a = owner.getEpdFont()->getGlyph('A');
+      assert(a && owner.getOverflowBitmap(a)[0] == 0xAA);
+      const auto* b = borrower.getEpdFont()->getGlyph('A');
+      assert(b && borrower.getOverflowBitmap(b)[0] == 0x55);
+      assert(owner.getOverflowBitmap(a) == nullptr);  // Never return the other size's pixels.
+      const auto* again = owner.getEpdFont()->getGlyph('A');
+      assert(again && owner.getOverflowBitmap(again)[0] == 0xAA);
+      assert(borrower.getOverflowBitmap(b) == nullptr);
+      failReadCall = readCalls + 1;  // Fail the next bitmap read after metadata.
+      assert(borrower.getEpdFont()->getGlyph('A') == nullptr);
+      failReadCall = -1;
+      assert(owner.getOverflowBitmap(again) == nullptr);
+    }
+    assert(arrayCalls == allocations);
+    // Teardown may delete the owning size first; borrowers never dereference it.
+    owner.freeAll();
+    borrower.freeAll();
+  }
+  assert(arrayBytes() == 0 && openFiles == 0);
+  std::filesystem::remove(second);
+}
+
 void contentSizeChecks(const std::string& path) {
   fixture(path, {{0, table({{0x41, 0x5A}})}, {1, table({{0x41, 0x5A}})}});
   constexpr size_t limit = 12U * 1024U;
   const size_t budget =
-      sizeof(SdCardFont) + SdCardFont::CONTENT_METRICS_CACHE_BYTES + 2 * sizeof(EpdUnicodeInterval) + 1;
+      sizeof(SdCardFont) + SdCardFont::CONTENT_METRICS_CACHE_BYTES + sizeof(SdCardFont::PerStyle::BmpInterval16) + 1;
   const auto arraysBefore = arrayBytes();
   readCalls = 0;
   assert(SdCardFont::contentResidentBytes(path.c_str(), limit) == budget);
@@ -662,6 +730,13 @@ void contentSizeChecks(const std::string& path) {
   assert(manager.loadFamilyClosest(family, renderer, 12));
   assert(readCalls == expectedReads);
   const int highId = manager.getFontId(family.name);
+  size_t scratchOwners = 0, scratchBorrowers = 0;
+  for (const auto& [id, font] : renderer.getSdCardFonts()) {
+    if (!font->leanContent_) continue;
+    scratchOwners += bool(font->contentBitmap_);
+    scratchBorrowers += bool(font->contentScratchOwner_);
+  }
+  assert(scratchOwners == 1 && scratchBorrowers == 1);
   assert(renderer.getFontMap().size() == 3 && renderer.getSdCardFonts().size() == 3);
   for (const auto& [id, font] : renderer.getFontMap()) assert(font.sizeFamilyId() == highId);
   // Reordered/rounded CSS hints request the same installed sizes. A low-heap
@@ -996,6 +1071,8 @@ int main() {
   incrementalChecks(path);
   contentPreparationChecks(path);
   contentSizeChecks(path);
+  compactContentBudgetChecks(path);
+  sharedContentScratchChecks(path);
   std::filesystem::remove_all(dir);
   std::puts("SD font interval regression checks passed");
 }

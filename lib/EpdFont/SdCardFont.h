@@ -59,14 +59,14 @@ class SdCardFont {
   // Supports v4 (multi-style) format.
   // Returns true on success.
   // A nonzero internal-RAM ceiling is for optional content sizes: includes this object,
-  // conservative interval/ligature residency, and one reusable bitmap sized
+  // compact/shared interval and ligature residency, and one reusable bitmap sized
   // to the largest glyph (at most 4KB), plus a 3KB glyph-metrics cache.
   // A lazy bitmap cache uses spare bytes inside this ceiling on C3, or PSRAM on S3.
   // Optional reserves are checked after inspecting glyphs, before allocating tables/scratch.
   // The font object already exists; its size is excluded from the remaining allocation.
   bool load(const char* path, size_t residentLimit = 0, size_t freeHeapReserve = 0, size_t maxAllocHeapReserve = 0);
 
-  // Allocation-free preflight for optional sizes. Returns a conservative
+  // Allocation-free preflight for optional sizes. Returns the mandatory
   // resident-byte ceiling, or 0 if unreadable, oversized, or above limit.
   static size_t contentResidentBytes(const char* path, size_t limit);
 
@@ -275,6 +275,13 @@ class SdCardFont {
   // Their shared metrics and bounded bitmap cache fit the resident ceiling.
   // 4KB covers normal content glyphs through 44pt; larger files are rejected
   // before registration so layout falls back to a supported physical size.
+  friend class SdCardFontManager;
+  // Only the manager shares scratch, after all sizes have been admitted. The
+  // owner and borrowers remain registered until unloadAll; teardown never
+  // dereferences these links. Bitmap caches and measurement caches stay private.
+  void shareContentScratchWith(SdCardFont& owner);
+  SdCardFont* contentScratchOwner_ = nullptr;
+  SdCardFont* contentScratchUser_ = nullptr;
   std::unique_ptr<uint8_t[]> contentBitmap_;
   uint16_t contentBitmapBytes_ = 0;
   bool leanContent_ = false;

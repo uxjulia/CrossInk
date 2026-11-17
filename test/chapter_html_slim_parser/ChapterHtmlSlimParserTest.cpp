@@ -1436,7 +1436,7 @@ TEST(CssFontSizeTest, StrictValuesAndCascade) {
   }
   const auto style = CssParser::parseInlineStyle("font-size: 150%; font-size: nonsense");
   EXPECT_TRUE(style.hasFontSize());
-  EXPECT_FLOAT_EQ(style.fontSize.value, 150);
+  EXPECT_FLOAT_EQ(style.fontSize.value(), 150);
 }
 }  // namespace
 

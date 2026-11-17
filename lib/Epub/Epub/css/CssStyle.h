@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <cstring>
 #include <iterator>
 
 // Matches order of PARAGRAPH_ALIGNMENT in CrossPointSettings
@@ -11,14 +12,24 @@ enum class CssTextDirection : uint8_t { Ltr = 0, Rtl = 1 };
 
 // Represents a CSS length value with its unit, allowing deferred resolution to pixels
 struct CssLength {
-  float value = 0.0f;
+ private:
+  // Preserve the full float without its three padding bytes. memcpy also keeps
+  // length records safe at byte-aligned addresses on C3 (no packed float access).
+  uint8_t valueBytes_[sizeof(float)]{};
+
+ public:
+  float value() const {
+    float result;
+    memcpy(&result, valueBytes_, sizeof(result));
+    return result;
+  }
   CssUnit unit = CssUnit::Pixels;
 
   CssLength() = default;
-  CssLength(const float v, const CssUnit u) : value(v), unit(u) {}
+  CssLength(const float v, const CssUnit u) : unit(u) { memcpy(valueBytes_, &v, sizeof(v)); }
 
   // Convenience constructor for pixel values (most common case)
-  explicit CssLength(const float pixels) : value(pixels) {}
+  explicit CssLength(const float pixels) : CssLength(pixels, CssUnit::Pixels) {}
 
   // Returns true if this length can be resolved to pixels with the given context.
   // Percentage units require a non-zero containerWidth to resolve.
@@ -32,13 +43,13 @@ struct CssLength {
     switch (unit) {
       case CssUnit::Em:
       case CssUnit::Rem:
-        return value * emSize;
+        return value() * emSize;
       case CssUnit::Points:
-        return value * 1.33f;  // Approximate pt to px conversion
+        return value() * 1.33f;  // Approximate pt to px conversion
       case CssUnit::Percent:
-        return value * containerWidth / 100.0f;
+        return value() * containerWidth / 100.0f;
       default:
-        return value;
+        return value();
     }
   }
 
@@ -47,6 +58,8 @@ struct CssLength {
     return static_cast<int16_t>(toPixels(emSize, containerWidth));
   }
 };
+
+static_assert(sizeof(CssLength) == 5, "CSS lengths must not retain float alignment padding");
 
 // Font style options matching CSS font-style property
 enum class CssFontStyle : uint8_t { Normal = 0, Italic = 1 };

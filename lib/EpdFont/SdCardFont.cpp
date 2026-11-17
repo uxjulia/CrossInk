@@ -77,6 +77,65 @@ bool inspectContentGlyphs(HalFile& file, const uint32_t offset, const uint32_t c
   return true;
 }
 
+// Allocation-free description of the compact interval table for one style.
+struct ContentIntervals {
+  uint32_t offset = 0;
+  uint32_t count = 0;
+  uint32_t glyphs = 0;
+  uint16_t bmpCount = 0;
+};
+
+bool sameContentIntervals(HalFile& file, const ContentIntervals& a, const ContentIntervals& b, bool& same) {
+  same = false;
+  if (a.count != b.count) return true;
+  // Two 96-byte batches compare on-disk records exactly, without opening a
+  // second reader or allocating the tables that admission is trying to budget.
+  EpdUnicodeInterval left[8], right[8];
+  for (uint32_t i = 0; i < a.count; i += 8) {
+    const size_t bytes = std::min<uint32_t>(8, a.count - i) * sizeof(EpdUnicodeInterval);
+    if (!file.seekSet(a.offset + i * sizeof(EpdUnicodeInterval)) || file.read(left, bytes) != int(bytes) ||
+        !file.seekSet(b.offset + i * sizeof(EpdUnicodeInterval)) || file.read(right, bytes) != int(bytes)) {
+      LOG_ERR("SDCF", "Cannot compare content-size intervals");
+      return false;
+    }
+    if (memcmp(left, right, bytes) != 0) return true;
+  }
+  same = true;
+  return true;
+}
+
+bool inspectContentIntervals(HalFile& file, ContentIntervals* tables, const uint8_t index, size_t& bytes) {
+  auto& table = tables[index];
+  if (uint64_t(table.offset) + uint64_t(table.count) * sizeof(EpdUnicodeInterval) > file.fileSize() ||
+      !file.seekSet(table.offset)) {
+    LOG_ERR("SDCF", "Invalid content-size interval extent");
+    return false;
+  }
+  uint32_t expected = 0, previous = 0;
+  for (uint32_t i = 0; i < table.count; ++i) {
+    EpdUnicodeInterval iv{};
+    if (file.read(&iv, sizeof(iv)) != sizeof(iv) || iv.first > iv.last || (i && iv.first <= previous) ||
+        uint64_t(iv.last) - iv.first + 1 > table.glyphs || iv.offset != expected ||
+        uint64_t(iv.offset) + iv.last - iv.first + 1 > table.glyphs) {
+      LOG_ERR("SDCF", "Invalid content-size interval");
+      return false;
+    }
+    if (i == table.bmpCount && iv.last <= UINT16_MAX && iv.offset <= UINT16_MAX) ++table.bmpCount;
+    expected += iv.last - iv.first + 1;
+    previous = iv.last;
+  }
+  for (uint8_t i = 0; i < index; ++i) {
+    bool same = false;
+    if (!sameContentIntervals(file, table, tables[i], same)) return false;
+    if (same) {
+      bytes = 0;
+      return true;
+    }
+  }
+  bytes = size_t(table.bmpCount) * 6 + size_t(table.count - table.bmpCount) * sizeof(EpdUnicodeInterval);
+  return true;
+}
+
 // Adapted from CrossPoint #3948. Keep only the lowest entries a capped merge
 // can retain. The caller provides two extra slots for injected space/hyphen.
 class LowestCodepoints {
@@ -285,6 +344,8 @@ void SdCardFont::freeAll() {
   contentHash_ = 0;
   loaded_ = false;
   contentBitmap_.reset();
+  contentScratchOwner_ = nullptr;
+  contentScratchUser_ = nullptr;
   contentBitmaps_.reset();
   contentBitmapCapacity_ = 0;
   contentBitmapNext_ = 0;
@@ -293,6 +354,15 @@ void SdCardFont::freeAll() {
   contentBitmapBytes_ = 0;
   contentBitmapInternalLimit_ = 0;
   leanContent_ = false;
+}
+
+void SdCardFont::shareContentScratchWith(SdCardFont& owner) {
+  if (&owner == this || !leanContent_ || !owner.leanContent_ || contentScratchOwner_ || owner.contentScratchOwner_ ||
+      owner.contentBitmapBytes_ < contentBitmapBytes_)
+    return;
+  clearOverflow();
+  contentBitmap_.reset();
+  contentScratchOwner_ = &owner;
 }
 
 void SdCardFont::clearOverflow() {
@@ -642,6 +712,7 @@ size_t SdCardFont::contentResidentBytes(const char* path, const size_t limit) {
     if (resident > limit) return 0;
     uint16_t bitmapBytes = 0;
     uint8_t styles = 0;
+    ContentIntervals tables[MAX_STYLES]{};
     for (uint8_t i = 0; i < header[12]; ++i) {
       uint8_t toc[STYLE_TOC_ENTRY_SIZE];
       if (!file.seekSet(HEADER_SIZE + i * STYLE_TOC_ENTRY_SIZE) || file.read(toc, sizeof(toc)) != sizeof(toc) ||
@@ -657,9 +728,10 @@ size_t SdCardFont::contentResidentBytes(const char* path, const size_t limit) {
         LOG_ERR("SDCF", "Invalid content-font counts");
         return 0;
       }
-      // Budget full-width, unshared tables: compact/shared tables can only
-      // reduce actual residency. Kerning and page caches stay disabled.
-      resident += size_t(intervals) * sizeof(EpdUnicodeInterval) + size_t(toc[23]) * sizeof(EpdLigaturePair);
+      tables[i] = {readU32(toc + 24), intervals, glyphs};
+      size_t intervalBytes = 0;
+      if (!inspectContentIntervals(file, tables, i, intervalBytes)) return 0;
+      resident += intervalBytes + size_t(toc[23]) * sizeof(EpdLigaturePair);
       if (resident > limit) return 0;
       const uint64_t offset = uint64_t(readU32(toc + 24)) + uint64_t(intervals) * sizeof(EpdUnicodeInterval);
       if (offset > UINT32_MAX || !inspectContentGlyphs(file, static_cast<uint32_t>(offset), glyphs, bitmapBytes))
@@ -778,8 +850,8 @@ bool SdCardFont::load(const char* path, const size_t residentLimit, const size_t
     computeStyleFileOffsets(s, dataOffset);
   }
 
-  // Optional font sizes must fit even when intervals cannot be shared. Reject
-  // before allocating, rather than temporarily loading a large CJK table.
+  // Count the actual compact, shared interval storage before allocating. This
+  // keeps large multilingual fonts eligible without relaxing heap reserves.
   if (leanContent_) {
     residentBytes += CONTENT_METRICS_CACHE_BYTES;
     if (residentBytes > residentLimit) {
@@ -788,10 +860,18 @@ bool SdCardFont::load(const char* path, const size_t residentLimit, const size_t
       freeAll();
       return false;
     }
+    ContentIntervals tables[MAX_STYLES]{};
+    uint8_t tableCount = 0;
     for (const auto& s : styles_) {
       if (!s.present) continue;
-      residentBytes += size_t(s.header.intervalCount) * sizeof(EpdUnicodeInterval) +
-                       size_t(s.header.ligaturePairCount) * sizeof(EpdLigaturePair);
+      tables[tableCount] = {s.intervalsFileOffset, s.header.intervalCount, s.header.glyphCount};
+      size_t intervalBytes = 0;
+      if (!inspectContentIntervals(file, tables, tableCount++, intervalBytes)) {
+        file.close();
+        freeAll();
+        return false;
+      }
+      residentBytes += intervalBytes + size_t(s.header.ligaturePairCount) * sizeof(EpdLigaturePair);
       if (residentBytes > residentLimit) {
         LOG_DBG("SDCF", "Content size exceeds %zu-byte resident budget", residentLimit);
         file.close();
@@ -2203,16 +2283,20 @@ const EpdGlyph* SdCardFont::onGlyphMiss(void* ctx, uint32_t codepoint) {
 
   // The lean path shares one bitmap: only the most recently read slot still
   // owns valid pixels. Repeated metric/draw queries for that glyph reuse it.
+  auto* scratchOwner = self->contentScratchOwner_ ? self->contentScratchOwner_ : self;
   const uint32_t latest = (self->overflowNext_ + OVERFLOW_CAPACITY - 1) % OVERFLOW_CAPACITY;
   for (uint32_t i = 0; i < self->overflowCount_; i++) {
-    if (self->leanContent_ && i != latest) continue;
+    if (self->leanContent_ && (i != latest || scratchOwner->contentScratchUser_ != self)) continue;
     if (self->overflow_[i].codepoint == codepoint && self->overflow_[i].styleIdx == styleIdx) {
       return &self->overflow_[i].glyph;
     }
   }
 
   // A failed read may overwrite the shared scratch; do not reuse its old key.
-  if (self->leanContent_ && self->overflowCount_) self->overflow_[latest].codepoint = 0;
+  if (self->leanContent_) {
+    if (self->overflowCount_) self->overflow_[latest].codepoint = 0;
+    scratchOwner->contentScratchUser_ = nullptr;
+  }
 
   // Look up global glyph index via full intervals
   int32_t globalIdx = self->findGlobalGlyphIndex(s, codepoint);
@@ -2253,7 +2337,8 @@ const EpdGlyph* SdCardFont::onGlyphMiss(void* ctx, uint32_t codepoint) {
       file.close();
       return nullptr;
     }
-    tempBitmap = self->leanContent_ ? self->contentBitmap_.get() : new (std::nothrow) uint8_t[tempGlyph.dataLength];
+    tempBitmap =
+        self->leanContent_ ? scratchOwner->contentBitmap_.get() : new (std::nothrow) uint8_t[tempGlyph.dataLength];
     if (!tempBitmap) {
       LOG_ERR("SDCF", "Overflow: failed to allocate %u bytes for U+%04X bitmap", tempGlyph.dataLength, codepoint);
       return nullptr;
@@ -2283,6 +2368,7 @@ const EpdGlyph* SdCardFont::onGlyphMiss(void* ctx, uint32_t codepoint) {
   self->overflow_[slot].bitmap = tempBitmap;
   self->overflow_[slot].codepoint = codepoint;
   self->overflow_[slot].styleIdx = styleIdx;
+  if (self->leanContent_) scratchOwner->contentScratchUser_ = self;
 
   return &self->overflow_[slot].glyph;
 }
@@ -2304,6 +2390,11 @@ const uint8_t* SdCardFont::getOverflowBitmap(const EpdGlyph* glyph) const {
   }
   for (uint32_t i = 0; i < overflowCount_; i++) {
     if (&overflow_[i].glyph == glyph) {
+      if (leanContent_) {
+        const auto* owner = contentScratchOwner_ ? contentScratchOwner_ : this;
+        const uint32_t latest = (overflowNext_ + OVERFLOW_CAPACITY - 1) % OVERFLOW_CAPACITY;
+        if (owner->contentScratchUser_ != this || i != latest) return nullptr;
+      }
       return overflow_[i].bitmap;
     }
   }

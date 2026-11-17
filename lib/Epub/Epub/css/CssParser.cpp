@@ -679,14 +679,15 @@ void CssParser::parseDeclarationIntoStyle(std::string_view decl, CssStyle& style
           const size_t unitLength = std::strlen(units[i]);
           if (sizeValue.size() > unitLength &&
               iequalsAscii(sizeValue.substr(sizeValue.size() - unitLength), units[i])) {
-            valid = tryParseNumber(sizeValue.substr(0, sizeValue.size() - unitLength), size.value);
-            size.unit = unitKinds[i];
+            float value = 0;
+            valid = tryParseNumber(sizeValue.substr(0, sizeValue.size() - unitLength), value);
+            size = CssLength(value, unitKinds[i]);
             break;
           }
         }
       }
     }
-    if (valid && std::isfinite(size.value) && size.value > 0.0f) {
+    if (valid && std::isfinite(size.value()) && size.value() > 0.0f) {
       style.fontSize = size;
       style.defined.fontSize = 1;
     }
@@ -1388,7 +1389,8 @@ bool CssParser::writeCssStylePayload(FsFile& file, const CssStyle& style) {
   };
   auto writeByte = [&writeBytes](const uint8_t value) -> bool { return writeBytes(&value, sizeof(value)); };
   auto writeLength = [&writeBytes, &writeByte](const CssLength& len) -> bool {
-    return writeBytes(&len.value, sizeof(len.value)) && writeByte(static_cast<uint8_t>(len.unit));
+    const float value = len.value();
+    return writeBytes(&value, sizeof(value)) && writeByte(static_cast<uint8_t>(len.unit));
   };
 
   if (!writeByte(static_cast<uint8_t>(style.textAlign)) || !writeByte(static_cast<uint8_t>(style.fontStyle)) ||
@@ -1452,10 +1454,11 @@ bool CssParser::writeCssStylePayload(FsFile& file, const CssStyle& style) {
 
 bool CssParser::readCssStylePayload(FsFile& file, CssStyle& style) {
   auto readLength = [&file](CssLength& len) -> bool {
-    if (file.read(&len.value, sizeof(len.value)) != sizeof(len.value)) return false;
+    float value;
+    if (file.read(&value, sizeof(value)) != sizeof(value)) return false;
     uint8_t unitVal;
     if (file.read(&unitVal, 1) != 1) return false;
-    len.unit = static_cast<CssUnit>(unitVal);
+    len = CssLength(value, static_cast<CssUnit>(unitVal));
     return true;
   };
 
@@ -1556,7 +1559,7 @@ bool CssParser::readCssStylePayload(FsFile& file, CssStyle& style) {
   style.defined.fontFamily = (definedBits & 1u << 29) != 0;
   style.defined.backgroundImage = (definedBits & 1u << 30) != 0;
   if (file.read(&style.fontFamily, sizeof(style.fontFamily)) != sizeof(style.fontFamily)) return false;
-  if (style.hasFontSize() && (!std::isfinite(style.fontSize.value) || style.fontSize.value <= 0 ||
+  if (style.hasFontSize() && (!std::isfinite(style.fontSize.value()) || style.fontSize.value() <= 0 ||
                               static_cast<uint8_t>(style.fontSize.unit) > static_cast<uint8_t>(CssUnit::Percent)))
     return false;
   return true;
@@ -1726,7 +1729,7 @@ std::array<uint16_t, 2> CssParser::contentFontSizeScales() const {
     CssStyle style;
     if (!readCssStylePayload(file, style)) return false;
     if (!style.hasFontSize()) return true;
-    float scale = style.fontSize.value;
+    float scale = style.fontSize.value();
     switch (style.fontSize.unit) {
       case CssUnit::Em:
       case CssUnit::Rem:
@@ -2022,8 +2025,7 @@ bool CssParser::loadFromCache() {
     return false;
   }
 
-  // Size the bucket array up front to avoid incremental rehashes while loading rules.
-  rulesBySelector_.reserve(ruleCount);
+  // Cached rules use the offset index or arena below, not the parsed-rule map.
 
   auto hasRemainingBytes = [&file](const size_t neededBytes) -> bool {
     return static_cast<size_t>(file.available()) >= neededBytes;
