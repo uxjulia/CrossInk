@@ -23,6 +23,7 @@ enum Row {
 #endif
   Firmware,
   Build,
+  FreeInkSdk,
   Chip,
   Cpu,
   Flash,
@@ -51,6 +52,7 @@ constexpr StrId labels[] = {StrId::STR_ABOUT_DEVICE,
 #endif
                             StrId::STR_ABOUT_FIRMWARE,
                             StrId::STR_ABOUT_BUILD,
+                            StrId::STR_ABOUT_FREEINK_SDK,
                             StrId::STR_ABOUT_CHIP,
                             StrId::STR_ABOUT_CPU,
                             StrId::STR_ABOUT_FLASH,
@@ -236,6 +238,10 @@ void AboutActivity::provideRow(void* user, uint16_t index, fui::ListItem& item) 
                AppVersion::gitDirtyFlag()[0] == '1'   ? tr(STR_ABOUT_MODIFIED)
                : AppVersion::gitDirtyFlag()[0] == '0' ? tr(STR_ABOUT_CLEAN)
                                                       : tr(STR_UNAVAILABLE));
+      item.subtitle = buf;
+      break;
+    case FreeInkSdk:
+      snprintf(buf, size, "%.7s", AppVersion::sdkSha());
       item.subtitle = buf;
       break;
     case Chip:
