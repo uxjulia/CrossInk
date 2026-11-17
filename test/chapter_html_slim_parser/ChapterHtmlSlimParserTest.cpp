@@ -1360,6 +1360,111 @@ TEST_F(ChapterHtmlSlimParserTest, TextAfterTableKeepsParentFontSize) {
   EXPECT_EQ(line.getBlock()->getBlockStyle().lineHeight, 36);
 }
 
+TEST_F(ChapterHtmlSlimParserTest, SmallerBodyDeclarationsUseReaderSizeAfterCascade) {
+  renderer.scalableBaseSize = 20;
+  for (const char* value : {"90%", "0.9em", "0.9rem", "10pt", "14px"}) {
+    const auto css = CssParser::parseInlineStyle(std::string("font-size: ") + value);
+    BlockStyle style;
+    EXPECT_TRUE(parser.applyBlockFontSize(css, "body", style)) << value;
+    EXPECT_EQ(style.fontSize, 20) << value;
+    EXPECT_EQ(style.fontScale, 256) << value;
+  }
+  for (const char* value : {"100%", "1em", "12pt", "16px", "120%", "1.5em"}) {
+    const auto css = CssParser::parseInlineStyle(std::string("font-size: ") + value);
+    BlockStyle style;
+    EXPECT_FALSE(parser.applyBlockFontSize(css, "body", style)) << value;
+    EXPECT_GE(style.fontSize, 20) << value;
+  }
+}
+
+TEST_F(ChapterHtmlSlimParserTest, BodyNormalizationPreservesDirectTextAndDescendantHierarchy) {
+  renderer.scalableBaseSize = 20;
+  parser.paragraphAlignment = static_cast<uint8_t>(CssTextAlign::None);
+  cssParser.rulesBySelector_["body"] =
+      CssParser::parseInlineStyle("font-size: 90%; text-align: right; text-indent: 10px; font-style: italic");
+  ChapterHtmlSlimParser::startElement(&parser, "html", nullptr);
+  ChapterHtmlSlimParser::startElement(&parser, "body", nullptr);
+  EXPECT_EQ(parser.currentTextBlock->getBlockStyle().fontSize, 20);
+  EXPECT_EQ(parser.effectiveInlineFontSize, 20);
+  EXPECT_TRUE(parser.effectiveItalic);
+  ChapterHtmlSlimParser::characterData(&parser, "Direct ", 7);
+  const XML_Char* small[] = {"style", "font-size: 50%", nullptr};
+  ChapterHtmlSlimParser::startElement(&parser, "span", small);
+  EXPECT_EQ(parser.effectiveInlineFontSize, 10);
+  ChapterHtmlSlimParser::endElement(&parser, "span");
+  EXPECT_EQ(parser.effectiveInlineFontSize, 20);
+  ChapterHtmlSlimParser::startElement(&parser, "div", nullptr);
+  ASSERT_NE(parser.currentPage, nullptr);
+  ASSERT_FALSE(parser.currentPage->elements.empty());
+  const auto& directLine = static_cast<const PageLine&>(*parser.currentPage->elements.front());
+  EXPECT_EQ(directLine.getBlock()->wordFontSize(0), 20);
+  ChapterHtmlSlimParser::startElement(&parser, "p", nullptr);
+  EXPECT_EQ(parser.currentTextBlock->getBlockStyle().fontSize, 20);
+  EXPECT_EQ(parser.blockStyleBuf_[0].publisherAlignment, CssTextAlign::Right);
+  EXPECT_EQ(parser.currentTextBlock->getBlockStyle().textIndent, 10);
+  ChapterHtmlSlimParser::endElement(&parser, "p");
+  ChapterHtmlSlimParser::startElement(&parser, "p", small);
+  EXPECT_EQ(parser.currentTextBlock->getBlockStyle().fontSize, 10);
+  ChapterHtmlSlimParser::endElement(&parser, "p");
+  const XML_Char* absolute[] = {"style", "font-size: 9pt", nullptr};
+  ChapterHtmlSlimParser::startElement(&parser, "p", absolute);
+  EXPECT_EQ(parser.currentTextBlock->getBlockStyle().fontSize, 15);
+  ChapterHtmlSlimParser::endElement(&parser, "p");
+  ChapterHtmlSlimParser::startElement(&parser, "h2", nullptr);
+  EXPECT_EQ(parser.currentTextBlock->getBlockStyle().fontSize, 30);
+}
+
+TEST_F(ChapterHtmlSlimParserTest, BodyInlineCascadeCanOverrideSmallerStylesheetDeclaration) {
+  renderer.scalableBaseSize = 20;
+  cssParser.rulesBySelector_["body"] = CssParser::parseInlineStyle("font-size: 90%");
+  const XML_Char* body[] = {"style", "font-size: 120%", nullptr};
+  ChapterHtmlSlimParser::startElement(&parser, "body", body);
+  EXPECT_EQ(parser.currentTextBlock->getBlockStyle().fontSize, 24);
+}
+
+TEST_F(ChapterHtmlSlimParserTest, SmallerInlineBodyOverridesLargerStylesheetWithoutChangingRootRem) {
+  renderer.scalableBaseSize = 20;
+  cssParser.rulesBySelector_["body"] = CssParser::parseInlineStyle("font-size: 120%");
+  const XML_Char* html[] = {"style", "font-size: 80%", nullptr};
+  const XML_Char* body[] = {"style", "font-size: 0.9em", nullptr};
+  ChapterHtmlSlimParser::startElement(&parser, "html", html);
+  const auto root = parser.rootFontScale;
+  ChapterHtmlSlimParser::startElement(&parser, "body", body);
+  EXPECT_EQ(parser.currentTextBlock->getBlockStyle().fontSize, 20);
+  EXPECT_EQ(parser.effectiveInlineFontSize, 20);
+  EXPECT_EQ(parser.rootFontScale, root);
+  const XML_Char* rem[] = {"style", "font-size: 1rem", nullptr};
+  ChapterHtmlSlimParser::startElement(&parser, "p", rem);
+  EXPECT_EQ(parser.currentTextBlock->getBlockStyle().fontSize, 16);
+}
+
+TEST_F(ChapterHtmlSlimParserTest, BodyNormalizationDoesNotClampRootOrUnchangedAndLargerDeclarations) {
+  renderer.scalableBaseSize = 20;
+  const XML_Char* html[] = {"style", "font-size: 80%", nullptr};
+  ChapterHtmlSlimParser::startElement(&parser, "html", html);
+  for (const char* value : {"100%", "120%"}) {
+    const auto css = CssParser::parseInlineStyle(std::string("font-size: ") + value);
+    BlockStyle style;
+    EXPECT_FALSE(parser.applyBlockFontSize(css, "body", style));
+    EXPECT_LT(style.fontSize, 20);
+  }
+  BlockStyle inherited;
+  EXPECT_FALSE(parser.applyBlockFontSize(CssStyle{}, "body", inherited));
+  EXPECT_EQ(inherited.fontSize, 16);
+  BlockStyle descendant;
+  EXPECT_FALSE(parser.applyBlockFontSize(CssParser::parseInlineStyle("font-size: 90%"), "p", descendant));
+  EXPECT_LT(descendant.fontSize, 16);
+}
+
+TEST_F(ChapterHtmlSlimParserTest, BodyNormalizationDoesNotAffectEmbeddedStyleOff) {
+  renderer.scalableBaseSize = 20;
+  parser.embeddedStyle = false;
+  const XML_Char* body[] = {"style", "font-size: 90%", nullptr};
+  ChapterHtmlSlimParser::startElement(&parser, "body", body);
+  EXPECT_EQ(parser.currentTextBlock->getBlockStyle().fontSize, 20);
+  EXPECT_EQ(parser.effectiveInlineFontSize, 0);
+}
+
 TEST_F(ChapterHtmlSlimParserTest, RootRelativeSizesAndAbsoluteSizesRespectReaderZoom) {
   renderer.scalableBaseSize = 16;
   const XML_Char* html[] = {"style", "font-size: 125%", nullptr};

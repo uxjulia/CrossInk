@@ -1166,10 +1166,22 @@ bool SdCardFont::readAdvance(uint32_t codepoint, uint8_t style, uint16_t* outAdv
 
 SdCardFont::ContentMetricsEntry* SdCardFont::contentGlyphMetrics(const uint32_t codepoint, const uint8_t styleIdx,
                                                                  const int32_t glyphIndex) const {
-  // Mix Unicode and style into seven high hash bits (128 fixed slots).
+  // Probe the fixed table without moving entries: EpdGlyph pointers identify
+  // their bitmap owners. A hash collision alone must not discard cached pixels.
   const uint32_t hash = (codepoint ^ (uint32_t(styleIdx) << 21)) * 2654435761U;
-  auto& entry = contentMetrics_[hash >> 25];
-  if (entry.codepoint == codepoint && entry.style == styleIdx) return &entry;
+  const uint32_t first = hash >> 25;
+  auto* victim = &contentMetrics_[first];
+  for (uint32_t probe = 0; probe < CONTENT_METRICS_CACHE_SIZE; ++probe) {
+    auto& candidate = contentMetrics_[(first + probe) % CONTENT_METRICS_CACHE_SIZE];
+    if (candidate.codepoint == codepoint && candidate.style == styleIdx) return &candidate;
+    // Search all slots even after finding a vacancy: ring eviction and metrics
+    // replacement leave holes before live keys. Prefer unused, then bitmapless
+    // entries; only a table entirely backed by bitmaps requires their eviction.
+    if ((candidate.style == MAX_STYLES && victim->style != MAX_STYLES) ||
+        (!candidate.bitmapValid && victim->bitmapValid))
+      victim = &candidate;
+  }
+  auto& entry = *victim;
   HalFile file;
   if (!Storage.openFileForRead("SDCF", filePath_, file)) {
     LOG_ERR("SDCF", "Cannot open content font metrics");

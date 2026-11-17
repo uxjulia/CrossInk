@@ -46,11 +46,12 @@ constexpr uint32_t SECTION_CACHE_MAGIC = 0x535843FF;  // bytes: 0xFF, "CXS"
 // v108: Runtime outline advances defer rounding until pixel placement.
 // v109: Recognize oversized opening spans as drop caps, including nested styles.
 // v110: Image-backed thematic breaks retain a visible fallback rule.
-constexpr uint8_t SECTION_FILE_VERSION = 110;
+// v111: Smaller body declarations retain the reader-selected font size.
+constexpr uint8_t SECTION_FILE_VERSION = 111;
 // Suspended incremental build: valid pages plus LUTs and a parse-watermark trailer.
 // Change this with layout or payload changes so stale partial pages cannot resume
 // under a different layout contract.
-constexpr uint8_t SECTION_FILE_PARTIAL_VERSION = 0xDF;
+constexpr uint8_t SECTION_FILE_PARTIAL_VERSION = 0xE0;
 constexpr uint32_t HEADER_SIZE =
     4 * sizeof(uint32_t) + sizeof(PublisherFonts) + sizeof(SECTION_CACHE_MAGIC) + sizeof(uint8_t) + sizeof(int) +
     sizeof(float) + sizeof(bool) + sizeof(bool) + sizeof(uint8_t) + sizeof(uint16_t) + sizeof(uint16_t) + sizeof(bool) +

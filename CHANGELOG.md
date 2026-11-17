@@ -55,6 +55,9 @@
 
 ### Fixed
 
+- Keep smaller EPUB body-font declarations at the reader-selected size while preserving smaller descendants, headings, and other publisher styling. Existing chapter layouts rebuild automatically.
+- Reuse cached glyphs in optional SD font sizes without discarding their pixels on a metrics hash collision, reducing repeated font reads during antialiasing within the same memory budget.
+
 - Report WebDAV copy read failures instead of success, preserve saved EPUB positions in the first spine item, and prefer exact chapter paths over same-named files when following links (CrossPoint #4472).
 
 - Reserve and reuse the TLS receive buffer for HTTPS font file downloads, reducing repeated buffer growth during large transfers.

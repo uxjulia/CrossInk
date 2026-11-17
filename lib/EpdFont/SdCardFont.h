@@ -313,7 +313,7 @@ class SdCardFont {
     uint16_t advanceX;  // 12.4 fixed-point
   };
   // Optional content sizes cannot afford the body's per-style advance tables.
-  // One shared, direct-mapped cache keeps metric lookups off the SD card.
+  // One shared, fixed-size associative cache keeps metric lookups off the SD card.
   struct ContentMetricsEntry {
     uint32_t codepoint = 0;
     EpdGlyph glyph{};

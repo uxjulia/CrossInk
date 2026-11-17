@@ -564,6 +564,142 @@ void sharedContentScratchChecks(const std::string& path) {
   std::filesystem::remove(second);
 }
 
+// Distinct bytes and metrics for every key, including the same Unicode in two styles.
+void contentCacheFixture(const std::string& path) {
+  std::vector<uint8_t> bytes(96, 0);
+  std::memcpy(bytes.data(), "CPFONT\0\0", 8);
+  bytes[8] = CPFONT_VERSION;
+  bytes[12] = 2;
+  for (uint8_t style = 0; style < 2; ++style) {
+    const size_t toc = 32 + style * 32;
+    bytes[toc] = style;
+    put32(bytes, toc + 4, 1);
+    put32(bytes, toc + 8, 256);
+    bytes[toc + 12] = 20;
+    put32(bytes, toc + 24, bytes.size());
+    const EpdUnicodeInterval interval{0, 255, 0};
+    append(bytes, &interval, sizeof(interval));
+    std::vector<uint8_t> pixels;
+    for (uint32_t cp = 0; cp < 256; ++cp) {
+      EpdGlyph glyph{};
+      glyph.advanceX = advance(cp, style);
+      glyph.width = cp == 0 ? 0 : cp == 1 ? 64 : cp == 2 ? 24 : 8;
+      glyph.height = cp == 0 ? 0 : cp == 1 ? 64 : cp == 2 ? 171 : 2;
+      glyph.dataLength = cp == 0 ? 0 : cp == 1 ? 512 : cp == 2 ? 513 : 2;
+      glyph.dataOffset = pixels.size();
+      append(bytes, &glyph, sizeof(glyph));
+      for (uint32_t j = 0; j < glyph.dataLength; ++j) pixels.push_back(uint8_t(cp + style * 71 + j));
+    }
+    append(bytes, pixels.data(), pixels.size());
+  }
+  std::ofstream out(path, std::ios::binary);
+  out.write(reinterpret_cast<const char*>(bytes.data()), bytes.size());
+}
+void contentCacheCollisionChecks(const std::string& path) {
+  contentCacheFixture(path);
+  SdCardFont font;
+  assert(font.load(path.c_str(), 12U * 1024U));
+  font.prepareContentBitmaps();
+  assert(font.contentBitmapCapacity_ >= 512);
+  const auto allocationCount = arrayCalls;
+  const auto residentBytes = arrayBytes();
+  auto draw = [&](uint32_t cp, uint8_t style = 0) {
+    const auto* glyph = font.getEpdFont(style)->getGlyph(cp);
+    assert(glyph && glyph->advanceX == advance(cp, style));
+    const auto* bitmap = font.getOverflowBitmap(glyph);
+    assert(bitmap);
+    for (uint32_t i = 0; i < glyph->dataLength; ++i) assert(bitmap[i] == uint8_t(cp + style * 71 + i));
+    return glyph;
+  };
+  auto hash = [](uint32_t cp, uint8_t style) { return ((cp ^ (uint32_t(style) << 21)) * 2654435761U) >> 25; };
+  uint32_t a = 3, b = 4;
+  while (b < 256 && hash(a, 0) != hash(b, 0)) ++b;
+  assert(b < 256);
+  const auto* first = draw(a);
+  const auto* second = draw(b);
+  assert(first != second);
+  const int warmReads = readCalls;
+  for (int pass = 0; pass < 100; ++pass) {
+    assert(draw(a) == first && draw(b) == second);
+  }
+  assert(readCalls == warmReads);
+  // Same codepoint in another resolved style has independent pixels/metrics.
+  draw(a, 1);
+  const int styledReads = readCalls;
+  for (int pass = 0; pass < 100; ++pass) {
+    draw(a);
+    draw(a, 1);
+    draw(b);
+  }
+  assert(readCalls == styledReads);
+  // A vacancy BEFORE an existing key must not hide it or create a duplicate.
+  auto& vacant = font.contentMetrics_[font.contentMetricsIndex(first)];
+  vacant = {};
+  const int holeReads = readCalls;
+  assert(draw(b) == second && readCalls == holeReads);
+  // A metrics-only flood must prefer bitmapless entries, retaining resident b.
+  for (uint32_t cp = 3; cp < 256; ++cp) {
+    uint16_t width;
+    assert(font.readAdvance(cp, 1, &width) && width == advance(cp, 1));
+  }
+  const int floodReads = readCalls;
+  assert(draw(b) == second && readCalls == floodReads);
+  assert(arrayCalls == allocationCount && arrayBytes() == residentBytes);
+  // Full-table churn remains correct, including failure before replacing a victim.
+  font.clearPersistentCache();
+  for (uint32_t cp = 3; cp < 131; ++cp) draw(cp);
+  failReadCall = readCalls;
+  assert(!font.contentGlyphMetrics(200, 0, 200));
+  failReadCall = -1;
+  const int failureReads = readCalls;
+  for (uint32_t cp = 3; cp < 131; ++cp) draw(cp);
+  assert(readCalls == failureReads);
+  for (int pass = 0; pass < 3; ++pass)
+    for (uint32_t cp = 3; cp < 200; ++cp) draw(cp, pass % 2);
+  // Exact ring boundaries, adjacency and wrap: only overwritten ranges expire.
+  font.clearPersistentCache();
+  font.contentBitmapCapacity_ = 8;  // Keep allocation, restrict usable ring for test.
+  const auto* x = draw(10);
+  const auto* y = draw(11);
+  draw(12);
+  draw(13);
+  assert(font.contentBitmapNext_ == 8);
+  draw(14);
+  assert(font.contentBitmapNext_ == 2 && !font.getOverflowBitmap(x));
+  const int adjacentReads = readCalls;
+  assert(draw(11) == y && readCalls == adjacentReads);
+  // A zero-byte glyph neither advances the cursor nor evicts an adjacent bitmap.
+  draw(0);
+  const int spaceReads = readCalls;
+  draw(0);
+  assert(font.contentBitmapNext_ == 2 && readCalls == spaceReads);
+  assert(draw(11) == y && readCalls == spaceReads);
+  // Read failure invalidates the overlapped owner before any retry.
+  font.contentGlyphMetrics(15, 0, 15);
+  failReadCall = readCalls;
+  assert(!font.getEpdFont()->getGlyph(15));
+  failReadCall = -1;
+  assert(!font.getOverflowBitmap(y));
+  draw(15);
+  draw(11);
+  // 512 bytes admitted exactly; 513 uses the existing scratch fallback.
+  font.clearPersistentCache();
+  font.contentBitmapCapacity_ = 512;
+  const auto* edge = draw(1);
+  assert(font.contentMetricsIndex(edge) >= 0 && font.contentBitmapNext_ == 512);
+  const auto* oversized = draw(2);
+  assert(font.contentMetricsIndex(oversized) < 0);
+  assert(font.contentBitmapNext_ == 512);
+  assert(draw(1) == edge);
+  font.clearPersistentCache();
+  font.contentBitmapCapacity_ = 1;
+  assert(font.contentMetricsIndex(draw(3)) < 0);
+  font.releaseForLowMemory();
+  assert(!font.contentBitmaps_);
+  font.freeAll();
+  clean(font);
+}
+
 void contentSizeChecks(const std::string& path) {
   fixture(path, {{0, table({{0x41, 0x5A}})}, {1, table({{0x41, 0x5A}})}});
   constexpr size_t limit = 12U * 1024U;
@@ -1071,6 +1207,7 @@ int main() {
   incrementalChecks(path);
   contentPreparationChecks(path);
   contentSizeChecks(path);
+  contentCacheCollisionChecks(path);
   compactContentBudgetChecks(path);
   sharedContentScratchChecks(path);
   std::filesystem::remove_all(dir);

@@ -95,7 +95,8 @@ class ChapterHtmlSlimParser {
   uint16_t rootFontScale = 256;
   std::array<int, MAX_BLOCK_STYLE_DEPTH> blockStyleDepths_{};
   int currentTextFontId() const;
-  void applyBlockFontSize(const CssStyle& cssStyle, const char* tag, BlockStyle& style);
+  // Returns true only when a smaller body declaration was normalized.
+  bool applyBlockFontSize(const CssStyle& cssStyle, const char* tag, BlockStyle& style);
   float lineCompression;
   bool extraParagraphSpacing;
   bool forceParagraphIndents;

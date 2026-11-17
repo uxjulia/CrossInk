@@ -1246,9 +1246,9 @@ int ChapterHtmlSlimParser::currentTextFontId() const {
   return renderer.getFontIdForSize(fontId, currentTextBlock->getBlockStyle().fontSize);
 }
 
-void ChapterHtmlSlimParser::applyBlockFontSize(const CssStyle& cssStyle, const char* tag, BlockStyle& style) {
+bool ChapterHtmlSlimParser::applyBlockFontSize(const CssStyle& cssStyle, const char* tag, BlockStyle& style) {
   const uint8_t base = renderer.getFontPointSize(fontId);
-  if (!base || isLightMode() || tableDepth > 0) return;
+  if (!base || isLightMode() || tableDepth > 0) return false;
   const float parent = blockStyleBuf_[blockStyleCount_ - 1].fontScale / 256.0f;
   float scale = parent;
   if (tag[0] == 'h' && tag[1] >= '1' && tag[1] <= '6' && tag[2] == '\0') {
@@ -1277,12 +1277,28 @@ void ChapterHtmlSlimParser::applyBlockFontSize(const CssStyle& cssStyle, const c
     }
   }
   if (!std::isfinite(scale)) scale = parent;
+  // Keep a publisher's smaller body declaration from reducing the reader's
+  // selected size. Resolve the cascade and units first; leave html/rem roots,
+  // descendants, and explicit body sizes >= 100%/1em/medium alone.
+  bool normalizedBody = false;
+  if (embeddedStyle && strcmp(tag, "body") == 0 && cssStyle.hasFontSize() && scale < 1.0f) {
+    const auto& size = cssStyle.fontSize;
+    const float medium = size.unit == CssUnit::Percent  ? 100.0f
+                         : size.unit == CssUnit::Points ? 12.0f
+                         : size.unit == CssUnit::Pixels ? 16.0f
+                                                        : 1.0f;
+    if (size.value() < medium) {
+      scale = 1.0f;
+      normalizedBody = true;
+    }
+  }
   scale = std::clamp(scale, float(ScalableContentMinPointSize) / base, float(ScalableContentMaxPointSize) / base);
   style.fontScale = static_cast<uint16_t>(scale * 256.0f + 0.5f);
   style.fontSize = static_cast<uint8_t>(base * scale + 0.5f);
   // If a recovery font lacks the requested size, layout and drawing must agree.
   style.fontSize = renderer.getFontPointSize(renderer.getFontIdForSize(fontId, style.fontSize));
   if (strcmp(tag, "html") == 0) rootFontScale = style.fontScale;
+  return normalizedBody;
 }
 
 // start a new text block if needed
@@ -3258,7 +3274,7 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
   }
 
   BlockStyle fontStyle;
-  self->applyBlockFontSize(cssStyle, name, fontStyle);
+  const bool normalizedBodyFont = self->applyBlockFontSize(cssStyle, name, fontStyle);
   const int blockFontId = self->renderer.getFontIdForSize(self->fontId, fontStyle.fontSize);
   const float emSize = static_cast<float>(self->renderer.getFontAscenderSize(blockFontId));
 
@@ -3689,6 +3705,9 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
       applyDirectionToEntry(entry, cssStyle);
       entry.setsParagraphDirection = strcmp(name, "html") == 0 || strcmp(name, "body") == 0;
       self->applyInlineFontSize(entry, cssStyle, name);
+      // Body is transparent to the block stack. Direct text and inline children
+      // must use the resolved size too, not multiply the original shrink again.
+      if (normalizedBodyFont) entry.fontSize = fontStyle.fontSize;
       applySmallCapsToEntry(entry, cssStyle);
       applyVerticalAlignToEntry(entry, cssStyle);
       if (self->inlineStyleCount_ < MAX_INLINE_STYLE_DEPTH) {

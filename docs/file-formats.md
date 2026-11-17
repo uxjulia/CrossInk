@@ -1133,7 +1133,14 @@ body-only and built-in font identities stay unchanged. No binary payload changes
 
 ## `section.bin`
 
-### Version 110 (current development)
+### Version 111 (current development)
+
+Smaller publisher body-font declarations no longer shrink prose below the
+reader-selected size. Complete section caches use `111`; suspended partial
+caches use `0xE0`. Both previous layouts rebuild automatically, without deleting
+reading progress or requiring a manual cache reset. CSS rule-cache data is unchanged.
+
+### Version 110
 
 Image-backed `<hr>` elements retain a visible fallback line when publisher CSS
 hides their borders. Complete section caches use byte `110`; suspended partial
