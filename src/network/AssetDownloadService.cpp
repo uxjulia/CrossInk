@@ -41,7 +41,7 @@ struct Workspace {
   Source original;
   language_cache::Metadata metadata;
   std::optional<language_cache::Inspector> inspector;
-  const AssetCatalog::Catalog* catalog = nullptr;
+  const AssetCatalog::Metadata* catalog = nullptr;
   const AssetCatalog::Entry* entry = nullptr;
   Callbacks callbacks;
   Result validationResult = Result::Invalid;
@@ -437,7 +437,7 @@ Result discover(AssetCatalog::Kind kind, const AssetCatalog::Entry& entry, Sourc
   work->callbacks = callbacks;
   return scan(kind, entry, source, *work);
 }
-Result download(const AssetCatalog::Catalog& catalog, const AssetCatalog::Entry& entry, const Endpoints& endpoints,
+Result download(const AssetCatalog::Metadata& catalog, const AssetCatalog::Entry& entry, const Endpoints& endpoints,
                 bool overwriteApproved, const Callbacks& callbacks) {
   if (transferring.test_and_set()) return failure(Result::Unavailable);
   TransferGuard guard;

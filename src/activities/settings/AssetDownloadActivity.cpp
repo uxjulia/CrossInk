@@ -53,14 +53,6 @@ StrId AssetDownloadActivity::title() const {
 void AssetDownloadActivity::onEnter() {
   Activity::onEnter();
   mappedInput.setReaderTouchscreenOverride(true);
-  // Fixed <13 KiB catalog, one per activity. Too large for the C3 task stack;
-  // freeing on exit keeps offline reading free of this network-only allocation.
-  catalog_ = makeUniqueNoThrow<AssetCatalog::Catalog>();
-  if (!catalog_) {
-    LOG_ERR("ASSET", "OOM: %u byte catalog", unsigned(sizeof(AssetCatalog::Catalog)));
-    showError(StrId::STR_MEMORY_ERROR, Pending::Exit);
-    return;
-  }
   if (!endpoints_.base[0] || !catalogEndpoints_.base[0]) {
     showError(StrId::STR_ASSET_UNAVAILABLE, Pending::Exit);
     return;
@@ -79,7 +71,6 @@ void AssetDownloadActivity::onEnter() {
 void AssetDownloadActivity::onExit() {
   // ActivityManager already owns its non-recursive render lock in onExit.
   popup_.clear();
-  catalog_.reset();
   catalogReady_ = false;
   WiFi.disconnect(false);
   WiFi.mode(WIFI_OFF);
@@ -200,8 +191,17 @@ void AssetDownloadActivity::showError(StrId error, Pending next) {
 }
 void AssetDownloadActivity::fetch() {
   catalogReady_ = false;
+  selection_.entry.bytes = 0;
   step_ = 1;
   showBusy();
+  // Parsing needs the full catalog, but TLS transfers only need one selection.
+  // Keep this >12 KiB allocation off the task stack and release it before licenses.
+  auto catalog = makeUniqueNoThrow<AssetCatalog::Catalog>();
+  if (!catalog) {
+    LOG_ERR("ASSET", "OOM: %u byte catalog", unsigned(sizeof(AssetCatalog::Catalog)));
+    showError(StrId::STR_MEMORY_ERROR, Pending::Exit);
+    return;
+  }
   AssetCatalog::Options parserOptions;
   parserOptions.expectedKind = kind_;
   parserOptions.expectedChannel = AssetDownloadService::channelForVersion(AppVersion::version());
@@ -210,7 +210,7 @@ void AssetDownloadActivity::fetch() {
   parserOptions.supportedTranslation = [](const char* code, void*) { return I18n::supportedDownload(code); };
   // Parser scratch is bounded but larger than the preferred stack budget.
   // It is released before any payload transfer or source validation.
-  auto parser = makeUniqueNoThrow<AssetCatalog::Parser>(*catalog_, parserOptions);
+  auto parser = makeUniqueNoThrow<AssetCatalog::Parser>(*catalog, parserOptions);
   if (!parser) {
     LOG_ERR("ASSET", "OOM: catalog parser");
     showError(StrId::STR_MEMORY_ERROR, Pending::Exit);
@@ -248,11 +248,10 @@ void AssetDownloadActivity::fetch() {
     showError(incompatible ? StrId::STR_ASSET_CATALOG_INVALID : StrId::STR_DOWNLOAD_FAILED, Pending::Fetch);
     return;
   }
-  if (!catalog_->count) {
+  if (!catalog->count) {
     showError(StrId::STR_ASSET_UNAVAILABLE, Pending::Exit);
     return;
   }
-  catalogReady_ = true;
   // Only the one language chosen before the restart is installed. Translation
   // catalog codes use the same exact spelling as LANGUAGE_CODES.
   const bool translation = kind_ == AssetCatalog::Kind::Translation;
@@ -261,12 +260,17 @@ void AssetDownloadActivity::fetch() {
                            ? (wantedIndex_ < getLanguageCount() ? LANGUAGE_CODES[wantedIndex_] : nullptr)
                            : (wantedIndex_ < languages.size ? languages.data[wantedIndex_].primaryTag : nullptr);
   size_t i = 0;
-  while (wanted && i < catalog_->count && std::strcmp(wanted, catalog_->entries[i].code)) ++i;
-  if (!wanted || i == catalog_->count) {
+  while (wanted && i < catalog->count && std::strcmp(wanted, catalog->entries[i].code)) ++i;
+  if (!wanted || i == catalog->count) {
     showError(StrId::STR_ASSET_UNAVAILABLE, Pending::Exit);
     return;
   }
-  selected_ = static_cast<int>(i);
+  static_cast<AssetCatalog::Metadata&>(selection_) = *catalog;
+  selection_.entry = catalog->entries[i];
+  catalogReady_ = true;
+  catalog.reset();
+  LOG_DBG("ASSET", "Selected %s; released catalog: heap free=%u maxAlloc=%u", selection_.entry.code, ESP.getFreeHeap(),
+          ESP.getMaxAllocHeap());
   pending_ = Pending::Install;
 }
 void AssetDownloadActivity::confirmOverwrite() {
@@ -285,14 +289,14 @@ void AssetDownloadActivity::confirmOverwrite() {
 void AssetDownloadActivity::installSelected() {
   step_ = 0;  // Local SD check only; no transfer.
   showBusy(StrId::STR_ASSET_VERIFYING);
-  const auto result = AssetDownloadService::discover(kind_, catalog_->entries[selected_], source_, callbacks());
+  const auto result = AssetDownloadService::discover(kind_, selection_.entry, source_, callbacks());
   busy_ = false;
   if (cancelled_) {
     pending_ = Pending::Exit;
     return;
   }
   if (result != Result::Ok) {
-    LOG_ERR("ASSET", "Pre-download SD check failed: code=%s result=%s", catalog_->entries[selected_].code,
+    LOG_ERR("ASSET", "Pre-download SD check failed: code=%s result=%s", selection_.entry.code,
             AssetDownloadService::resultName(result));
     showError(result == Result::Collision ? StrId::STR_LANGUAGE_DUPLICATE : StrId::STR_LANGUAGE_IO_ERROR,
               Pending::Install);
@@ -306,8 +310,8 @@ void AssetDownloadActivity::installSelected() {
 void AssetDownloadActivity::download() {
   step_ = 2;  // Companion indexes and files; payloadStarted() advances to the payload.
   showBusy(StrId::STR_DOWNLOADING);
-  const auto result = AssetDownloadService::download(*catalog_, catalog_->entries[selected_], endpoints_,
-                                                     overwriteApproved_, callbacks());
+  const auto result =
+      AssetDownloadService::download(selection_, selection_.entry, endpoints_, overwriteApproved_, callbacks());
   busy_ = false;
   overwriteApproved_ = false;
   if (result == Result::Cancelled) {
@@ -334,7 +338,7 @@ void AssetDownloadActivity::activate() {
   // Recheck the local source before activation; download never selects it.
   step_ = 0;
   showBusy(StrId::STR_ASSET_VERIFYING);
-  const auto& entry = catalog_->entries[selected_];
+  const auto& entry = selection_.entry;
   const auto found = AssetDownloadService::discover(kind_, entry, source_, callbacks());
   busy_ = false;
   if (cancelled_) {

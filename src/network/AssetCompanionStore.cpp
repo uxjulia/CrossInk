@@ -44,7 +44,7 @@ struct Workspace {
   uint64_t uniqueBytes = 0;
   uint64_t progressDone = 0;
   uint64_t progressTotal = 0;
-  const AssetCatalog::Catalog* catalog = nullptr;
+  const AssetCatalog::Metadata* catalog = nullptr;
   const AssetCatalog::Entry* entry = nullptr;
   const AssetDownloadService::Endpoints* endpoints = nullptr;
   AssetDownloadService::Callbacks callbacks;
@@ -477,7 +477,7 @@ bool complete(Workspace& w) {
   return ok && readClosed;
 }
 }  // namespace
-Result prepare(const AssetCatalog::Catalog& catalog, const AssetCatalog::Entry& entry,
+Result prepare(const AssetCatalog::Metadata& catalog, const AssetCatalog::Entry& entry,
                const AssetDownloadService::Endpoints& endpoints, const AssetDownloadService::Callbacks& callbacks) {
   // One bounded cold-operation workspace, not task-stack storage. Never contains
   // an archive/index body or a reference array; all are streamed/spooled to SD.

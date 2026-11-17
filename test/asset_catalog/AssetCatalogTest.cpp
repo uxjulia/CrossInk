@@ -53,6 +53,29 @@ std::string fixture(const char* name) {
   return std::string(std::istreambuf_iterator<char>(file), {});
 }
 
+TEST(AssetCatalog, SelectedAssetKeepsContractsAfterCatalogRelease) {
+  auto full = std::make_unique<Catalog>();
+  Selection selected;
+  {
+    Parser parser(*full, translationOptions());
+    const auto json = catalog(entry("fr", true), true);
+    ASSERT_TRUE(parser.feed(json.data(), json.size()));
+    ASSERT_TRUE(parser.finish());
+    static_cast<Metadata&>(selected) = *full;
+    selected.entry = full->entries[0];
+  }
+  full.reset();
+  EXPECT_EQ(selected.kind, Kind::Translation);
+  EXPECT_EQ(selected.channel, Channel::Stable);
+  EXPECT_STREQ(selected.source, hash.c_str());
+  EXPECT_STREQ(selected.keyset, oldHash.c_str());
+  EXPECT_STREQ(selected.entry.code, "fr");
+  EXPECT_STREQ(selected.entry.name, "French");
+  char path[MAX_CATALOG_PATH];
+  ASSERT_TRUE(immutableAssetPath(selected, selected.entry, path, sizeof(path)));
+  EXPECT_EQ(std::string(path), "snapshots/" + revision + "/translation/" + hash + ".yaml");
+}
+
 TEST(AssetCatalog, DiscoveryPathsKeepContractsAndChannelsSeparate) {
   char path[MAX_CATALOG_PATH];
   auto options = translationOptions();

@@ -19,12 +19,19 @@ struct Entry {
   char previous[65] = {};
   uint32_t bytes = 0;
 };
-struct Catalog {
+// Shared catalog contract retained after selecting one asset.
+struct Metadata {
   Kind kind = Kind::Hyphenation;
   Channel channel = Channel::Stable;
   char revision[41] = {};
   char source[65] = {};
   char keyset[65] = {};
+};
+struct Selection : Metadata {
+  Entry entry;
+};
+static_assert(sizeof(Selection) <= 512, "Selected asset exceeds C3 metadata budget");
+struct Catalog : Metadata {
   Entry entries[MAX_ENTRIES] = {};
   size_t count = 0;
 };
@@ -125,7 +132,7 @@ class Parser {
 static_assert(sizeof(Catalog) + sizeof(Parser) < 16384, "Catalog plus parser exceeds C3 memory budget");
 
 // Use only with successfully parsed catalogs. Returns false on short output.
-bool immutableAssetPath(const Catalog& catalog, const Entry& entry, char* output, size_t capacity);
+bool immutableAssetPath(const Metadata& catalog, const Entry& entry, char* output, size_t capacity);
 enum class SourceStatus : uint8_t { Current, Previous, Different };
 SourceStatus classifySource(const Entry& entry, const char* actualSha256);
 }  // namespace AssetCatalog

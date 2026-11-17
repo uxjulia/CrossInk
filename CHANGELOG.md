@@ -188,6 +188,7 @@
 - Restore EPUB drop caps marked by an enlarged opening letter, including nested styled spans; existing page caches rebuild automatically.
 - Render fallback characters correctly in superscripts, subscripts, and small caps.
 - Reduce repeated SD reads when rendering CSS-sized custom fonts on X3/X4, including anti-aliased text, with a bounded glyph cache inside the existing font memory budget.
+- Free the download catalog before fetching language and hyphenation license files, leaving more memory for certificate checks on X3/X4.
 
 ### Changed
 

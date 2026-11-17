@@ -18,7 +18,7 @@ bool cancelledTransfer = false;
 HttpDownloader::DownloadError transferResult = HttpDownloader::OK;
 int companionPreparations = 0;
 Result companionResult = Result::Ok;
-Result AssetCompanionStore::prepare(const AssetCatalog::Catalog&, const AssetCatalog::Entry&, const Endpoints&,
+Result AssetCompanionStore::prepare(const AssetCatalog::Metadata&, const AssetCatalog::Entry&, const Endpoints&,
                                     const Callbacks&) {
   ++companionPreparations;
   assert(downloads == 0 || companionResult == Result::Ok);
@@ -102,6 +102,26 @@ void pinResponse(AssetCatalog::Entry& entry, const std::string& bytes) {
   response = bytes;
   entry.bytes = bytes.size();
   std::strcpy(entry.sha256, digest(bytes).c_str());
+}
+void selectedAssetTests(const Endpoints& endpoints) {
+  for (const auto kind : {AssetCatalog::Kind::Translation, AssetCatalog::Kind::Hyphenation}) {
+    reset();
+    AssetCatalog::Selection selected;
+    {
+      auto full = std::make_unique<AssetCatalog::Catalog>(catalog(kind));
+      static_cast<AssetCatalog::Metadata&>(selected) = *full;
+      selected.entry = full->entries[0];
+    }  // License/payload requests must work after releasing the parsed catalog.
+    assert(download(selected, selected.entry, endpoints, false) == Result::Ok);
+    Source source;
+    assert(discover(kind, selected.entry, source) == Result::Ok && source.status == Status::Current);
+    assert(companionPreparations == 1 && downloads == 1);
+    // A failed transfer and retry also retain a usable, independent selection.
+    transferResult = HttpDownloader::HTTP_ERROR;
+    assert(download(selected, selected.entry, endpoints, false) == Result::Network);
+    transferResult = HttpDownloader::OK;
+    assert(download(selected, selected.entry, endpoints, false) == Result::Ok);
+  }
 }
 void missingSourceTests(const Endpoints& endpoints) {
   for (const auto kind : {AssetCatalog::Kind::Translation, AssetCatalog::Kind::Hyphenation}) {
@@ -405,6 +425,7 @@ void macMetadataTests() {
 }
 
 int main() {
+  selectedAssetTests(Endpoints{"https://assets.example/", ""});
   macMetadataTests();
   sourceDiagnosticsTests();
   assert(digest("abc") == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");

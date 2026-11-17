@@ -32,11 +32,10 @@ class AssetDownloadActivity final : public Activity {
   enum class Pending { None, Fetch, Download, Overwrite, Activate, Restart, Exit, Install };
   AssetCatalog::Kind kind_;
   uint8_t wantedIndex_;
-  std::unique_ptr<AssetCatalog::Catalog> catalog_;
+  AssetCatalog::Selection selection_;
   AssetDownloadService::Source source_;
   OptionPopup popup_;
   Pending pending_ = Pending::None;
-  int selected_ = 0;
   bool busy_ = false;
   bool catalogReady_ = false;
   bool restartRequired_ = false;
