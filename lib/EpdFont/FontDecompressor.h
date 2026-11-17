@@ -28,6 +28,7 @@ class FontDecompressor {
   int prewarmCache(const EpdFontData* fontData, const char* utf8Text);
 
   struct Stats {
+    uint32_t prewarmSlotRefusals = 0;  // Explicit fallback, not a successful page-slot admission.
     uint32_t cacheHits = 0;
     uint32_t cacheMisses = 0;
     uint32_t decompressTimeMs = 0;

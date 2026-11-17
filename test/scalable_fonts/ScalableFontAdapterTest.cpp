@@ -119,11 +119,19 @@ int main(int argc, char** argv) {
         for (uint32_t cp = 33; cp < 127; ++cp) {
           const auto* g = candidate->dynamicGlyphHandler(candidate->glyphMissCtx, cp);
           assert(g);
-          if (g->width && g->height && !candidate->bitmapHandler(candidate->glyphMissCtx, g)) ++refused;
+          if (g->width && g->height) {
+            const auto result = HalScalableFont::prepareIdleBitmap(candidate, g);
+            assert(result != HalScalableFont::BitmapPreparation::Failed);
+            if (result == HalScalableFont::BitmapPreparation::Skipped) ++refused;
+          }
         }
       }
     }
     assert(refused > 0);
+    // A prior HAL refusal must not mask a genuine failure from another handler.
+    EpdFontData foreign = *data;
+    foreign.bitmapHandler = [](void*, const EpdGlyph*) -> const uint8_t* { return nullptr; };
+    assert(HalScalableFont::prepareIdleBitmap(&foreign, &savedGlyph) == HalScalableFont::BitmapPreparation::Failed);
     assert(data->bitmapHandler(data->glyphMissCtx, &savedGlyph) == savedPixels);
     assert(std::equal(expected.begin(), expected.end(), savedPixels));
     // Normal foreground rasterization is still allowed after the scope exits.

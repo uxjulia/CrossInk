@@ -27,6 +27,7 @@
 #include <utility>
 
 #include "Epub/ReferencePageNavigation.h"
+#include "Epub/css/CssCacheSource.h"
 #include "Epub/image/OptimizerCachePublish.h"
 #include "Epub/image/OptimizerIndex.h"
 #include "Epub/image/PxcHeaderSink.h"
@@ -763,6 +764,14 @@ Epub::CssParseStatus Epub::parseCssFiles(const bool forceRebuild) const {
       case CssParser::CacheStatus::Complete:
         LOG_DBG("EBP", "CSS cache valid, skipping parseCssFiles");
         return CssParseStatus::Complete;
+      case CssParser::CacheStatus::RuleLimited: {
+        CssCacheSource::Identity identity{};
+        if (CssCacheSource::read(filepath, CssParser::CSS_CACHE_VERSION, maxCssFileSize, identity) &&
+            CssCacheSource::matches(cachePath, identity))
+          return CssParseStatus::Partial;
+        cssParser->deleteCache();
+        break;
+      }
       case CssParser::CacheStatus::Partial:
         LOG_DBG("EBP", "Partial CSS cache valid, skipping parseCssFiles");
         return CssParseStatus::Partial;
@@ -778,6 +787,11 @@ Epub::CssParseStatus Epub::parseCssFiles(const bool forceRebuild) const {
   // No cache yet - parse CSS files. If memory runs out partway through, keep
   // the rules already parsed and persist them as a marked partial cache so
   // chapter layout can still use most of the book's stylesheet.
+  CssCacheSource::Identity sourceIdentity{};
+  const bool sourceKnown = CssCacheSource::read(filepath, CssParser::CSS_CACHE_VERSION, maxCssFileSize, sourceIdentity);
+  // Remove before replacing rules, so a crash cannot pair a new cache with an old marker.
+  const bool markerRemoved = CssCacheSource::invalidate(cachePath);
+  bool transientFailure = false;
   bool parsedAllCss = true;
   size_t parsedCssFileCount = 0;
   size_t skippedDuplicateCount = 0;
@@ -857,10 +871,14 @@ Epub::CssParseStatus Epub::parseCssFiles(const bool forceRebuild) const {
     FsFile tempCssFile;
     if (!Storage.openFileForWrite("EBP", tmpCssPath, tempCssFile)) {
       LOG_ERR("EBP", "Could not create temp CSS file");
+      transientFailure = true;
+      parsedAllCss = false;
       continue;
     }
     if (!readItemContentsToStream(cssPath, tempCssFile, 1024)) {
       LOG_ERR("EBP", "Could not read CSS file: %s", cssPath.c_str());
+      transientFailure = true;
+      parsedAllCss = false;
       // Explicitly close() file before calling Storage.remove()
       tempCssFile.close();
       Storage.remove(tmpCssPath.c_str());
@@ -872,6 +890,8 @@ Epub::CssParseStatus Epub::parseCssFiles(const bool forceRebuild) const {
     // Parse the CSS file
     if (!Storage.openFileForRead("EBP", tmpCssPath, tempCssFile)) {
       LOG_ERR("EBP", "Could not open temp CSS file for reading");
+      transientFailure = true;
+      parsedAllCss = false;
       Storage.remove(tmpCssPath.c_str());
       continue;
     }
@@ -911,10 +931,18 @@ Epub::CssParseStatus Epub::parseCssFiles(const bool forceRebuild) const {
   }
 
   // Save to cache for next time
-  if (!cssParser->saveToCache(parsedAllCss)) {
+  CssCacheSource::Identity finalIdentity{};
+  const bool terminal = !transientFailure && cssParser->ruleLimitReached() && sourceKnown && markerRemoved &&
+                        CssCacheSource::read(filepath, CssParser::CSS_CACHE_VERSION, maxCssFileSize, finalIdentity) &&
+                        sourceIdentity == finalIdentity;
+  if (!cssParser->saveToCache(parsedAllCss, terminal)) {
     LOG_ERR("EBP", "Failed to save CSS rules to cache");
     cssParser->clear();
     return CssParseStatus::Failed;
+  }
+
+  if (terminal && !CssCacheSource::save(cachePath, sourceIdentity)) {
+    LOG_ERR("EBP", "Could not persist terminal CSS source identity; will retry on reopen");
   }
 
   LOG_DBG("EBP", "Loaded %zu %s CSS style rules from %zu/%zu files", cssParser->ruleCount(),
@@ -982,6 +1010,18 @@ bool Epub::load(const bool buildIfMissing, const bool skipLoadingCss, const XLoc
           forceCssRebuild = true;
           retryingPartialCssCache = true;
           break;
+        case CssParser::CacheStatus::RuleLimited: {
+          CssCacheSource::Identity identity{};
+          if (CssCacheSource::read(filepath, CssParser::CSS_CACHE_VERSION, CssParser::maxSourceBytes(), identity) &&
+              CssCacheSource::matches(cachePath, identity)) {
+            LOG_DBG("EBP", "CSS rule-cap cache source unchanged; skipping CSS extraction and parse");
+            break;
+          }
+          LOG_DBG("EBP", "CSS rule-cap source identity changed or unavailable; rebuilding");
+          cssParser->deleteCache();
+          rebuildCssCache = true;
+          break;
+        }
         case CssParser::CacheStatus::Complete:
           break;
       }

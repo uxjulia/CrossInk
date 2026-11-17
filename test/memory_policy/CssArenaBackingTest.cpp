@@ -413,3 +413,156 @@ TEST_F(CssArenaBackingTest, CompactLengthsPreservePrecisionAndCacheBytes) {
     EXPECT_EQ(after.paddingTop.unit, CssUnit::Points);
   }
 }
+
+TEST_F(CssArenaBackingTest, DiskMemoReusesExactSelectorsWithoutFurtherReads) {
+  fakeheap::reset(false);
+  createCache();
+  CssParser css("book");
+  fakeheap::internal.free = 40 * 1024;  // Deny whole-rule hydration, allow bounded memo.
+  ASSERT_TRUE(css.loadFromCache());
+  checkStyle(css);
+  const auto before = Storage.data("book/css_rules.cache").readBytes;
+  for (int i = 0; i < 100; ++i) checkStyle(css);
+  EXPECT_EQ(Storage.data("book/css_rules.cache").readBytes, before);
+  RecordProperty("repeated_100_query_read_bytes",
+                 std::to_string(Storage.data("book/css_rules.cache").readBytes - before));
+  EXPECT_EQ(css.resolveStyle("P", "EM").fontWeight, CssFontWeight::Bold);
+  EXPECT_EQ(Storage.data("book/css_rules.cache").readBytes, before);
+}
+
+TEST_F(CssArenaBackingTest, DiskMemoDeniedUnderSeverePressurePreservesStyles) {
+  fakeheap::reset(false);
+  createCache();
+  CssParser css("book");
+  fakeheap::internal.free = 16 * 1024;
+  ASSERT_TRUE(css.loadFromCache());
+  checkStyle(css);
+  const auto before = Storage.data("book/css_rules.cache").readBytes;
+  for (int i = 0; i < 100; ++i) checkStyle(css);
+  EXPECT_GT(Storage.data("book/css_rules.cache").readBytes, before);
+  RecordProperty("repeated_100_query_read_bytes",
+                 std::to_string(Storage.data("book/css_rules.cache").readBytes - before));
+}
+
+TEST_F(CssArenaBackingTest, DiskMemoClearsWhenReloadingReplacedRules) {
+  fakeheap::reset(false);
+  createCache();
+  CssParser css("book");
+  fakeheap::internal.free = 40 * 1024;
+  ASSERT_TRUE(css.loadFromCache());
+  EXPECT_EQ(css.resolveStyle("p", "").fontSize.value(), 150);
+  fakeheap::internal.free = 256 * 1024;
+  const std::string text = "p { font-size: 200%; }";
+  Storage.put("replacement", {text.begin(), text.end()});
+  FsFile source;
+  ASSERT_TRUE(Storage.openFileForRead("test", "replacement", source));
+  CssParser replacement("book");
+  ASSERT_TRUE(replacement.loadFromStream(source));
+  ASSERT_TRUE(replacement.saveToCache());
+  fakeheap::internal.free = 40 * 1024;
+  ASSERT_TRUE(css.loadFromCache());
+  EXPECT_EQ(css.resolveStyle("p", "").fontSize.value(), 200);
+  css.clear();
+  EXPECT_FALSE(css.resolveStyle("p", "").hasFontSize());
+}
+
+TEST_F(CssArenaBackingTest, DiskMemoDoesNotCacheReadFailuresOrCrossBooks) {
+  fakeheap::reset(false);
+  createCache();
+  CssParser css("book");
+  fakeheap::internal.free = 40 * 1024;
+  ASSERT_TRUE(css.loadFromCache());
+  Storage.data("book/css_rules.cache").readFailAt = 0;
+  EXPECT_FALSE(css.resolveStyle("p", "").hasFontSize());
+  Storage.data("book/css_rules.cache").readFailAt = std::numeric_limits<size_t>::max();
+  EXPECT_EQ(css.resolveStyle("p", "").fontSize.value(), 150);
+  CssParser other("other");
+  EXPECT_FALSE(other.loadFromCache());
+  EXPECT_FALSE(other.resolveStyle("p", "").hasFontSize());
+}
+
+TEST_F(CssArenaBackingTest, DiskMemoEvictionAndLongSelectorsKeepDiskFallbackCorrect) {
+  fakeheap::reset(false);
+  std::string text;
+  for (int i = 0; i < 9; ++i) text += ".c" + std::to_string(i) + " { font-size: " + std::to_string(100 + i) + "%; }";
+  const std::string longClass(80, 'x');
+  text += "." + longClass + " { font-size: 250%; }";
+  Storage.put("input", {text.begin(), text.end()});
+  FsFile file;
+  ASSERT_TRUE(Storage.openFileForRead("test", "input", file));
+  CssParser writer("book");
+  ASSERT_TRUE(writer.loadFromStream(file));
+  ASSERT_TRUE(writer.saveToCache());
+  CssParser css("book");
+  fakeheap::internal.free = 40 * 1024;
+  ASSERT_TRUE(css.loadFromCache());
+  for (int pass = 0; pass < 3; ++pass)
+    for (int i = 0; i < 9; ++i) EXPECT_EQ(css.resolveStyle("p", "c" + std::to_string(i)).fontSize.value(), 100 + i);
+  EXPECT_EQ(css.resolveStyle("p", longClass).fontSize.value(), 250);
+  const auto before = Storage.data("book/css_rules.cache").readBytes;
+  EXPECT_EQ(css.resolveStyle("p", longClass).fontSize.value(), 250);
+  EXPECT_GT(Storage.data("book/css_rules.cache").readBytes, before);
+}
+
+TEST_F(CssArenaBackingTest, RuleCapIsTerminalOnlyWhenCallerConfirmsNoTransientFailure) {
+  std::string text;
+  for (unsigned i = 0; i < 1501; ++i) text += ".cap" + std::to_string(i) + "{font-weight:bold;}";
+  Storage.put("input.css", {text.begin(), text.end()});
+  FsFile file;
+  ASSERT_TRUE(Storage.openFileForRead("test", "input.css", file));
+  CssParser css("book");
+  ASSERT_FALSE(css.loadFromStream(file));
+  file.close();
+  ASSERT_TRUE(css.ruleLimitReached());
+  ASSERT_EQ(css.ruleCount(), 1500u);
+  ASSERT_TRUE(css.saveToCache(false));
+  EXPECT_EQ(css.inspectCache(), CssParser::CacheStatus::Partial);
+  ASSERT_TRUE(css.saveToCache(false, true));
+  EXPECT_EQ(css.inspectCache(), CssParser::CacheStatus::RuleLimited);
+  ASSERT_TRUE(css.loadFromCache());
+  EXPECT_TRUE(css.isCachePartial());
+  EXPECT_EQ(css.resolveStyle("p", "cap0").fontWeight, CssFontWeight::Bold);
+  css.clear();
+  EXPECT_FALSE(css.ruleLimitReached());
+}
+
+TEST_F(CssArenaBackingTest, ReadFailureIsTransientAndCanRetry) {
+  const std::string text = "p{font-weight:bold;}";
+  Storage.put("input.css", {text.begin(), text.end()});
+  Storage.data("input.css").readFailAt = 0;
+  FsFile file;
+  ASSERT_TRUE(Storage.openFileForRead("test", "input.css", file));
+  CssParser css("book");
+  EXPECT_FALSE(css.loadFromStream(file));
+  EXPECT_FALSE(css.ruleLimitReached());
+  file.close();
+  Storage.data("input.css").readFailAt = std::numeric_limits<size_t>::max();
+  ASSERT_TRUE(Storage.openFileForRead("test", "input.css", file));
+  EXPECT_TRUE(css.loadFromStream(file));
+  file.close();
+  ASSERT_TRUE(css.saveToCache(false, true));  // Caller cannot promote an IO stop to terminal.
+  EXPECT_EQ(css.inspectCache(), CssParser::CacheStatus::Partial);
+}
+
+TEST_F(CssArenaBackingTest, LowHeapStopCannotBePromotedToTerminal) {
+  Storage.put("input.css",
+              {'p', '{', 'f', 'o', 'n', 't', '-', 'w', 'e', 'i', 'g', 'h', 't', ':', 'b', 'o', 'l', 'd', ';', '}'});
+  fakeheap::internal.free = 1;
+  FsFile file;
+  ASSERT_TRUE(Storage.openFileForRead("test", "input.css", file));
+  CssParser css("book");
+  EXPECT_FALSE(css.loadFromStream(file));
+  EXPECT_FALSE(css.ruleLimitReached());
+  file.close();
+  fakeheap::internal.free = 200 * 1024;
+  ASSERT_TRUE(css.saveToCache(false, true));
+  EXPECT_EQ(css.inspectCache(), CssParser::CacheStatus::Partial);
+}
+
+TEST_F(CssArenaBackingTest, TerminalFlagWithoutPartialIsMalformed) {
+  createCache();
+  Storage.data("book/css_rules.cache").bytes[5] = 2;
+  CssParser css("book");
+  EXPECT_EQ(css.inspectCache(), CssParser::CacheStatus::Invalid);
+  EXPECT_FALSE(css.loadFromCache());
+}

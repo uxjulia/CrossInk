@@ -58,3 +58,8 @@ target_include_directories(BackgroundBuildMemoryGuardTest PRIVATE stubs ${REPO_R
 target_compile_definitions(BackgroundBuildMemoryGuardTest PRIVATE ARDUINO_ARCH_ESP32=1 CROSSINK_MEMORY_TEST=1)
 target_link_libraries(BackgroundBuildMemoryGuardTest PRIVATE crosspoint_test_common GTest::gtest_main)
 gtest_discover_tests(BackgroundBuildMemoryGuardTest)
+
+add_executable(CssCacheSourceTest CssCacheSourceTest.cpp)
+target_include_directories(CssCacheSourceTest PRIVATE stubs ${REPO_ROOT}/lib/Epub/Epub/css)
+target_link_libraries(CssCacheSourceTest PRIVATE crosspoint_test_common GTest::gtest_main)
+gtest_discover_tests(CssCacheSourceTest)

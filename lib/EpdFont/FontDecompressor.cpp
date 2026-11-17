@@ -253,6 +253,7 @@ int32_t FontDecompressor::findGlyphIndex(const EpdFontData* fontData, uint32_t c
 int FontDecompressor::prewarmCache(const EpdFontData* fontData, const char* utf8Text) {
   if (!fontData || !fontData->groups || !utf8Text) return 0;
   if (pageSlotCount >= MAX_PAGE_SLOTS) {
+    ++stats.prewarmSlotRefusals;
     LOG_DBG("FDC", "Prewarm slot cap (%u) reached; using hot-group fallback", MAX_PAGE_SLOTS);
     return -1;
   }
@@ -522,7 +523,8 @@ void FontDecompressor::logStats(const char* label) {
   const uint32_t total = stats.cacheHits + stats.cacheMisses;
   LOG_DBG("FDC", "[%s] hits=%lu misses=%lu (%.1f%% hit rate)", label, stats.cacheHits, stats.cacheMisses,
           total > 0 ? 100.0f * stats.cacheHits / total : 0.0f);
-  LOG_DBG("FDC", "[%s] decompress=%lums groups_accessed=%u", label, stats.decompressTimeMs, stats.uniqueGroupsAccessed);
+  LOG_DBG("FDC", "[%s] decompress=%lums groups_accessed=%u slot_refusals=%lu", label, stats.decompressTimeMs,
+          stats.uniqueGroupsAccessed, stats.prewarmSlotRefusals);
   LOG_DBG("FDC", "[%s] mem: pageBuf=%lu pageGlyphs=%lu hotGroup=%lu peakTemp=%lu", label, stats.pageBufferBytes,
           stats.pageGlyphsBytes, stats.hotGroupBytes, stats.peakTempBytes);
   if (stats.getBitmapCalls > 0) {

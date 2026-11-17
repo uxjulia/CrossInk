@@ -55,6 +55,11 @@
 
 ### Fixed
 
+- Reuse recently read EPUB CSS rules when memory is too low to retain the full stylesheet, reducing repeated SD reads during chapter layout.
+- Keep frequently drawn built-in text in the four compressed-font page slots when a page mixes more font styles or sizes; retain on-demand rendering for the remaining groups.
+- Reuse unchanged EPUB stylesheets stopped at the fixed rule limit instead of reparsing them on every reopen; temporary memory or read failures still retry.
+- Keep scalable-font page lookahead running when an individual glyph cannot be admitted without evicting visible text.
+
 - Keep smaller EPUB body-font declarations at the reader-selected size while preserving smaller descendants, headings, and other publisher styling. Existing chapter layouts rebuild automatically.
 - Reuse cached glyphs in optional SD font sizes without discarding their pixels on a metrics hash collision, reducing repeated font reads during antialiasing within the same memory budget.
 

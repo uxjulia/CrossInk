@@ -2207,3 +2207,25 @@ is written before archiving originals and removed only after the replacement
 has been saved and read back. An interrupted recovery remains protected on the
 next boot. A confirmed restore advances the same live-reader refresh revision
 as an explicit statistics reset, so an open reader imports the recovered totals.
+
+
+### CSS rules cache revision 23
+
+The rule payload and offsets are unchanged from revision 22. Header flag bit 0
+still marks partial CSS. Bit 1 additionally marks a parse stopped at the fixed
+1500-rule cap (always also partial), not a memory or I/O failure. Older revisions
+rebuild once. A terminal cache is reused on book reopen only with a matching
+`css_terminal.source` sidecar: six little-endian u32 fields, magic `0x43535401`,
+CSS cache version, source size low/high words, FAT modification time, and current
+CSS source-size policy limit. Missing, truncated, unreadable, or stale identity
+forces retry. Source timestamps of zero are not trusted. As with the in-memory
+ZIP directory cache, changing bytes while preserving size and timestamp requires
+clearing the book cache. This does not add content hashing or validate unrelated
+metadata caches.
+
+The marker is removed before cache replacement and written only after a successful
+terminal cache save and unchanged source stat. Removal failure disables terminal
+publication; partial marker writes cannot authorize reuse. Existing layouts remain
+unchanged during unchanged terminal reuse or a retry that is still transiently
+partial. Source/version invalidation rebuilds CSS and refreshes layouts under the
+existing invalid-cache policy. Progress files are unaffected.

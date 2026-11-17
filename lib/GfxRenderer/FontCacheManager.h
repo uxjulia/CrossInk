@@ -90,6 +90,7 @@ class FontCacheManager {
   int scanFontIds_[MAX_SCAN_FONTS] = {};
   uint32_t scanCodepoints_[MAX_SCAN_CODEPOINTS + 1] = {};
   uint16_t scanGroupCounts_[SCAN_GROUP_COUNT] = {};
+  uint16_t scanGroupUses_[SCAN_GROUP_COUNT] = {};  // Saturated occurrence counts; 32 bytes, no glyph storage.
   uint16_t scanCodepointCount_ = 0;
   uint8_t scanFontCount_ = 0;
   bool scanOverflowWarned_ = false;

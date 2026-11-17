@@ -65,6 +65,45 @@ void expectPackedGlyphs(FontDecompressor& decoder, const GroupFont& font) {
   }
 }
 
+TEST(FontGroupAdmission, DominantBodyKeepsFourSlotsAcrossBwAndAaWithExplicitFallback) {
+  for (const bool psram : {false, true}) {
+    fakeheap::reset(psram);
+    GroupFont regular(false), bold(true), italic(false), boldItalic(true), heading(false);
+    EpdFont r(&regular.data), b(&bold.data), i(&italic.data), bi(&boldItalic.data), h(&heading.data);
+    std::map<int, EpdFontFamily> families{{1, EpdFontFamily(&r, &b, &i, &bi)}, {2, EpdFontFamily(&h)}};
+    std::map<int, SdCardFont*> sdFonts;
+    FontDecompressor decoder;
+    FontCacheManager manager(families, sdFonts);
+    manager.setFontDecompressor(&decoder);
+    std::string body;
+    for (unsigned n = 0; n < 40; ++n) body += "ABC";
+    auto scope = manager.createPrewarmScope();
+    manager.recordText(body.c_str(), 1, EpdFontFamily::REGULAR);
+    manager.recordText("ABC", 1, EpdFontFamily::BOLD);
+    manager.recordText("ABC", 1, EpdFontFamily::ITALIC);
+    manager.recordText("ABC", 1, EpdFontFamily::BOLD_ITALIC);
+    manager.recordText("ABC", 2, EpdFontFamily::REGULAR);
+    ASSERT_TRUE(scope.endScanAndPrewarm());  // Refusal is intentional, not a missing-pixel failure.
+    EXPECT_EQ(decoder.getStats().prewarmSlotRefusals, 1u);
+    EXPECT_EQ(decoder.getStats().pageBufferBytes, 24u);  // Four slots, three 2-byte glyphs each.
+    EXPECT_EQ(decoder.getStats().pageGlyphsBytes, 144u);
+    // Same requests in BW, LSB, MSB. Validate every packed pixel, including the
+    // refused fifth group; a single hot group cannot hide alternating A/B/C work.
+    for (unsigned plane = 0; plane < 3; ++plane) {
+      for (unsigned n = 0; n < 40; ++n) expectPackedGlyphs(decoder, regular);
+      expectPackedGlyphs(decoder, bold);
+      expectPackedGlyphs(decoder, italic);
+      expectPackedGlyphs(decoder, boldItalic);
+      expectPackedGlyphs(decoder, heading);
+    }
+    EXPECT_EQ(decoder.getStats().cacheMisses, 9u);
+    EXPECT_EQ(decoder.getStats().cacheHits, 387u);
+    decoder.clearCache();
+    decoder.resetStats();
+    EXPECT_EQ(decoder.getStats().pageBufferBytes, 0u);
+  }
+}
+
 TEST(FontScratch, ReusesOneAllocationAndReleasesItBeforeReturning) {
   for (bool frequency : {false, true}) {
     fakeheap::reset(false);

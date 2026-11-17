@@ -130,6 +130,7 @@ struct Runtime {
   uint8_t* pixelData = nullptr;
   size_t pixelUsed = 0;
   bool idlePrewarm = false;
+  bool bitmapAdmissionRefused = false;
   uint32_t nextCacheId = 1;
   uint16_t failedMetricWidth = 0;
   uint16_t failedMetricHeight = 0;
@@ -232,7 +233,10 @@ struct Runtime {
     const size_t bytes = (size_t(width) * height + 3) / 4;
     // Speculation must not evict nearer pages or flush the shared arena. Check
     // before rasterization so cache pressure also bounds wasted CPU work.
-    if (idlePrewarm && (entry.key != 0 || bytes > PixelBytes - pixelUsed)) return nullptr;
+    if (idlePrewarm && (entry.key != 0 || bytes > PixelBytes - pixelUsed)) {
+      bitmapAdmissionRefused = true;
+      return nullptr;
+    }
 
     allocator.clearFailure();
     const auto* bitmap =
@@ -348,6 +352,12 @@ HalScalableFont::IdlePrewarmScope::IdlePrewarmScope() : previous_(runtime().idle
   runtime().idlePrewarm = true;
 }
 HalScalableFont::IdlePrewarmScope::~IdlePrewarmScope() { runtime().idlePrewarm = previous_; }
+HalScalableFont::BitmapPreparation HalScalableFont::prepareIdleBitmap(const EpdFontData* data, const EpdGlyph* glyph) {
+  ScalableFontAccess access;
+  runtime().bitmapAdmissionRefused = false;
+  if (data->bitmapHandler(data->glyphMissCtx, glyph)) return BitmapPreparation::Ready;
+  return runtime().bitmapAdmissionRefused ? BitmapPreparation::Skipped : BitmapPreparation::Failed;
+}
 HalScalableFont::~HalScalableFont() {
   ScalableFontAccess access;
   if (font_.ready() && liveRuntime) liveRuntime->clearCaches();

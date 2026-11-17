@@ -6,12 +6,14 @@
 
 #include "FontCacheManager.h"
 #include "FontDecompressor.h"
+#include "HalScalableFont.h"
 
 namespace {
 struct ColdFont {
   EpdGlyph glyph;
   int rasters = 0;
   bool failed = false;
+  uint32_t refuse = 0;
   bool slow = false;
   bool* signalDuringMetrics = nullptr;
   std::atomic<bool>* entered = nullptr;
@@ -24,6 +26,10 @@ struct ColdFont {
   static const uint8_t* bitmap(void* ctx, const EpdGlyph*) {
     auto& f = *static_cast<ColdFont*>(ctx);
     ++f.rasters;
+    if (f.refuse == f.glyph.dataOffset) {
+      HalScalableFont::refused = true;
+      return nullptr;
+    }
     if (f.entered) f.entered->store(true);
     if (f.slow) std::this_thread::sleep_for(std::chrono::milliseconds(10));
     static const uint8_t pixel = 0xFF;
@@ -116,3 +122,15 @@ TEST_F(Fixture, ReplacedFontRegistrationIsResolvedFresh) {
   EXPECT_EQ(cold.rasters, 0);
 }
 }  // namespace
+
+TEST_F(Fixture, AdmissionRefusalSkipsOnlyThatGlyph) {
+  scan("ABC");
+  cold.refuse = 'A';
+  EXPECT_EQ(manager.prewarmIdleSlice(job, nullptr, nullptr), FontCacheManager::IdleResult::Complete);
+  EXPECT_EQ(job.cursor, 3);
+  EXPECT_EQ(cold.rasters, 3);
+  scan("ABC");
+  cold.failed = true;
+  EXPECT_EQ(manager.prewarmIdleSlice(job, nullptr, nullptr), FontCacheManager::IdleResult::Failed);
+  EXPECT_EQ(job.cursor, 1);  // A refused, B truly failed.
+}

@@ -7,6 +7,7 @@
 
 class FontDecompressor {
  public:
+  static constexpr uint8_t MAX_PAGE_SLOTS = 4;
   struct PrewarmCall {
     const EpdFontData* fontData = nullptr;
     char text[32] = {};
@@ -22,7 +23,7 @@ class FontDecompressor {
   void logStats(const char*) {}
   void resetStats() {}
 
-  PrewarmCall prewarmCalls[4] = {};
+  PrewarmCall prewarmCalls[16] = {};
   int prewarmCallCount = 0;
   int clearCacheCallCount = 0;
 };
