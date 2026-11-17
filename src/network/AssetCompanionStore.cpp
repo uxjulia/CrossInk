@@ -210,6 +210,7 @@ bool downloadOnce(Workspace& w, const char* relative, uint32_t expected, bool ve
   options.stageAsPart = true;
   options.requireBackupCleanup = true;
   options.checkFreeSpace = true;
+  options.httpReceiveBufferSize = 1024;
   options.maxBytes = FILE_LIMIT;
   options.expectedBytes = expected;
   options.maxRedirects = 2;
@@ -261,6 +262,7 @@ bool downloadIndexOnce(Workspace& w, size_t index) {
     return false;
   }
   HttpDownloader::DownloadOptions options(false, false, [&] { return stopped(w); }, 1024);
+  options.httpReceiveBufferSize = 1024;
   options.maxBytes = FILE_LIMIT;
   options.maxRedirects = 2;
   options.allowUrl = AssetDownloadService::allowUrl;

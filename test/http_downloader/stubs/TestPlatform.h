@@ -119,6 +119,7 @@ inline std::vector<Reply> replies;
 inline size_t nextReply = 0;
 inline std::vector<std::map<std::string, std::string>> requests;
 inline std::vector<std::string> requestUrls;
+inline std::vector<int> httpReceiveBuffers;
 inline std::vector<bool> recordReservations;
 using esp_err_t = int;
 inline constexpr int ESP_OK = 0;
@@ -151,6 +152,7 @@ inline esp_http_client_handle_t esp_http_client_init(esp_http_client_config_t* c
   auto* h = new FakeHttp{*config, replies[nextReply++], 0, requests.size()};
   requests.emplace_back();
   requestUrls.emplace_back(config->url);
+  httpReceiveBuffers.push_back(config->buffer_size);
   return h;
 }
 inline void esp_http_client_set_header(FakeHttp* h, const char* k, const char* v) { requests[h->request][k] = v; }

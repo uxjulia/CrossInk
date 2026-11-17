@@ -549,7 +549,7 @@ HttpDownloader::DownloadError runGetDefault(const std::string& url, const std::s
 
     esp_http_client_config_t config = {};
     config.url = currentUrl.c_str();
-    config.buffer_size = HTTP_RX_BUF;
+    config.buffer_size = sink.options->httpReceiveBufferSize ? sink.options->httpReceiveBufferSize : HTTP_RX_BUF;
     config.buffer_size_tx = HTTP_TX_BUF;
     config.timeout_ms = HTTP_TIMEOUT_MS;
     config.crt_bundle_attach = esp_crt_bundle_attach;

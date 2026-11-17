@@ -86,6 +86,9 @@ class HttpDownloader {
     bool resumePartial;
     CancelCallback shouldCancel;
     size_t bufferSize;
+    // ESP_HTTP receive storage, separate from the streamed body chunk. Zero
+    // preserves the 4 KiB default; official small-header asset requests use 1 KiB.
+    uint16_t httpReceiveBufferSize = 0;
     Transport transport;
     // Borrowed only for this synchronous request. Basic credentials are sent
     // only to this origin; empty keeps the request URL as the credential origin.

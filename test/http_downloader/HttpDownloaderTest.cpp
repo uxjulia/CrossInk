@@ -17,6 +17,7 @@ class HttpDownloaderTest : public testing::TestWithParam<HttpDownloader::Transpo
     replies.clear();
     requests.clear();
     requestUrls.clear();
+    httpReceiveBuffers.clear();
     recordReservations.clear();
     nextReply = 0;
     failWrite = failSync = false;
@@ -58,6 +59,35 @@ class HttpDownloaderTest : public testing::TestWithParam<HttpDownloader::Transpo
                                           options);
   }
 };
+TEST_P(HttpDownloaderTest, EspReceiveBufferIsOptInAndIndependentOfBodyChunks) {
+  if (GetParam() != HttpDownloader::Transport::ESP_HTTP) GTEST_SKIP();
+  Reply redirect{302, "", 0, "", true};
+  redirect.location = "https://example.com/next";
+  const std::string body(2049, 'x');
+  replies = {{200, "abc", 3, "", true}, redirect, {200, body, body.size(), "", true}};
+  HttpDownloader::DownloadOptions options;
+  std::string received;
+  size_t largestChunk = 0;
+  auto receive = [&](const uint8_t* bytes, size_t count) {
+    largestChunk = std::max(largestChunk, count);
+    received.append(reinterpret_cast<const char*>(bytes), count);
+    return true;
+  };
+  ASSERT_EQ(HttpDownloader::streamUrl("https://example.com/file", receive, nullptr, "", "", options),
+            HttpDownloader::OK);
+  EXPECT_EQ(httpReceiveBuffers, std::vector<int>({4096}));
+  EXPECT_EQ(received, "abc");
+  received.clear();
+  largestChunk = 0;
+  options.httpReceiveBufferSize = 1024;
+  options.bufferSize = 512;
+  ASSERT_EQ(HttpDownloader::streamUrl("https://example.com/file", receive, nullptr, "", "", options),
+            HttpDownloader::OK);
+  EXPECT_EQ(httpReceiveBuffers, std::vector<int>({4096, 1024, 1024}));
+  EXPECT_EQ(received, body);
+  EXPECT_EQ(largestChunk, 512u);
+}
+
 TEST_P(HttpDownloaderTest, ReconnectsAtLastWrittenByte) {
   replies = {{200, "abc", 6, "", false}, {206, "def", 3, "bytes 3-5/6", true}};
   ASSERT_EQ(download(), HttpDownloader::OK);

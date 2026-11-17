@@ -13,6 +13,7 @@
 using namespace AssetDownloadService;
 std::string response;
 std::function<void()> beforeValidation;
+std::function<void()> duringCompanions;
 int downloads = 0;
 bool cancelledTransfer = false;
 HttpDownloader::DownloadError transferResult = HttpDownloader::OK;
@@ -21,6 +22,7 @@ Result companionResult = Result::Ok;
 Result AssetCompanionStore::prepare(const AssetCatalog::Metadata&, const AssetCatalog::Entry&, const Endpoints&,
                                     const Callbacks&) {
   ++companionPreparations;
+  if (duringCompanions) duringCompanions();
   assert(downloads == 0 || companionResult == Result::Ok);
   return companionResult;
 }
@@ -32,6 +34,7 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
   assert(options.transport == Transport::ESP_HTTP);
   assert(options.stageAsPart && !options.preservePartial && !options.resumePartial);
   assert(options.checkFreeSpace && options.requireBackupCleanup);
+  assert(options.httpReceiveBufferSize == 1024);
   assert(options.bufferSize == 1024 && options.maxBytes == 262144 && options.maxRedirects == 2);
   assert(options.allowUrl(url, options.urlContext));
   if (options.shouldCancel && options.shouldCancel()) return ABORTED;
@@ -74,6 +77,7 @@ void reset() {
   downloads = 0;
   response = yaml;
   beforeValidation = {};
+  duringCompanions = {};
   cancelledTransfer = false;
   transferResult = HttpDownloader::OK;
   companionPreparations = 0;
@@ -121,6 +125,25 @@ void selectedAssetTests(const Endpoints& endpoints) {
     assert(download(selected, selected.entry, endpoints, false) == Result::Network);
     transferResult = HttpDownloader::OK;
     assert(download(selected, selected.entry, endpoints, false) == Result::Ok);
+  }
+}
+void companionIdentityTests(const Endpoints& endpoints) {
+  for (const auto kind : {AssetCatalog::Kind::Translation, AssetCatalog::Kind::Hyphenation}) {
+    reset();
+    auto cat = catalog(kind);
+    const std::string destination = kind == AssetCatalog::Kind::Translation ? "/.crossink/languages/DE.yaml"
+                                                                            : "/.crossink/hyphenation/hyph-de.cphyph";
+    const auto original = yaml + "# original source\n";
+    const auto changed = yaml + "# changed while licenses download\n";
+    put(destination, original);
+    duringCompanions = [&] { put(destination, changed); };
+    // Recreating payload scratch must retain the pre-license approval identity.
+    assert(download(cat, cat.entries[0], endpoints, true) == Result::Collision);
+    assert(files.at(destination) == changed);
+    assert(!files.count(destination + ".part"));
+    duringCompanions = {};
+    assert(download(cat, cat.entries[0], endpoints, true) == Result::Ok);
+    assert(files.at(destination) == yaml);
   }
 }
 void missingSourceTests(const Endpoints& endpoints) {
@@ -425,6 +448,7 @@ void macMetadataTests() {
 }
 
 int main() {
+  companionIdentityTests(Endpoints{"https://assets.example.invalid/", ""});
   selectedAssetTests(Endpoints{"https://assets.example/", ""});
   macMetadataTests();
   sourceDiagnosticsTests();

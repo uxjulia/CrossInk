@@ -23,6 +23,7 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
     const auto result = injectedResult(url);
     if (result != OK) return result;
   }
+  assert(options.httpReceiveBufferSize == 1024);
   assert(options.transport == Transport::ESP_HTTP && options.bufferSize == 1024 && options.maxBytes == 2097152);
   assert(options.maxRedirects == 2 && options.checkFreeSpace && options.stageAsPart && options.requireBackupCleanup);
   assert(options.allowUrl(url, options.urlContext));
@@ -56,6 +57,7 @@ HttpDownloader::DownloadError HttpDownloader::streamUrl(const std::string& url, 
     const auto result = injectedResult(url);
     if (result != OK) return result;
   }
+  assert(options.httpReceiveBufferSize == 1024);
   assert(options.transport == Transport::ESP_HTTP && options.bufferSize == 1024 && options.maxBytes == 2097152);
   assert(options.maxRedirects == 2 && options.allowUrl(url, options.urlContext));
   if (beforeDownload) beforeDownload(url);

@@ -222,6 +222,7 @@ void AssetDownloadActivity::fetch() {
   if (valid) {
     LOG_DBG("ASSET", "Fetching catalog: %s", url_);
     HttpDownloader::DownloadOptions options;
+    options.httpReceiveBufferSize = 1024;
     options.maxBytes = AssetCatalog::MAX_CATALOG_BYTES;
     options.maxRedirects = 2;
     options.allowUrl = AssetDownloadService::allowUrl;
