@@ -40,6 +40,7 @@ class HalDisplay {
 
   // Selected SDK driver identity; nullptr before display initialization.
   const char* getControllerName() const;
+  const char* getPanelName() const;
 
   // Display dimensions
   static constexpr uint16_t DISPLAY_WIDTH = EInkDisplay::DISPLAY_WIDTH;
@@ -60,6 +61,7 @@ class HalDisplay {
   void setInverted(bool inverted);
   // Called under RenderLock around book-page presentation, including its AA pass.
   void setReaderRefresh(bool reading);
+  void setOverlayFullTone(bool fullTone);
   bool displayRetainedGrayscaleOverlay(uint16_t x, uint16_t y, uint16_t width, uint16_t height, bool restore);
   // Restore the controller's old-image plane from the saved Quick Resume frame.
   // Returns false when the SDK or panel cannot support a differential first paint.

@@ -10,12 +10,15 @@ namespace ReaderUtils {
 // Image pages disable only reader-specific combined text AA, preserving four tones.
 class ReaderRefreshScope {
  public:
-  explicit ReaderRefreshScope(const GfxRenderer& renderer, bool updatePanel = true, bool textOnly = true)
+  using Content = GfxRenderer::RefreshContent;
+  static Content text(bool twoTone) { return twoTone ? Content::TwoToneText : Content::Text; }
+
+  explicit ReaderRefreshScope(const GfxRenderer& renderer, Content content = Content::Text, bool updatePanel = true)
       : renderer(renderer), updatePanel(updatePanel) {
-    if (updatePanel) renderer.setReaderRefresh(true, textOnly);
+    if (updatePanel) renderer.setReaderRefresh(content);
   }
   ~ReaderRefreshScope() {
-    if (updatePanel) renderer.setReaderRefresh(false);
+    if (updatePanel) renderer.setReaderRefresh(Content::Ui);
   }
   ReaderRefreshScope(const ReaderRefreshScope&) = delete;
   ReaderRefreshScope& operator=(const ReaderRefreshScope&) = delete;

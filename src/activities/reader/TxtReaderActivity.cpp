@@ -885,7 +885,8 @@ void TxtReaderActivity::renderPage() {
   if (showOpeningFeedback()) renderer.clearScreen(ReaderUtils::readerBackgroundColor());
   openingFeedback.finish();
 
-  const ReaderUtils::ReaderRefreshScope readerRefresh(renderer);
+  const ReaderUtils::ReaderRefreshScope readerRefresh(renderer,
+                                                      ReaderUtils::ReaderRefreshScope::text(SETTINGS.twoToneTextAA));
 
   // BW rendering
   renderLines();

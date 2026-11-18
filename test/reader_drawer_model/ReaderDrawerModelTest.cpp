@@ -104,10 +104,17 @@ TEST(ReaderDrawerModel, ResumeRestoresScrollToTheActiveRootOrPane) {
 TEST(ReaderDrawerModel, CatalogOrderAndConditionalRowsMatchTouchDesign) {
   const ReaderDrawerCatalog minimal = makeReaderDrawerCatalog({});
   const auto& font = minimal[static_cast<size_t>(ReaderDrawerTab::Font)];
-  EXPECT_EQ(font.count, 7);
+#if FREEINK_DEVICE_EEGO_A4
+  constexpr int extraToneRow = 1;
+  EXPECT_EQ(font.items[4], ReaderDrawerCatalogItem::TwoToneTextAa);
+#else
+  constexpr int extraToneRow = 0;
+#endif
+  EXPECT_EQ(font.count, 7 + extraToneRow);
+  EXPECT_EQ(font.items[3], ReaderDrawerCatalogItem::TextAa);
   EXPECT_EQ(font.items[0], ReaderDrawerCatalogItem::ReaderFont);
-  EXPECT_EQ(font.items[4], ReaderDrawerCatalogItem::TextDarkness);
-  EXPECT_EQ(font.items[6], ReaderDrawerCatalogItem::GuideDots);
+  EXPECT_EQ(font.items[4 + extraToneRow], ReaderDrawerCatalogItem::TextDarkness);
+  EXPECT_EQ(font.items[6 + extraToneRow], ReaderDrawerCatalogItem::GuideDots);
 
   const auto& layout = minimal[static_cast<size_t>(ReaderDrawerTab::Layout)];
   EXPECT_EQ(layout.count, 9);

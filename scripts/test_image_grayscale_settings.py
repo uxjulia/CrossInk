@@ -58,6 +58,30 @@ struct StorageFake {
 
 CASES = r'''
 int main() {
+  for (uint8_t global : {0, 1}) {
+    globalSnapshot.twoToneTextAA = global;
+    Storage.bytes.clear();
+    auto data = loadBookReaderSettingsFile("");
+    assert(data.readerSettings.twoToneTextAA == global);
+    data.readerSettings.twoToneTextAA = !global;
+    data.readerSettingsOverrideMask = changedReaderSettingsMask(data.readerSettings, globalSnapshot);
+    assert(data.readerSettingsOverrideMask == TWO_TONE_TEXT_AA_OVERRIDE);
+    assert(!(data.readerSettingsOverrideMask & READER_LAYOUT_SETTING_OVERRIDES));
+    assert(saveBookReaderSettingsFile("", data));
+    assert(Storage.bytes[0] == 15);
+    assert(loadBookReaderSettingsFile("").readerSettings.twoToneTextAA == !global);
+
+    // A v14 book with custom darkness inherits the current AA quality.
+    data.readerSettingsOverrideMask = TEXT_DARKNESS_OVERRIDE;
+    data.readerSettings.textDarkness = 2;
+    assert(saveBookReaderSettingsFile("", data));
+    Storage.bytes[0] = 14;
+    Storage.bytes.pop_back();
+    auto old = loadBookReaderSettingsFile("");
+    assert(old.readerSettingsOverrideMask == TEXT_DARKNESS_OVERRIDE);
+    assert(old.readerSettings.twoToneTextAA == global);
+    assert(old.readerSettings.textDarkness == 2);
+  }
   for (uint8_t global : {0, 1, 2}) {
     globalSnapshot.textDarkness = global;
     for (uint8_t book : {0, 1, 2}) {
@@ -67,14 +91,14 @@ int main() {
       data.readerSettings.textDarkness = book;
       data.readerSettingsOverrideMask = TEXT_DARKNESS_OVERRIDE;
       assert(saveBookReaderSettingsFile("", data));
-      assert(Storage.bytes[0] == 14);
+      assert(Storage.bytes[0] == 15);
       auto loaded = loadBookReaderSettingsFile("");
       assert(loaded.readerSettings.textDarkness == book);
       assert(changedReaderSettingsMask(data.readerSettings, globalSnapshot) ==
              (book == global ? 0 : TEXT_DARKNESS_OVERRIDE));
       assert(!(loaded.readerSettingsOverrideMask & READER_LAYOUT_SETTING_OVERRIDES));
       // Version 13 fixture retains publisher-font override and inherits darkness.
-      Storage.bytes.pop_back();
+      Storage.bytes.resize(Storage.bytes.size() - 2);
       Storage.bytes[0] = 13;
       Storage.bytes[155] = 0x20; // bit 21
       Storage.bytes.back() = 2; // publisherFonts = All
@@ -128,6 +152,8 @@ int main() {
       assert(!(loaded.readerSettingsOverrideMask & IMAGE_GRAYSCALE_OVERRIDE));
       assert(!(loaded.readerSettingsOverrideMask & TEXT_DARKNESS_OVERRIDE));
       assert(loaded.readerSettings.textDarkness == 2);
+      assert(loaded.readerSettings.twoToneTextAA == globalSnapshot.twoToneTextAA);
+      assert(!(loaded.readerSettingsOverrideMask & TWO_TONE_TEXT_AA_OVERRIDE));
       assert(loaded.readerSettingsOverrideMask & SD_FONT_FAMILY_OVERRIDE);
       assert(std::strcmp(loaded.readerSettings.sdFontFamilyName, "OldFont") == 0);
       if (version == 9) {
@@ -147,7 +173,10 @@ int main() {
   data.readerSettingsOverrideMask = IMAGE_GRAYSCALE_OVERRIDE;
   assert(saveBookReaderSettingsFile("", data));
   const auto validBytes = Storage.bytes;
-  Storage.bytes.back() = 3; // Reject an out-of-range darkness value.
+  Storage.bytes.back() = 2; // Reject an out-of-range two-tone setting.
+  assert(!loadBookReaderSettingsFile("").hasCustomReaderSettings);
+  Storage.bytes = validBytes;
+  Storage.bytes[Storage.bytes.size() - 2] = 3; // Reject an out-of-range darkness value.
   assert(!loadBookReaderSettingsFile("").hasCustomReaderSettings);
   Storage.bytes = validBytes;
   Storage.bytes.pop_back(); // Truncated new byte must fall back safely.
@@ -176,7 +205,7 @@ void captureReaderSettings(EpubReaderActivity::ReaderSettingsSnapshot& out) { ou
         source.write_text(program)
         subprocess.run(['c++', '-std=c++20', '-Wall', '-Wextra', '-Wno-unused-const-variable', str(source), '-o', str(binary)], check=True)
         subprocess.run([str(binary)], check=True)
-    print('PASS: text darkness round trips, version 13 inheritance, grayscale overrides, inheritance, version 9/10 migrations, font preservation, truncated records')
+    print('PASS: two-tone AA round trips, version 14 inheritance, text darkness round trips, version 13 inheritance, grayscale overrides, inheritance, version 9/10 migrations, font preservation, truncated records')
 
 
 if __name__ == '__main__':

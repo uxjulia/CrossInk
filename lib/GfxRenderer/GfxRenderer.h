@@ -305,7 +305,8 @@ class GfxRenderer {
   // Dark Mode leaves their original polarity unchanged.
   void preserveImagePolarity(int x, int y, int width, int height) const;
   bool isDisplayInverted() const { return display.isInverted(); }
-  void setReaderRefresh(bool reading, bool textOnly = true) const;
+  enum class RefreshContent { Ui, Text, TwoToneText, Image };
+  void setReaderRefresh(RefreshContent content) const;
   bool supportsTextGrayscale() const;
   bool combinesGrayscaleBase() const;
   bool displayRetainedGrayscaleOverlay(int x, int y, int width, int height, bool restore = false) const;

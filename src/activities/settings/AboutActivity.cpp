@@ -260,7 +260,12 @@ void AboutActivity::provideRow(void* user, uint16_t index, fui::ListItem& item) 
       if (!s.simulated) kib(s.flashBytes);
       break;
     case Display:
-      if (s.displayController) item.subtitle = s.displayController;
+      if (s.displayController && s.displayPanel) {
+        snprintf(buf, size, "%s / %s", s.displayController, s.displayPanel);
+        item.subtitle = buf;
+      } else if (s.displayController || s.displayPanel) {
+        item.subtitle = s.displayController ? s.displayController : s.displayPanel;
+      }
       break;
     case Resolution:
       snprintf(buf, size, "%u x %u", s.width, s.height);

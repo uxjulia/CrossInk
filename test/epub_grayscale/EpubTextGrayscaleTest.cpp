@@ -607,7 +607,7 @@ TEST(ReaderRefreshScope, BufferOnlyCompositionLeavesRefreshPolicyAlone) {
   for (bool initial : {false, true}) {
     display.setReaderRefresh(initial);
     {
-      const ReaderUtils::ReaderRefreshScope bufferOnly(renderer, false);
+      const ReaderUtils::ReaderRefreshScope bufferOnly(renderer, GfxRenderer::RefreshContent::Image, false);
       EXPECT_EQ(display.readerRefresh, initial);
     }
     EXPECT_EQ(display.readerRefresh, initial);
@@ -626,7 +626,7 @@ TEST(ReaderRefreshScope, CombinedTextIsOptedInOnlyForTextPages) {
     EXPECT_TRUE(renderer.combinesGrayscaleBase());
   }
   {
-    const ReaderUtils::ReaderRefreshScope images(renderer, true, false);
+    const ReaderUtils::ReaderRefreshScope images(renderer, GfxRenderer::RefreshContent::Image);
     EXPECT_FALSE(display.readerRefresh);
     EXPECT_FALSE(renderer.combinesGrayscaleBase());
     EXPECT_TRUE(renderer.supportsTextGrayscale());
@@ -634,12 +634,28 @@ TEST(ReaderRefreshScope, CombinedTextIsOptedInOnlyForTextPages) {
   EXPECT_FALSE(display.readerRefresh);
 }
 
+TEST(ReaderRefreshScope, EegoUsesBothGraysForImagesAndOptionalText) {
+  using Scope = ReaderUtils::ReaderRefreshScope;
+  HalDisplay display(800, 480);
+  display.alwaysCombined = true;
+  GfxRenderer renderer(display);
+  for (auto content : {Scope::text(false), Scope::Content::Image, Scope::text(true)}) {
+    {
+      const Scope reading(renderer, content);
+      EXPECT_TRUE(display.readerRefresh);
+      EXPECT_EQ(display.fullTone, content != Scope::Content::Text);
+    }
+    EXPECT_FALSE(display.readerRefresh);
+    EXPECT_FALSE(display.fullTone);
+  }
+}
+
 TEST(ReaderRefreshScope, SeparatePanelsAndAllocationFallbackRetainReaderWaveform) {
   HalDisplay display(800, 480);
   GfxRenderer renderer(display);
   // Models Picco, C3, and Pro/Classic when the SDK's PSRAM allocation fails.
-  for (bool textOnly : {false, true}) {
-    const ReaderUtils::ReaderRefreshScope reading(renderer, true, textOnly);
+  for (auto content : {GfxRenderer::RefreshContent::Image, GfxRenderer::RefreshContent::Text}) {
+    const ReaderUtils::ReaderRefreshScope reading(renderer, content);
     EXPECT_TRUE(display.readerRefresh);
     EXPECT_FALSE(renderer.combinesGrayscaleBase());
     EXPECT_TRUE(renderer.supportsTextGrayscale());

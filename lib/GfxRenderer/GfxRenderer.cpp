@@ -3211,16 +3211,17 @@ size_t GfxRenderer::getBufferSize() const { return frameBufferSize; }
 // unused
 // void GfxRenderer::grayscaleRevert() const { display.grayscaleRevert(); }
 
-void GfxRenderer::setReaderRefresh(bool reading, bool textOnly) const {
+void GfxRenderer::setReaderRefresh(RefreshContent content) const {
 #ifndef SIMULATOR
-  display.setReaderRefresh(reading);
-  // The reader-only combined waveform merges AA into one gray level. Keep
-  // images/XTCH on their four-tone path; Picco's separate reader waveform stays on.
-  if (reading && !textOnly && combinesGrayscaleBase()) display.setReaderRefresh(false);
+  const bool image = content == RefreshContent::Image;
+  // Some drivers combine grayscale only in reader mode, collapsing one image shade.
+  // EEGO combines in both modes and uses the tone hint to keep both shades.
+  const bool checkReaderOnlyWaveform = image && !combinesGrayscaleBase();
+  display.setReaderRefresh(content != RefreshContent::Ui);
+  if (checkReaderOnlyWaveform && combinesGrayscaleBase()) display.setReaderRefresh(false);
+  display.setOverlayFullTone(image || content == RefreshContent::TwoToneText);
 #else
-  // The simulator has no physical panel waveforms.
-  (void)reading;
-  (void)textOnly;
+  (void)content;
 #endif
 }
 

@@ -9,6 +9,7 @@ struct Snapshot {
   const char* device = nullptr;
   const char* chip = nullptr;
   const char* displayController = nullptr;
+  const char* displayPanel = nullptr;
   const char* touchController = nullptr;
   const char* sdk = nullptr;
   uint32_t uptimeSeconds = 0;

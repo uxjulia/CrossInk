@@ -188,6 +188,8 @@ void HalDisplay::setReaderRefresh(bool reading) {
 #endif
 }
 
+void HalDisplay::setOverlayFullTone(bool fullTone) { einkDisplay.setOverlayFullTone(fullTone); }
+
 bool HalDisplay::displayRetainedGrayscaleOverlay(uint16_t x, uint16_t y, uint16_t width, uint16_t height,
                                                  bool restore) {
   HalSpiBus::Lock spiLock;
@@ -259,6 +261,8 @@ bool HalDisplay::shouldSkipImageBlanking() const {
 bool HalDisplay::supportsStripGrayscale() const { return einkDisplay.supportsStripGrayscale(); }
 
 const char* HalDisplay::getControllerName() const { return einkDisplay.getControllerName(); }
+
+const char* HalDisplay::getPanelName() const { return einkDisplay.getPanelName(); }
 
 uint16_t HalDisplay::getDisplayWidth() const { return einkDisplay.getDisplayWidth(); }
 
