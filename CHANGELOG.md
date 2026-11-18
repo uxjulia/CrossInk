@@ -55,6 +55,7 @@
 
 ### Fixed
 
+- Stop Picco app-only uploads if an expected extra flash image cannot be removed from the upload arguments, protecting the vendor boot area (CrossPoint #4510).
 - Reuse recently read EPUB CSS rules when memory is too low to retain the full stylesheet, reducing repeated SD reads during chapter layout.
 - Keep frequently drawn built-in text in the four compressed-font page slots when a page mixes more font styles or sizes; retain on-demand rendering for the remaining groups.
 - Reuse unchanged EPUB stylesheets stopped at the fixed rule limit instead of reparsing them on every reopen; temporary memory or read failures still retry.
