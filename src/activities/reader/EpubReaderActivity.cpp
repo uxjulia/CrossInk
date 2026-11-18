@@ -11,6 +11,7 @@
 #include <FontCacheManager.h>
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
+#include <HalDisplay.h>
 #include <HalPowerManager.h>
 #include <HalStorage.h>
 #if CROSSINK_SCALABLE_FONTS
@@ -97,6 +98,15 @@
 #include "util/ScreenshotUtil.h"
 
 namespace {
+// The caller owns RenderLock. The main-loop idle hook cannot acquire it while
+// a foreground reader build is running (CrossPoint #4524). Call only between
+// parser/build steps, after their storage locks have been released.
+void idleReaderDisplayDuringBuild() {
+#if FREEINK_DEVICE_EEGO_A4
+  display.controllerIdle();
+#endif
+}
+
 constexpr unsigned long TOUCH_DICTIONARY_LOOKUP_HOLD_MS = 1000;
 // pagesPerRefresh now comes from SETTINGS.getRefreshFrequency()
 constexpr unsigned long longPressMenuMs = 600;
@@ -6793,6 +6803,9 @@ void EpubReaderActivity::render(RenderLock&& lock) {
         SectionBuildOptions buildOptions{
             buildingFootnotePreview ? pendingFootnotePreviewAnchor.c_str() : nullptr,
             static_cast<uint16_t>(buildingFootnotePreview ? FOOTNOTE_PREVIEW_MAX_PAGES : 0)};
+#if FREEINK_DEVICE_EEGO_A4
+        buildOptions.onBuildCheckpoint = idleReaderDisplayDuringBuild;
+#endif
         if (pendingReferenceUnitOffset) {
           buildOptions.referenceUnitOffset = *pendingReferenceUnitOffset;
           buildOptions.referenceUnitCount = pendingReferenceUnitCount;
@@ -6866,6 +6879,7 @@ void EpubReaderActivity::render(RenderLock&& lock) {
                 if (buildPopupPending && millis() - buildStartMs >= BUILD_POPUP_DEADLINE_MS) {
                   showBuildPopup();
                 }
+                idleReaderDisplayDuringBuild();
                 if (!section->buildSomeMore(INTERACTIVE_BUILD_PAGES_PER_CHUNK)) {
                   LOG_ERR("ERS", "Failed during incremental section build");
                   buildFailed = true;
@@ -7192,6 +7206,7 @@ void EpubReaderActivity::render(RenderLock&& lock) {
           catchUpCancelled = true;
           return;
         }
+        idleReaderDisplayDuringBuild();
         if (!section->buildSomeMore(INTERACTIVE_BUILD_PAGES_PER_CHUNK)) {
           LOG_ERR("ERS", "Failed during incremental section build");
           catchUpFailed = true;
@@ -7206,6 +7221,7 @@ void EpubReaderActivity::render(RenderLock&& lock) {
           catchUpCancelled = true;
           return;
         }
+        idleReaderDisplayDuringBuild();
         if (!section->buildSomeMore(INTERACTIVE_BUILD_PAGES_PER_CHUNK)) {
           LOG_ERR("ERS", "Failed during incremental section build");
           catchUpFailed = true;

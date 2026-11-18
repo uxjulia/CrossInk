@@ -757,6 +757,7 @@ bool Section::createSectionFile(const ReaderRenderSpec& spec, const std::functio
       cancelled = true;
       break;
     }
+    if (buildOptions.onBuildCheckpoint) buildOptions.onBuildCheckpoint();
     const auto status = visitor.parseStep();
     if (status == ChapterHtmlSlimParser::ParseStatus::Error) {
       visitor.abortParse();
