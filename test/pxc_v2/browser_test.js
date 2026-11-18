@@ -29,3 +29,34 @@ const image = (inside) => ({ getAttribute: () => '', matches: (selector) => insi
 assert.deepEqual(crossInkPxcStyle(rules, image(true)), { width: '100px', height: '200px' });
 assert.deepEqual(crossInkPxcStyle(rules, image(false)), {});
 assert.deepEqual(crossInkPxcStyle(rules, { getAttribute: () => '', matches: () => { throw new Error('Invalid selector'); } }), {});
+
+vm.runInThisContext(source.slice(source.indexOf('function applyImageContrast('), source.indexOf('function applyGrayscale(')));
+// Reference tones from Inky desktop (Pillow RGB-to-L, 1% autocontrast, 1.2x contrast).
+function checkTones(samples) {
+  const pixels = [];
+  const expected = [];
+  for (const [rgb, count, tone] of samples) {
+    for (let i = 0; i < count; i++) {
+      pixels.push(...rgb, 255);
+      expected.push(tone, tone, tone, 255);
+    }
+  }
+  const actual = new Uint8ClampedArray(pixels);
+  applyImageContrast(actual);
+  assert.deepEqual(Array.from(actual), expected);
+}
+checkTones([[[191,191,191],4,0], [[200,200,200],50,22], [[215,215,215],92,96],
+            [[232,232,232],45,177], [[254,254,254],7,255], [[0,0,0],1,0], [[255,255,255],1,255]]);
+checkTones([[[64,126,98],1,98], [[150,156,129],1,155], [[200,57,75],1,96],
+            [[154,169,207],1,176], [[255,255,255],1,255], [[0,0,0],1,0]]);
+checkTones([[[191,191,191],100,191]]);
+
+vm.runInThisContext(source.slice(source.indexOf('function crossInkPxcLength('), source.indexOf('function crossInkPxcPathKey(')));
+for (const [width, height] of [[480, 800], [528, 792]]) {
+  globalThis.MAX_WIDTH = width;
+  globalThis.MAX_HEIGHT = height;
+  assert.deepEqual(crossInkPxcSize(width, 116, {width: '100%'}), {width, height: 116});
+  assert.equal(crossInkPxcSize(1, 1, {height: '50vw'}).height, width / 2);
+  assert.equal(crossInkPxcSize(1, 1, {height: '50%'}).height, height / 2);
+}
+console.log('Browser image contrast and portrait sizing tests passed');
