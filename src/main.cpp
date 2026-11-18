@@ -1142,7 +1142,15 @@ struct SleepChargeOverlay {
   HeapByteBuffer frame;
   Rect strip;
   bool monochrome = false;
-  bool painted = false;
+  int paintedPercent = -1;
+
+#if CROSSINK_BATTERY_DIAG_LOG
+  static void pollChargeComplete(void* context, const HalPowerManager::ChargerStatus& status) {
+    auto* overlay = static_cast<SleepChargeOverlay*>(context);
+    const int percent = overlay ? overlay->paintedPercent : -1;
+    BatteryDiagnosticLog::pollChargeComplete(BoardConfig::ACTIVE.name, &percent, &status);
+  }
+#endif
 
   static void draw(void* context, bool charging, uint16_t percent) {
     auto& overlay = *static_cast<SleepChargeOverlay*>(context);
@@ -1169,16 +1177,27 @@ struct SleepChargeOverlay {
     renderer.drawText(SMALL_FONT_ID, x + metrics.batteryWidth + BaseTheme::batteryPercentSpacing, textY, text);
     if (overlay.monochrome) {
       renderer.displayBuffer(HalDisplay::FAST_REFRESH);
-      overlay.painted = true;
+      overlay.paintedPercent = percent;
     } else {
       // Do not flatten grayscale frames when the retained overlay is unavailable.
-      overlay.painted = renderer.displayRetainedGrayscaleOverlay(overlay.strip.x, overlay.strip.y, overlay.strip.width,
-                                                                 overlay.strip.height) ||
-                        overlay.painted;
+      if (renderer.displayRetainedGrayscaleOverlay(overlay.strip.x, overlay.strip.y, overlay.strip.width,
+                                                   overlay.strip.height)) {
+        overlay.paintedPercent = percent;
+      }
     }
     memcpy(renderer.getFrameBuffer(), overlay.frame.get(), renderer.getBufferSize());
   }
 };
+
+static bool holdPiccoUsbSleep(SleepChargeOverlay* overlay = nullptr) {
+  auto draw = overlay ? SleepChargeOverlay::draw : nullptr;
+#if CROSSINK_BATTERY_DIAG_LOG
+  return powerManager.holdWhileUsbPowered(gpio, draw, overlay,
+                                          Storage.ready() ? SleepChargeOverlay::pollChargeComplete : nullptr);
+#else
+  return powerManager.holdWhileUsbPowered(gpio, draw, overlay);
+#endif
+}
 
 static bool holdSleepWhileUsbPowered(bool monochrome = false) {
   if (!gpio.isUsbConnected()) return false;
@@ -1194,11 +1213,11 @@ static bool holdSleepWhileUsbPowered(bool monochrome = false) {
       monochrome};
   if (!overlay.frame) {
     LOG_ERR("MAIN", "No PSRAM for sleep charge strip; retaining sleep image");
-    return powerManager.holdWhileUsbPowered(gpio);
+    return holdPiccoUsbSleep();
   }
   memcpy(overlay.frame.get(), renderer.getFrameBuffer(), renderer.getBufferSize());
-  const bool buttonPressed = powerManager.holdWhileUsbPowered(gpio, SleepChargeOverlay::draw, &overlay);
-  if (!buttonPressed && overlay.painted) {
+  const bool buttonPressed = holdPiccoUsbSleep(&overlay);
+  if (!buttonPressed && overlay.paintedPercent >= 0) {
     std::optional<RenderLock> lock;
     if (!RenderLock::heldByCurrentTask()) lock.emplace();
     if (overlay.monochrome) {
@@ -1264,13 +1283,21 @@ void enterDeepSleep(bool fromTimeout) {
   // Last chance to sample: startDeepSleep() cuts the SD rail on X3, so nothing
   // can be written again until the next wake.
   BatteryDiagnosticLog::record(BatteryDiagnosticLog::Event::Sleep, BoardConfig::ACTIVE.name);
-  // All sleep-time file writes are complete. Stop SDMMC before the power path
-  // cuts peripheral rails and isolates the bus pads. SPI boards flush metadata
-  // while keeping their mount until sleep cuts power.
   std::optional<RenderLock> storageSleepLock;
   if (!RenderLock::heldByCurrentTask()) storageSleepLock.emplace();
   libraryScanSleepToken.save(!library::libraryIndexNeedsRefresh());
-#ifdef SIMULATOR
+  // Flush and stop SDMMC before cutting rails or isolating the bus pads.
+#if FREEINK_DEVICE_PICCO && CROSSINK_BATTERY_DIAG_LOG
+  // Preserve writes before a potentially hours-long USB hold, then leave the
+  // card mounted for a charge-complete row until unplug or button wake.
+  const bool storageSynced = !Storage.ready() || !gpio.isUsbConnected() || Storage.syncFilesystem();
+  bool usbWakeRequested = false;
+  if (storageSynced) {
+    Frontlight.setOn(false);
+    usbWakeRequested = holdSleepWhileUsbPowered(monochromeSleepFrame);
+  }
+  const bool storageStopped = storageSynced && Storage.shutdown();
+#elif defined(SIMULATOR)
   const bool storageStopped = syncStorageBeforeTransition();
   if (storageStopped) Storage.shutdown();
 #else
@@ -1291,7 +1318,7 @@ void enterDeepSleep(bool fromTimeout) {
     return;
   }
 
-#if FREEINK_DEVICE_PICCO
+#if FREEINK_DEVICE_PICCO && !CROSSINK_BATTERY_DIAG_LOG
   // The I2C light retains its state through sleep. Keep the saved preference.
   Frontlight.setOn(false);
   const bool usbWakeRequested = holdSleepWhileUsbPowered(monochromeSleepFrame);
@@ -1521,10 +1548,23 @@ void setup() {
       // Keep the retained screen and use the normal USB sleep/wake path.
       Frontlight.begin(0, 0, false);
       putTiltSensorToSleepForDeepSleep();
-      if (powerManager.holdWhileUsbPowered(gpio)) {
-        piccoUsbWakeToken.arm();
-        ESP.restart();
-        return;
+#if CROSSINK_BATTERY_DIAG_LOG
+      // A cable-only boot reaches this sleep path before the normal SD mount.
+      if (!Storage.begin()) LOG_ERR("BATLOG", "SD unavailable during USB sleep");
+#endif
+      {
+        const bool buttonPressed = holdPiccoUsbSleep();
+#if CROSSINK_BATTERY_DIAG_LOG
+        if (Storage.ready() && !Storage.shutdown()) {
+          LOG_ERR("BATLOG", "USB sleep SD shutdown failed; continuing normal boot");
+          break;
+        }
+#endif
+        if (buttonPressed) {
+          piccoUsbWakeToken.arm();
+          ESP.restart();
+          return;
+        }
       }
 #endif
       powerManager.startDeepSleep(gpio);
@@ -2192,7 +2232,14 @@ void loop() {
         activityManager.requestUpdate();
       }
       lastBatteryPercent = percent;
+#if FREEINK_DEVICE_PICCO && CROSSINK_BATTERY_DIAG_LOG
+      BatteryDiagnosticLog::pollChargeComplete(BoardConfig::ACTIVE.name);
+#endif
     }
+#if FREEINK_DEVICE_PICCO && CROSSINK_BATTERY_DIAG_LOG
+  } else {
+    BatteryDiagnosticLog::noteUsbDisconnected();
+#endif
   }
 
   // Background delivery must not hold up text entry or wait for a screen

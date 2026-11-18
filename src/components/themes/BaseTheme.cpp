@@ -1,5 +1,9 @@
 #include "BaseTheme.h"
 
+#if FREEINK_DEVICE_PICCO && CROSSINK_BATTERY_DIAG_LOG
+#include "util/BatteryDiagnosticLog.h"
+#endif
+
 #include <FreeInkUIGfxRenderer.h>
 #include <GfxRenderer.h>
 #include <HalClock.h>
@@ -979,6 +983,10 @@ void BaseTheme::drawReaderStatusBar(const GfxRenderer& renderer, const ReaderSta
       snprintf(percent, sizeof(percent), "%u%%", static_cast<unsigned>(batteryPercentage));
       const bool showPercent = batteryPercent && allowedWidth >= metrics.batteryWidth + batteryPercentSpacing +
                                                                      renderer.getTextWidth(fontId, percent);
+#if FREEINK_DEVICE_PICCO && CROSSINK_BATTERY_DIAG_LOG
+      if (showPercent && !content.previewClock)
+        BatteryDiagnosticLog::noteDisplayPercent(batteryPercentage, textY + renderer.getLineHeight(fontId));
+#endif
       if (top && alignRight) {
         drawBatteryRight(
             renderer, Rect{x + allowedWidth - metrics.batteryWidth, textY, metrics.batteryWidth, metrics.batteryHeight},
@@ -1000,6 +1008,10 @@ void BaseTheme::drawReaderStatusBar(const GfxRenderer& renderer, const ReaderSta
       width = renderer.getTextWidth(fontId, value);
     }
     renderer.drawText(fontId, x + (alignRight ? allowedWidth - width : 0), textY, value, foregroundBlack);
+#if FREEINK_DEVICE_PICCO && CROSSINK_BATTERY_DIAG_LOG
+    if (item == ReaderStatusBarItem::Battery && clipped.empty() && !content.previewClock)
+      BatteryDiagnosticLog::noteDisplayPercent(batteryPercentage, textY + renderer.getLineHeight(fontId));
+#endif
   };
 
   constexpr int itemGap = 8;

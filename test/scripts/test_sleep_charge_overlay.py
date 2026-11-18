@@ -7,9 +7,10 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[2]
 source = (ROOT / "src/main.cpp").read_text()
 start = source.index("struct SleepChargeOverlay {")
-end = source.index("\n#endif", start)
+end = source.index("\n#endif\n\nvoid enterDeepSleep", start)
 production = source[start:end]
 harness = r'''
+
 #include <algorithm>
 #include <array>
 #include <cassert>
@@ -76,15 +77,25 @@ struct Theme {
   void drawBatteryLeft(Renderer& r, Rect, uint16_t) { assert(locked); r.frame[1] = 0; }
 } GUI;
 struct GPIO { bool isUsbConnected() { return usb; } } gpio;
+struct HalPowerManager { struct ChargerStatus {}; };
+#if CROSSINK_BATTERY_DIAG_LOG
+namespace BoardConfig { struct { const char* name = "picco"; } ACTIVE; }
+struct { bool ready() const { return true; } } Storage;
+#endif
+namespace BatteryDiagnosticLog {
+  std::vector<int> observed;
+  void pollChargeComplete(const char*, const int* painted, const HalPowerManager::ChargerStatus*) { observed.push_back(*painted); }
+}
 struct PowerManager {
-  bool holdWhileUsbPowered(GPIO&, void (*callback)(void*, bool, uint16_t) = nullptr, void* context = nullptr) {
+  bool holdWhileUsbPowered(GPIO&, void (*callback)(void*, bool, uint16_t) = nullptr, void* context = nullptr, void (*afterPoll)(void*, const HalPowerManager::ChargerStatus&) = nullptr) {
     assert(locked == callerOwnsLock);
-    if (callback) {
-      for (auto percent : {42, 43}) {
+    for (auto percent : {42, 43}) {
+      if (callback) {
         ++callbacks;
         callback(context, percent == 42, percent);
         assert(std::all_of(renderer.frame.begin(), renderer.frame.end(), [](auto b) { return b == 0xa5; }));
       }
+      if (afterPoll) afterPoll(context, {});
     }
     return wake;
   }
@@ -92,6 +103,7 @@ struct PowerManager {
 '''
 checks = r'''
 void reset() {
+  BatteryDiagnosticLog::observed.clear();
   renderer.frame.fill(0xa5);
   allocationFails = locked = wake = restoreFails = false;
   usb = retainedSupported = true;
@@ -103,6 +115,11 @@ int main() {
   assert(!holdSleepWhileUsbPowered());
   assert(callbacks == 2 && paints == 2 && restores == 1 && logs == 0 && !locked);
   assert(lockAcquisitions == 3 && bolts == 1);
+#if CROSSINK_BATTERY_DIAG_LOG
+  assert((BatteryDiagnosticLog::observed == std::vector<int>{42, 43}));
+#else
+  assert(BatteryDiagnosticLog::observed.empty());
+#endif
   // Sleep can be entered while ActivityManager already owns its non-recursive lock.
   // Both painting and restoring must preserve that ownership without reacquiring.
   reset(); callerOwnsLock = true;
@@ -125,9 +142,15 @@ int main() {
   reset(); retainedSupported = false;
   assert(!holdSleepWhileUsbPowered());
   assert(paints == 0 && restores == 0 && !locked);
+#if CROSSINK_BATTERY_DIAG_LOG
+  assert((BatteryDiagnosticLog::observed == std::vector<int>{-1, -1}));
+#endif
   reset(); allocationFails = true;
   assert(!holdSleepWhileUsbPowered());
   assert(callbacks == 0 && paints == 0 && logs == 1);
+#if CROSSINK_BATTERY_DIAG_LOG
+  assert((BatteryDiagnosticLog::observed == std::vector<int>{-1, -1}));
+#endif
   reset(); usb = false;
   assert(!holdSleepWhileUsbPowered());
   assert(callbacks == 0 && logs == 0);
@@ -146,9 +169,10 @@ with tempfile.TemporaryDirectory(prefix="sleep-charge-overlay-") as tmp:
     cpp = Path(tmp) / "test.cpp"
     cpp.write_text(harness + production + checks)
     exe = Path(tmp) / "test"
-    subprocess.run([os.environ.get("CXX", "c++"), "-std=c++20", "-Wall", "-Wextra",
-                    str(cpp), "-o", str(exe)], check=True)
-    subprocess.run([str(exe)], check=True)
+    for diagnostic in (0, 1):
+        subprocess.run([os.environ.get("CXX", "c++"), "-std=c++20", "-Wall", "-Wextra",
+                        f"-DCROSSINK_BATTERY_DIAG_LOG={diagnostic}", str(cpp), "-o", str(exe)], check=True)
+        subprocess.run([str(exe)], check=True)
 print("PASS: USB sleep overlay bounds, image preservation, unplug/wake, unsupported driver and OOM")
 
 power_source = (ROOT / "lib/hal/HalPowerManager.cpp").read_text()
@@ -189,9 +213,10 @@ void gpio_wakeup_disable(int) {}
 void gpio_set_intr_type(int, int type) { assert(type == GPIO_INTR_DISABLE); }
 void esp_sleep_disable_wakeup_source(int) {}
 struct HalPowerManager {
+  using ChargerStatus = BatteryMonitor::Status;
   static constexpr unsigned long BATTERY_POLL_MS = 30000;
   uint16_t getBatteryPercentage() const { ++batteryReads; return 42 + tick / 60000; }
-  bool holdWhileUsbPowered(HalGPIO&, void (*)(void*, bool, uint16_t) = nullptr, void* = nullptr) const;
+  bool holdWhileUsbPowered(HalGPIO&, void (*)(void*, bool, uint16_t) = nullptr, void* = nullptr, void (*)(void*, const ChargerStatus&) = nullptr) const;
 };
 void status(void* context, bool charging, uint16_t percent) {
   assert(context == &percentages);
@@ -223,6 +248,13 @@ int main() {
     assert((percentages == std::vector<uint16_t>{42, 42, 43}));
     assert((charges == std::vector<bool>{true, false, false}));
     assert((callbackTimes == std::vector<unsigned long>{0, 30000, 60000}));
+  }
+  for (bool lightSleep : {true, false}) {
+    reset(); interruptMaskWorks = lightSleep;
+    auto observe = [](void*, const BatteryMonitor::Status&) { callbackTimes.push_back(tick); };
+    assert(!power.holdWhileUsbPowered(gpio, nullptr, nullptr, observe));
+    assert((callbackTimes == std::vector<unsigned long>{0, 30000, 60000}));
+    assert(batteryReads == 0);
   }
   reset(); resumeCharging = true;
   assert(!power.holdWhileUsbPowered(gpio, status, &percentages));

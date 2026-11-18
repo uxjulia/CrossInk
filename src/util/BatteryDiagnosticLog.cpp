@@ -6,6 +6,7 @@
 #include <HalStorage.h>
 #include <Logging.h>
 
+#include <atomic>
 #include <cstdio>
 #include <cstring>
 
@@ -52,6 +53,8 @@ const char* eventName(const Event event) {
   switch (event) {
     case Event::Wake:
       return "wake";
+    case Event::ChargeComplete:
+      return "charge_complete";
     case Event::Sleep:
       return "sleep";
   }
@@ -147,19 +150,14 @@ bool prepareLogSchema() {
   return preserveLegacyLog(legacyVersion);
 }
 
-}  // namespace
-
-void record(const Event event, const char* const deviceName, const char* const wakeRoute) {
-  HalPowerManager::BatteryDiagnostics battery;
-  if (!powerManager.getBatteryDiagnostics(battery)) {
-    return;  // getBatteryDiagnostics() already logged the reason
-  }
-  if (!prepareLogSchema()) return;
+bool append(Event event, const char* deviceName, const char* wakeRoute,
+            const HalPowerManager::BatteryDiagnostics& battery, const int* painted = nullptr) {
+  if (!prepareLogSchema()) return false;
 
   HalFile file = Storage.open(LOG_PATH, O_WRONLY | O_CREAT | O_APPEND);
   if (!file) {
     LOG_ERR("BATLOG", "Failed to open %s for append", LOG_PATH);
-    return;
+    return false;
   }
 
   const size_t existingBytes = file.size();
@@ -172,7 +170,7 @@ void record(const Event event, const char* const deviceName, const char* const w
       capReported = true;
       LOG_ERR("BATLOG", "%s hit the %u byte cap; no longer appending", LOG_PATH, static_cast<unsigned>(MAX_LOG_BYTES));
     }
-    return;
+    return false;
   }
 
   bool ok = true;
@@ -193,7 +191,8 @@ void record(const Event event, const char* const deviceName, const char* const w
   formatText(version, sizeof(version), AppVersion::version());
 
   char extra[8][11];  // uint32 maximum plus terminator, including optional fields.
-  formatOptional(extra[0], sizeof(extra[0]), battery.displayedKnown, battery.displayedPercent);
+  const int displayed = painted ? *painted : (battery.displayedKnown ? static_cast<int>(battery.displayedPercent) : -1);
+  formatOptional(extra[0], sizeof(extra[0]), displayed >= 0, displayed);
   formatOptional(extra[1], sizeof(extra[1]), battery.externalPowerKnown, battery.externalPower);
   formatOptional(extra[2], sizeof(extra[2]), battery.chargeCompleteKnown, battery.chargeComplete);
   formatOptional(extra[3], sizeof(extra[3]), battery.chargerStatus >= 0, battery.chargerStatus);
@@ -210,7 +209,7 @@ void record(const Event event, const char* const deviceName, const char* const w
   if (rowLen <= 0 || static_cast<size_t>(rowLen) >= sizeof(row)) {
     file.close();
     LOG_ERR("BATLOG", "Battery sample did not fit the row buffer");
-    return;
+    return false;
   }
   if (ok) {
     ok = file.write(row, static_cast<size_t>(rowLen)) == static_cast<size_t>(rowLen);
@@ -224,7 +223,54 @@ void record(const Event event, const char* const deviceName, const char* const w
   if (!ok) {
     LOG_ERR("BATLOG", "Failed to append battery sample to %s", LOG_PATH);
   }
+  return ok;
 }
+
+#if FREEINK_DEVICE_PICCO
+bool completionLogged = false;
+struct DisplayReading {
+  int16_t percent = -1;
+  int16_t bottom = -1;
+};
+std::atomic<DisplayReading> frameReading{DisplayReading{}};
+std::atomic<DisplayReading> paintedReading{DisplayReading{}};
+#endif
+}  // namespace
+
+void record(const Event event, const char* deviceName, const char* wakeRoute) {
+  HalPowerManager::BatteryDiagnostics sample;
+  if (powerManager.getBatteryDiagnostics(sample)) append(event, deviceName, wakeRoute, sample);
+}
+
+#if FREEINK_DEVICE_PICCO
+void noteUsbDisconnected() { completionLogged = false; }
+
+void beginDisplayFrame() { frameReading.store(DisplayReading{}); }
+void noteDisplayPercent(uint16_t percent, int labelBottom) {
+  // If both bars show a percentage, keep the upper label, clear of bottom button hints.
+  const auto current = frameReading.load();
+  if (current.percent < 0 || labelBottom <= current.bottom)
+    frameReading.store({static_cast<int16_t>(percent), static_cast<int16_t>(labelBottom)});
+}
+void retainDisplayAbove(int popupTop) {
+  const auto previous = paintedReading.load();
+  if (previous.percent >= 0 && previous.bottom <= popupTop) frameReading.store(previous);
+}
+void finishDisplayFrame() { paintedReading.store(frameReading.load()); }
+
+void pollChargeComplete(const char* deviceName, const int* sleepDisplayPercent,
+                        const HalPowerManager::ChargerStatus* observed) {
+  HalPowerManager::BatteryDiagnostics sample;
+  if (!powerManager.getBatteryDiagnostics(sample, observed) || !sample.chargeCompleteKnown) return;
+  if (!sample.chargeComplete) {
+    completionLogged = false;
+    return;
+  }
+  if (completionLogged) return;
+  const int percent = sleepDisplayPercent ? *sleepDisplayPercent : paintedReading.load().percent;
+  completionLogged = append(Event::ChargeComplete, deviceName, nullptr, sample, &percent);
+}
+#endif
 
 }  // namespace BatteryDiagnosticLog
 

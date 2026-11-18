@@ -34,7 +34,10 @@
 // A displayed 100% is a voltage estimate; charge_done/state 4 separately records
 // the charger's actual completion signal, which can arrive later while topping off.
 // sample_age_ms is the age of that UI sample, including sleep on Picco; resumed marks successful
-// RTC restoration. Logging never advances the estimator or adds periodic writes.
+// RTC restoration. Picco logs charge_complete on the first observed charger completion
+// per charging cycle within a boot. On the USB sleep screen display_soc is the
+// last percentage painted by its overlay, or empty when it has not painted one.
+// Logging never advances the estimator or adds periodic writes.
 //
 // Enable with -DCROSSINK_BATTERY_DIAG_LOG=1. The debug environment carries a
 // commented opt-in flag; no shipping environment enables it. Firmware only -
@@ -49,6 +52,7 @@ namespace BatteryDiagnosticLog {
 enum class Event : uint8_t {
   Wake,  // any startup that reaches a mounted SD card, cold boot included
   Sleep,
+  ChargeComplete,
 };
 
 #if CROSSINK_BATTERY_DIAG_LOG
@@ -57,6 +61,17 @@ enum class Event : uint8_t {
 // deviceName is the runtime board profile name. wakeRoute applies only to a
 // Wake event; pass nullptr for Sleep.
 void record(Event event, const char* deviceName, const char* wakeRoute = nullptr);
+#if FREEINK_DEVICE_PICCO
+void noteUsbDisconnected();
+// Capture the foreground status bar during rendering and publish its value once the paint returns.
+void beginDisplayFrame();
+void noteDisplayPercent(uint16_t percent, int labelBottom);
+void retainDisplayAbove(int popupTop);
+void finishDisplayFrame();
+// Main-loop only. Omit sleepDisplayPercent while awake to use the last completed foreground render.
+void pollChargeComplete(const char* deviceName, const int* sleepDisplayPercent = nullptr,
+                        const HalPowerManager::ChargerStatus* observed = nullptr);
+#endif
 #else
 inline void record(Event, const char* = nullptr, const char* = nullptr) {}
 #endif

@@ -2138,7 +2138,14 @@ decoded content and are usable by the reader only after its book-open access che
 ## Optional battery diagnostic log (CSV v3)
 
 `/battery_log.csv` is enabled only with `CROSSINK_BATTERY_DIAG_LOG=1` and appends
-one row at the existing wake and sleep events. There are no periodic log writes.
+one row on wake and sleep. Picco also appends a `charge_complete` row when a
+USB poll first observes charger completion during a boot. It checks once a minute
+while awake and every 30 seconds on the USB sleep screen. A confirmed return to
+charging or a disconnect allows a later completion to be logged again. On the
+sleep screen, this row’s `display_soc` is the last percentage the overlay
+successfully painted. While awake it comes from the status bar in the last
+completed foreground render. The field is empty when that source has no
+numeric battery readout.
 The v3 header is:
 
 ```text

@@ -1,5 +1,9 @@
 #include "ActivityManager.h"
 
+#if FREEINK_DEVICE_PICCO && CROSSINK_BATTERY_DIAG_LOG
+#include "util/BatteryDiagnosticLog.h"
+#endif
+
 #include "activities/plugins/PluginCatalogActivity.h"
 
 #if CROSSINK_SCALABLE_FONTS
@@ -508,7 +512,13 @@ void ActivityManager::renderTaskLoop() {
       language_benchmark::beginFrame(currentActivity->name.c_str());
 #endif
       mappedInput.setMenuMode(currentActivity->usesMenuButtonOrientation());
+#if FREEINK_DEVICE_PICCO && CROSSINK_BATTERY_DIAG_LOG
+      BatteryDiagnosticLog::beginDisplayFrame();
+#endif
       currentActivity->render(std::move(lock));
+#if FREEINK_DEVICE_PICCO && CROSSINK_BATTERY_DIAG_LOG
+      BatteryDiagnosticLog::finishDisplayFrame();
+#endif
 #if defined(CROSSINK_LANGUAGE_BENCHMARK)
       language_benchmark::endFrame();
 #endif

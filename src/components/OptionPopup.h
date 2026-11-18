@@ -16,6 +16,10 @@
 #include "fontIds.h"
 #include "util/ButtonNavigator.h"
 
+#if FREEINK_DEVICE_PICCO && CROSSINK_BATTERY_DIAG_LOG
+#include "util/BatteryDiagnosticLog.h"
+#endif
+
 class OptionPopup {
  public:
 #ifdef SIMULATOR
@@ -330,6 +334,11 @@ class OptionPopup {
         confirmationMode && footerFocused ? tr(STR_SAVE) : tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
     GUI.drawButtonHints(renderer, popupLabels.btn1, popupLabels.btn2, popupLabels.btn3, popupLabels.btn4, true);
     render(renderer);
+#if FREEINK_DEVICE_PICCO && CROSSINK_BATTERY_DIAG_LOG
+    // The in-place popup and bottom hints leave the strip above the dialog on screen.
+    BatteryDiagnosticLog::retainDisplayAbove(getLayout(renderer).dialog.y -
+                                             UITheme::getInstance().getMetrics().popupFrameThickness);
+#endif
     renderer.displayBuffer();
     return true;
   }

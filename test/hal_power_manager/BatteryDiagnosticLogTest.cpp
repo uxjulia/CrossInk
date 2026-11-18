@@ -88,6 +88,92 @@ TEST_F(BatteryDiagnosticLogTest, ReportsFreshRawAndCachedDisplayWithoutAdvancing
   EXPECT_EQ(snapshot.displayedPercent, 98);
 }
 
+TEST_F(BatteryDiagnosticLogTest, LogsConfirmedCompletionWithThePaintedSleepPercentageOnce) {
+  using BatteryDiagnosticLog::pollChargeComplete;
+  BatteryDiagnosticLog::noteUsbDisconnected();
+  power_test::usbPowered = true;
+  power_test::percentage = 100;
+  int painted = 97;
+  pollChargeComplete("picco", &painted);
+  EXPECT_EQ(battery_log_test::writes, 0u);
+
+  power_test::chargeComplete = true;
+  power_test::chargerStatus = 26;
+  battery_log_test::failOpen = true;
+  pollChargeComplete("picco", &painted);
+  battery_log_test::failOpen = false;
+  pollChargeComplete("picco", &painted);
+  pollChargeComplete("picco");  // Changing from sleep to awake does not duplicate the row.
+  EXPECT_EQ(battery_log_test::writes, 2u);
+  const auto& text = battery_log_test::files["/battery_log.csv"];
+  const auto fields = split(text.substr(text.find('\n') + 1));
+  ASSERT_EQ(fields.size(), 19u);
+  EXPECT_EQ(fields[2], "100");
+  EXPECT_EQ(fields[5], "charge_complete");
+  EXPECT_EQ(fields[11], "97");
+  EXPECT_EQ(fields[13], "1");
+  EXPECT_EQ(fields[14], "26");
+
+  power_test::chargeComplete = false;  // A later top-off can complete on the same cable.
+  pollChargeComplete("picco");
+  power_test::chargeComplete = true;
+  painted = -1;
+  const auto next = text.size();
+  pollChargeComplete("picco", &painted);
+  ASSERT_GT(text.size(), next);
+  EXPECT_EQ(split(text.substr(next))[11], "");
+  BatteryDiagnosticLog::noteUsbDisconnected();
+  pollChargeComplete("picco");
+  EXPECT_EQ(battery_log_test::writes, 4u);
+}
+
+TEST_F(BatteryDiagnosticLogTest, AwakeCompletionUsesLastFinishedStatusBarRender) {
+  using namespace BatteryDiagnosticLog;
+  noteUsbDisconnected();
+  power_test::usbPowered = power_test::chargeComplete = true;
+  power_test::percentage = 100;
+  beginDisplayFrame();
+  noteDisplayPercent(97, 24);
+  finishDisplayFrame();
+  beginDisplayFrame();
+  noteDisplayPercent(100, 24);  // The newer status bar has not yet been presented.
+  pollChargeComplete("picco");
+  const auto& text = battery_log_test::files["/battery_log.csv"];
+  ASSERT_NE(text.find('\n'), std::string::npos);
+  EXPECT_EQ(split(text.substr(text.find('\n') + 1))[11], "97");
+  finishDisplayFrame();
+  noteUsbDisconnected();
+  auto popup = text.size();
+  beginDisplayFrame();
+  retainDisplayAbove(50);  // The popup leaves the entire label above it visible.
+  finishDisplayFrame();
+  pollChargeComplete("picco");
+  EXPECT_EQ(split(text.substr(popup))[11], "100");
+  noteUsbDisconnected();
+  beginDisplayFrame();
+  retainDisplayAbove(20);  // The popup covers the label.
+  finishDisplayFrame();
+  const auto next = text.size();
+  pollChargeComplete("picco");
+  EXPECT_EQ(split(text.substr(next))[11], "");
+}
+
+TEST_F(BatteryDiagnosticLogTest, UsesTheSleepPollThatTriggeredTheEvent) {
+  BatteryDiagnosticLog::noteUsbDisconnected();
+  HalPowerManager::ChargerStatus observed{};
+  observed.supported = observed.chargeCompleteKnown = observed.chargeComplete = true;
+  const int painted = 96;
+  const unsigned reads = power_test::gaugeReads;
+  BatteryDiagnosticLog::pollChargeComplete("picco", &painted, &observed);
+  ASSERT_EQ(battery_log_test::writes, 2u);
+  observed.chargeCompleteKnown = false;
+  BatteryDiagnosticLog::pollChargeComplete("picco", &painted, &observed);
+  observed.chargeCompleteKnown = true;
+  BatteryDiagnosticLog::pollChargeComplete("picco", &painted, &observed);
+  EXPECT_EQ(battery_log_test::writes, 2u);
+  EXPECT_EQ(power_test::gaugeReads, reads);
+}
+
 TEST_F(BatteryDiagnosticLogTest, RefusesUnknownHeadersAndFailedArchives) {
   battery_log_test::files["/battery_log.csv"] = "unknown header\n";
   record();
