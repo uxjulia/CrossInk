@@ -794,8 +794,8 @@ Rect BaseTheme::drawPopup(const GfxRenderer& renderer, const char* message, cons
     const size_t bytes = renderer.getRegionByteSize(backupX, backupY, backupW, backupH);
     if (bytes != 0) backdrop = makeUniqueNoThrow<uint8_t[]>(bytes);
     if (!backdrop || !renderer.copyRegionToBuffer(backupX, backupY, backupW, backupH, backdrop.get(), bytes)) {
-      LOG_ERR("GUI", "Unable to preserve loading popup backdrop");
-      return Rect{x, y, w, h};
+      LOG_ERR("GUI", "Unable to preserve popup backdrop");
+      return Rect{};
     }
   }
 

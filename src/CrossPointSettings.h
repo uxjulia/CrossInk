@@ -780,6 +780,10 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
 
   bool shortPowerPressWakes() const { return shortPwrBtn == SLEEP || shortPwrBtn == WAKE_ONLY; }
 
+  bool usesQuickResumeSleep(bool fromTimeout) const {
+    return sleepScreen == QUICK_RESUME || (fromTimeout && quickResumeSleepScreen == QUICK_RESUME_AFTER_TIMEOUT);
+  }
+
   bool shouldTrackReadingStats() const { return trackReadingStats != 0; }
   static const char* getDefaultDeviceName();
   const char* getEffectiveDeviceName() const;

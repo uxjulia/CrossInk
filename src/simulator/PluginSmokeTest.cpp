@@ -488,7 +488,11 @@ struct PluginCatalogSmokeTest {
                   "long-path session dropped");
           for (int i = 0; i < 5; ++i) pluginevents::emit(pluginevents::Event::ReaderOpen, vars, 2);
           pluginevents::emit(pluginevents::Event::ReaderExit, vars, 2);
-          pluginevents::prepareSleep("/Books/Fixture.txt", 25, true);
+          pluginevents::queueSleep("/Books/Fixture.txt", 25);
+          require(
+              Storage.readFileToString("TEST", outbox, 8192, after) && after.find("sleep.enter") != std::string::npos,
+              "sleep event missing before deferred delivery");
+          pluginevents::deliverSleepEvents();
           require(Storage.readFileToString("TEST", outbox, 8192, after) &&
                       after.find("sleep.enter") == std::string::npos &&
                       after.find("reader.open") != std::string::npos && after.find("reader.exit") == std::string::npos,

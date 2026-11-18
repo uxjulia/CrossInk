@@ -314,7 +314,8 @@ class BaseTheme {
                               const std::function<const char*(int index)>& buttonLabel,
                               const std::function<UIIcon(int index)>& rowIcon) const;
   // With preserveBackdrop, leave the popup on the display but restore the backing
-  // pixels for the next redraw. Caller must own RenderLock.
+  // pixels for the next redraw. An empty rect means preservation failed and the
+  // popup was skipped. Caller must own RenderLock.
   virtual Rect drawPopup(const GfxRenderer& renderer, const char* message, bool preserveBackdrop = false) const;
   virtual void drawOptionPopup(const GfxRenderer& renderer, const char* title, OptionLabels options, int selectedIndex,
                                bool showConfirmationFooter = false, const char* cancelLabel = nullptr,

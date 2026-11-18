@@ -9135,6 +9135,67 @@ class SimulatorSmokeTest {
     if (outgoingLoops || !outgoingExited || !activityManager.isCurrentActivityNamed("Sleep"))
       fail("Sleep dispatched outgoing input or skipped reader cleanup");
 
+    // Observe the actual framebuffer at reader exit, while saves would still
+    // be blocking on an SD card. Quick Resume should already be its final frame.
+    struct SleepFeedbackProbe final : Activity {
+      bool readerPage;
+      uint64_t& frameAtPreparation;
+      uint64_t& frameAtExit;
+      SleepFeedbackProbe(bool readerPage, uint64_t& frameAtPreparation, uint64_t& frameAtExit)
+          : Activity("SleepFeedbackProbe", ::renderer, mappedInputManager),
+            readerPage(readerPage),
+            frameAtPreparation(frameAtPreparation),
+            frameAtExit(frameAtExit) {}
+      void prepareForSleep() override {
+        frameAtPreparation = hashBytes(renderer.getFrameBuffer(), renderer.getBufferSize());
+        if (readerPage && SETTINGS.sleepScreen == CrossPointSettings::CUSTOM)
+          captureStatusBarScreen("custom-before-plugins");
+      }
+      bool canSnapshotForSleepOverlay() const override { return readerPage; }
+      void onExit() override {
+        frameAtExit = hashBytes(renderer.getFrameBuffer(), renderer.getBufferSize());
+        if (readerPage && SETTINGS.sleepScreen == CrossPointSettings::QUICK_RESUME)
+          captureStatusBarScreen("quick-resume-at-exit");
+        if (readerPage && SETTINGS.sleepScreen == CrossPointSettings::READING_STATS_SLEEP)
+          captureStatusBarScreen("stats-popup-at-exit");
+      }
+    };
+    SETTINGS.pluginsEnabled = 1;
+    for (const bool readerPage : {false, true}) {
+      APP_STATE.lastSleepFromReader = readerPage;
+      for (int mode = 0; mode < CrossPointSettings::SLEEP_SCREEN_MODE_COUNT; ++mode) {
+        SETTINGS.sleepScreen = mode;
+        uint64_t frameAtPreparation = 0;
+        uint64_t frameAtExit = 0;
+        activityManager.replaceActivity(
+            std::make_unique<SleepFeedbackProbe>(readerPage, frameAtPreparation, frameAtExit));
+        activityManager.loop();
+        uint64_t pageFrame;
+        {
+          RenderLock lock;
+          renderer.clearScreen();
+          renderer.drawText(UI_12_FONT_ID, 30, 40, "A page before sleep");
+          pageFrame = hashBytes(renderer.getFrameBuffer(), renderer.getBufferSize());
+        }
+        activityManager.goToSleep();
+        RenderLock lock;
+        const auto finalFrame = hashBytes(renderer.getFrameBuffer(), renderer.getBufferSize());
+        const bool quickResume = mode == CrossPointSettings::QUICK_RESUME;
+        const bool overlay = mode == CrossPointSettings::OVERLAY;
+        // Transient popups on retained screens restore their pixels in the draw buffer
+        // immediately after refreshing the panel. Other screens keep the popup until final paint.
+        const bool needsCleanBackdrop = overlay || (quickResume && !readerPage);
+        if (!frameAtPreparation || !frameAtExit || (frameAtPreparation == pageFrame) != needsCleanBackdrop)
+          fail("Wrong sleep feedback or damaged backdrop at plugin preparation");
+        if (readerPage && quickResume && (frameAtPreparation != frameAtExit || finalFrame != frameAtExit))
+          fail("Quick Resume must retain its first frame through reader exit");
+        if (mode == CrossPointSettings::READING_STATS_SLEEP &&
+            (frameAtPreparation != frameAtExit || finalFrame == frameAtExit))
+          fail("Reading Stats must paint after reader saves");
+        if (overlay && finalFrame != pageFrame) fail("Page Overlay retained the popup or lost its backdrop");
+      }
+    }
+
     SETTINGS.sleepScreen = CrossPointSettings::BLANK;
     if (!activityManager.goToSleep()) fail("Blank sleep frame was not reported as monochrome");
     RenderLock lock;
