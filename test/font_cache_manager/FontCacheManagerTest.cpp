@@ -210,9 +210,8 @@ TEST(FontCacheManagerTest, NoSlotContentionKeepsLegacyStylePreparationOrder) {
 TEST(FontCacheManagerTest, CompressedContentionPreservesNoncompressedStyleOrder) {
   EpdFontData data[5];
   for (auto& face : data) face.groups = reinterpret_cast<const void*>(1);
-  const std::map<int, EpdFontFamily> fonts{
-      {1, EpdFontFamily(&data[0], &data[1], &data[2], &data[3])},
-      {2, EpdFontFamily(&data[4], nullptr, nullptr, nullptr)}};
+  const std::map<int, EpdFontFamily> fonts{{1, EpdFontFamily(&data[0], &data[1], &data[2], &data[3])},
+                                           {2, EpdFontFamily(&data[4], nullptr, nullptr, nullptr)}};
   SdCardFont sd;
   const std::map<int, SdCardFont*> sdFonts{{3, &sd}};
   FontDecompressor decoder;
