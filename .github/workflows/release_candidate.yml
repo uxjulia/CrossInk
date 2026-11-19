@@ -90,14 +90,12 @@ jobs:
           echo "RC_BRANCH_SAFE=$branch_safe" >> "$GITHUB_ENV"
           echo "RC_HASH_SHORT=$hash_short" >> "$GITHUB_ENV"
           echo "RC_TAG=$rc_tag" >> "$GITHUB_ENV"
-          echo "VERSION=${branch_safe}-RC" >> "$GITHUB_ENV"
 
       - name: Set version from branch
         shell: bash
         run: |
-          VERSION="${RC_BRANCH_RAW}-RC"
-          escaped_version=$(printf '%s\n' "$VERSION" | sed 's/[&|]/\\&/g')
-          sed -i "/^\[crossink\]$/,/^\[/s|^version = .*|version = ${escaped_version}|" platformio.ini
+          # Use the ignored PlatformIO override so About reports the checkout's Git state.
+          printf '[crossink]\nversion = %s-RC\n' "$RC_BRANCH_RAW" > platformio.local.ini
 
       - name: Build CrossInk
         shell: bash
