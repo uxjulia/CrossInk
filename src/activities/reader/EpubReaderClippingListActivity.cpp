@@ -202,6 +202,11 @@ int EpubReaderClippingListActivity::getDetailPageCount() const {
   return std::max(1, static_cast<int>((detailLines.size() + detailLinesPerPage - 1) / detailLinesPerPage));
 }
 
+bool EpubReaderClippingListActivity::canDeleteFromDetail() const {
+  // The Previous hint is free on the first page, including single-page clippings.
+  return !mappedInput.hasTouchHardware() && detailPage == 0;
+}
+
 void EpubReaderClippingListActivity::closeDetail() {
   detailMode = false;
   detailPage = 0;
@@ -413,7 +418,9 @@ void EpubReaderClippingListActivity::loop() {
       }
     });
     buttonNavigator.onPreviousRelease([this] {
-      if (detailPage > 0) {
+      if (canDeleteFromDetail() && mappedInput.wasReleased(MappedInputManager::Button::Left)) {
+        showClippingActionMenu(false);
+      } else if (detailPage > 0) {
         detailPage--;
         requestUpdate();
       }
@@ -618,9 +625,9 @@ void EpubReaderClippingListActivity::renderDetail() {
   }
 #endif
 
-  const auto labels =
-      mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), tr(STR_OPEN), detailPage > 0 ? tr(STR_DIR_UP) : "",
-                            detailPage < detailPageCount - 1 ? tr(STR_DIR_DOWN) : "");
+  const char* previousLabel = canDeleteFromDetail() ? tr(STR_DELETE) : (detailPage > 0 ? tr(STR_DIR_UP) : "");
+  const auto labels = mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), tr(STR_OPEN), previousLabel,
+                                            detailPage < detailPageCount - 1 ? tr(STR_DIR_DOWN) : "");
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4, true);
 }
 

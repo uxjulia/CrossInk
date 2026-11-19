@@ -50,6 +50,7 @@ class EpubReaderClippingListActivity final : public Activity {
   int getDetailLinesPerPage() const;
   int getDetailPageCount() const;
   void deleteSelectedClipping();
+  bool canDeleteFromDetail() const;
   void closeDetail();
   void jumpToSelectedClipping();
   void openSelectedDetail();

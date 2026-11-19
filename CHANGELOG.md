@@ -2,6 +2,8 @@
 
 ### Added
 
+- Show a Delete button when opening a clipping on button-only readers (#936).
+
 ### Changed
 
 ### Fixed
@@ -43,6 +45,7 @@
 - Use a UI Fallback Font for missing menu and dialog characters, independently of the reading font.
 - Layer a transparent sleep image over the current book cover with Cover Overlay (CrossPoint #3770).
 - See hardware, display, firmware, FreeInk SDK revision, storage, and memory details in About. Export local support JSON with selected diagnostics and preferences. Optional EPUB overrides are anonymized, and identifiers, credentials, and reading history are excluded.
+- Show a Delete button when opening a clipping on button-only readers (#936).
 
 ### Changed
 
