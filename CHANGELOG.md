@@ -6,6 +6,8 @@
 
 ### Fixed
 
+- Stay in the selected chapter when following EPUB Contents links, including links to positions within a chapter.
+
 ## [v2.0.0] - 2026-11-19
 
 ### Added

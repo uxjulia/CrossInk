@@ -2313,6 +2313,50 @@ TEST_F(ChapterHtmlSlimParserTest, CssHiddenIdsDoNotBecomeAnchorsOrPageMarkers) {
   ChapterHtmlSlimParser::endElement(&parser, "p");
 }
 
+TEST_F(ChapterHtmlSlimParserTest, InlinePageBreakAnchorsResolveWithPublisherLabelsHidden) {
+  parser.renderMode = EpubRenderMode::Light;
+  renderer.textAdvancePerChar = 4;
+  parser.viewportWidth = 26;
+  parser.viewportHeight = renderer.getLineHeight(0);
+  parser.completePageFn = [](std::unique_ptr<Page>, uint16_t, uint16_t, uint32_t, uint32_t) {};
+  ChapterHtmlSlimParser::startElement(&parser, "p", nullptr);
+  ChapterHtmlSlimParser::characterData(&parser, "Before ", 7);
+  const XML_Char* boundary[] = {"id", "page42", "epub:type", "pagebreak", "title", "42", nullptr};
+  ChapterHtmlSlimParser::startElement(&parser, "span", boundary);
+  ChapterHtmlSlimParser::endElement(&parser, "span");
+  ChapterHtmlSlimParser::characterData(&parser, "Af", 2);
+  const XML_Char* withinWord[] = {"id", "page43", "role", "doc-pagebreak", "title", "43", nullptr};
+  ChapterHtmlSlimParser::startElement(&parser, "span", withinWord);
+  ChapterHtmlSlimParser::endElement(&parser, "span");
+  ChapterHtmlSlimParser::characterData(&parser, "ter", 3);
+  parser.flushPartWordBuffer();
+  EXPECT_EQ(parser.currentTextBlock->words, (std::deque<std::string>{"Before", "After"}));
+  parser.makePages();
+
+  EXPECT_EQ(parser.getAnchors(), (std::deque<std::pair<std::string, uint16_t>>{{"page42", 1}, {"page43", 1}}));
+  ASSERT_TRUE(parser.currentPage);
+  EXPECT_TRUE(parser.currentPage->publisherPageMarkers.empty());
+}
+
+TEST_F(ChapterHtmlSlimParserTest, StandalonePageBreakAnchorFollowsTheNextParagraph) {
+  parser.renderMode = EpubRenderMode::Light;
+  parser.viewportHeight = renderer.getLineHeight(0);
+  parser.completePageFn = [](std::unique_ptr<Page>, uint16_t, uint16_t, uint32_t, uint32_t) {};
+  ChapterHtmlSlimParser::startElement(&parser, "p", nullptr);
+  ChapterHtmlSlimParser::characterData(&parser, "Before", 6);
+  ChapterHtmlSlimParser::endElement(&parser, "p");
+
+  const XML_Char* marker[] = {"id", "page42", "epub:type", "pagebreak", nullptr};
+  ChapterHtmlSlimParser::startElement(&parser, "span", marker);
+  ChapterHtmlSlimParser::endElement(&parser, "span");
+  ChapterHtmlSlimParser::startElement(&parser, "p", nullptr);
+  ChapterHtmlSlimParser::characterData(&parser, "After", 5);
+  ChapterHtmlSlimParser::endElement(&parser, "p");
+  parser.makePages();
+
+  EXPECT_EQ(parser.getAnchors(), (std::deque<std::pair<std::string, uint16_t>>{{"page42", 1}}));
+}
+
 TEST_F(ChapterHtmlSlimParserTest, BorderedParagraphKeepsClosingPaddingAndMargin) {
   const XML_Char* attrs[] = {"style", "border:2px solid;padding-bottom:20px;margin-bottom:20px", nullptr};
   ChapterHtmlSlimParser::startElement(&parser, "p", attrs);

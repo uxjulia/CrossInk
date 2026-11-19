@@ -1042,30 +1042,37 @@ void ChapterHtmlSlimParser::stopPreviewIfPageLimitReached() {
   }
 }
 
-void ChapterHtmlSlimParser::addPendingPublisherPageMarker(const char* label) {
-  if (!label || label[0] == '\0' || tableDepth > 0) {
+void ChapterHtmlSlimParser::addPendingPublisherPageMarker(const char* label, const char* anchor) {
+  const bool hasLabel = label && label[0] != '\0';
+  const bool hasAnchor = anchor && anchor[0] != '\0' && strlen(anchor) < FOOTNOTE_HREF_LEN &&
+                         anchorData.size() + pendingPublisherPageMarkers.size() < MAX_ANCHORS_PER_CHAPTER;
+  if ((!hasLabel && !hasAnchor) || tableDepth > 0) {
     return;
   }
 
-  if (partWordBufferIndex > 0) {
+  if (hasLabel && partWordBufferIndex > 0) {
     flushPartWordBuffer();
   }
 
   PendingPublisherPageMarker marker;
-  marker.wordIndex = wordsExtractedInBlock + (currentTextBlock ? static_cast<int>(currentTextBlock->size()) : 0);
-  strncpy(marker.label, label, sizeof(marker.label) - 1);
-  marker.label[sizeof(marker.label) - 1] = '\0';
-  pendingPublisherPageMarkers.push_back(marker);
+  marker.wordIndex = wordsLaidOut + (currentTextBlock ? currentTextBlock->size() : 0);
+  if (hasLabel) strncpy(marker.label, label, sizeof(marker.label) - 1);
+  if (hasAnchor) marker.anchor = anchor;
+  pendingPublisherPageMarkers.push_back(std::move(marker));
 }
 
-void ChapterHtmlSlimParser::attachPendingPublisherPageMarkers(const int yPos) {
+void ChapterHtmlSlimParser::attachPendingPublisherPageMarkers(const int yPos, const bool includeLineEnd) {
   if (!currentPage || pendingPublisherPageMarkers.empty()) {
     return;
   }
 
   auto markerIt = pendingPublisherPageMarkers.begin();
-  while (markerIt != pendingPublisherPageMarkers.end() && markerIt->wordIndex <= wordsExtractedInBlock) {
+  while (markerIt != pendingPublisherPageMarkers.end() &&
+         (markerIt->wordIndex < wordsLaidOut || (includeLineEnd && markerIt->wordIndex == wordsLaidOut))) {
     currentPage->addPublisherPageMarker(markerIt->label, yPos);
+    if (!markerIt->anchor.empty() && anchorData.size() < MAX_ANCHORS_PER_CHAPTER) {
+      anchorData.emplace_back(std::move(markerIt->anchor), static_cast<uint16_t>(completedPageCount));
+    }
     ++markerIt;
   }
   pendingPublisherPageMarkers.erase(pendingPublisherPageMarkers.begin(), markerIt);
@@ -2412,14 +2419,12 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
     return;
   }
 
+  const bool isTocAnchor =
+      rawId && std::find(self->tocAnchors.begin(), self->tocAnchors.end(), rawId) != self->tocAnchors.end();
   if (rawId &&
       !(self->isPreviewBuild() && self->previewAnchorFound && strcmp(rawId, self->previewAnchor.c_str()) == 0)) {
-    const char* attrValue = rawId;
     // Defer both anchor recording and TOC page breaks until startNewTextBlock,
     // after the previous block is flushed to pages via makePages().
-    const char* idValue = attrValue;
-    const bool isTocAnchor =
-        std::find(self->tocAnchors.begin(), self->tocAnchors.end(), idValue) != self->tocAnchors.end();
     if (isTocAnchor || (!isNonNavigableInlineElement(name) && self->anchorData.size() < MAX_ANCHORS_PER_CHAPTER)) {
       // Flush displaced block anchors before overwriting. Keep dense inline <a id>
       // runs coalesced so converter-generated anchors do not churn heap in link-heavy chapters.
@@ -2427,7 +2432,7 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
       if (previousAnchorShouldBeRecorded && !self->pendingAnchorId.empty()) {
         self->flushPendingAnchor();
       }
-      self->pendingAnchorId = idValue;
+      self->pendingAnchorId = rawId;
       self->pendingAnchorFromInlineA = !isTocAnchor && strcmp(name, "a") == 0;
 
       // A chapter's TOC target is sometimes an empty inline <a id> tucked *inside* an
@@ -2450,13 +2455,18 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
   const bool isPublisherPageBreak =
       attributeContainsToken(roleAttr, "doc-pagebreak") || attributeContainsToken(epubTypeAttr, "pagebreak");
   if (isPublisherPageBreak) {
+    const char* markerLabel = nullptr;
     if (self->honorsPublisherDecorations()) {
-      const char* markerLabel = getAttribute(atts, "title");
+      markerLabel = getAttribute(atts, "title");
       if (!markerLabel || markerLabel[0] == '\0') {
         markerLabel = getAttribute(atts, "aria-label");
       }
-      self->addPendingPublisherPageMarker(markerLabel);
     }
+    // Inline page breaks can be linked from a page list. Use the page that
+    // lays out the marker even in modes that hide the publisher's label.
+    const char* markerAnchor =
+        isNonNavigableInlineElement(name) && !isTocAnchor && !self->isPreviewBuild() ? rawId : nullptr;
+    self->addPendingPublisherPageMarker(markerLabel, markerAnchor);
     self->skipCurrentElement();
     return;
   }
@@ -4915,6 +4925,7 @@ bool ChapterHtmlSlimParser::finishParse() {
     currentTextBlock.reset();
   }
   if (!previewStopRequested && currentPage && !currentPage->elements.empty()) {
+    attachPendingPublisherPageMarkers(currentPageNextY);
     completeCurrentPage();
     completedPageCount++;
     stopPreviewIfPageLimitReached();
@@ -5016,14 +5027,18 @@ void ChapterHtmlSlimParser::addLineToPage(std::shared_ptr<TextBlock> line, const
   }
 
   // Track cumulative words to retire links after laying out their final word.
-  wordsExtractedInBlock += line->wordCount() + lineImages.size();
+  const auto wordsOnLine = line->wordCount() + lineImages.size();
+  wordsExtractedInBlock += wordsOnLine;
+  wordsLaidOut += wordsOnLine;
   auto footnoteIt = pendingFootnotes.begin();
   while (footnoteIt != pendingFootnotes.end() && footnoteIt->first <= wordsExtractedInBlock) {
     currentPage->addFootnote(footnoteIt->second.number, footnoteIt->second.href, footnoteIt->second.linkId);
     ++footnoteIt;
   }
   pendingFootnotes.erase(pendingFootnotes.begin(), footnoteIt);
-  attachPendingPublisherPageMarkers(currentPageNextY);
+  // A marker after the last word on this line belongs with the following
+  // content, which may be in a different paragraph or on a different page.
+  attachPendingPublisherPageMarkers(currentPageNextY, /*includeLineEnd=*/false);
 
   // Apply horizontal left inset (margin + padding) as x position offset
   const int16_t xOffset = line->getBlockStyle().leftInset();
@@ -5130,8 +5145,6 @@ void ChapterHtmlSlimParser::makePages(const bool completeBlock) {
     }
     pendingFootnotes.clear();
   }
-  attachPendingPublisherPageMarkers(currentPageNextY);
-
   // Apply bottom spacing after the paragraph (stored in pixels)
   if (blockStyle.marginBottom > 0) {
     currentPageNextY += blockStyle.marginBottom;

@@ -1147,7 +1147,11 @@ body-only and built-in font identities stay unchanged. No binary payload changes
 
 ## `section.bin`
 
-### Version 115 (current development)
+### Version 116 (current development)
+
+The section anchor map includes inline publisher page breaks for Page List links. The binary layout matches version 115. Complete sections use version 116 and suspended sections use `0xE5`.
+
+### Version 115
 
 Ruled prose centers the regular ascender-to-baseline band between rules. The binary layout matches version 114. Complete sections use version 115 and suspended sections use `0xE4`.
 

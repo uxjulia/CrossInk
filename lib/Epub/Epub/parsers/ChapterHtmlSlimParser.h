@@ -309,9 +309,12 @@ class ChapterHtmlSlimParser {
   int wordsExtractedInBlock = 0;
 
   struct PendingPublisherPageMarker {
-    int wordIndex = 0;
+    uint32_t wordIndex = 0;
     char label[16] = {};
+    std::string anchor;
   };
+  // Markers can refer to the first word of the next paragraph.
+  uint32_t wordsLaidOut = 0;
   std::vector<PendingPublisherPageMarker> pendingPublisherPageMarkers;
 
   void updateEffectiveInlineStyle();
@@ -322,8 +325,8 @@ class ChapterHtmlSlimParser {
   bool startNewPage(const char* reason);
   void startNewTextBlock(const BlockStyle& blockStyle);
   void flushPendingAnchor();
-  void addPendingPublisherPageMarker(const char* label);
-  void attachPendingPublisherPageMarkers(int yPos);
+  void addPendingPublisherPageMarker(const char* label, const char* anchor);
+  void attachPendingPublisherPageMarkers(int yPos, bool includeLineEnd = true);
   void flushPartWordBuffer();
   void queueInlinePadding(const CssStyle& cssStyle);
   void flushLongTextRunIfNeeded(bool force = false, bool flushLastLine = false);

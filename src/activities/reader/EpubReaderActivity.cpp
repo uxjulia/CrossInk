@@ -8746,13 +8746,6 @@ bool EpubReaderActivity::isTocChapterDestination(const int targetSpineIndex, con
   return false;
 }
 
-bool EpubReaderActivity::shouldUseFootnotePreview(const int targetSpineIndex, const std::string& anchor) const {
-  if (!epub || anchor.empty() || targetSpineIndex < 0 || targetSpineIndex >= epub->getSpineItemsCount()) {
-    return false;
-  }
-  return targetSpineIndex != currentSpineIndex && !isTocChapterDestination(targetSpineIndex, anchor);
-}
-
 std::string EpubReaderActivity::footnotePreviewCacheSuffix(const EpubRenderMode renderMode,
                                                            const std::string& anchor) const {
   const uint64_t anchorHash = hashFootnotePreviewAnchor(anchor);
@@ -8796,35 +8789,28 @@ void EpubReaderActivity::navigateToHref(const std::string& hrefStr, const bool s
 
   clearPendingManualPageTurns();
 
-  // Internal links are collected with footnotes so their rendered words can
-  // be tapped. A destination declared in the book TOC is a chapter jump,
-  // though: it must replace the current chapter instead of opening a preview.
-  const bool chapterDestination = isTocChapterDestination(targetSpineIndex, anchor);
-  // A link clicked in a contents document is a chapter jump, not a footnote.
-  // Serialize its source scan with rendering: real SD cards allow only one
-  // reader, and ZIP inflation borrows the framebuffer's storage.
-  bool sourceScanSucceeded = true;
-  bool contentsNavigation = false;
-  if (chapterDestination) {
-    RenderLock lock(*this);
-    GfxRenderer::FrameBufferLoan loan(renderer);
-    contentsNavigation = epub->isNavigationDocumentSpine(currentSpineIndex, &sourceScanSucceeded);
-  }
-  if (!sourceScanSucceeded) {
-    LOG_ERR("ERS", "Could not inspect contents source for link: %s", hrefStr.c_str());
-  }
-  // Keep the return stack for an endnote that happens to point at a TOC
-  // chapter.
-  const bool saveReturnPosition = savePosition && !contentsNavigation;
-  if (saveReturnPosition) {
-    EpubLinkReturnState::push(savedPositions, footnoteDepth,
-                              {currentSpineIndex, section ? section->currentPage : nextPageNumber});
-  }
-
+  bool saveReturnPosition = savePosition;
   {
     RenderLock lock(*this);
-    const bool useFootnotePreview = saveReturnPosition && !chapterDestination && !anchor.empty() &&
-                                    (preferFootnotePreview || shouldUseFootnotePreview(targetSpineIndex, anchor));
+    if (savePosition) {
+      // Contents links can point at a place inside a chapter, including page-list
+      // anchors that are absent from the chapter list. Check the source first.
+      // The scan reads from SD and ZIP inflation can borrow the framebuffer.
+      GfxRenderer::FrameBufferLoan loan(renderer);
+      bool sourceScanSucceeded = false;
+      saveReturnPosition = !epub->isNavigationDocumentSpine(currentSpineIndex, &sourceScanSucceeded);
+      if (!sourceScanSucceeded) {
+        LOG_ERR("ERS", "Could not inspect contents source for link: %s", hrefStr.c_str());
+      }
+    }
+    if (saveReturnPosition) {
+      EpubLinkReturnState::push(savedPositions, footnoteDepth,
+                                {currentSpineIndex, section ? section->currentPage : nextPageNumber});
+    }
+
+    const bool useFootnotePreview = saveReturnPosition && !anchor.empty() &&
+                                    (preferFootnotePreview || targetSpineIndex != currentSpineIndex) &&
+                                    !isTocChapterDestination(targetSpineIndex, anchor);
     pendingAnchor = anchor;
     pendingFootnotePreviewAnchor = useFootnotePreview ? anchor : std::string{};
     activeFootnotePreview = false;
