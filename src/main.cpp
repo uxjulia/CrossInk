@@ -2246,6 +2246,8 @@ void loop() {
   mappedInputManager.clearDeferredHomeGesture();
 #endif
   const unsigned long activityDuration = millis() - activityStartTime;
+  // A blocking activity (for example an OPDS download) is not idle time.
+  lastActivityTime += activityDuration;
 
 #ifdef SIMULATOR
   runSimulatorSmokeTestTick();

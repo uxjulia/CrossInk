@@ -203,6 +203,7 @@
 - Preserve detail in pale EPUB artwork and use portrait dimensions consistently when optimizing images in the web uploader.
 - Keep ruled lines visible through saved EPUB clippings.
 - Restore EPUB drop caps when the publisher’s CSS class contains uppercase letters (discussion #962).
+- Keep the reader awake long enough to see the result of slow OPDS downloads.
 
 ### Changed
 
