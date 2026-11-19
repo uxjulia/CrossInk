@@ -166,6 +166,7 @@ class DictionaryWordSelectActivity final : public Activity {
   void performTouchSelectionAction(int action);
   void drawTouchSelection() const;
 #endif
+  bool applyWordHoldAction_ = false;
   bool touchDragLookup_ = false;
   bool touchDragHasMoved_ = false;
   int touchDragStartX_ = 0;

@@ -1100,7 +1100,7 @@ void DictionaryDefinitionActivity::extractWordsFromLayout() {
   navigator.load(std::move(words), std::move(rows), std::move(textPool));
 }
 
-void DictionaryDefinitionActivity::openDictionarySwitch() {
+void DictionaryDefinitionActivity::openDictionarySwitch(const std::string& displayedDictionary) {
   if (hasModalBackground()) {
     // Capture the exact frame currently on the panel before the picker covers
     // it. This is the hard lower bound for every replacement definition, even
@@ -1108,7 +1108,8 @@ void DictionaryDefinitionActivity::openDictionarySwitch() {
     modalSessionHeight_ = std::max(modalSessionHeight_, modalHeight_);
     LOG_DBG("DICT", "Dictionary switch retaining modal height=%d", modalSessionHeight_);
   }
-  auto picker = makeUniqueNoThrow<DictionarySelectActivity>(renderer, mappedInput, cachePath, true, true);
+  auto picker =
+      makeUniqueNoThrow<DictionarySelectActivity>(renderer, mappedInput, cachePath, true, true, displayedDictionary);
   if (!picker) {
     LOG_ERR("DICT", "OOM: DictionarySelectActivity");
     return;
@@ -1133,7 +1134,7 @@ void DictionaryDefinitionActivity::openDictionarySwitch() {
     Dictionary::setLookupDictPathOverride(selection->path.c_str());
     dictionaryName_ = dictionaryNameFromPath(selection->path);
     dictionarySwitchLookupInProgress = true;
-    controller.startLookup(headword, false);
+    controller.startLookup(headword, false, false);
   });
 }
 
@@ -1407,13 +1408,13 @@ void DictionaryDefinitionActivity::loop() {
   }
   if (showTouchDictionarySwitch() && mappedInput.wasScreenTapped(touchX, touchY) &&
       dictionarySwitchButtonContains(touchX, touchY)) {
-    openDictionarySwitch();
+    openDictionarySwitch(foundLocation.folderPath);
     return;
   }
 #endif
 
   if (showLookupButton && mappedInput.wasReleased(MappedInputManager::Button::Left)) {
-    openDictionarySwitch();
+    openDictionarySwitch(foundLocation.folderPath);
     return;
   }
 

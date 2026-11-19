@@ -20,21 +20,32 @@ static constexpr const char* DICT_ROOT_CANDIDATES[] = {
 };
 
 bool DictionaryRegistry::discover() {
+  if (!scan({}) || entries_.empty()) return false;
+  maybeAutoSelectDefaultDictionary();
+  return true;
+}
+
+bool DictionaryRegistry::scan(const DictLookupCallbacks& callbacks) {
   entries_.clear();
   entries_.reserve(16);
   root_.clear();
 
   char resolvedRoot[32];
-  const bool foundRoot = std::any_of(
-      DICT_ROOT_CANDIDATES, DICT_ROOT_CANDIDATES + (sizeof(DICT_ROOT_CANDIDATES) / sizeof(*DICT_ROOT_CANDIDATES)),
-      [&](const auto* candidate) {
-        return FsHelpers::resolveRootDirectoryIgnoreCase(candidate, resolvedRoot, sizeof(resolvedRoot));
-      });
-  if (foundRoot) root_ = resolvedRoot;
+  for (const auto* candidate : DICT_ROOT_CANDIDATES) {
+    bool failed = false;
+    if (FsHelpers::resolveRootDirectoryIgnoreCase(candidate, resolvedRoot, sizeof(resolvedRoot), &failed)) {
+      root_ = resolvedRoot;
+      break;
+    }
+    if (failed) {
+      LOG_ERR("DREG", "Could not search the SD root for %s", candidate);
+      return false;
+    }
+  }
 
   if (root_.empty()) {
     LOG_DBG("DREG", "No dictionary directory found on SD card");
-    return false;
+    return true;
   }
 
   auto rootDir = Storage.open(root_.c_str());
@@ -44,10 +55,16 @@ bool DictionaryRegistry::discover() {
     return false;
   }
 
+  bool complete = true;
   rootDir.rewindDirectory();
 
   char name[DICT_FILENAME_BUFFER_SIZE];
   for (auto entry = rootDir.openNextFile(); entry; entry = rootDir.openNextFile()) {
+    if (callbacks.shouldCancel && callbacks.shouldCancel(callbacks.ctx)) {
+      entry.close();
+      complete = false;
+      break;
+    }
     entry.getName(name, sizeof(name));
 
     if (!entry.isDirectory() || name[0] == '.') {
@@ -64,6 +81,7 @@ bool DictionaryRegistry::discover() {
     if (!subDir || !subDir.isDirectory()) {
       LOG_ERR("DREG", "Could not open dictionary folder: %s", subPath.c_str());
       if (subDir) subDir.close();
+      complete = false;
       continue;
     }
 
@@ -76,6 +94,12 @@ bool DictionaryRegistry::discover() {
     bool foundNestedDirectory = false;
     int ifoCount = 0;
     for (auto subEntry = subDir.openNextFile(); subEntry; subEntry = subDir.openNextFile()) {
+      if (callbacks.shouldCancel && callbacks.shouldCancel(callbacks.ctx)) {
+        subEntry.close();
+        subDir.close();
+        rootDir.close();
+        return false;
+      }
       subEntry.getName(subName, sizeof(subName));
 
       // Skip macOS metadata files (AppleDouble resource forks, .DS_Store)
@@ -105,6 +129,12 @@ bool DictionaryRegistry::discover() {
         subName[subLen - 4] = '\0';  // strip ".idx" to get stem
         strncpy(foundStem, subName, sizeof(foundStem) - 1);
       }
+    }
+    if (FsHelpers::directoryIterationFailed(subDir)) {
+      LOG_ERR("DREG", "Incomplete dictionary folder scan: %s", subPath.c_str());
+      subDir.close();
+      complete = false;
+      continue;
     }
     subDir.close();
 
@@ -137,6 +167,10 @@ bool DictionaryRegistry::discover() {
     }
   }
 
+  if (FsHelpers::directoryIterationFailed(rootDir)) {
+    LOG_ERR("DREG", "Incomplete dictionary directory scan: %s", root_.c_str());
+    complete = false;
+  }
   rootDir.close();
   LOG_DBG("DREG", "Discovery complete: %d dictionaries in %s", static_cast<int>(entries_.size()), root_.c_str());
 
@@ -154,9 +188,7 @@ bool DictionaryRegistry::discover() {
     return *s1 == '\0' && *s2 != '\0';
   });
 
-  maybeAutoSelectDefaultDictionary();
-
-  return !entries_.empty();
+  return complete;
 }
 
 void DictionaryRegistry::clear() {

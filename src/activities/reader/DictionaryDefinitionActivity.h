@@ -23,6 +23,7 @@ class DictionaryDefinitionActivity final : public Activity {
 #ifdef SIMULATOR
   friend struct ScreenCalibrationSmokeTest;
   friend struct DictionaryPagingSmokeTest;
+  friend struct ClippingSelectionSmokeTest;
 #endif
  public:
   bool usesMenuButtonOrientation() const override { return false; }
@@ -219,7 +220,7 @@ class DictionaryDefinitionActivity final : public Activity {
   void collectDefinitionAdvanceText(const char* text, EpdFontFamily::Style style);
   static void collectSpanForAdvances(void* ctx, const StyledSpan& span);
   void extractWordsFromLayout();
-  void openDictionarySwitch();
+  void openDictionarySwitch(const std::string& displayedDictionary = {});
 #if CROSSINK_APP_CAP_TOUCH
   bool showTouchDictionarySwitch() const;
   bool dictionarySwitchButtonContains(int x, int y) const;

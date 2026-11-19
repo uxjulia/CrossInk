@@ -15,7 +15,9 @@
 #include "Epub/ParsedText.h"
 #include "Epub/Section.h"
 #include "SdCardFontSystem.h"
+#include "SettingsList.h"
 #include "activities/ActivityManager.h"
+#include "activities/reader/DictionaryDefinitionActivity.h"
 #include "activities/reader/DictionaryWordSelectActivity.h"
 #include "activities/reader/EpubReaderActivity.h"
 
@@ -376,7 +378,9 @@ bool ClippingSelectionSmokeTest::tick() {
   static DictionaryClippingRequest savedCrossPageRequest;
   static DictionaryWordSelectActivity::ReaderPageLoadFn originalPageLoad = nullptr;
   static int x = 0, y = 0, initialIndex = 0;
+  static int holdX = 0, holdY = 0, synonymX = 0, synonymY = 0;
   static uint8_t dictionaryDefinitionWaitTicks = 0;
+  static int holdMode = 0;
   if (millis() - lastStep < 250 || RenderLock::peek()) return false;
   lastStep = millis();
   auto* reader = dynamic_cast<EpubReaderActivity*>(activityManager.simulatorCurrentActivity());
@@ -434,6 +438,23 @@ bool ClippingSelectionSmokeTest::tick() {
     case 22:
       selectWord();
       if (stage == 23) Dictionary::setLookupDictPathOverride("/dictionary-smoke/dict");
+      if (stage == 18) {
+        for (int i = 0; const auto* word = selection->navigator.getWordAt(i); ++i) {
+          const auto text = Dictionary::cleanWord(selection->navigator.getLookup(*word));
+          if (text != "the" && text != "bottom") continue;
+          const auto px = word->screenX + word->width / 2;
+          const auto py = word->screenY + word->heightOr(renderer.getLineHeight(SETTINGS.getReaderFontId())) / 2;
+          if (text == "the" && !holdX) {
+            holdX = px;
+            holdY = py;
+          }
+          if (text == "bottom") {
+            synonymX = px;
+            synonymY = py;
+          }
+        }
+        require(holdX > 0 && synonymX > 0, "Fixture has no fallback headword or synonym");
+      }
       break;
     case 2:
     case 6:
@@ -544,9 +565,114 @@ bool ClippingSelectionSmokeTest::tick() {
       actionsReady();
       press(TextSelectionOverlay::Rect{0, 0, 2, 2});
       break;
-    case 21:
+    case 21: {
       require(reader, "Outside tap did not dismiss selection");
+      // Install the fixtures after the checks for reading without a dictionary.
+      std::filesystem::create_directories("fs_/.dictionaries");
+      std::filesystem::copy("fs_/dictionary-smoke", "fs_/.dictionaries/Primary",
+                            std::filesystem::copy_options::recursive);
+      std::filesystem::copy("fs_/dictionary-smoke", "fs_/.dictionaries/Another",
+                            std::filesystem::copy_options::recursive);
+      std::filesystem::rename("fs_/Fallback", "fs_/.dictionaries/Fallback");
+      std::filesystem::copy("fs_/.dictionaries/Fallback", "fs_/.dictionaries/Zeta",
+                            std::filesystem::copy_options::recursive);
+      DictionaryRegistry registry;
+#ifndef _WIN32
+      // A dangling entry makes the POSIX simulator report an interrupted directory walk.
+      const auto broken = std::filesystem::path("fs_/.dictionaries/Another/broken");
+      std::filesystem::create_symlink("missing-file", broken);
+      require(!registry.scan({}), "Incomplete dictionary scan reported success");
+      std::filesystem::remove(broken);
+#endif
+      require(registry.discover() && registry.count() == 4, "Installed dictionaries were not discovered");
+      const auto rows = buildReaderSettingsParentList(getSettingsList(nullptr, &registry));
+      const auto choose = [&](StrId label, const char* name) {
+        const auto row =
+            std::find_if(rows.begin(), rows.end(), [label](const auto& entry) { return entry.nameId == label; });
+        require(row != rows.end(), "Missing dictionary picker");
+        const auto option = std::find(row->enumStringValues.begin(), row->enumStringValues.end(), name);
+        require(option != row->enumStringValues.end(), "Dictionary missing from picker");
+        const auto value = static_cast<uint8_t>(std::distance(row->enumStringValues.begin(), option));
+        row->valueSetter(value);
+        require(row->valueGetter() == value, "Dictionary selection did not persist");
+      };
+      choose(StrId::STR_DICTIONARY, "Primary");
+
+      stage = 82;
+      break;
+    }
+    case 82:
+      require(reader, "Long press did not return to reader");
+      SETTINGS.wordHoldAction = holdMode == 0   ? CrossPointSettings::WORD_HOLD_ASK
+                                : holdMode == 1 ? CrossPointSettings::WORD_HOLD_CLIP
+                                                : CrossPointSettings::WORD_HOLD_LOOKUP;
+      mappedInputManager.simulatorInjectTouchDown(holdX, holdY);
+      break;
+    case 83:
+      if (!selection) {
+        --stage;
+        break;
+      }
+      mappedInputManager.simulatorInjectTouchRelease(holdX, holdY);
+      break;
+    case 84:
+      if (holdMode == 0) {
+        actionsReady();
+        require(selection->touchLookupEnabled_, "Installed dictionary lookup disabled");
+        capture("word-hold-menu");
+        press(TextSelectionOverlay::Rect{0, 0, 2, 2});
+      } else if (holdMode == 1) {
+        if (!reader) {
+          --stage;
+          break;
+        }
+        require(CLIPPINGS.clippingCount() == initialCount + 3, "Direct clip did not save exactly once");
+        capture("word-hold-clip");
+        ++holdMode;
+        stage = 82;
+      } else {
+        auto* definition = dynamic_cast<DictionaryDefinitionActivity*>(activityManager.simulatorCurrentActivity());
+        if (!definition) {
+          if (holdMode >= 3 && selection && selection->controller.requiresBackgroundRedrawAfterOverlay())
+            mappedInputManager.simulatorInjectRelease(MappedInputManager::Button::Confirm);
+          --stage;
+          break;
+        }
+        const std::string expectedPrimary = holdMode == 4 ? "/.dictionaries/Zeta/dict" : "/.dictionaries/Primary/dict";
+        const std::string expectedSource = holdMode == 4 ? expectedPrimary : "/.dictionaries/Fallback/dict";
+        require(definition->foundLocation.folderPath == expectedSource && definition->headword == "the",
+                "Direct lookup did not open the fallback definition");
+        require(Dictionary::readConfiguredDictPath() == expectedPrimary, "Fallback changed the primary");
+        if (holdMode == 3)
+          require(definition->historyStatus == LookupHistory::Status::AltForm && definition->historyWord == "bottom",
+                  "Secondary alternate form was not resolved");
+        capture(holdMode == 4 ? "word-hold-primary" : holdMode == 3 ? "word-hold-synonym" : "word-hold-fallback");
+        mappedInputManager.simulatorInjectRelease(MappedInputManager::Button::Back);
+        stage = 86;
+      }
+      break;
+    case 85:
+      mappedInputManager.simulatorInjectTouchRelease(x, y);
+      ++holdMode;
+      stage = 82;
+      break;
+    case 86:
+      if (!reader) {
+        if (selection) mappedInputManager.simulatorInjectRelease(MappedInputManager::Button::Back);
+        --stage;
+        break;
+      }
+      if (holdMode == 2 || holdMode == 3) {
+        ++holdMode;
+        if (holdMode == 4) Dictionary::saveGlobalDictPath("/.dictionaries/Zeta/dict");
+        holdX = synonymX;
+        holdY = synonymY;
+        stage = 82;
+        break;
+      }
+
       reader->openWordSelect(false);
+      stage = 22;
       break;
     case 24:
       actionsReady();
@@ -725,6 +851,11 @@ bool ClippingSelectionSmokeTest::tick() {
     case 26:
     case 27: {
       const bool followedSuggestion = stage == 28;
+      if (selection && selection->controller.requiresBackgroundRedrawAfterOverlay()) {
+        mappedInputManager.simulatorInjectRelease(MappedInputManager::Button::Confirm);
+        --stage;
+        break;
+      }
       if (!followedSuggestion && activityManager.isCurrentActivityNamed("DictionarySuggestions")) {
         mappedInputManager.simulatorInjectRelease(MappedInputManager::Button::Confirm);
         break;
@@ -739,7 +870,7 @@ bool ClippingSelectionSmokeTest::tick() {
         --stage;
         break;
       }
-      require(CLIPPINGS.clippingCount() == initialCount + 2, "Other actions unexpectedly saved a clipping");
+      require(CLIPPINGS.clippingCount() == initialCount + 3, "Other actions unexpectedly saved a clipping");
       return true;
     }
   }

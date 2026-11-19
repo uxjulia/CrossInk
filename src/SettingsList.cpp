@@ -151,6 +151,11 @@ void forEachBaseSetting(SettingVisitor visitor, void* context) {
                         StrId::STR_CAT_READER));
 
   // --- Controls ---
+#if CROSSINK_APP_CAP_TOUCH
+  add(SettingInfo::Enum(StrId::STR_WORD_HOLD_ACTION, &CrossPointSettings::wordHoldAction,
+                        {StrId::STR_LOOKUP_SHORT, StrId::STR_CLIP, StrId::STR_ASK}, "wordHoldAction",
+                        StrId::STR_CAT_CONTROLS));
+#endif
   add(SettingInfo::Toggle(StrId::STR_PINCH_FONT_RESIZE, &CrossPointSettings::pinchFontResizeEnabled,
                           "pinchFontResizeEnabled", StrId::STR_CAT_CONTROLS));
   add(SettingInfo::Toggle(StrId::STR_TWO_FINGER_ROTATION, &CrossPointSettings::twoFingerRotationEnabled,

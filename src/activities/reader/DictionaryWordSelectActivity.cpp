@@ -217,6 +217,7 @@ bool DictionaryWordSelectActivity::buildWorkingSet(const bool consumeInitialConf
     }
     touchDragLookup_ = navigator.beginTouchMultiSelect();
     touchSelectionActive_ = touchDragLookup_;
+    applyWordHoldAction_ = touchDragLookup_;
     touchDragStartX_ = initialTouchX_;
     touchDragStartY_ = initialTouchY_;
   }
@@ -995,13 +996,14 @@ void DictionaryWordSelectActivity::openDictionarySwitch() {
       return;
     }
     Dictionary::setLookupDictPathOverride(selection->path.c_str());
-    controller.startLookup(controller.getLookupWord(), false);
+    controller.startLookup(controller.getLookupWord(), false, false);
   });
 }
 
 #if CROSSINK_APP_CAP_TOUCH
 void DictionaryWordSelectActivity::showTouchSelectionActions(std::string phrase, const size_t wordCount) {
   RenderLock lock(*this);
+  applyWordHoldAction_ = false;
   pendingTouchPhrase_ = std::move(phrase);
   pendingTouchWordCount_ = wordCount;
   touchDragLookup_ = false;
@@ -1114,9 +1116,20 @@ bool DictionaryWordSelectActivity::handleTouchSelection() {
     }
     touchDragLookup_ = false;
     touchPageEndIndex_ = -1;
+    const bool applyAction = applyWordHoldAction_ && !touchDragHasMoved_ && !hasCrossPageSelection_;
+    applyWordHoldAction_ = false;
     hasPendingClippingRequest_ = false;
     captureClippingRequest();
     touchLookupEnabled_ = Dictionary::exists(cachePath.c_str());
+    if (applyAction &&
+        ((SETTINGS.wordHoldAction == CrossPointSettings::WORD_HOLD_LOOKUP && touchLookupEnabled_) ||
+         (SETTINGS.wordHoldAction == CrossPointSettings::WORD_HOLD_CLIP && hasPendingClippingRequest_))) {
+      lock.unlock();
+      performTouchSelectionAction(SETTINGS.wordHoldAction == CrossPointSettings::WORD_HOLD_LOOKUP
+                                      ? TextSelectionOverlay::lookupAction
+                                      : TextSelectionOverlay::clipAction);
+      return true;
+    }
     forceFullRepaintOnNextRender();
     requestUpdate();
     return true;

@@ -14,12 +14,7 @@
 namespace FsHelpers {
 
 bool directoryIterationFailed(const HalFile& directory) {
-#ifdef SIMULATOR
-  // The host filesystem adapter cannot surface an SdFat read error.
-  return directory.allocationFailed();
-#else
   return directory.allocationFailed() || directory.iterationFailed();
-#endif
 }
 
 bool directoryCanBeEnumerated(const char* path) {
@@ -82,7 +77,9 @@ DirectoryEntryVisibility directoryEntryVisibility(const char* directoryPath, con
   return DirectoryEntryVisibility::Missing;
 }
 
-bool resolveRootDirectoryIgnoreCase(const char* expectedPath, char* resolvedPath, const size_t resolvedPathSize) {
+bool resolveRootDirectoryIgnoreCase(const char* expectedPath, char* resolvedPath, const size_t resolvedPathSize,
+                                    bool* iterationFailed) {
+  if (iterationFailed) *iterationFailed = false;
   if (!expectedPath || expectedPath[0] != '/' || expectedPath[1] == '\0' || strchr(expectedPath + 1, '/') ||
       !resolvedPath || resolvedPathSize == 0) {
     return false;
@@ -94,10 +91,16 @@ bool resolveRootDirectoryIgnoreCase(const char* expectedPath, char* resolvedPath
     exact.close();
     return written > 0 && static_cast<size_t>(written) < resolvedPathSize;
   }
+  const bool allocationFailed = exact.allocationFailed();
   exact.close();
+  if (allocationFailed && iterationFailed) {
+    *iterationFailed = true;
+    return false;
+  }
 
   HalFile root = Storage.open("/");
   if (!root || !root.isDirectory()) {
+    if (iterationFailed) *iterationFailed = true;
     root.close();
     return false;
   }
@@ -115,6 +118,7 @@ bool resolveRootDirectoryIgnoreCase(const char* expectedPath, char* resolvedPath
     return written > 0 && static_cast<size_t>(written) < resolvedPathSize;
   }
 
+  if (iterationFailed) *iterationFailed = directoryIterationFailed(root);
   root.close();
   return false;
 }

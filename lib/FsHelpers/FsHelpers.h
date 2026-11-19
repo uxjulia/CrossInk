@@ -26,7 +26,8 @@ DirectoryEntryVisibility directoryEntryVisibility(const char* directoryPath, con
 
 // Resolves a direct child of the SD-card root regardless of ASCII case and
 // writes its on-disk path to resolvedPath.
-bool resolveRootDirectoryIgnoreCase(const char* expectedPath, char* resolvedPath, size_t resolvedPathSize);
+bool resolveRootDirectoryIgnoreCase(const char* expectedPath, char* resolvedPath, size_t resolvedPathSize,
+                                    bool* iterationFailed = nullptr);
 
 std::string decodeUriEscapes(const std::string& path);
 

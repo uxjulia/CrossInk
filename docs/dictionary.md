@@ -65,9 +65,12 @@ The **Look Up Word** option in the reader menu is only visible when a dictionary
 
 ### Touchscreen
 
-In an EPUB reader with **Touch Reader Controls** enabled, touch and hold a
-word for about one second. CrossInk opens word selection on that word; lift
-your finger to show the floating **Look Up** and **Clip** toolbar.
+In an EPUB with the touchscreen enabled, touch and hold a
+word for about one second, then lift your finger to open its definition.
+Under **Settings > Controls > Taps & Gestures > Long-press Text**, choose
+**Clip** to save the word immediately or **Ask** to show the floating
+**Look Up** and **Clip** toolbar. Dragging across words opens the toolbar
+in all three modes.
 Drag either selection handle to adjust the highlighted range. To select a phrase,
 keep holding after selection opens, drag to the last word, then lift your
 finger. Hold on the page's final word for about one second to continue onto
@@ -91,9 +94,10 @@ When you select a word, the reader searches for it in this order:
 
 1. **Direct match** - the cleaned word is searched first, preserving pointed headwords, capitalization preference, and existing NFC normalization. If it is absent, Hebrew niqqud and cantillation marks and basic Arabic vowel marks (U+064B–U+0650, U+0652, U+0670) are removed from the query and it is retried. Arabic shaddah, hamza, and maddah remain significant. Exact pointed spellings win when both pointed and unpointed headwords exist. Dictionary indexes and their sort order are unchanged; this fallback does not merge differently pointed headwords.
 2. **Stemming** - the reader automatically tries common word forms (plurals, verb conjugations, comparatives). For example, "running" finds "run".
-3. **Alternate forms** - if the dictionary includes a synonym/alternate forms file and no match was found yet, a prompt appears. Press **Confirm** to search alternate forms, or **Back** to skip. Alternate forms also try the supplied spelling before the vowel-stripped fallback.
-4. **Suggestions** - if nothing matched, a list of similar words from the dictionary is shown. Select one to view its definition.
-5. **Not found** - if no matches or suggestions exist, a not-found message appears. Press **Back** to return to word-select, or **Confirm** to exit to the reader.
+3. **Other installed dictionaries** - if the selected dictionary has no match, CrossInk searches the remaining dictionaries one at a time in alphabetical order by folder name. The first match opens and its dictionary name appears below the definition. Using **Switch Dictionary** limits that lookup to the dictionary you choose.
+4. **Alternate forms** - if any searched dictionary includes a synonym file and no match was found, a prompt appears. Press **Confirm** to search alternate forms, or **Back** to skip. Alternate forms also try the supplied spelling before the vowel-stripped fallback.
+5. **Suggestions** - if nothing matched, a list of similar words from the dictionary is shown. Select one to view its definition.
+6. **Not found** - if no matches or suggestions exist, a not-found message appears. Press **Back** to return to word-select, or **Confirm** to exit to the reader.
 
 ---
 

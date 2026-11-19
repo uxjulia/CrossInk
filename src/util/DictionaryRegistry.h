@@ -4,6 +4,8 @@
 #include <string>
 #include <vector>
 
+struct DictLookupCallbacks;
+
 // One installed StarDict dictionary discovered on the SD card.
 struct DictionaryEntry {
   std::string name;      // folder name, e.g. "dict-en-en"
@@ -19,6 +21,8 @@ class DictionaryRegistry {
  public:
   // Scan the SD card, populate entries_ (sorted by folder name). Returns true if any found.
   bool discover();
+  // Read-only discovery for lookups. Returns true on a complete scan, including an empty catalog.
+  bool scan(const DictLookupCallbacks& callbacks);
   void clear();
 
   const std::vector<DictionaryEntry>& getEntries() const { return entries_; }
