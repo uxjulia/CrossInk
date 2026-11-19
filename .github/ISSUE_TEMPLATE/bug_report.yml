@@ -20,6 +20,8 @@ body:
         - X4 Pro
         - X4 Classic
         - Seeed Sticky
+        - Eego A4/A4 Lite
+        - BOOX Picco
     validations:
       required: true
 
