@@ -1,3 +1,11 @@
+## [Unreleased]
+
+### Added
+
+### Changed
+
+### Fixed
+
 ## [v2.0.0] - 2026-11-19
 
 ### Added
