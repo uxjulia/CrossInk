@@ -1972,6 +1972,20 @@ TEST_F(ChapterHtmlSlimParserTest, FirstLetterRulesDoNotStyleWholeParagraph) {
   EXPECT_EQ(parser.visibleTextOffset, 11u);
 }
 
+TEST_F(ChapterHtmlSlimParserTest, MixedCaseFirstLetterClassProducesDropCap) {
+  const char* cls = "x01-FM-Intro-CO";
+  ASSERT_TRUE(cssParser.processRuleBlockWithStyle("p.x01-FM-Intro-CO::first-letter",
+                                                  CssParser::parseInlineStyle("font-size: 2.6em; float: left")));
+  const XML_Char* attrs[] = {"class", cls, nullptr};
+  ChapterHtmlSlimParser::startElement(&parser, "p", attrs);
+  ChapterHtmlSlimParser::characterData(&parser, "The fact", 8);
+  parser.flushPartWordBuffer();
+  EXPECT_EQ(parser.dropCap.lines, 3);
+  EXPECT_STREQ(parser.dropCap.text, "T");
+  ASSERT_EQ(parser.currentTextBlock->words.size(), 2u);
+  EXPECT_EQ(parser.currentTextBlock->words.front(), "he");
+}
+
 TEST_F(ChapterHtmlSlimParserTest, OversizedDropCapSpanFallsBackWithoutLosingLetters) {
   ChapterHtmlSlimParser::startElement(&parser, "p", nullptr);
   const XML_Char* attrs[] = {"style", "float: left; font-size: 3em", nullptr};

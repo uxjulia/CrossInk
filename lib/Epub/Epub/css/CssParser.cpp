@@ -83,11 +83,10 @@ constexpr std::string_view trimCssWhitespace(std::string_view s) {
 
 constexpr char asciiToLower(const char c) { return (c >= 'A' && c <= 'Z') ? static_cast<char>(c + 32) : c; }
 
-// Case-insensitive equality on ASCII. lowercaseKeyword MUST already be
-// lowercase; CSS keywords are ASCII by spec so byte-wise tolower is safe.
-constexpr bool iequalsAscii(std::string_view value, std::string_view lowercaseKeyword) {
-  return std::equal(value.begin(), value.end(), lowercaseKeyword.begin(), lowercaseKeyword.end(),
-                    [](char a, char b) { return asciiToLower(a) == b; });
+// Both selector operands may come directly from the book and retain uppercase letters.
+constexpr bool iequalsAscii(std::string_view left, std::string_view right) {
+  return std::equal(left.begin(), left.end(), right.begin(), right.end(),
+                    [](char a, char b) { return asciiToLower(a) == asciiToLower(b); });
 }
 
 // Walk s and invoke fn(token) for each non-empty run between delimiters.
@@ -299,11 +298,7 @@ size_t CssParser::SvHash::operator()(CompositeKey k) const noexcept {
 }
 
 bool CssParser::SvEqual::operator()(std::string_view a, std::string_view b) const noexcept {
-  if (a.size() != b.size()) return false;
-  for (size_t i = 0; i < a.size(); ++i) {
-    if (asciiToLower(a[i]) != asciiToLower(b[i])) return false;
-  }
-  return true;
+  return iequalsAscii(a, b);
 }
 
 bool CssParser::SvEqual::operator()(const std::string& a, std::string_view b) const noexcept {

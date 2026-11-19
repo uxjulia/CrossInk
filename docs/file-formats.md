@@ -2268,3 +2268,9 @@ publication; partial marker writes cannot authorize reuse. Existing layouts rema
 unchanged during unchanged terminal reuse or a retry that is still transiently
 partial. Source/version invalidation rebuilds CSS and refreshes layouts under the
 existing invalid-cache policy. Progress files are unaffected.
+
+### CSS rules cache revision 24
+
+Mixed-case selectors now use the same comparison when merging and matching
+rules. Revision 24 rebuilds the rules and chapter layouts on book reopen so
+cached pages pick up the corrected styling. The binary format is unchanged.

@@ -224,8 +224,8 @@ TEST_F(CssArenaBackingTest, PublisherDecorationsAndContextSurviveAllCacheBacking
   for (int mode = 0; mode < 3; ++mode) {
     fakeheap::reset(mode != 0);
     const std::string text =
-        "section#chapter > p.note.wide { border: 2px dashed; background: #ddd; white-space: pre-wrap; } "
-        "p.note::first-letter { initial-letter: 3; float: left; }";
+        "section#Chapter > p.Note.Wide { border: 2px dashed; background: #ddd; white-space: pre-wrap; } "
+        "p.Note::first-letter { initial-letter: 3; float: left; }";
     Storage.put("input.css", {text.begin(), text.end()});
     FsFile file;
     ASSERT_TRUE(Storage.openFileForRead("test", "input.css", file));
@@ -236,12 +236,12 @@ TEST_F(CssArenaBackingTest, PublisherDecorationsAndContextSurviveAllCacheBacking
     css.clear();
     if (mode == 2) fakeheap::external.fail = 1;
     ASSERT_TRUE(css.loadFromCache());
-    auto style = css.resolveStyle("p", "wide note", {{0, "section", "", "chapter"}});
+    auto style = css.resolveStyle("p", "WIDE Note", {{0, "section", "", "Chapter"}});
     EXPECT_EQ(style.borders[0].width, 2);
     EXPECT_EQ(style.borders[0].style, CssBorderStyle::Dashed);
     EXPECT_TRUE(style.shaded);
     EXPECT_TRUE(style.preserveWhitespace);
-    auto cap = css.resolveStyle("p", "note", {}, {}, true);
+    auto cap = css.resolveStyle("p", "Note", {}, {}, true);
     EXPECT_EQ(cap.initialLetter, 3);
     EXPECT_TRUE(cap.floatLeft);
   }

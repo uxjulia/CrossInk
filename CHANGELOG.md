@@ -202,6 +202,7 @@
 - Show the Picco charging indicator and battery level on black-and-white sleep screens as well as supported grayscale covers; update it when charging stops or resumes, even if the percentage stays the same.
 - Preserve detail in pale EPUB artwork and use portrait dimensions consistently when optimizing images in the web uploader.
 - Keep ruled lines visible through saved EPUB clippings.
+- Restore EPUB drop caps when the publisher’s CSS class contains uppercase letters (discussion #962).
 
 ### Changed
 
