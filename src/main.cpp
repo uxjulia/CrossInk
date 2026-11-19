@@ -1914,7 +1914,7 @@ static bool handleSlideSwitch() {
       LOG_ERR("SWITCH", "Unknown slide switch action");
       return false;
   }
-  SETTINGS.saveToFile();
+  activityManager.persistGlobalSettings();
   activityManager.requestUpdate();
   return true;
 }
