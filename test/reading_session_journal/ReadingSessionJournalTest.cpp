@@ -5,6 +5,7 @@
 #include <set>
 
 #include "ReadingSessionJournal.h"
+#include "sync/SyncFiles.h"
 using namespace ReadingSessionJournal;
 class Journal : public ::testing::Test {
  protected:
@@ -172,18 +173,22 @@ TEST_F(Journal, FlushesShortAcceptedSessionsButKeepsBelowThresholdUnexported) {
 
 TEST_F(Journal, LaterCheckpointsRetainTheSessionIdAndCumulativeDuration) {
   Session s;
-  s.start(dt(), 48);
+  s.start(dt(), 48, 870);
   ASSERT_TRUE(s.accept("/book.epub", dt(12, 5), 48, 300));
   std::vector<Record> first;
   ASSERT_TRUE(uploadPending(collect, &first));
   ASSERT_EQ(first.size(), 1u);
-  s.start(dt(12, 5), 48);
+  s.start(dt(12, 5), 48, 0);
   ASSERT_TRUE(s.accept("/book.epub", dt(12, 10), 48, 300));
   std::vector<Record> second;
   ASSERT_TRUE(uploadPending(collect, &second));
   ASSERT_EQ(second.size(), 1u);
   EXPECT_STREQ(first[0].id, second[0].id);
   EXPECT_EQ(second[0].seconds, 600u);
+  EXPECT_EQ(first[0].startProgressPermille, 870);
+  EXPECT_EQ(first[0].endProgressPermille, 870);
+  EXPECT_EQ(second[0].startProgressPermille, 870);
+  EXPECT_EQ(second[0].endProgressPermille, 0);
   ASSERT_TRUE(s.flush());
   std::vector<Record> empty;
   ASSERT_TRUE(uploadPending(collect, &empty));
@@ -307,4 +312,19 @@ TEST_F(Journal, ExplicitFlushBypassesDeferralBeforeFiveMinutes) {
   ASSERT_TRUE(uploadPending(collect, &rows));
   ASSERT_EQ(rows.size(), 1u);
   EXPECT_EQ(rows[0].seconds, 20u);
+}
+
+TEST_F(Journal, LegacyRecordsUploadWithUnknownEndpoints) {
+  auto row = savedRecord(7);
+  const std::string dir = "/.crosspoint/reading_sessions";
+  ASSERT_TRUE(Storage.mkdir(dir.c_str()));
+  SyncFiles::Writer writer((dir + "/" + row.id + ".bin").c_str());
+  ASSERT_TRUE(writer.open() && writer.pod(uint8_t{1}) && writer.write(row.id, 32) && writer.write(row.document, 32) &&
+              writer.pod(row.startedAt) && writer.pod(row.endedAt) && writer.pod(row.seconds) &&
+              writer.pod(row.utcOffsetMinutes) && writer.commit());
+  std::vector<Record> rows;
+  ASSERT_TRUE(uploadPending(collect, &rows));
+  ASSERT_EQ(rows.size(), 1u);
+  EXPECT_EQ(rows[0].startProgressPermille, UNKNOWN_PROGRESS);
+  EXPECT_EQ(rows[0].endProgressPermille, UNKNOWN_PROGRESS);
 }

@@ -2303,18 +2303,27 @@ in the firmware's little-endian integer representation, without struct padding:
 
 | Field                                     | Bytes |
 | ----------------------------------------- | ----: |
-| Format version (1)                        |     1 |
+| Format version (1 or 2)                   |     1 |
 | Session ID, ASCII hex without terminator  |    32 |
 | Document ID, ASCII hex without terminator |    32 |
-| UTC start timestamp, seconds              |     8 |
-| UTC end timestamp, seconds                |     8 |
+| UTC start timestamp, seconds             |     8 |
+| UTC end timestamp, seconds               |     8 |
 | Cumulative active reading seconds         |     4 |
 | Signed UTC offset, minutes                |     2 |
+| Start progress, signed permille (v2 only) |     2 |
+| End progress, signed permille (v2 only)   |     2 |
 | CRC32 over preceding bytes                |     4 |
 
+Version 2 stores the displayed book progress of the first and last accepted reading intervals.
+Values range from 0 to 1000 (100%), or -1 when unavailable. The end may precede the start
+when reading backwards. A jump alone contributes no reading time. Version 1 has no endpoints.
+Session uploads include `start_progress_permille` and `end_progress_permille` as integers or JSON null.
+Older servers may acknowledge the session without storing its positions.
+
 Session IDs remain unchanged as checkpoints grow and across upload retries.
-Uploads use the existing stats credentials and privacy switches, with at most
-20 records per network pass. A specific `accepted_session_ids` acknowledgment is
+Uploads use the existing stats credentials and privacy switches. Manual stats sync
+drains the outbox. Sync on Sleep processes a bounded batch. A specific
+`accepted_session_ids` acknowledgment is
 required before deleting the local file and its recovery copies. An older server
 without `/api/v1/stats/sessions` leaves the outbox intact and does not invalidate
 support for the older stats endpoints. Corrupt/unreadable records and failed

@@ -255,6 +255,7 @@ class EpubReaderActivity final : public Activity {
   DeferredReadingStatsInterval deferredReadingStats;
   ReadingStatsSaveDelay statsSaveDelay;
   ReadingSessionJournal::Session readingSessionJournal;
+  int16_t renderedProgressPermille = ReadingSessionJournal::UNKNOWN_PROGRESS;
   uint32_t statsCheckpointRevision = 0;
   void startDailyReadingInterval();
   uint16_t lastAutoPageTurnIntervalSeconds = 0;
@@ -596,7 +597,7 @@ class EpubReaderActivity final : public Activity {
   void cancelSilentNextChapterPrefetchForForwardTurn();
   bool isAtBookStart() const;
   void pageTurn(RenderLock& lock, bool isForwardTurn, const char* source);
-  float getCurrentBookProgressPercent() const;
+  float getCurrentBookProgressPercent(float unavailable = 0.0f) const;
   // Caller holds RenderLock. Matches the status bar's chapter-group title.
   std::string currentChapterTitle() const;
   void initializeCompletionPromptTrigger();

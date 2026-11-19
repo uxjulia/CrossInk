@@ -6,6 +6,7 @@
 // An outbox alongside existing stats. Cumulative checkpoints keep one session
 // identity across retries; only explicit acknowledgment permits removal.
 namespace ReadingSessionJournal {
+constexpr int16_t UNKNOWN_PROGRESS = -1;
 struct Record {
   char id[33]{};
   char document[33]{};
@@ -13,6 +14,8 @@ struct Record {
   uint64_t endedAt = 0;
   uint32_t seconds = 0;
   int16_t utcOffsetMinutes = 0;
+  int16_t startProgressPermille = UNKNOWN_PROGRESS;
+  int16_t endProgressPermille = UNKNOWN_PROGRESS;
 };
 using Upload = bool (*)(void*, const Record&);
 bool uploadPending(Upload upload, void* context);
@@ -21,12 +24,14 @@ bool save(const Record& record);
 class Session {
   Record pending{};
   ReadingStatsDateTime intervalStart{};
+  int16_t intervalProgress = UNKNOWN_PROGRESS;
   uint8_t intervalOffset = 255;
   uint32_t checkpointSeconds = 0;
   uint32_t checkpointRevision = 0;
 
  public:
-  void start(const ReadingStatsDateTime& local, uint8_t offset) {
+  void start(const ReadingStatsDateTime& local, uint8_t offset, int16_t progressPermille = UNKNOWN_PROGRESS) {
+    intervalProgress = progressPermille;
     intervalStart = local;
     intervalOffset = offset;
   }

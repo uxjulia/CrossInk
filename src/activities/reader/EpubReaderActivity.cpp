@@ -1759,10 +1759,10 @@ bool EpubReaderActivity::resetBookReaderSettings(const std::string& filePath) {
   return true;
 }
 
-float EpubReaderActivity::getCurrentBookProgressPercent() const {
+float EpubReaderActivity::getCurrentBookProgressPercent(float unavailable) const {
   const int totalPages = section ? section->estimatedTotalPages() : 0;
   if (activeFootnotePreview || !epub || !section || totalPages == 0 || epub->getBookSize() == 0) {
-    return 0.0f;
+    return unavailable;
   }
 
   const float chapterProgress = static_cast<float>(section->currentPage) / static_cast<float>(totalPages);
@@ -7766,7 +7766,12 @@ void EpubReaderActivity::render(RenderLock&& lock) {
     if (heapShapeRedrawStages & HEAP_SHAPE_REDRAW_DICT) {
       MemoryBudget::logHeapShape("dict.reader_redrawn");
     }
-    if (!activeFootnotePreview) pluginEvents.rendered(static_cast<int>(getCurrentBookProgressPercent() * 100));
+    if (!activeFootnotePreview) {
+      const float percent = getCurrentBookProgressPercent(-1.0f);
+      renderedProgressPermille = percent >= 0.0f && percent <= 100.0f ? static_cast<int16_t>(percent * 10 + 0.5f)
+                                                                      : ReadingSessionJournal::UNKNOWN_PROGRESS;
+      pluginEvents.rendered(static_cast<int>(std::max(0.0f, percent) * 100));
+    }
     pageShownAtMs = activeFootnotePreview ? 0UL : millis();
     startDailyReadingInterval();
   }
@@ -9614,7 +9619,7 @@ void EpubReaderActivity::startDailyReadingInterval() {
   flushDeferredReadingStats(false);
   dailyReadingSession.start(local, SETTINGS.clockUtcOffsetQ);
   readingSessionDates.start(local, SETTINGS.clockUtcOffsetQ);
-  readingSessionJournal.start(local, SETTINGS.clockUtcOffsetQ);
+  readingSessionJournal.start(local, SETTINGS.clockUtcOffsetQ, renderedProgressPermille);
 }
 
 bool EpubReaderActivity::checkpointReadingStatsBeforeRestart() {

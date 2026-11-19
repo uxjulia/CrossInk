@@ -48,6 +48,7 @@ class XtcReaderActivity final : public Activity {
   DeferredReadingStatsInterval deferredReadingStats;
   ReadingStatsSaveDelay statsSaveDelay;
   ReadingSessionJournal::Session readingSessionJournal;
+  int16_t renderedProgressPermille = ReadingSessionJournal::UNKNOWN_PROGRESS;
   uint32_t statsCheckpointRevision = 0;
   void startDailyReadingInterval();
   BookReadingStats stats;

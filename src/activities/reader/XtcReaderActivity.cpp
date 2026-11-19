@@ -1425,6 +1425,13 @@ void XtcReaderActivity::renderStatusBarOverlay(const StatusBarOverlayPosition po
 }
 
 void XtcReaderActivity::renderPage(const uint32_t pageToRender) {
+  renderedProgressPermille = ReadingSessionJournal::UNKNOWN_PROGRESS;
+  const auto pageRendered = [&]() {
+    // render() checks the page bounds before entering renderPage().
+    const int basisPoints = static_cast<int>((pageToRender + 1ULL) * 10000 / xtc->getPageCount());
+    renderedProgressPermille = (basisPoints + 5) / 10;
+    pluginEvents.rendered(basisPoints);
+  };
   // Pre-rendered XTCH shades need the image waveform, not the text-only AA mode.
   const ReaderUtils::ReaderRefreshScope readerRefresh(renderer, GfxRenderer::RefreshContent::Image);
   const uint16_t pageWidth = xtc->getPageWidth();
@@ -1466,8 +1473,7 @@ void XtcReaderActivity::renderPage(const uint32_t pageToRender) {
           renderOverlays(false);
           return true;
         })) {
-      pluginEvents.rendered(xtc->getPageCount() ? static_cast<int>((pageToRender + 1ULL) * 10000 / xtc->getPageCount())
-                                                : 0);
+      pageRendered();
       return;
     }
 
@@ -1506,8 +1512,7 @@ void XtcReaderActivity::renderPage(const uint32_t pageToRender) {
     }
     renderOverlays(true);
     renderer.cleanupGrayscaleWithFrameBuffer();
-    pluginEvents.rendered(xtc->getPageCount() ? static_cast<int>((pageToRender + 1ULL) * 10000 / xtc->getPageCount())
-                                              : 0);
+    pageRendered();
     return;
   }
 
@@ -1570,8 +1575,7 @@ void XtcReaderActivity::renderPage(const uint32_t pageToRender) {
 
   // Display with appropriate refresh
   ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh);
-  pluginEvents.rendered(xtc->getPageCount() ? static_cast<int>((pageToRender + 1ULL) * 10000 / xtc->getPageCount())
-                                            : 0);
+  pageRendered();
 }
 
 bool XtcReaderActivity::saveProgress(const uint32_t page) {
@@ -1724,7 +1728,7 @@ void XtcReaderActivity::startDailyReadingInterval() {
   flushDeferredReadingStats(false);
   dailyReadingSession.start(local, SETTINGS.clockUtcOffsetQ);
   readingSessionDates.start(local, SETTINGS.clockUtcOffsetQ);
-  readingSessionJournal.start(local, SETTINGS.clockUtcOffsetQ);
+  readingSessionJournal.start(local, SETTINGS.clockUtcOffsetQ, renderedProgressPermille);
 }
 
 bool XtcReaderActivity::checkpointReadingStatsBeforeRestart() {

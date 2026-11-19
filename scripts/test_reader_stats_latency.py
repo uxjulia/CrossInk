@@ -47,7 +47,7 @@ struct IntervalSink {
   ReadingStatsDateTime begin, lastEnd;
   uint8_t offset=255,lastOffset=255;
   uint32_t accepted=0,rev=0;
-  void start(const ReadingStatsDateTime& t,uint8_t o){begin=t;offset=o;}
+  void start(const ReadingStatsDateTime& t,uint8_t o,int16_t = -1){begin=t;offset=o;}
   bool accept(const ReadingStatsDateTime& end,uint8_t o,uint32_t seconds,uint32_t,bool allowCheckpoint){
     assert(isValidReadingStatsInterval(begin,end,offset,o,seconds));
     lastEnd=end;lastOffset=o;accepted+=seconds;return !allowCheckpoint || checkpointIfDue();
@@ -86,6 +86,7 @@ struct Reader {
   Input mappedInput;
   Queue pendingManualPageTurns;
   bool shortcutPageTurnPending=false,shortcutPreviousPagePending=false;
+  int16_t renderedProgressPermille=-1;
   IntervalSink dailyReadingSession,readingSessionJournal;
   uint32_t sessionReadingSeconds=0,statsCheckpointRevision=0;
   unsigned long pageShownAtMs=1000;
@@ -171,7 +172,8 @@ for kind in ('Epub', 'Xtc'):
                                    'startDailyReadingInterval', 'checkpointReadingStatsWhenIdle'))
     render = method(source, f'void {kind}ReaderActivity::render(')
     # Execute the production early-return guard around a fake display operation.
-    guard = render[render.index('{')+1:render.index('  } flushStats{*this};')+len('  } flushStats{*this};')]
+    guard_end = '  } flushStats{*this};'
+    guard = render[render.index('  struct FlushStatsOnReturn {'):render.index(guard_end) + len(guard_end)]
     methods += 'void Reader::render(bool error){ RenderLock renderLock(*this);' + guard + r'''
       ++panelCalls;
       if(error)return;

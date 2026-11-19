@@ -8,6 +8,7 @@
 - Add an optional Dutch hyphenation pack for EPUBs (#970).
 - Add optional Sync on Sleep for EPUB progress, plus bookmarks, clippings, and reading sessions on compatible servers (CrossPoint #4531).
 - Download more EPUB hyphenation packs over Wi-Fi and install compatible community packs from an SD card.
+- Record and sync start and end book progress for EPUB and XTC reading sessions (#941).
 
 ### Changed
 

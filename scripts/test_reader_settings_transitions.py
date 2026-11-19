@@ -143,7 +143,7 @@ struct ReadingSessionDates {
   const Date& firstReadingDate() const { return first; }
 };
 struct ReadingSessionJournalStub {
-  void start(const ReadingStatsDateTime&, uint8_t) {}
+  void start(const ReadingStatsDateTime&, uint8_t, int16_t) {}
   bool accept(const char*, const ReadingStatsDateTime&, uint8_t, uint32_t, bool = true) { return true; }
   bool flush() { return true; }
   uint32_t revision() const { return 0; }
@@ -194,8 +194,6 @@ template <typename T, typename... Args> std::unique_ptr<T> makeUniqueNoThrow(Arg
   if (failChapterAllocation) return {};
   return std::make_unique<T>(std::forward<Args>(args)...);
 }
-constexpr int STR_NO_CHAPTERS = 0;
-const char* tr(int) { return "No chapters"; }
 void drawToast(Renderer&, const char*) {}
 void delay(unsigned long duration) { now += duration; }
 struct SyncPending { static constexpr uint8_t STATS_BIT = 1; };
@@ -210,6 +208,7 @@ struct ReaderState {
   ReadingSessionDates readingSessionDates;
   DeferredReadingStatsInterval deferredReadingStats;
   ReadingSessionJournalStub readingSessionJournal;
+  int16_t renderedProgressPermille = -1;
   uint32_t statsCheckpointRevision = 0;
   unsigned long pageShownAtMs = 1000;
   uint32_t sessionReadingSeconds = 111;
@@ -596,7 +595,12 @@ def main():
         source = Path(directory) / "transitions.cpp"
         binary = Path(directory) / "transitions"
         source.write_text(FIXTURES + methods + CASES)
-        subprocess.run(["c++", "-std=c++20", "-I" + str(ROOT / "src"),
+        (Path(directory) / "I18n.h").write_text(
+            "#pragma once\n"
+            "enum { STR_BOOK, STR_CHAPTER, STR_PAGES_SEPARATOR, STR_NO_CHAPTERS };\n"
+            'inline const char* tr(int) { return "translated"; }\n'
+        )
+        subprocess.run(["c++", "-std=c++20", "-I", directory, "-I", str(ROOT / "src"),
                         str(source), "-o", str(binary)], check=True)
         subprocess.run([str(binary)], check=True)
         subprocess.run([str(binary), "fonts"], check=True)

@@ -211,6 +211,8 @@ void verifyStatsUploadContract() {
         record.startedAt = 1609502400;
         record.endedAt = 1609503000;
         record.seconds = 600;
+        record.startProgressPermille = 870;
+        record.endProgressPermille = 0;
         require(ReadingSessionJournal::save(record), "step fixture session");
         if (strcmp(mode, "corrupt-session") == 0)
           require(Storage.writeFile((StatsStorage::localPath("/.crosspoint/reading_sessions", true) +

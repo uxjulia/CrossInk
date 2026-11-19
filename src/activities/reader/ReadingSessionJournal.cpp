@@ -19,7 +19,7 @@
 namespace ReadingSessionJournal {
 namespace {
 constexpr const char* DIRECTORY = "/.crosspoint/reading_sessions";
-constexpr uint8_t VERSION = 1;
+constexpr uint8_t VERSION = 2;
 
 bool hexId(const char* id) {
   if (strlen(id) != 32) return false;
@@ -30,7 +30,9 @@ bool hexId(const char* id) {
 bool valid(const Record& r) {
   return r.id[32] == 0 && r.document[32] == 0 && hexId(r.id) && hexId(r.document) && r.startedAt >= 946684800 &&
          r.endedAt >= r.startedAt && r.seconds >= 10 && r.endedAt - r.startedAt <= 7 * 86400 &&
-         r.seconds <= r.endedAt - r.startedAt && r.utcOffsetMinutes >= -720 && r.utcOffsetMinutes <= 840;
+         r.seconds <= r.endedAt - r.startedAt && r.utcOffsetMinutes >= -720 && r.utcOffsetMinutes <= 840 &&
+         r.startProgressPermille >= UNKNOWN_PROGRESS && r.startProgressPermille <= 1000 &&
+         r.endProgressPermille >= UNKNOWN_PROGRESS && r.endProgressPermille <= 1000;
 }
 void pathFor(char* out, size_t capacity, const std::string& directory, const char* id) {
   snprintf(out, capacity, "%s/%s.bin", directory.c_str(), id);
@@ -62,7 +64,8 @@ bool save(const Record& record) {
   // Field-by-field serialization avoids ABI-dependent padding in persisted data.
   return writer.open() && writer.pod(VERSION) && writer.write(record.id, 32) && writer.write(record.document, 32) &&
          writer.pod(record.startedAt) && writer.pod(record.endedAt) && writer.pod(record.seconds) &&
-         writer.pod(record.utcOffsetMinutes) && writer.commit();
+         writer.pod(record.utcOffsetMinutes) && writer.pod(record.startProgressPermille) &&
+         writer.pod(record.endProgressPermille) && writer.commit();
 }
 
 bool Session::checkpoint() {
@@ -98,7 +101,6 @@ bool Session::accept(const char* bookPath, const ReadingStatsDateTime& end, cons
   if (pending.seconds && (pending.utcOffsetMinutes != minutes || utcStart < pending.endedAt ||
                           utcStart > pending.endedAt + 2 || utcEnd - pending.startedAt > 86400)) {
     if (!flush()) return false;
-    pending = {};  // An isolated fragment below the provider's ten-second minimum.
   }
   if (!pending.seconds) {
     const std::string document = BookSyncFile::documentId(bookPath);
@@ -109,8 +111,10 @@ bool Session::accept(const char* bookPath, const ReadingStatsDateTime& end, cons
     memcpy(pending.document, document.c_str(), 33);
     for (size_t i = 0; i < 4; ++i) snprintf(pending.id + i * 8, 9, "%08lx", static_cast<unsigned long>(randomWord()));
     pending.startedAt = utcStart;
+    pending.startProgressPermille = intervalProgress;
     pending.utcOffsetMinutes = minutes;
   }
+  pending.endProgressPermille = intervalProgress;
   pending.endedAt = utcEnd;
   pending.seconds += seconds;
   return !allowCheckpoint || checkpointIfDue();
@@ -148,9 +152,11 @@ bool uploadPending(const Upload upload, void* context) {
     {
       SyncFiles::Reader reader(path);
       uint8_t version = 0;
-      loaded = reader.open() != SyncFiles::Reader::Source::None && reader.pod(version) && version == VERSION &&
-               reader.read(record.id, 32) && reader.read(record.document, 32) && reader.pod(record.startedAt) &&
-               reader.pod(record.endedAt) && reader.pod(record.seconds) && reader.pod(record.utcOffsetMinutes) &&
+      loaded = reader.open() != SyncFiles::Reader::Source::None && reader.pod(version) &&
+               (version == 1 || version == VERSION) && reader.read(record.id, 32) && reader.read(record.document, 32) &&
+               reader.pod(record.startedAt) && reader.pod(record.endedAt) && reader.pod(record.seconds) &&
+               reader.pod(record.utcOffsetMinutes) &&
+               (version == 1 || (reader.pod(record.startProgressPermille) && reader.pod(record.endProgressPermille))) &&
                reader.atEnd() && valid(record) && strcmp(record.id, name) == 0;
       reader.close();
     }

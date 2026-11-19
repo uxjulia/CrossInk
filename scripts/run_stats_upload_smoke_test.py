@@ -146,6 +146,11 @@ def local_tests(program):
         for mode in ("totals", "daily", "sessions", "corrupt-session", "streak", "empty-streak",
                      "old-streak-404", "old-streak-405", "missing-counters-404", "missing-counters-405", "ok"):
             run(program, url, {"username": "smoke", "password": "smoke-password"}, step=mode)
+            if mode == "sessions":
+                path, body = requests[-1]
+                assert path == "/api/v1/stats/sessions"
+                assert body["items"][0]["start_progress_permille"] == 870
+                assert body["items"][0]["end_progress_permille"] == 0
             print(f"PASS: all-time failed-step attribution: {mode}")
     finally:
         server.shutdown()

@@ -176,13 +176,25 @@ StatsUploadClient::Result uploadSessions(StatsUploadClient& client, char* payloa
           c.paused = true;
           return false;
         }
+        const auto progressText = [](char (&out)[5], int16_t value) {
+          if (value == ReadingSessionJournal::UNKNOWN_PROGRESS) {
+            strcpy(out, "null");
+          } else {
+            snprintf(out, sizeof(out), "%u", static_cast<unsigned>(value));
+          }
+        };
+        char start[5];
+        char end[5];
+        progressText(start, record.startProgressPermille);
+        progressText(end, record.endProgressPermille);
         const int n =
             snprintf(c.payload, c.capacity,
                      "{\"device_id\":\"%s\",\"items\":[{\"session_id\":\"%s\",\"document\":\"%s\","
-                     "\"started_at\":%llu,\"ended_at\":%llu,\"seconds\":%lu,\"utc_offset_minutes\":%d}]}",
+                     "\"started_at\":%llu,\"ended_at\":%llu,\"seconds\":%lu,\"utc_offset_minutes\":%d,"
+                     "\"start_progress_permille\":%s,\"end_progress_permille\":%s}]}",
                      c.deviceId, record.id, record.document, static_cast<unsigned long long>(record.startedAt),
                      static_cast<unsigned long long>(record.endedAt), static_cast<unsigned long>(record.seconds),
-                     int(record.utcOffsetMinutes));
+                     int(record.utcOffsetMinutes), start, end);
         if (n < 0 || size_t(n) >= c.capacity) {
           StatsUploadClient::lastHttpCode = 0;
           c.result = Result::InvalidResponse;
