@@ -710,6 +710,7 @@ ReaderSettingsDraft EpubReaderDrawerActivity::captureSettings() {
   value.textAntiAliasing = SETTINGS.textAntiAliasing;
   value.twoToneTextAA = SETTINGS.twoToneTextAA;
   value.textDarkness = SETTINGS.textDarkness;
+  value.ruledLines = SETTINGS.ruledLines;
   value.focusReadingEnabled = SETTINGS.focusReadingEnabled;
   value.guideReadingEnabled = SETTINGS.guideReadingEnabled;
   value.hyphenationEnabled = SETTINGS.hyphenationEnabled;
@@ -740,6 +741,7 @@ void EpubReaderDrawerActivity::applySettings(const ReaderSettingsDraft& value) {
   SETTINGS.textAntiAliasing = value.textAntiAliasing;
   SETTINGS.twoToneTextAA = value.twoToneTextAA;
   SETTINGS.textDarkness = value.textDarkness;
+  SETTINGS.ruledLines = value.ruledLines;
   SETTINGS.focusReadingEnabled = value.focusReadingEnabled;
   SETTINGS.guideReadingEnabled = value.guideReadingEnabled;
   SETTINGS.hyphenationEnabled = value.hyphenationEnabled;
@@ -1822,6 +1824,7 @@ void EpubReaderDrawerActivity::activateRow(const RowId row) {
       return;
     case RowId::FontSize:
     case RowId::TextDarkness:
+    case RowId::RuledLines:
     case RowId::DictionaryFontFamily:
     case RowId::DictionaryFontSize:
     case RowId::Orientation:
@@ -2056,6 +2059,12 @@ void EpubReaderDrawerActivity::showEnumOptions(const RowId row) {
   }
 
   switch (row) {
+    case RowId::RuledLines:
+      title = StrId::STR_RULED_LINES;
+      labels = {tr(STR_OFF), tr(STR_LIGHT), tr(STR_MEDIUM), tr(STR_DARK)};
+      raw = {0, 1, 2, 3};
+      currentRaw = draft.ruledLines;
+      break;
     case RowId::TextDarkness:
       title = StrId::STR_TEXT_DARKNESS;
       labels = {tr(STR_SENSITIVITY_NORMAL), tr(STR_DARK), tr(STR_DARKER)};
@@ -2181,24 +2190,12 @@ void EpubReaderDrawerActivity::notifyDictionaryFontChanged() {
 void EpubReaderDrawerActivity::selectEnumOption(const int index) {
   if (index < 0 || index >= static_cast<int>(enumOptionValues.size())) return;
   const uint8_t value = enumOptionValues[static_cast<size_t>(index)];
-  const bool previewsBeforeSelecting = enumOptionRow == RowId::FontSize || enumOptionRow == RowId::Alignment;
-  if (previewsBeforeSelecting && previewedEnumOptionIndex != index) {
-    previewedEnumOptionIndex = static_cast<int16_t>(index);
-    if (enumOptionRow == RowId::FontSize) {
-      fontPreviewLoading = ReaderUtils::shouldShowFontPreviewLoading(draft.sdFontFamilyName.data());
-      draft.readerFontPointSize = value;
-    } else {
-      draft.paragraphAlignment = value;
-    }
-    markSettingChanged(ReaderSettingsChangeMask::Preview | ReaderSettingsChangeMask::Relayout);
-    requestUpdate();
-    return;
-  }
+  const bool previewSelection = readerDrawerPreviewsEnum(enumOptionRow) && previewedEnumOptionIndex != index;
   switch (enumOptionRow) {
     case RowId::FontSize:
+      if (previewSelection)
+        fontPreviewLoading = ReaderUtils::shouldShowFontPreviewLoading(draft.sdFontFamilyName.data());
       draft.readerFontPointSize = value;
-      enumOptionSelectedIndex = static_cast<int16_t>(index);
-      previewedEnumOptionIndex = -1;
       markSettingChanged(ReaderSettingsChangeMask::Preview | ReaderSettingsChangeMask::Relayout);
       break;
     case RowId::Orientation:
@@ -2207,10 +2204,15 @@ void EpubReaderDrawerActivity::selectEnumOption(const int index) {
       break;
     case RowId::Alignment:
       draft.paragraphAlignment = value;
-      enumOptionSelectedIndex = static_cast<int16_t>(index);
-      previewedEnumOptionIndex = -1;
       markSettingChanged(ReaderSettingsChangeMask::Preview | ReaderSettingsChangeMask::Relayout);
       break;
+    case RowId::RuledLines: {
+      const bool reflow = (draft.ruledLines != 0) != (value != 0);
+      draft.ruledLines = value;
+      markSettingChanged(ReaderSettingsChangeMask::Preview |
+                         (reflow ? ReaderSettingsChangeMask::Relayout : ReaderSettingsChangeMask::NonLayout));
+      break;
+    }
     case RowId::TextDarkness:
       draft.textDarkness = value;
       markSettingChanged(ReaderSettingsChangeMask::Preview | ReaderSettingsChangeMask::NonLayout);
@@ -2281,6 +2283,13 @@ void EpubReaderDrawerActivity::selectEnumOption(const int index) {
     default:
       return;
   }
+  if (previewSelection) {
+    previewedEnumOptionIndex = static_cast<int16_t>(index);
+    requestUpdate();
+    return;
+  }
+  enumOptionSelectedIndex = static_cast<int16_t>(index);
+  previewedEnumOptionIndex = -1;
   state.pane = enumOptionReturnPane;
   state.paneTopIndex = 0;
   state.selectedIndex = 0;
@@ -2663,13 +2672,8 @@ void EpubReaderDrawerActivity::renderPreviewText(const ReaderSettingsDraft& prev
                             previewSettings.screenMarginHorizontal == sourceSettings.screenMarginHorizontal &&
                             previewSettings.paragraphAlignment == sourceSettings.paragraphAlignment &&
                             previewSettings.focusReadingEnabled == sourceSettings.focusReadingEnabled &&
+                            (previewSettings.ruledLines != 0) == (sourceSettings.ruledLines != 0) &&
                             previewSettings.guideReadingEnabled == sourceSettings.guideReadingEnabled;
-  if (sourceLayout && EpubReaderPreviewModel::RETAINS_SOURCE_BLOCKS) {
-    renderer.beginTextClip(safe.x, clipTop, safe.width, clipHeight);
-    previewModel->renderSource(renderer, previewFontId, ReaderUtils::readerForegroundBlack());
-    renderer.endTextClip();
-    return;
-  }
   int orientedTop, orientedRight, orientedBottom, orientedLeft;
   renderer.getOrientedViewableTRBL(&orientedTop, &orientedRight, &orientedBottom, &orientedLeft);
   (void)orientedBottom;
@@ -2680,12 +2684,21 @@ void EpubReaderDrawerActivity::renderPreviewText(const ReaderSettingsDraft& prev
   const int previewXOffset = orientedLeft + previewSettings.screenMarginHorizontal;
   const int previewWidth = std::max(1, renderer.getScreenWidth() - orientedLeft - orientedRight -
                                            static_cast<int>(previewSettings.screenMarginHorizontal) * 2);
+  if (sourceLayout && EpubReaderPreviewModel::RETAINS_SOURCE_BLOCKS) {
+    renderer.beginTextClip(safe.x, clipTop, safe.width, clipHeight);
+    const int left = previewModel->sourceLeft();
+    const ReaderRuling ruling{previewSettings.ruledLines, left, previewXOffset + previewWidth - left, clipBottom,
+                              previewSettings.lineHeightPercent};
+    previewModel->renderSource(renderer, previewFontId, ReaderUtils::readerForegroundBlack(), ruling);
+    renderer.endTextClip();
+    return;
+  }
   renderer.beginTextClip(safe.x, clipTop, safe.width, clipHeight);
   previewModel->renderText(
       renderer, previewFontId, previewXOffset, previewYOffset, previewWidth, previewSettings.lineHeightPercent,
       previewSettings.wordSpacing, previewSettings.paragraphAlignment, previewSettings.focusReadingEnabled,
       previewSettings.guideReadingEnabled, ReaderUtils::readerForegroundBlack(), std::numeric_limits<int>::max(),
-      CrossPointSettings::characterSpacingLevel(previewSettings.characterSpacing));
+      CrossPointSettings::characterSpacingLevel(previewSettings.characterSpacing), previewSettings.ruledLines);
   renderer.endTextClip();
 }
 
@@ -2709,7 +2722,7 @@ void EpubReaderDrawerActivity::renderSamplePreviewText(const ReaderSettingsDraft
                            settings.wordSpacing, settings.paragraphAlignment, settings.focusReadingEnabled,
                            settings.guideReadingEnabled, ReaderUtils::readerForegroundBlack(),
                            top + std::max(0, textHeight - marginY * 2),
-                           CrossPointSettings::characterSpacingLevel(settings.characterSpacing));
+                           CrossPointSettings::characterSpacingLevel(settings.characterSpacing), settings.ruledLines);
   renderer.endTextClip();
 }
 
@@ -3176,6 +3189,8 @@ const char* EpubReaderDrawerActivity::rowLabel(const RowId row) const {
       return tr(STR_DICTIONARY_FONT);
     case RowId::Spacing:
       return tr(STR_SPACING);
+    case RowId::RuledLines:
+      return tr(STR_RULED_LINES);
     case RowId::TextDarkness:
       return tr(STR_TEXT_DARKNESS);
     case RowId::TwoToneTextAa:
@@ -3332,6 +3347,10 @@ const char* EpubReaderDrawerActivity::rowValue(const RowId row, char* buffer, co
                                                                                            StrId::STR_BITTER};
       if (draft.fontFamily >= labels.size()) return tr(STR_UNAVAILABLE);
       return I18N.get(labels[draft.fontFamily]);
+    }
+    case RowId::RuledLines: {
+      static constexpr StrId labels[] = {StrId::STR_OFF, StrId::STR_LIGHT, StrId::STR_MEDIUM, StrId::STR_DARK};
+      return I18N.get(labels[draft.ruledLines <= 3 ? draft.ruledLines : 0]);
     }
     case RowId::TextDarkness:
       return draft.textDarkness == 2   ? tr(STR_DARKER)

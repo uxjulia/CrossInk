@@ -20,6 +20,7 @@ struct BlockStyle {
   uint16_t fontScale = 256;
   uint8_t fontSize = 0;
   uint16_t lineHeight = 0;
+  int16_t ruledTextOffset = 0;
 
   CssTextAlign alignment = CssTextAlign::Justify;
   // Layout-only source alignment, kept separately from the reader prose override.

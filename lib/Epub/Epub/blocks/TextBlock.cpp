@@ -325,13 +325,46 @@ int TextBlock::resolvedFontId(const GfxRenderer& renderer, const int fontId) con
 
 void TextBlock::render(const GfxRenderer& renderer, int fontId, const int x, const int y,
                        const bool foregroundBlack) const {
+  renderOrMeasure(renderer, fontId, x, y, foregroundBlack, nullptr);
+}
+
+RuledLineLayout TextBlock::ruledLayout(const GfxRenderer& renderer, int fontId, int requested) const {
+  RuledLineLayout::Ink ink;
+  renderOrMeasure(renderer, fontId, 0, 0, true, &ink);
+  const int baseFont = resolvedFontId(renderer, fontId);
+  int referenceFont = baseFont;
+  if (numWords && (wordSizesPresent || wordFamilies)) {
+    // An entire row can use an inline publisher face. Mixed runs share the
+    // paragraph baseline and use its regular face as their reference.
+    referenceFont = wordFontId(renderer, baseFont, 0);
+    for (uint16_t i = 1; i < numWords && referenceFont != baseFont; ++i) {
+      if (wordFontId(renderer, baseFont, i) != referenceFont) referenceFont = baseFont;
+    }
+  }
+  const int fontTop = baselineOffset(maxAscender(renderer, baseFont), renderer.getFontAscenderSize(referenceFont),
+                                     EpdFontFamily::REGULAR);
+  return RuledLineLayout::center(renderer, referenceFont, requested, ink, fontTop);
+}
+
+void TextBlock::renderOrMeasure(const GfxRenderer& renderer, int fontId, const int x, const int y,
+                                const bool foregroundBlack, RuledLineLayout::Ink* ink) const {
   if (!isValid) {
     LOG_ERR("TXB", "Render skipped: invalid block");
     return;
   }
 
-  const bool scanning = renderer.isFontCacheScanning();
-  const auto generation = scanning ? 0 : renderer.textCullGeneration();
+  const auto drawText = [&](int id, int left, int top, const char* text, bool black, EpdFontFamily::Style style,
+                            BidiUtils::BidiBaseDir dir, int8_t spacing) {
+    if (ink) {
+      const auto bounds = renderer.getTextVerticalBounds(id, text, style, dir, spacing);
+      ink->include(top + bounds.top, top + bounds.bottom);
+      ink->observeText(text);
+    } else {
+      renderer.drawText(id, left, top, text, black, style, dir, spacing);
+    }
+  };
+  const bool scanning = !ink && renderer.isFontCacheScanning();
+  const auto generation = scanning || ink ? 0 : renderer.textCullGeneration();
   const bool cached = generation && stripBoundsGeneration == generation && stripBoundsX == x && stripBoundsY == y &&
                       stripBoundsFont == fontId;
   const int stripTop = renderer.getWriteOriginY();
@@ -375,7 +408,10 @@ void TextBlock::render(const GfxRenderer& renderer, int fontId, const int x, con
       if (!scanning && (wordFlags(i) & WORD_FLAG_BACKGROUND_BLACK) != 0 && isWhitespaceOnlyBackgroundToken(word)) {
         const uint16_t backgroundWidth = measureBackgroundWidth(renderer, fontId, word, currentStyle, characterSpacing);
         if (backgroundWidth > 0) {
-          renderer.fillRect(wordX, y, backgroundWidth, renderer.getFontAscenderSize(fontId), true);
+          if (ink)
+            ink->include(y, y + renderer.getFontAscenderSize(fontId));
+          else
+            renderer.fillRect(wordX, y, backgroundWidth, renderer.getFontAscenderSize(fontId), true);
         }
       }
 
@@ -390,21 +426,19 @@ void TextBlock::render(const GfxRenderer& renderer, int fontId, const int x, con
         boldBuf[boldLen] = '\0';
         const int secondRunX = wordX + focusRunOffset(i);
         if (baseDir == BidiUtils::BidiBaseDir::RTL) {
-          renderer.drawText(fontId, wordX, wordY, word + boldLen, foregroundBlack, currentStyle, baseDir,
-                            characterSpacing);
-          renderer.drawText(fontId, secondRunX, wordY, boldBuf, foregroundBlack, boldStyle, baseDir, characterSpacing);
+          drawText(fontId, wordX, wordY, word + boldLen, foregroundBlack, currentStyle, baseDir, characterSpacing);
+          drawText(fontId, secondRunX, wordY, boldBuf, foregroundBlack, boldStyle, baseDir, characterSpacing);
         } else {
-          renderer.drawText(fontId, wordX, wordY, boldBuf, foregroundBlack, boldStyle, baseDir, characterSpacing);
-          renderer.drawText(fontId, secondRunX, wordY, word + boldLen, foregroundBlack, currentStyle, baseDir,
-                            characterSpacing);
+          drawText(fontId, wordX, wordY, boldBuf, foregroundBlack, boldStyle, baseDir, characterSpacing);
+          drawText(fontId, secondRunX, wordY, word + boldLen, foregroundBlack, currentStyle, baseDir, characterSpacing);
         }
       } else {
-        renderer.drawText(fontId, wordX, wordY, word, foregroundBlack, currentStyle, baseDir, characterSpacing);
+        drawText(fontId, wordX, wordY, word, foregroundBlack, currentStyle, baseDir, characterSpacing);
       }
 
       if (i < rubyTexts.size() && !rubyTexts[i].empty() && (currentStyle & EpdFontFamily::RUBY_CONTINUE) == 0) {
         int rubyX = wordX;
-        if (!scanning) {
+        if (!scanning && !ink) {
           uint16_t groupWords = 1;
           while (i + groupWords < numWords && (wordStyle(i + groupWords) & EpdFontFamily::RUBY_CONTINUE) != 0) {
             ++groupWords;
@@ -422,14 +456,14 @@ void TextBlock::render(const GfxRenderer& renderer, int fontId, const int x, con
         }
         // Scan coordinates are irrelevant. Still collect the ruby run with its
         // exact font/style without measuring (which can rasterize monochrome TTFs).
-        renderer.drawText(fontId, rubyX, wordY - ascender, rubyTexts[i].c_str(), foregroundBlack, EpdFontFamily::SUP,
-                          baseDir, characterSpacing);
+        drawText(fontId, rubyX, wordY - ascender, rubyTexts[i].c_str(), foregroundBlack, EpdFontFamily::SUP, baseDir,
+                 characterSpacing);
       }
 
       const uint16_t dotOffset = guideDotXOffset(i);
       if (dotOffset > 0) {
-        renderer.drawText(fontId, wordX + dotOffset, wordY, "\xc2\xb7", foregroundBlack, EpdFontFamily::REGULAR,
-                          baseDir, characterSpacing);
+        drawText(fontId, wordX + dotOffset, wordY, "\xc2\xb7", foregroundBlack, EpdFontFamily::REGULAR, baseDir,
+                 characterSpacing);
       }
 
       if (!scanning && (currentStyle & EpdFontFamily::UNDERLINE) != 0) {
@@ -460,7 +494,10 @@ void TextBlock::render(const GfxRenderer& renderer, int fontId, const int x, con
           }
         }
 
-        renderer.drawLine(startX, underlineY, underlineEndX, underlineY, 3, foregroundBlack);
+        if (ink)
+          ink->include(underlineY, underlineY + 3);
+        else
+          renderer.drawLine(startX, underlineY, underlineEndX, underlineY, 3, foregroundBlack);
       }
 
       if (!scanning && (currentStyle & EpdFontFamily::STRIKETHROUGH) != 0) {
@@ -501,7 +538,10 @@ void TextBlock::render(const GfxRenderer& renderer, int fontId, const int x, con
           }
         }
 
-        renderer.drawLine(startX, strikeY, strikeEndX, strikeY, 3, foregroundBlack);
+        if (ink)
+          ink->include(strikeY, strikeY + 3);
+        else
+          renderer.drawLine(startX, strikeY, strikeEndX, strikeY, 3, foregroundBlack);
       }
     }
     if (collectBounds) {
@@ -571,7 +611,8 @@ bool TextBlock::serialize(Print& file) const {
          serialization::tryWritePod(file, blockStyle.isRtl) &&
          serialization::tryWritePod(file, blockStyle.directionDefined) &&
          serialization::tryWritePod(file, blockStyle.fontSize) &&
-         serialization::tryWritePod(file, blockStyle.lineHeight);
+         serialization::tryWritePod(file, blockStyle.lineHeight) &&
+         serialization::tryWritePod(file, blockStyle.ruledTextOffset);
 }
 
 std::unique_ptr<TextBlock> TextBlock::deserialize(HalFile& file) {
@@ -725,6 +766,7 @@ std::unique_ptr<TextBlock> TextBlock::deserialize(HalFile& file) {
       !serialization::tryReadPod(file, blockStyle.directionDefined) ||
       !serialization::tryReadPod(file, blockStyle.fontSize) ||
       !serialization::tryReadPod(file, blockStyle.lineHeight) ||
+      !serialization::tryReadPod(file, blockStyle.ruledTextOffset) ||
       (blockStyle.fontSize != 0 &&
        (blockStyle.fontSize < ScalableContentMinPointSize || blockStyle.fontSize > ScalableContentMaxPointSize))) {
     LOG_ERR("TXB", "Deserialization failed: truncated block style metadata");

@@ -21,6 +21,18 @@ class GfxRenderer {
   bool getCodepointMetrics(int, uint32_t, EpdFontFamily::Style, int32_t&, int&) const { return false; }
   int getFontIdForSize(int id, uint8_t) const { return id; }
   int resolveBookFont(int id, uint32_t, uint8_t size = 0) const { return getFontIdForSize(id, size); }
+  struct TextVerticalBounds {
+    int top;
+    int bottom;
+  };
+  bool getLatinBodyBounds(int font, TextVerticalBounds& body, TextVerticalBounds& extent) const {
+    body = extent = {0, getFontAscenderSize(font)};
+    return true;
+  }
+  template <class... Args>
+  TextVerticalBounds getTextVerticalBounds(int font, const char*, Args...) const {
+    return {0, getFontAscenderSize(font)};
+  }
   int getFontAscenderSize(int id) const { return 12 + id; }
   int getLineHeight(int id) const { return 16 + id; }
   static int characters(const char* text) {

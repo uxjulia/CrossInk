@@ -41,6 +41,9 @@ function(add_layout_test name root)
     ${root}/lib/Epub/Epub/ParsedText.cpp ${root}/lib/Epub/Epub/blocks/TextBlock.cpp
     ${root}/lib/Epub/Epub/hyphenation/HyphenationCommon.cpp
     ${root}/lib/MiniBidi/BidiUtils.cpp ${root}/lib/MiniBidi/minibidi.c ${root}/lib/Utf8/Utf8.cpp)
+  if(EXISTS "${root}/lib/Epub/Epub/RuledLineLayout.cpp")
+    target_sources(${name} PRIVATE ${root}/lib/Epub/Epub/RuledLineLayout.cpp)
+  endif()
   target_include_directories(${name} PRIVATE stubs ${root}/lib/Memory ${root}/lib/MemoryBudget
     ${root}/lib/Epub ${root}/lib/EpdFont ${root}/lib/Utf8 ${root}/lib/MiniBidi ${root}/lib/Serialization)
   target_compile_definitions(${name} PRIVATE ARDUINO_ARCH_ESP32=1 CROSSINK_MEMORY_TEST=1)

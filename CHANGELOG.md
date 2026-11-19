@@ -52,6 +52,7 @@
 - Use compressed StarDict `.dict.dz` dictionaries directly from SD, with automatic lookup indexing and streamed definition pages.
 - Unprepared dictionaries now index alternate spellings automatically and open the exact definition each spelling points to.
 - Choose Normal, Dark, or Darker text in Reader settings or the EPUB reader menu, retaining anti-aliasing for bitmap and TTF fonts.
+- Add option to turn on light, medium, or dark ruled lines in EPUB and plain-text books.
 
 ### Fixed
 
@@ -200,6 +201,7 @@
 - Free download catalog and payload scratch memory before fetching language and hyphenation licenses, and use smaller HTTP receive buffers to leave more room for certificate checks on X3/X4.
 - Show the Picco charging indicator and battery level on black-and-white sleep screens as well as supported grayscale covers; update it when charging stops or resumes, even if the percentage stays the same.
 - Preserve detail in pale EPUB artwork and use portrait dimensions consistently when optimizing images in the web uploader.
+- Keep ruled lines visible through saved EPUB clippings.
 
 ### Changed
 

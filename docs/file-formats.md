@@ -90,6 +90,14 @@ Word Spacing preserves saved values `0..4`. Values `5..8` encode levels `-1..-4`
 
 ## TXT `index.bin`
 
+Version 9 rebuilds page offsets for ruled rows centered on the main letter body. Its binary layout matches version 8.
+
+Version 8 rebuilds page offsets for the one-pixel shift in ruled text. Its binary layout matches version 7.
+
+Version 7 rebuilds page offsets for the updated ruled baseline. Its binary layout matches version 6.
+
+Version 6 appends two signed 32-bit values after the page count and before page offsets. Ruled pages store their viewport height and requested row height in pixels. Unruled pages store -1 and 0.
+
 Version 5 adds signed `characterSpacing` (-5..5) after the source file size in the index header. A changed spacing value or older version rebuilds pagination around the stored text position. Home reads this same header before displaying reading progress.
 
 ## TXT `progress.bin`
@@ -578,7 +586,7 @@ if (parsedSize != fileSize) {
 
 ## `reader_settings.bin`
 
-### Version 15
+### Version 16
 
 Each EPUB cache directory may contain `reader_settings.bin`. Missing files mean
 the book uses global Reader settings and the default auto-page-turn interval.
@@ -603,6 +611,8 @@ Version 11 appends the image-grayscale toggle after the mask and moves the SD-fo
 mask bit from 18 to 19. Older records retain their existing overrides and inherit
 the global image-grayscale setting. This drawing-only setting does not invalidate
 EPUB layout or image caches.
+Version 16 appends `u8 ruledLines` (0 Off, 1 Light, 2 Medium, 3 Dark), with override bit 24. Older books inherit the global setting. Changing the shade redraws the page using its existing layout.
+
 Version 15 appends `u8 twoToneTextAA` (0 off, 1 on), with override bit 23. Older records inherit the global EEGO text AA quality. Changing it preserves the EPUB layout cache.
 
 Version 14 appends `u8 textDarkness` (0 Normal, 1 Dark, 2 Darker), with override bit 22. Older records inherit global text darkness. This affects glyph shading only; existing EPUB layout caches remain valid.
@@ -621,7 +631,7 @@ fallback successfully opens a difficult book.
 
 ```c++
 struct ReaderSettingsBin {
-    u8 version; // 15
+    u8 version; // 16
     u8 flags;   // bit 0 = at least one custom reader field, bit 1 = custom auto-page-turn interval, bit 2 = render mode override, bit 3 = dictionary font override, bit 4 = Safe Mode override
     u16 autoPageTurnSeconds;
     u8 renderMode; // 0 = CrossInk Default, 1 = Balanced, 2 = Light
@@ -654,6 +664,7 @@ struct ReaderSettingsBin {
     u8 publisherFonts; // 0..2; override bit 21
     u8 textDarkness; // 0 Normal, 1 Dark, 2 Darker; override bit 22
     u8 twoToneTextAA; // 0 off, 1 on; override bit 23
+    u8 ruledLines; // 0 Off, 1 Light, 2 Medium, 3 Dark; override bit 24
 };
 ```
 
@@ -1136,7 +1147,25 @@ body-only and built-in font identities stay unchanged. No binary payload changes
 
 ## `section.bin`
 
-### Version 111 (current development)
+### Version 115 (current development)
+
+Ruled prose centers the regular ascender-to-baseline band between rules. The binary layout matches version 114. Complete sections use version 115 and suspended sections use `0xE4`.
+
+### Version 114
+
+Ruled prose sits one pixel lower. Capital-only rows center their visible ink. A row can grow one pixel to retain clearance. The binary layout matches version 113. Complete sections use version 114 and suspended sections use `0xE3`.
+
+### Version 113
+
+Ruled prose uses a common font baseline. The binary layout matches version 112. Complete sections use version 113 and suspended sections use `0xE2`.
+
+### Version 112
+
+Each text block stores a signed 16-bit text offset after its row height so selections and rules share the centered layout. A boolean after Guide Dots records whether the page layout reserves space for ruled lines.
+Changing between Off and a shade rebuilds the section. All three shades share one layout.
+Complete sections use version 112 and suspended sections use `0xE1`.
+
+### Version 111
 
 Smaller publisher body-font declarations no longer shrink prose below the
 reader-selected size. Complete section caches use `111`; suspended partial

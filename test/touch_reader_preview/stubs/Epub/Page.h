@@ -12,6 +12,8 @@
 enum class CssTextAlign : uint8_t { Justify = 0, Left = 1, Center = 2, Right = 3, None = 4 };
 
 struct BlockStyle {
+  uint16_t lineHeight = 0;
+  int16_t ruledTextOffset = 0;
   CssTextAlign alignment = CssTextAlign::Justify;
   int16_t marginLeft = 0;
   int16_t marginRight = 0;
@@ -42,6 +44,9 @@ class TextBlock {
       renderer.drawText(fontId, x + word.x, y, word.text.c_str(), foregroundBlack, word.style);
   }
 
+  int maxAscender(const GfxRenderer& renderer, int fontId) const { return renderer.getFontAscenderSize(fontId); }
+  int maxLineHeight(const GfxRenderer& renderer, int fontId) const { return renderer.getLineHeight(fontId); }
+  int getRubyShift(int) const { return 0; }
   int8_t getCharacterSpacing() const { return 0; }
   uint16_t wordCount() const { return static_cast<uint16_t>(words.size()); }
   const char* wordText(uint16_t index) const { return words[index].text.c_str(); }

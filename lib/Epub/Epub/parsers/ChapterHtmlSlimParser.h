@@ -97,6 +97,7 @@ class ChapterHtmlSlimParser {
   int currentTextFontId() const;
   // Returns true only when a smaller body declaration was normalized.
   bool applyBlockFontSize(const CssStyle& cssStyle, const char* tag, BlockStyle& style);
+  bool ruled = false;
   float lineCompression;
   bool extraParagraphSpacing;
   bool forceParagraphIndents;
@@ -333,6 +334,7 @@ class ChapterHtmlSlimParser {
   void setCurrentPageVisibleOffset(uint32_t offset, uint32_t referenceOffset = UINT32_MAX);
   void completeCurrentPage();
   void makePages(bool completeBlock = true);
+  int textRowHeight(TextBlock& line, int rowFont) const;
   int effectiveLineHeight() const;
   bool isPreviewBuild() const { return !previewAnchor.empty() && previewMaxPages > 0; }
   bool isScanningForPreviewAnchor() const { return isPreviewBuild() && !previewAnchorFound; }
@@ -445,6 +447,7 @@ class ChapterHtmlSlimParser {
   uint32_t getReferenceTextLength() const { return referenceTextOffset; }
   bool parseAndBuildPages();
   static uint32_t publisherBodyFontFamily(const std::string& path, const CssParser& css);
+  void setRuled(bool enabled) { ruled = enabled; }
   void setPublisherFonts(PublisherFonts mode) { publisherFonts = mode; }
   void setDeferAdvancePrewarm(bool defer) { deferAdvancePrewarm_ = defer; }
   bool prewarmSectionAdvanceStep();

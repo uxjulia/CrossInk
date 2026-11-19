@@ -9,6 +9,7 @@
 
 #include "Block.h"
 #include "BlockStyle.h"
+#include "Epub/RuledLineLayout.h"
 
 // Represents one rendered line. Per-word data is packed into one heap arena
 // instead of separate vectors/strings, which reduces heap fragmentation when
@@ -128,6 +129,13 @@ class TextBlock final : public Block {
   int maxLineHeight(const GfxRenderer& renderer, int fontId) const;
   int resolvedFontId(const GfxRenderer& renderer, int fontId) const;
   void render(const GfxRenderer& renderer, int fontId, int x, int y, bool foregroundBlack = true) const;
+  RuledLineLayout ruledLayout(const GfxRenderer& renderer, int fontId, int requested) const;
+
+ private:
+  void renderOrMeasure(const GfxRenderer& renderer, int fontId, int x, int y, bool foregroundBlack,
+                       RuledLineLayout::Ink* ink) const;
+
+ public:
   BlockType getType() override { return TEXT_BLOCK; }
   bool serialize(Print& file) const;
   static std::unique_ptr<TextBlock> deserialize(HalFile& file);

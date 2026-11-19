@@ -117,6 +117,9 @@ void forEachBaseSetting(SettingVisitor visitor, void* context) {
                           StrId::STR_CAT_READER));
   add(SettingInfo::Toggle(StrId::STR_HYPHENATION, &CrossPointSettings::hyphenationEnabled, "hyphenationEnabled",
                           StrId::STR_CAT_READER));
+  add(SettingInfo::Enum(StrId::STR_RULED_LINES, &CrossPointSettings::ruledLines,
+                        {StrId::STR_OFF, StrId::STR_LIGHT, StrId::STR_MEDIUM, StrId::STR_DARK}, "ruledLines",
+                        StrId::STR_CAT_READER));
   add(SettingInfo::Enum(StrId::STR_TEXT_DARKNESS, &CrossPointSettings::textDarkness,
                         {StrId::STR_SENSITIVITY_NORMAL, StrId::STR_DARK, StrId::STR_DARKER}, "textDarkness",
                         StrId::STR_CAT_READER));

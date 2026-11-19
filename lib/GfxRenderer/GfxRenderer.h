@@ -324,9 +324,30 @@ class GfxRenderer {
   struct TextVerticalBounds {
     int top = 0;
     int bottom = 0;
+    void include(int y, int height) {
+      if (height <= 0) return;
+      if (top == bottom) {
+        top = y;
+        bottom = y + height;
+      } else {
+        if (y < top) top = y;
+        if (y + height > bottom) bottom = y + height;
+      }
+    }
   };
-  // Visible regular-text glyph bounds relative to the y coordinate passed to drawText().
-  TextVerticalBounds getTextVerticalBounds(int fontId, const char* text) const;
+
+ private:
+  void drawOrMeasureText(int fontId, int x, int y, const char* text, bool black, EpdFontFamily::Style style,
+                         BidiUtils::BidiBaseDir baseDir, int8_t spacing, TextVerticalBounds* bounds) const;
+
+ public:
+  // Regular ascender-to-baseline band and ordinary ink extents, relative to the text origin.
+  bool getLatinBodyBounds(int fontId, TextVerticalBounds& body, TextVerticalBounds& extent) const;
+  // Visible glyph bounds relative to the y coordinate passed to drawText().
+  TextVerticalBounds getTextVerticalBounds(int fontId, const char* text,
+                                           EpdFontFamily::Style style = EpdFontFamily::REGULAR,
+                                           BidiUtils::BidiBaseDir baseDir = BidiUtils::BidiBaseDir::AUTO,
+                                           int8_t spacing = 0) const;
   int getTextWidth(int fontId, const char* text, EpdFontFamily::Style style = EpdFontFamily::REGULAR,
                    BidiUtils::BidiBaseDir baseDir = BidiUtils::BidiBaseDir::AUTO, int8_t characterSpacing = 0) const;
   void drawCenteredText(int fontId, int y, const char* text, bool black = true,

@@ -3455,6 +3455,7 @@ class SimulatorSmokeTest {
 
   uint8_t savedChapterShortcuts[7]{};
   uint32_t lastInjectedHomeAt = 0;
+  bool reopenedRuledLayout = false;
   SmokeStep step = SmokeStep::Start;
   int settleFrames = 0;
   const char* activeStepName = nullptr;
@@ -9358,11 +9359,16 @@ class SimulatorSmokeTest {
           verifyFrontlightTouchRecovery();
           break;
         }
-        if (std::getenv("CROSSINK_SIMULATOR_SMOKE_UNICODE_SPACES")) {
+        if (std::getenv("CROSSINK_SIMULATOR_SMOKE_UNICODE_SPACES") ||
+            std::getenv("CROSSINK_SIMULATOR_SMOKE_RULED_LINES")) {
           const char* book = std::getenv("CROSSINK_SIMULATOR_SMOKE_BOOK");
-          if (!book || !Storage.exists(book)) fail("Unicode space fixture is missing");
+          if (!book || !Storage.exists(book)) fail("Reader fixture is missing");
+          if (std::getenv("CROSSINK_SIMULATOR_SMOKE_RULED_LINES")) {
+            SETTINGS.ruledLines = reopenedRuledLayout ? 1 : 0;
+            if (!SETTINGS.saveToFile()) fail("Cannot save ruled line preference");
+          }
           activityManager.goToReader(book, true);
-          queueStep("Unicode space EPUB", SmokeStep::Reader, 8);
+          queueStep("Reader fixture", SmokeStep::Reader, 8);
           break;
         }
         if (std::getenv("CROSSINK_SIMULATOR_SMOKE_READER_TOP_DRAWER")) {
@@ -10915,6 +10921,85 @@ class SimulatorSmokeTest {
           break;
         }
 #endif
+        if (std::getenv("CROSSINK_SIMULATOR_SMOKE_RULED_LINES")) {
+          auto* reader = activityManager.simulatorCurrentActivity();
+          if (!reader || !reader->isReaderActivity()) fail("Expected a reader page for ruled lines");
+          static std::vector<uint8_t> rulePixels;
+          static size_t clippingsBefore;
+          if (!rulePixels.empty()) {
+            RenderLock lock;
+            if (CLIPPINGS.clippingCount() != clippingsBefore + 1) fail("Ruled page clipping was not saved");
+            const auto* frame = renderer.getFrameBuffer();
+            for (size_t i = 0; i < rulePixels.size(); ++i)
+              if (frame[i] & rulePixels[i]) fail("Saved clipping erased ruled line pixels");
+            captureStatusBarScreen("ruled-lines-after-clipping");
+            LOG_INF("SMOKE", "Simulator smoke test passed: ruled lines after clipping");
+            std::_Exit(0);
+          }
+          const auto fontRows = buildReaderFontSettingsList(getSettingsList());
+          auto ruled = std::find_if(fontRows.begin(), fontRows.end(),
+                                    [](const auto& row) { return row.nameId == StrId::STR_RULED_LINES; });
+          if (ruled == fontRows.end() || ruled - fontRows.begin() < 2 ||
+              (ruled - 1)->nameId != StrId::STR_GUIDE_READING || (ruled - 2)->nameId != StrId::STR_FOCUS_READING)
+            fail("Expected Focus Reading, Guide Dots and Ruled Lines together in Font Options");
+          if (!reopenedRuledLayout) {
+            {
+              RenderLock lock;
+              captureStatusBarScreen("ruled-lines-0");
+            }
+            reopenedRuledLayout = true;
+            activityManager.goHome();
+            queueStep("Home before enabling ruled lines", SmokeStep::Start, 8);
+            break;
+          }
+          size_t previousInk = 0;
+          const auto position = reader->getScreenshotInfo();
+          for (uint8_t level = 1; level <= 3; ++level) {
+            {
+              RenderLock lock;
+              SETTINGS.ruledLines = level;
+              if (!SETTINGS.saveToFile()) fail("Cannot save ruled lines");
+              SETTINGS.ruledLines = 255;
+              SETTINGS.loadFromFile();
+              if (SETTINGS.ruledLines != level) fail("Ruled line setting did not persist");
+            }
+            if (reader->requestUpdateAndWait() != RequestUpdateResult::Rendered) fail("Reader redraw was rejected");
+            RenderLock lock;
+            const auto current = reader->getScreenshotInfo();
+            if (current.currentPage != position.currentPage || current.totalPages != position.totalPages)
+              fail("Changing ruled line shade changed pagination");
+            size_t ink = 0;
+            for (int y = 0; y < renderer.getScreenHeight(); ++y)
+              for (int x = 0; x < renderer.getScreenWidth(); ++x) ink += renderer.isPixelBlack(x, y);
+            if (ink <= previousInk) fail("Ruled line shade %u did not add ink", level);
+            if (reader->isEpubReaderActivity()) {
+              const auto* frame = renderer.getFrameBuffer();
+              if (level == 1) rulePixels.assign(frame, frame + renderer.getBufferSize());
+              if (level == 3) {
+                // Track the extra dots between the light and dark shades on the same layout.
+                for (size_t i = 0; i < rulePixels.size(); ++i) rulePixels[i] &= ~frame[i];
+              }
+            }
+            previousInk = ink;
+            captureStatusBarScreen(("ruled-lines-" + std::to_string(level)).c_str());
+          }
+          if (reader->isEpubReaderActivity()) {
+            clippingsBefore = CLIPPINGS.clippingCount();
+            if (!reader->handleShortcutAction(CrossPointSettings::CREATE_CLIPPING)) fail("Cannot start clipping");
+            inputScript = {render("Select text on ruled page", 5), assertActivity("ClipSelection")};
+            scriptIndex = 0;
+            addTap(MappedInputManager::Button::Confirm);
+            addTap(MappedInputManager::Button::Right);
+            addTap(MappedInputManager::Button::Confirm);
+            // Inspect the normal return from clipping without forcing an extra reader redraw.
+            inputScript.push_back(assertActivity("EpubReader"));
+            inputCompletionStep = SmokeStep::Reader;
+            step = SmokeStep::ReaderInput;
+            break;
+          }
+          LOG_INF("SMOKE", "Simulator smoke test passed: ruled lines");
+          std::_Exit(0);
+        }
         if (!activityManager.isCurrentActivityNamed("EpubReader")) fail("Completion test requires EPUB reader");
         if (std::getenv("CROSSINK_SIMULATOR_SMOKE_UNICODE_SPACES")) {
           RenderLock lock;
@@ -11867,6 +11952,15 @@ class SimulatorSmokeTest {
     addTap(menuDown);
     inputScript.push_back(render("Reader Menu Down moves row focus", 3));
     inputScript.push_back(assertReaderMenu(ReaderDrawerTab::Font, ReaderDrawerPane::Root, 1));
+    const int lastFontRow = makeReaderDrawerCatalog({})[static_cast<size_t>(ReaderDrawerTab::Font)].count - 1;
+    for (int row = 2; row <= lastFontRow; ++row) addTap(menuDown);
+    inputScript.push_back(render("Reading aids in Font", 3));
+    inputScript.push_back(assertReaderMenu(ReaderDrawerTab::Font, ReaderDrawerPane::Root, lastFontRow));
+    inputScript.push_back({ScriptActionType::CaptureMenuNavigation, menuDown, "reader-font-reading-aids", 0, 0, 0});
+    addTap(MappedInputManager::Button::Confirm);
+    inputScript.push_back(render("Ruled Lines choices", 3));
+    inputScript.push_back(assertReaderMenu(ReaderDrawerTab::Font, ReaderDrawerPane::EnumOptions, 0));
+    addTap(MappedInputManager::Button::Back);
     addTap(menuRight);
     inputScript.push_back(render("Reader Menu Right switches tab while a row is focused", 3));
     inputScript.push_back(assertReaderMenu(ReaderDrawerTab::Layout, ReaderDrawerPane::Root, 0));

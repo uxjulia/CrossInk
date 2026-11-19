@@ -26,6 +26,18 @@ class GfxRenderer {
   int resolveBookFont(int id, uint32_t family, uint8_t size = 0) const {
     return family && publisherFont ? publisherFont : getFontIdForSize(id, size);
   }
+  struct TextVerticalBounds {
+    int top;
+    int bottom;
+  };
+  bool getLatinBodyBounds(int font, TextVerticalBounds& body, TextVerticalBounds& extent) const {
+    body = extent = {0, getFontAscenderSize(font)};
+    return true;
+  }
+  template <class... Args>
+  TextVerticalBounds getTextVerticalBounds(int font, const char*, Args...) const {
+    return {0, getFontAscenderSize(font)};
+  }
   int getFontAscenderSize(int id) const {
     ++ascenderCalls;
     return 12 + id;

@@ -104,6 +104,7 @@ enum class ReaderDrawerCatalogItem : uint8_t {
   TextDarkness,
   Focus,
   GuideDots,
+  RuledLines,
   Margins,
   Orientation,
   Alignment,
@@ -194,6 +195,7 @@ constexpr ReaderDrawerCatalog makeReaderDrawerCatalog(const ReaderDrawerAvailabi
   font.add(ReaderDrawerCatalogItem::TextDarkness);
   font.add(ReaderDrawerCatalogItem::Focus);
   font.add(ReaderDrawerCatalogItem::GuideDots);
+  font.add(ReaderDrawerCatalogItem::RuledLines);
 
   auto& layout = catalog[static_cast<size_t>(ReaderDrawerTab::Layout)];
   layout.add(ReaderDrawerCatalogItem::Margins);
@@ -255,14 +257,18 @@ constexpr bool readerDrawerStepChangesSettings(const ReaderDrawerPane pane) {
          pane == ReaderDrawerPane::Margins || pane == ReaderDrawerPane::AutoPageTurn;
 }
 
+constexpr bool readerDrawerPreviewsEnum(const ReaderDrawerCatalogItem row) {
+  return row == ReaderDrawerCatalogItem::FontSize || row == ReaderDrawerCatalogItem::Alignment ||
+         row == ReaderDrawerCatalogItem::RuledLines;
+}
+
 // Only settings with an existing live text preview reserve sample space.
 constexpr bool readerDrawerShowsSamplePreview(const ReaderDrawerPane pane, const ReaderDrawerTab tab,
                                               const ReaderDrawerCatalogItem option) {
   return (pane == ReaderDrawerPane::Root && tab == ReaderDrawerTab::Font) || pane == ReaderDrawerPane::ReaderFont ||
          pane == ReaderDrawerPane::FontFamily || pane == ReaderDrawerPane::CharacterSpacing ||
          pane == ReaderDrawerPane::Spacing || pane == ReaderDrawerPane::Margins ||
-         (pane == ReaderDrawerPane::EnumOptions &&
-          (option == ReaderDrawerCatalogItem::FontSize || option == ReaderDrawerCatalogItem::Alignment));
+         (pane == ReaderDrawerPane::EnumOptions && readerDrawerPreviewsEnum(option));
 }
 
 constexpr bool readerDrawerSliderPreviewsText(const ReaderDrawerPane pane) {
@@ -348,6 +354,7 @@ struct ReaderSettingsDraft {
   uint8_t textAntiAliasing = 0;
   uint8_t twoToneTextAA = 0;
   uint8_t textDarkness = 0;
+  uint8_t ruledLines = 0;
   uint8_t focusReadingEnabled = 0;
   uint8_t guideReadingEnabled = 0;
   uint8_t hyphenationEnabled = 0;

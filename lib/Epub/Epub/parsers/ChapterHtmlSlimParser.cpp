@@ -1,6 +1,7 @@
 #include "ChapterHtmlSlimParser.h"
 
 #include <Arduino.h>
+#include <Epub/RuledLineLayout.h>
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
 #include <HalStorage.h>
@@ -1802,8 +1803,11 @@ bool ChapterHtmlSlimParser::emitCompactTableRow(TableFragmentRow& row,
     if (!flushCompactTableFragment()) return false;
     for (const auto& line : flatLines) {
       if (!line) continue;
-      if (!currentPage->elements.empty() &&
-          currentPageNextY + renderer.getLineHeight(fontId) * lineCompression > viewportHeight) {
+      float advance = renderer.getLineHeight(fontId) * lineCompression;
+      if (ruled) {
+        advance = textRowHeight(*line, fontId);
+      }
+      if (!currentPage->elements.empty() && currentPageNextY + advance > viewportHeight) {
         completeCurrentPage();
         completedPageCount++;
         stopPreviewIfPageLimitReached();
@@ -1811,7 +1815,8 @@ bool ChapterHtmlSlimParser::emitCompactTableRow(TableFragmentRow& row,
         if (previewStopRequested) return true;
         if (!startNewPage("compact table paragraph page break")) return false;
       }
-      auto pageLine = makeUniqueNoThrow<PageLine>(line, style.leftInset(), currentPageNextY);
+      auto pageLine = makeUniqueNoThrow<PageLine>(line, style.leftInset(),
+                                                  currentPageNextY + line->getBlockStyle().ruledTextOffset);
       if (!pageLine) {
         LOG_ERR("EHP", "Failed to create compact table paragraph line");
         lowMemoryAbort = true;
@@ -1820,7 +1825,7 @@ bool ChapterHtmlSlimParser::emitCompactTableRow(TableFragmentRow& row,
       currentPage->elements.push_back(std::move(pageLine));
       setCurrentPageVisibleOffset(rowVisibleOffset);
       markCurrentPageFromCurrentElement();
-      currentPageNextY = static_cast<int16_t>(currentPageNextY + renderer.getLineHeight(fontId) * lineCompression);
+      currentPageNextY = static_cast<int16_t>(currentPageNextY + advance);
     }
     for (const auto& footnote : footnotes) {
       currentPage->addFootnote(footnote.number, footnote.href, footnote.linkId);
@@ -2212,12 +2217,8 @@ bool ChapterHtmlSlimParser::appendMalformedMarkupWarningPage() {
       renderer.wrappedText(fontId, tr(STR_EPUB_CHAPTER_INCOMPLETE_BODY), textWidth, WARNING_BODY_MAX_LINES);
   const int lineHeight = effectiveLineHeight();
   const int titleBodyGap = lineHeight;
-  const int contentLineCount = static_cast<int>(titleLines.size() + bodyLines.size());
-  const int contentHeight =
-      contentLineCount * lineHeight + (!titleLines.empty() && !bodyLines.empty() ? titleBodyGap : 0);
-  int y = std::max(0, (static_cast<int>(viewportHeight) - contentHeight) / 2);
-
-  auto addLine = [this](const std::string& line, const EpdFontFamily::Style style, const int yPos) -> bool {
+  int y = 0;
+  auto addLine = [this, lineHeight, &y](const std::string& line, const EpdFontFamily::Style style) -> bool {
     std::vector<std::string> words;
     std::vector<int16_t> xPos;
     std::vector<EpdFontFamily::Style> styles;
@@ -2231,11 +2232,20 @@ bool ChapterHtmlSlimParser::appendMalformedMarkupWarningPage() {
     auto block = std::make_shared<TextBlock>(std::move(words), std::move(xPos), std::move(styles),
                                              std::vector<uint8_t>{}, std::vector<uint16_t>{}, std::vector<uint16_t>{},
                                              std::vector<uint8_t>{}, std::vector<bool>{false});
+    if (ruled) {
+      auto warningStyle = block->getBlockStyle();
+      const auto row = block->ruledLayout(renderer, fontId, lineHeight);
+      warningStyle.lineHeight = row.height;
+      warningStyle.ruledTextOffset = row.offset;
+      block->setBlockStyle(warningStyle);
+    }
+    const int textTop = y + block->getBlockStyle().ruledTextOffset;
+    y += ruled ? block->getBlockStyle().lineHeight : lineHeight;
     auto pageLine = makeUniqueNoThrow<PageLine>(
         std::move(block),
         static_cast<int16_t>(
             std::max(0, (static_cast<int>(viewportWidth) - renderer.getTextWidth(fontId, line.c_str(), style)) / 2)),
-        static_cast<int16_t>(yPos));
+        static_cast<int16_t>(textTop));
     if (!pageLine) {
       LOG_ERR("EHP", "Failed to create malformed-markup warning line");
       lowMemoryAbort = true;
@@ -2247,21 +2257,22 @@ bool ChapterHtmlSlimParser::appendMalformedMarkupWarningPage() {
   };
 
   for (const auto& line : titleLines) {
-    if (!addLine(line, EpdFontFamily::BOLD, y)) return false;
-    y += lineHeight;
+    if (!addLine(line, EpdFontFamily::BOLD)) return false;
   }
   if (!titleLines.empty() && !bodyLines.empty()) {
     y += titleBodyGap;
   }
   for (const auto& line : bodyLines) {
-    if (!addLine(line, EpdFontFamily::REGULAR, y)) return false;
-    y += lineHeight;
+    if (!addLine(line, EpdFontFamily::REGULAR)) return false;
   }
 
   if (!currentPage || currentPage->elements.empty()) {
     LOG_ERR("EHP", "Failed to create malformed markup warning page");
     return false;
   }
+
+  const int top = std::max(0, (static_cast<int>(viewportHeight) - y) / 2);
+  for (const auto& element : currentPage->elements) element->yPos += top;
 
   completeCurrentPage();
   completedPageCount++;
@@ -4949,10 +4960,8 @@ void ChapterHtmlSlimParser::addLineToPage(std::shared_ptr<TextBlock> line, const
   }
 
   const auto& lineImages = currentTextBlock->currentLineImages();
-  const int textHeight =
-      std::max(1, static_cast<int>(line->maxLineHeight(renderer, currentTextFontId()) * lineCompression + 0.5f)) +
-      line->getRubyShift(line->maxAscender(renderer, currentTextFontId()));
-  if (line->getBlockStyle().fontSize || effectiveInlineFontSize || textHeight != effectiveLineHeight()) {
+  const int textHeight = textRowHeight(*line, currentTextFontId());
+  if (!ruled && (line->getBlockStyle().fontSize || effectiveInlineFontSize || textHeight != effectiveLineHeight())) {
     auto style = line->getBlockStyle();
     style.lineHeight = static_cast<uint16_t>(textHeight);
     line->setBlockStyle(style);
@@ -5021,7 +5030,8 @@ void ChapterHtmlSlimParser::addLineToPage(std::shared_ptr<TextBlock> line, const
   if (!line->isEmpty()) {
     // A taller inline image raises the line's top edge; keep the text beside
     // its lower edge instead of leaving it stranded above the image.
-    auto pageLine = makeUniqueNoThrow<PageLine>(line, xOffset, currentPageNextY + lineHeight - textHeight);
+    auto pageLine = makeUniqueNoThrow<PageLine>(
+        line, xOffset, currentPageNextY + lineHeight - textHeight + line->getBlockStyle().ruledTextOffset);
     if (!pageLine) {
       LOG_ERR("EHP", "Failed to create PageLine");
       lowMemoryAbort = true;
@@ -5050,6 +5060,18 @@ void ChapterHtmlSlimParser::addLineToPage(std::shared_ptr<TextBlock> line, const
   markCurrentPageFromCurrentTextBlock();
   noteContent(currentPageNextY, currentPageNextY + lineHeight);
   currentPageNextY += lineHeight;
+}
+
+int ChapterHtmlSlimParser::textRowHeight(TextBlock& line, int rowFont) const {
+  const int requested = std::max(1, static_cast<int>(line.maxLineHeight(renderer, rowFont) * lineCompression + 0.5f)) +
+                        line.getRubyShift(line.maxAscender(renderer, rowFont));
+  if (!ruled) return requested;
+  const auto layout = line.ruledLayout(renderer, rowFont, requested);
+  auto style = line.getBlockStyle();
+  style.lineHeight = layout.height;
+  style.ruledTextOffset = layout.offset;
+  line.setBlockStyle(style);
+  return layout.height;
 }
 
 int ChapterHtmlSlimParser::effectiveLineHeight() const {

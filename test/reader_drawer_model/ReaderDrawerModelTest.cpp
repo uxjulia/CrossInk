@@ -110,11 +110,13 @@ TEST(ReaderDrawerModel, CatalogOrderAndConditionalRowsMatchTouchDesign) {
 #else
   constexpr int extraToneRow = 0;
 #endif
-  EXPECT_EQ(font.count, 7 + extraToneRow);
+  EXPECT_EQ(font.count, 8 + extraToneRow);
   EXPECT_EQ(font.items[3], ReaderDrawerCatalogItem::TextAa);
   EXPECT_EQ(font.items[0], ReaderDrawerCatalogItem::ReaderFont);
   EXPECT_EQ(font.items[4 + extraToneRow], ReaderDrawerCatalogItem::TextDarkness);
+  EXPECT_EQ(font.items[5 + extraToneRow], ReaderDrawerCatalogItem::Focus);
   EXPECT_EQ(font.items[6 + extraToneRow], ReaderDrawerCatalogItem::GuideDots);
+  EXPECT_EQ(font.items[7 + extraToneRow], ReaderDrawerCatalogItem::RuledLines);
 
   const auto& layout = minimal[static_cast<size_t>(ReaderDrawerTab::Layout)];
   EXPECT_EQ(layout.count, 9);
@@ -333,7 +335,7 @@ TEST(ReaderDrawerModel, SamplePreviewCoversLiveTextSettingsOnly) {
   EXPECT_TRUE(readerDrawerShowsSamplePreview(Pane::Root, Tab::Font, Row::FontSize));
   for (const auto pane : {Pane::ReaderFont, Pane::FontFamily, Pane::Spacing, Pane::Margins})
     EXPECT_TRUE(readerDrawerShowsSamplePreview(pane, Tab::Layout, Row::FontSize));
-  for (const auto row : {Row::FontSize, Row::Alignment})
+  for (const auto row : {Row::FontSize, Row::Alignment, Row::RuledLines})
     EXPECT_TRUE(readerDrawerShowsSamplePreview(Pane::EnumOptions, Tab::Layout, row));
   for (const auto tab : {Tab::Layout, Tab::More, Tab::Location, Tab::Settings})
     EXPECT_FALSE(readerDrawerShowsSamplePreview(Pane::Root, tab, Row::FontSize));

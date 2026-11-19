@@ -1,5 +1,7 @@
 add_executable(TouchReaderPreviewModelTest
   TouchReaderPreviewModelTest.cpp
+  ${REPO_ROOT}/lib/Epub/Epub/RuledLineLayout.cpp
+  ${REPO_ROOT}/lib/Epub/Epub/hyphenation/HyphenationCommon.cpp
 )
 
 target_include_directories(TouchReaderPreviewModelTest PRIVATE

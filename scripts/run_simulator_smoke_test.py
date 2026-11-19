@@ -253,6 +253,8 @@ def run_smoke(args: argparse.Namespace) -> int:
         if args.font_dir:
             shutil.copytree(Path(args.font_dir), temp_root / "fs_" / "fonts", dirs_exist_ok=True)
         env = os.environ.copy()
+        if args.ruled_lines:
+            env["CROSSINK_SIMULATOR_SMOKE_RULED_LINES"] = "1"
         if args.text_darkness:
             env["CROSSINK_SIMULATOR_SMOKE_TEXT_DARKNESS"] = "1"
         if args.touch_availability:
@@ -673,6 +675,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--filename-font-family", help="Check filename font picker, mixed glyphs and storage lifecycle (S3)")
     parser.add_argument("--filename-font-error-family", help="Family that must remain visible with a load error and preserve the previous choice")
     parser.add_argument("--filename-font-captures", help="Directory for filename font framebuffer captures (PGM)")
+    parser.add_argument("--ruled-lines", action="store_true", help="Check line shades on the same EPUB or TXT page; captures via --about-captures")
     parser.add_argument("--text-darkness", action="store_true", help="Check text darkness persistence, reader menu and bitmap/TTF shading (S3); captures via --about-captures")
     parser.add_argument("--font-recovery", action="store_true", help="Check reader selection recovery after font catalog memory pressure")
     parser.add_argument("--font-browser-return", action="store_true", help="Check SD font lookup and book rendering after leaving a minimal-network font browser boot")

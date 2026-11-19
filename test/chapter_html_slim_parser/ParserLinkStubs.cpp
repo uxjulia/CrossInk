@@ -135,6 +135,9 @@ int TextBlock::maxAscender(const GfxRenderer& r, int font) const {
   for (uint16_t i = 0; i < numWords; ++i) result = std::max(result, r.getFontAscenderSize(wordFontId(r, font, i)));
   return result;
 }
+RuledLineLayout TextBlock::ruledLayout(const GfxRenderer& r, int font, int requested) const {
+  return RuledLineLayout::center(r, font, requested, {0, r.getFontAscenderSize(font)});
+}
 int TextBlock::maxLineHeight(const GfxRenderer& r, int font) const {
   int result = r.getLineHeight(resolvedFontId(r, font));
   for (uint16_t i = 0; i < numWords; ++i) result = std::max(result, r.getLineHeight(wordFontId(r, font, i)));

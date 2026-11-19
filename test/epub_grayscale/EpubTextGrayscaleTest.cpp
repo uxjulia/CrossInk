@@ -288,6 +288,236 @@ TEST(EpubTextRaster, VariationSelectorsDoNotDrawOrAdvance) {
   }
 }
 
+TEST(ReaderRuling, LeavesSpaceAroundDescendersAndAccentsWithoutBreakingTheDotPattern) {
+  fakeheap::reset(true);
+  HalDisplay display;
+  GfxRenderer renderer(display);
+  renderer.begin();
+  ReaderRuling ruling{2, 1, 32, 80, 100};
+  renderer.clearScreen();
+  renderer.drawPixel(33, 37);  // Ink immediately outside the right margin.
+  renderer.drawPixel(8, 35);   // Descender just above the rule.
+  renderer.drawPixel(17, 39);  // Accent from the following row.
+  ruling.draw(renderer, 38);
+  for (int x = 1; x < 33; ++x) {
+    const bool clear = (x < 6 || x > 10) && (x < 15 || x > 19) && x < 31;
+    EXPECT_EQ(renderer.isPixelBlack(x, 37), clear && (x % 2 == 1)) << x;
+  }
+  EXPECT_TRUE(renderer.isPixelBlack(8, 35));
+  EXPECT_TRUE(renderer.isPixelBlack(17, 39));
+
+  renderer.clearScreen();
+  ruling.bottom = 34;
+  ruling.draw(renderer, 38);
+  EXPECT_FALSE(renderer.isPixelBlack(1, 33));
+  ruling.draw(renderer, 34);
+  EXPECT_TRUE(renderer.isPixelBlack(1, 33));
+  EXPECT_FALSE(renderer.isPixelBlack(1, 34));
+}
+
+TEST(ReaderRuling, MeasuresDeepGlyphsAndOnlyExpandsRuledRows) {
+  for (bool sd : {false, true}) {
+    fakeheap::reset(true);
+    Storage.reset();
+    RasterFont fixture(12);
+    fixture.data.descender = -1;  // The glyph bitmaps actually extend three pixels below the baseline.
+    SdCardFont sdFont;
+    HalDisplay display;
+    GfxRenderer renderer(display);
+    renderer.begin();
+    if (sd) {
+      Storage.put("depth.cpfont", fixture.file());
+      ASSERT_TRUE(sdFont.load("depth.cpfont"));
+      renderer.insertFont(1, EpdFontFamily(sdFont.getEpdFont()));
+      renderer.registerSdCardFont(1, &sdFont);
+    } else {
+      renderer.insertFont(1, EpdFontFamily(&fixture.font));
+    }
+    for (int requested : {10, 35, 50}) {
+      const auto row = ReaderRuling::textRow(renderer, 1, "!", requested, 0);
+      // The reference stem is 13px tall, and the ink extends another 3px.
+      EXPECT_EQ(row.height, std::max(requested, 13 + 2 * (3 + 2) + 1));
+      const int stemTop = (row.height - 1 - 13) / 2;
+      EXPECT_EQ(row.offset, stemTop);
+      renderer.clearScreen();
+      renderer.drawText(1, 9, row.offset, "!");
+      ReaderRuling{3, 0, 60, 100, 100}.draw(renderer, row.height);
+      int first = row.height, last = -1;
+      for (int y = 0; y < row.height - 1; ++y)
+        for (int x = 0; x < 60; ++x)
+          if (renderer.isPixelBlack(x, y)) {
+            first = std::min(first, y);
+            last = std::max(last, y);
+          }
+      EXPECT_GE(first, 2);
+      EXPECT_GE(row.height - last - 2, 2);
+      EXPECT_EQ(first, stemTop);
+      for (int x = 0; x < 60; ++x) EXPECT_TRUE(renderer.isPixelBlack(x, row.height - 1));
+    }
+    renderer.removeFont(1);
+  }
+}
+
+TEST(ReaderRuling, LowercaseBodyStaysCenteredWhenOtherLettersChange) {
+  fakeheap::reset(true);
+  RasterFont fixture(12);
+  auto& x = fixture.glyphs['x' - 32];
+  x.top = 8;
+  x.height = 8;
+  auto& parenthesis = fixture.glyphs['(' - 32];
+  parenthesis.top += 3;
+  HalDisplay display;
+  GfxRenderer renderer(display);
+  renderer.begin();
+  renderer.insertFont(1, EpdFontFamily(&fixture.font));
+  const int baseline = fixture.data.ascender;
+  for (int height : {renderer.getLineHeight(1), renderer.getLineHeight(1) * 125 / 100, 36}) {
+    const auto shortRow = ReaderRuling::textRow(renderer, 1, "xx", height, 0);
+    const auto tallRow = ReaderRuling::textRow(renderer, 1, "xHg", height, 0);
+    const auto punctuationRow = ReaderRuling::textRow(renderer, 1, "(xx)", height, 0);
+    EXPECT_EQ(shortRow.height, punctuationRow.height);
+    EXPECT_EQ(shortRow.offset, punctuationRow.offset);
+    EXPECT_EQ(shortRow.height, tallRow.height);
+    EXPECT_EQ(shortRow.offset, tallRow.offset);
+    GfxRenderer::TextVerticalBounds referenceBody, extent;
+    ASSERT_TRUE(renderer.getLatinBodyBounds(1, referenceBody, extent));
+    EXPECT_EQ(referenceBody.top, renderer.getTextVerticalBounds(1, "h").top);
+    EXPECT_EQ(referenceBody.bottom, baseline);
+    const int above = shortRow.offset + referenceBody.top;
+    const int below = shortRow.height - 1 - shortRow.offset - baseline;
+    EXPECT_LE(std::abs(above - below), 1);
+    const auto tall = renderer.getTextVerticalBounds(1, "xHg");
+    EXPECT_GE(tallRow.offset + tall.top, 2);
+    EXPECT_GE(tallRow.height - 1 - tallRow.offset - tall.bottom, 2);
+    TextBlock block({"xHg"}, {0}, {EpdFontFamily::REGULAR}, {}, {}, {}, {}, {});
+    const auto epub = block.ruledLayout(renderer, 1, height);
+    EXPECT_EQ(epub.height, tallRow.height);
+    EXPECT_EQ(epub.offset, tallRow.offset);
+  }
+}
+
+TEST(ReaderRuling, OrdinaryDescenderKeepsSharedPitchAndClearance) {
+  fakeheap::reset(true);
+  RasterFont fixture(12);
+  auto& x = fixture.glyphs['x' - 32];
+  x.top = x.height = 8;
+  auto& g = fixture.glyphs['g' - 32];
+  g.top = 8;
+  g.height = 18;
+  // A deeper tail outside the reference sample can require an even taller row.
+  auto& y = fixture.glyphs['y' - 32];
+  y.top = 8;
+  y.height = 20;
+  HalDisplay display;
+  GfxRenderer renderer(display);
+  renderer.begin();
+  renderer.insertFont(1, EpdFontFamily(&fixture.font));
+  for (const char* text : {"xx", "xg"}) {
+    for (int requested : {33, 42}) {
+      const auto row = ReaderRuling::textRow(renderer, 1, text, requested, 0);
+      // A centered 13px stem leaves room for a 10px tail and 2 blank pixels.
+      EXPECT_EQ(row.height, std::max(requested, 38));
+      EXPECT_EQ(row.offset, (row.height - 1 - 13) / 2);
+      EXPECT_GE(row.height - 1 - row.offset - (fixture.data.ascender + 10), 2);
+    }
+  }
+  const auto outlier = ReaderRuling::textRow(renderer, 1, "xy", 33, 0);
+  EXPECT_EQ(outlier.height, 42);
+  EXPECT_EQ(outlier.offset, (outlier.height - 1 - 13) / 2);
+  EXPECT_GE(outlier.height - 1 - outlier.offset - renderer.getTextVerticalBounds(1, "xy").bottom, 2);
+}
+
+TEST(ReaderRuling, CentersQuotedCapitalsAndKeepsMixedProseOnItsBaseline) {
+  fakeheap::reset(true);
+  RasterFont fixture(12);
+  auto& x = fixture.glyphs['x' - 32];
+  x.top = x.height = 8;
+  fixture.glyphs[' ' - 32].width = fixture.glyphs[' ' - 32].height = 0;
+  // Capital X and the exclamation end at the baseline. The guide dot is shorter.
+  for (const char cp : {'X', '!'}) {
+    fixture.glyphs[cp - 32].top = 10;
+    fixture.glyphs[cp - 32].height = 10;
+  }
+  auto& dot = fixture.glyphs[fixture.intervals[1].offset];
+  dot.top = 6;
+  dot.height = 2;
+  HalDisplay display;
+  GfxRenderer renderer(display);
+  renderer.begin();
+  renderer.insertFont(1, EpdFontFamily(&fixture.font));
+  for (const int requested : {22, 36}) {
+    const auto caps = ReaderRuling::textRow(renderer, 1, "XXX! · XX", requested, 0);
+    const auto plain = ReaderRuling::textRow(renderer, 1, "xxx", requested, 0);
+    const auto mixed = ReaderRuling::textRow(renderer, 1, "XXX! The", requested, 0);
+    const auto visible = renderer.getTextVerticalBounds(1, "XXX! · XX");
+    EXPECT_EQ(caps.height, plain.height);
+    EXPECT_EQ(mixed.offset, plain.offset);
+    EXPECT_NE(caps.offset, mixed.offset);
+    EXPECT_LE(std::abs(caps.offset + visible.top - (caps.height - 1 - caps.offset - visible.bottom)), 1);
+    EXPECT_GE(caps.offset + visible.top, 2);
+    EXPECT_GE(caps.height - 1 - caps.offset - visible.bottom, 2);
+
+    TextBlock line({"XXX!", "XX"}, {0, 45}, {EpdFontFamily::BOLD, EpdFontFamily::REGULAR}, {}, {}, {}, {}, {});
+    const auto epub = line.ruledLayout(renderer, 1, requested);
+    EXPECT_EQ(epub.height, caps.height);
+    EXPECT_EQ(epub.offset, caps.offset);
+  }
+}
+
+TEST(ReaderRuling, FontWithoutLatinMeasuresItsOwnInk) {
+  fakeheap::reset(true);
+  RasterFont fixture(12);
+  fixture.intervals = {{0x4e00, 0x4e00, 0}, {0xfffd, 0xfffd, 1}};
+  fixture.data.intervals = fixture.intervals.data();
+  fixture.data.intervalCount = fixture.intervals.size();
+  fixture.glyphs[1].height = 3;
+  HalDisplay display;
+  GfxRenderer renderer(display);
+  renderer.begin();
+  renderer.insertFont(1, EpdFontFamily(&fixture.font));
+  GfxRenderer::TextVerticalBounds body, extent;
+  EXPECT_FALSE(renderer.getLatinBodyBounds(1, body, extent));
+  const auto row = ReaderRuling::textRow(renderer, 1, "一", 35, 0);
+  const auto ink = renderer.getTextVerticalBounds(1, "一");
+  EXPECT_EQ(row.offset, (35 - 1 - ink.top - ink.bottom) / 2);
+}
+
+TEST(ReaderRuling, MeasuringSyntheticGreekLeavesFramebufferUntouched) {
+  fakeheap::reset(true);
+  RasterFont fixture(12);
+  fixture.data.intervalCount = 1;
+  HalDisplay display;
+  GfxRenderer renderer(display);
+  renderer.begin();
+  renderer.insertFont(1, EpdFontFamily(&fixture.font));
+  renderer.clearScreen();
+  const auto blank = display.bw;
+  const auto ink = renderer.getTextVerticalBounds(1, "εωΓ");
+  EXPECT_GT(ink.bottom, ink.top);
+  EXPECT_EQ(display.bw, blank);
+}
+
+TEST(ReaderRuling, AnchorsToLayoutHeight) {
+  fakeheap::reset(true);
+  RasterFont fixture(12);
+  HalDisplay display;
+  GfxRenderer renderer(display);
+  renderer.begin();
+  renderer.insertFont(1, EpdFontFamily(&fixture.font));
+  ReaderRuling ruling{3, 10, 30, 110, 150};
+  renderer.clearScreen();
+  TextBlock line({"A"}, {0}, {EpdFontFamily::REGULAR}, {}, {}, {}, {}, {});
+  ruling.drawBlock(renderer, line, 1, 4);
+  const int defaultHeight = (renderer.getLineHeight(1) * 150 + 50) / 100;
+  EXPECT_TRUE(renderer.isPixelBlack(10, 4 + defaultHeight - 1));
+  BlockStyle style;
+  style.lineHeight = 19;
+  line.setBlockStyle(style);
+  ruling.drawBlock(renderer, line, 1, 40);
+  EXPECT_TRUE(renderer.isPixelBlack(10, 58));
+  EXPECT_FALSE(renderer.isPixelBlack(10, 59));
+}
+
 TEST(AbsoluteImageRaster, TextCoverageMatchesOverlayShadesInCompletePlanes) {
   fakeheap::reset(true);
   Storage.reset();

@@ -1104,24 +1104,42 @@ int GfxRenderer::getTextWidth(const int fontId, const char* text, const EpdFontF
   return w;
 }
 
-GfxRenderer::TextVerticalBounds GfxRenderer::getTextVerticalBounds(const int fontId, const char* text) const {
+bool GfxRenderer::getLatinBodyBounds(int fontId, TextVerticalBounds& body, TextVerticalBounds& extent) const {
 #if CROSSINK_SCALABLE_FONTS
   ScalableFontAccess access;
 #endif
-  if (!text || !*text) return {};
-  const int resolvedFontId = fontId;
-  const auto fontIt = fontMap.find(resolvedFontId);
-  if (fontIt == fontMap.end()) {
-    LOG_ERR("GFX", "Font %d not found", resolvedFontId);
-    return {};
+  const auto it = fontMap.find(fontId);
+  if (it == fontMap.end()) return false;
+  const auto sd = sdCardFonts_.find(fontId);
+  SdCardFont::MetricsScope metrics(sd == sdCardFonts_.end() ? nullptr : sd->second);
+  const auto& font = it->second;
+  const int baseline = font.getData(EpdFontFamily::REGULAR)->ascender;
+  // The h stem spans the ordinary ascender-to-baseline band without a tail.
+  const auto* stem = font.findGlyphData('h').glyph;
+  if (!stem || !stem->width || !stem->height || stem->top <= 0) return false;
+  body = {baseline - stem->top, baseline};
+  extent = body;
+  // Paired punctuation often reaches higher than capitals and lower than the baseline.
+  for (const char cp : {'H', 'l', 'f', 'j', 'g', '(', ')', '[', ']'}) {
+    const auto* glyph = font.findGlyphData(cp).glyph;
+    if (glyph && glyph->width) extent.include(baseline - glyph->top, glyph->height);
   }
+  return true;
+}
 
-  std::string visualBuffer;
-  const char* textCursor = resolveVisualText(text, visualBuffer, BidiUtils::BidiBaseDir::AUTO);
-  int width = 0, height = 0, minY = 0, maxY = 0;
-  fontIt->second.getTextDimensions(textCursor, &width, &height, EpdFontFamily::REGULAR, &minY, &maxY);
-  const int ascender = fontIt->second.getData(EpdFontFamily::REGULAR)->ascender;
-  return {ascender - maxY, ascender - minY};
+GfxRenderer::TextVerticalBounds GfxRenderer::getTextVerticalBounds(const int fontId, const char* text,
+                                                                   EpdFontFamily::Style style,
+                                                                   BidiUtils::BidiBaseDir baseDir,
+                                                                   int8_t spacing) const {
+  TextVerticalBounds bounds;
+  if (!text || !*text) return bounds;
+#if CROSSINK_SCALABLE_FONTS
+  ScalableFontAccess access;
+#endif
+  const auto sd = sdCardFonts_.find(fontId);
+  SdCardFont::MetricsScope metrics(sd == sdCardFonts_.end() ? nullptr : sd->second);
+  drawOrMeasureText(fontId, 0, 0, text, true, style, baseDir, spacing, &bounds);
+  return bounds;
 }
 
 void GfxRenderer::drawCenteredText(const int fontId, const int y, const char* text, const bool black,
@@ -1147,6 +1165,12 @@ void GfxRenderer::endTextClip() const {
 void GfxRenderer::drawText(const int fontId, const int x, const int y, const char* text, const bool black,
                            const EpdFontFamily::Style style, const BidiUtils::BidiBaseDir baseDir,
                            const int8_t characterSpacing) const {
+  drawOrMeasureText(fontId, x, y, text, black, style, baseDir, characterSpacing, nullptr);
+}
+
+void GfxRenderer::drawOrMeasureText(const int fontId, const int x, const int y, const char* text, const bool black,
+                                    const EpdFontFamily::Style style, const BidiUtils::BidiBaseDir baseDir,
+                                    const int8_t characterSpacing, TextVerticalBounds* bounds) const {
   // cannot draw a NULL / empty string
   if (text == nullptr || *text == '\0') {
     return;
@@ -1160,7 +1184,7 @@ void GfxRenderer::drawText(const int fontId, const int x, const int y, const cha
   int lastBaseTop = 0;
   int32_t prevAdvanceFP = 0;  // 12.4 fixed-point: prev glyph's advance + next kern for snap
 
-  if (fontCacheManager_ && fontCacheManager_->isScanning()) {
+  if (!bounds && fontCacheManager_ && fontCacheManager_->isScanning()) {
     // Prewarm the exact codepoints the real pass will draw. Arabic shaping can
     // replace logical characters with presentation forms; recording the input
     // text here left those visual glyphs cold and produced replacement diamonds
@@ -1195,7 +1219,10 @@ void GfxRenderer::drawText(const int fontId, const int x, const int y, const cha
           combiningMark::raiseAboveBase(anchor, combiningGlyph->top, combiningGlyph->height, lastBaseTop);
       const int combiningX = combiningMark::anchorOver(anchor, lastBaseX, lastBaseLeft, lastBaseWidth,
                                                        combiningGlyph->left, combiningGlyph->width);
-      renderCharImpl<TextRotation::None>(*this, renderMode, font, cp, combiningX, yPos - raiseBy, black, style);
+      if (bounds) {
+        if (combiningGlyph->width) bounds->include(yPos - raiseBy - combiningGlyph->top, combiningGlyph->height);
+      } else
+        renderCharImpl<TextRotation::None>(*this, renderMode, font, cp, combiningX, yPos - raiseBy, black, style);
       continue;
     }
 
@@ -1211,7 +1238,7 @@ void GfxRenderer::drawText(const int fontId, const int x, const int y, const cha
     // Differential rounding: snap (previous advance + current kern) as one unit so
     // identical character pairs always produce the same pixel step regardless of
     // where they fall on the line.
-    if (prevCp != 0) {
+    if (!bounds && prevCp != 0) {
       int32_t kernFP = font.getKerning(prevCp, cp, style);  // 4.4 fixed-point kern
       if (prevScaledSmallCap || scaledSmallCap) {
         kernFP = smallCapsAdvanceFP(kernFP);
@@ -1237,7 +1264,10 @@ void GfxRenderer::drawText(const int fontId, const int x, const int y, const cha
 
     if (!hasRealGlyph && syntheticGlyph::isSolid(cp)) {
       const auto metrics = getSyntheticSolidGlyphMetrics(font, style, cp);
-      fillSyntheticSolidGlyph(*this, metrics, lastBaseX, yPos, black);
+      if (bounds)
+        bounds->include(yPos - metrics.top, metrics.height);
+      else
+        fillSyntheticSolidGlyph(*this, metrics, lastBaseX, yPos, black);
       lastBaseLeft = metrics.left;
       lastBaseWidth = metrics.width;
       lastBaseTop = metrics.top;
@@ -1249,7 +1279,10 @@ void GfxRenderer::drawText(const int fontId, const int x, const int y, const cha
 
     if (!hasRealGlyph && syntheticGlyph::isGreekFallback(cp)) {
       const auto metrics = getSyntheticGreekGlyphMetrics(font, style, cp);
-      drawSyntheticGreekGlyph(*this, metrics, cp, lastBaseX, yPos, black);
+      if (bounds)
+        bounds->include(yPos - metrics.top, metrics.height);
+      else
+        drawSyntheticGreekGlyph(*this, metrics, cp, lastBaseX, yPos, black);
       lastBaseLeft = metrics.left;
       lastBaseWidth = metrics.width;
       lastBaseTop = metrics.top;
@@ -1261,7 +1294,10 @@ void GfxRenderer::drawText(const int fontId, const int x, const int y, const cha
 
     if (!hasRealGlyph && syntheticGlyph::isReplacementFallback(cp)) {
       const auto metrics = getSyntheticReplacementGlyphMetrics(font, style);
-      drawSyntheticReplacementGlyph(*this, metrics, lastBaseX, yPos, black);
+      if (bounds)
+        bounds->include(yPos - metrics.top, metrics.height);
+      else
+        drawSyntheticReplacementGlyph(*this, metrics, lastBaseX, yPos, black);
       lastBaseLeft = metrics.left;
       lastBaseWidth = metrics.width;
       lastBaseTop = metrics.top;
@@ -1297,7 +1333,14 @@ void GfxRenderer::drawText(const int fontId, const int x, const int y, const cha
       prevAdvanceFP = smallCapsAdvanceFP(prevAdvanceFP);
     }
 
-    if (isSupSub) {
+    if (bounds) {
+      if (!glyph->width || !glyph->height) continue;
+      const int top = isSupSub ? glyph->top / 2 : scaledSmallCap ? scaleSmallCapsMetric(glyph->top) : glyph->top;
+      const int height = isSupSub         ? (glyph->height + 1) / 2
+                         : scaledSmallCap ? smallCapsScaledExtent(glyph->height)
+                                          : glyph->height;
+      bounds->include(yPos - top, height);
+    } else if (isSupSub) {
       // yPos already carries the vertical offset applied by TextBlock::render().
       renderCharScaled(*this, renderMode, font, cp, lastBaseX, yPos, black, style);
     } else if (scaledSmallCap) {

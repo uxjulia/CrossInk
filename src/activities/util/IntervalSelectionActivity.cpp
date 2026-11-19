@@ -398,7 +398,8 @@ void IntervalSelectionActivity::renderReaderPreview(const Rect& area) {
       renderer, fontId, left, top, width, lineHeight, wordSpacing, SETTINGS.paragraphAlignment,
       SETTINGS.focusReadingEnabled, SETTINGS.guideReadingEnabled, true, top + height,
       CrossPointSettings::characterSpacingLevel(
-          readerPreviewSetting == ReaderPreviewSetting::CharacterSpacing ? value : SETTINGS.characterSpacing));
+          readerPreviewSetting == ReaderPreviewSetting::CharacterSpacing ? value : SETTINGS.characterSpacing),
+      SETTINGS.ruledLines);
   renderer.endTextClip();
 }
 

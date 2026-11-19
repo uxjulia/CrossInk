@@ -23,7 +23,7 @@ extern uint32_t testHyphenationIdentity;
 extern std::vector<BookMetadataCache::TocEntry> testTocEntries;
 
 namespace {
-constexpr uint8_t kFullVersion = 111;
+constexpr uint8_t kFullVersion = 115;
 constexpr uint8_t kPreRoundingFullVersion = 100;
 constexpr uint8_t kPreRoundingPartialVersion = 0xD5;
 constexpr uint8_t kStablePageFullVersion = 99;
@@ -35,7 +35,7 @@ constexpr uint8_t kPreImageAlignmentPartialVersion = 0xCF;
 constexpr uint8_t kPreFieldsetFullVersion = 93;
 constexpr uint8_t kPreFieldsetPartialVersion = 0xCE;
 constexpr uint8_t kS3BitmapFullVersion = 90;
-constexpr uint8_t kPartialVersion = 0xE0;
+constexpr uint8_t kPartialVersion = 0xE4;
 constexpr uint8_t kS3BitmapPartialVersion = 0xCB;
 constexpr uint8_t kC3BitmapFullVersion = 89;
 constexpr uint8_t kC3BitmapPartialVersion = 0xCA;
@@ -206,7 +206,15 @@ TEST_F(SectionPersistenceTest, FailedCommitKeepsThePreviousReadableCache) {
 }
 
 TEST_F(SectionPersistenceTest, RejectsCachesFromPreviousLayoutRevisions) {
-  for (const uint8_t staleVersion : {uint8_t{110},
+  for (const uint8_t staleVersion : {uint8_t{114},
+                                     uint8_t{0xE3},
+                                     uint8_t{113},
+                                     uint8_t{0xE2},
+                                     uint8_t{112},
+                                     uint8_t{0xE1},
+                                     uint8_t{111},
+                                     uint8_t{0xE0},
+                                     uint8_t{110},
                                      uint8_t{0xDF},
                                      uint8_t{109},
                                      uint8_t{0xDE},
@@ -342,6 +350,25 @@ TEST_F(SectionPersistenceTest, SyncLookupsUseTheSelectedRenderModesCache) {
     Section section(epub, 0, renderer, sectionCacheSuffixForRenderMode(modes[i]));
     EXPECT_EQ(section.getCachedPageCount(), i + 2);
     EXPECT_EQ(section.getPageForParagraphIndex((i + 1) * 3), i + 1);
+  }
+}
+
+TEST_F(SectionPersistenceTest, RuledLayoutInvalidatesCompleteAndSuspendedSections) {
+  for (const auto version : {kFullVersion, kPartialVersion}) {
+    Storage.reset();
+    SectionHarness harness;
+    harness.spec.ruled = true;
+    harness.begin();
+    harness.appendPages(1);
+    ASSERT_TRUE(harness.commit(version, version == kPartialVersion ? 100 : 0, 200));
+    harness.finishSuccessfulCommit();
+    {
+      Section same(harness.epub, 0, harness.renderer);
+      EXPECT_TRUE(same.loadSectionFile(harness.spec));
+    }
+    harness.spec.ruled = false;
+    Section changed(harness.epub, 0, harness.renderer);
+    EXPECT_FALSE(changed.loadSectionFile(harness.spec));
   }
 }
 

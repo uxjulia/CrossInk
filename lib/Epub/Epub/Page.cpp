@@ -735,10 +735,9 @@ bool Page::renderImages(GfxRenderer& renderer, const int fontId, const int xOffs
   return true;
 }
 
-void Page::renderWithImagePlaceholders(GfxRenderer& renderer, const int fontId, const int xOffset, const int yOffset,
-                                       const bool foregroundBlack, const bool renderCachedImages,
-                                       const bool imageGrayscale) const {
-  renderText(renderer, fontId, xOffset, yOffset, foregroundBlack);
+void Page::renderImagesWithPlaceholders(GfxRenderer& renderer, const int fontId, const int xOffset, const int yOffset,
+                                        const bool foregroundBlack, const bool renderCachedImages,
+                                        const bool imageGrayscale) const {
   for (const auto& element : elements) {
     if (element->getTag() != TAG_PageImage) {
       continue;

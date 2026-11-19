@@ -42,6 +42,18 @@ class GfxRenderer {
   uint8_t getFontPointSize(int id) const { return scalableBaseSize ? (id ? id : scalableBaseSize) : 0; }
   int getFontIdForSize(int id, uint8_t size) const { return scalableBaseSize && size ? size : id; }
   int resolveBookFont(int id, uint32_t, uint8_t size = 0) const { return getFontIdForSize(id, size); }
+  struct TextVerticalBounds {
+    int top;
+    int bottom;
+  };
+  bool getLatinBodyBounds(int font, TextVerticalBounds& body, TextVerticalBounds& extent) const {
+    body = extent = {0, getFontAscenderSize(font)};
+    return true;
+  }
+  template <class... Args>
+  TextVerticalBounds getTextVerticalBounds(int font, const char*, Args...) const {
+    return {0, getFontAscenderSize(font)};
+  }
   int getFontAscenderSize(int id) const { return scalableBaseSize ? getFontPointSize(id) : 12; }
   bool getCodepointMetrics(int id, uint32_t, EpdFontFamily::Style, int32_t& advance, int& top) const {
     advance = std::max(1, textAdvancePerChar) * 16;

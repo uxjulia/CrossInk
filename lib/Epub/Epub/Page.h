@@ -250,9 +250,9 @@ class Page {
                     bool imageGrayscale = true) const;
   // When renderCachedImages is false, draw placeholders without checking or
   // reading image caches. This keeps transient queued pages free of image I/O.
-  void renderWithImagePlaceholders(GfxRenderer& renderer, int fontId, int xOffset, int yOffset,
-                                   bool foregroundBlack = true, bool renderCachedImages = true,
-                                   bool imageGrayscale = true) const;
+  void renderImagesWithPlaceholders(GfxRenderer& renderer, int fontId, int xOffset, int yOffset,
+                                    bool foregroundBlack = true, bool renderCachedImages = true,
+                                    bool imageGrayscale = true) const;
   bool forEachTextLine(PageTextLineVisitor visitor, void* context) const;
   bool serialize(Print& file) const;
   static std::unique_ptr<Page> deserialize(FsFile& file);

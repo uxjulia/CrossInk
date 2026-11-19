@@ -18,6 +18,7 @@
 #include "MappedInputManager.h"
 #include "QuickActions.h"
 #include "ReaderRefreshScope.h"
+#include "ReaderRuling.h"
 #include "ReaderUtils.h"
 #include "RecentBooksStore.h"
 #include "SdCardFontSystem.h"
@@ -30,14 +31,24 @@ constexpr size_t CHUNK_SIZE = 8 * 1024;  // 8KB chunk for reading
 constexpr unsigned long LONG_PRESS_MENU_MS = 600;
 // Cache file magic and version
 constexpr uint32_t CACHE_MAGIC = 0x54585449;  // "TXTI"
-constexpr uint8_t CACHE_VERSION = 5;          // Increment when cache format changes
+constexpr uint8_t CACHE_VERSION = 9;          // Increment when cache format changes
 constexpr uint32_t MAX_CACHE_PAGES = 65535;   // Sanity cap to prevent unbounded reserve()
 
 // Parses and word-wraps lines from a file chunk into outLines.
 // Returns the number of bytes consumed from the start of buffer.
 size_t parseAndWrapLines(const uint8_t* buffer, size_t chunkSize, size_t fileOffset, size_t fileSize, int linesPerPage,
                          GfxRenderer& renderer, int fontId, int vw, std::vector<std::string>& outLines,
-                         int8_t characterSpacing) {
+                         int8_t characterSpacing, int ruledViewportHeight, int requestedHeight) {
+  const auto appendLine = [&](std::string value) {
+    if (ruledViewportHeight >= 0) {
+      const int height =
+          ReaderRuling::textRow(renderer, fontId, value.c_str(), requestedHeight, characterSpacing).height;
+      if (!outLines.empty() && height > ruledViewportHeight) return false;
+      ruledViewportHeight = std::max(0, ruledViewportHeight - height);
+    }
+    outLines.push_back(std::move(value));
+    return true;
+  };
   size_t pos = 0;
   while (pos < chunkSize && static_cast<int>(outLines.size()) < linesPerPage) {
     size_t lineEnd = pos;
@@ -53,13 +64,13 @@ size_t parseAndWrapLines(const uint8_t* buffer, size_t chunkSize, size_t fileOff
 
     do {
       if (line.empty()) {
-        outLines.emplace_back();
+        if (!appendLine({})) return pos + lineBytePos;
         break;
       }
 
       if (renderer.getTextWidth(fontId, line.c_str(), EpdFontFamily::REGULAR, BidiUtils::BidiBaseDir::AUTO,
                                 characterSpacing) <= vw) {
-        outLines.push_back(line);
+        if (!appendLine(std::move(line))) return pos + lineBytePos;
         lineBytePos = displayLen;
         line.clear();
         break;
@@ -79,7 +90,7 @@ size_t parseAndWrapLines(const uint8_t* buffer, size_t chunkSize, size_t fileOff
         breakPos = 1;
         while (breakPos < line.length() && (line[breakPos] & 0xC0) == 0x80) breakPos++;
       }
-      outLines.push_back(line.substr(0, breakPos));
+      if (!appendLine(line.substr(0, breakPos))) return pos + lineBytePos;
       size_t skipChars = breakPos;
       if (breakPos < line.length() && line[breakPos] == ' ') skipChars++;
       lineBytePos += skipChars;
@@ -662,9 +673,10 @@ void TxtReaderActivity::initializeReader() {
 
   viewportWidth = renderer.getScreenWidth() - cachedOrientedMarginLeft - cachedOrientedMarginRight;
   const int viewportHeight = renderer.getScreenHeight() - cachedOrientedMarginTop - cachedOrientedMarginBottom;
-  const int lineHeight = getReaderLineHeight(renderer, cachedFontId);
+  cachedRowHeight = getReaderLineHeight(renderer, cachedFontId);
 
-  linesPerPage = viewportHeight / lineHeight;
+  cachedRuledViewport = SETTINGS.ruledLines ? viewportHeight : -1;
+  linesPerPage = viewportHeight / cachedRowHeight;
   if (linesPerPage < 1) linesPerPage = 1;
 
   // Try to load cached page index first
@@ -756,7 +768,7 @@ bool TxtReaderActivity::loadPageAtOffset(size_t offset, std::vector<std::string>
   }
 
   size_t pos = parseAndWrapLines(buffer, chunkSize, offset, fileSize, linesPerPage, renderer, cachedFontId,
-                                 viewportWidth, outLines, SETTINGS.characterSpacingLevel(SETTINGS.characterSpacing));
+                                 viewportWidth, outLines, cachedCharacterSpacing, cachedRuledViewport, cachedRowHeight);
   nextOffset = offset + pos;
   if (nextOffset > fileSize) {
     nextOffset = fileSize;
@@ -777,7 +789,9 @@ void TxtReaderActivity::render(RenderLock&&) {
   bool relayout = false;
   size_t readingOffset = 0;
   if (initialized && currentPage != statusBarRelayoutPage) statusBarRelayoutOffset.reset();
-  if (initialized && (cachedViewableInsets != renderer.getViewableInsets() ||
+  if (initialized && ((cachedRuledViewport >= 0) != (SETTINGS.ruledLines != 0) ||
+                      cachedRowHeight != getReaderLineHeight(renderer, cachedFontId) ||
+                      cachedViewableInsets != renderer.getViewableInsets() ||
                       cachedTopStatusBarHeight != ReaderUtils::getTopStatusBarReservedHeight(renderer) ||
                       cachedFooterReservedHeight != ReaderUtils::getReaderFooterReservedHeight(renderer, false))) {
     if (currentPage >= 0 && currentPage < static_cast<int>(pageOffsets.size())) {
@@ -831,13 +845,18 @@ void TxtReaderActivity::render(RenderLock&&) {
 
 void TxtReaderActivity::renderPage() {
   const GfxRenderer::TextDarknessScope darkness(renderer, SETTINGS.textDarkness);
-  const int lineHeight = getReaderLineHeight(renderer, cachedFontId);
+  const int lineHeight = cachedRowHeight;
   const int contentWidth = viewportWidth;
 
+  const ReaderRuling ruling{SETTINGS.ruledLines, cachedOrientedMarginLeft, contentWidth,
+                            renderer.getScreenHeight() - cachedOrientedMarginBottom, SETTINGS.lineHeightPercent};
   // Render text lines with alignment
   auto renderLines = [&]() {
     int y = cachedOrientedMarginTop;
     for (const auto& line : currentPageLines) {
+      const auto row = SETTINGS.ruledLines ? ReaderRuling::textRow(renderer, cachedFontId, line.c_str(), lineHeight,
+                                                                   cachedCharacterSpacing)
+                                           : RuledLineLayout{lineHeight, 0};
       if (!line.empty()) {
         int x = cachedOrientedMarginLeft;
         const bool lineIsRtl = BidiUtils::startsWithRtl(line.c_str(), BidiUtils::RTL_PARAGRAPH_PROBE_DEPTH);
@@ -869,11 +888,12 @@ void TxtReaderActivity::renderPage() {
             break;
         }
 
-        renderer.drawText(cachedFontId, x, y, line.c_str(), ReaderUtils::readerForegroundBlack(),
+        renderer.drawText(cachedFontId, x, y + row.offset, line.c_str(), ReaderUtils::readerForegroundBlack(),
                           EpdFontFamily::REGULAR, BidiUtils::BidiBaseDir::AUTO,
                           SETTINGS.characterSpacingLevel(SETTINGS.characterSpacing));
       }
-      y += lineHeight;
+      y += row.height;
+      if (!line.empty() && ruling.enabled(renderer)) ruling.draw(renderer, y);
     }
   };
 
@@ -1118,6 +1138,12 @@ bool TxtReaderActivity::loadPageIndexCache() {
 
   uint32_t numPages;
   serialization::readPod(f, numPages);
+  int32_t ruledViewport = 0, ruledHeight = 0;
+  if (!serialization::tryReadPod(f, ruledViewport) || !serialization::tryReadPod(f, ruledHeight) ||
+      ruledViewport != cachedRuledViewport || ruledHeight != (cachedRuledViewport < 0 ? 0 : cachedRowHeight)) {
+    f.close();
+    return false;
+  }
   if (numPages > MAX_CACHE_PAGES) {
     LOG_ERR("TRS", "Cache numPages %u exceeds cap %u, cache invalid", numPages, MAX_CACHE_PAGES);
     f.close();
@@ -1158,6 +1184,9 @@ void TxtReaderActivity::savePageIndexCache() const {
   serialization::writePod(f, static_cast<int32_t>(cachedHorizontalMargin));
   serialization::writePod(f, cachedParagraphAlignment);
   serialization::writePod(f, static_cast<uint32_t>(pageOffsets.size()));
+
+  serialization::writePod(f, static_cast<int32_t>(cachedRuledViewport));
+  serialization::writePod(f, static_cast<int32_t>(cachedRuledViewport < 0 ? 0 : cachedRowHeight));
 
   // Write page offsets
   for (size_t offset : pageOffsets) {
@@ -1265,9 +1294,15 @@ bool TxtReaderActivity::drawCurrentPageToBuffer(const std::string& filePath, Gfx
       uint32_t numPages;
       serialization::readPod(cacheFile, numPages);
 
-      if (magic == CACHE_MAGIC && version == CACHE_VERSION && cachedFileSize == txt.getFileSize() && cachedVw == vw &&
-          cachedLpp == linesPerPage && cachedFontId == fontId && cachedVerticalMargin == verticalMargin &&
-          cachedHorizontalMargin == horizontalMargin && cachedAlignment == paragraphAlignment &&
+      int32_t ruledViewport = 0, ruledHeight = 0;
+      const bool matchesRows = version == CACHE_VERSION && serialization::tryReadPod(cacheFile, ruledViewport) &&
+                               serialization::tryReadPod(cacheFile, ruledHeight) &&
+                               ruledViewport == (SETTINGS.ruledLines ? vh : -1) &&
+                               ruledHeight == (SETTINGS.ruledLines ? lineHeight : 0);
+      if (matchesRows && magic == CACHE_MAGIC && version == CACHE_VERSION && cachedFileSize == txt.getFileSize() &&
+          cachedVw == vw && cachedLpp == linesPerPage && cachedFontId == fontId &&
+          cachedVerticalMargin == verticalMargin && cachedHorizontalMargin == horizontalMargin &&
+          cachedAlignment == paragraphAlignment &&
           cachedSpacing == SETTINGS.characterSpacingLevel(SETTINGS.characterSpacing) && numPages > 0 &&
           numPages <= MAX_CACHE_PAGES) {
         if (savedPage < 0 || savedPage >= static_cast<int>(numPages)) savedPage = 0;
@@ -1317,15 +1352,21 @@ bool TxtReaderActivity::drawCurrentPageToBuffer(const std::string& filePath, Gfx
   buffer[chunkSize] = '\0';
 
   parseAndWrapLines(buffer, chunkSize, offset, fileSize, linesPerPage, renderer, fontId, vw, pageLines,
-                    SETTINGS.characterSpacingLevel(SETTINGS.characterSpacing));
+                    SETTINGS.characterSpacingLevel(SETTINGS.characterSpacing), SETTINGS.ruledLines ? vh : -1,
+                    lineHeight);
   free(buffer);
 
   if (pageLines.empty()) return false;
 
   // Render lines to frame buffer (no displayBuffer call)
   renderer.clearScreen(ReaderUtils::readerBackgroundColor());
+  const ReaderRuling ruling{SETTINGS.ruledLines, marginLeft, vw, marginTop + vh, SETTINGS.lineHeightPercent};
   int y = marginTop;
   for (const auto& line : pageLines) {
+    const auto row = SETTINGS.ruledLines
+                         ? ReaderRuling::textRow(renderer, fontId, line.c_str(), lineHeight,
+                                                 SETTINGS.characterSpacingLevel(SETTINGS.characterSpacing))
+                         : RuledLineLayout{lineHeight, 0};
     if (!line.empty()) {
       int x = marginLeft;
       switch (paragraphAlignment) {
@@ -1343,10 +1384,12 @@ bool TxtReaderActivity::drawCurrentPageToBuffer(const std::string& filePath, Gfx
         default:
           break;
       }
-      renderer.drawText(fontId, x, y, line.c_str(), ReaderUtils::readerForegroundBlack(), EpdFontFamily::REGULAR,
-                        BidiUtils::BidiBaseDir::AUTO, SETTINGS.characterSpacingLevel(SETTINGS.characterSpacing));
+      renderer.drawText(fontId, x, y + row.offset, line.c_str(), ReaderUtils::readerForegroundBlack(),
+                        EpdFontFamily::REGULAR, BidiUtils::BidiBaseDir::AUTO,
+                        SETTINGS.characterSpacingLevel(SETTINGS.characterSpacing));
     }
-    y += lineHeight;
+    y += row.height;
+    if (!line.empty() && ruling.enabled(renderer)) ruling.draw(renderer, y);
   }
   return true;
 }
