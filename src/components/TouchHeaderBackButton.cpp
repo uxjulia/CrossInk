@@ -23,6 +23,12 @@ constexpr int touchSize = 80;
 constexpr int titleGap = 8;
 constexpr int defaultRightReserve = 52;
 
+// uiThemeTokens builds ~1.5 KiB of tokens just to return this small style.
+// Release that scratch before drawing the header/status row on network tasks.
+[[gnu::noinline]] fui::TextStyle titleTextStyle(const fui::GfxRendererTarget& target) {
+  return uiThemeTokens(target).titleText;
+}
+
 int effectiveVerticalOffset(const Layout& layout, const Rect& header, const int requestedOffset) {
   const int iconBottom = layout.iconRect.y + (layout.iconRect.height + ICON_SIZE) / 2;
   const int availableOffset = std::max(0, header.y + header.height - iconBottom);
@@ -115,7 +121,7 @@ void draw(GfxRenderer& renderer, fui::GfxRendererTarget& target, const Rect& hea
   // adds breathing room below it for the navigation icon and title.
   GUI.drawHeader(renderer, header, "", subtitle, readerContext, showStatus);
 
-  fui::TextStyle titleStyle = uiThemeTokens(target).titleText;
+  fui::TextStyle titleStyle = titleTextStyle(target);
   titleStyle.align = fui::TextAlign::Left;
   titleStyle.maxLines = 1;
   const int reservedRight = rightReserve > 0 ? rightReserve : defaultRightReserve;

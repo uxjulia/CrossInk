@@ -1,6 +1,7 @@
 #include "ChapterHtmlSlimParser.h"
 
 #include <Arduino.h>
+#include <Epub/RuledLineLayout.h>
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
 #include <HalStorage.h>
@@ -456,7 +457,7 @@ void ChapterHtmlSlimParser::applyInlineFontSize(StyleStackEntry& entry, const Cs
   if (!base) return;
   const float parent =
       effectiveInlineFontSize ? effectiveInlineFontSize : renderer.getFontPointSize(currentTextFontId());
-  float size = css.fontSize.value;
+  float size = css.fontSize.value();
   switch (css.fontSize.unit) {
     case CssUnit::Em:
       size *= parent;
@@ -783,7 +784,7 @@ uint8_t ChapterHtmlSlimParser::dropCapLines(const CssStyle& style) {
   if (style.defined.initialLetter && style.initialLetter > 0) {
     return style.initialLetter >= 2 ? style.initialLetter : 0;
   }
-  float em = style.fontSize.value;
+  float em = style.fontSize.value();
   if (style.fontSize.unit == CssUnit::Pixels)
     em /= 16;
   else if (style.fontSize.unit == CssUnit::Points)
@@ -1246,9 +1247,9 @@ int ChapterHtmlSlimParser::currentTextFontId() const {
   return renderer.getFontIdForSize(fontId, currentTextBlock->getBlockStyle().fontSize);
 }
 
-void ChapterHtmlSlimParser::applyBlockFontSize(const CssStyle& cssStyle, const char* tag, BlockStyle& style) {
+bool ChapterHtmlSlimParser::applyBlockFontSize(const CssStyle& cssStyle, const char* tag, BlockStyle& style) {
   const uint8_t base = renderer.getFontPointSize(fontId);
-  if (!base || isLightMode() || tableDepth > 0) return;
+  if (!base || isLightMode() || tableDepth > 0) return false;
   const float parent = blockStyleBuf_[blockStyleCount_ - 1].fontScale / 256.0f;
   float scale = parent;
   if (tag[0] == 'h' && tag[1] >= '1' && tag[1] <= '6' && tag[2] == '\0') {
@@ -1259,30 +1260,46 @@ void ChapterHtmlSlimParser::applyBlockFontSize(const CssStyle& cssStyle, const c
     const auto& size = cssStyle.fontSize;
     switch (size.unit) {
       case CssUnit::Em:
-        scale = parent * size.value;
+        scale = parent * size.value();
         break;
       case CssUnit::Rem:
-        scale = rootFontScale / 256.0f * size.value;
+        scale = rootFontScale / 256.0f * size.value();
         break;
       case CssUnit::Percent:
-        scale = parent * size.value / 100.0f;
+        scale = parent * size.value() / 100.0f;
         break;
       // Reader zoom: CSS medium (16px/12pt) maps to the user's body size.
       case CssUnit::Points:
-        scale = size.value / 12.0f;
+        scale = size.value() / 12.0f;
         break;
       case CssUnit::Pixels:
-        scale = size.value / 16.0f;
+        scale = size.value() / 16.0f;
         break;
     }
   }
   if (!std::isfinite(scale)) scale = parent;
+  // Keep a publisher's smaller body declaration from reducing the reader's
+  // selected size. Resolve the cascade and units first; leave html/rem roots,
+  // descendants, and explicit body sizes >= 100%/1em/medium alone.
+  bool normalizedBody = false;
+  if (embeddedStyle && strcmp(tag, "body") == 0 && cssStyle.hasFontSize() && scale < 1.0f) {
+    const auto& size = cssStyle.fontSize;
+    const float medium = size.unit == CssUnit::Percent  ? 100.0f
+                         : size.unit == CssUnit::Points ? 12.0f
+                         : size.unit == CssUnit::Pixels ? 16.0f
+                                                        : 1.0f;
+    if (size.value() < medium) {
+      scale = 1.0f;
+      normalizedBody = true;
+    }
+  }
   scale = std::clamp(scale, float(ScalableContentMinPointSize) / base, float(ScalableContentMaxPointSize) / base);
   style.fontScale = static_cast<uint16_t>(scale * 256.0f + 0.5f);
   style.fontSize = static_cast<uint8_t>(base * scale + 0.5f);
   // If a recovery font lacks the requested size, layout and drawing must agree.
   style.fontSize = renderer.getFontPointSize(renderer.getFontIdForSize(fontId, style.fontSize));
   if (strcmp(tag, "html") == 0) rootFontScale = style.fontScale;
+  return normalizedBody;
 }
 
 // start a new text block if needed
@@ -1786,8 +1803,11 @@ bool ChapterHtmlSlimParser::emitCompactTableRow(TableFragmentRow& row,
     if (!flushCompactTableFragment()) return false;
     for (const auto& line : flatLines) {
       if (!line) continue;
-      if (!currentPage->elements.empty() &&
-          currentPageNextY + renderer.getLineHeight(fontId) * lineCompression > viewportHeight) {
+      float advance = renderer.getLineHeight(fontId) * lineCompression;
+      if (ruled) {
+        advance = textRowHeight(*line, fontId);
+      }
+      if (!currentPage->elements.empty() && currentPageNextY + advance > viewportHeight) {
         completeCurrentPage();
         completedPageCount++;
         stopPreviewIfPageLimitReached();
@@ -1795,7 +1815,8 @@ bool ChapterHtmlSlimParser::emitCompactTableRow(TableFragmentRow& row,
         if (previewStopRequested) return true;
         if (!startNewPage("compact table paragraph page break")) return false;
       }
-      auto pageLine = makeUniqueNoThrow<PageLine>(line, style.leftInset(), currentPageNextY);
+      auto pageLine = makeUniqueNoThrow<PageLine>(line, style.leftInset(),
+                                                  currentPageNextY + line->getBlockStyle().ruledTextOffset);
       if (!pageLine) {
         LOG_ERR("EHP", "Failed to create compact table paragraph line");
         lowMemoryAbort = true;
@@ -1804,7 +1825,7 @@ bool ChapterHtmlSlimParser::emitCompactTableRow(TableFragmentRow& row,
       currentPage->elements.push_back(std::move(pageLine));
       setCurrentPageVisibleOffset(rowVisibleOffset);
       markCurrentPageFromCurrentElement();
-      currentPageNextY = static_cast<int16_t>(currentPageNextY + renderer.getLineHeight(fontId) * lineCompression);
+      currentPageNextY = static_cast<int16_t>(currentPageNextY + advance);
     }
     for (const auto& footnote : footnotes) {
       currentPage->addFootnote(footnote.number, footnote.href, footnote.linkId);
@@ -2196,12 +2217,8 @@ bool ChapterHtmlSlimParser::appendMalformedMarkupWarningPage() {
       renderer.wrappedText(fontId, tr(STR_EPUB_CHAPTER_INCOMPLETE_BODY), textWidth, WARNING_BODY_MAX_LINES);
   const int lineHeight = effectiveLineHeight();
   const int titleBodyGap = lineHeight;
-  const int contentLineCount = static_cast<int>(titleLines.size() + bodyLines.size());
-  const int contentHeight =
-      contentLineCount * lineHeight + (!titleLines.empty() && !bodyLines.empty() ? titleBodyGap : 0);
-  int y = std::max(0, (static_cast<int>(viewportHeight) - contentHeight) / 2);
-
-  auto addLine = [this](const std::string& line, const EpdFontFamily::Style style, const int yPos) -> bool {
+  int y = 0;
+  auto addLine = [this, lineHeight, &y](const std::string& line, const EpdFontFamily::Style style) -> bool {
     std::vector<std::string> words;
     std::vector<int16_t> xPos;
     std::vector<EpdFontFamily::Style> styles;
@@ -2215,11 +2232,20 @@ bool ChapterHtmlSlimParser::appendMalformedMarkupWarningPage() {
     auto block = std::make_shared<TextBlock>(std::move(words), std::move(xPos), std::move(styles),
                                              std::vector<uint8_t>{}, std::vector<uint16_t>{}, std::vector<uint16_t>{},
                                              std::vector<uint8_t>{}, std::vector<bool>{false});
+    if (ruled) {
+      auto warningStyle = block->getBlockStyle();
+      const auto row = block->ruledLayout(renderer, fontId, lineHeight);
+      warningStyle.lineHeight = row.height;
+      warningStyle.ruledTextOffset = row.offset;
+      block->setBlockStyle(warningStyle);
+    }
+    const int textTop = y + block->getBlockStyle().ruledTextOffset;
+    y += ruled ? block->getBlockStyle().lineHeight : lineHeight;
     auto pageLine = makeUniqueNoThrow<PageLine>(
         std::move(block),
         static_cast<int16_t>(
             std::max(0, (static_cast<int>(viewportWidth) - renderer.getTextWidth(fontId, line.c_str(), style)) / 2)),
-        static_cast<int16_t>(yPos));
+        static_cast<int16_t>(textTop));
     if (!pageLine) {
       LOG_ERR("EHP", "Failed to create malformed-markup warning line");
       lowMemoryAbort = true;
@@ -2231,21 +2257,22 @@ bool ChapterHtmlSlimParser::appendMalformedMarkupWarningPage() {
   };
 
   for (const auto& line : titleLines) {
-    if (!addLine(line, EpdFontFamily::BOLD, y)) return false;
-    y += lineHeight;
+    if (!addLine(line, EpdFontFamily::BOLD)) return false;
   }
   if (!titleLines.empty() && !bodyLines.empty()) {
     y += titleBodyGap;
   }
   for (const auto& line : bodyLines) {
-    if (!addLine(line, EpdFontFamily::REGULAR, y)) return false;
-    y += lineHeight;
+    if (!addLine(line, EpdFontFamily::REGULAR)) return false;
   }
 
   if (!currentPage || currentPage->elements.empty()) {
     LOG_ERR("EHP", "Failed to create malformed markup warning page");
     return false;
   }
+
+  const int top = std::max(0, (static_cast<int>(viewportHeight) - y) / 2);
+  for (const auto& element : currentPage->elements) element->yPos += top;
 
   completeCurrentPage();
   completedPageCount++;
@@ -3258,7 +3285,7 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
   }
 
   BlockStyle fontStyle;
-  self->applyBlockFontSize(cssStyle, name, fontStyle);
+  const bool normalizedBodyFont = self->applyBlockFontSize(cssStyle, name, fontStyle);
   const int blockFontId = self->renderer.getFontIdForSize(self->fontId, fontStyle.fontSize);
   const float emSize = static_cast<float>(self->renderer.getFontAscenderSize(blockFontId));
 
@@ -3689,6 +3716,9 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
       applyDirectionToEntry(entry, cssStyle);
       entry.setsParagraphDirection = strcmp(name, "html") == 0 || strcmp(name, "body") == 0;
       self->applyInlineFontSize(entry, cssStyle, name);
+      // Body is transparent to the block stack. Direct text and inline children
+      // must use the resolved size too, not multiply the original shrink again.
+      if (normalizedBodyFont) entry.fontSize = fontStyle.fontSize;
       applySmallCapsToEntry(entry, cssStyle);
       applyVerticalAlignToEntry(entry, cssStyle);
       if (self->inlineStyleCount_ < MAX_INLINE_STYLE_DEPTH) {
@@ -3721,7 +3751,9 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
                 ? 0
                 : family;
       }
-    } else if (strcmp(name, "span") == 0 && (cssStyle.floatLeft || cssStyle.initialLetter >= 2)) {
+    } else if (strcmp(name, "span") == 0 && self->dropCap.spanDepth < 0 && !self->dropCap.firstLetterPending) {
+      // Publishers also mark opening initials with font-size alone. Keep the
+      // outer capture scope when the letter is wrapped in nested styled spans.
       const auto lines = dropCapLines(cssStyle);
       if (lines) {
         self->dropCap.lines = lines;
@@ -3832,6 +3864,10 @@ void XMLCALL ChapterHtmlSlimParser::characterData(void* userData, const XML_Char
         self->dropCap.visibleOffset = codepointOffset;
         self->dropCap.sourceOffset = codepointSourceOffset;
         self->dropCap.referenceOffset = codepointReferenceOffset;
+        if (self->dropCap.spanDepth >= 0) {
+          self->dropCap.bold = self->effectiveBold;
+          self->dropCap.fontFamily = self->effectiveFontFamily;
+        }
       }
       if (self->captureDropCapCodepoint(s + i, bytes)) {
         i += bytes - 1;
@@ -4924,10 +4960,8 @@ void ChapterHtmlSlimParser::addLineToPage(std::shared_ptr<TextBlock> line, const
   }
 
   const auto& lineImages = currentTextBlock->currentLineImages();
-  const int textHeight =
-      std::max(1, static_cast<int>(line->maxLineHeight(renderer, currentTextFontId()) * lineCompression + 0.5f)) +
-      line->getRubyShift(line->maxAscender(renderer, currentTextFontId()));
-  if (line->getBlockStyle().fontSize || effectiveInlineFontSize || textHeight != effectiveLineHeight()) {
+  const int textHeight = textRowHeight(*line, currentTextFontId());
+  if (!ruled && (line->getBlockStyle().fontSize || effectiveInlineFontSize || textHeight != effectiveLineHeight())) {
     auto style = line->getBlockStyle();
     style.lineHeight = static_cast<uint16_t>(textHeight);
     line->setBlockStyle(style);
@@ -4996,7 +5030,8 @@ void ChapterHtmlSlimParser::addLineToPage(std::shared_ptr<TextBlock> line, const
   if (!line->isEmpty()) {
     // A taller inline image raises the line's top edge; keep the text beside
     // its lower edge instead of leaving it stranded above the image.
-    auto pageLine = makeUniqueNoThrow<PageLine>(line, xOffset, currentPageNextY + lineHeight - textHeight);
+    auto pageLine = makeUniqueNoThrow<PageLine>(
+        line, xOffset, currentPageNextY + lineHeight - textHeight + line->getBlockStyle().ruledTextOffset);
     if (!pageLine) {
       LOG_ERR("EHP", "Failed to create PageLine");
       lowMemoryAbort = true;
@@ -5025,6 +5060,18 @@ void ChapterHtmlSlimParser::addLineToPage(std::shared_ptr<TextBlock> line, const
   markCurrentPageFromCurrentTextBlock();
   noteContent(currentPageNextY, currentPageNextY + lineHeight);
   currentPageNextY += lineHeight;
+}
+
+int ChapterHtmlSlimParser::textRowHeight(TextBlock& line, int rowFont) const {
+  const int requested = std::max(1, static_cast<int>(line.maxLineHeight(renderer, rowFont) * lineCompression + 0.5f)) +
+                        line.getRubyShift(line.maxAscender(renderer, rowFont));
+  if (!ruled) return requested;
+  const auto layout = line.ruledLayout(renderer, rowFont, requested);
+  auto style = line.getBlockStyle();
+  style.lineHeight = layout.height;
+  style.ruledTextOffset = layout.offset;
+  line.setBlockStyle(style);
+  return layout.height;
 }
 
 int ChapterHtmlSlimParser::effectiveLineHeight() const {

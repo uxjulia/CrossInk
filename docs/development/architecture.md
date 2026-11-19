@@ -88,7 +88,7 @@ flowchart TD
 ```
 
 For EPUBs, the metadata step reads or writes `book.bin`, the CSS step reads or
-writes `css_rules.cache`, and the section layout step writes `sections/*.bin`.
+writes `css_rules.cache`, and the section layout step writes `layout/<bucket>/*.bin`.
 
 Why caching matters:
 

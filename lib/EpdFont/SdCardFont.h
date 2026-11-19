@@ -30,6 +30,23 @@ class SdCardFont {
   SdCardFont() = default;
   ~SdCardFont();
 
+  // Measurement needs glyph metrics, not pixels. Nested renderer measurements
+  // share the same scope; drawing outside it retains the normal bitmap path.
+  class MetricsScope {
+   public:
+    explicit MetricsScope(SdCardFont* font) : font_(font) {
+      if (font_) ++font_->metricsDepth_;
+    }
+    ~MetricsScope() {
+      if (font_) --font_->metricsDepth_;
+    }
+    MetricsScope(const MetricsScope&) = delete;
+    MetricsScope& operator=(const MetricsScope&) = delete;
+
+   private:
+    SdCardFont* font_;
+  };
+
   static bool takeCorruptGlyphNotice() { return corruptGlyphNotice_.exchange(false); }
   // Owns raw buffers freed in dtor — no shallow-copy semantics. Make any
   // accidental pass-by-value or move a compile-time error.
@@ -41,9 +58,17 @@ class SdCardFont {
   // Load .cpfont file: reads header + intervals into RAM, records file layout offsets.
   // Supports v4 (multi-style) format.
   // Returns true on success.
-  // A nonzero ceiling is for optional C3 content sizes: includes this object,
-  // conservative interval/ligature residency, and one reusable 4KB bitmap.
-  bool load(const char* path, size_t residentLimit = 0);
+  // A nonzero internal-RAM ceiling is for optional content sizes: includes this object,
+  // compact/shared interval and ligature residency, and one reusable bitmap sized
+  // to the largest glyph (at most 4KB), plus a 3KB glyph-metrics cache.
+  // A lazy bitmap cache uses spare bytes inside this ceiling on C3, or PSRAM on S3.
+  // Optional reserves are checked after inspecting glyphs, before allocating tables/scratch.
+  // The font object already exists; its size is excluded from the remaining allocation.
+  bool load(const char* path, size_t residentLimit = 0, size_t freeHeapReserve = 0, size_t maxAllocHeapReserve = 0);
+
+  // Allocation-free preflight for optional sizes. Returns the mandatory
+  // resident-byte ceiling, or 0 if unreadable, oversized, or above limit.
+  static size_t contentResidentBytes(const char* path, size_t limit);
 
   // Pre-read glyphs needed for the given UTF-8 text from SD card.
   // styleMask: bitmask of styles to prewarm (bit 0=regular, 1=bold, 2=italic, 3=bolditalic).
@@ -193,22 +218,12 @@ class SdCardFont {
     // Stub EpdFontData returned when not prewarmed
     EpdFontData stubData{};
 
-    // Mini EpdFontData built during prewarm. Buffers are kept-if-fits across pages
-    // (capacities below track allocated sizes): freeing and reallocating slightly
-    // different sizes on every page turn was a primary heap fragmenter — each page's
-    // freed hole rarely fit the next page's need, so maxAlloc eroded all session.
-    // The per-render PrewarmScope calls clearCache() -> resetStyleMiniData(), which
-    // keeps both the allocations AND the loaded data. Buffers: reuse means
-    // ensureArrayCapacity early-returns once capacities converge on the book's
-    // max, so page turns stop touching the allocator (the free/realloc-per-page
-    // pattern was a primary heap fragmenter). Data: the next prewarm
-    // subset-checks against the resident tables (see prewarmStyle), so the idle
-    // prewarm of page N+1 serves the actual turn with zero SD reads. Retention
-    // is bounded two ways in resetStyleMiniData(): a heap floor frees outright
-    // under pressure, and sustained underuse (an outlier page's oversized bitmap
-    // arena) frees after a few consecutive low-use rebuilds. freeStyleMiniData()
-    // remains the full teardown (zeroes capacities) for style eviction / font
-    // unload.
+    // Mini cache survives PrewarmScopes: subset hits need no SD reads. A bounded
+    // union extends it by copying resident glyphs and reading only missing data.
+    // Incremental updates stage metadata and any growing bitmap until I/O succeeds;
+    // cold rebuilds reuse capacities and free before growing under memory pressure.
+    // resetStyleMiniData releases on low heap or sustained bitmap underuse.
+    // freeStyleMiniData is the full teardown for style eviction/font unload.
     EpdFontData miniData{};
     EpdUnicodeInterval* miniIntervals = nullptr;
     EpdGlyph* miniGlyphs = nullptr;
@@ -256,11 +271,19 @@ class SdCardFont {
   PerStyle styles_[MAX_STYLES] = {};
   uint8_t styleCount_ = 0;
 
-  // Optional sizes never allocate page/advance caches or per-glyph bitmaps.
+  // Optional sizes never allocate page caches or full per-style advance tables.
+  // Their shared metrics and bounded bitmap cache fit the resident ceiling.
   // 4KB covers normal content glyphs through 44pt; larger files are rejected
   // before registration so layout falls back to a supported physical size.
-  static constexpr size_t CONTENT_BITMAP_BYTES = 4096;
+  friend class SdCardFontManager;
+  // Only the manager shares scratch, after all sizes have been admitted. The
+  // owner and borrowers remain registered until unloadAll; teardown never
+  // dereferences these links. Bitmap caches and measurement caches stay private.
+  void shareContentScratchWith(SdCardFont& owner);
+  SdCardFont* contentScratchOwner_ = nullptr;
+  SdCardFont* contentScratchUser_ = nullptr;
   std::unique_ptr<uint8_t[]> contentBitmap_;
+  uint16_t contentBitmapBytes_ = 0;
   bool leanContent_ = false;
   char filePath_[128] = {};
 
@@ -289,6 +312,32 @@ class SdCardFont {
     uint32_t codepoint;
     uint16_t advanceX;  // 12.4 fixed-point
   };
+  // Optional content sizes cannot afford the body's per-style advance tables.
+  // One shared, fixed-size associative cache keeps metric lookups off the SD card.
+  struct ContentMetricsEntry {
+    uint32_t codepoint = 0;
+    EpdGlyph glyph{};
+    uint8_t style = MAX_STYLES;  // Invalid until a successful read.
+    bool bitmapValid = false;
+    uint16_t bitmapOffset = 0;  // Packed cache offset; uses the entry's existing padding.
+  };
+  static_assert(sizeof(ContentMetricsEntry) == 24, "Content metrics must retain their 3KB budget");
+  static constexpr uint32_t CONTENT_METRICS_CACHE_SIZE = 128;
+  static constexpr size_t CONTENT_METRICS_CACHE_BYTES = CONTENT_METRICS_CACHE_SIZE * sizeof(ContentMetricsEntry);
+  std::unique_ptr<ContentMetricsEntry[]> contentMetrics_;
+  // Packed FIFO storage reuses metric keys, with no per-glyph allocations.
+  // PSRAM keeps its 64KB cap; C3 uses at most 8KB of the remaining resident
+  // ceiling. Both retain the single-bitmap fallback when the cache cannot fit.
+  static constexpr uint16_t CONTENT_BITMAP_SLOT_MAX = 512;
+  HeapByteBuffer contentBitmaps_;
+  uint32_t contentBitmapCapacity_ = 0;
+  uint32_t contentBitmapNext_ = 0;
+  uint16_t contentBitmapInternalLimit_ = 0;
+  bool contentBitmapsAttempted_ = false;
+  uint16_t metricsDepth_ = 0;
+  ContentMetricsEntry* contentGlyphMetrics(uint32_t codepoint, uint8_t styleIdx, int32_t glyphIndex) const;
+  void prepareContentBitmaps();
+  int contentMetricsIndex(const EpdGlyph* glyph) const;
   // Per-style advance table. Sorted by codepoint for binary lookup.
   // Bounded to ADVANCE_CACHE_LIMIT entries; persists across layout passes
   // (across calls to clearCache()) so repeated indexing of the same font

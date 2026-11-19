@@ -9,7 +9,7 @@ SOURCE = (ROOT / "src/network/UsbSerialFileTransfer.cpp").read_text()
 OUTPUT = SOURCE[SOURCE.index("bool writeRaw("):SOURCE.index("uint32_t readLe32(")]
 INPUT = SOURCE[SOURCE.index("bool readExact("):SOURCE.index("bool readPath(")]
 SIZE_OUTPUT = SOURCE[SOURCE.index("bool writeLe32("):SOURCE.index("bool readExact(")]
-DOWNLOAD = SOURCE[SOURCE.index("void handleRead("):SOURCE.index("void handleCommand(")]
+DOWNLOAD = SOURCE[SOURCE.index("void handleRead("):SOURCE.index("// JSON is framed")]
 
 HARNESS = r'''
 #include <algorithm>

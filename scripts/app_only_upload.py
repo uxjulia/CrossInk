@@ -15,14 +15,21 @@ app_offset = int(slots[0][3].strip(), 0)
 
 # PlatformIO can already have copied these pairs into UPLOADERFLAGS before a
 # post script runs. Clearing FLASH_EXTRA_IMAGES alone does not remove them.
+# Fail-closed check adapted from Justin Mitchell, CrossPoint #4510.
 flags = list(env.get('UPLOADERFLAGS', []))
+missing = {(env.subst(str(offset)), env.subst(str(image)))
+           for offset, image in env.get('FLASH_EXTRA_IMAGES', [])}
 for offset, image in env.get('FLASH_EXTRA_IMAGES', []):
     pair = [env.subst(str(offset)), env.subst(str(image))]
     index = 0
     while index + 1 < len(flags):
         if [env.subst(str(item)) for item in flags[index:index + 2]] == pair:
+            missing.discard(tuple(pair))
             del flags[index:index + 2]
         else:
             index += 1
+
+if missing:
+    raise RuntimeError(f'App-only upload could not remove declared extra images: {sorted(missing)}')
 
 env.Replace(FLASH_EXTRA_IMAGES=[], UPLOADERFLAGS=flags, ESP32_APP_OFFSET=hex(app_offset))

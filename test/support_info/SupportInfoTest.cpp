@@ -108,6 +108,15 @@ TEST(SupportInfo, SimulatorDoesNotInventHardwareNumbers) {
   EXPECT_FALSE(about.containsKey("internalFreeBytes"));
   EXPECT_FALSE(about.containsKey("psramTotalBytes"));
   EXPECT_FALSE(about.containsKey("flashBytes"));
+  EXPECT_FALSE(about.containsKey("displayPanel"));
+}
+TEST(SupportInfo, IdentifiedPanelIsSeparateFromController) {
+  Snapshot s;
+  s.hardware.displayController = "SSD2677";
+  s.hardware.displayPanel = "SE0400NQW47";
+  auto d = parse(render(s));
+  EXPECT_STREQ(d["about"]["displayController"], "SSD2677");
+  EXPECT_STREQ(d["about"]["displayPanel"], "SE0400NQW47");
 }
 TEST(SupportInfo, RuntimePoolsAndAbsentPsramRemainDistinct) {
   Snapshot s;

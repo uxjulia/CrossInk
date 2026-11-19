@@ -3,6 +3,11 @@
 #include <Epub/FootnoteEntry.h>
 #include <Epub/Section.h>
 #include <Memory.h>
+
+#include "BackgroundBuildMemoryGuard.h"
+#if CROSSINK_SCALABLE_FONTS
+#include <FontCacheManager.h>
+#endif
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 
@@ -56,6 +61,12 @@ class EpubReaderActivity final : public Activity {
   friend struct ClippingSelectionSmokeTest;
 #endif
  public:
+#if CROSSINK_SCALABLE_FONTS
+  void requestUpdate(bool immediate = false) override {
+    idleTtfReady.store(false, std::memory_order_relaxed);
+    Activity::requestUpdate(immediate);
+  }
+#endif
   bool usesFullScreenReaderVerticalSwipes() const override { return true; }
 
   struct ReaderSettingsSnapshot {
@@ -73,6 +84,9 @@ class EpubReaderActivity final : public Activity {
     uint8_t publisherFonts = 0;
     uint8_t hyphenationEnabled = 0;
     uint8_t textAntiAliasing = 1;
+    uint8_t textDarkness = 0;
+    uint8_t ruledLines = 0;
+    uint8_t twoToneTextAA = 0;
     uint8_t imageRendering = 0;
     uint8_t imageGrayscale = 1;
     uint8_t extraParagraphSpacing = 1;
@@ -194,6 +208,17 @@ class EpubReaderActivity final : public Activity {
   void applyKeptPosition(const KeptPosition::Offer& offer);
   unsigned long pageShownAtMs = 0UL;
   unsigned long lastRenderCompleteMs = 0UL;
+#if CROSSINK_SCALABLE_FONTS
+  // One fixed ~2 KiB job replaces retaining deserialized pages across loop ticks.
+  FontCacheManager::IdleScalableJob idleTtfJob;
+  std::atomic<bool> idleTtfReady{false};
+  const Section* idleTtfSection = nullptr;
+  int idleTtfSpine = -1;
+  int idleTtfVisiblePage = -1;
+  int idleTtfFont = 0;
+  uint8_t idleTtfOffset = 1;
+  void idlePrewarmTtf(int fontId, FontCacheManager& manager);
+#endif
   int idlePrewarmSpine = -1;
   int idlePrewarmPage = -1;
   int idlePrewarmFontId = 0;
@@ -346,6 +371,7 @@ class EpubReaderActivity final : public Activity {
   // restores this guard after boot so the resumed attempt can fall through to those modes.
   bool lowMemoryPartialRestartAttempted = false;
   bool backgroundBuildPausedForLowMemory = false;
+  BackgroundBuildMemoryGuard backgroundBuildMemoryGuard;
   // Input should win the next RenderLock race. Keep the incremental parser alive,
   // but do not start another background chunk until the requested render begins.
   std::atomic<bool> backgroundBuildYieldForInput{false};
@@ -612,6 +638,7 @@ class EpubReaderActivity final : public Activity {
   bool isBookReaderActivity() const override { return true; }
   bool usesMenuButtonOrientation() const override;
   bool isEpubReaderActivity() const override { return true; }
+  bool checkpointForUsbSync() { return saveProgressBeforeRestart(); }
   void onInputLockChanged(bool locked) override;
   void onUserInput() override;
   bool handleQuickLockUnlock(QuickLockTrigger trigger) override;

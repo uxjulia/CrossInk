@@ -206,24 +206,24 @@ struct AssetDownloadSmokeTest {
     std::_Exit(0);
   }
   Result discover(AssetDownloadActivity& activity) {
-    return AssetDownloadService::discover(activity.kind_, activity.catalog_->entries[activity.selected_], source);
+    return AssetDownloadService::discover(activity.kind_, activity.selection_.entry, source);
   }
   Result download(AssetDownloadActivity& activity, bool approved = false,
                   const AssetDownloadService::Callbacks& callbacks = {}) {
-    return AssetDownloadService::download(*activity.catalog_, activity.catalog_->entries[activity.selected_],
-                                          activity.endpoints_, approved, callbacks);
+    return AssetDownloadService::download(activity.selection_, activity.selection_.entry, activity.endpoints_, approved,
+                                          callbacks);
   }
   static const char* kindName(Kind kind) { return kind == Kind::Hyphenation ? "hyphenation" : "translation"; }
-  static std::filesystem::path companionRoot(const AssetCatalog::Catalog& catalog, const AssetCatalog::Entry& entry) {
+  static std::filesystem::path companionRoot(const AssetCatalog::Metadata& catalog, const AssetCatalog::Entry& entry) {
     return std::filesystem::path("fs_/.crosspoint/asset-sources") / entry.sha256 / catalog.revision;
   }
-  static std::filesystem::path mockSnapshot(const AssetCatalog::Catalog& catalog) {
+  static std::filesystem::path mockSnapshot(const AssetCatalog::Metadata& catalog) {
     return std::filesystem::path(std::getenv("CROSSINK_SIM_HTTP_MOCK_ROOT")) / "snapshots" / catalog.revision;
   }
   static std::filesystem::path expectation(Kind kind, const AssetCatalog::Entry& entry) {
     return std::filesystem::path("asset-expected") / (std::string(kindName(kind)) + "-" + entry.code + ".txt");
   }
-  static std::string firstCompanion(const AssetCatalog::Catalog& catalog, const AssetCatalog::Entry& entry) {
+  static std::string firstCompanion(const AssetCatalog::Metadata& catalog, const AssetCatalog::Entry& entry) {
     std::ifstream list(expectation(catalog.kind, entry));
     std::string relative;
     require(bool(std::getline(list, relative)) && relative.rfind("source/", 0) == 0, "companion fixture list missing");
@@ -242,7 +242,7 @@ struct AssetDownloadSmokeTest {
     } while (a.gcount());
     return a.eof() && b.eof();
   }
-  static void delivered(const AssetCatalog::Catalog& catalog, const AssetCatalog::Entry& entry) {
+  static void delivered(const AssetCatalog::Metadata& catalog, const AssetCatalog::Entry& entry) {
     const auto root = companionRoot(catalog, entry);
     require(std::filesystem::is_regular_file(root / "complete.txt"),
             "payload reported complete without companion marker");
@@ -263,8 +263,8 @@ struct AssetDownloadSmokeTest {
             static_cast<unsigned>(archives));
   }
   void companionChecks(AssetDownloadActivity& activity, bool initiallyMissing) {
-    const auto& catalog = *activity.catalog_;
-    const auto& entry = catalog.entries[activity.selected_];
+    const auto& catalog = activity.selection_;
+    const auto& entry = activity.selection_.entry;
     const auto root = companionRoot(catalog, entry);
     const auto relative = firstCompanion(catalog, entry);
     const auto remote = mockSnapshot(catalog) / relative;
@@ -305,7 +305,7 @@ struct AssetDownloadSmokeTest {
     unchanged(activity.kind_ == Kind::Hyphenation);
   }
   void transactionChecks(AssetDownloadActivity& activity) {
-    auto& entry = activity.catalog_->entries[activity.selected_];
+    auto& entry = activity.selection_.entry;
     require(discover(activity) == Result::Ok && source.status == Status::Current, "download was not current");
     auto previous = entry;
     std::strcpy(previous.previous, entry.sha256);
@@ -351,8 +351,8 @@ struct AssetDownloadSmokeTest {
     callbacks.progress = nullptr;
     callbacks.verifying = [](void* context) { static_cast<Cancel*>(context)->value = true; };
     require(download(activity, false, callbacks) == Result::Cancelled, "verification cancellation failed");
-    auto& entry = activity.catalog_->entries[activity.selected_];
-    const auto payload = mockSnapshot(*activity.catalog_) / kindName(activity.kind_) /
+    auto& entry = activity.selection_.entry;
+    const auto payload = mockSnapshot(activity.selection_) / kindName(activity.kind_) /
                          (std::string(entry.sha256) + (activity.kind_ == Kind::Hyphenation ? ".cphyph" : ".yaml"));
     std::fstream mock(payload, std::ios::binary | std::ios::in | std::ios::out);
     require(bool(mock), "mock payload absent");
@@ -373,28 +373,50 @@ struct AssetDownloadSmokeTest {
   }
   // Every other supplied catalog asset still downloads through real streaming
   // transport, SHA, format/capacity validation and SD publication.
+  static std::unique_ptr<AssetCatalog::Catalog> fixtureCatalog(const AssetDownloadActivity& activity) {
+    auto catalog = makeUniqueNoThrow<AssetCatalog::Catalog>();
+    require(bool(catalog), "fixture catalog allocation failed");
+    AssetCatalog::Options options;
+    options.expectedKind = activity.kind_;
+    options.expectedChannel = activity.selection_.channel;
+    options.expectedSource = activity.selection_.source;
+    options.expectedKeyset = activity.selection_.keyset;
+    options.supportedTranslation = [](const char* code, void*) { return I18n::supportedDownload(code); };
+    char relative[AssetCatalog::MAX_CATALOG_PATH];
+    require(AssetCatalog::catalogPath(options, relative, sizeof(relative)), "fixture catalog path invalid");
+    std::ifstream input(std::filesystem::path(std::getenv("CROSSINK_SIM_HTTP_MOCK_ROOT")) /
+                            (activity.kind_ == Kind::Hyphenation ? "hyphenation.json" : relative),
+                        std::ios::binary);
+    require(bool(input), "fixture catalog absent");
+    AssetCatalog::Parser parser(*catalog, options);
+    std::array<char, 1024> bytes;
+    while (input.read(bytes.data(), bytes.size()) || input.gcount())
+      require(parser.feed(bytes.data(), size_t(input.gcount())), "fixture catalog parse failed");
+    require(parser.finish(), "fixture catalog incomplete");
+    return catalog;
+  }
   void downloadCatalog(AssetDownloadActivity* activity) {
-    for (size_t i = 0; i < activity->catalog_->count; ++i) {
-      if (static_cast<int>(i) == activity->selected_) continue;  // Selected asset uses the real flow.
-      auto result = AssetDownloadService::download(*activity->catalog_, activity->catalog_->entries[i],
-                                                   activity->endpoints_, false);
+    const auto catalog = fixtureCatalog(*activity);
+    for (size_t i = 0; i < catalog->count; ++i) {
+      if (!std::strcmp(catalog->entries[i].code, activity->selection_.entry.code))
+        continue;  // Selected asset uses the real flow.
+      auto result = AssetDownloadService::download(*catalog, catalog->entries[i], activity->endpoints_, false);
       if (result == Result::OverwriteRequired && activity->kind_ == Kind::Translation &&
-          !std::strcmp(activity->catalog_->entries[i].code, originalUi())) {
+          !std::strcmp(catalog->entries[i].code, originalUi())) {
         // --language-file seeds a manual source for the initial RTL locale.
         // Assert refusal first, then explicitly approve replacement of that
         // known fixture while its already-active flash mapping stays pinned.
         AssetDownloadService::Source manual;
-        require(AssetDownloadService::discover(activity->kind_, activity->catalog_->entries[i], manual) == Result::Ok &&
+        require(AssetDownloadService::discover(activity->kind_, catalog->entries[i], manual) == Result::Ok &&
                     manual.status == Status::Different && !std::strcmp(manual.path, "/.crossink/languages/smoke.yaml"),
                 "overwrite request was not the seeded manual language");
         unchanged(false);
-        result = AssetDownloadService::download(*activity->catalog_, activity->catalog_->entries[i],
-                                                activity->endpoints_, true);
+        result = AssetDownloadService::download(*catalog, catalog->entries[i], activity->endpoints_, true);
       }
       if (result != Result::Ok)
-        LOG_ERR("SMOKE", "Asset %s: %s", activity->catalog_->entries[i].code, AssetDownloadService::resultName(result));
+        LOG_ERR("SMOKE", "Asset %s: %s", catalog->entries[i].code, AssetDownloadService::resultName(result));
       require(result == Result::Ok, "catalog asset download failed");
-      delivered(*activity->catalog_, activity->catalog_->entries[i]);
+      delivered(*catalog, catalog->entries[i]);
     }
   }
   // Hold back one companion so the unattended install stops at a Retry prompt,
@@ -731,15 +753,8 @@ struct AssetDownloadSmokeTest {
       require(HyphenationPackStore::isInstalled("de"), "unchanged install removed the pack");
       checkProgress();
       if (bootStage == 7) {
-        // Every other catalog pack still downloads, verifies and publishes through the real service.
-        for (size_t i = 0; i < activity->catalog_->count; ++i) {
-          if (static_cast<int>(i) == activity->selected_) continue;
-          require(AssetDownloadService::download(*activity->catalog_, activity->catalog_->entries[i],
-                                                 activity->endpoints_, false) == Result::Ok,
-                  "catalog asset download failed");
-          delivered(*activity->catalog_, activity->catalog_->entries[i]);
-        }
-        delivered(*activity->catalog_, activity->catalog_->entries[activity->selected_]);
+        downloadCatalog(activity);
+        delivered(activity->selection_, activity->selection_.entry);
         captureMatrix("assets-hyphenation-unchanged");
       }
       tapOption(*activity, 0);  // OK exits to Home.
@@ -767,7 +782,7 @@ struct AssetDownloadSmokeTest {
         unchanged(false);
         require(download(*activity) == Result::Ok, "download failed after companion restored");
         require(discover(*activity) == Result::Ok && source.status == Status::Current, "download was not current");
-        delivered(*activity->catalog_, activity->catalog_->entries[activity->selected_]);
+        delivered(activity->selection_, activity->selection_.entry);
         transactionChecks(*activity);
         preservationChecks(*activity);
         if (saveFailure) {
@@ -895,7 +910,7 @@ struct AssetDownloadSmokeTest {
     }
     if (!activity || !ready(*activity)) return;
     if (expectEmpty) {
-      require(!activity->catalogReady_ && activity->catalog_->count == 0 &&
+      require(!activity->catalogReady_ && !activity->selection_.entry.bytes &&
                   activity->simulatorLastError_ == StrId::STR_ASSET_UNAVAILABLE,
               "empty catalog reported an invalid catalog or network failure");
       require(!Storage.exists("/.crossink/hyphenation/hyph-de.cphyph"), "empty catalog downloaded a source");

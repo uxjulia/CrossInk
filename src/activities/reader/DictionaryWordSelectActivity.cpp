@@ -24,6 +24,7 @@
 #include "MappedInputManager.h"
 #include "Memory.h"
 #include "PageWordGeometry.h"
+#include "ReaderRuling.h"
 #include "ReaderUtils.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
@@ -1431,7 +1432,9 @@ void DictionaryWordSelectActivity::render(RenderLock&&) {
   auto scope = fcm->createPrewarmScope();
   page->render(renderer, SETTINGS.getReaderFontId(), marginLeft, marginTop, foregroundBlack);  // scan pass
   scope.endScanAndPrewarm();
-  page->render(renderer, SETTINGS.getReaderFontId(), marginLeft, marginTop, foregroundBlack);
+  page->renderText(renderer, SETTINGS.getReaderFontId(), marginLeft, marginTop, foregroundBlack);
+  ReaderRuling::drawSelectionPage(renderer, *page, SETTINGS.getReaderFontId(), marginLeft, marginTop);
+  page->renderImages(renderer, SETTINGS.getReaderFontId(), marginLeft, marginTop, foregroundBlack);
 
   // Set up snapshot AND draw the highlight via the differential entry point with
   // prevWordIdx = -1 (no previous highlight to wipe). This both draws the highlight

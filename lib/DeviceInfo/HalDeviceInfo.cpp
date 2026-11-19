@@ -61,6 +61,7 @@ Snapshot capture() {
   if (info.sdReady) info.sdBytes = Storage.totalBytes();  // No expensive FAT free-space scan.
   const auto& board = BoardConfig::ACTIVE;
   info.displayController = display.getControllerName();
+  info.displayPanel = display.getPanelName();
   info.touchController = touchName(board.touch.controller);
   info.sdmmc = board.sdmmc.busWidth != 0;
   info.touch = presence(board.touch.controller != BoardConfig::TouchController::None, gpio.hasTouch());

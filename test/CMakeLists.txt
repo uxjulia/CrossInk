@@ -54,6 +54,7 @@ add_subdirectory(clipping_preview)
 add_subdirectory(clipping_store)
 add_subdirectory(dict_layout)
 add_subdirectory(reader_progress_save_debouncer)
+add_subdirectory(calibre_progress)
 add_subdirectory(reader_tilt_page_turn)
 add_subdirectory(epub_link_return_state)
 add_subdirectory(manual_page_turn_queue)
@@ -92,6 +93,7 @@ add_subdirectory(korean_line_breaking)
 add_subdirectory(input_release_guard)
 add_subdirectory(release_suppression)
 add_subdirectory(bitmap_resample)
+add_subdirectory(png_tone_mapper)
 add_subdirectory(bmp_to_bmp)
 add_subdirectory(jpeg_decoder)
 add_subdirectory(pxc_v2)
@@ -132,10 +134,15 @@ add_subdirectory(screen_calibration)
 add_subdirectory(keyboard_tips)
 add_subdirectory(interval_selection_layout)
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
+add_test(NAME CrashTaskContextRegression
+  COMMAND ${Python3_EXECUTABLE} ${REPO_ROOT}/test/scripts/test_crash_task_context.py)
 add_subdirectory(frontlight_settings_boot)
 add_subdirectory(eego_frontlight)
+add_subdirectory(eego_uid)
 add_test(NAME TransferReliabilityRegression
   COMMAND ${Python3_EXECUTABLE} ${REPO_ROOT}/test/scripts/test_transfer_reliability.py)
+add_test(NAME ReaderCopyRegression
+  COMMAND ${Python3_EXECUTABLE} ${REPO_ROOT}/test/scripts/test_reader_copy_regressions.py)
 add_test(NAME WebDavGetRegression
   COMMAND ${Python3_EXECUTABLE} ${REPO_ROOT}/scripts/test_webdav_get.py)
 add_test(NAME ImageProbeFramebufferRegression
@@ -147,6 +154,8 @@ add_test(NAME UploadFailureRegression
   COMMAND ${Python3_EXECUTABLE} ${REPO_ROOT}/test/scripts/test_upload_cancellation.py)
 add_test(NAME StorageAndBrowsingRegression
   COMMAND ${Python3_EXECUTABLE} ${REPO_ROOT}/test/scripts/test_storage_and_browsing_ports.py)
+add_test(NAME PiccoSleepRenderLockRegression
+  COMMAND ${Python3_EXECUTABLE} ${REPO_ROOT}/scripts/test_picco_sleep_render_lock.py)
 add_test(NAME RecentTxtProgressRegression
   COMMAND ${Python3_EXECUTABLE} ${REPO_ROOT}/test/scripts/test_recent_txt_progress.py)
 add_test(NAME DecodedImageRevisionRegression
@@ -219,8 +228,13 @@ if(NODE_EXECUTABLE)
     COMMAND ${NODE_EXECUTABLE} ${REPO_ROOT}/test/scripts/test_transfer_websocket.cjs)
 endif()
 add_subdirectory(progress_sync)
-
 add_test(NAME WebDavCredentialsRegression
   COMMAND ${Python3_EXECUTABLE} ${REPO_ROOT}/test/scripts/test_webdav_credentials.py)
 add_test(NAME TlsFragmentConfigRegression
   COMMAND ${Python3_EXECUTABLE} ${REPO_ROOT}/scripts/test_tls_fragment_config.py)
+add_test(NAME IdleTtfLookaheadGuardsTest
+  COMMAND ${Python3_EXECUTABLE} ${REPO_ROOT}/test/scripts/test_idle_ttf_lookahead.py)
+add_subdirectory(xtc_parser)
+
+add_test(NAME EegoPanelIdleRegression
+  COMMAND ${Python3_EXECUTABLE} ${REPO_ROOT}/test/scripts/test_eego_panel_idle.py)

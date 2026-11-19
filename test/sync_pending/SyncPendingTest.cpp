@@ -92,6 +92,28 @@ TEST_F(SyncPendingTest, SnapshotWalkIgnoresClearsMadeDuringIt) {
   EXPECT_EQ(entries().size(), 1u);
 }
 
+TEST_F(SyncPendingTest, ClearExistingDoesNotCreateMissingQueue) {
+  EXPECT_TRUE(SyncPending::clearExisting("/a.epub", SyncPending::PROGRESS_BIT));
+  EXPECT_FALSE(Storage.exists(SyncPending::PATH));
+}
+
+TEST_F(SyncPendingTest, ClearExistingRemovesOnlyAcknowledgedBits) {
+  ASSERT_TRUE(SyncPending::mark("/a.epub", SyncPending::PROGRESS_BIT | SyncPending::STATS_BIT));
+  ASSERT_TRUE(SyncPending::clearExisting("/a.epub", SyncPending::STATS_BIT));
+  EXPECT_EQ(entries(), (Entries{{"/a.epub", SyncPending::PROGRESS_BIT}}));
+}
+
+TEST_F(SyncPendingTest, ClearExistingReportsCorruptQueueWithoutResettingSyncState) {
+  ASSERT_TRUE(SyncPending::mark("/a.epub", SyncPending::PROGRESS_BIT));
+  SyncState state = SyncState::load();
+  state.statsCaughtUp = true;
+  ASSERT_TRUE(state.save());
+  corrupt(SyncPending::PATH);
+
+  EXPECT_FALSE(SyncPending::clearExisting("/a.epub", SyncPending::PROGRESS_BIT));
+  EXPECT_TRUE(SyncState::load().statsCaughtUp);
+}
+
 TEST_F(SyncPendingTest, SessionMarkerRetriesAfterFailedSave) {
   SyncPending::SessionMarker marker;
   Storage.failNextRenameFrom(std::string(SyncPending::PATH) + ".tmp");

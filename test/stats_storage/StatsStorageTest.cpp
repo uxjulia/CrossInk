@@ -6,11 +6,13 @@
 #include "DailyReadingStats.h"
 #include "GlobalReadingStats.h"
 #include "ReadingSessionJournal.h"
+#include "StatsBackup.h"
 #include "TwoSlotFile.h"
 #include "sync/SyncFiles.h"
 #include "util/StatsStorage.h"
 
 void resetStatsStorageForTest();
+void resetGlobalReadingStatsForTest();
 namespace DailyReadingStats {
 void resetForTest();
 }
@@ -24,6 +26,7 @@ void switchReader(uint8_t device) {
   testMac[5] = device;
   failMac = false;
   resetStatsStorageForTest();
+  resetGlobalReadingStatsForTest();
   DailyReadingStats::resetForTest();
 }
 void writeBytes(const std::string& path, const std::vector<uint8_t>& bytes) {
@@ -61,8 +64,185 @@ class StatsStorageTest : public ::testing::Test {
   void SetUp() override {
     Storage.reset();
     switchReader(5);
+    ASSERT_TRUE(Storage.mkdir(CACHE));
   }
 };
+
+TEST_F(StatsStorageTest, CorruptGlobalSlotsCannotBecomeANewSavedHistoryOrBackup) {
+  auto history = GlobalReadingStats::load();
+  history.totalReadingSeconds = 97000;
+  ASSERT_TRUE(history.save());
+  history.totalReadingSeconds += 60;
+  ASSERT_TRUE(history.save());
+  const auto path = StatsStorage::localPath("/.crosspoint/global_stats.bin");
+  for (const auto& slot : {path, path + ".bak"}) Storage.files.at(slot)->bytes.back() ^= 1;
+  const auto original = Storage.files.at(path)->bytes;
+  const auto previous = Storage.files.at(path + ".bak")->bytes;
+  auto unreadable = GlobalReadingStats::load();
+  EXPECT_TRUE(GlobalReadingStats::recoveryRequired());
+  EXPECT_EQ(unreadable.counterId.bytes, StatsCounterId{}.bytes);
+  unreadable.totalReadingSeconds = 60;
+  EXPECT_FALSE(unreadable.save());
+  EXPECT_FALSE(backupGlobalStats(false));
+  EXPECT_FALSE(GlobalReadingStats::loadForUpload(unreadable));
+  EXPECT_EQ(Storage.files.at(path)->bytes, original);
+  EXPECT_EQ(Storage.files.at(path + ".bak")->bytes, previous);
+}
+
+TEST_F(StatsStorageTest, ReadOpenFailurePreservesTheExistingHistory) {
+  auto history = GlobalReadingStats::load();
+  history.totalReadingSeconds = 97000;
+  ASSERT_TRUE(history.save());
+  const auto path = StatsStorage::localPath("/.crosspoint/global_stats.bin");
+  const auto bytes = Storage.files.at(path)->bytes;
+  faults.failReadPath = path;
+  auto unreadable = GlobalReadingStats::load();
+  EXPECT_TRUE(GlobalReadingStats::recoveryRequired());
+  faults.failReadPath.clear();
+  EXPECT_FALSE(unreadable.save());
+  EXPECT_EQ(Storage.files.at(path)->bytes, bytes);
+}
+
+TEST_F(StatsStorageTest, FailedDirectoryReadIsNotTreatedAsANewHistory) {
+  ASSERT_FALSE(StatsStorage::localPath("/.crosspoint/global_stats.bin").empty());
+  faults.failScan = true;
+  auto unknown = GlobalReadingStats::load();
+  EXPECT_TRUE(GlobalReadingStats::recoveryRequired());
+  EXPECT_EQ(unknown.counterId.bytes, StatsCounterId{}.bytes);
+  faults.failScan = false;
+  EXPECT_FALSE(unknown.save());
+}
+
+TEST_F(StatsStorageTest, DatedBackupHasAChecksumAndRecoversTheOriginalCounterIdentity) {
+  auto history = GlobalReadingStats::load();
+  history.totalReadingSeconds = 97000;
+  ASSERT_TRUE(history.save());
+  char name[64];
+  ASSERT_TRUE(backupGlobalStats(false, name, sizeof(name)));
+  const auto backup = std::string("/.crossink-stats-backup/") + name;
+  ASSERT_EQ(Storage.files.at(backup)->bytes.size(), 183u);
+  GlobalReadingStats snapshot;
+  ASSERT_TRUE(GlobalReadingStats::readBackup(backup.c_str(), snapshot));
+  EXPECT_EQ(snapshot.counterId.bytes, history.counterId.bytes);
+  const auto path = StatsStorage::localPath("/.crosspoint/global_stats.bin");
+  Storage.files.at(path)->bytes.back() ^= 1;
+  const auto damaged = Storage.files.at(path)->bytes;
+  GlobalReadingStats::load();
+  ASSERT_TRUE(GlobalReadingStats::recoveryRequired());
+  ASSERT_TRUE(GlobalReadingStats::restoreBackup(backup.c_str()));
+  EXPECT_FALSE(GlobalReadingStats::recoveryRequired());
+  EXPECT_EQ(GlobalReadingStats::load().totalReadingSeconds, 97000u);
+  EXPECT_EQ(GlobalReadingStats::load().counterId.bytes, history.counterId.bytes);
+  EXPECT_EQ(Storage.files.at(path + ".damaged.0")->bytes, damaged);
+  EXPECT_EQ(GlobalReadingStats::localResetRevision(), 1u);
+}
+
+TEST_F(StatsStorageTest, InterruptedBackupUpdatesRetainThePreviousCompleteSnapshot) {
+  auto history = GlobalReadingStats::load();
+  history.totalReadingSeconds = 97000;
+  ASSERT_TRUE(history.save());
+  char name[64];
+  ASSERT_TRUE(backupGlobalStats(false, name, sizeof(name)));
+  const auto backup = std::string("/.crossink-stats-backup/") + name;
+  history.totalReadingSeconds += 60;
+  ASSERT_TRUE(history.save());
+  for (int cut = 0; cut < 183; ++cut) {
+    faults.bytesUntilFailure = cut;
+    EXPECT_FALSE(backupGlobalStats(false)) << "byte " << cut;
+    faults.bytesUntilFailure = -1;
+    GlobalReadingStats snapshot;
+    ASSERT_TRUE(GlobalReadingStats::readBackup(backup.c_str(), snapshot)) << "byte " << cut;
+    EXPECT_EQ(snapshot.totalReadingSeconds, 97000u) << "byte " << cut;
+    EXPECT_EQ(snapshot.counterId.bytes, history.counterId.bytes);
+  }
+  ASSERT_TRUE(backupGlobalStats(false));
+  GlobalReadingStats snapshot;
+  ASSERT_TRUE(GlobalReadingStats::readBackup(backup.c_str(), snapshot));
+  EXPECT_EQ(snapshot.totalReadingSeconds, 97060u);
+}
+
+TEST_F(StatsStorageTest, InterruptedExplicitRestoreCannotAppearAsFirstUseAfterRestart) {
+  auto history = GlobalReadingStats::load();
+  history.totalReadingSeconds = 97000;
+  ASSERT_TRUE(history.save());
+  char name[64];
+  ASSERT_TRUE(backupGlobalStats(false, name, sizeof(name)));
+  const auto backup = std::string("/.crossink-stats-backup/") + name;
+  const auto path = StatsStorage::localPath("/.crosspoint/global_stats.bin");
+  Storage.files.at(path)->bytes.back() ^= 1;
+  GlobalReadingStats::load();
+  faults.failRenameFrom = path;
+  EXPECT_FALSE(GlobalReadingStats::restoreBackup(backup.c_str()));
+  switchReader(5);  // boot after the failed recovery
+  auto unreadable = GlobalReadingStats::load();
+  EXPECT_TRUE(GlobalReadingStats::recoveryRequired());
+  EXPECT_FALSE(unreadable.save());
+  ASSERT_TRUE(GlobalReadingStats::restoreBackup(backup.c_str()));
+  EXPECT_EQ(GlobalReadingStats::load().totalReadingSeconds, 97000u);
+}
+
+TEST_F(StatsStorageTest, LegacyRawBackupsRemainReadableForExplicitRecovery) {
+  std::vector<uint8_t> raw(159);
+  raw[0] = 3;
+  progress_record::writeU32(raw.data() + 5, 97000);
+  const char* path = "/.crossink-stats-backup/stats_2026-09-01.bin";
+  ASSERT_TRUE(Storage.mkdir("/.crossink-stats-backup"));
+  writeBytes(path, raw);
+  GlobalReadingStats snapshot;
+  ASSERT_TRUE(GlobalReadingStats::readBackup(path, snapshot));
+  EXPECT_EQ(snapshot.totalReadingSeconds, 97000u);
+  EXPECT_EQ(snapshot.counterId.bytes, StatsCounterId{}.bytes);
+  char name[64];
+  ASSERT_TRUE(findLatestStatsBackup(name, sizeof(name)));
+  EXPECT_STREQ(name, "stats_2026-09-01.bin");
+}
+
+TEST_F(StatsStorageTest, RecoverySelectionOrdersClocklessSequenceNumbersNumerically) {
+  ASSERT_TRUE(Storage.mkdir("/.crossink-stats-backup"));
+  std::vector<uint8_t> raw(159);
+  raw[0] = 3;
+  writeBytes("/.crossink-stats-backup/stats_backup_999.bin", raw);
+  writeBytes("/.crossink-stats-backup/stats_backup_1000.bin", raw);
+  char name[64];
+  ASSERT_TRUE(findLatestStatsBackup(name, sizeof(name)));
+  EXPECT_STREQ(name, "stats_backup_1000.bin");
+  writeBytes("/.crossink-stats-backup/stats_2026-11-13.bin", raw);
+  ASSERT_TRUE(findLatestStatsBackup(name, sizeof(name)));
+  EXPECT_STREQ(name, "stats_2026-11-13.bin");
+}
+
+TEST_F(StatsStorageTest, RecoverySelectionIncludesASoleSurvivingBackupSlot) {
+  ASSERT_TRUE(Storage.mkdir("/.crossink-stats-backup"));
+  std::vector<uint8_t> raw(159);
+  raw[0] = 3;
+  writeBytes("/.crossink-stats-backup/stats_2026-11-13.bin.bak", raw);
+  char name[64];
+  ASSERT_TRUE(findLatestStatsBackup(name, sizeof(name)));
+  EXPECT_STREQ(name, "stats_2026-11-13.bin");
+}
+
+TEST_F(StatsStorageTest, PowerLossAfterArchivingHistoryKeepsRecoveryProtectionAcrossBoots) {
+  auto history = GlobalReadingStats::load();
+  history.totalReadingSeconds = 97000;
+  ASSERT_TRUE(history.save());
+  char name[64];
+  ASSERT_TRUE(backupGlobalStats(false, name, sizeof(name)));
+  const auto backup = std::string("/.crossink-stats-backup/") + name;
+  const auto path = StatsStorage::localPath("/.crosspoint/global_stats.bin");
+  Storage.files.at(path)->bytes.back() ^= 1;
+  GlobalReadingStats::load();
+  faults.bytesUntilFailure = 1;  // marker persists, restored stats cannot be written
+  EXPECT_FALSE(GlobalReadingStats::restoreBackup(backup.c_str()));
+  EXPECT_TRUE(Storage.exists((path + ".damaged.0").c_str()));
+  faults.bytesUntilFailure = -1;
+  switchReader(5);
+  auto interrupted = GlobalReadingStats::load();
+  EXPECT_TRUE(GlobalReadingStats::recoveryRequired());
+  EXPECT_FALSE(interrupted.save());
+  ASSERT_TRUE(GlobalReadingStats::restoreBackup(backup.c_str()));
+  EXPECT_EQ(GlobalReadingStats::load().counterId.bytes, history.counterId.bytes);
+  EXPECT_EQ(GlobalReadingStats::load().totalReadingSeconds, 97000u);
+}
 
 TEST_F(StatsStorageTest, CopiedBookStartsSeparateCountersAndSourceResumes) {
   BookReadingStats a;
@@ -119,6 +299,74 @@ TEST_F(StatsStorageTest, ReadOnlyCompletionDoesNotWriteOrMigrate) {
   EXPECT_TRUE(Storage.exists(LEGACY_BOOK));
   EXPECT_FALSE(Storage.exists(ROOT_OWNER));
 }
+TEST_F(StatsStorageTest, CompletionSkipsAbsentStatsAndFindsOlderFilesOnTheirOwningReader) {
+  ASSERT_FALSE(StatsStorage::localPath("/.crosspoint/global_stats.bin").empty());
+  writeBytes(std::string(CACHE) + "/progress.bin", {1});
+  faults = {};
+  EXPECT_FALSE(BookReadingStats::peekCompleted(CACHE));
+  EXPECT_LE(faults.existsChecks, 7u);
+  EXPECT_EQ(faults.readOpens, 1u);  // Card origin for the current format.
+  EXPECT_EQ(faults.directoryOpens, 1u);
+  EXPECT_EQ(faults.directorySteps, 2u);
+  legacyBook(3600);
+  Storage.files.at(LEGACY_BOOK)->bytes[11] = 1;
+  faults = {};
+  EXPECT_TRUE(BookReadingStats::peekCompleted(CACHE));
+  EXPECT_LE(faults.existsChecks, 16u);
+  EXPECT_EQ(faults.readOpens, 3u);  // Two origin checks and the legacy payload.
+  EXPECT_EQ(faults.directoryOpens, 1u);
+  EXPECT_EQ(faults.directorySteps, 3u);
+  EXPECT_EQ(faults.writes, 0u);
+  switchReader(6);
+  EXPECT_FALSE(BookReadingStats::peekCompleted(CACHE));
+  EXPECT_TRUE(Storage.exists(LEGACY_BOOK));
+}
+
+TEST_F(StatsStorageTest, CurrentCompletionUsesNewestSlotWithoutWalkingImageFiles) {
+  for (int i = 0; i < 40; ++i) writeBytes(std::string(CACHE) + "/image_" + std::to_string(i), {0});
+  BookReadingStats book;
+  ASSERT_TRUE(book.save(CACHE));
+  book.isCompleted = true;
+  ASSERT_TRUE(book.save(CACHE));
+  faults = {};
+  EXPECT_TRUE(BookReadingStats::peekCompleted(CACHE));
+  EXPECT_EQ(faults.directoryOpens, 0u);
+  EXPECT_EQ(faults.directorySteps, 0u);
+  EXPECT_LE(faults.existsChecks, 7u);
+  EXPECT_LE(faults.readOpens, 3u);
+  EXPECT_EQ(faults.writes, 0u);
+}
+
+TEST_F(StatsStorageTest, CompletionFallsBackWhenDirectoryWalkIsIncomplete) {
+  legacyBook(3600);
+  Storage.files.at(LEGACY_BOOK)->bytes[11] = 1;
+  faults.failScan = true;
+  EXPECT_TRUE(BookReadingStats::peekCompleted(CACHE));
+  faults.failScan = false;
+  for (int i = 0; i < 40; ++i) writeBytes(std::string(CACHE) + "/image_" + std::to_string(i), {0});
+  faults = {};
+  EXPECT_TRUE(BookReadingStats::peekCompleted(CACHE));
+  EXPECT_LE(faults.directorySteps, 32u);
+  EXPECT_EQ(faults.writes, 0u);
+}
+
+TEST_F(StatsStorageTest, CompletionUsesLegacyRecoveryWithoutMixingReadersOrWriting) {
+  legacyBook(3600);
+  Storage.files.at(LEGACY_BOOK)->bytes[11] = 1;
+  ASSERT_FALSE(StatsStorage::localPath("/.crosspoint/global_stats.bin").empty());
+  ASSERT_TRUE(Storage.rename(LEGACY_BOOK, (std::string(LEGACY_BOOK) + ".bak").c_str()));
+  writeBytes(std::string(LEGACY_BOOK) + ".tmp", {6});
+  EXPECT_TRUE(BookReadingStats::peekCompleted(CACHE));
+  switchReader(6);
+  EXPECT_FALSE(BookReadingStats::peekCompleted(CACHE));
+  BookReadingStats own;
+  ASSERT_TRUE(own.save(CACHE));
+  switchReader(5);
+  EXPECT_TRUE(BookReadingStats::peekCompleted(CACHE));
+  EXPECT_TRUE(Storage.exists((std::string(LEGACY_BOOK) + ".tmp").c_str()));
+  EXPECT_FALSE(Storage.exists(LEGACY_BOOK));
+}
+
 TEST_F(StatsStorageTest, PendingSessionsAreNotUploadedByTheReceivingReader) {
   const auto record = session();
   ASSERT_TRUE(ReadingSessionJournal::save(record));
@@ -412,6 +660,7 @@ TEST_F(StatsStorageTest, InterruptedMigrationStillRecoversTheNewerLegacyBackup) 
   book.totalReadingSeconds = 100;
   ASSERT_TRUE(book.save(CACHE));
   book.totalReadingSeconds = 200;
+  book.isCompleted = true;
   ASSERT_TRUE(book.save(CACHE));
   const std::string generic = std::string(CACHE) + "/stats_v7.bin";
   const auto local = StatsStorage::localPath(generic);
@@ -422,7 +671,11 @@ TEST_F(StatsStorageTest, InterruptedMigrationStillRecoversTheNewerLegacyBackup) 
   EXPECT_EQ(BookReadingStats::load(CACHE).totalReadingSeconds, 0u);
   EXPECT_TRUE(Storage.exists(local.c_str()));
   EXPECT_TRUE(Storage.exists((generic + ".bak").c_str()));
+  switchReader(6);
+  EXPECT_FALSE(BookReadingStats::peekCompleted(CACHE));
   switchReader(5);
+  EXPECT_TRUE(BookReadingStats::peekCompleted(CACHE));
+  EXPECT_TRUE(Storage.exists((generic + ".bak").c_str()));
   EXPECT_EQ(BookReadingStats::load(CACHE).totalReadingSeconds, 200u);
   EXPECT_FALSE(Storage.exists((generic + ".bak").c_str()));
 }

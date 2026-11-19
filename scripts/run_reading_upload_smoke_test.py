@@ -118,10 +118,13 @@ def main():
                 self.end_headers()
                 self.wfile.write(data)
                 return
-            if mode in ('current-equal', 'current-ask-equal', 'current-download', 'current-menu-cold', 'folder-mixed', 'folder-equal', 'folder-ask', 'folder-ask-cancel', 'folder-ask-skip', 'folder-ask-skip-landscape', 'folder-ask-exit-held', 'folder-local-ahead'):
+            if mode in ('current-equal', 'current-ask-equal', 'current-download', 'current-menu-cold', 'current-menu-cold-cancel', 'current-menu-cold-percent', 'folder-mixed', 'folder-equal', 'folder-ask', 'folder-ask-cancel', 'folder-ask-skip', 'folder-ask-skip-landscape', 'folder-ask-exit-held', 'folder-local-ahead'):
                 expected = json.loads((fs / 'expected-progress.json').read_text())
-                if mode == 'current-menu-cold':
+                if mode.startswith('current-menu-cold'):
                     expected['document'] = hashlib.md5(b'unread.epub').hexdigest()
+                    if mode == 'current-menu-cold-percent':
+                        expected['progress'] = ''
+                        expected['percentage'] = 0.4
                 if self.path.split('?', 1)[0].endswith(expected['document']):
                     reply = expected
                     if mode == 'folder-local-ahead':
@@ -179,7 +182,7 @@ def main():
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
-        modes = ['clippings-download', 'folder-download', 'ok', 'folder-xtc', 'all-books', 'stats-entry', 'stats-twice', 'clippings-only', 'clippings-twice', 'xtc-book', 'disabled', 'cancel', 'auth', 'unsupported', 'counter-unsupported', 'folder-mixed', 'folder-equal', 'folder-local-ahead', 'folder-ask', 'folder-ask-cancel', 'folder-ask-skip', 'folder-ask-skip-landscape', 'folder-ask-exit-held', 'folder-exit-held', 'folder-missing-cache', 'folder-skip-progress', 'folder-skip-stats', 'folder-skip-clippings', 'folder-skip-invalid', 'folder-skip-all', 'current-upload', 'current-upload-crosspoint', 'current-equal', 'current-ask-upload', 'current-ask-equal', 'current-download', 'current-menu', 'current-menu-cold', 'folder-no-progress', 'folder-legacy-progress', 'folder-zero-count', 'folder-past-end', 'folder-empty', 'folder-global-failure', 'folder-no-stats', 'folder-tracking-disabled', 'feed-twice', 'feed-parked', 'feed-404', 'feed-batch-404', 'feed-batch-500', 'current-menu-kept', 'open-kept-accept', 'open-kept-decline', 'open-kept-behind', 'open-kept-unprepared', 'matching-confirm', 'matching-cancel', 'matching-web']
+        modes = ['clippings-download', 'folder-download', 'ok', 'folder-xtc', 'all-books', 'stats-entry', 'stats-twice', 'clippings-only', 'clippings-twice', 'xtc-book', 'disabled', 'cancel', 'auth', 'unsupported', 'counter-unsupported', 'folder-mixed', 'folder-equal', 'folder-local-ahead', 'folder-ask', 'folder-ask-cancel', 'folder-ask-skip', 'folder-ask-skip-landscape', 'folder-ask-exit-held', 'folder-exit-held', 'folder-missing-cache', 'folder-skip-progress', 'folder-skip-stats', 'folder-skip-clippings', 'folder-skip-invalid', 'folder-skip-all', 'current-upload', 'current-upload-crosspoint', 'current-equal', 'current-ask-upload', 'current-ask-equal', 'current-download', 'current-menu', 'current-menu-cold', 'current-menu-cold-cancel', 'current-menu-cold-percent', 'folder-no-progress', 'folder-legacy-progress', 'folder-zero-count', 'folder-past-end', 'folder-empty', 'folder-global-failure', 'folder-no-stats', 'folder-tracking-disabled', 'feed-twice', 'feed-parked', 'feed-404', 'feed-batch-404', 'feed-batch-500', 'current-menu-kept', 'open-kept-accept', 'open-kept-decline', 'open-kept-behind', 'open-kept-unprepared', 'matching-confirm', 'matching-cancel', 'matching-web']
         if args.touch:
             modes += ['folder-done-touch']
         modes += ['folder-done-confirm']
@@ -274,8 +277,12 @@ def main():
                     env['CROSSINK_READING_TEST_SUPPORTED'] = '1'
                 if mode.startswith('current-menu'):
                     env['CROSSINK_READING_TEST_MENU'] = '1'
-                if mode == 'current-menu-cold':
+                if mode.startswith('current-menu-cold'):
                     env['CROSSINK_READING_TEST_COLD'] = '1'
+                if mode == 'current-menu-cold-cancel':
+                    env['CROSSINK_READING_TEST_RECOVERY_CANCEL'] = '1'
+                if mode == 'current-menu-cold-percent':
+                    env['CROSSINK_READING_TEST_PERCENT_ONLY'] = '1'
                 if mode == 'current-menu-kept':
                     env['CROSSINK_READING_TEST_MENU_KEPT'] = '1'
                 if mode.startswith('matching-'):
@@ -358,9 +365,15 @@ def main():
                         assert 'Extras: global=0 stats=1 statsFailed=1 clippings=1 clippingsFailed=0' in log
                     if mode == 'folder-skip-clippings':
                         assert 'Extras: global=0 stats=2 statsFailed=0 clippings=1 clippingsFailed=1' in log
-                elif mode == 'current-menu-cold':
+                elif mode.startswith('current-menu-cold'):
                     assert not progress and not stats and not clippings, requests
-                    assert sum(path == '/api/v1/stats/counters/global' for path, _ in requests) == 1
+                    confirmed = mode == 'current-menu-cold'
+                    assert len(globals_sent) == int(confirmed), requests
+                    if confirmed:
+                        saved = read_progress_snapshot(fs, 'unread-progress.json')
+                        assert saved['hasOffset'] and saved['offset'] > 0, saved
+                    else:
+                        assert not (fs / 'unread-progress.json').exists()
                 elif mode.startswith('current-'):
                     # Ask on conflicts asks only when positions differ: no remote position
                     # uploads silently, and an equal one finishes as Already synced. A prompt

@@ -201,15 +201,20 @@ TEST(EpubTextGrayscaleTest, RealTextRasterMatchesFullAndStripTargets) {
                                                 : feature == 2 ? EpdFontFamily::SUP
                                                 : feature == 3 ? EpdFontFamily::SUB
                                                                : 0));
-            TextBlock line(words, offsets, variants,
-                           feature == 1 ? std::vector<uint8_t>(words.size(), 1) : std::vector<uint8_t>{},
-                           feature == 1 ? std::vector<uint16_t>(words.size(), 12) : std::vector<uint16_t>{},
-                           std::vector<uint16_t>(words.size(), 6),
-                           std::vector<uint8_t>(words.size(), TextBlock::WORD_FLAG_BACKGROUND_BLACK), {}, blockStyle,
-                           feature == 4 ? std::vector<std::string>(words.size(), "Ab") : std::vector<std::string>{});
-            ASSERT_TRUE(line.valid());
+            const std::array<int, 9> lineY = {-8, 65, 79, 145, 159, 230, 310, 390, 470};
+            std::vector<std::unique_ptr<TextBlock>> lines;
+            for (size_t i = 0; i < lineY.size(); ++i) {
+              lines.emplace_back(new TextBlock(
+                  words, offsets, variants,
+                  feature == 1 ? std::vector<uint8_t>(words.size(), 1) : std::vector<uint8_t>{},
+                  feature == 1 ? std::vector<uint16_t>(words.size(), 12) : std::vector<uint16_t>{},
+                  std::vector<uint16_t>(words.size(), 6),
+                  std::vector<uint8_t>(words.size(), TextBlock::WORD_FLAG_BACKGROUND_BLACK), {}, blockStyle,
+                  feature == 4 ? std::vector<std::string>(words.size(), "Ab") : std::vector<std::string>{}));
+              ASSERT_TRUE(lines.back()->valid());
+            }
             auto draw = [&] {
-              for (int y : {-8, 65, 79, 145, 159, 230, 310, 390, 470}) line.render(renderer, 1, 7, y, true);
+              for (size_t i = 0; i < lines.size(); ++i) lines[i]->render(renderer, 1, 7, lineY[i], true);
             };
             {
               auto scan = cache.createPrewarmScope();
@@ -224,12 +229,15 @@ TEST(EpubTextGrayscaleTest, RealTextRasterMatchesFullAndStripTargets) {
               renderer.clearScreen(mode == GfxRenderer::BW ? 255 : 0);
               draw();
               renderer.endStripTarget();
-              for (int y = 0; y < display.height; y += 80) {
-                int rows = std::min(80, display.height - y);
-                renderer.beginStripTarget(strips.data() + size_t(y) * display.stride, y, rows);
-                renderer.clearScreen(mode == GfxRenderer::BW ? 255 : 0);
-                draw();
-                renderer.endStripTarget();
+              {
+                const GfxRenderer::TextCullingScope culling(renderer);
+                for (int y = 0; y < display.height; y += 80) {
+                  int rows = std::min(80, display.height - y);
+                  renderer.beginStripTarget(strips.data() + size_t(y) * display.stride, y, rows);
+                  renderer.clearScreen(mode == GfxRenderer::BW ? 255 : 0);
+                  draw();
+                  renderer.endStripTarget();
+                }
               }
               EXPECT_EQ(full, strips) << "feature=" << feature << " mode=" << mode;
               EXPECT_TRUE(std::any_of(full.begin(), full.end(),
@@ -280,7 +288,237 @@ TEST(EpubTextRaster, VariationSelectorsDoNotDrawOrAdvance) {
   }
 }
 
-TEST(AbsoluteImageRaster, TextMatchesBlackWhiteInBothPlanesAndCancellationResetsMode) {
+TEST(ReaderRuling, LeavesSpaceAroundDescendersAndAccentsWithoutBreakingTheDotPattern) {
+  fakeheap::reset(true);
+  HalDisplay display;
+  GfxRenderer renderer(display);
+  renderer.begin();
+  ReaderRuling ruling{2, 1, 32, 80, 100};
+  renderer.clearScreen();
+  renderer.drawPixel(33, 37);  // Ink immediately outside the right margin.
+  renderer.drawPixel(8, 35);   // Descender just above the rule.
+  renderer.drawPixel(17, 39);  // Accent from the following row.
+  ruling.draw(renderer, 38);
+  for (int x = 1; x < 33; ++x) {
+    const bool clear = (x < 6 || x > 10) && (x < 15 || x > 19) && x < 31;
+    EXPECT_EQ(renderer.isPixelBlack(x, 37), clear && (x % 2 == 1)) << x;
+  }
+  EXPECT_TRUE(renderer.isPixelBlack(8, 35));
+  EXPECT_TRUE(renderer.isPixelBlack(17, 39));
+
+  renderer.clearScreen();
+  ruling.bottom = 34;
+  ruling.draw(renderer, 38);
+  EXPECT_FALSE(renderer.isPixelBlack(1, 33));
+  ruling.draw(renderer, 34);
+  EXPECT_TRUE(renderer.isPixelBlack(1, 33));
+  EXPECT_FALSE(renderer.isPixelBlack(1, 34));
+}
+
+TEST(ReaderRuling, MeasuresDeepGlyphsAndOnlyExpandsRuledRows) {
+  for (bool sd : {false, true}) {
+    fakeheap::reset(true);
+    Storage.reset();
+    RasterFont fixture(12);
+    fixture.data.descender = -1;  // The glyph bitmaps actually extend three pixels below the baseline.
+    SdCardFont sdFont;
+    HalDisplay display;
+    GfxRenderer renderer(display);
+    renderer.begin();
+    if (sd) {
+      Storage.put("depth.cpfont", fixture.file());
+      ASSERT_TRUE(sdFont.load("depth.cpfont"));
+      renderer.insertFont(1, EpdFontFamily(sdFont.getEpdFont()));
+      renderer.registerSdCardFont(1, &sdFont);
+    } else {
+      renderer.insertFont(1, EpdFontFamily(&fixture.font));
+    }
+    for (int requested : {10, 35, 50}) {
+      const auto row = ReaderRuling::textRow(renderer, 1, "!", requested, 0);
+      // The reference stem is 13px tall, and the ink extends another 3px.
+      EXPECT_EQ(row.height, std::max(requested, 13 + 2 * (3 + 2) + 1));
+      const int stemTop = (row.height - 1 - 13) / 2;
+      EXPECT_EQ(row.offset, stemTop);
+      renderer.clearScreen();
+      renderer.drawText(1, 9, row.offset, "!");
+      ReaderRuling{3, 0, 60, 100, 100}.draw(renderer, row.height);
+      int first = row.height, last = -1;
+      for (int y = 0; y < row.height - 1; ++y)
+        for (int x = 0; x < 60; ++x)
+          if (renderer.isPixelBlack(x, y)) {
+            first = std::min(first, y);
+            last = std::max(last, y);
+          }
+      EXPECT_GE(first, 2);
+      EXPECT_GE(row.height - last - 2, 2);
+      EXPECT_EQ(first, stemTop);
+      for (int x = 0; x < 60; ++x) EXPECT_TRUE(renderer.isPixelBlack(x, row.height - 1));
+    }
+    renderer.removeFont(1);
+  }
+}
+
+TEST(ReaderRuling, LowercaseBodyStaysCenteredWhenOtherLettersChange) {
+  fakeheap::reset(true);
+  RasterFont fixture(12);
+  auto& x = fixture.glyphs['x' - 32];
+  x.top = 8;
+  x.height = 8;
+  auto& parenthesis = fixture.glyphs['(' - 32];
+  parenthesis.top += 3;
+  HalDisplay display;
+  GfxRenderer renderer(display);
+  renderer.begin();
+  renderer.insertFont(1, EpdFontFamily(&fixture.font));
+  const int baseline = fixture.data.ascender;
+  for (int height : {renderer.getLineHeight(1), renderer.getLineHeight(1) * 125 / 100, 36}) {
+    const auto shortRow = ReaderRuling::textRow(renderer, 1, "xx", height, 0);
+    const auto tallRow = ReaderRuling::textRow(renderer, 1, "xHg", height, 0);
+    const auto punctuationRow = ReaderRuling::textRow(renderer, 1, "(xx)", height, 0);
+    EXPECT_EQ(shortRow.height, punctuationRow.height);
+    EXPECT_EQ(shortRow.offset, punctuationRow.offset);
+    EXPECT_EQ(shortRow.height, tallRow.height);
+    EXPECT_EQ(shortRow.offset, tallRow.offset);
+    GfxRenderer::TextVerticalBounds referenceBody, extent;
+    ASSERT_TRUE(renderer.getLatinBodyBounds(1, referenceBody, extent));
+    EXPECT_EQ(referenceBody.top, renderer.getTextVerticalBounds(1, "h").top);
+    EXPECT_EQ(referenceBody.bottom, baseline);
+    const int above = shortRow.offset + referenceBody.top;
+    const int below = shortRow.height - 1 - shortRow.offset - baseline;
+    EXPECT_LE(std::abs(above - below), 1);
+    const auto tall = renderer.getTextVerticalBounds(1, "xHg");
+    EXPECT_GE(tallRow.offset + tall.top, 2);
+    EXPECT_GE(tallRow.height - 1 - tallRow.offset - tall.bottom, 2);
+    TextBlock block({"xHg"}, {0}, {EpdFontFamily::REGULAR}, {}, {}, {}, {}, {});
+    const auto epub = block.ruledLayout(renderer, 1, height);
+    EXPECT_EQ(epub.height, tallRow.height);
+    EXPECT_EQ(epub.offset, tallRow.offset);
+  }
+}
+
+TEST(ReaderRuling, OrdinaryDescenderKeepsSharedPitchAndClearance) {
+  fakeheap::reset(true);
+  RasterFont fixture(12);
+  auto& x = fixture.glyphs['x' - 32];
+  x.top = x.height = 8;
+  auto& g = fixture.glyphs['g' - 32];
+  g.top = 8;
+  g.height = 18;
+  // A deeper tail outside the reference sample can require an even taller row.
+  auto& y = fixture.glyphs['y' - 32];
+  y.top = 8;
+  y.height = 20;
+  HalDisplay display;
+  GfxRenderer renderer(display);
+  renderer.begin();
+  renderer.insertFont(1, EpdFontFamily(&fixture.font));
+  for (const char* text : {"xx", "xg"}) {
+    for (int requested : {33, 42}) {
+      const auto row = ReaderRuling::textRow(renderer, 1, text, requested, 0);
+      // A centered 13px stem leaves room for a 10px tail and 2 blank pixels.
+      EXPECT_EQ(row.height, std::max(requested, 38));
+      EXPECT_EQ(row.offset, (row.height - 1 - 13) / 2);
+      EXPECT_GE(row.height - 1 - row.offset - (fixture.data.ascender + 10), 2);
+    }
+  }
+  const auto outlier = ReaderRuling::textRow(renderer, 1, "xy", 33, 0);
+  EXPECT_EQ(outlier.height, 42);
+  EXPECT_EQ(outlier.offset, (outlier.height - 1 - 13) / 2);
+  EXPECT_GE(outlier.height - 1 - outlier.offset - renderer.getTextVerticalBounds(1, "xy").bottom, 2);
+}
+
+TEST(ReaderRuling, CentersQuotedCapitalsAndKeepsMixedProseOnItsBaseline) {
+  fakeheap::reset(true);
+  RasterFont fixture(12);
+  auto& x = fixture.glyphs['x' - 32];
+  x.top = x.height = 8;
+  fixture.glyphs[' ' - 32].width = fixture.glyphs[' ' - 32].height = 0;
+  // Capital X and the exclamation end at the baseline. The guide dot is shorter.
+  for (const char cp : {'X', '!'}) {
+    fixture.glyphs[cp - 32].top = 10;
+    fixture.glyphs[cp - 32].height = 10;
+  }
+  auto& dot = fixture.glyphs[fixture.intervals[1].offset];
+  dot.top = 6;
+  dot.height = 2;
+  HalDisplay display;
+  GfxRenderer renderer(display);
+  renderer.begin();
+  renderer.insertFont(1, EpdFontFamily(&fixture.font));
+  for (const int requested : {22, 36}) {
+    const auto caps = ReaderRuling::textRow(renderer, 1, "XXX! · XX", requested, 0);
+    const auto plain = ReaderRuling::textRow(renderer, 1, "xxx", requested, 0);
+    const auto mixed = ReaderRuling::textRow(renderer, 1, "XXX! The", requested, 0);
+    const auto visible = renderer.getTextVerticalBounds(1, "XXX! · XX");
+    EXPECT_EQ(caps.height, plain.height);
+    EXPECT_EQ(mixed.offset, plain.offset);
+    EXPECT_NE(caps.offset, mixed.offset);
+    EXPECT_LE(std::abs(caps.offset + visible.top - (caps.height - 1 - caps.offset - visible.bottom)), 1);
+    EXPECT_GE(caps.offset + visible.top, 2);
+    EXPECT_GE(caps.height - 1 - caps.offset - visible.bottom, 2);
+
+    TextBlock line({"XXX!", "XX"}, {0, 45}, {EpdFontFamily::BOLD, EpdFontFamily::REGULAR}, {}, {}, {}, {}, {});
+    const auto epub = line.ruledLayout(renderer, 1, requested);
+    EXPECT_EQ(epub.height, caps.height);
+    EXPECT_EQ(epub.offset, caps.offset);
+  }
+}
+
+TEST(ReaderRuling, FontWithoutLatinMeasuresItsOwnInk) {
+  fakeheap::reset(true);
+  RasterFont fixture(12);
+  fixture.intervals = {{0x4e00, 0x4e00, 0}, {0xfffd, 0xfffd, 1}};
+  fixture.data.intervals = fixture.intervals.data();
+  fixture.data.intervalCount = fixture.intervals.size();
+  fixture.glyphs[1].height = 3;
+  HalDisplay display;
+  GfxRenderer renderer(display);
+  renderer.begin();
+  renderer.insertFont(1, EpdFontFamily(&fixture.font));
+  GfxRenderer::TextVerticalBounds body, extent;
+  EXPECT_FALSE(renderer.getLatinBodyBounds(1, body, extent));
+  const auto row = ReaderRuling::textRow(renderer, 1, "一", 35, 0);
+  const auto ink = renderer.getTextVerticalBounds(1, "一");
+  EXPECT_EQ(row.offset, (35 - 1 - ink.top - ink.bottom) / 2);
+}
+
+TEST(ReaderRuling, MeasuringSyntheticGreekLeavesFramebufferUntouched) {
+  fakeheap::reset(true);
+  RasterFont fixture(12);
+  fixture.data.intervalCount = 1;
+  HalDisplay display;
+  GfxRenderer renderer(display);
+  renderer.begin();
+  renderer.insertFont(1, EpdFontFamily(&fixture.font));
+  renderer.clearScreen();
+  const auto blank = display.bw;
+  const auto ink = renderer.getTextVerticalBounds(1, "εωΓ");
+  EXPECT_GT(ink.bottom, ink.top);
+  EXPECT_EQ(display.bw, blank);
+}
+
+TEST(ReaderRuling, AnchorsToLayoutHeight) {
+  fakeheap::reset(true);
+  RasterFont fixture(12);
+  HalDisplay display;
+  GfxRenderer renderer(display);
+  renderer.begin();
+  renderer.insertFont(1, EpdFontFamily(&fixture.font));
+  ReaderRuling ruling{3, 10, 30, 110, 150};
+  renderer.clearScreen();
+  TextBlock line({"A"}, {0}, {EpdFontFamily::REGULAR}, {}, {}, {}, {}, {});
+  ruling.drawBlock(renderer, line, 1, 4);
+  const int defaultHeight = (renderer.getLineHeight(1) * 150 + 50) / 100;
+  EXPECT_TRUE(renderer.isPixelBlack(10, 4 + defaultHeight - 1));
+  BlockStyle style;
+  style.lineHeight = 19;
+  line.setBlockStyle(style);
+  ruling.drawBlock(renderer, line, 1, 40);
+  EXPECT_TRUE(renderer.isPixelBlack(10, 58));
+  EXPECT_FALSE(renderer.isPixelBlack(10, 59));
+}
+
+TEST(AbsoluteImageRaster, TextCoverageMatchesOverlayShadesInCompletePlanes) {
   fakeheap::reset(true);
   Storage.reset();
   RasterFont fixture(12);
@@ -290,20 +528,38 @@ TEST(AbsoluteImageRaster, TextMatchesBlackWhiteInBothPlanesAndCancellationResets
   renderer.insertFont(1, EpdFontFamily(&fixture.font));
   for (int orientation = 0; orientation < 4; ++orientation) {
     renderer.setOrientation(GfxRenderer::Orientation(orientation));
-    renderer.clearScreen();
-    renderer.drawText(1, 25, 40, "Book cover");
-    const auto expected = display.bw;
-    ASSERT_TRUE(renderer.displayAbsoluteGrayscaleBase());
-    for (auto mode : {GfxRenderer::GRAYSCALE_LSB, GfxRenderer::GRAYSCALE_MSB}) {
+    for (auto style : {EpdFontFamily::REGULAR, EpdFontFamily::SMALL_CAPS}) {
+      const auto draw = [&] { renderer.drawText(1, 25, 40, "Book cover", true, style); };
+      renderer.setRenderMode(GfxRenderer::BW);
       renderer.clearScreen();
-      renderer.setRenderMode(mode);
-      renderer.drawText(1, 25, 40, "Book cover");
-      EXPECT_EQ(display.bw, expected);
+      draw();
+      const auto base = display.bw;
+      std::array<std::vector<uint8_t>, 2> masks;
+      int index = 0;
+      for (auto mode : {GfxRenderer::GRAYSCALE_LSB, GfxRenderer::GRAYSCALE_MSB}) {
+        renderer.setRenderMode(mode);
+        renderer.clearScreen(0);
+        draw();
+        masks[index++] = display.bw;
+      }
+      ASSERT_TRUE(renderer.displayAbsoluteGrayscaleBase());
+      index = 0;
+      for (auto mode : {GfxRenderer::GRAYSCALE_LSB, GfxRenderer::GRAYSCALE_MSB}) {
+        display.bw = base;
+        renderer.setRenderMode(mode);
+        draw();
+        auto expected = base;
+        for (size_t byte = 0; byte < base.size(); ++byte)
+          expected[byte] |= index ? masks[1][byte] & ~masks[0][byte] : masks[0][byte];
+        EXPECT_EQ(display.bw, expected);
+        EXPECT_NE(display.bw, base);
+        ++index;
+      }
+      renderer.setRenderMode(GfxRenderer::BW);
+      EXPECT_FALSE(renderer.grayPlanesAreAbsolute());
     }
-    renderer.setRenderMode(GfxRenderer::BW);
-    EXPECT_FALSE(renderer.grayPlanesAreAbsolute());
   }
-  EXPECT_EQ(display.canceled, 4);
+  EXPECT_EQ(display.canceled, 8);
   display.absoluteSupported = false;
   EXPECT_FALSE(renderer.supportsAbsoluteGrayscale());
   EXPECT_FALSE(renderer.displayAbsoluteGrayscaleBase());
@@ -494,7 +750,7 @@ TEST(EpubTextGrayscaleTest, CachedNightModeImagesMatchMonochromeAcrossStoragePat
       std::vector<uint8_t> pixels(4 + 16 * 4, 0x1B);
       pixels[0] = pixels[2] = 16;
       pixels[1] = pixels[3] = 0;
-      Storage.put("image_v2.pxc", pixels);
+      Storage.put("image_png_v3.pxc", pixels);
       HalDisplay display(800, 480);
       GfxRenderer renderer(display);
       renderer.begin();
@@ -581,7 +837,7 @@ TEST(ReaderRefreshScope, BufferOnlyCompositionLeavesRefreshPolicyAlone) {
   for (bool initial : {false, true}) {
     display.setReaderRefresh(initial);
     {
-      const ReaderUtils::ReaderRefreshScope bufferOnly(renderer, false);
+      const ReaderUtils::ReaderRefreshScope bufferOnly(renderer, GfxRenderer::RefreshContent::Image, false);
       EXPECT_EQ(display.readerRefresh, initial);
     }
     EXPECT_EQ(display.readerRefresh, initial);
@@ -600,7 +856,7 @@ TEST(ReaderRefreshScope, CombinedTextIsOptedInOnlyForTextPages) {
     EXPECT_TRUE(renderer.combinesGrayscaleBase());
   }
   {
-    const ReaderUtils::ReaderRefreshScope images(renderer, true, false);
+    const ReaderUtils::ReaderRefreshScope images(renderer, GfxRenderer::RefreshContent::Image);
     EXPECT_FALSE(display.readerRefresh);
     EXPECT_FALSE(renderer.combinesGrayscaleBase());
     EXPECT_TRUE(renderer.supportsTextGrayscale());
@@ -608,12 +864,28 @@ TEST(ReaderRefreshScope, CombinedTextIsOptedInOnlyForTextPages) {
   EXPECT_FALSE(display.readerRefresh);
 }
 
+TEST(ReaderRefreshScope, EegoUsesBothGraysForImagesAndOptionalText) {
+  using Scope = ReaderUtils::ReaderRefreshScope;
+  HalDisplay display(800, 480);
+  display.alwaysCombined = true;
+  GfxRenderer renderer(display);
+  for (auto content : {Scope::text(false), Scope::Content::Image, Scope::text(true)}) {
+    {
+      const Scope reading(renderer, content);
+      EXPECT_TRUE(display.readerRefresh);
+      EXPECT_EQ(display.fullTone, content != Scope::Content::Text);
+    }
+    EXPECT_FALSE(display.readerRefresh);
+    EXPECT_FALSE(display.fullTone);
+  }
+}
+
 TEST(ReaderRefreshScope, SeparatePanelsAndAllocationFallbackRetainReaderWaveform) {
   HalDisplay display(800, 480);
   GfxRenderer renderer(display);
   // Models Picco, C3, and Pro/Classic when the SDK's PSRAM allocation fails.
-  for (bool textOnly : {false, true}) {
-    const ReaderUtils::ReaderRefreshScope reading(renderer, true, textOnly);
+  for (auto content : {GfxRenderer::RefreshContent::Image, GfxRenderer::RefreshContent::Text}) {
+    const ReaderUtils::ReaderRefreshScope reading(renderer, content);
     EXPECT_TRUE(display.readerRefresh);
     EXPECT_FALSE(renderer.combinesGrayscaleBase());
     EXPECT_TRUE(renderer.supportsTextGrayscale());
@@ -630,4 +902,54 @@ TEST(ReaderRefreshScope, NightTextUsesTheActivePanelsCapabilities) {
   EXPECT_TRUE(renderer.supportsTextGrayscale());
   display.overlaySupported = false;
   EXPECT_FALSE(renderer.supportsTextGrayscale());
+}
+
+TEST(EpubTextGrayscaleTest, CullingIncludesFallbackSyntheticInkAndDecorations) {
+  fakeheap::reset(true);
+  Storage.reset();
+  RasterFont fixture(12), fallback(40);
+  // ASCII primary, taller native CJK fallback, and synthetic Greek/blocks.
+  fixture.data.intervalCount = 1;
+  fallback.intervals = {{0x4e00, 0x4e00, 0}};
+  fallback.data.intervals = fallback.intervals.data();
+  fallback.data.intervalCount = 1;
+  HalDisplay display(800, 481);
+  GfxRenderer renderer(display);
+  renderer.begin();
+  renderer.insertFont(1, EpdFontFamily(&fixture.font, nullptr, nullptr, nullptr, &fallback.font));
+  const auto underline = EpdFontFamily::UNDERLINE;
+  TextBlock line({"一", "εωΓ■█🙂", "   ", "Test"}, {0, 120, 240, 360},
+                 {underline, underline, EpdFontFamily::REGULAR, EpdFontFamily::STRIKETHROUGH}, {}, {}, {},
+                 {0, 0, TextBlock::WORD_FLAG_BACKGROUND_BLACK, 0}, {});
+  ASSERT_TRUE(line.valid());
+  for (int orientation = 0; orientation < 4; ++orientation) {
+    renderer.setOrientation(static_cast<GfxRenderer::Orientation>(orientation));
+    for (bool black : {false, true}) {
+      auto render = [&](bool optimized) {
+        std::vector<uint8_t> result(display.bw.size() * 2);
+        auto replay = [&] {
+          for (int plane = 0; plane < 2; ++plane) {
+            renderer.setRenderMode(plane ? GfxRenderer::GRAYSCALE_MSB : GfxRenderer::GRAYSCALE_LSB);
+            for (int row = 0; row < display.height; row += 17) {
+              renderer.beginStripTarget(result.data() + display.bw.size() * plane + row * display.stride, row,
+                                        std::min(17, display.height - row));
+              renderer.beginTextClip(10, 10, 400, 150);
+              line.render(renderer, 1, 0, 78, black);
+              renderer.endTextClip();
+              renderer.endStripTarget();
+            }
+          }
+        };
+        if (optimized) {
+          const GfxRenderer::TextCullingScope culling(renderer);
+          replay();
+        } else
+          replay();
+        return result;
+      };
+      const auto expected = render(false);
+      EXPECT_TRUE(std::any_of(expected.begin(), expected.end(), [](uint8_t b) { return b != 0; }));
+      EXPECT_EQ(render(true), expected) << orientation << ' ' << black;
+    }
+  }
 }

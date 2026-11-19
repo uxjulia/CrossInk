@@ -66,12 +66,14 @@ class HalPowerManager {
   // Setup wake up GPIO and enter deep sleep
   // Should be called inside main loop() to handle the lockCount
   void startDeepSleep(HalGPIO& gpio) const;
+  using ChargerStatus = BatteryMonitor::Status;
 #if FREEINK_DEVICE_PICCO
   // Called once at startup. USB light-sleep wakes use an intentional restart.
   void restoreBatteryAfterSleep(bool usbSleepWake);
   // Remain in light sleep on USB power; true means Power requested wake.
-  bool holdWhileUsbPowered(HalGPIO& gpio, void (*onStatus)(void*, uint16_t percent) = nullptr,
-                           void* context = nullptr) const;
+  // afterPoll observes the same charger read after any overlay repaint.
+  bool holdWhileUsbPowered(HalGPIO& gpio, void (*onStatus)(void*, bool charging, uint16_t percent) = nullptr,
+                           void* context = nullptr, void (*afterPoll)(void*, const ChargerStatus&) = nullptr) const;
 #endif
 
   // Get battery percentage (range 0-100)
@@ -103,9 +105,9 @@ class HalPowerManager {
   };
 
   // Samples the battery backend directly, bypassing getBatteryPercentage()'s
-  // poll cache and smoothing so every row is a fresh read. Returns false when
+  // poll cache and smoothing, or reuse the charger sample from this USB poll. Returns false when
   // the active board reports no battery telemetry at all.
-  bool getBatteryDiagnostics(BatteryDiagnostics& out) const;
+  bool getBatteryDiagnostics(BatteryDiagnostics& out, const ChargerStatus* observed = nullptr) const;
 #endif
 
   // RAII helper class to manage power saving locks

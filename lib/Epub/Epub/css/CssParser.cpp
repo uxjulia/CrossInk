@@ -68,8 +68,8 @@ constexpr size_t MAX_SELECTOR_LENGTH = 256;
 constexpr size_t CSS_LENGTH_FIELD_COUNT = 12;
 constexpr size_t CSS_LENGTH_BYTES = sizeof(float) + sizeof(uint8_t);
 constexpr size_t CSS_FIXED_STYLE_BYTES = 5 * sizeof(uint8_t) + (CSS_LENGTH_FIELD_COUNT * CSS_LENGTH_BYTES) +
-                                         4 * sizeof(uint8_t) + 19 * sizeof(uint8_t) + 2 * sizeof(uint32_t);
-static_assert(CSS_FIXED_STYLE_BYTES == 96,
+                                         4 * sizeof(uint8_t) + 20 * sizeof(uint8_t) + 2 * sizeof(uint32_t);
+static_assert(CSS_FIXED_STYLE_BYTES == 97,
               "CssStyle cache payload changed; update read/writeCssStylePayload and bump CSS_CACHE_VERSION");
 
 // Check if character is CSS whitespace
@@ -83,11 +83,10 @@ constexpr std::string_view trimCssWhitespace(std::string_view s) {
 
 constexpr char asciiToLower(const char c) { return (c >= 'A' && c <= 'Z') ? static_cast<char>(c + 32) : c; }
 
-// Case-insensitive equality on ASCII. lowercaseKeyword MUST already be
-// lowercase; CSS keywords are ASCII by spec so byte-wise tolower is safe.
-constexpr bool iequalsAscii(std::string_view value, std::string_view lowercaseKeyword) {
-  return std::equal(value.begin(), value.end(), lowercaseKeyword.begin(), lowercaseKeyword.end(),
-                    [](char a, char b) { return asciiToLower(a) == b; });
+// Both selector operands may come directly from the book and retain uppercase letters.
+constexpr bool iequalsAscii(std::string_view left, std::string_view right) {
+  return std::equal(left.begin(), left.end(), right.begin(), right.end(),
+                    [](char a, char b) { return asciiToLower(a) == asciiToLower(b); });
 }
 
 // Walk s and invoke fn(token) for each non-empty run between delimiters.
@@ -207,6 +206,23 @@ bool tryInterpretCssPageBreak(std::string_view value, bool& out) {
   return false;
 }
 
+// Only retain presence, not the URL or decoded image: hr uses the normal line fallback.
+bool hasBackgroundImageUrl(std::string_view value) {
+  for (size_t i = 0; i + 4 < value.size(); ++i) {
+    if (i > 0 && !isCssWhitespace(value[i - 1]) && value[i - 1] != ',') continue;
+    if (!iequalsAscii(value.substr(i, 4), "url(")) continue;
+    const auto end = value.find(')', i + 4);
+    if (end == std::string_view::npos) return false;
+    auto url = trimCssWhitespace(value.substr(i + 4, end - i - 4));
+    if (url.size() >= 2 && ((url.front() == '\'' && url.back() == '\'') || (url.front() == '"' && url.back() == '"'))) {
+      url = trimCssWhitespace(url.substr(1, url.size() - 2));
+    }
+    if (!url.empty()) return true;
+    i = end;
+  }
+  return false;
+}
+
 bool tryInterpretBackgroundBlack(std::string_view value, bool& out) {
   value = stripTrailingImportant(value);
   value = trimCssWhitespace(value);
@@ -282,11 +298,7 @@ size_t CssParser::SvHash::operator()(CompositeKey k) const noexcept {
 }
 
 bool CssParser::SvEqual::operator()(std::string_view a, std::string_view b) const noexcept {
-  if (a.size() != b.size()) return false;
-  for (size_t i = 0; i < a.size(); ++i) {
-    if (asciiToLower(a[i]) != asciiToLower(b[i])) return false;
-  }
-  return true;
+  return iequalsAscii(a, b);
 }
 
 bool CssParser::SvEqual::operator()(const std::string& a, std::string_view b) const noexcept {
@@ -662,14 +674,15 @@ void CssParser::parseDeclarationIntoStyle(std::string_view decl, CssStyle& style
           const size_t unitLength = std::strlen(units[i]);
           if (sizeValue.size() > unitLength &&
               iequalsAscii(sizeValue.substr(sizeValue.size() - unitLength), units[i])) {
-            valid = tryParseNumber(sizeValue.substr(0, sizeValue.size() - unitLength), size.value);
-            size.unit = unitKinds[i];
+            float value = 0;
+            valid = tryParseNumber(sizeValue.substr(0, sizeValue.size() - unitLength), value);
+            size = CssLength(value, unitKinds[i]);
             break;
           }
         }
       }
     }
-    if (valid && std::isfinite(size.value) && size.value > 0.0f) {
+    if (valid && std::isfinite(size.value()) && size.value() > 0.0f) {
       style.fontSize = size;
       style.defined.fontSize = 1;
     }
@@ -751,7 +764,19 @@ void CssParser::parseDeclarationIntoStyle(std::string_view decl, CssStyle& style
                     : iequalsAscii(displayValue, "inline") ? CssDisplay::Inline
                                                            : CssDisplay::Block;
     style.defined.display = 1;
+  } else if (iequalsAscii(name, "background-image")) {
+    const auto image = trimCssWhitespace(stripTrailingImportant(value));
+    const bool hasImage = hasBackgroundImageUrl(image);
+    if (hasImage || iequalsAscii(image, "none")) {
+      style.backgroundImage = hasImage;
+      style.defined.backgroundImage = 1;
+    }
   } else if (iequalsAscii(name, "background") || iequalsAscii(name, "background-color")) {
+    if (iequalsAscii(name, "background")) {
+      // The shorthand also resets any earlier background-image.
+      style.backgroundImage = hasBackgroundImageUrl(value);
+      style.defined.backgroundImage = 1;
+    }
     const auto color = trimCssWhitespace(stripTrailingImportant(value));
     if (iequalsAscii(color, "gray") || iequalsAscii(color, "grey") || iequalsAscii(color, "lightgray") ||
         iequalsAscii(color, "lightgrey") || iequalsAscii(color, "silver") ||
@@ -973,6 +998,7 @@ bool CssParser::processRuleBlockWithStyle(std::string_view selectorGroup, const 
 
   // Check if we've reached the rule limit before processing
   if (parsedRuleCount() >= MAX_RULES) {
+    ruleLimitReached_ = true;
     LOG_ERR("CSS", "Reached max rules limit (%zu), treating CSS parse as incomplete", MAX_RULES);
     return false;
   }
@@ -1048,6 +1074,7 @@ bool CssParser::processRuleBlockWithStyle(std::string_view selectorGroup, const 
 
         // Skip if this would exceed the rule limit
         if (parsedRuleCount() >= MAX_RULES) {
+          ruleLimitReached_ = true;
           LOG_ERR("CSS", "Reached max rules limit, treating CSS parse as incomplete");
           limitReached = true;
           return;
@@ -1080,6 +1107,8 @@ bool CssParser::processRuleBlockWithStyle(std::string_view selectorGroup, const 
 // Main parsing entry point
 
 bool CssParser::loadFromStream(FsFile& source, const std::string_view baseDir) {
+  clearDiskRuleMemo();
+  ruleLimitReached_ = false;
   if (!source) {
     LOG_ERR("CSS", "Cannot read from invalid file");
     return false;
@@ -1200,7 +1229,10 @@ bool CssParser::loadFromStream(FsFile& source, const std::string_view baseDir) {
   char buffer[READ_BUFFER_SIZE];
   while (!stopParsing && source.available()) {
     int bytesRead = source.read(buffer, sizeof(buffer));
-    if (bytesRead <= 0) break;
+    if (bytesRead <= 0) {
+      LOG_ERR("CSS", "CSS source read failed before EOF");
+      return false;
+    }
 
     totalRead += static_cast<size_t>(bytesRead);
 
@@ -1359,7 +1391,8 @@ bool CssParser::writeCssStylePayload(FsFile& file, const CssStyle& style) {
   };
   auto writeByte = [&writeBytes](const uint8_t value) -> bool { return writeBytes(&value, sizeof(value)); };
   auto writeLength = [&writeBytes, &writeByte](const CssLength& len) -> bool {
-    return writeBytes(&len.value, sizeof(len.value)) && writeByte(static_cast<uint8_t>(len.unit));
+    const float value = len.value();
+    return writeBytes(&value, sizeof(value)) && writeByte(static_cast<uint8_t>(len.unit));
   };
 
   if (!writeByte(static_cast<uint8_t>(style.textAlign)) || !writeByte(static_cast<uint8_t>(style.fontStyle)) ||
@@ -1383,7 +1416,9 @@ bool CssParser::writeCssStylePayload(FsFile& file, const CssStyle& style) {
   for (const auto& side : style.borders) {
     if (!writeByte(side.width) || !writeByte(static_cast<uint8_t>(side.style))) return false;
   }
-  if (!writeByte(style.shaded) || !writeByte(style.floatLeft) || !writeByte(style.initialLetter)) return false;
+  if (!writeByte(style.shaded) || !writeByte(style.floatLeft) || !writeByte(style.initialLetter) ||
+      !writeByte(style.backgroundImage))
+    return false;
   uint32_t definedBits = 0;
   if (style.defined.textAlign) definedBits |= 1 << 0;
   if (style.defined.fontStyle) definedBits |= 1 << 1;
@@ -1415,15 +1450,17 @@ bool CssParser::writeCssStylePayload(FsFile& file, const CssStyle& style) {
   if (style.defined.floatLeft) definedBits |= 1u << 27;
   if (style.defined.initialLetter) definedBits |= 1u << 28;
   if (style.defined.fontFamily) definedBits |= 1u << 29;
+  if (style.defined.backgroundImage) definedBits |= 1u << 30;
   return writeBytes(&definedBits, sizeof(definedBits)) && writeBytes(&style.fontFamily, sizeof(style.fontFamily));
 }
 
 bool CssParser::readCssStylePayload(FsFile& file, CssStyle& style) {
   auto readLength = [&file](CssLength& len) -> bool {
-    if (file.read(&len.value, sizeof(len.value)) != sizeof(len.value)) return false;
+    float value;
+    if (file.read(&value, sizeof(value)) != sizeof(value)) return false;
     uint8_t unitVal;
     if (file.read(&unitVal, 1) != 1) return false;
-    len.unit = static_cast<CssUnit>(unitVal);
+    len = CssLength(value, static_cast<CssUnit>(unitVal));
     return true;
   };
 
@@ -1487,6 +1524,9 @@ bool CssParser::readCssStylePayload(FsFile& file, CssStyle& style) {
     return false;
   style.shaded = shaded;
   style.floatLeft = floated;
+  uint8_t backgroundImage = 0;
+  if (file.read(&backgroundImage, 1) != 1 || backgroundImage > 1) return false;
+  style.backgroundImage = backgroundImage != 0;
   uint32_t definedBits = 0;
   if (file.read(&definedBits, sizeof(definedBits)) != sizeof(definedBits)) return false;
   style.defined.textAlign = (definedBits & 1 << 0) != 0;
@@ -1519,8 +1559,9 @@ bool CssParser::readCssStylePayload(FsFile& file, CssStyle& style) {
   style.defined.floatLeft = (definedBits & 1u << 27) != 0;
   style.defined.initialLetter = (definedBits & 1u << 28) != 0;
   style.defined.fontFamily = (definedBits & 1u << 29) != 0;
+  style.defined.backgroundImage = (definedBits & 1u << 30) != 0;
   if (file.read(&style.fontFamily, sizeof(style.fontFamily)) != sizeof(style.fontFamily)) return false;
-  if (style.hasFontSize() && (!std::isfinite(style.fontSize.value) || style.fontSize.value <= 0 ||
+  if (style.hasFontSize() && (!std::isfinite(style.fontSize.value()) || style.fontSize.value() <= 0 ||
                               static_cast<uint8_t>(style.fontSize.unit) > static_cast<uint8_t>(CssUnit::Percent)))
     return false;
   return true;
@@ -1563,6 +1604,18 @@ bool CssParser::lookupArenaRule(std::string_view selector, CssStyle& outStyle) c
   return false;
 }
 
+void CssParser::clearDiskRuleMemo() const {
+#ifdef CROSSINK_CSS_PROFILE
+  if (diskRuleMemoHits_ || diskRuleReads_)
+    LOG_INF("CSS", "Disk selector memo: hits=%u reads=%u bytes=%u", diskRuleMemoHits_, diskRuleReads_,
+            diskRuleMemo_ ? unsigned(sizeof(DiskRuleMemoEntry) * DISK_RULE_MEMO_COUNT) : 0U);
+  diskRuleMemoHits_ = 0;
+  diskRuleReads_ = 0;
+#endif
+  diskRuleMemo_.reset();
+  diskRuleMemoNext_ = 0;
+}
+
 bool CssParser::lookupRule(std::string_view selector, CssStyle& outStyle) const {
   if (const auto* rule = findPsramParsedRule(selector)) {
     outStyle = rule->style;
@@ -1583,11 +1636,33 @@ bool CssParser::lookupRule(std::string_view selector, CssStyle& outStyle) const 
     return false;
   }
 
+  if (diskRuleMemo_) {
+    for (size_t i = 0; i < DISK_RULE_MEMO_COUNT; ++i) {
+      const auto& entry = diskRuleMemo_[i];
+      if (entry.length == selector.size() && SvEqual{}(std::string_view(entry.selector, entry.length), selector)) {
+        outStyle = entry.style;
+#ifdef CROSSINK_CSS_PROFILE
+        ++diskRuleMemoHits_;
+#endif
+        return true;
+      }
+    }
+  }
   const uint32_t h = selectorHash(selector);
   auto it = std::lower_bound(cacheRuleOffsets_.begin(), cacheRuleOffsets_.end(), h,
                              [](const SelectorEntry& e, const uint32_t key) { return e.hash < key; });
   for (; it != cacheRuleOffsets_.end() && it->hash == h; ++it) {
+#ifdef CROSSINK_CSS_PROFILE
+    ++diskRuleReads_;
+#endif
     if (readRuleFromDiskAtOffset(it->offset, selector, outStyle)) {
+      if (diskRuleMemo_ && selector.size() <= DISK_RULE_MEMO_SELECTOR_BYTES) {
+        auto& entry = diskRuleMemo_[diskRuleMemoNext_];
+        memcpy(entry.selector, selector.data(), selector.size());
+        entry.length = selector.size();
+        entry.style = outStyle;
+        diskRuleMemoNext_ = (diskRuleMemoNext_ + 1) % DISK_RULE_MEMO_COUNT;
+      }
       return true;
     }
   }
@@ -1623,8 +1698,13 @@ CssParser::CacheStatus CssParser::inspectCache() const {
   uint8_t flags = 0;
   uint16_t ruleCount = 0;
   if (!readExact(&magic, sizeof(magic)) || magic != CSS_CACHE_MAGIC || !readExact(&version, sizeof(version)) ||
-      version != CSS_CACHE_VERSION || !readExact(&flags, sizeof(flags)) || (flags & ~CSS_CACHE_FLAG_PARTIAL) != 0 ||
+      version != CSS_CACHE_VERSION || !readExact(&flags, sizeof(flags)) ||
+      ((flags & ~CSS_CACHE_FLAGS) != 0 || flags == CSS_CACHE_FLAG_RULE_LIMIT) ||
       !readExact(&ruleCount, sizeof(ruleCount)) || ruleCount > MAX_RULES) {
+    return CacheStatus::Invalid;
+  }
+
+  if ((flags & CSS_CACHE_FLAG_RULE_LIMIT) && (!(flags & CSS_CACHE_FLAG_PARTIAL) || ruleCount != MAX_RULES)) {
     return CacheStatus::Invalid;
   }
 
@@ -1657,6 +1737,7 @@ CssParser::CacheStatus CssParser::inspectCache() const {
   }
 
   if (!readFontFaces(file)) return CacheStatus::Invalid;
+  if (flags & CSS_CACHE_FLAG_RULE_LIMIT) return CacheStatus::RuleLimited;
   return (flags & CSS_CACHE_FLAG_PARTIAL) != 0 ? CacheStatus::Partial : CacheStatus::Complete;
 }
 
@@ -1690,7 +1771,7 @@ std::array<uint16_t, 2> CssParser::contentFontSizeScales() const {
     CssStyle style;
     if (!readCssStylePayload(file, style)) return false;
     if (!style.hasFontSize()) return true;
-    float scale = style.fontSize.value;
+    float scale = style.fontSize.value();
     switch (style.fontSize.unit) {
       case CssUnit::Em:
       case CssUnit::Rem:
@@ -1724,7 +1805,8 @@ std::array<uint16_t, 2> CssParser::contentFontSizeScales() const {
     uint8_t version = 0, flags = 0;
     uint16_t count = 0;
     if (file.read(&magic, sizeof(magic)) != sizeof(magic) || magic != CSS_CACHE_MAGIC || file.read(&version, 1) != 1 ||
-        version != CSS_CACHE_VERSION || file.read(&flags, 1) != 1 || (flags & ~CSS_CACHE_FLAG_PARTIAL) ||
+        version != CSS_CACHE_VERSION || file.read(&flags, 1) != 1 ||
+        ((flags & ~CSS_CACHE_FLAGS) || flags == CSS_CACHE_FLAG_RULE_LIMIT) ||
         file.read(&count, sizeof(count)) != sizeof(count) || count > MAX_RULES ||
         !skip(size_t(count) * sizeof(SelectorEntry)))
       return false;
@@ -1762,12 +1844,14 @@ std::array<uint16_t, 2> CssParser::contentFontSizeScales() const {
 }
 
 void CssParser::deleteCache() const {
+  clearDiskRuleMemo();
   if (hasCache()) Storage.remove((cachePath + rulesCache).c_str());
   Storage.remove((cachePath + rulesCacheTmp).c_str());
   Storage.remove((cachePath + rulesCacheBackup).c_str());
 }
 
-bool CssParser::saveToCache(const bool complete) const {
+bool CssParser::saveToCache(const bool complete, const bool terminal) const {
+  clearDiskRuleMemo();
   if (cachePath.empty()) {
     return false;
   }
@@ -1798,7 +1882,8 @@ bool CssParser::saveToCache(const bool complete) const {
   const uint32_t magic = CssParser::CSS_CACHE_MAGIC;
   writeBytes(&magic, sizeof(magic));
   writeByte(CssParser::CSS_CACHE_VERSION);
-  writeByte(static_cast<uint8_t>(complete ? 0 : CSS_CACHE_FLAG_PARTIAL));
+  writeByte(static_cast<uint8_t>(
+      complete ? 0 : (CSS_CACHE_FLAG_PARTIAL | (terminal && ruleLimitReached_ ? CSS_CACHE_FLAG_RULE_LIMIT : 0))));
 
   // Write rule count
   const auto ruleCount = static_cast<uint16_t>(parsedRuleCount());
@@ -1966,7 +2051,7 @@ bool CssParser::loadFromCache() {
     Storage.remove((cachePath + rulesCache).c_str());
     return false;
   }
-  if ((flags & ~CSS_CACHE_FLAG_PARTIAL) != 0) {
+  if (((flags & ~CSS_CACHE_FLAGS) != 0 || flags == CSS_CACHE_FLAG_RULE_LIMIT)) {
     LOG_DBG("CSS", "Unsupported CSS cache flags 0x%02X, removing stale cache for rebuild", flags);
     file.close();
     Storage.remove((cachePath + rulesCache).c_str());
@@ -1986,8 +2071,7 @@ bool CssParser::loadFromCache() {
     return false;
   }
 
-  // Size the bucket array up front to avoid incremental rehashes while loading rules.
-  rulesBySelector_.reserve(ruleCount);
+  // Cached rules use the offset index or arena below, not the parsed-rule map.
 
   auto hasRemainingBytes = [&file](const size_t neededBytes) -> bool {
     return static_cast<size_t>(file.available()) >= neededBytes;
@@ -2135,6 +2219,16 @@ bool CssParser::loadFromCache() {
   }
 
   if (!readFontFaces(file)) return false;
+  if (ruleCount > 0 && cachedRuleTableCount_ != cachedRuleCount_ &&
+      ESP.getFreeHeap() >= 16 * 1024 + sizeof(DiskRuleMemoEntry) * DISK_RULE_MEMO_COUNT &&
+      ESP.getMaxAllocHeap() >= sizeof(DiskRuleMemoEntry) * DISK_RULE_MEMO_COUNT) {
+    // Allocate once per loaded fallback cache, not once per selector. A bounded
+    // heap-owned working set avoids large stack frames and permanent C3 RAM.
+    // Failure is harmless: retain the original disk-index lookup path.
+    diskRuleMemo_ = makeUniqueNoThrow<DiskRuleMemoEntry[]>(DISK_RULE_MEMO_COUNT);
+    if (!diskRuleMemo_) LOG_ERR("CSS", "Could not allocate bounded disk-rule memo; using SD lookups");
+  }
+
   LOG_DBG("CSS", "Loaded %u indexed rules + %u descendant rules from %s cache", static_cast<unsigned>(cachedRuleCount_),
           descendantCount, cachePartial_ ? "partial" : "complete");
   return true;

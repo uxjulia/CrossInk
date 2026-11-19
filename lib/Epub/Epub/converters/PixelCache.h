@@ -24,18 +24,18 @@
 // Correctness relies on JPEGDEC delivering blocks in raster MCU order (outer
 // loop over y, inner over x: see jpeg.inl DecodeJPEG). Consecutive MCU rows map
 // to contiguous, non-overlapping destination row ranges, so once a block whose
-// top row is Y arrives, every output row < Y is final and is flushed to disk.
+// top row is Y arrives, every output row < Y is final and can be flushed to disk.
 struct PixelCache {
   uint8_t* buffer;   // band buffer: (bandRows + 1) rows; last row kept zeroed
   uint8_t* zeroRow;  // points at the spare zeroed row, for gap/clip fill
   int width;
   int height;
   int bytesPerRow;
-  int originX;      // config.x - to convert screen coords to cache coords
-  int originY;      // config.y
-  int bandRows;     // rows held in the band buffer
-  int bandStart;    // image-local row index of band buffer row 0
-  int flushedRows;  // image-local rows already written to file
+  int originX;    // config.x - to convert screen coords to cache coords
+  int originY;    // config.y
+  int bandRows;   // rows held in the band buffer
+  int bandStart;  // image-local row index of band buffer row 0
+  int maxBlockRows = 1;
   HalFile file;
   std::string cachePathStr;
   bool ok;
@@ -50,7 +50,6 @@ struct PixelCache {
         originY(0),
         bandRows(0),
         bandStart(0),
-        flushedRows(0),
         ok(false) {}
   PixelCache(const PixelCache&) = delete;
   PixelCache& operator=(const PixelCache&) = delete;
@@ -67,7 +66,6 @@ struct PixelCache {
     originY = oy;
     bytesPerRow = (w + 3) / 4;  // 2 bits per pixel, 4 pixels per byte
     bandStart = 0;
-    flushedRows = 0;
     ok = false;
 
     // A padded decode block cannot cover more rows than the output image.
@@ -88,6 +86,7 @@ struct PixelCache {
       return false;
     }
     bandRows = wantRows;
+    maxBlockRows = maxBlockDstRows;
 
     const size_t bufSize = (size_t)(bandRows + 1) * bytesPerRow;  // +1 spare zero row
     buffer = (uint8_t*)malloc(bufSize);
@@ -118,44 +117,39 @@ struct PixelCache {
     return true;
   }
 
-  // Flush every output row below newTopRow (they are final in raster order) and
-  // reposition the band to start at newTopRow. Returns false if a write failed,
-  // in which case the caller must stop caching for the rest of the decode.
+  // Adapted from jpirnay/witchhunt-reader 045be906. Keep complete rows in the
+  // existing band until the next decoder block would no longer fit.
   bool advanceTo(int newTopRow) {
     if (!ok) return false;
-    if (newTopRow <= bandStart) return true;
+    if (newTopRow <= bandStart + bandRows - maxBlockRows) return true;
     if (newTopRow > height) newTopRow = height;
-
-    for (int r = bandStart; r < newTopRow; ++r) {
-      const int idx = r - bandStart;
-      const uint8_t* rowPtr = (idx < bandRows) ? (buffer + (size_t)idx * bytesPerRow) : zeroRow;
-      if (file.write(rowPtr, (size_t)bytesPerRow) != (size_t)bytesPerRow) {
-        LOG_ERR("IMG", "Cache write error at row %d", r);
-        ok = false;
-        return false;
-      }
-    }
-    flushedRows = newTopRow;
-    bandStart = newTopRow;
-    memset(buffer, 0, (size_t)bandRows * bytesPerRow);  // fresh band (gaps stay black)
+    if (!flushThrough(newTopRow)) return false;
+    memset(buffer, 0, static_cast<size_t>(bandRows) * bytesPerRow);
     return true;
   }
 
-  // Flush the final band and zero-fill any rows never covered (image clipped by
-  // the screen), then close the file.
-  bool finalize() {
+  bool flushThrough(int endRow) {
+    const int pending = endRow - bandStart;
+    if (pending <= 0) return true;
+    const int buffered = pending < bandRows ? pending : bandRows;
+    const size_t bytes = static_cast<size_t>(buffered) * bytesPerRow;
+    ok = file.write(buffer, bytes) == bytes;
+    // Clipped or incomplete images can leave a gap beyond the buffered rows.
+    for (int r = buffered; ok && r < pending; ++r) {
+      ok = file.write(zeroRow, bytesPerRow) == static_cast<size_t>(bytesPerRow);
+    }
     if (!ok) {
-      abort();
+      LOG_ERR("IMG", "Cache write failed for rows %d to %d", bandStart, endRow);
       return false;
     }
-    for (int r = flushedRows; r < height; ++r) {
-      const int idx = r - bandStart;
-      const uint8_t* rowPtr = (idx >= 0 && idx < bandRows) ? (buffer + (size_t)idx * bytesPerRow) : zeroRow;
-      if (file.write(rowPtr, (size_t)bytesPerRow) != (size_t)bytesPerRow) {
-        LOG_ERR("IMG", "Cache write error at row %d", r);
-        abort();
-        return false;
-      }
+    bandStart = endRow;
+    return true;
+  }
+
+  bool finalize() {
+    if (!ok || !flushThrough(height)) {
+      abort();
+      return false;
     }
     if (!file.close()) {
       LOG_ERR("IMG", "Failed to close cache: %s", cachePathStr.c_str());

@@ -430,7 +430,7 @@ bool Parser::endRoot() {
   state_ = State::Done;
   return true;
 }
-bool immutableAssetPath(const Catalog& catalog, const Entry& entry, char* output, size_t capacity) {
+bool immutableAssetPath(const Metadata& catalog, const Entry& entry, char* output, size_t capacity) {
   if (!output || !capacity) return false;
   const bool hyphenation = catalog.kind == Kind::Hyphenation;
   const int size =

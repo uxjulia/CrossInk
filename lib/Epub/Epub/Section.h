@@ -33,6 +33,10 @@ struct SectionBuildOptions {
   bool referenceUnitsAreCharacters = false;
   uint16_t* resolvedReferencePage = nullptr;
 
+  // Full builds call this between parser steps with no storage lock held.
+  // Callers retain responsibility for any render/display lock.
+  void (*onBuildCheckpoint)() = nullptr;
+
   bool isPreview() const { return previewAnchor && previewAnchor[0] != '\0' && previewMaxPages > 0; }
   bool isCancellationRequested() const { return shouldCancel && shouldCancel(cancelContext); }
 };

@@ -117,8 +117,18 @@ void forEachBaseSetting(SettingVisitor visitor, void* context) {
                           StrId::STR_CAT_READER));
   add(SettingInfo::Toggle(StrId::STR_HYPHENATION, &CrossPointSettings::hyphenationEnabled, "hyphenationEnabled",
                           StrId::STR_CAT_READER));
+  add(SettingInfo::Enum(StrId::STR_RULED_LINES, &CrossPointSettings::ruledLines,
+                        {StrId::STR_OFF, StrId::STR_LIGHT, StrId::STR_MEDIUM, StrId::STR_DARK}, "ruledLines",
+                        StrId::STR_CAT_READER));
+  add(SettingInfo::Enum(StrId::STR_TEXT_DARKNESS, &CrossPointSettings::textDarkness,
+                        {StrId::STR_SENSITIVITY_NORMAL, StrId::STR_DARK, StrId::STR_DARKER}, "textDarkness",
+                        StrId::STR_CAT_READER));
   add(SettingInfo::Toggle(StrId::STR_TEXT_AA, &CrossPointSettings::textAntiAliasing, "textAntiAliasing",
                           StrId::STR_CAT_READER));
+#if FREEINK_DEVICE_EEGO_A4
+  add(SettingInfo::Toggle(StrId::STR_TWO_TONE_TEXT_AA, &CrossPointSettings::twoToneTextAA, "twoToneTextAA",
+                          StrId::STR_CAT_READER));
+#endif
   add(SettingInfo::DynamicEnum(
       StrId::STR_IMAGES,
       {StrId::STR_IMAGES_DISPLAY, StrId::STR_IMAGES_DISPLAY_BW, StrId::STR_IMAGES_PLACEHOLDER,

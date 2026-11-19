@@ -7,7 +7,17 @@
 class StatsUploadClient {
  public:
   enum class Result { Ok, Network, Auth, Unsupported, InvalidResponse, LowMemory, Server, Skipped, Cancelled };
-  StatsUploadClient();
+  // Foreground-only optional transport. USB supplies the computer's authenticated
+  // HTTP response; all existing acknowledgment and merge validation still runs here.
+  struct Relay {
+    const char* server;
+    const char* username;
+    void* context;
+    int (*request)(void*, const char* method, const char* endpoint, const char* payload, const char* inputPath,
+                   char* response, size_t capacity, const char* outputPath);
+    char response[256]{};
+  };
+  explicit StatsUploadClient(Relay* relay = nullptr);
   ~StatsUploadClient();
   void close();
   // Zero for non-book requests; otherwise require acknowledgment of every book.
@@ -43,6 +53,10 @@ class StatsUploadClient {
  private:
   Result putBody(const char* endpoint, const char* payload, unsigned bookCount, bool daily, const char* sessionId,
                  const char* filePath);
+  Result acceptUpload(const char* endpoint, unsigned bookCount, bool daily, const char* sessionId, int status,
+                      bool complete, const char* response);
+  Result acceptStreak(int status, bool complete, const char* response);
+  Relay* relay;
   struct Impl;
   std::unique_ptr<Impl> impl;
 };

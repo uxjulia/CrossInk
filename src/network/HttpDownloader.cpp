@@ -13,6 +13,7 @@
 #include <esp_http_client.h>
 #include <strings.h>
 
+#include <algorithm>
 #include <cstdio>
 #include <functional>
 #include <string>
@@ -22,10 +23,72 @@
 #include "network/HttpDownloadFilename.h"
 #include "network/HttpDownloadResume.h"
 #include "network/HttpRedirectPolicy.h"
+#include "network/HttpSessionFraming.h"
 #include "network/WifiPowerSaveGuard.h"
 #include "util/UrlUtils.h"
 
+struct HttpDownloader::Session::State {
+#if defined(FREEINK_NET_WOLFSSL) || defined(FREEINK_NET_EXTERNAL_TLS)
+  freeink::SecureHttpClient client;
+#endif
+  HttpRedirectPolicy::Url origin;
+  uint32_t started = 0;
+  unsigned requests = 0;
+};
+HttpDownloader::Session::Session() = default;
+HttpDownloader::Session::~Session() = default;
+void HttpDownloader::Session::reset() { state_.reset(); }
+freeink::SecureHttpClient* HttpDownloader::Session::acquire(const std::string& url) {
+#if defined(FREEINK_NET_WOLFSSL) || defined(FREEINK_NET_EXTERNAL_TLS)
+  // Arduino-ESP32's heap APIs use MALLOC_CAP_INTERNAL, not PSRAM. Require
+  // headroom for subsequent parsing and a contiguous TLS-sized working block;
+  // low-memory callers still use the existing one-shot transport unchanged.
+  constexpr unsigned MIN_FREE = 64 * 1024;
+  constexpr unsigned MIN_BLOCK = 32 * 1024;
+  if (ESP.getFreeHeap() < MIN_FREE || ESP.getMaxAllocHeap() < MIN_BLOCK) {
+    LOG_DBG("HTTP", "Scoped reuse disabled: internal heap free=%u max=%u", ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+    reset();
+    return nullptr;
+  }
+  HttpRedirectPolicy::Url origin;
+  if (!HttpRedirectPolicy::parseUrl(url, origin) || !origin.https) {
+    reset();
+    return nullptr;
+  }
+  if (state_ && (state_->requests >= 8 || uint32_t(millis() - state_->started) >= 30000 ||
+                 state_->origin.host != origin.host || state_->origin.port != origin.port))
+    reset();
+  if (!state_) {
+    // One fallible SDK-client workspace per explicitly scoped operation, not
+    // permanent RAM or a second transfer buffer. SDK owns/gates TLS buffers.
+    state_ = makeUniqueNoThrow<State>();
+    if (!state_) {
+      LOG_ERR("HTTP", "Cannot allocate scoped HTTP session");
+      return nullptr;
+    }
+    state_->origin = std::move(origin);
+    state_->started = millis();
+  }
+  ++state_->requests;
+  return &state_->client;
+#else
+  (void)url;
+  return nullptr;
+#endif
+}
+
 namespace {
+struct SessionGuard {
+  HttpDownloader::Session* session;
+  std::string* finalUrl = nullptr;
+  bool success = false;
+  ~SessionGuard() {
+    if (!success) {
+      if (session) session->reset();
+      if (finalUrl) finalUrl->clear();
+    }
+  }
+};
 constexpr size_t PROGRESS_UPDATE_BYTES = 64 * 1024;
 constexpr uint32_t PROGRESS_UPDATE_MS = 250;
 constexpr int HTTP_RX_BUF = 4096;
@@ -50,7 +113,45 @@ bool isRedirect(const int status) {
   return status == 301 || status == 302 || status == 303 || status == 307 || status == 308;
 }
 
+bool isBasicChallenge(std::string_view value) {
+  if (value.size() > 8192) return false;
+  bool quoted = false, escaped = false, boundary = true;
+  for (size_t i = 0; i < value.size(); ++i) {
+    const char c = value[i];
+    if (quoted) {
+      if (escaped)
+        escaped = false;
+      else if (c == '\\')
+        escaped = true;
+      else if (c == '"')
+        quoted = false;
+      continue;
+    }
+    if (c == '"') {
+      quoted = true;
+      boundary = false;
+      continue;
+    }
+    if (c == ',') {
+      boundary = true;
+      continue;
+    }
+    if (!boundary || c == ' ' || c == '\t') continue;
+    boundary = false;
+    size_t end = i;
+    while (end < value.size() && value[end] != ' ' && value[end] != '\t' && value[end] != ',' && value[end] != '=')
+      ++end;
+    size_t next = end;
+    while (next < value.size() && (value[next] == ' ' || value[next] == '\t')) ++next;
+    if (HttpRedirectPolicy::equalsIgnoreCase(value.substr(i, end - i), "Basic") &&
+        (next == value.size() || value[next] != '='))
+      return true;
+  }
+  return false;
+}
+
 struct ResponseHeaders {
+  bool basicChallenge = false;
   std::string location;
   std::string range;
   std::string validator;
@@ -62,6 +163,8 @@ struct ResponseHeaders {
 esp_err_t captureLocationHeader(esp_http_client_event_t* evt) {
   auto* headers = static_cast<ResponseHeaders*>(evt->user_data);
   if (evt->event_id == HTTP_EVENT_ON_HEADER && headers && evt->header_key && evt->header_value) {
+    if (strcasecmp(evt->header_key, "WWW-Authenticate") == 0)
+      headers->basicChallenge |= isBasicChallenge(evt->header_value);
     if (strcasecmp(evt->header_key, "Location") == 0) headers->location.assign(evt->header_value);
     if (strcasecmp(evt->header_key, "ETag") == 0 && strncmp(evt->header_value, "W/", 2) != 0 &&
         strlen(evt->header_value) <= 128)
@@ -247,6 +350,7 @@ HttpDownloader::DownloadError runGetWolfSsl(const std::string& url, const std::s
                                             const std::string& password,
                                             const HttpRedirectPolicy::Url& credentialOrigin, const bool hasCredentials,
                                             Sink& sink, const size_t bufferSize) {
+  SessionGuard sessionGuard{sink.options->session};
   (void)bufferSize;  // SecureHttpClient owns one fixed 1024-byte streaming buffer.
   std::string currentUrl = url;
   ProgressNotifier progressNotifier(sink.progress);
@@ -260,7 +364,10 @@ HttpDownloader::DownloadError runGetWolfSsl(const std::string& url, const std::s
     const bool sendAuthorization =
         currentParsed && HttpRedirectPolicy::shouldSendAuthorization(currentOrigin, credentialOrigin, hasCredentials);
 
-    freeink::SecureHttpClient http;
+    freeink::SecureHttpClient localHttp;
+    auto* retained = sink.options->session ? sink.options->session->acquire(currentUrl) : nullptr;
+    auto& http = retained ? *retained : localHttp;
+    http.setReuse(retained != nullptr);
     http.setTimeout(HTTP_TIMEOUT_MS);
     http.setReserveFullRecord(sink.options->reserveFullRecord);
     // SecureNet does not yet expose ESP-IDF's CA bundle. This matches the
@@ -292,13 +399,26 @@ HttpDownloader::DownloadError runGetWolfSsl(const std::string& url, const std::s
 
     LOG_DBG("HTTP", "wolfSSL GET: %s", UrlUtils::forLog(currentUrl).c_str());
     bool prepared = false;
+    size_t challengeBytes = 0;
+    bool challengeRejected = false;
     if (sink.diagnostics) {
       sink.diagnostics->attempted = true;
+      sink.diagnostics->authorizationOriginMatched =
+          currentParsed && HttpRedirectPolicy::sameOrigin(currentOrigin, credentialOrigin);
       sink.diagnostics->authorizationWithheld = hasCredentials && !sendAuthorization;
     }
     const int status = http.GET(
-        [&http, &sink, &progressNotifier, &prepared](const uint8_t* data, const size_t len) {
+        [&http, &sink, &progressNotifier, &prepared, &challengeBytes, &challengeRejected](const uint8_t* data,
+                                                                                          const size_t len) {
           const int responseStatus = http.getStatus();
+          if (responseStatus == 401 && sink.options->authChallenge) {
+            if (len > 8192 - challengeBytes || !sink.options->authChallenge(data, len)) {
+              challengeRejected = true;
+              return false;
+            }
+            challengeBytes += len;
+            return true;
+          }
           if (responseStatus != 200 && responseStatus != 206) return true;
           if (!prepared) {
             if (!prepareResponse(sink, responseStatus, http.getHeader("content-range"), http.hasContentLength(),
@@ -323,7 +443,26 @@ HttpDownloader::DownloadError runGetWolfSsl(const std::string& url, const std::s
         [&sink]() { return isCancelRequested(sink.cancelFlag, sink.shouldCancel); });
 
     // GET can fail after receiving headers (including a truncated 200).
-    if (sink.diagnostics) sink.diagnostics->status = http.getStatus();
+    if (sink.diagnostics) {
+      sink.diagnostics->status = http.getStatus();
+      if (http.getStatus() == 401) {
+        const auto* unique = http.getUniqueHeader("www-authenticate");
+        if (unique)
+          sink.diagnostics->basicChallenge = isBasicChallenge(*unique);
+        else if (ESP.getFreeHeap() >= 24 * 1024 && ESP.getMaxAllocHeap() >= 12 * 1024) {
+          // The pinned SDK exposes repeated fields only as a copy: at most
+          // 8192 header bytes + 64 pairs, only on this cold 401 path, released
+          // before retrying. Do not copy headers for successful feed requests.
+          const auto headers = http.getHeaders();
+          if (std::any_of(headers.begin(), headers.end(), [](const auto& header) {
+                return header.first == "www-authenticate" && isBasicChallenge(header.second);
+              })) {
+            sink.diagnostics->basicChallenge = true;
+          }
+        }
+      }
+      sink.diagnostics->challengeComplete = status == 401 && !challengeRejected && http.responseComplete();
+    }
     if (http.aborted()) return HttpDownloader::ABORTED;
     if (status == 401 || status == 403) return HttpDownloader::UNAUTHORIZED;
     if (sink.rangeIgnored) {
@@ -355,6 +494,7 @@ HttpDownloader::DownloadError runGetWolfSsl(const std::string& url, const std::s
         LOG_ERR("HTTP", "Rejected HTTPS downgrade redirect to %s", redirect.host.c_str());
         return HttpDownloader::HTTP_ERROR;
       }
+      if (sink.options->session) sink.options->session->reset();
       currentUrl = redirectUrl;
       LOG_DBG("HTTP", "Redirecting to: %s", redirect.host.c_str());
       continue;
@@ -378,6 +518,12 @@ HttpDownloader::DownloadError runGetWolfSsl(const std::string& url, const std::s
 
     if (!hasExpectedSize(sink)) return HttpDownloader::HTTP_ERROR;
     progressNotifier.notify(sink.downloaded, true);
+    if (isCancelRequested(sink.cancelFlag, sink.shouldCancel)) return HttpDownloader::ABORTED;
+    if (sink.options->finalUrl) *sink.options->finalUrl = currentUrl;
+    if (sink.options->session &&
+        !retainHttpSessionFraming(http.hasContentLength(), http.getHeader("transfer-encoding")))
+      sink.options->session->reset();
+    sessionGuard.success = true;
     return HttpDownloader::OK;
   }
 
@@ -405,7 +551,7 @@ HttpDownloader::DownloadError runGetDefault(const std::string& url, const std::s
 
     esp_http_client_config_t config = {};
     config.url = currentUrl.c_str();
-    config.buffer_size = HTTP_RX_BUF;
+    config.buffer_size = sink.options->httpReceiveBufferSize ? sink.options->httpReceiveBufferSize : HTTP_RX_BUF;
     config.buffer_size_tx = HTTP_TX_BUF;
     config.timeout_ms = HTTP_TIMEOUT_MS;
     config.crt_bundle_attach = esp_crt_bundle_attach;
@@ -430,6 +576,8 @@ HttpDownloader::DownloadError runGetDefault(const std::string& url, const std::s
 
     if (sink.diagnostics) {
       sink.diagnostics->attempted = true;
+      sink.diagnostics->authorizationOriginMatched =
+          currentParsed && HttpRedirectPolicy::sameOrigin(currentOrigin, credentialOrigin);
       sink.diagnostics->authorizationWithheld = hasCredentials && !sendAuthorization;
     }
     esp_err_t err = esp_http_client_open(client, 0);
@@ -454,6 +602,25 @@ HttpDownloader::DownloadError runGetDefault(const std::string& url, const std::s
     }
 
     if (status == 401 || status == 403) {
+      if (sink.diagnostics) sink.diagnostics->basicChallenge = responseHeaders.basicChallenge;
+      if (status == 401 && sink.options->authChallenge) {
+        // Small fixed chunk; a hostile authentication document cannot grow RAM.
+        uint8_t challenge[128];
+        size_t received = 0;
+        bool accepted = true;
+        while (accepted && !esp_http_client_is_complete_data_received(client)) {
+          if (isCancelRequested(sink.cancelFlag, sink.shouldCancel)) {
+            esp_http_client_cleanup(client);
+            return HttpDownloader::ABORTED;
+          }
+          const int count = esp_http_client_read(client, reinterpret_cast<char*>(challenge), sizeof(challenge));
+          if (count <= 0) break;
+          accepted = size_t(count) <= 8192 - received && sink.options->authChallenge(challenge, size_t(count));
+          received += size_t(count);
+        }
+        if (sink.diagnostics)
+          sink.diagnostics->challengeComplete = accepted && esp_http_client_is_complete_data_received(client);
+      }
       esp_http_client_cleanup(client);
       return HttpDownloader::UNAUTHORIZED;
     }
@@ -577,6 +744,8 @@ HttpDownloader::DownloadError runGetDefault(const std::string& url, const std::s
     }
 
     if (!hasExpectedSize(sink)) return HttpDownloader::HTTP_ERROR;
+    if (isCancelRequested(sink.cancelFlag, sink.shouldCancel)) return HttpDownloader::ABORTED;
+    if (sink.options->finalUrl) *sink.options->finalUrl = currentUrl;
     return HttpDownloader::OK;
   }
 
@@ -632,6 +801,9 @@ HttpDownloader::DownloadError HttpDownloader::streamUrl(const std::string& url, 
                                                         const std::string& password, DownloadOptions options,
                                                         HttpRequestDiagnostics* diagnostics) {
   if (diagnostics) *diagnostics = {};
+  if (options.finalUrl) options.finalUrl->clear();
+  SessionGuard sessionGuard{options.session, options.finalUrl};
+  if (options.transport != Transport::WOLFSSL && options.session) options.session->reset();
   WifiPowerSaveGuard wifiPowerSaveGuard;
   (void)wifiPowerSaveGuard;
 
@@ -648,13 +820,20 @@ HttpDownloader::DownloadError HttpDownloader::streamUrl(const std::string& url, 
   sink.progress = std::move(progress);
   sink.shouldCancel = std::move(options.shouldCancel);
   const size_t bufferSize = options.bufferSize > 0 ? options.bufferSize : DEFAULT_DOWNLOAD_BUFFER_SIZE;
-  return runGet(url, username, password, options.authorizationOrigin, sink, bufferSize, options.transport);
+  const auto result = runGet(url, username, password, options.authorizationOrigin, sink, bufferSize, options.transport);
+  // The guard reads success in its destructor to discard failed sessions and their final URLs.
+  // cppcheck-suppress unreadVariable
+  sessionGuard.success = result == OK;
+  return result;
 }
 
 HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& url, const std::string& destPath,
                                                              ProgressCallback progress, bool* cancelFlag,
                                                              const std::string& username, const std::string& password,
                                                              DownloadOptions options) {
+  if (options.finalUrl) options.finalUrl->clear();
+  SessionGuard sessionGuard{options.session, options.finalUrl};
+  if (options.transport != Transport::WOLFSSL && options.session) options.session->reset();
   WifiPowerSaveGuard wifiPowerSaveGuard;
   (void)wifiPowerSaveGuard;
 
@@ -820,7 +999,8 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
       spaceChecked = false;
 #endif
     }
-    if (!budget.again(before, sink.downloaded)) break;
+    if (!budget.again(before, sink.downloaded) || budget.attempts >= (options.maxAttempts ? options.maxAttempts : 1))
+      break;
     sink.resumeOffset = sink.downloaded;
     LOG_INF("HTTP", "Retrying download at byte %zu (attempt %u)", sink.resumeOffset, budget.attempts + 1);
     // Short, cancellable backoff on stalled connections; no extra task/buffer.
@@ -863,7 +1043,12 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
     return HTTP_ERROR;
   }
 
+  if (isCancelRequested(sink.cancelFlag, sink.shouldCancel)) {
+    Storage.remove(writePath.c_str());
+    return ABORTED;
+  }
   if (options.stageAsPart && !DownloadFileSwap::publish(destination, options.requireBackupCleanup)) return FILE_ERROR;
 
+  sessionGuard.success = true;
   return OK;
 }

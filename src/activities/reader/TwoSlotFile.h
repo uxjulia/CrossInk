@@ -30,6 +30,7 @@ constexpr size_t MAX_FILE_BYTES = 184;
 constexpr size_t MAX_PAYLOAD_BYTES = MAX_FILE_BYTES - TRAILER_BYTES;
 
 struct SlotRead {
+  bool present = false;        // Distinguishes a missing file from an unreadable or torn one.
   progress_record::Slot slot;  // kind and seq only
   size_t size = 0;             // payload bytes; for a legacy file its full size (may exceed the buffer)
 };
@@ -41,6 +42,7 @@ inline SlotRead readSlot(const char* tag, const char* path, size_t payloadSize, 
   if (payloadSize > MAX_PAYLOAD_BYTES) return result;
   // openFileForRead logs a failure for missing files; a missing slot is normal.
   if (!Storage.exists(path)) return result;
+  result.present = true;
   HalFile file;
   if (!Storage.openFileForRead(tag, path, file)) return result;
   const size_t fileSize = file.fileSize();

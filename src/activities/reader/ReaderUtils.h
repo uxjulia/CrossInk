@@ -19,7 +19,7 @@
 
 namespace ReaderUtils {
 
-constexpr unsigned long SKIP_HOLD_MS = 700;
+constexpr unsigned long SKIP_HOLD_MS = 600;
 constexpr unsigned long GO_HOME_MS = 1000;
 // Hold duration to delete a row in the bookmark and clipping lists. Shared so the
 // same gesture cannot drift apart between the two lists.

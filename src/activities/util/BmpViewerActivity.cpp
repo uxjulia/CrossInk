@@ -13,6 +13,7 @@
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
 #include "Epub/converters/PngToFramebufferConverter.h"
+#include "ImageViewerGrayscale.h"
 #include "activities/boot_sleep/ImageFolderIndex.h"
 #include "activities/home/BookActions.h"
 #include "activities/home/FileBrowserActionActivity.h"
@@ -119,22 +120,25 @@ bool BmpViewerActivity::renderPngImage() {
   config.performanceMode = false;
   config.useExactDimensions = true;
 
-  PngToFramebufferConverter converter;
-  renderer.clearScreen();
-  if (!converter.decodeToFramebuffer(filePath, renderer, config)) {
-    drawImageError(renderer, mappedInput, "Invalid PNG File");
-    return false;
-  }
-  renderer.preserveImagePolarity(x, y, drawWidth, drawHeight);
-
   bool hasPrevious = (siblingImages.size() > 1 && currentImageIndex > 0);
   bool hasNext = (siblingImages.size() > 1 && currentImageIndex != -1 &&
                   currentImageIndex < static_cast<int>(siblingImages.size()) - 1);
 
   const auto labels = mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), tr(STR_SET_SLEEP_COVER),
                                             (hasPrevious ? "<" : nullptr), (hasNext ? ">" : nullptr));
-  GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
-  renderer.displayBuffer(HalDisplay::FAST_REFRESH);
+  PngToFramebufferConverter converter;
+  const bool success = renderImageViewerGrayscale(renderer, [&](bool grayscale, bool completeFrame) {
+    config.useGrayscale = grayscale;
+    if (!converter.decodeToFramebuffer(filePath, renderer, config)) return false;
+    if (renderer.getRenderMode() == GfxRenderer::BW) renderer.preserveImagePolarity(x, y, drawWidth, drawHeight);
+    if (completeFrame) GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+    return true;
+  });
+  if (!success) {
+    renderer.setRenderMode(GfxRenderer::BW);
+    drawImageError(renderer, mappedInput, "Invalid PNG File");
+    return false;
+  }
   return true;
 }
 
@@ -220,7 +224,10 @@ void BmpViewerActivity::drawImage() {
       renderer.clearScreen();
       bool success = drawFrame();
       if (success && bitmap.hasGreyscale() && renderer.supportsAbsoluteGrayscale()) {
-        success = renderer.displayAbsoluteGrayscaleBase();
+        // Direct is an advertised complete-plane upgrade; rejected starts retain
+        // the established Absolute sequence without guessing a board identity.
+        success = (renderer.supportsDirectGrayscale() && renderer.displayDirectGrayscaleBase()) ||
+                  renderer.displayAbsoluteGrayscaleBase();
         for (const auto mode : {GfxRenderer::GRAYSCALE_LSB, GfxRenderer::GRAYSCALE_MSB}) {
           if (!success) break;
           success = bitmap.rewindToData() == BmpReaderError::Ok;

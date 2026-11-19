@@ -30,6 +30,8 @@ class InputWake {
   static bool capturing();
   // Non-consuming snapshot for optional work that should yield to button input.
   static bool hasPendingButtons();
+  // Non-consuming IRQ latch, including GT911 touch arriving during optional work.
+  static bool hasPendingEdge();
   static ButtonInputBuffer::Frame takeFrame();
   static void setSharedConfirmPowerShortPressEmitsPower(bool enabled);
 };

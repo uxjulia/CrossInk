@@ -11,8 +11,10 @@
 #include <string>
 #include <vector>
 
+#include "FsHelpers.h"
 #include "GlobalReadingStats.h"
 #include "ReadingStatsUtils.h"
+#include "TwoSlotFile.h"
 
 namespace {
 constexpr char LOG_TAG[] = "SBACK";
@@ -109,62 +111,24 @@ bool readStatsFile(std::array<uint8_t, GlobalReadingStats::CURRENT_FILE_SIZE>& b
 }
 
 bool writeBackupFile(const char* path, const uint8_t* data, const size_t size) {
-  const std::string tmpPath = std::string(path) + ".tmp";
-  if (Storage.exists(tmpPath.c_str()) && !Storage.remove(tmpPath.c_str())) {
-    LOG_ERR(LOG_TAG, "Could not remove stale backup temp file: %s", tmpPath.c_str());
-    return false;
-  }
-
-  FsFile file;
-  if (!Storage.openFileForWrite(LOG_TAG, tmpPath.c_str(), file)) {
-    LOG_ERR(LOG_TAG, "Could not open backup temp file: %s", tmpPath.c_str());
-    return false;
-  }
-
-  const size_t written = file.write(data, size);
-  if (written != size) {
-    LOG_ERR(LOG_TAG, "Short write for backup temp file %s: %u/%u bytes", tmpPath.c_str(),
-            static_cast<unsigned>(written), static_cast<unsigned>(size));
-    file.close();
-    Storage.remove(tmpPath.c_str());
-    return false;
-  }
-
-  file.flush();
-  if (!file.sync()) {
-    LOG_ERR(LOG_TAG, "Failed to sync backup temp file: %s", tmpPath.c_str());
-    file.close();
-    Storage.remove(tmpPath.c_str());
-    return false;
-  }
-
-  if (!file.close()) {
-    LOG_ERR(LOG_TAG, "Failed to close backup temp file: %s", tmpPath.c_str());
-    Storage.remove(tmpPath.c_str());
-    return false;
-  }
-
-  if (Storage.exists(path) && !Storage.remove(path)) {
-    LOG_ERR(LOG_TAG, "Could not replace backup file: %s", path);
-    Storage.remove(tmpPath.c_str());
-    return false;
-  }
-
-  if (!Storage.rename(tmpPath.c_str(), path)) {
-    LOG_ERR(LOG_TAG, "Could not publish backup file: %s", path);
-    Storage.remove(tmpPath.c_str());
-    return false;
-  }
-
-  return true;
+  // Reuse the stats slot format: verify with CRC and retain the preceding save
+  // instead of deleting the only same-day backup before a rename can fail.
+  return two_slot::write(
+      LOG_TAG, path, (std::string(path) + ".bak").c_str(), data, size,
+      [](const uint8_t* bytes, size_t n) {
+        return (n == GlobalReadingStats::CURRENT_FILE_SIZE && bytes[0] == 4) || (n == 159 && bytes[0] == 3);
+      },
+      159);
 }
 
 // Identical automatic-backup suppression adapted from Sichroteph/YACP commit
 // 20af8aee8d3e1d560456753b08d1f52e5488621f (MIT). The fixed 64-byte chunk
 // keeps the comparison well below the C3's local-stack budget.
 bool backupFileMatches(const char* path, const uint8_t* expected, const size_t expectedSize) {
+  const std::string selected = two_slot::preferredPath(LOG_TAG, path, expectedSize, false, 159);
   FsFile file;
-  if (!Storage.openFileForRead(LOG_TAG, path, file) || file.fileSize() != expectedSize) {
+  if (!Storage.openFileForRead(LOG_TAG, selected.c_str(), file) ||
+      two_slot::payloadLength(file, expectedSize) != expectedSize) {
     if (file) file.close();
     return false;
   }
@@ -180,10 +144,53 @@ bool backupFileMatches(const char* path, const uint8_t* expected, const size_t e
     }
     offset += requested;
   }
-  file.close();
-  return true;
+  return file.close();
 }
 }  // namespace
+
+bool findLatestStatsBackup(char* outFileName, const size_t capacity) {
+  if (!outFileName || !capacity) return false;
+  outFileName[0] = '\0';
+  FsFile dir = Storage.open(BACKUP_DIR);
+  if (!dir || !dir.isDirectory()) {
+    dir.close();
+    return false;
+  }
+  char name[64];
+  for (FsFile file = dir.openNextFile(); file; file = dir.openNextFile()) {
+    const bool directory = file.isDirectory();
+    const size_t length = file.getName(name, sizeof(name));
+    const bool closed = file.close();
+    if (!closed) {
+      dir.close();
+      return false;
+    }
+    // A damaged directory entry can leave the preceding slot as the only
+    // readable snapshot. Resolve it through the same paired-file reader.
+    if (length > 4 && strcmp(name + length - 4, ".bak") == 0) name[length - 4] = '\0';
+    if (directory || !length || !isStatsBackupFileName(name)) continue;
+    GlobalReadingStats snapshot;
+    const std::string path = std::string(BACKUP_DIR) + "/" + name;
+    if (!GlobalReadingStats::readBackup(path.c_str(), snapshot)) continue;
+    uint32_t candidateIndex = 0, selectedIndex = 0;
+    const bool candidateNumbered = parseIncrementingIndex(name, candidateIndex);
+    const bool selectedNumbered = parseIncrementingIndex(outFileName, selectedIndex);
+    // Clockless sequence numbers cannot date a snapshot. Prefer dated backups
+    // when available, and compare numeric indices without the 999/1000 trap.
+    const bool newer = candidateNumbered && selectedNumbered   ? candidateIndex > selectedIndex
+                       : candidateNumbered != selectedNumbered ? !candidateNumbered
+                                                               : strcmp(name, outFileName) > 0;
+    if (!outFileName[0] || newer) {
+      if (!copyString(name, outFileName, capacity)) {
+        dir.close();
+        return false;
+      }
+    }
+  }
+  const bool scanned = !FsHelpers::directoryIterationFailed(dir);
+  const bool closed = dir.close();
+  return scanned && closed && outFileName[0];
+}
 
 bool backupGlobalStats(const bool manual, char* outFileName, const size_t outFileNameLen) {
   if (!Storage.ensureDirectoryExists(BACKUP_DIR)) {
@@ -273,6 +280,10 @@ int pruneBackups(int keep) {
       const int written = snprintf(path, sizeof(path), "%s/%s", BACKUP_DIR, it->value);
       if (written <= 0 || static_cast<size_t>(written) >= sizeof(path)) continue;
       if (Storage.remove(path)) {
+        const std::string backup = std::string(path) + ".bak";
+        if (Storage.exists(backup.c_str()) && !Storage.remove(backup.c_str())) {
+          LOG_ERR(LOG_TAG, "Failed to prune previous stats snapshot: %s", backup.c_str());
+        }
         ++removed;
       } else {
         LOG_ERR(LOG_TAG, "Failed to prune stats backup: %s", path);

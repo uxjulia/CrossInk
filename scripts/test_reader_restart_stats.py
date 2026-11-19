@@ -25,7 +25,7 @@ FIXTURE = r'''
 #include "ReadingSessionStats.h"
 #define LOG_ERR(...) ((void)0)
 bool bookFails=false, globalFails=false, dailyFails=false, journalFails=false;
-bool s_blockDestructiveSave=false, lockHeld=false;
+bool s_blockDestructiveSave=false, lockHeld=false, restartFails=false;
 int bookWrites=0, globalWrites=0, dailyFlushes=0, restarts=0, armed=0, transfers=0;
 BookReadingStats savedBook;
 GlobalReadingStats savedGlobal;
@@ -53,7 +53,7 @@ struct Manager {
   void goToHotspotFileTransfer(const std::string&){++transfers;}
 } activityManager;
 void armSilentRestartReaderPageBuild(const std::string&,uint16_t,uint16_t,bool){++armed;}
-void silentRestartToReader(){++restarts;}
+bool silentRestartToReader(){if(restartFails)return false;++restarts;return true;}
 struct Reader {
   Book book; Book* epub=&book; Book* xtc=&book;
   BookReadingStats stats; GlobalReadingStats globalStats;
@@ -103,7 +103,7 @@ struct XtcReaderActivity:Reader {
  bool network0();bool network1();bool network2();bool network3();bool network4();bool network5();
 };
 void reset(){
- bookFails=globalFails=dailyFails=journalFails=s_blockDestructiveSave=false;
+ bookFails=globalFails=dailyFails=journalFails=s_blockDestructiveSave=restartFails=false;
  bookWrites=globalWrites=dailyFlushes=restarts=armed=transfers=0;
  savedBook={};savedGlobal={};assert(!lockHeld);
 }
@@ -153,6 +153,9 @@ template<class T> void checkpoints(){
 }
 int main(){
  checkpoints<EpubReaderActivity>();checkpoints<XtcReaderActivity>();
+ reset();restartFails=true;EpubReaderActivity cancelled;
+ {RenderLock held(cancelled);assert(!cancelled.retryLayout(1,0,20,"flush failed"));}
+ assert(restarts==0 && savedGlobal.totalReadingSeconds==65);
  for(int failure=-1;failure<5;++failure){
   reset();EpubReaderActivity reader;
   bookFails=failure==0;globalFails=failure==1;dailyFails=failure==2;journalFails=failure==3;

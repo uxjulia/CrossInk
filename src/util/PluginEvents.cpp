@@ -518,14 +518,17 @@ void pollOnline() {
   refreshSubscriptions();
   drain(nullptr, 1);
 }
-void prepareSleep(const char* book, int progress, bool allowNetwork) {
+void queueSleep(const char* book, int progress) {
   if (!SETTINGS.pluginsEnabled) return;
   refreshSubscriptions();
   char percent[8];
   snprintf(percent, sizeof(percent), "%d", progress);
   const Var vars[] = {{"book", book}, {"percent", percent}};
   emit(Event::SleepEnter, vars, book[0] ? 2 : 0);
-  if (!allowNetwork) return;
+}
+
+void deliverSleepEvents() {
+  if (!SETTINGS.pluginsEnabled) return;
   if (WiFi.status() != WL_CONNECTED && wantsConnectAny()) {
     const auto credential = WIFI_STORE.findCredential(WIFI_STORE.getLastConnectedSsid());
     if (credential) {

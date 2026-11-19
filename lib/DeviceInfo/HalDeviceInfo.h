@@ -2,13 +2,14 @@
 
 #include <cstdint>
 
-// Read-only hardware boundary. No identifiers, network state, settings or book data.
+// Read-only hardware boundary. The exportable snapshot excludes identifiers, network state, settings and book data.
 namespace HalDeviceInfo {
 enum class Presence : uint8_t { Absent, Available, Unavailable, Simulated };
 struct Snapshot {
   const char* device = nullptr;
   const char* chip = nullptr;
   const char* displayController = nullptr;
+  const char* displayPanel = nullptr;
   const char* touchController = nullptr;
   const char* sdk = nullptr;
   uint32_t uptimeSeconds = 0;
@@ -36,4 +37,7 @@ struct Snapshot {
   Presence imu = Presence::Absent;
 };
 Snapshot capture();
+// On-screen EEGO identity only; intentionally separate from the exportable snapshot.
+// The caller provides nine bytes for up to eight decimal digits plus the terminator.
+bool readEegoUid(char (&uid)[9]);
 }  // namespace HalDeviceInfo

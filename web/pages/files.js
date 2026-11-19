@@ -3784,9 +3784,7 @@ function ensureCoverMetaRegex(o) {
   return { o, fixed: false };
 }
 
-function flattenCanvasAlpha(ctx, width, height) {
-  const imageData = ctx.getImageData(0, 0, width, height);
-  const data = imageData.data;
+function flattenCanvasAlpha(data) {
   for (let i = 0; i < data.length; i += 4) {
     if (data[i + 3] === 255) continue;
     const a = data[i + 3] / 255;
@@ -3795,21 +3793,58 @@ function flattenCanvasAlpha(ctx, width, height) {
     data[i + 2] = Math.round(data[i + 2] * a + 255 * (1 - a));
     data[i + 3] = 255;
   }
-  ctx.putImageData(imageData, 0, 0);
 }
 
-// Apply grayscale to canvas image data
-function applyGrayscale(ctx, width, height) {
-  flattenCanvasAlpha(ctx, width, height);
-  if (!ENABLE_GRAYSCALE) return;
-  const imageData = ctx.getImageData(0, 0, width, height);
-  const data = imageData.data;
+// Match Inky desktop's 1% autocontrast followed by a 1.2x boost around the stretched mean.
+function applyImageContrast(data) {
+  const histogram = new Uint32Array(256);
+  const pixelCount = data.length / 4;
   for (let i = 0; i < data.length; i += 4) {
-    const gray = Math.round(data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114);
+    // Pillow RGB-to-L luminance coefficients, scaled by 65536.
+    const gray = (19595 * data[i] + 38470 * data[i + 1] + 7471 * data[i + 2] + 32768) >> 16;
     data[i] = gray;
-    data[i + 1] = gray;
-    data[i + 2] = gray;
+    histogram[gray]++;
   }
+
+  const cutoff = Math.floor(pixelCount / 100);
+  let low = 0;
+  let high = 255;
+  let skipped = 0;
+  while (low < 255 && skipped + histogram[low] <= cutoff) {
+    skipped += histogram[low];
+    low++;
+  }
+  skipped = 0;
+  while (high > 0 && skipped + histogram[high] <= cutoff) {
+    skipped += histogram[high];
+    high--;
+  }
+
+  const tones = new Uint8ClampedArray(256);
+  const scale = high > low ? 255 / (high - low) : 1;
+  let sum = 0;
+  for (let gray = 0; gray < 256; gray++) {
+    tones[gray] = high > low ? Math.trunc(gray * scale - low * scale) : gray;
+    sum += tones[gray] * histogram[gray];
+  }
+  const mean = Math.round(sum / pixelCount);
+  // Pillow blends in single precision, then truncates to an 8-bit sample.
+  const factor = Math.fround(1.2);
+  for (let gray = 0; gray < 256; gray++) {
+    tones[gray] = Math.trunc(Math.fround(mean + factor * (tones[gray] - mean)));
+  }
+  for (let i = 0; i < data.length; i += 4) {
+    const tone = tones[data[i]];
+    data[i] = tone;
+    data[i + 1] = tone;
+    data[i + 2] = tone;
+  }
+}
+
+function applyGrayscale(ctx, width, height) {
+  const imageData = ctx.getImageData(0, 0, width, height);
+  flattenCanvasAlpha(imageData.data);
+  if (ENABLE_GRAYSCALE) applyImageContrast(imageData.data);
   ctx.putImageData(imageData, 0, 0);
 }
 
@@ -4383,23 +4418,24 @@ function crossInkPxcStyle(rules, image) {
   return style;
 }
 
-function crossInkPxcLength(value, relative) {
+function crossInkPxcLength(value, relative, viewportWidth = relative) {
   if (!value) return undefined;
   const parsed = Number.parseFloat(value);
   if (!Number.isFinite(parsed)) return undefined;
-  if (value.endsWith("%") || value.endsWith("vw")) return Math.max(1, Math.round(relative * parsed / 100));
+  if (value.endsWith("vw")) return Math.max(1, Math.round(viewportWidth * parsed / 100));
+  if (value.endsWith("%")) return Math.max(1, Math.round(relative * parsed / 100));
   if (!value.endsWith("px") && !/^\d+(?:\.\d+)?$/.test(value)) return undefined;
   return Math.max(1, Math.round(parsed));
 }
 
-function crossInkPxcSize(width, height, style, viewportWidth, viewportHeight) {
-  let resolvedWidth = crossInkPxcLength(style.width, viewportWidth);
-  let resolvedHeight = crossInkPxcLength(style.height, viewportHeight);
+function crossInkPxcSize(width, height, style) {
+  let resolvedWidth = crossInkPxcLength(style.width, MAX_WIDTH);
+  let resolvedHeight = crossInkPxcLength(style.height, MAX_HEIGHT, MAX_WIDTH);
   if (!resolvedWidth && !resolvedHeight) return { width, height };
   if (!resolvedWidth) resolvedWidth = Math.max(1, Math.round(resolvedHeight * width / height));
   if (!resolvedHeight) resolvedHeight = Math.max(1, Math.round(resolvedWidth * height / width));
-  if (resolvedWidth > viewportWidth || resolvedHeight > viewportHeight) {
-    const scale = Math.min(viewportWidth / resolvedWidth, viewportHeight / resolvedHeight);
+  if (resolvedWidth > MAX_WIDTH || resolvedHeight > MAX_HEIGHT) {
+    const scale = Math.min(MAX_WIDTH / resolvedWidth, MAX_HEIGHT / resolvedHeight);
     resolvedWidth = Math.max(1, Math.round(resolvedWidth * scale));
     resolvedHeight = Math.max(1, Math.round(resolvedHeight * scale));
   }
@@ -4543,9 +4579,6 @@ async function buildCrossInkPxcSidecars(out, zip, xhtmlFiles) {
   }
   const entries = [];
   const seen = new Set();
-  // The display is landscape while the UI's conversion bounds are portrait.
-  const viewportWidth = MAX_HEIGHT;
-  const viewportHeight = MAX_WIDTH;
   for (const [xhtmlPath, xhtml] of Object.entries(xhtmlFiles)) {
     const doc = new DOMParser().parseFromString(xhtml, "text/html");
     const rules = [];
@@ -4564,7 +4597,7 @@ async function buildCrossInkPxcSidecars(out, zip, xhtmlFiles) {
         const sourceHeight = bitmap.height;
         if (bitmap.close) bitmap.close();
         if (!sourceWidth || !sourceHeight) continue;
-        const size = crossInkPxcSize(sourceWidth, sourceHeight, crossInkPxcStyle(rules, image), viewportWidth, viewportHeight);
+        const size = crossInkPxcSize(sourceWidth, sourceHeight, crossInkPxcStyle(rules, image));
         if (entries.length >= 256 || entries.some((e) => e.href === href) || !crossInkIndexPath(href, 128)) continue;
         const key = `${href}:${size.width}x${size.height}`;
         if (seen.has(key)) continue;
@@ -5085,7 +5118,7 @@ async function convertEpubFile(file, progressCallback) {
     const manifest = new TextEncoder().encode(JSON.stringify({
       format: "crossink-optimizer",
       version: 1,
-      target: { device: ACTIVE_DEVICE.toLowerCase(), width: MAX_HEIGHT, height: MAX_WIDTH, grayscaleLevels: 4 },
+      target: { device: ACTIVE_DEVICE.toLowerCase(), width: MAX_WIDTH, height: MAX_HEIGHT, grayscaleLevels: 4 },
       generator: "crossink-web-uploader",
       features: { htmlNormalized: true, fontsRemoved: removeEmbeddedFonts, cssFlattened: false, xLocations: true, prebuiltPxc: imageCacheEntries.length > 0 },
       images: imageCacheEntries,

@@ -15,6 +15,7 @@ struct Card {
   const char* chapter;
   float percentage;  // 0.0 - 1.0
   bool ahead;
+  bool available = true;
 };
 
 long displayedTenths(float percentage);

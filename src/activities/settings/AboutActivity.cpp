@@ -18,8 +18,12 @@ namespace fui = freeink::ui;
 namespace {
 enum Row {
   Device,
+#if FREEINK_DEVICE_EEGO_A4
+  Uid,
+#endif
   Firmware,
   Build,
+  FreeInkSdk,
   Chip,
   Cpu,
   Flash,
@@ -43,8 +47,12 @@ enum Row {
   RowCount
 };
 constexpr StrId labels[] = {StrId::STR_ABOUT_DEVICE,
+#if FREEINK_DEVICE_EEGO_A4
+                            StrId::STR_ABOUT_UID,
+#endif
                             StrId::STR_ABOUT_FIRMWARE,
                             StrId::STR_ABOUT_BUILD,
+                            StrId::STR_ABOUT_FREEINK_SDK,
                             StrId::STR_ABOUT_CHIP,
                             StrId::STR_ABOUT_CPU,
                             StrId::STR_ABOUT_FLASH,
@@ -89,6 +97,9 @@ AboutActivity::AboutActivity(GfxRenderer& renderer, MappedInputManager& mappedIn
 void AboutActivity::onEnter() {
   Activity::onEnter();
   snapshot = HalDeviceInfo::capture();
+#if FREEINK_DEVICE_EEGO_A4
+  HalDeviceInfo::readEegoUid(uid);
+#endif
   LOG_DBG("ABOUT", "Activity allocation: %u bytes; snapshot: %u bytes", static_cast<unsigned>(sizeof(*this)),
           static_cast<unsigned>(sizeof(snapshot)));
   applySharedUiTheme(app, uiTarget);
@@ -214,6 +225,11 @@ void AboutActivity::provideRow(void* user, uint16_t index, fui::ListItem& item) 
     case Device:
       item.subtitle = s.device;
       break;
+#if FREEINK_DEVICE_EEGO_A4
+    case Uid:
+      item.subtitle = self.uid[0] ? self.uid : tr(STR_UNAVAILABLE);
+      break;
+#endif
     case Firmware:
       item.subtitle = AppVersion::version();
       break;
@@ -222,6 +238,10 @@ void AboutActivity::provideRow(void* user, uint16_t index, fui::ListItem& item) 
                AppVersion::gitDirtyFlag()[0] == '1'   ? tr(STR_ABOUT_MODIFIED)
                : AppVersion::gitDirtyFlag()[0] == '0' ? tr(STR_ABOUT_CLEAN)
                                                       : tr(STR_UNAVAILABLE));
+      item.subtitle = buf;
+      break;
+    case FreeInkSdk:
+      snprintf(buf, size, "%.7s", AppVersion::sdkSha());
       item.subtitle = buf;
       break;
     case Chip:
@@ -240,7 +260,12 @@ void AboutActivity::provideRow(void* user, uint16_t index, fui::ListItem& item) 
       if (!s.simulated) kib(s.flashBytes);
       break;
     case Display:
-      if (s.displayController) item.subtitle = s.displayController;
+      if (s.displayController && s.displayPanel) {
+        snprintf(buf, size, "%s / %s", s.displayController, s.displayPanel);
+        item.subtitle = buf;
+      } else if (s.displayController || s.displayPanel) {
+        item.subtitle = s.displayController ? s.displayController : s.displayPanel;
+      }
       break;
     case Resolution:
       snprintf(buf, size, "%u x %u", s.width, s.height);

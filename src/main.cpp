@@ -23,6 +23,8 @@
 #include <SPI.h>
 #include <TrustedTime.h>
 
+#include <cstdlib>
+
 #include "util/PluginEvents.h"
 #if !defined(SIMULATOR) && !FREEINK_MCU_C3
 #include <XteinkDetect.h>
@@ -388,19 +390,64 @@ using BootResume = SleepWakePolicy::Resume;
 // the current activity. WiFi activities call silentRestart() in onExit() to
 // clear heap fragmentation on the way out, but deep sleep is a full chip reset
 // on wake and already clears the heap, so rebooting here would just power the
-// device back up against the user's sleep gesture. Never cleared:
-// startDeepSleep() does not return, so a set latch only ends at the wakeup reset.
+// device back up against the user's sleep gesture. Cleared only if a failed
+// storage shutdown cancels sleep before peripheral power is cut.
 static bool deepSleepInProgress = false;
 
-static void restartWithSilentToken(const bool restoreUsbSerial = false) {
-  // Capture the live state for every destination without changing wake preferences.
-  silentRebootTarget |= SILENT_REBOOT_FRONTLIGHT_VALID;
+static void clearSilentRestartReaderPageBuild();
+static std::atomic<bool> storageTransitionAborted{false};
+
+static void queueStorageSaveAlert() {
+  LOG_ERR("MAIN", "SD save failed; automatic storage transition cancelled");
+  snprintf(APP_STATE.pendingAlertTitle, sizeof(APP_STATE.pendingAlertTitle), "%s", tr(STR_SD_CARD));
+  snprintf(APP_STATE.pendingAlertBody, sizeof(APP_STATE.pendingAlertBody), "%s\n%s", tr(STR_ERROR_GENERAL_FAILURE),
+           tr(STR_CHECK_SERIAL_OUTPUT));
+  APP_STATE.pendingAlertGoHomeOnBack.store(false, std::memory_order_relaxed);
+  APP_STATE.hasPendingAlert.store(true, std::memory_order_release);
+  storageTransitionAborted.store(true, std::memory_order_relaxed);
+}
+
+static bool syncStorageBeforeTransition() {
+#ifdef SIMULATOR
+  // The simulator uses its own POSIX HAL, without the SDK volume API. Keep a
+  // fault-injection seam to exercise transition cancellation on the real UI.
+  const char* failure = std::getenv("CROSSINK_FAIL_STORAGE_SYNC");
+  return !failure || strcmp(failure, "1") != 0;
+#else
+  return !Storage.ready() || Storage.syncFilesystem();
+#endif
+}
+
+static bool restartWithSilentToken(const uint32_t target, const uint32_t payload, const bool restoreUsbSerial = false) {
+  if (deepSleepInProgress) return false;
+  std::optional<RenderLock> lock;
+  if (!RenderLock::heldByCurrentTask()) lock.emplace();
+  if (target == static_cast<uint32_t>(NetworkBootTarget::KOREADER_SYNC)) renderer.clearScreen();
+  GUI.drawPopup(renderer, tr(STR_LOADING));
+  delay(50);
+  // The last popup can read SD fonts. Flush after it, while rendering is
+  // quiescent; a successfully detached USB volume must never be reopened here.
+  if (!syncStorageBeforeTransition()) {
+    silentRebootMagic = 0;
+    silentRebootTarget = 0;
+    silentRebootPayload = 0;
+    clearSilentRestartReaderPageBuild();
+    queueStorageSaveAlert();
+    return false;
+  }
+#ifdef SIMULATOR
+  if (isNetworkBootTargetValue(target) && simulatorInterceptNetworkRestart(target, payload)) return true;
+#endif
+  silentRebootTarget = target | SILENT_REBOOT_FRONTLIGHT_VALID;
   if (Frontlight.isOn()) silentRebootTarget |= SILENT_REBOOT_FRONTLIGHT_ON;
+  silentRebootPayload = payload;
+  silentRebootMagic = SILENT_REBOOT_MAGIC;
 #ifdef SIMULATOR
   SimulatorLifecycle::setSilentRebootToken(silentRebootMagic, silentRebootTarget, silentRebootPayload);
 #endif
   if (restoreUsbSerial) handoffUsbOtgToSerialJtag();
   ESP.restart();
+  return true;
 }
 
 static uint32_t silentRestartBookHash(const std::string& bookPath) {
@@ -414,30 +461,17 @@ static void clearSilentRestartReaderPageBuild() {
   silentReaderPageBuildFlags = 0;
 }
 
-static void silentRestartToHome(const uint32_t payload, const char* const description,
+static bool silentRestartToHome(const uint32_t payload, const char* const description,
                                 const bool restoreUsbSerial = false) {
-  if (deepSleepInProgress) return;  // sleeping supersedes the heap-defrag reboot
+  if (deepSleepInProgress) return false;
   clearSilentRestartReaderPageBuild();
-  silentRebootTarget = SILENT_REBOOT_TARGET_HOME;
-  silentRebootPayload = payload;
-  silentRebootMagic = SILENT_REBOOT_MAGIC;
   LOG_DBG("MAIN", "Silent restart (%s)", description);
-  // E-ink retains the previous frame until Home's first paint lands (~2-3s).
-  // Without an overlay, users don't see the reboot and fire input through to
-  // Home. Select on the default selectorIndex=0 then opens the most-recent
-  // book, looking like a trampoline back to the reader they just exited.
-  GUI.drawPopup(renderer, tr(STR_LOADING));
-  delay(50);
-  restartWithSilentToken(restoreUsbSerial);
+  return restartWithSilentToken(SILENT_REBOOT_TARGET_HOME, payload, restoreUsbSerial);
 }
 
-void silentRestart() { silentRestartToHome(0, "target=home"); }
+bool silentRestart() { return silentRestartToHome(0, "target=home"); }
 
-void restartToHomeAfterStorageHandoff() {
-  // Keep this distinct from other callers: USB Drive has released raw SD
-  // storage and must reboot into Home before any normal filesystem work runs.
-  silentRestartToHome(0, "target=home after storage handoff", true);
-}
+bool restartToHomeAfterStorageHandoff() { return silentRestartToHome(0, "target=home after storage handoff", true); }
 
 void armSilentRestartReaderPageBuild(const std::string& bookPath, const uint16_t spineIndex, const uint16_t targetPage,
                                      const bool autoPageTurnActive) {
@@ -465,44 +499,21 @@ bool consumeSilentRestartReaderPageBuild(const std::string& bookPath, uint16_t& 
   return true;
 }
 
-static void silentRestartToReaderImpl(const bool cleanImageBaseOnEntry) {
-  if (deepSleepInProgress) return;  // sleeping supersedes the heap-defrag reboot
-  silentRebootTarget = SILENT_REBOOT_TARGET_READER;
-  silentRebootPayload = cleanImageBaseOnEntry ? SILENT_REBOOT_READER_CLEAN_IMAGE_BASE : 0;
-  silentRebootMagic = SILENT_REBOOT_MAGIC;
+bool silentRestartToReader(const bool cleanImageBaseOnEntry) {
   LOG_DBG("MAIN", "Silent restart (target=reader cleanImageBase=%d)", cleanImageBaseOnEntry ? 1 : 0);
-  GUI.drawPopup(renderer, tr(STR_LOADING));
-  delay(50);
-  restartWithSilentToken();
+  return restartWithSilentToken(SILENT_REBOOT_TARGET_READER,
+                                cleanImageBaseOnEntry ? SILENT_REBOOT_READER_CLEAN_IMAGE_BASE : 0);
 }
 
-void silentRestartToReader(const bool cleanImageBaseOnEntry) { silentRestartToReaderImpl(cleanImageBaseOnEntry); }
-
-void silentRestartToNetwork(const NetworkBootTarget target, const uint32_t payload) {
-  if (deepSleepInProgress) return;
-#ifdef SIMULATOR
-  if (simulatorInterceptNetworkRestart(static_cast<uint32_t>(target), payload)) return;
-#endif
+bool silentRestartToNetwork(const NetworkBootTarget target, const uint32_t payload) {
+  if (deepSleepInProgress) return false;
   clearSilentRestartReaderPageBuild();
-  silentRebootTarget = static_cast<uint32_t>(target);
-  silentRebootPayload = payload;
-  silentRebootMagic = SILENT_REBOOT_MAGIC;
-  LOG_DBG("MAIN", "Silent restart (target=network/%lu payload=%lu)", static_cast<unsigned long>(silentRebootTarget),
+  LOG_DBG("MAIN", "Silent restart (target=network/%lu payload=%lu)", static_cast<unsigned long>(target),
           static_cast<unsigned long>(payload));
-  if (target == NetworkBootTarget::KOREADER_SYNC) {
-    RenderLock lock;
-    // A drawer close can queue a backdrop repaint. Serialize the handoff and
-    // replace that frame so only one loading notice remains visible.
-    renderer.clearScreen();
-    GUI.drawPopup(renderer, tr(STR_LOADING));
-  } else {
-    GUI.drawPopup(renderer, tr(STR_LOADING));
-  }
-  delay(50);
-  restartWithSilentToken();
+  return restartWithSilentToken(static_cast<uint32_t>(target), payload);
 }
 
-void silentRestartToManageFonts() { silentRestartToNetwork(NetworkBootTarget::MANAGE_FONTS); }
+bool silentRestartToManageFonts() { return silentRestartToNetwork(NetworkBootTarget::MANAGE_FONTS); }
 
 static uint32_t encodeKOReaderSyncOrientation(const uint8_t orientation) {
   return orientation < CrossPointSettings::ORIENTATION_COUNT ? static_cast<uint32_t>(orientation) + 1 : 0;
@@ -538,8 +549,7 @@ bool startGlobalSyncProgress(const bool networkBootReady, const uint8_t readerOr
   }
 
   if (!networkBootReady) {
-    silentRestartToNetwork(NetworkBootTarget::KOREADER_SYNC, encodeKOReaderSyncOrientation(readerOrientation));
-    return true;
+    return silentRestartToNetwork(NetworkBootTarget::KOREADER_SYNC, encodeKOReaderSyncOrientation(readerOrientation));
   }
 
   const DocumentMatchMethod matchMethod = KOREADER_STORE.getMatchMethod();
@@ -1131,29 +1141,65 @@ void mirrorWakeShortPressToNvs() {
 struct SleepChargeOverlay {
   HeapByteBuffer frame;
   Rect strip;
-  bool painted = false;
+  bool monochrome = false;
+  int paintedPercent = -1;
 
-  static void draw(void* context, uint16_t percent) {
+#if CROSSINK_BATTERY_DIAG_LOG
+  static void pollChargeComplete(void* context, const HalPowerManager::ChargerStatus& status) {
+    auto* overlay = static_cast<SleepChargeOverlay*>(context);
+    const int percent = overlay ? overlay->paintedPercent : -1;
+    BatteryDiagnosticLog::pollChargeComplete(BoardConfig::ACTIVE.name, &percent, &status);
+  }
+#endif
+
+  static void draw(void* context, bool charging, uint16_t percent) {
     auto& overlay = *static_cast<SleepChargeOverlay*>(context);
-    RenderLock lock;
+    std::optional<RenderLock> lock;
+    if (!RenderLock::heldByCurrentTask()) lock.emplace();
     memcpy(renderer.getFrameBuffer(), overlay.frame.get(), renderer.getBufferSize());
     const auto& metrics = UITheme::getInstance().getMetrics();
     renderer.fillRect(overlay.strip.x, overlay.strip.y, overlay.strip.width, overlay.strip.height, false);
     char text[24];
     snprintf(text, sizeof(text), "%u%%", static_cast<unsigned>(percent));
-    const int x = overlay.strip.x +
-                  (overlay.strip.width - metrics.batteryWidth - renderer.getTextWidth(SMALL_FONT_ID, text) - 8) / 2;
-    GUI.drawBatteryLeft(renderer, Rect{x, overlay.strip.y + 6, metrics.batteryWidth, metrics.batteryHeight}, percent);
-    // An unsupported driver returns without painting. A whole-screen B/W
-    // fallback could destroy retained grays, so leave that sleep image alone.
-    overlay.painted = renderer.displayRetainedGrayscaleOverlay(overlay.strip.x, overlay.strip.y, overlay.strip.width,
-                                                               overlay.strip.height) ||
-                      overlay.painted;
+    const int x = overlay.strip.x + (overlay.strip.width - metrics.batteryWidth -
+                                     renderer.getTextWidth(SMALL_FONT_ID, text) - BaseTheme::batteryPercentSpacing) /
+                                        2;
+    const int textY = overlay.strip.y + 6;
+    const int iconY = textY + 5;
+    // The shared status-bar icon uses USB presence. This strip must distinguish
+    // a plugged-in battery from one that is actively charging.
+    BaseTheme::drawBatteryOutline(renderer, x, iconY, metrics.batteryWidth, metrics.batteryHeight);
+    if (charging) {
+      BaseTheme::drawBatteryLightningBolt(renderer, x + 4, iconY + 2, true);
+    } else {
+      renderer.fillRect(x + 2, iconY + 2, (metrics.batteryWidth - 5) * percent / 100, metrics.batteryHeight - 4, true);
+    }
+    renderer.drawText(SMALL_FONT_ID, x + metrics.batteryWidth + BaseTheme::batteryPercentSpacing, textY, text);
+    if (overlay.monochrome) {
+      renderer.displayBuffer(HalDisplay::FAST_REFRESH);
+      overlay.paintedPercent = percent;
+    } else {
+      // Do not flatten grayscale frames when the retained overlay is unavailable.
+      if (renderer.displayRetainedGrayscaleOverlay(overlay.strip.x, overlay.strip.y, overlay.strip.width,
+                                                   overlay.strip.height)) {
+        overlay.paintedPercent = percent;
+      }
+    }
     memcpy(renderer.getFrameBuffer(), overlay.frame.get(), renderer.getBufferSize());
   }
 };
 
-static bool holdSleepWhileUsbPowered() {
+static bool holdPiccoUsbSleep(SleepChargeOverlay* overlay = nullptr) {
+  auto draw = overlay ? SleepChargeOverlay::draw : nullptr;
+#if CROSSINK_BATTERY_DIAG_LOG
+  return powerManager.holdWhileUsbPowered(gpio, draw, overlay,
+                                          Storage.ready() ? SleepChargeOverlay::pollChargeComplete : nullptr);
+#else
+  return powerManager.holdWhileUsbPowered(gpio, draw, overlay);
+#endif
+}
+
+static bool holdSleepWhileUsbPowered(bool monochrome = false) {
   if (!gpio.isUsbConnected()) return false;
   // One runtime-sized snapshot in PSRAM, only during USB sleep. It restores
   // the draw buffer after each strip; it is never needed on constrained C3s.
@@ -1163,17 +1209,21 @@ static bool holdSleepWhileUsbPowered() {
       std::max(renderer.getLineHeight(SMALL_FONT_ID), UITheme::getInstance().getMetrics().batteryHeight) + 16;
   SleepChargeOverlay overlay{
       makePsramByteBufferNoThrow(renderer.getBufferSize()),
-      Rect{left, renderer.getScreenHeight() - bottom - height, renderer.getScreenWidth() - left - right, height}};
+      Rect{left, renderer.getScreenHeight() - bottom - height, renderer.getScreenWidth() - left - right, height},
+      monochrome};
   if (!overlay.frame) {
     LOG_ERR("MAIN", "No PSRAM for sleep charge strip; retaining sleep image");
-    return powerManager.holdWhileUsbPowered(gpio);
+    return holdPiccoUsbSleep();
   }
   memcpy(overlay.frame.get(), renderer.getFrameBuffer(), renderer.getBufferSize());
-  const bool buttonPressed = powerManager.holdWhileUsbPowered(gpio, SleepChargeOverlay::draw, &overlay);
-  if (!buttonPressed && overlay.painted) {
-    RenderLock lock;
-    if (!renderer.displayRetainedGrayscaleOverlay(overlay.strip.x, overlay.strip.y, overlay.strip.width,
-                                                  overlay.strip.height, true)) {
+  const bool buttonPressed = holdPiccoUsbSleep(&overlay);
+  if (!buttonPressed && overlay.paintedPercent >= 0) {
+    std::optional<RenderLock> lock;
+    if (!RenderLock::heldByCurrentTask()) lock.emplace();
+    if (overlay.monochrome) {
+      renderer.displayBuffer(HalDisplay::FAST_REFRESH);
+    } else if (!renderer.displayRetainedGrayscaleOverlay(overlay.strip.x, overlay.strip.y, overlay.strip.width,
+                                                         overlay.strip.height, true)) {
       LOG_ERR("MAIN", "Could not restore retained sleep image after USB hold");
     }
   }
@@ -1188,10 +1238,7 @@ void enterDeepSleep(bool fromTimeout) {
   HalPowerManager::Lock powerLock;  // Ensure we are at normal CPU frequency for sleep preparation
   APP_STATE.lastSleepFromReader = activityManager.isReaderActivity();
 
-  const bool isQuickResumeSleep =
-      SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::QUICK_RESUME ||
-      (fromTimeout &&
-       SETTINGS.quickResumeSleepScreen == CrossPointSettings::QUICK_RESUME_SLEEP_SCREEN::QUICK_RESUME_AFTER_TIMEOUT);
+  const bool isQuickResumeSleep = SETTINGS.usesQuickResumeSleep(fromTimeout);
   // Every sleep mode leaves a complete retained frame on the e-ink panel. Keep
   // it visible until the first useful reader or Home paint replaces it.
   APP_STATE.showBootScreen = false;
@@ -1199,15 +1246,8 @@ void enterDeepSleep(bool fromTimeout) {
   // Commit to sleeping before goToSleep() runs the outgoing activity's onExit():
   // a WiFi activity would otherwise silentRestart() here and reboot instead.
   deepSleepInProgress = true;
-  activityManager.preparePluginSleep();
-  {
-    RenderLock lock;
-    const std::string book = activityManager.getCurrentBookPath();
-    pluginevents::prepareSleep(book.c_str(), activityManager.getScreenshotInfo().progressPercent,
-                               powerManager.getBatteryPercentage() >= 20);
-  }
+  [[maybe_unused]] const bool monochromeSleepFrame = activityManager.goToSleep(fromTimeout);
   trustedtime::note();
-  activityManager.goToSleep(fromTimeout);
   // Reader exit may already have saved this state. Save after the sleep screen
   // appears, skipping an unchanged snapshot while still retrying failed saves.
   APP_STATE.saveToFile();
@@ -1233,15 +1273,45 @@ void enterDeepSleep(bool fromTimeout) {
   // Last chance to sample: startDeepSleep() cuts the SD rail on X3, so nothing
   // can be written again until the next wake.
   BatteryDiagnosticLog::record(BatteryDiagnosticLog::Event::Sleep, BoardConfig::ACTIVE.name);
-  // All sleep-time file writes are complete. Stop SDMMC before the power path
-  // cuts peripheral rails and isolates the bus pads; SPI boards are a no-op.
+  std::optional<RenderLock> storageSleepLock;
+  if (!RenderLock::heldByCurrentTask()) storageSleepLock.emplace();
   libraryScanSleepToken.save(!library::libraryIndexNeedsRefresh());
-  Storage.shutdown();
+  // Flush and stop SDMMC before cutting rails or isolating the bus pads.
+#if FREEINK_DEVICE_PICCO && CROSSINK_BATTERY_DIAG_LOG
+  // Preserve writes before a potentially hours-long USB hold, then leave the
+  // card mounted for a charge-complete row until unplug or button wake.
+  const bool storageSynced = !Storage.ready() || !gpio.isUsbConnected() || Storage.syncFilesystem();
+  bool usbWakeRequested = false;
+  if (storageSynced) {
+    Frontlight.setOn(false);
+    usbWakeRequested = holdSleepWhileUsbPowered(monochromeSleepFrame);
+  }
+  const bool storageStopped = storageSynced && Storage.shutdown();
+#elif defined(SIMULATOR)
+  const bool storageStopped = syncStorageBeforeTransition();
+  if (storageStopped) Storage.shutdown();
+#else
+  const bool storageStopped = Storage.shutdown();
+#endif
+  if (!storageStopped) {
+    deepSleepInProgress = false;
+    APP_STATE.quickLockResumePending = false;
+    APP_STATE.quickLockRestoreFrontlight = false;
+    if (buttonShortcutController.isQuickLocked()) {
+      buttonShortcutController.toggleQuickLock(millis(), buttonShortcutController.quickLockTrigger());
+    }
+#ifndef SIMULATOR
+    gpio.startButtonCapture();
+#endif
+    queueStorageSaveAlert();
+    activityManager.goHome();
+    return;
+  }
 
-#if FREEINK_DEVICE_PICCO
+#if FREEINK_DEVICE_PICCO && !CROSSINK_BATTERY_DIAG_LOG
   // The I2C light retains its state through sleep. Keep the saved preference.
   Frontlight.setOn(false);
-  const bool usbWakeRequested = holdSleepWhileUsbPowered();
+  const bool usbWakeRequested = holdSleepWhileUsbPowered(monochromeSleepFrame);
 #endif
   putTiltSensorToSleepForDeepSleep();
   display.deepSleep();
@@ -1468,10 +1538,23 @@ void setup() {
       // Keep the retained screen and use the normal USB sleep/wake path.
       Frontlight.begin(0, 0, false);
       putTiltSensorToSleepForDeepSleep();
-      if (powerManager.holdWhileUsbPowered(gpio)) {
-        piccoUsbWakeToken.arm();
-        ESP.restart();
-        return;
+#if CROSSINK_BATTERY_DIAG_LOG
+      // A cable-only boot reaches this sleep path before the normal SD mount.
+      if (!Storage.begin()) LOG_ERR("BATLOG", "SD unavailable during USB sleep");
+#endif
+      {
+        const bool buttonPressed = holdPiccoUsbSleep();
+#if CROSSINK_BATTERY_DIAG_LOG
+        if (Storage.ready() && !Storage.shutdown()) {
+          LOG_ERR("BATLOG", "USB sleep SD shutdown failed; continuing normal boot");
+          break;
+        }
+#endif
+        if (buttonPressed) {
+          piccoUsbWakeToken.arm();
+          ESP.restart();
+          return;
+        }
       }
 #endif
       powerManager.startDeepSleep(gpio);
@@ -1831,11 +1914,20 @@ static bool handleSlideSwitch() {
       LOG_ERR("SWITCH", "Unknown slide switch action");
       return false;
   }
-  SETTINGS.saveToFile();
+  activityManager.persistGlobalSettings();
   activityManager.requestUpdate();
   return true;
 }
 #endif
+
+// Adapted from Justin Mitchell, CrossPoint #4494. The A4 driver keeps panel
+// power on for 500 ms after a completed refresh, regardless of input activity.
+static void idleDisplayWhileAwake() {
+#if FREEINK_DEVICE_EEGO_A4
+  RenderLock lock(RenderLock::Mode::Try);
+  if (lock.ownsLock()) display.controllerIdle();
+#endif
+}
 
 void loop() {
   static unsigned long maxLoopDuration = 0;
@@ -1868,6 +1960,7 @@ void loop() {
     // USB Drive owns the USB PHY and raw SD card. Keep the normal serial
     // transfer handler suspended with the other filesystem users.
     activityManager.loop();
+    idleDisplayWhileAwake();
 #ifdef SIMULATOR
     // Let storage-handoff smoke checks advance while normal app work is paused.
     runSimulatorSmokeTestTick();
@@ -1924,10 +2017,13 @@ void loop() {
                                  || slideSwitchChanged
 #endif
                                  || halTiltSensor.hadActivity();
+  // Match upstream after all input sources have been sampled, before shortcut returns.
+  idleDisplayWhileAwake();
 
   // Check for any user activity (button press or release) or active background work
   static unsigned long lastActivityTime = millis();
-  if (userInputReceived || activityManager.preventAutoSleep()) {
+  const bool transitionWasAborted = storageTransitionAborted.exchange(false, std::memory_order_relaxed);
+  if (userInputReceived || activityManager.preventAutoSleep() || transitionWasAborted) {
     lastActivityTime = millis();         // Reset inactivity timer
     powerManager.setPowerSaving(false);  // Restore normal CPU frequency on user activity
   }
@@ -2126,7 +2222,14 @@ void loop() {
         activityManager.requestUpdate();
       }
       lastBatteryPercent = percent;
+#if FREEINK_DEVICE_PICCO && CROSSINK_BATTERY_DIAG_LOG
+      BatteryDiagnosticLog::pollChargeComplete(BoardConfig::ACTIVE.name);
+#endif
     }
+#if FREEINK_DEVICE_PICCO && CROSSINK_BATTERY_DIAG_LOG
+  } else {
+    BatteryDiagnosticLog::noteUsbDisconnected();
+#endif
   }
 
   // Background delivery must not hold up text entry or wait for a screen
@@ -2143,6 +2246,8 @@ void loop() {
   mappedInputManager.clearDeferredHomeGesture();
 #endif
   const unsigned long activityDuration = millis() - activityStartTime;
+  // A blocking activity (for example an OPDS download) is not idle time.
+  lastActivityTime += activityDuration;
 
 #ifdef SIMULATOR
   runSimulatorSmokeTestTick();

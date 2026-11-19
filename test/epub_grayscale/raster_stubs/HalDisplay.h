@@ -17,6 +17,9 @@ class HalDisplay {
   bool invertedOverlaySupported = false;
   int canceled = 0;
   bool readerRefresh = false;
+  bool alwaysCombined = false;
+  bool fullTone = false;
+  void setOverlayFullTone(bool value) { fullTone = value; }
   std::vector<bool> refreshHints;
   void setReaderRefresh(bool reading) { readerRefresh = reading; }
   struct RetainedOverlay {
@@ -34,7 +37,7 @@ class HalDisplay {
       if (absoluteSupported) caps.encoding = freeink::GrayscaleEncoding::AbsolutePlanes;
     } else if (overlaySupported && (!inverted || invertedOverlaySupported)) {
       caps.encoding = freeink::GrayscaleEncoding::OverlayMasks;
-      if (readerRefresh && combinedTextSupported) caps.base = GrayscaleBase::Combined;
+      if (alwaysCombined || (readerRefresh && combinedTextSupported)) caps.base = GrayscaleBase::Combined;
     }
     return caps;
   }

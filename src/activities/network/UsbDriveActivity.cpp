@@ -202,6 +202,14 @@ void UsbDriveActivity::restartToHome() {
   if (restartRequested) return;
   restartRequested = true;
 #ifndef SIMULATOR
+  if (startFailed && Storage.ready()) {
+    // A failed pre-handoff flush still belongs to the firmware. Keep that
+    // mount alive and leave normally instead of resetting around the failure.
+    activityManager.goHome();
+    return;
+  }
+#endif
+#ifndef SIMULATOR
   Storage.endUsbDrive();
 #endif
 #ifdef SIMULATOR

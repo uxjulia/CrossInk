@@ -44,17 +44,24 @@ constexpr uint32_t SECTION_CACHE_MAGIC = 0x535843FF;  // bytes: 0xFF, "CXS"
 // v106: Persist per-word source ranges for stable clipping anchors.
 // v107: Lay out chapter heading groups with their publisher spacing and alignment.
 // v108: Runtime outline advances defer rounding until pixel placement.
-constexpr uint8_t SECTION_FILE_VERSION = 108;
+// v109: Recognize oversized opening spans as drop caps, including nested styles.
+// v110: Image-backed thematic breaks retain a visible fallback rule.
+// v111: Smaller body declarations retain the reader-selected font size.
+// v112: Reserve clearance below descenders on ruled pages.
+// v113: Ruled text shares a font baseline across ordinary prose rows.
+// v114: Lower ruled text by a pixel while preserving descender clearance.
+// v115: Center the main letter body between rules independently of descenders.
+constexpr uint8_t SECTION_FILE_VERSION = 115;
 // Suspended incremental build: valid pages plus LUTs and a parse-watermark trailer.
 // Change this with layout or payload changes so stale partial pages cannot resume
 // under a different layout contract.
-constexpr uint8_t SECTION_FILE_PARTIAL_VERSION = 0xDD;
+constexpr uint8_t SECTION_FILE_PARTIAL_VERSION = 0xE4;
 constexpr uint32_t HEADER_SIZE =
-    4 * sizeof(uint32_t) + sizeof(PublisherFonts) + sizeof(SECTION_CACHE_MAGIC) + sizeof(uint8_t) + sizeof(int) +
-    sizeof(float) + sizeof(bool) + sizeof(bool) + sizeof(uint8_t) + sizeof(uint16_t) + sizeof(uint16_t) + sizeof(bool) +
-    sizeof(uint32_t) + sizeof(bool) + sizeof(uint8_t) + sizeof(bool) + sizeof(bool) + sizeof(uint8_t) + sizeof(int8_t) +
-    sizeof(uint8_t) + sizeof(uint16_t) + sizeof(uint32_t) + sizeof(uint32_t) + sizeof(uint32_t) + sizeof(uint32_t) +
-    sizeof(uint32_t) + sizeof(uint32_t);
+    sizeof(bool) + 4 * sizeof(uint32_t) + sizeof(PublisherFonts) + sizeof(SECTION_CACHE_MAGIC) + sizeof(uint8_t) +
+    sizeof(int) + sizeof(float) + sizeof(bool) + sizeof(bool) + sizeof(uint8_t) + sizeof(uint16_t) + sizeof(uint16_t) +
+    sizeof(bool) + sizeof(uint32_t) + sizeof(bool) + sizeof(uint8_t) + sizeof(bool) + sizeof(bool) + sizeof(uint8_t) +
+    sizeof(int8_t) + sizeof(uint8_t) + sizeof(uint16_t) + sizeof(uint32_t) + sizeof(uint32_t) + sizeof(uint32_t) +
+    sizeof(uint32_t) + sizeof(uint32_t) + sizeof(uint32_t);
 constexpr size_t SECTION_HTML_STREAM_CHUNK_SIZE = 8192;
 // One staging buffer per build (not per page) turns a page's hundreds of 1-4
 // byte field writes into a handful of SD writes. Larger fields (a long line's
@@ -81,6 +88,11 @@ size_t sectionHtmlStreamChunkSize(const bool preview) {
     return LOW_MEMORY_SECTION_HTML_STREAM_CHUNK_SIZE;
   }
   return SECTION_HTML_STREAM_CHUNK_SIZE;
+}
+
+// Each FAT directory holds at most 32 chapter numbers (plus their layout variants).
+std::string chapterDirectory(const Epub& epub, const char* root, int spine) {
+  return epub.getCachePath() + root + "/" + std::to_string(spine / 32);
 }
 
 std::string sectionBackupPath(const std::string& filePath) { return filePath + ".bak"; }
@@ -135,8 +147,8 @@ Section::Section(Epub& epub, const int spineIndex, GfxRenderer& renderer, const 
     : epub(&epub),
       spineIndex(spineIndex),
       renderer(renderer),
-      filePath(epub.getCachePath() + "/sections/" + std::to_string(spineIndex) + (cacheSuffix ? cacheSuffix : "") +
-               ".bin") {
+      filePath(chapterDirectory(epub, "/layout", spineIndex) + "/" + std::to_string(spineIndex) +
+               (cacheSuffix ? cacheSuffix : "") + ".bin") {
   recoverSectionCacheBackup(filePath);
 }
 
@@ -238,7 +250,8 @@ uint32_t Section::publisherBodyFontFamily() {
     return 0;
   }
   const std::string path =
-      build_ ? build_->parsePath : epub->getCachePath() + "/html/" + std::to_string(spineIndex) + ".html";
+      build_ ? build_->parsePath
+             : chapterDirectory(*epub, "/content", spineIndex) + "/" + std::to_string(spineIndex) + ".html";
   const auto family = ChapterHtmlSlimParser::publisherBodyFontFamily(path, *css);
   if (ownsCss) css->clear();
   return family;
@@ -260,17 +273,17 @@ bool Section::writeSectionFileHeader(const ReaderRenderSpec& spec) {
     LOG_DBG("SCT", "File not open for writing header");
     return false;
   }
-  static_assert(HEADER_SIZE == 4 * sizeof(uint32_t) + sizeof(PublisherFonts) + sizeof(SECTION_CACHE_MAGIC) +
-                                   sizeof(SECTION_FILE_VERSION) + sizeof(spec.fontId) + sizeof(spec.lineCompression) +
-                                   sizeof(spec.extraParagraphSpacing) + sizeof(spec.forceParagraphIndents) +
-                                   sizeof(spec.paragraphAlignment) + sizeof(spec.viewportWidth) +
-                                   sizeof(spec.viewportHeight) + sizeof(spec.hyphenationEnabled) + sizeof(uint32_t) +
-                                   sizeof(spec.embeddedStyle) + sizeof(spec.imageRendering) +
-                                   sizeof(spec.focusReadingEnabled) + sizeof(spec.guideReadingEnabled) +
-                                   sizeof(spec.wordSpacing) + sizeof(spec.characterSpacing) + sizeof(uint8_t) +
-                                   sizeof(pageCount) + sizeof(uint32_t) + sizeof(uint32_t) + sizeof(uint32_t) +
-                                   sizeof(uint32_t) + sizeof(uint32_t) + sizeof(uint32_t),
-                "Header size mismatch");
+  static_assert(
+      HEADER_SIZE == sizeof(spec.ruled) + 4 * sizeof(uint32_t) + sizeof(PublisherFonts) + sizeof(SECTION_CACHE_MAGIC) +
+                         sizeof(SECTION_FILE_VERSION) + sizeof(spec.fontId) + sizeof(spec.lineCompression) +
+                         sizeof(spec.extraParagraphSpacing) + sizeof(spec.forceParagraphIndents) +
+                         sizeof(spec.paragraphAlignment) + sizeof(spec.viewportWidth) + sizeof(spec.viewportHeight) +
+                         sizeof(spec.hyphenationEnabled) + sizeof(uint32_t) + sizeof(spec.embeddedStyle) +
+                         sizeof(spec.imageRendering) + sizeof(spec.focusReadingEnabled) +
+                         sizeof(spec.guideReadingEnabled) + sizeof(spec.wordSpacing) + sizeof(spec.characterSpacing) +
+                         sizeof(uint8_t) + sizeof(pageCount) + sizeof(uint32_t) + sizeof(uint32_t) + sizeof(uint32_t) +
+                         sizeof(uint32_t) + sizeof(uint32_t) + sizeof(uint32_t),
+      "Header size mismatch");
   return serialization::tryWritePod(file, SECTION_CACHE_MAGIC) &&
          serialization::tryWritePod(file, SECTION_FILE_VERSION) && serialization::tryWritePod(file, spec.fontId) &&
          serialization::tryWritePod(file, spec.lineCompression) &&
@@ -285,7 +298,7 @@ bool Section::writeSectionFileHeader(const ReaderRenderSpec& spec) {
          serialization::tryWritePod(file, spec.embeddedStyle) &&
          serialization::tryWritePod(file, spec.imageRendering) &&
          serialization::tryWritePod(file, spec.focusReadingEnabled) &&
-         serialization::tryWritePod(file, spec.guideReadingEnabled) &&
+         serialization::tryWritePod(file, spec.guideReadingEnabled) && serialization::tryWritePod(file, spec.ruled) &&
          serialization::tryWritePod(file, spec.wordSpacing) &&
          serialization::tryWritePod(file, spec.characterSpacing) &&
          serialization::tryWritePod(file, static_cast<uint8_t>(spec.renderMode)) &&
@@ -357,6 +370,7 @@ bool Section::loadSectionFile(const ReaderRenderSpec& spec) {
     uint8_t fileImageRendering;
     bool fileFocusReadingEnabled;
     bool fileGuideReadingEnabled;
+    bool fileRuled;
     uint8_t fileWordSpacing;
     int8_t fileCharacterSpacing;
     uint8_t fileRenderMode;
@@ -371,7 +385,7 @@ bool Section::loadSectionFile(const ReaderRenderSpec& spec) {
         !serialization::tryReadPod(file, fileHyphenationIdentity) ||
         !serialization::tryReadPod(file, fileEmbeddedStyle) || !serialization::tryReadPod(file, fileImageRendering) ||
         !serialization::tryReadPod(file, fileFocusReadingEnabled) ||
-        !serialization::tryReadPod(file, fileGuideReadingEnabled) ||
+        !serialization::tryReadPod(file, fileGuideReadingEnabled) || !serialization::tryReadPod(file, fileRuled) ||
         !serialization::tryReadPod(file, fileWordSpacing) || !serialization::tryReadPod(file, fileCharacterSpacing) ||
         !serialization::tryReadPod(file, fileRenderMode) || !serialization::tryReadPod(file, filePublisherFonts) ||
         !serialization::tryReadPod(file, filePublisherFontSignature)) {
@@ -389,9 +403,9 @@ bool Section::loadSectionFile(const ReaderRenderSpec& spec) {
         fileHyphenationIdentity != (spec.hyphenationEnabled ? Hyphenator::patternIdentity(epub->getLanguage()) : 0u) ||
         spec.embeddedStyle != fileEmbeddedStyle || spec.imageRendering != fileImageRendering ||
         spec.focusReadingEnabled != fileFocusReadingEnabled || spec.guideReadingEnabled != fileGuideReadingEnabled ||
-        spec.wordSpacing != fileWordSpacing || spec.characterSpacing != fileCharacterSpacing ||
-        static_cast<uint8_t>(spec.renderMode) != fileRenderMode || spec.publisherFonts != filePublisherFonts ||
-        spec.publisherFontSignature != filePublisherFontSignature) {
+        spec.ruled != fileRuled || spec.wordSpacing != fileWordSpacing ||
+        spec.characterSpacing != fileCharacterSpacing || static_cast<uint8_t>(spec.renderMode) != fileRenderMode ||
+        spec.publisherFonts != filePublisherFonts || spec.publisherFontSignature != filePublisherFontSignature) {
       file.close();
       LOG_ERR("SCT", "Deserialization failed: Parameters do not match");
       clearCache();
@@ -514,7 +528,7 @@ bool Section::createSectionFile(const ReaderRenderSpec& spec, const std::functio
   const uint8_t wordSpacing = spec.wordSpacing;
   const EpubRenderMode renderMode = spec.renderMode;
   const auto localPath = epub->getSpineItem(spineIndex).href;
-  const auto htmlDir = epub->getCachePath() + "/html";
+  const auto htmlDir = chapterDirectory(*epub, "/content", spineIndex);
   const auto htmlPath = htmlDir + "/" + std::to_string(spineIndex) + ".html";
   const auto tmpHtmlPath = htmlDir + "/.tmp_" + std::to_string(spineIndex) + ".html";
   const auto tmpSectionPath = filePath + ".tmp";
@@ -551,7 +565,7 @@ bool Section::createSectionFile(const ReaderRenderSpec& spec, const std::functio
 
   // Create cache directory if it doesn't exist
   {
-    const auto sectionsDir = epub->getCachePath() + "/sections";
+    const auto sectionsDir = chapterDirectory(*epub, "/layout", spineIndex);
     Storage.mkdir(sectionsDir.c_str());
   }
 
@@ -739,6 +753,7 @@ bool Section::createSectionFile(const ReaderRenderSpec& spec, const std::functio
   if (cancelBuild()) {
     cancelled = true;
   } else {
+    visitor.setRuled(spec.ruled);
     visitor.setPublisherFonts(spec.publisherFonts);
     success = visitor.beginParse();
   }
@@ -748,6 +763,7 @@ bool Section::createSectionFile(const ReaderRenderSpec& spec, const std::functio
       cancelled = true;
       break;
     }
+    if (buildOptions.onBuildCheckpoint) buildOptions.onBuildCheckpoint();
     const auto status = visitor.parseStep();
     if (status == ChapterHtmlSlimParser::ParseStatus::Error) {
       visitor.abortParse();
@@ -890,7 +906,7 @@ bool Section::startBuild(const ReaderRenderSpec& spec, const SectionBuildOptions
   }
 
   const auto localPath = epub->getSpineItem(spineIndex).href;
-  const auto htmlDir = epub->getCachePath() + "/html";
+  const auto htmlDir = chapterDirectory(*epub, "/content", spineIndex);
   const auto htmlPath = htmlDir + "/" + std::to_string(spineIndex) + ".html";
   const auto tmpHtmlPath = htmlDir + "/.tmp_" + std::to_string(spineIndex) + ".html";
   const auto tmpSectionPath = binTmpPath();
@@ -915,7 +931,7 @@ bool Section::startBuild(const ReaderRenderSpec& spec, const SectionBuildOptions
           ESP.getMaxAllocHeap());
 
   {
-    const auto sectionsDir = epub->getCachePath() + "/sections";
+    const auto sectionsDir = chapterDirectory(*epub, "/layout", spineIndex);
     Storage.mkdir(sectionsDir.c_str());
   }
 
@@ -1074,6 +1090,7 @@ bool Section::startBuild(const ReaderRenderSpec& spec, const SectionBuildOptions
 
   Hyphenator::setPreferredLanguage(epub->getLanguage());
   build_ = std::move(ctx);
+  build_->parser->setRuled(spec.ruled);
   build_->parser->setPublisherFonts(spec.publisherFonts);
   build_->parser->setDeferAdvancePrewarm(buildOptions.deferAdvancePrewarm);
   if (!build_->parser->beginParse()) {
@@ -1128,7 +1145,8 @@ bool Section::buildSomeMore(const int maxPages) {
 }
 
 bool Section::hasHtmlCache() const {
-  const std::string htmlPath = epub->getCachePath() + "/html/" + std::to_string(spineIndex) + ".html";
+  const std::string htmlPath =
+      chapterDirectory(*epub, "/content", spineIndex) + "/" + std::to_string(spineIndex) + ".html";
   return Storage.exists(htmlPath.c_str());
 }
 

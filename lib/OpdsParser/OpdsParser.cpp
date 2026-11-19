@@ -179,6 +179,7 @@ void OpdsParser::clear() {
   entryCount = 0;
   truncated = false;
   searchTemplate.clear();
+  searchDescriptionUrl.clear();
   nextPageUrl.clear();
   prevPageUrl.clear();
   currentEntry = OpdsEntry{};
@@ -252,9 +253,12 @@ void XMLCALL OpdsParser::startElement(void* userData, const XML_Char* name, cons
       const char* rel = findAttribute(atts, "rel");
       const char* type = findAttribute(atts, "type");
 
-      if (rel && strcmp(rel, "search") == 0) {
+      if (rel && strcmp(rel, "search") == 0 && !self->inEntry) {
         if (strstr(href, "{searchTerms}") != nullptr) {
           assignBounded(self->searchTemplate, href, MAX_SEARCH_TEMPLATE_CHARS);
+        } else if (type && std::strcmp(type, "application/opensearchdescription+xml") == 0 &&
+                   strnlen(href, MAX_SEARCH_TEMPLATE_CHARS + 1) <= MAX_SEARCH_TEMPLATE_CHARS) {
+          self->searchDescriptionUrl = href;
         }
       } else if (rel && strcmp(rel, "next") == 0 && !self->inEntry) {
         assignBounded(self->nextPageUrl, href, MAX_PAGE_URL_CHARS);

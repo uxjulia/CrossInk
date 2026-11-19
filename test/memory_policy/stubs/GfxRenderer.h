@@ -12,6 +12,12 @@ enum class BidiBaseDir : signed char { AUTO = -1, LTR = 0, RTL = 1 };
 
 class GfxRenderer {
  public:
+  uint64_t textCullGeneration() const { return 0; }
+  int getWriteOriginY() const { return 0; }
+  int getWriteRows() const { return 480; }
+  int getDisplayHeight() const { return 480; }
+  void beginTextBounds(int*) const {}
+  void endTextBounds() const {}
   bool getCodepointMetrics(int, uint32_t, EpdFontFamily::Style, int32_t&, int&) const { return false; }
   bool scalable = false;
   int publisherFont = 0;
@@ -19,6 +25,18 @@ class GfxRenderer {
   int getFontIdForSize(int id, uint8_t size) const { return scalable && size ? size : id; }
   int resolveBookFont(int id, uint32_t family, uint8_t size = 0) const {
     return family && publisherFont ? publisherFont : getFontIdForSize(id, size);
+  }
+  struct TextVerticalBounds {
+    int top;
+    int bottom;
+  };
+  bool getLatinBodyBounds(int font, TextVerticalBounds& body, TextVerticalBounds& extent) const {
+    body = extent = {0, getFontAscenderSize(font)};
+    return true;
+  }
+  template <class... Args>
+  TextVerticalBounds getTextVerticalBounds(int font, const char*, Args...) const {
+    return {0, getFontAscenderSize(font)};
   }
   int getFontAscenderSize(int id) const {
     ++ascenderCalls;

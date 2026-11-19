@@ -9,6 +9,7 @@
 
 #include "Block.h"
 #include "BlockStyle.h"
+#include "Epub/RuledLineLayout.h"
 
 // Represents one rendered line. Per-word data is packed into one heap arena
 // instead of separate vectors/strings, which reduces heap fragmentation when
@@ -40,6 +41,13 @@ class TextBlock final : public Block {
   bool wordSizesPresent = false;
   const uint8_t* wordSizesArr = nullptr;
   bool isValid = true;
+  // Ephemeral physical ink bounds: reused only within one grayscale replay.
+  // Inline metadata avoids allocations and is deliberately not serialized.
+  mutable uint64_t stripBoundsGeneration = 0;
+  static constexpr uint16_t STRIP_GROUPS = 4;
+  mutable uint16_t stripBounds[STRIP_GROUPS][2] = {};  // half-open, clipped to physical rows
+  mutable int stripBoundsX = 0, stripBoundsY = 0, stripBoundsFont = 0;
+
   std::unique_ptr<uint8_t[]> arena;
 
   const uint16_t* textOffArr = nullptr;
@@ -79,7 +87,10 @@ class TextBlock final : public Block {
   TextBlock(const TextBlock&) = delete;
   TextBlock& operator=(const TextBlock&) = delete;
 
-  void setBlockStyle(const BlockStyle& blockStyle) { this->blockStyle = blockStyle; }
+  void setBlockStyle(const BlockStyle& blockStyle) {
+    this->blockStyle = blockStyle;
+    stripBoundsGeneration = 0;
+  }
   const BlockStyle& getBlockStyle() const { return blockStyle; }
   bool isEmpty() override { return numWords == 0; }
   bool valid() const { return isValid; }
@@ -118,6 +129,13 @@ class TextBlock final : public Block {
   int maxLineHeight(const GfxRenderer& renderer, int fontId) const;
   int resolvedFontId(const GfxRenderer& renderer, int fontId) const;
   void render(const GfxRenderer& renderer, int fontId, int x, int y, bool foregroundBlack = true) const;
+  RuledLineLayout ruledLayout(const GfxRenderer& renderer, int fontId, int requested) const;
+
+ private:
+  void renderOrMeasure(const GfxRenderer& renderer, int fontId, int x, int y, bool foregroundBlack,
+                       RuledLineLayout::Ink* ink) const;
+
+ public:
   BlockType getType() override { return TEXT_BLOCK; }
   bool serialize(Print& file) const;
   static std::unique_ptr<TextBlock> deserialize(HalFile& file);

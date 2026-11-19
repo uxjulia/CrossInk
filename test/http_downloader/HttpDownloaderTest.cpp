@@ -11,9 +11,13 @@
 class HttpDownloaderTest : public testing::TestWithParam<HttpDownloader::Transport> {
   void SetUp() override {
     files.clear();
+    heapFree = heapLargest = 100000;
+    secureIds.clear();
+    reuseRequests.clear();
     replies.clear();
     requests.clear();
     requestUrls.clear();
+    httpReceiveBuffers.clear();
     recordReservations.clear();
     nextReply = 0;
     failWrite = failSync = false;
@@ -55,6 +59,35 @@ class HttpDownloaderTest : public testing::TestWithParam<HttpDownloader::Transpo
                                           options);
   }
 };
+TEST_P(HttpDownloaderTest, EspReceiveBufferIsOptInAndIndependentOfBodyChunks) {
+  if (GetParam() != HttpDownloader::Transport::ESP_HTTP) GTEST_SKIP();
+  Reply redirect{302, "", 0, "", true};
+  redirect.location = "https://example.com/next";
+  const std::string body(2049, 'x');
+  replies = {{200, "abc", 3, "", true}, redirect, {200, body, body.size(), "", true}};
+  HttpDownloader::DownloadOptions options;
+  std::string received;
+  size_t largestChunk = 0;
+  auto receive = [&](const uint8_t* bytes, size_t count) {
+    largestChunk = std::max(largestChunk, count);
+    received.append(reinterpret_cast<const char*>(bytes), count);
+    return true;
+  };
+  ASSERT_EQ(HttpDownloader::streamUrl("https://example.com/file", receive, nullptr, "", "", options),
+            HttpDownloader::OK);
+  EXPECT_EQ(httpReceiveBuffers, std::vector<int>({4096}));
+  EXPECT_EQ(received, "abc");
+  received.clear();
+  largestChunk = 0;
+  options.httpReceiveBufferSize = 1024;
+  options.bufferSize = 512;
+  ASSERT_EQ(HttpDownloader::streamUrl("https://example.com/file", receive, nullptr, "", "", options),
+            HttpDownloader::OK);
+  EXPECT_EQ(httpReceiveBuffers, std::vector<int>({4096, 1024, 1024}));
+  EXPECT_EQ(received, body);
+  EXPECT_EQ(largestChunk, 512u);
+}
+
 TEST_P(HttpDownloaderTest, ReconnectsAtLastWrittenByte) {
   replies = {{200, "abc", 6, "", false}, {206, "def", 3, "bytes 3-5/6", true}};
   ASSERT_EQ(download(), HttpDownloader::OK);
@@ -927,4 +960,225 @@ TEST_P(HttpDownloaderTest, SmallRequestsDoNotReserveTlsRecordsByDefault) {
   EXPECT_EQ(HttpDownloader::downloadToFile("https://example.com/book", "/book.epub", nullptr, nullptr, "", "", o),
             HttpDownloader::OK);
   if (GetParam() == HttpDownloader::Transport::WOLFSSL) EXPECT_EQ(recordReservations, (std::vector<bool>{false}));
+}
+
+#include "network/OpdsCatalogClient.h"
+TEST_P(HttpDownloaderTest, NegotiatesBasicOnceWithoutLeakingChallengeToFeed) {
+  const std::string auth = R"({"authentication":[{"type":"http://opds-spec.org/auth/basic"}]})";
+  replies = {{401, auth, auth.size()}, {200, "feed", 4}, {200, "next", 4}};
+  OpdsCatalogClient client;
+  HttpDownloader::DownloadOptions options;
+  options.transport = GetParam();
+  options.authorizationOrigin = "https://example.com/catalog";
+  std::string body;
+  auto sink = [&](const uint8_t* data, size_t n) {
+    body.append(reinterpret_cast<const char*>(data), n);
+    return true;
+  };
+  EXPECT_EQ(client.get("https://example.com/catalog", sink, "synthetic", "fixture", options), HttpDownloader::OK);
+  EXPECT_EQ(body, "feed");
+  ASSERT_EQ(requests.size(), 2u);
+  EXPECT_FALSE(requests[0].count("Authorization"));
+  EXPECT_TRUE(requests[1].count("Authorization"));
+  EXPECT_EQ(client.get("https://example.com/next", sink, "synthetic", "fixture", options), HttpDownloader::OK);
+  EXPECT_TRUE(requests[2].count("Authorization"));
+}
+TEST_P(HttpDownloaderTest, RejectsUnsupportedMalformedAndForeignChallenges) {
+  for (const auto& auth :
+       {std::string(R"({"authentication":[{"type":"http://opds-spec.org/auth/oauth/implicit"}]})"),
+        std::string(R"({"authentication":[{"type":"http://opds-spec.org/auth/basic"}] )"), std::string(8193, 'x')}) {
+    replies = {{401, auth, auth.size()}, {200, "bad", 3}};
+    nextReply = 0;
+    requests.clear();
+    OpdsCatalogClient client;
+    HttpDownloader::DownloadOptions options;
+    options.transport = GetParam();
+    options.authorizationOrigin = "https://example.com/";
+    EXPECT_NE(client.get(
+                  "https://example.com/",
+                  [](const uint8_t*, size_t) {
+                    ADD_FAILURE();
+                    return false;
+                  },
+                  "synthetic", "fixture", options),
+              HttpDownloader::OK);
+    EXPECT_EQ(nextReply, 1u);
+  }
+  Reply challenge{401, "", 0};
+  challenge.authenticate = "Basic realm=\"fixture\"";
+  replies = {{302, "", 0, "", true, "https://foreign.example/auth"}, challenge, {200, "bad", 3}};
+  nextReply = 0;
+  requests.clear();
+  OpdsCatalogClient client;
+  HttpDownloader::DownloadOptions options;
+  options.transport = GetParam();
+  options.authorizationOrigin = "https://example.com/";
+  EXPECT_EQ(client.get(
+                "https://example.com/", [](const uint8_t*, size_t) { return true; }, "synthetic", "fixture", options),
+            HttpDownloader::UNAUTHORIZED);
+  EXPECT_EQ(nextReply, 2u);
+  for (const auto& request : requests) EXPECT_FALSE(request.count("Authorization"));
+}
+TEST_P(HttpDownloaderTest, BasicHeaderHasTokenBoundaryAndFailedRetryStops) {
+  for (const std::string value : {"Basic realm=\"fixture\"", "basic", "BasicOther", "Bearer test"}) {
+    Reply challenge{401, "", 0};
+    challenge.authenticate = value;
+    replies = {challenge, challenge, {200, "bad", 3}};
+    nextReply = 0;
+    requests.clear();
+    OpdsCatalogClient client;
+    HttpDownloader::DownloadOptions options;
+    options.transport = GetParam();
+    options.authorizationOrigin = "https://example.com/";
+    EXPECT_EQ(client.get(
+                  "https://example.com/", [](const uint8_t*, size_t) { return true; }, "synthetic", "fixture", options),
+              HttpDownloader::UNAUTHORIZED);
+    EXPECT_EQ(nextReply, value == "BasicOther" || value == "Bearer test" ? 1u : 2u);
+  }
+}
+
+TEST_P(HttpDownloaderTest, ScopedSessionIsOptInBoundedAndOriginScoped) {
+  if (GetParam() != HttpDownloader::Transport::WOLFSSL) GTEST_SKIP();
+  replies.assign(14, Reply{200, "ok", 2});
+  HttpDownloader::DownloadOptions options;
+  options.transport = GetParam();
+  auto sink = [](const uint8_t*, size_t) { return true; };
+  {
+    HttpDownloader::Session session;
+    options.session = &session;
+    for (int i = 0; i < 9; ++i)
+      ASSERT_EQ(HttpDownloader::streamUrl("https://example.com/", sink, nullptr, "", "", options), HttpDownloader::OK);
+    ASSERT_EQ(secureIds.size(), 9u);
+    EXPECT_EQ(secureIds[0], secureIds[7]);
+    EXPECT_NE(secureIds[0], secureIds[8]);
+    EXPECT_EQ(secureLive, 1u);
+    ASSERT_EQ(HttpDownloader::streamUrl("https://other.example/", sink, nullptr, "", "", options), HttpDownloader::OK);
+    EXPECT_NE(secureIds[8], secureIds[9]);
+    ASSERT_EQ(HttpDownloader::streamUrl("http://other.example/", sink, nullptr, "", "", options), HttpDownloader::OK);
+    EXPECT_EQ(secureLive, 0u);
+    EXPECT_FALSE(reuseRequests.back());
+  }
+  EXPECT_EQ(secureLive, 0u);
+  options.session = nullptr;
+  ASSERT_EQ(HttpDownloader::streamUrl("https://example.com/", sink, nullptr, "", "", options), HttpDownloader::OK);
+  EXPECT_FALSE(reuseRequests.back());
+  EXPECT_EQ(secureLive, 0u);
+}
+TEST_P(HttpDownloaderTest, ScopedSessionClosesOnFailureCancellationAndLowHeap) {
+  if (GetParam() != HttpDownloader::Transport::WOLFSSL) GTEST_SKIP();
+  replies.assign(10, Reply{200, "ok", 2});
+  HttpDownloader::Session session;
+  HttpDownloader::DownloadOptions options;
+  options.transport = GetParam();
+  options.session = &session;
+  std::string finalUrl;
+  options.finalUrl = &finalUrl;
+  auto run = [&]() {
+    return HttpDownloader::streamUrl(
+        "https://example.com/a", [](const uint8_t*, size_t) { return true; }, nullptr, "", "", options);
+  };
+  ASSERT_EQ(run(), HttpDownloader::OK);
+  EXPECT_EQ(secureLive, 1u);
+  EXPECT_EQ(finalUrl, "https://example.com/a");
+  heapFree = 65535;
+  ASSERT_EQ(run(), HttpDownloader::OK);
+  EXPECT_EQ(secureLive, 0u);
+  EXPECT_FALSE(reuseRequests.back());
+  heapFree = 100000;
+  heapLargest = 32767;
+  ASSERT_EQ(run(), HttpDownloader::OK);
+  EXPECT_EQ(secureLive, 0u);
+  EXPECT_FALSE(reuseRequests.back());
+  heapLargest = 100000;
+  ASSERT_EQ(run(), HttpDownloader::OK);
+  EXPECT_EQ(secureLive, 1u);
+  options.shouldCancel = [] { return true; };
+  EXPECT_EQ(run(), HttpDownloader::ABORTED);
+  EXPECT_EQ(secureLive, 0u);
+  EXPECT_TRUE(finalUrl.empty());
+  options.shouldCancel = nullptr;
+  replies[nextReply].status = 500;
+  EXPECT_EQ(run(), HttpDownloader::HTTP_ERROR);
+  EXPECT_EQ(secureLive, 0u);
+  EXPECT_TRUE(finalUrl.empty());
+}
+TEST_P(HttpDownloaderTest, FinalUrlResolvesRedirectsAndClearsOnPublicationFailure) {
+  replies = {{302, "", 0, "", true, "https://example.com/final/search.xml"}, {200, "doc", 3}};
+  HttpDownloader::DownloadOptions options;
+  options.transport = GetParam();
+  std::string finalUrl = "stale";
+  options.finalUrl = &finalUrl;
+  EXPECT_EQ(HttpDownloader::streamUrl(
+                "https://example.com/start", [](const uint8_t*, size_t) { return true; }, nullptr, "", "", options),
+            HttpDownloader::OK);
+  EXPECT_EQ(finalUrl, "https://example.com/final/search.xml");
+  replies.push_back({200, "bad", 3});
+  options.validate = [](const std::string&) { return false; };
+  EXPECT_NE(HttpDownloader::downloadToFile("https://example.com/book", "/book", nullptr, nullptr, "", "", options),
+            HttpDownloader::OK);
+  EXPECT_TRUE(finalUrl.empty());
+}
+TEST_P(HttpDownloaderTest, TruncatedChallengeNeverAuthorizesRetry) {
+  const std::string auth = R"({"authentication":[{"type":"http://opds-spec.org/auth/basic"}]})";
+  replies = {{401, auth, auth.size() + 1, "", false}, {200, "bad", 3}};
+  OpdsCatalogClient client;
+  HttpDownloader::DownloadOptions options;
+  options.transport = GetParam();
+  options.authorizationOrigin = "https://example.com/";
+  EXPECT_NE(client.get(
+                "https://example.com/", [](const uint8_t*, size_t) { return true; }, "synthetic", "fixture", options),
+            HttpDownloader::OK);
+  EXPECT_EQ(nextReply, 1u);
+}
+
+TEST_P(HttpDownloaderTest, NegotiatesRepeatedAndCombinedBasicChallenges) {
+  for (const bool combined : {false, true}) {
+    Reply challenge{401, "", 0};
+    challenge.authenticate = combined ? "Bearer realm=\"a,b\", Basic realm=\"local\"" : "Bearer realm=\"a,b\"";
+    if (!combined) challenge.extraAuthenticate = {"Basic realm=\"local\""};
+    replies = {challenge, {200, "feed", 4}};
+    nextReply = 0;
+    requests.clear();
+    OpdsCatalogClient client;
+    HttpDownloader::DownloadOptions options;
+    options.transport = GetParam();
+    options.authorizationOrigin = "https://example.com/";
+    EXPECT_EQ(client.get(
+                  "https://example.com/", [](const uint8_t*, size_t) { return true; }, "synthetic", "fixture", options),
+              HttpDownloader::OK);
+    EXPECT_EQ(nextReply, 2u);
+  }
+  Reply challenge{401, "", 0};
+  challenge.authenticate = "Bearer realm=\"x, Basic trick\", basic = ignored";
+  replies = {challenge, {200, "bad", 3}};
+  nextReply = 0;
+  OpdsCatalogClient client;
+  HttpDownloader::DownloadOptions options;
+  options.transport = GetParam();
+  options.authorizationOrigin = "https://example.com/";
+  EXPECT_EQ(client.get(
+                "https://example.com/", [](const uint8_t*, size_t) { return true; }, "synthetic", "fixture", options),
+            HttpDownloader::UNAUTHORIZED);
+  EXPECT_EQ(nextReply, 1u);
+}
+
+TEST_P(HttpDownloaderTest, ScopedSessionNeverRetainsChunkedFraming) {
+  if (GetParam() != HttpDownloader::Transport::WOLFSSL) GTEST_SKIP();
+  Reply chunked{200, "ok", 2};
+  chunked.transferEncoding = "chunked";
+  replies = {chunked, {200, "ok", 2}};
+  HttpDownloader::Session session;
+  HttpDownloader::DownloadOptions options;
+  options.transport = GetParam();
+  options.session = &session;
+  auto run = [&]() {
+    return HttpDownloader::streamUrl(
+        "https://example.com/", [](const uint8_t*, size_t) { return true; }, nullptr, "", "", options);
+  };
+  EXPECT_EQ(run(), HttpDownloader::OK);
+  EXPECT_EQ(secureLive, 0u);
+  EXPECT_EQ(run(), HttpDownloader::OK);
+  EXPECT_EQ(secureLive, 1u);
+  ASSERT_EQ(secureIds.size(), 2u);
+  EXPECT_NE(secureIds[0], secureIds[1]);
 }

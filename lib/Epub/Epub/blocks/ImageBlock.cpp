@@ -39,12 +39,18 @@ void ImageBlock::setExtractor(void* context, ExtractFn extract, SeedCacheFn seed
 namespace {
 
 std::string getCachePath(const std::string& imagePath) {
-  // Revision 2 rebuilds decoded pixels after the progressive JPEG correction.
-  size_t dotPos = imagePath.rfind('.');
+  // PNG revision 3 refreshes prior nearest-neighbor pixels after area mapping.
+  // Other formats retain revision 2 (the progressive JPEG correction).
+  const size_t dotPos = imagePath.rfind('.');
+  const bool png = dotPos != std::string::npos && imagePath.size() - dotPos == 4 &&
+                   (imagePath[dotPos + 1] == 'p' || imagePath[dotPos + 1] == 'P') &&
+                   (imagePath[dotPos + 2] == 'n' || imagePath[dotPos + 2] == 'N') &&
+                   (imagePath[dotPos + 3] == 'g' || imagePath[dotPos + 3] == 'G');
+  const char* suffix = png ? "_png_v3.pxc" : "_v2.pxc";
   if (dotPos != std::string::npos) {
-    return imagePath.substr(0, dotPos) + "_v2.pxc";
+    return imagePath.substr(0, dotPos) + suffix;
   }
-  return imagePath + "_v2.pxc";
+  return imagePath + suffix;
 }
 
 // Half-open image-local bounds shared by retained and streamed PXC rendering.
@@ -477,7 +483,7 @@ void ImageBlock::renderPlaceholder(GfxRenderer& renderer, const int x, const int
   }
 }
 
-void ImageBlock::render(GfxRenderer& renderer, const int x, const int y, const bool foregroundBlack,
+bool ImageBlock::render(GfxRenderer& renderer, const int x, const int y, const bool foregroundBlack,
                         const bool imageGrayscale) {
   // The font-prewarm scan pass only accumulates glyphs; an image contributes
   // none, and its DirectPixelWriter output bypasses the renderer's scan-mode
@@ -485,14 +491,14 @@ void ImageBlock::render(GfxRenderer& renderer, const int x, const int y, const b
   // page view. Skip it here. The image still draws in the real BW/grayscale
   // passes; on first view this just moves the one-time decode to the BW pass.
   FontCacheManager* fcm = renderer.getFontCacheManager();
-  if (fcm && fcm->isScanning()) return;
+  if (fcm && fcm->isScanning()) return true;
 
   const int screenWidth = renderer.getScreenWidth();
   const int screenHeight = renderer.getScreenHeight();
 
   if (width <= 0 || height <= 0) {
     LOG_ERR("IMG", "Invalid image size: %dx%d", width, height);
-    return;
+    return true;
   }
 
   // Reject only fully off-screen images. Decoders and cache rendering clip
@@ -500,7 +506,7 @@ void ImageBlock::render(GfxRenderer& renderer, const int x, const int y, const b
   if (x >= screenWidth || y >= screenHeight || x + width <= 0 || y + height <= 0) {
     LOG_ERR("IMG", "Invalid render position: (%d,%d) size (%dx%d) screen (%dx%d)", x, y, width, height, screenWidth,
             screenHeight);
-    return;
+    return true;
   }
   const bool fullyOnScreen = x >= 0 && y >= 0 && x + width <= screenWidth && y + height <= screenHeight;
 
@@ -511,19 +517,27 @@ void ImageBlock::render(GfxRenderer& renderer, const int x, const int y, const b
   // is orientation-aware and returns true when no strip is active, so the BW
   // pass and non-tiled controllers render the image exactly as before.
   if (!renderer.glyphIntersectsStrip(x, y, x + width - 1, y + height - 1)) {
-    return;
+    return true;
   }
 
   if (imageFailedThisSession(imagePath)) {
     renderPlaceholder(renderer, x, y, foregroundBlack);
-    return;
+    return true;
   }
 
   // Try to render from cache first
   std::string cachePath = getCachePath(imagePath);
   if (renderFromCache(renderer, cachePath, x, y, width, height, imageGrayscale)) {
     renderer.preserveImagePolarity(x, y, width, height);
-    return;  // Successfully rendered from cache
+    return true;  // Successfully rendered from cache
+  }
+
+  // A grayscale plane must replay the exact cached quantization used by BW.
+  // Regenerating after a cache read failure can choose a different low-memory
+  // fallback. Let the reader discard the whole gray pass instead.
+  if (renderer.getRenderMode() != GfxRenderer::BW) {
+    LOG_ERR("IMG", "Grayscale cache replay failed: %s", cachePath.c_str());
+    return false;
   }
 
   // Retain only this image's compressed source until its decoder returns.
@@ -536,7 +550,7 @@ void ImageBlock::render(GfxRenderer& renderer, const int x, const int y, const b
       LOG_ERR("IMG", "Image extraction failed: %s", sourcePath.c_str());
       rememberImageFailure(imagePath);
       renderPlaceholder(renderer, x, y, foregroundBlack);
-      return;
+      return true;
     }
   }
   if (!source) {
@@ -548,7 +562,7 @@ void ImageBlock::render(GfxRenderer& renderer, const int x, const int y, const b
       LOG_ERR("IMG", "Missing or empty image: %s", imagePath.c_str());
       rememberImageFailure(imagePath);
       renderPlaceholder(renderer, x, y, foregroundBlack);
-      return;
+      return true;
     }
   }
 
@@ -575,7 +589,7 @@ void ImageBlock::render(GfxRenderer& renderer, const int x, const int y, const b
     LOG_ERR("IMG", "No decoder found for image: %s", imagePath.c_str());
     rememberImageFailure(imagePath);
     renderPlaceholder(renderer, x, y, foregroundBlack);
-    return;
+    return true;
   }
 
   bool success = decoder->decodeToFramebuffer(imagePath, renderer, config);
@@ -583,10 +597,11 @@ void ImageBlock::render(GfxRenderer& renderer, const int x, const int y, const b
     LOG_ERR("IMG", "Failed to decode image: %s", imagePath.c_str());
     rememberImageFailure(imagePath);
     renderPlaceholder(renderer, x, y, foregroundBlack);
-    return;
+    return true;
   }
 
   renderer.preserveImagePolarity(x, y, width, height);
+  return true;
 }
 
 bool ImageBlock::serialize(Print& file) {

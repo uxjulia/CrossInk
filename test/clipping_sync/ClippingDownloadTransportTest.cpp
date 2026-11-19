@@ -231,3 +231,42 @@ TEST_F(ClippingDownloadTransport, UnwritableLogDoesNotChangeSuccessfulSync) {
   client.close();
   EXPECT_EQ(StatsUploadClient::lastHttpCode, 200);
 }
+
+TEST_F(ClippingDownloadTransport, UsbRelayUsesExistingAcknowledgmentChecksWithoutTlsOrCredentialChanges) {
+  struct Reply {
+    std::string body;
+    int status = 200;
+    unsigned calls = 0;
+  } reply;
+  StatsUploadClient::Relay relay{"https://usb.example.com", "usb-user", &reply,
+                                 [](void* context, const char* method, const char*, const char*, const char*, char* out,
+                                    size_t capacity, const char*) {
+                                   auto& value = *static_cast<Reply*>(context);
+                                   EXPECT_STREQ(method, "PUT");
+                                   ++value.calls;
+                                   if (value.body.size() >= capacity) return 0;
+                                   memcpy(out, value.body.c_str(), value.body.size() + 1);
+                                   return value.status;
+                                 }};
+  ESP.free = ESP.largest = 0;
+  KOREADER_STORE.setServerSupport(SyncServerSupport::UNSUPPORTED);
+  StatsUploadClient client(&relay);
+  reply.body = R"({"until":1,"accepted":1})";
+  EXPECT_EQ(client.put("/api/v1/stats/counters/books", "{}", 1), Result::InvalidResponse);
+  reply.body = R"({"until":1,"accepted":1,"counter_ids":1})";
+  EXPECT_EQ(client.put("/api/v1/stats/counters/books", "{}", 1), Result::Ok);
+  EXPECT_EQ(KOREADER_STORE.getServerSupport(), SyncServerSupport::UNSUPPORTED);
+  EXPECT_EQ(client.put("/api/v1/stats/counters/global", "{}", 0, true), Result::InvalidResponse);
+  reply.body = R"({"until":1,"accepted_daily":1,"counter_ids":1})";
+  EXPECT_EQ(client.put("/api/v1/stats/counters/global", "{}", 0, true), Result::Ok);
+  reply.body = R"({"until":1,"accepted_session_ids":["other"]})";
+  EXPECT_EQ(client.put("/api/v1/stats/sessions", "{}", 0, false, "session-1"), Result::InvalidResponse);
+  reply.body = R"({"until":1,"accepted_session_ids":["session-1"]})";
+  EXPECT_EQ(client.put("/api/v1/stats/sessions", "{}", 0, false, "session-1"), Result::Ok);
+  reply.status = 401;
+  EXPECT_EQ(client.put("/api/v1/stats/counters/global", "{}", 0), Result::Auth);
+  reply.status = 0;
+  EXPECT_EQ(client.put("/api/v1/stats/counters/global", "{}", 0), Result::Network);
+  EXPECT_EQ(testHttp.streamedRequests, 0U);
+  EXPECT_EQ(reply.calls, 8U);
+}

@@ -12,6 +12,7 @@
 
 #include "ClipSelectionPaging.h"
 #include "MappedInputManager.h"
+#include "ReaderRuling.h"
 #include "ReaderUtils.h"
 #include "activities/ActivityResult.h"
 #include "clippings/ClipTextBuilder.h"
@@ -588,6 +589,12 @@ bool ClipSelectionActivity::switchToPage(const int pageIdx) {
     page->prepareImageCaches();
   }
 
+  const auto drawPage = [&]() {
+    renderer.clearScreen(ReaderUtils::readerBackgroundColor());
+    page->renderText(renderer, renderFontId, marginLeft, marginTop, ReaderUtils::readerForegroundBlack());
+    ReaderRuling::drawSelectionPage(renderer, *page, renderFontId, marginLeft, marginTop);
+    page->renderImages(renderer, renderFontId, marginLeft, marginTop, ReaderUtils::readerForegroundBlack());
+  };
   if (auto* fcm = renderer.getFontCacheManager()) {
     bool renderWithFallback = false;
     {
@@ -597,20 +604,17 @@ bool ClipSelectionActivity::switchToPage(const int pageIdx) {
         useFallbackFont("page prewarm");
         renderWithFallback = true;
       } else {
-        renderer.clearScreen(ReaderUtils::readerBackgroundColor());
-        page->render(renderer, renderFontId, marginLeft, marginTop, ReaderUtils::readerForegroundBlack());
+        drawPage();
       }
     }
     if (renderWithFallback) {
       auto fallbackScope = fcm->createPrewarmScope();
       page->renderText(renderer, renderFontId, marginLeft, marginTop, ReaderUtils::readerForegroundBlack());
       fallbackScope.endScanAndPrewarm();
-      renderer.clearScreen(ReaderUtils::readerBackgroundColor());
-      page->render(renderer, renderFontId, marginLeft, marginTop, ReaderUtils::readerForegroundBlack());
+      drawPage();
     }
   } else {
-    renderer.clearScreen(ReaderUtils::readerBackgroundColor());
-    page->render(renderer, renderFontId, marginLeft, marginTop, ReaderUtils::readerForegroundBlack());
+    drawPage();
   }
 
   // The rendered page is now in the framebuffer, so its deserialized objects

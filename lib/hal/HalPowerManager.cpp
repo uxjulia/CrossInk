@@ -214,7 +214,8 @@ void HalPowerManager::startDeepSleep(HalGPIO& gpio) const {
 }
 
 #if FREEINK_DEVICE_PICCO
-bool HalPowerManager::holdWhileUsbPowered(HalGPIO& gpio, void (*onStatus)(void*, uint16_t), void* context) const {
+bool HalPowerManager::holdWhileUsbPowered(HalGPIO& gpio, void (*onStatus)(void*, bool, uint16_t), void* context,
+                                          void (*afterPoll)(void*, const ChargerStatus&)) const {
   if (!gpio.isUsbConnected()) return false;
   disableWiFiBeforeDeepSleep();
   const auto powerPin = static_cast<gpio_num_t>(BoardConfig::ACTIVE.input.power);
@@ -228,16 +229,25 @@ bool HalPowerManager::holdWhileUsbPowered(HalGPIO& gpio, void (*onStatus)(void*,
   while (digitalRead(powerPin) == LOW) delay(10);
   LOG_INF("PWR", "USB power present, holding sleep screen");
   unsigned long lastStatusMs = 0;
+  bool firstPoll = true;
   int lastPercent = -1;
+  bool lastCharging = false;
+  const BatteryMonitor battery;
   while (gpio.isUsbConnected()) {
     const auto now = millis();
-    if (onStatus && (lastPercent < 0 || now - lastStatusMs >= BATTERY_POLL_MS)) {
+    if ((onStatus || afterPoll) && (firstPoll || now - lastStatusMs >= BATTERY_POLL_MS)) {
+      firstPoll = false;
       lastStatusMs = now;
-      const uint16_t percent = getBatteryPercentage();
-      if (percent != lastPercent) {
+      const uint16_t percent = onStatus ? getBatteryPercentage() : 0;
+      const auto status = battery.readStatus();
+      // USB presence is not active charging; omit the bolt on unknown status.
+      const bool charging = status.chargingKnown && status.charging;
+      if (onStatus && (percent != lastPercent || charging != lastCharging)) {
         lastPercent = percent;
-        onStatus(context, percent);
+        lastCharging = charging;
+        onStatus(context, charging, percent);
       }
+      if (afterPoll) afterPoll(context, status);
     }
     if (canLightSleep) {
       esp_sleep_enable_timer_wakeup(30ULL * 1000 * 1000);
@@ -326,7 +336,7 @@ uint16_t HalPowerManager::getBatteryPercentage() const {
 }
 
 #if CROSSINK_BATTERY_DIAG_LOG
-bool HalPowerManager::getBatteryDiagnostics(BatteryDiagnostics& out) const {
+bool HalPowerManager::getBatteryDiagnostics(BatteryDiagnostics& out, const ChargerStatus* observed) const {
 #if FREEINK_DEVICE_PICCO
   const BatterySampleLock lock(modeMutex);
 #endif
@@ -334,7 +344,7 @@ bool HalPowerManager::getBatteryDiagnostics(BatteryDiagnostics& out) const {
   // resolved once HalGPIO::begin() has run the X3/X4 probe, so a file-scope
   // instance could be constructed against an unresolved profile.
   static const BatteryMonitor battery;
-  const BatteryMonitor::Status status = battery.readStatus();
+  const auto status = observed ? *observed : battery.readStatus();
   if (!status.supported) {
     LOG_ERR("PWR", "Battery diagnostics unsupported on this board");
     return false;

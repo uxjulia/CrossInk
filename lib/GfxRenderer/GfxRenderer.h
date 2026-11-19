@@ -55,6 +55,7 @@ class GfxRenderer {
 
   HalDisplay& display;
   RenderMode renderMode;
+  uint8_t textDarkness_ = 0;
   mutable bool absoluteGrayPlanes = false;
   Orientation orientation;
   bool fadingFix;
@@ -87,6 +88,9 @@ class GfxRenderer {
   mutable int _stripY0 = 0;
   mutable int _stripRows = 0;
   mutable bool _stripActive = false;
+  mutable uint64_t textCullGeneration_ = 0;
+  mutable uint32_t textBoundsLookupFailures_ = 0;
+  mutable int* textBounds_ = nullptr;  // two physical row bounds, owned by the line render
 
   // Optional logical-space clip used while a TextBlock is rendered inside a
   // table cell. Glyph bitmaps and background fills both pass through this
@@ -246,6 +250,21 @@ class GfxRenderer {
   void beginStripTarget(uint8_t* scratch, int stripY0, int stripRows) const;
   void endStripTarget() const;
   bool glyphIntersectsStrip(int x0, int y0, int x1, int y1) const;
+  // One immutable page replay, under the renderer's RenderLock. Bounds must not
+  // survive font/layout changes or the next page turn. No heap allocation.
+  class TextCullingScope {
+    const GfxRenderer& renderer_;
+
+   public:
+    explicit TextCullingScope(const GfxRenderer& renderer, bool enabled = true);
+    ~TextCullingScope();
+    TextCullingScope(const TextCullingScope&) = delete;
+    TextCullingScope& operator=(const TextCullingScope&) = delete;
+  };
+  uint64_t textCullGeneration() const { return _stripActive ? textCullGeneration_ : 0; }
+  void beginTextBounds(int* bounds) const;
+  void endTextBounds() const;
+  void recordTextBounds(int x0, int y0, int x1, int y1) const;
   bool isStripTargetActive() const { return _stripActive; }
   uint8_t* getWriteTarget() const { return _stripActive ? _stripBuf : frameBuffer; }
   int getWriteOriginY() const { return _stripActive ? _stripY0 : 0; }
@@ -286,7 +305,8 @@ class GfxRenderer {
   // Dark Mode leaves their original polarity unchanged.
   void preserveImagePolarity(int x, int y, int width, int height) const;
   bool isDisplayInverted() const { return display.isInverted(); }
-  void setReaderRefresh(bool reading, bool textOnly = true) const;
+  enum class RefreshContent { Ui, Text, TwoToneText, Image };
+  void setReaderRefresh(RefreshContent content) const;
   bool supportsTextGrayscale() const;
   bool combinesGrayscaleBase() const;
   bool displayRetainedGrayscaleOverlay(int x, int y, int width, int height, bool restore = false) const;
@@ -304,9 +324,30 @@ class GfxRenderer {
   struct TextVerticalBounds {
     int top = 0;
     int bottom = 0;
+    void include(int y, int height) {
+      if (height <= 0) return;
+      if (top == bottom) {
+        top = y;
+        bottom = y + height;
+      } else {
+        if (y < top) top = y;
+        if (y + height > bottom) bottom = y + height;
+      }
+    }
   };
-  // Visible regular-text glyph bounds relative to the y coordinate passed to drawText().
-  TextVerticalBounds getTextVerticalBounds(int fontId, const char* text) const;
+
+ private:
+  void drawOrMeasureText(int fontId, int x, int y, const char* text, bool black, EpdFontFamily::Style style,
+                         BidiUtils::BidiBaseDir baseDir, int8_t spacing, TextVerticalBounds* bounds) const;
+
+ public:
+  // Regular ascender-to-baseline band and ordinary ink extents, relative to the text origin.
+  bool getLatinBodyBounds(int fontId, TextVerticalBounds& body, TextVerticalBounds& extent) const;
+  // Visible glyph bounds relative to the y coordinate passed to drawText().
+  TextVerticalBounds getTextVerticalBounds(int fontId, const char* text,
+                                           EpdFontFamily::Style style = EpdFontFamily::REGULAR,
+                                           BidiUtils::BidiBaseDir baseDir = BidiUtils::BidiBaseDir::AUTO,
+                                           int8_t spacing = 0) const;
   int getTextWidth(int fontId, const char* text, EpdFontFamily::Style style = EpdFontFamily::REGULAR,
                    BidiUtils::BidiBaseDir baseDir = BidiUtils::BidiBaseDir::AUTO, int8_t characterSpacing = 0) const;
   void drawCenteredText(int fontId, int y, const char* text, bool black = true,
@@ -392,6 +433,23 @@ class GfxRenderer {
   bool supportsDirectGrayscale() const;
   bool displayDirectGrayscaleBase(HalDisplay::RefreshMode fallback = HalDisplay::HALF_REFRESH) const;
   RenderMode getRenderMode() const { return renderMode; }
+  uint8_t getTextDarkness() const { return textDarkness_; }
+
+  // Scope reader-only drawing, including all grayscale replays. Restores on
+  // every return path so menus and other activities keep their normal text.
+  class TextDarknessScope {
+   public:
+    TextDarknessScope(GfxRenderer& renderer, uint8_t level) : renderer_(renderer), previous_(renderer.textDarkness_) {
+      renderer_.textDarkness_ = level <= 2 ? level : 0;
+    }
+    ~TextDarknessScope() { renderer_.textDarkness_ = previous_; }
+    TextDarknessScope(const TextDarknessScope&) = delete;
+    TextDarknessScope& operator=(const TextDarknessScope&) = delete;
+
+   private:
+    GfxRenderer& renderer_;
+    uint8_t previous_;
+  };
   // Grayscale preconditioning settle pass (no-op on X4). The rect overload
   // takes the gray region in LOGICAL screen coordinates and rotates it to the
   // panel; the no-arg overload settles the full frame. Call after the BW base

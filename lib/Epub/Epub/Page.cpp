@@ -27,17 +27,6 @@ uint16_t tableSelectionForLine(const size_t elementIndex, const uint8_t logicalC
   return static_cast<uint16_t>(elementIndex * MAX_TABLE_CELLS_PER_ROW + logicalColumn);
 }
 
-template <typename Predicate>
-void renderFilteredPageElements(const std::vector<std::unique_ptr<PageElement>>& elements, GfxRenderer& renderer,
-                                const int fontId, const int xOffset, const int yOffset, const bool foregroundBlack,
-                                Predicate&& predicate) {
-  for (const auto& element : elements) {
-    if (predicate(*element)) {
-      element->render(renderer, fontId, xOffset, yOffset, foregroundBlack);
-    }
-  }
-}
-
 // Draws one border edge as a strip along a box side.
 void drawBorderEdge(const GfxRenderer& renderer, const int x, const int y, const int length, const CssBorderSide& side,
                     const bool horizontal, const bool foregroundBlack) {
@@ -116,11 +105,11 @@ void PageImage::render(GfxRenderer& renderer, const int fontId, const int xOffse
   render(renderer, fontId, xOffset, yOffset, foregroundBlack, true);
 }
 
-void PageImage::render(GfxRenderer& renderer, const int fontId, const int xOffset, const int yOffset,
+bool PageImage::render(GfxRenderer& renderer, const int fontId, const int xOffset, const int yOffset,
                        const bool foregroundBlack, const bool imageGrayscale) {
   (void)fontId;
   // Images don't use fontId for text rendering
-  imageBlock->render(renderer, xPos + xOffset, yPos + yOffset, foregroundBlack, imageGrayscale);
+  return imageBlock->render(renderer, xPos + xOffset, yPos + yOffset, foregroundBlack, imageGrayscale);
 }
 
 void PageImage::renderPlaceholder(GfxRenderer& renderer, const int xOffset, const int yOffset,
@@ -716,29 +705,39 @@ void Page::render(GfxRenderer& renderer, const int fontId, const int xOffset, co
   renderImages(renderer, fontId, xOffset, yOffset, foregroundBlack, imageGrayscale);
 }
 
-void Page::renderText(GfxRenderer& renderer, const int fontId, const int xOffset, const int yOffset,
-                      const bool foregroundBlack) const {
-  renderFilteredPageElements(elements, renderer, fontId, xOffset, yOffset, foregroundBlack,
-                             [](const PageElement& element) { return element.getTag() == TAG_PageBorderBox; });
-  renderFilteredPageElements(elements, renderer, fontId, xOffset, yOffset, foregroundBlack,
-                             [](const PageElement& element) {
-                               return element.getTag() != TAG_PageImage && element.getTag() != TAG_PageBorderBox;
-                             });
+bool Page::renderText(GfxRenderer& renderer, const int fontId, const int xOffset, const int yOffset,
+                      const bool foregroundBlack, bool (*shouldStop)(void*), void* context) const {
+  // Keep borders behind text, with the same ordering as a foreground render.
+  for (bool borders : {true, false}) {
+    for (const auto& element : elements) {
+      if (shouldStop && shouldStop(context)) return false;
+      const auto tag = element->getTag();
+      // Borders contain no glyphs. In particular, shaded boxes draw raw pixels
+      // rather than scan-aware text/shapes, so never run them during font scans.
+      if (tag == TAG_PageBorderBox && renderer.isFontCacheScanning()) continue;
+      if (tag != TAG_PageImage && (tag == TAG_PageBorderBox) == borders) {
+        element->render(renderer, fontId, xOffset, yOffset, foregroundBlack);
+      }
+    }
+  }
+  return true;
 }
 
-void Page::renderImages(GfxRenderer& renderer, const int fontId, const int xOffset, const int yOffset,
+bool Page::renderImages(GfxRenderer& renderer, const int fontId, const int xOffset, const int yOffset,
                         const bool foregroundBlack, const bool imageGrayscale) const {
   for (const auto& element : elements) {
     if (element->getTag() == TAG_PageImage) {
-      static_cast<PageImage&>(*element).render(renderer, fontId, xOffset, yOffset, foregroundBlack, imageGrayscale);
+      if (!static_cast<PageImage&>(*element).render(renderer, fontId, xOffset, yOffset, foregroundBlack,
+                                                    imageGrayscale))
+        return false;
     }
   }
+  return true;
 }
 
-void Page::renderWithImagePlaceholders(GfxRenderer& renderer, const int fontId, const int xOffset, const int yOffset,
-                                       const bool foregroundBlack, const bool renderCachedImages,
-                                       const bool imageGrayscale) const {
-  renderText(renderer, fontId, xOffset, yOffset, foregroundBlack);
+void Page::renderImagesWithPlaceholders(GfxRenderer& renderer, const int fontId, const int xOffset, const int yOffset,
+                                        const bool foregroundBlack, const bool renderCachedImages,
+                                        const bool imageGrayscale) const {
   for (const auto& element : elements) {
     if (element->getTag() != TAG_PageImage) {
       continue;

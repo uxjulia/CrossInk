@@ -167,6 +167,7 @@ bool Writer::snapshot(const Snapshot& d) {
     field("resetReasonEspIdf", h.resetReason);
   }
   stringField("displayController", h.displayController);
+  if (h.displayPanel) stringField("displayPanel", h.displayPanel);
   text("\"espIdfVersion\":");
   string(h.sdk);
   text("},\"globalPreferences\":{\"source\":\"loaded_in_memory\",\"numericEncoding\":\"firmware_enum_or_units\",");

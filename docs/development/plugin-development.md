@@ -333,7 +333,7 @@ Ordinary delivery is ordered and at least once: services should deduplicate `{ev
 Failed requests retain the queue; successful delivery publishes the remaining tail
 through a recoverable file swap. An overfull outbox drops old events to bound SD use.
 Normal online delivery is throttled to one event every 30 seconds. Sleep subscriptions
-imply a saved-network connection attempt, limited to 10 seconds, and a separate 10-second delivery budget for the newest sleep event of each subscribed plugin (up to eight plugins), before the sleep image is drawn. The same deadline also permits one queued non-sleep `connect: true` handler per plugin. Other events remain queued. Low-battery sleep leaves events queued. The delivery deadline is a soft limit on hardware: Arduino DNS resolution can block outside the TCP timeout.
+imply a saved-network connection attempt, limited to 10 seconds, and a separate 10-second delivery budget for the newest sleep event of each subscribed plugin (up to eight plugins), before power-down. All sleep screens acknowledge sleep before plugin preparation or network delivery. When sleeping from a book page or Home, Quick Resume, Reading Stats, Dark, Light, and Blank display before network delivery. Sleep modes that use downloaded artwork still wait for delivery before rendering it. The same deadline also permits one queued non-sleep `connect: true` handler per plugin. Other events remain queued. Low-battery sleep leaves events queued. The delivery deadline is a soft limit on hardware: Arduino DNS resolution can block outside the TCP timeout.
 
 Reader sessions count completed forward-page reading intervals (2–1800 seconds),
 emit after at least 10 active seconds, and exclude idle exit time. EPUB, TXT and XTC

@@ -65,8 +65,9 @@ void refreshSubscriptions();
 
 // Main-loop, throttled online delivery; caller holds RenderLock.
 void pollOnline();
-// Before the sleep image is drawn; bounded saved-network join.
-void prepareSleep(const char* book, int percent, bool allowNetwork);
+// Capture reader context before exit. Delivery may wait for a saved Wi-Fi network.
+void queueSleep(const char* book, int percent);
+void deliverSleepEvents();
 
 // True when at least one plugin subscribes to `e` (a few string compares).
 bool anySubscriber(Event e);

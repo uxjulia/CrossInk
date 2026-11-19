@@ -447,7 +447,7 @@ void EpubReaderPercentSelectionActivity::buildKeypadScreen(UiApp::ScreenType& sc
   readout.align = fui::TextAlign::Center;
   const int16_t readoutLh = screen.target().lineHeight(readout.font);
   const int16_t rowH = std::max<int16_t>(theme.rowHeight, static_cast<int16_t>(readoutLh + 16));
-  const bool beside = mappedInput.hasTouch() && renderer.getScreenWidth() > renderer.getScreenHeight();
+  const bool beside = renderer.getScreenWidth() > renderer.getScreenHeight();
   const auto layout = fui::keyGridReadoutLayout(
       screen.contentRect(), rowH, static_cast<int16_t>(screen.target().measureText(readout.font, line, readout).width),
       theme.spaceLg, theme.spaceLg, beside);
@@ -536,10 +536,10 @@ void EpubReaderPercentSelectionActivity::render(RenderLock&&) {
   uiReady = true;
 
   // Button hints follow the current front button layout and auto-hide on touch devices.
-  const bool percentSlider = mode == Mode::Percent && !isKeypadVisible();
+  const bool sliderVisible = !isKeypadVisible();
   const auto labels =
       mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), tr(STR_SELECT),
-                            percentSlider ? "-1" : tr(STR_DIR_LEFT), percentSlider ? "+1" : tr(STR_DIR_RIGHT));
+                            sliderVisible ? "-1" : tr(STR_DIR_LEFT), sliderVisible ? "+1" : tr(STR_DIR_RIGHT));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4, true);
 
   renderer.displayBuffer();

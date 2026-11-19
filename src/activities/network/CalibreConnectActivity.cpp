@@ -28,9 +28,7 @@ void CalibreConnectActivity::onEnter() {
   connectedIP.clear();
   connectedSSID.clear();
   lastHandleClientTime = 0;
-  lastProgressReceived = 0;
-  lastProgressTotal = 0;
-  currentUploadName.clear();
+  progress = {};
   lastCompleteName.clear();
   lastCompleteAt = 0;
   lastProcessedCompleteAt = 0;
@@ -143,21 +141,7 @@ void CalibreConnectActivity::loop() {
 
     const auto status = webServer->getWsUploadStatus();
     RenderLock lock;  // Publish upload strings and their counters together with respect to render().
-    bool changed = false;
-    if (status.inProgress) {
-      if (status.received != lastProgressReceived || status.total != lastProgressTotal ||
-          status.filename != currentUploadName) {
-        lastProgressReceived = status.received;
-        lastProgressTotal = status.total;
-        currentUploadName = status.filename;
-        changed = true;
-      }
-    } else if (lastProgressReceived != 0 || lastProgressTotal != 0) {
-      lastProgressReceived = 0;
-      lastProgressTotal = 0;
-      currentUploadName.clear();
-      changed = true;
-    }
+    bool changed = progress.update(status.inProgress, status.filename, status.received, status.total, millis());
     // Only update lastCompleteAt if the server has a NEW value (not one we already processed)
     // This prevents restoring an old value after the 6s timeout clears it
     if (status.lastCompleteAt != 0 && status.lastCompleteAt != lastProcessedCompleteAt) {
@@ -227,11 +211,11 @@ void CalibreConnectActivity::render(RenderLock&&) {
                       EpdFontFamily::BOLD);
     y += heightText12 + metrics.verticalSpacing * 2;
 
-    const bool showUploadProgress = lastProgressTotal > 0 && lastProgressReceived <= lastProgressTotal;
+    const bool showUploadProgress = progress.total > 0 && progress.received <= progress.total;
     if (showUploadProgress) {
       std::string label = tr(STR_CALIBRE_RECEIVING);
-      if (!currentUploadName.empty()) {
-        label += ": " + currentUploadName;
+      if (!progress.filename.empty()) {
+        label += ": " + progress.filename;
         label = renderer.truncatedText(SMALL_FONT_ID, label.c_str(), pageWidth - metrics.contentSidePadding * 2,
                                        EpdFontFamily::REGULAR);
       }
@@ -239,7 +223,7 @@ void CalibreConnectActivity::render(RenderLock&&) {
       GUI.drawProgressBar(renderer,
                           Rect{safe.x + metrics.contentSidePadding, y + height + metrics.verticalSpacing,
                                pageWidth - metrics.contentSidePadding * 2, metrics.progressBarHeight},
-                          lastProgressReceived, lastProgressTotal);
+                          progress.received, progress.total);
       y += height + metrics.verticalSpacing * 2 + metrics.progressBarHeight;
     }
 

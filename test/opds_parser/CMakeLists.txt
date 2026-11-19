@@ -2,6 +2,9 @@ add_executable(OpdsParserTest
   OpdsParserTest.cpp
   OpdsJsonParserTest.cpp
   OpdsUrlTest.cpp
+  OpdsDiscoveryTest.cpp
+  ${REPO_ROOT}/lib/OpdsParser/OpenSearchDescParser.cpp
+  ${REPO_ROOT}/lib/OpdsParser/OpdsAuthChallenge.cpp
   ${REPO_ROOT}/src/util/UrlUtils.cpp
   ${REPO_ROOT}/lib/OpdsParser/OpdsSearchTemplate.cpp
   ${REPO_ROOT}/lib/OpdsParser/OpdsJsonParser.cpp

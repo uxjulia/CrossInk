@@ -573,10 +573,8 @@ bool selectRandomSleepImage(SleepImageMode mode, SleepImageSelection& selection,
 
 void SleepActivity::onEnter() {
   Activity::onEnter();
-  const bool renderQuickResume =
-      SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::QUICK_RESUME ||
-      (fromTimeout &&
-       SETTINGS.quickResumeSleepScreen == CrossPointSettings::QUICK_RESUME_SLEEP_SCREEN::QUICK_RESUME_AFTER_TIMEOUT);
+  monochromeFrame = false;
+  const bool renderQuickResume = SETTINGS.usesQuickResumeSleep(fromTimeout);
 
   // Sleep screens draw directly, outside ActivityManager's normal render path.
   // Quick Resume and Page Overlay retain the current screen, including its
@@ -598,18 +596,8 @@ void SleepActivity::onEnter() {
     RECENT_BOOKS.ensureLoaded();
   }
 
-  overlayBackgroundBufferStored =
-      sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::OVERLAY && renderer.storeBwBuffer();
-
-  // Show the popup in the orientation that was visible before reader exit restores
-  // global settings. Reset to portrait afterwards so sleep screen layout stays unchanged.
-  if (APP_STATE.lastSleepFromReader) {
-    renderer.setOrientation(sleepPopupOrientation);
-    GUI.drawPopup(renderer, tr(STR_ENTERING_SLEEP));
-    renderer.setOrientation(GfxRenderer::Orientation::Portrait);
-  } else {
-    GUI.drawPopup(renderer, tr(STR_ENTERING_SLEEP));
-  }
+  if (!sleepPopupShown) showSleepPopup();
+  if (APP_STATE.lastSleepFromReader) renderer.setOrientation(GfxRenderer::Orientation::Portrait);
 
   switch (sleepScreen) {
     case (CrossPointSettings::SLEEP_SCREEN_MODE::BLANK):
@@ -642,14 +630,31 @@ void SleepActivity::onEnter() {
   }
 }
 
+void SleepActivity::showSleepPopup() {
+  const auto orientation = renderer.getOrientation();
+  if (APP_STATE.lastSleepFromReader) renderer.setOrientation(sleepPopupOrientation);
+  // Leave only the panel showing the popup when the final screen needs these pixels.
+  const bool quickResume = SETTINGS.usesQuickResumeSleep(fromTimeout);
+  const bool overlay = SETTINGS.sleepScreen == CrossPointSettings::OVERLAY && !quickResume;
+  const char* message = tr(STR_ENTERING_SLEEP);
+  if (GUI.drawPopup(renderer, message, overlay || quickResume).width > 0) {
+    overlayBackgroundAvailable = overlay;
+  } else if (quickResume) {
+    renderLastScreenSleepScreen();
+  } else {
+    // No scratch for the popup rectangle. Show feedback and rebuild the page on entry.
+    GUI.drawPopup(renderer, message);
+  }
+  renderer.setOrientation(orientation);
+  sleepPopupShown = true;
+}
+
 bool SleepActivity::rendersBeforeExit() const {
+  // Quick Resume handles a visible reader page before plugin preparation.
+  if (SETTINGS.usesQuickResumeSleep(fromTimeout)) return false;
   // Keep the reader's cleanup first on devices without PSRAM. Covers and custom
   // images can otherwise compete with the reader for scarce internal memory.
   if (!psramHeapAvailable()) return false;
-  if (fromTimeout &&
-      SETTINGS.quickResumeSleepScreen == CrossPointSettings::QUICK_RESUME_SLEEP_SCREEN::QUICK_RESUME_AFTER_TIMEOUT) {
-    return false;
-  }
   switch (SETTINGS.sleepScreen) {
     case CrossPointSettings::SLEEP_SCREEN_MODE::DARK:
     case CrossPointSettings::SLEEP_SCREEN_MODE::LIGHT:
@@ -670,7 +675,6 @@ bool SleepActivity::rendersBeforeExit() const {
     }
     default:
       // Stats and overlay screens need the latest persisted reader state.
-      // Quick Resume keeps its existing retained-frame lifecycle.
       return false;
   }
 }
@@ -794,6 +798,7 @@ void SleepActivity::renderDefaultSleepScreen() const {
 #endif
 
   renderer.displayBuffer(HalDisplay::HALF_REFRESH, TURN_OFF_SCREEN_AFTER_SLEEP_REFRESH);
+  monochromeFrame = true;
 }
 
 SleepActivity::BitmapPlacement SleepActivity::prepareSleepBitmap(Bitmap& bitmap) const {
@@ -880,6 +885,7 @@ bool SleepActivity::renderBitmapSleepScreen(Bitmap& bitmap) const {
 
   if (!hasGreyscale) {
     renderer.displayBuffer(HalDisplay::HALF_REFRESH, TURN_OFF_SCREEN_AFTER_SLEEP_REFRESH);
+    monochromeFrame = true;
     return true;
   }
 
@@ -984,6 +990,7 @@ void SleepActivity::renderReadingStatsSleepScreen() const {
     renderer.invertScreen();
   }
   renderer.displayBuffer(HalDisplay::HALF_REFRESH, TURN_OFF_SCREEN_AFTER_SLEEP_REFRESH);
+  monochromeFrame = true;
 }
 
 void SleepActivity::renderMinimalSleepScreen() const {
@@ -1005,6 +1012,7 @@ void SleepActivity::renderMinimalSleepScreen() const {
                         BookStatsTracking::isEnabled(bookStatsCachePathFor(path)) ? &bookStats : nullptr,
                         progressPercent, sleepCoverFilterInvertsGeneratedScreen());
   renderer.displayBuffer(HalDisplay::HALF_REFRESH, TURN_OFF_SCREEN_AFTER_SLEEP_REFRESH);
+  monochromeFrame = true;
 }
 
 void SleepActivity::renderMinimalStatsSleepScreen() const {
@@ -1026,6 +1034,7 @@ void SleepActivity::renderMinimalStatsSleepScreen() const {
   theme.drawStatsSleepScreen(renderer, book, &bookStats, &globalStats, progressPercent,
                              sleepCoverFilterInvertsGeneratedScreen());
   renderer.displayBuffer(HalDisplay::HALF_REFRESH, TURN_OFF_SCREEN_AFTER_SLEEP_REFRESH);
+  monochromeFrame = true;
 }
 
 void SleepActivity::renderDashboardSleepScreen() const {
@@ -1052,6 +1061,7 @@ void SleepActivity::renderDashboardSleepScreen() const {
   theme.drawSleepScreen(renderer, book, &bookStats, &globalStats, progressPercent, chapterTitle.c_str(),
                         sleepCoverFilterInvertsGeneratedScreen());
   renderer.displayBuffer(HalDisplay::HALF_REFRESH, TURN_OFF_SCREEN_AFTER_SLEEP_REFRESH);
+  monochromeFrame = true;
 }
 
 void SleepActivity::renderLastScreenSleepScreen() const {
@@ -1074,6 +1084,7 @@ void SleepActivity::renderLastScreenSleepScreen() const {
 void SleepActivity::renderBlankSleepScreen() const {
   renderer.clearScreen();
   renderer.displayBuffer(HalDisplay::HALF_REFRESH, TURN_OFF_SCREEN_AFTER_SLEEP_REFRESH);
+  monochromeFrame = true;
 }
 
 void SleepActivity::renderOverlaySleepScreen(Bitmap* cover) const {
@@ -1111,12 +1122,10 @@ void SleepActivity::renderOverlaySleepScreen(Bitmap* cover) const {
   const BitmapPlacement coverPlacement = cover ? prepareSleepBitmap(*cover) : BitmapPlacement{};
   const auto redrawCover = [&]() { return !cover || drawSleepBitmap(*cover, coverPlacement); };
 
-  // Step 1: Restore the screen that was visible before the sleep popup. When
-  // that snapshot is unavailable in the reader, rebuild from the saved position.
+  // The popup restored its rectangle in the draw buffer. If that failed, rebuild the saved page.
   if (cover) {
     backgroundAvailable = redrawCover();
-  } else if (overlayBackgroundBufferStored) {
-    renderer.restoreBwBuffer();
+  } else if (overlayBackgroundAvailable) {
     backgroundAvailable = true;
   } else if (shouldUseReaderPageBackground && !path.empty()) {
     backgroundWasRebuilt = renderSavedReaderPage();
@@ -1423,7 +1432,7 @@ void SleepActivity::renderOverlaySleepScreen(Bitmap* cover) const {
   // drawn, keep the composited BW frame intact instead of painting page glyphs
   // over the sleep image.
   const bool shouldRunGrayscalePass = shouldUseReaderPageBackground && backgroundSupportsGrayscale && !overlayDrawn &&
-                                      (backgroundWasRebuilt || (overlayBackgroundBufferStored && !path.empty()));
+                                      (backgroundWasRebuilt || (overlayBackgroundAvailable && !path.empty()));
   renderer.displayBuffer(HalDisplay::HALF_REFRESH, !shouldRunGrayscalePass && TURN_OFF_SCREEN_AFTER_SLEEP_REFRESH);
 
   if (!shouldRunGrayscalePass) {

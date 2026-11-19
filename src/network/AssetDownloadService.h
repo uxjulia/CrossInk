@@ -53,7 +53,7 @@ bool buildUrl(const Endpoints& endpoints, const char* relative, char* out, size_
 // Offline entries with an empty sha256 classify existing published sources as FileOnSd.
 Result discover(AssetCatalog::Kind kind, const AssetCatalog::Entry& entry, Source& source,
                 const Callbacks& callbacks = {});
-Result download(const AssetCatalog::Catalog& catalog, const AssetCatalog::Entry& entry, const Endpoints& endpoints,
+Result download(const AssetCatalog::Metadata& catalog, const AssetCatalog::Entry& entry, const Endpoints& endpoints,
                 bool overwriteApproved, const Callbacks& callbacks = {});
 const char* resultName(Result result);
 }  // namespace AssetDownloadService

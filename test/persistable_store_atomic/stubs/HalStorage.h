@@ -45,6 +45,10 @@ class HalStorage {
     failRenameFrom.clear();
     writeAttempts = 0;
     failWrite = false;
+    failBulkRead = false;
+    bulkReadAttempts = 0;
+    lastReadCap = 0;
+    lastReadPath.clear();
   }
 
   bool mkdir(const char*, bool = true) { return true; }
@@ -79,6 +83,27 @@ class HalStorage {
     return file == files.end() ? String() : String(file->second.c_str());
   }
 
+  bool readFileToString(const char*, const std::string& path, size_t cap, std::string& out) {
+    ++bulkReadAttempts;
+    lastReadCap = cap;
+    lastReadPath = path;
+    out.clear();
+    const auto file = files.find(path);
+    if (file == files.end() || file->second.size() > cap) return false;
+    out = file->second;
+    // Return valid nonempty JSON even on failure, to ensure the caller honors
+    // the HAL status rather than accidentally parsing a partial read.
+    if (failBulkRead) {
+      failBulkRead = false;
+      return false;
+    }
+    return true;
+  }
+  void failNextBulkRead() { failBulkRead = true; }
+  size_t bulkReadAttempts = 0;
+  size_t lastReadCap = 0;
+  std::string lastReadPath;
+
   void put(const std::string& path, std::string content) { files[path] = std::move(content); }
   void failNextRenameFrom(std::string path) { failRenameFrom = std::move(path); }
   void failNextWrite() { failWrite = true; }
@@ -98,6 +123,7 @@ class HalStorage {
   std::unordered_map<std::string, std::string> files;
   std::string failRenameFrom;
   bool failWrite = false;
+  bool failBulkRead = false;
 };
 
 inline HalStorage Storage;

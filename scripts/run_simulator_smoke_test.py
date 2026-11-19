@@ -45,6 +45,19 @@ THEMES = {
 }
 
 
+def dictzip_bytes(data: bytes, chunk_length: int = 60000) -> bytes:
+    """Create a real dictzip RA fixture with independently readable chunks."""
+    compressor = zlib.compressobj(wbits=-15)
+    chunks = [compressor.compress(data[pos:pos + chunk_length]) + compressor.flush(zlib.Z_FULL_FLUSH)
+              for pos in range(0, len(data), chunk_length)]
+    table = struct.pack("<HHH", 1, chunk_length, len(chunks))
+    table += b"".join(struct.pack("<H", len(chunk)) for chunk in chunks)
+    extra = b"RA" + struct.pack("<H", len(table)) + table
+    return (b"\x1f\x8b\x08\x04" + b"\0" * 6 + struct.pack("<H", len(extra)) + extra
+            + b"".join(chunks) + compressor.flush(zlib.Z_FINISH)
+            + struct.pack("<II", zlib.crc32(data), len(data)))
+
+
 def program_path(env_name: str) -> Path:
     build_dir = Path(os.environ.get("PLATFORMIO_BUILD_DIR", ROOT / ".pio" / "build"))
     return build_dir / env_name / "program"
@@ -240,6 +253,10 @@ def run_smoke(args: argparse.Namespace) -> int:
         if args.font_dir:
             shutil.copytree(Path(args.font_dir), temp_root / "fs_" / "fonts", dirs_exist_ok=True)
         env = os.environ.copy()
+        if args.ruled_lines:
+            env["CROSSINK_SIMULATOR_SMOKE_RULED_LINES"] = "1"
+        if args.text_darkness:
+            env["CROSSINK_SIMULATOR_SMOKE_TEXT_DARKNESS"] = "1"
         if args.touch_availability:
             env["CROSSINK_SIMULATOR_SMOKE_TOUCH_AVAILABILITY"] = "1"
         if args.sleep_screen_colors:
@@ -394,13 +411,24 @@ def run_smoke(args: argparse.Namespace) -> int:
                 index.extend(word.encode() + b"\0" + struct.pack(">II", len(definitions), len(definition)))
                 definitions.extend(definition)
             (dictionary / "dict.idx").write_bytes(index)
-            (dictionary / "dict.dict").write_bytes(definitions)
+            if args.dictionary_dictzip:
+                (dictionary / "dict.dict.dz").write_bytes(dictzip_bytes(definitions))
+            else:
+                (dictionary / "dict.dict").write_bytes(definitions)
             (dictionary / "dict.ifo").write_text(
                 "StarDict's dict ifo file\nversion=2.4.2\nbookname=French smoke\n"
                 f"wordcount={len(words)}\nidxfilesize={len(index)}\nsametypesequence=m\n"
             )
             if args.dictionary and not args.clipping_selection:
                 env["CROSSINK_SIMULATOR_SMOKE_DICTIONARY"] = "1"
+        if args.dictionary_dictzip:
+            env["CROSSINK_SIMULATOR_SMOKE_DICTZIP"] = "1"
+            compressed_dictionary = temp_root / "fs_" / ".dictionaries" / "Dictzip"
+            compressed_dictionary.mkdir(parents=True)
+            definitions = b"Dictionary power button paging keeps this definition readable.\n" * 60
+            (compressed_dictionary / "dict.dict.dz").write_bytes(dictzip_bytes(definitions))
+            (compressed_dictionary / "dict.idx").write_bytes(b"Paging\0" + struct.pack(">II", 0, len(definitions)))
+            (compressed_dictionary / "dict.ifo").write_text("StarDict's dict ifo file\nsametypesequence=m\n")
         if args.dictionary_paging:
             env["CROSSINK_SIMULATOR_SMOKE_DICTIONARY_PAGING"] = "1"
         if args.font_dir and args.font_family:
@@ -409,12 +437,15 @@ def run_smoke(args: argparse.Namespace) -> int:
             env["CROSSINK_SIMULATOR_SMOKE_FONT_FAMILY"] = args.font_family
         if args.reader_font_layout:
             env["CROSSINK_SIMULATOR_SMOKE_READER_FONT_LAYOUT"] = "1"
+        if args.font_cache_identity:
+            env["CROSSINK_SIMULATOR_SMOKE_FONT_CACHE_IDENTITY"] = "1"
         if args.c3_font_sizes:
             env["CROSSINK_SIMULATOR_SMOKE_C3_FONT_SIZES"] = "1"
         if args.cpfont_heading_sizes:
             env["CROSSINK_SIMULATOR_SMOKE_CPFONT_HEADINGS"] = "1"
         if args.font_size_book:
             env["CROSSINK_SIMULATOR_SMOKE_FONT_SIZE_BOOK"] = "1"
+            env["CROSSINK_SIMULATOR_SMOKE_FONT_SIZE_INITIAL"] = args.font_size_initial
         if args.gesture_shortcuts:
             env["CROSSINK_SIMULATOR_SMOKE_GESTURE_SHORTCUTS"] = "1"
         if args.font_recovery:
@@ -512,6 +543,10 @@ def run_smoke(args: argparse.Namespace) -> int:
         print("Simulator smoke test did not print its success marker", file=sys.stderr)
         return 2
 
+    if args.text_darkness and "Simulator smoke test passed: text darkness" not in proc.stdout:
+        print("Simulator did not complete text darkness checks", file=sys.stderr)
+        return 2
+
     if args.bookmarks and "Simulator smoke test passed: bookmarks" not in proc.stdout:
         print("Simulator did not complete bookmark checks", file=sys.stderr)
         return 2
@@ -575,7 +610,11 @@ def run_smoke(args: argparse.Namespace) -> int:
         print("Simulator did not complete the font browser return checks", file=sys.stderr)
         return 2
 
-    if args.font_family and not args.c3_font_sizes and not args.reader_font_layout and not args.font_browser_return:
+    if args.font_cache_identity and "Simulator smoke test passed: font cache identity" not in proc.stdout:
+        print("Simulator did not complete font cache identity checks", file=sys.stderr)
+        return 2
+
+    if args.font_family and not args.c3_font_sizes and not args.reader_font_layout and not args.font_browser_return and not args.font_cache_identity:
         tab_change = proc.stdout.find("Reader Menu tab changed after TTF Native selection")
         reader_return = proc.stdout.find("Reader restored after TTF Native selection", tab_change)
         if tab_change < 0 or reader_return < 0 or "Loading file:" not in proc.stdout[tab_change:reader_return]:
@@ -623,16 +662,21 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--hyphenation-captures", help="Directory for hyphenation manager framebuffer captures (PGM)")
     parser.add_argument("--clipping-selection", action="store_true", help="Check floating text actions, selection handles, dismissal and saving")
     parser.add_argument("--dictionary", action="store_true", help="Check French contractions and exact dictionary matches")
+    parser.add_argument("--dictionary-dictzip", action="store_true", help="Use dictzip fixtures with dictionary lookup/paging checks")
     parser.add_argument("--dictionary-paging", action="store_true", help="Check power-button dictionary page turns")
     parser.add_argument("--gesture-shortcuts", action="store_true", help="Check page gesture and front-button shortcut migrations, input, catalogs and UI")
     parser.add_argument("--c3-font-sizes", "--bitmap-font-sizes", dest="c3_font_sizes", action="store_true", help="Check bitmap font sizes, inline layout, page cache, selection and SD reload")
+    parser.add_argument("--font-cache-identity", action="store_true", help="Check equivalent bitmap size hints preserve fonts and cached pages (requires a cpfont family with 14/17/21pt files)")
     parser.add_argument("--cpfont-heading-sizes", action="store_true", help="Check publisher heading targets with an 8-20pt cpfont family (requires --c3-font-sizes, --font-dir and --font-family)")
     parser.add_argument("--font-size-book", action="store_true", help="Also render every page of --book with C3 fonts, checking its opening drop cap")
+    parser.add_argument("--font-size-initial", default="R", help="Expected drop-cap text in --font-size-book (default: R)")
     parser.add_argument("--font-dir", help="Font fixtures copied into isolated /fonts")
     parser.add_argument("--filename-font-dir", help="TTF family fixtures copied into /.crossink/languages/fonts")
     parser.add_argument("--filename-font-family", help="Check filename font picker, mixed glyphs and storage lifecycle (S3)")
     parser.add_argument("--filename-font-error-family", help="Family that must remain visible with a load error and preserve the previous choice")
     parser.add_argument("--filename-font-captures", help="Directory for filename font framebuffer captures (PGM)")
+    parser.add_argument("--ruled-lines", action="store_true", help="Check line shades on the same EPUB or TXT page; captures via --about-captures")
+    parser.add_argument("--text-darkness", action="store_true", help="Check text darkness persistence, reader menu and bitmap/TTF shading (S3); captures via --about-captures")
     parser.add_argument("--font-recovery", action="store_true", help="Check reader selection recovery after font catalog memory pressure")
     parser.add_argument("--font-browser-return", action="store_true", help="Check SD font lookup and book rendering after leaving a minimal-network font browser boot")
     parser.add_argument("--font-family", help="Exercise custom-font size and dictionary lifecycle")
@@ -685,6 +729,8 @@ def parse_args() -> argparse.Namespace:
         parser.error("--bitmap-font-sizes on S3 requires --font-dir and --font-family with cpfont fixtures")
     if args.cpfont_heading_sizes and not (args.c3_font_sizes and args.font_dir and args.font_family):
         parser.error("--cpfont-heading-sizes requires --c3-font-sizes, --font-dir and --font-family")
+    if args.font_cache_identity and not (args.font_dir and args.font_family):
+        parser.error("--font-cache-identity requires --font-dir and --font-family with 14/17/21pt cpfonts")
     if args.font_size_book and not args.c3_font_sizes:
         parser.error("--font-size-book requires --c3-font-sizes")
     if args.language_file and not args.language_installer:

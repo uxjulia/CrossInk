@@ -17,8 +17,9 @@ constants = "\n".join(re.findall(r"constexpr uint(?:8|32)_t TXT_CACHE_.*?;", sou
 def fixture(version=5, file_size=1000, pages=20, spacing=-3):
     # Serialized TXT v5: source size, spacing, five layout fields, alignment,
     # page count. Values deliberately differ so a shifted read cannot pass.
-    return struct.pack("<IBIbiiiiiBI", 0x54585449, version, file_size, spacing,
+    prefix = struct.pack("<IBIbiiiiiBI", 0x54585449, version, file_size, spacing,
                        480, 30, 7, 12, 16, 2, pages)
+    return prefix + (struct.pack("<ii", 740, 34) if version >= 6 else b"")
 
 
 def vector(data):
@@ -88,7 +89,12 @@ int main() {
         f"    Storage.index = {vector(data)};\n"
         "    assert(loadTxtProgressPercent(RecentBook{}) < 0);\n"
         "    assert(openFiles == 0);"
-        for data in (fixture(version=4), fixture(file_size=999), fixture(pages=0))
+        for data in (fixture(version=4), fixture(version=10), fixture(file_size=999), fixture(pages=0))
+    ) + "\n" + "".join(
+        f"    Storage.index = {vector(fixture(version=v))};\n"
+        "    assert(loadTxtProgressPercent(RecentBook{}) == 25.0f);\n"
+        "    assert(openFiles == 0);\n"
+        for v in (6, 7, 8, 9)
     ) + r'''
     Storage.index = valid;
     Storage.progress.resize(3);

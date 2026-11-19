@@ -344,21 +344,445 @@ void streamingChecks(const std::string& path) {
   assert(arrayBytes() == 0 && openFiles == 0);
 }
 
+void incrementalChecks(const std::string& path) {
+  fixture(path, {{0, table({{'A', 'D'}, {0xFFFD, 0xFFFD}})}});
+  enforceSingleReader = true;
+  int allocations = 0, reads = 0, seeks = 0;
+  {
+    SdCardFont font;
+    assert(font.load(path.c_str()));
+    assert(font.prewarm("ABC", 1) == 0);
+    arrayCalls = readCalls = seekCalls = 0;
+    assert(font.prewarm("ABCD", 1) == 0);
+    allocations = arrayCalls;
+    reads = readCalls;
+    seeks = seekCalls;
+    assert(reads == 2);  // Only D metadata and bitmap, not all five residents.
+    const auto* data = font.getEpdFont()->data;
+    for (uint32_t cp : {uint32_t('A'), uint32_t('B'), uint32_t('C'), uint32_t('D'), 0xFFFDu}) {
+      const auto* glyph = font.getEpdFont()->findGlyph(cp);
+      assert(glyph && data->bitmap[glyph->dataOffset] == 0x80);
+      assert(glyph->advanceX == advance(cp == 0xFFFD ? 4 : cp - 'A', 0));
+    }
+    assert(font.prewarm("DCBA", 1) == 0 && readCalls == reads);
+    std::puts("Incremental cpfont: ABC -> ABCD reads only D (2 reads); repeated ABCD needs 0 reads");
+  }
+  // Fail every array allocation and file read in an extension. The published
+  // metadata/pixels and their addresses must remain intact until a retry succeeds.
+  for (int mode = 0; mode < 4; ++mode) {
+    for (int n = 0; n < (mode == 0 ? allocations : mode == 1 ? reads : mode == 2 ? seeks : 1); ++n) {
+      SdCardFont font;
+      assert(font.load(path.c_str()));
+      assert(font.prewarm("ABC", 1) == 0);
+      const auto* before = font.getEpdFont()->data;
+      const auto* glyphs = before->glyph;
+      const auto* pixels = before->bitmap;
+      const size_t bytes = arrayBytes();
+      arrayCalls = readCalls = seekCalls = 0;
+      if (mode == 0)
+        failArrayCall = n;
+      else if (mode == 1)
+        failReadCall = n;
+      else if (mode == 2)
+        failSeekCall = n;
+      else
+        failOpen = true;
+      assert(font.prewarm("ABCD", 1) != 0 && font.lastPrewarmFailed());
+      failReadCall = failArrayCall = failSeekCall = -1;
+      failOpen = false;
+      assert(openFiles == 0 && arrayBytes() == bytes);
+      assert(font.getEpdFont()->data == before && before->glyph == glyphs && before->bitmap == pixels);
+      const auto* glyph = font.getEpdFont()->findGlyph('A');
+      assert(glyph && before->bitmap[glyph->dataOffset] == 0x80);
+      assert(font.prewarm("ABCD", 1) == 0 && !font.lastPrewarmFailed());
+    }
+  }
+  // The union's kerning coverage must include the new characters; disabling
+  // kerning for dictionary text must not discard ligatures or reader coverage.
+  kernFixture(path);
+  {
+    SdCardFont font;
+    assert(font.load(path.c_str()));
+    assert(font.prewarm(kernText(0x100, 1).c_str(), 1) == 0);
+    assert(font.prewarm(kernText(0x101, 1).c_str(), 1, false, false) == 0);
+    assert(font.getEpdFont()->getKerning(0x100, 0x101) == 0);
+    assert(font.prewarm(kernText(0x100, 3).c_str(), 1) == 0);
+    assert(font.getEpdFont()->getKerning(0x100, 0x101) == -4);
+    assert(font.getEpdFont()->getLigature(0x100, 0x101) == 0x102);
+    const int after = readCalls;
+    assert(font.prewarm(kernText(0x100, 3).c_str(), 1) == 0 && readCalls == after);
+  }
+  assert(arrayBytes() == 0 && openFiles == 0);
+  enforceSingleReader = false;
+}
+
+void contentPreparationChecks(const std::string& path) {
+  constexpr size_t limit = 12U * 1024U;
+  kernFixture(path);
+  {
+    SdCardFont font;
+    assert(font.load(path.c_str(), limit));
+    const EpdFontFamily family(font.getEpdFont());
+    const auto text = kernText(0x100, 3);
+    const auto* ligatures = font.styles_[0].ligaturePairs;
+    assert(ligatures && font.getEpdFont()->getLigature(0x100, 0x101) == 0x102);
+    int expectedWidth = 0, expectedHeight = 0;
+    {
+      SdCardFont::MetricsScope scope(&font);
+      family.getTextDimensions(text.c_str(), &expectedWidth, &expectedHeight);
+    }
+    const int allocationCalls = arrayCalls;
+    // Section builds and reader exit release all caches. Ligature measurement
+    // must remain identical before and after the visible page is prewarmed.
+    for (bool preserve : {false, true}) {
+      font.releaseForLowMemory(preserve);
+      font.clearCache();
+      font.clearPersistentCache();
+      assert(font.styles_[0].ligaturePairs == ligatures);
+      assert(font.getEpdFont()->getLigature(0x100, 0x101) == 0x102);
+      assert(font.buildAdvanceTable(text.c_str(), 1) == 0);
+      const uint32_t cps[] = {0x100, 0x101, 0x102};
+      assert(font.buildAdvanceTableForCodepoints(cps, 3, false, false, 1) == 0);
+      for (bool prewarm : {false, true}) {
+        if (prewarm) assert(font.prewarm(text.c_str(), 1) == 0);
+        int width = 0, height = 0;
+        SdCardFont::MetricsScope scope(&font);
+        family.getTextDimensions(text.c_str(), &width, &height);
+        assert(width == expectedWidth && height == expectedHeight);
+      }
+      assert(arrayCalls == allocationCalls);  // Resident tables survive, no reload churn.
+    }
+  }
+  assert(arrayBytes() == 0 && openFiles == 0);
+
+  fixture(path, {{0, table({{'A', 'Z'}})}, {1, table({{'A', 'Z'}})}});
+  const size_t budget = SdCardFont::contentResidentBytes(path.c_str(), limit);
+  const size_t remaining = budget - sizeof(SdCardFont);
+  constexpr size_t freeReserve = 96U * 1024U, blockReserve = 48U * 1024U;
+  {
+    SdCardFont font;
+    const int allocationCalls = arrayCalls;
+    freeHeap = freeReserve + remaining - 1;
+    assert(!font.load(path.c_str(), limit, freeReserve, blockReserve));
+    clean(font);
+    assert(arrayCalls == allocationCalls);  // Reject after inspection, before resident arrays.
+    freeHeap = freeReserve + remaining;
+    maxAllocHeap = blockReserve + remaining - 1;
+    assert(!font.load(path.c_str(), limit, freeReserve, blockReserve));
+    clean(font);
+    assert(arrayCalls == allocationCalls);
+    maxAllocHeap = blockReserve + remaining;
+    assert(font.load(path.c_str(), limit, freeReserve, blockReserve));
+  }
+  freeHeap = maxAllocHeap = 1024 * 1024;
+  assert(arrayBytes() == 0 && openFiles == 0);
+  // Moving admission into the loader must retain the preflight's malformed-TOC checks.
+  for (bool duplicate : {false, true}) {
+    fixture(path, {{0, table({{'A', 'Z'}})}, {1, table({{'A', 'Z'}})}});
+    {
+      std::fstream out(path, std::ios::in | std::ios::out | std::ios::binary);
+      if (duplicate) {
+        out.seekp(64);
+        out.put(0);
+      } else {
+        const uint32_t overflowingOffset = UINT32_MAX - 1;
+        out.seekp(32 + 24);
+        out.write(reinterpret_cast<const char*>(&overflowingOffset), sizeof(overflowingOffset));
+      }
+    }
+    SdCardFont font;
+    assert(!font.load(path.c_str(), limit, freeReserve, blockReserve));
+    clean(font);
+  }
+}
+
+void compactContentBudgetChecks(const std::string& path) {
+  Table intervals;
+  for (uint32_t i = 0; i < 400; ++i) intervals.push_back({0x100 + i * 2, 0x100 + i * 2, i});
+  fixture(path, {{0, intervals}, {1, intervals}, {2, intervals}, {3, intervals}});
+  const size_t expected = sizeof(SdCardFont) + SdCardFont::CONTENT_METRICS_CACHE_BYTES + 400 * 6 + 1;
+  assert(expected <= 12U * 1024U);
+  assert(SdCardFont::contentResidentBytes(path.c_str(), expected) == expected);
+  {
+    SdCardFont font;
+    assert(font.load(path.c_str(), expected));
+    assert(arrayBytes() + sizeof(font) == expected);
+    for (uint8_t i = 0; i < 4; ++i) {
+      uint16_t width = 0;
+      assert(font.readAdvance(0x100, i, &width) && width == advance(0, i));
+    }
+    assert(font.styles_[3].intervalsShared);
+  }
+  assert(arrayBytes() == 0 && openFiles == 0);
+}
+
+void sharedContentScratchChecks(const std::string& path) {
+  // Two distinguishable glyphs larger than the bitmap-cache slot limit ensure
+  // the fallback scratch is used, even if bitmap caching is enabled later.
+  const auto second = path + "-scratch";
+  for (const auto& file : {path, second}) {
+    fixture(file, {{0, table({{'A', 'A'}})}});
+    std::fstream out(file, std::ios::in | std::ios::out | std::ios::binary);
+    EpdGlyph glyph{};
+    glyph.width = 64;
+    glyph.height = 128;
+    glyph.dataLength = 1024;
+    glyph.advanceX = 64 * 16;
+    out.seekp(64 + sizeof(EpdUnicodeInterval));
+    out.write(reinterpret_cast<const char*>(&glyph), sizeof(glyph));
+    const std::string bitmap(1024, file == path ? char(0xAA) : char(0x55));
+    out.write(bitmap.data(), bitmap.size());
+  }
+  {
+    SdCardFont owner, borrower;
+    assert(owner.load(path.c_str(), 12U * 1024U));
+    assert(borrower.load(second.c_str(), 12U * 1024U));
+    const size_t before = arrayBytes();
+    borrower.shareContentScratchWith(owner);
+    assert(arrayBytes() == before - 1024);
+    const int allocations = arrayCalls;
+    for (int i = 0; i < 5; ++i) {
+      const auto* a = owner.getEpdFont()->getGlyph('A');
+      assert(a && owner.getOverflowBitmap(a)[0] == 0xAA);
+      const auto* b = borrower.getEpdFont()->getGlyph('A');
+      assert(b && borrower.getOverflowBitmap(b)[0] == 0x55);
+      assert(owner.getOverflowBitmap(a) == nullptr);  // Never return the other size's pixels.
+      const auto* again = owner.getEpdFont()->getGlyph('A');
+      assert(again && owner.getOverflowBitmap(again)[0] == 0xAA);
+      assert(borrower.getOverflowBitmap(b) == nullptr);
+      failReadCall = readCalls + 1;  // Fail the next bitmap read after metadata.
+      assert(borrower.getEpdFont()->getGlyph('A') == nullptr);
+      failReadCall = -1;
+      assert(owner.getOverflowBitmap(again) == nullptr);
+    }
+    assert(arrayCalls == allocations);
+    // Teardown may delete the owning size first; borrowers never dereference it.
+    owner.freeAll();
+    borrower.freeAll();
+  }
+  assert(arrayBytes() == 0 && openFiles == 0);
+  std::filesystem::remove(second);
+}
+
+// Distinct bytes and metrics for every key, including the same Unicode in two styles.
+void contentCacheFixture(const std::string& path) {
+  std::vector<uint8_t> bytes(96, 0);
+  std::memcpy(bytes.data(), "CPFONT\0\0", 8);
+  bytes[8] = CPFONT_VERSION;
+  bytes[12] = 2;
+  for (uint8_t style = 0; style < 2; ++style) {
+    const size_t toc = 32 + style * 32;
+    bytes[toc] = style;
+    put32(bytes, toc + 4, 1);
+    put32(bytes, toc + 8, 256);
+    bytes[toc + 12] = 20;
+    put32(bytes, toc + 24, bytes.size());
+    const EpdUnicodeInterval interval{0, 255, 0};
+    append(bytes, &interval, sizeof(interval));
+    std::vector<uint8_t> pixels;
+    for (uint32_t cp = 0; cp < 256; ++cp) {
+      EpdGlyph glyph{};
+      glyph.advanceX = advance(cp, style);
+      glyph.width = cp == 0 ? 0 : cp == 1 ? 64 : cp == 2 ? 24 : 8;
+      glyph.height = cp == 0 ? 0 : cp == 1 ? 64 : cp == 2 ? 171 : 2;
+      glyph.dataLength = cp == 0 ? 0 : cp == 1 ? 512 : cp == 2 ? 513 : 2;
+      glyph.dataOffset = pixels.size();
+      append(bytes, &glyph, sizeof(glyph));
+      for (uint32_t j = 0; j < glyph.dataLength; ++j) pixels.push_back(uint8_t(cp + style * 71 + j));
+    }
+    append(bytes, pixels.data(), pixels.size());
+  }
+  std::ofstream out(path, std::ios::binary);
+  out.write(reinterpret_cast<const char*>(bytes.data()), bytes.size());
+}
+void contentCacheCollisionChecks(const std::string& path) {
+  contentCacheFixture(path);
+  SdCardFont font;
+  assert(font.load(path.c_str(), 12U * 1024U));
+  font.prepareContentBitmaps();
+  assert(font.contentBitmapCapacity_ >= 512);
+  const auto allocationCount = arrayCalls;
+  const auto residentBytes = arrayBytes();
+  auto draw = [&](uint32_t cp, uint8_t style = 0) {
+    const auto* glyph = font.getEpdFont(style)->getGlyph(cp);
+    assert(glyph && glyph->advanceX == advance(cp, style));
+    const auto* bitmap = font.getOverflowBitmap(glyph);
+    assert(bitmap);
+    for (uint32_t i = 0; i < glyph->dataLength; ++i) assert(bitmap[i] == uint8_t(cp + style * 71 + i));
+    return glyph;
+  };
+  auto hash = [](uint32_t cp, uint8_t style) { return ((cp ^ (uint32_t(style) << 21)) * 2654435761U) >> 25; };
+  uint32_t a = 3, b = 4;
+  while (b < 256 && hash(a, 0) != hash(b, 0)) ++b;
+  assert(b < 256);
+  const auto* first = draw(a);
+  const auto* second = draw(b);
+  assert(first != second);
+  const int warmReads = readCalls;
+  for (int pass = 0; pass < 100; ++pass) {
+    assert(draw(a) == first && draw(b) == second);
+  }
+  assert(readCalls == warmReads);
+  // Same codepoint in another resolved style has independent pixels/metrics.
+  draw(a, 1);
+  const int styledReads = readCalls;
+  for (int pass = 0; pass < 100; ++pass) {
+    draw(a);
+    draw(a, 1);
+    draw(b);
+  }
+  assert(readCalls == styledReads);
+  // A vacancy BEFORE an existing key must not hide it or create a duplicate.
+  auto& vacant = font.contentMetrics_[font.contentMetricsIndex(first)];
+  vacant = {};
+  const int holeReads = readCalls;
+  assert(draw(b) == second && readCalls == holeReads);
+  // A metrics-only flood must prefer bitmapless entries, retaining resident b.
+  for (uint32_t cp = 3; cp < 256; ++cp) {
+    uint16_t width;
+    assert(font.readAdvance(cp, 1, &width) && width == advance(cp, 1));
+  }
+  const int floodReads = readCalls;
+  assert(draw(b) == second && readCalls == floodReads);
+  assert(arrayCalls == allocationCount && arrayBytes() == residentBytes);
+  // Full-table churn remains correct, including failure before replacing a victim.
+  font.clearPersistentCache();
+  for (uint32_t cp = 3; cp < 131; ++cp) draw(cp);
+  failReadCall = readCalls;
+  assert(!font.contentGlyphMetrics(200, 0, 200));
+  failReadCall = -1;
+  const int failureReads = readCalls;
+  for (uint32_t cp = 3; cp < 131; ++cp) draw(cp);
+  assert(readCalls == failureReads);
+  for (int pass = 0; pass < 3; ++pass)
+    for (uint32_t cp = 3; cp < 200; ++cp) draw(cp, pass % 2);
+  // Exact ring boundaries, adjacency and wrap: only overwritten ranges expire.
+  font.clearPersistentCache();
+  font.contentBitmapCapacity_ = 8;  // Keep allocation, restrict usable ring for test.
+  const auto* x = draw(10);
+  const auto* y = draw(11);
+  draw(12);
+  draw(13);
+  assert(font.contentBitmapNext_ == 8);
+  draw(14);
+  assert(font.contentBitmapNext_ == 2 && !font.getOverflowBitmap(x));
+  const int adjacentReads = readCalls;
+  assert(draw(11) == y && readCalls == adjacentReads);
+  // A zero-byte glyph neither advances the cursor nor evicts an adjacent bitmap.
+  draw(0);
+  const int spaceReads = readCalls;
+  draw(0);
+  assert(font.contentBitmapNext_ == 2 && readCalls == spaceReads);
+  assert(draw(11) == y && readCalls == spaceReads);
+  // Read failure invalidates the overlapped owner before any retry.
+  font.contentGlyphMetrics(15, 0, 15);
+  failReadCall = readCalls;
+  assert(!font.getEpdFont()->getGlyph(15));
+  failReadCall = -1;
+  assert(!font.getOverflowBitmap(y));
+  draw(15);
+  draw(11);
+  // 512 bytes admitted exactly; 513 uses the existing scratch fallback.
+  font.clearPersistentCache();
+  font.contentBitmapCapacity_ = 512;
+  const auto* edge = draw(1);
+  assert(font.contentMetricsIndex(edge) >= 0 && font.contentBitmapNext_ == 512);
+  const auto* oversized = draw(2);
+  assert(font.contentMetricsIndex(oversized) < 0);
+  assert(font.contentBitmapNext_ == 512);
+  assert(draw(1) == edge);
+  font.clearPersistentCache();
+  font.contentBitmapCapacity_ = 1;
+  assert(font.contentMetricsIndex(draw(3)) < 0);
+  font.releaseForLowMemory();
+  assert(!font.contentBitmaps_);
+  font.freeAll();
+  clean(font);
+}
+
 void contentSizeChecks(const std::string& path) {
   fixture(path, {{0, table({{0x41, 0x5A}})}, {1, table({{0x41, 0x5A}})}});
   constexpr size_t limit = 12U * 1024U;
+  const size_t budget =
+      sizeof(SdCardFont) + SdCardFont::CONTENT_METRICS_CACHE_BYTES + sizeof(SdCardFont::PerStyle::BmpInterval16) + 1;
+  const auto arraysBefore = arrayBytes();
+  readCalls = 0;
+  assert(SdCardFont::contentResidentBytes(path.c_str(), limit) == budget);
+  const int inspectionReads = readCalls;
+  assert(arrayBytes() == arraysBefore && openFiles == 0);
+  assert(SdCardFont::contentResidentBytes(path.c_str(), budget - 1) == 0);
+  // Every preflight read failure closes the file and allocates nothing.
+  for (int failure = 0; failure < inspectionReads; ++failure) {
+    readCalls = 0;
+    failReadCall = failure;
+    assert(SdCardFont::contentResidentBytes(path.c_str(), limit) == 0);
+    failReadCall = -1;
+    assert(arrayBytes() == arraysBefore && openFiles == 0);
+  }
   {
     SdCardFont font;
-    assert(!font.load(path.c_str(), sizeof(font) + 4095));
+    assert(!font.load(path.c_str(), budget - 1));
     clean(font);  // Reject before any interval or bitmap allocation.
-    assert(font.load(path.c_str(), limit));
-    assert(arrayBytes() + sizeof(font) <= limit);
+    assert(font.load(path.c_str(), budget));
+    assert(font.contentBitmapBytes_ == 1);
+    assert(arrayBytes() + sizeof(font) <= budget);
     const auto baseline = arrayBytes();
     const auto allocationCalls = arrayCalls;
     const uint32_t cps[] = {0x41, 0x42};
     assert(font.buildAdvanceTable("ABCD", 3) == 0);
     assert(font.buildAdvanceTableForCodepoints(cps, 2, false, false, 3) == 0);
     assert(!font.hasAdvanceTable());
+    // CSS can make almost the entire book use an optional size. Repeated width
+    // measurement must reuse its bounded cache, without paragraph allocations.
+    readCalls = 0;
+    for (unsigned pass = 0; pass < 100; ++pass) {
+      for (uint8_t style = 0; style < 2; ++style) {
+        for (uint32_t cp = 'A'; cp <= 'Z'; ++cp) {
+          uint16_t width = 0;
+          assert(font.readAdvance(cp, style, &width));
+          assert(width == advance(cp - 'A', style));
+        }
+      }
+      font.clearCache();
+    }
+    assert(readCalls < 700);  // 5,200 lookups; collisions may reread, never mix styles.
+    assert(arrayBytes() == baseline && arrayCalls == allocationCalls && openFiles == 0);
+    const EpdFontFamily measuredFamily(font.getEpdFont(), font.getEpdFont(1));
+    int expectedWidth[2]{}, expectedHeight[2]{};
+    for (uint8_t style = 0; style < 2; ++style)
+      measuredFamily.getTextDimensions("ABCDEFGHIJKLMNOPQRSTUVWXYZ", &expectedWidth[style], &expectedHeight[style],
+                                       static_cast<EpdFontFamily::Style>(style));
+    font.clearPersistentCache();
+    readCalls = 0;
+    {
+      SdCardFont::MetricsScope outer(&font);
+      for (unsigned pass = 0; pass < 100; ++pass) {
+        SdCardFont::MetricsScope nested(&font);
+        for (uint8_t style = 0; style < 2; ++style) {
+          int width = 0, height = 0;
+          measuredFamily.getTextDimensions("ABCDEFGHIJKLMNOPQRSTUVWXYZ", &width, &height,
+                                           static_cast<EpdFontFamily::Style>(style));
+          assert(width == expectedWidth[style] && height == expectedHeight[style]);
+        }
+      }
+    }
+    assert(font.metricsDepth_ == 0 && readCalls < 700);
+    assert(arrayBytes() == baseline && arrayCalls == allocationCalls && openFiles == 0);
+    // Metrics-only glyphs must never stand in for the bitmap when drawing resumes.
+    const auto* drawn = font.getEpdFont()->getGlyph('A');
+    assert(drawn && font.getOverflowBitmap(drawn)[0] == 0x80);
+    font.clearPersistentCache();
+    uint16_t width = 0;
+    const int coldReads = readCalls;
+    assert(font.readAdvance('A', 0, &width) && readCalls == coldReads + 1);
+    assert(font.readAdvance('A', 0, &width) && readCalls == coldReads + 1);
+    font.releaseForLowMemory();
+    failReadCall = readCalls;
+    assert(!font.readAdvance('A', 0, &width));
+    failReadCall = -1;
+    assert(font.readAdvance('A', 0, &width) && width == advance(0, 0));
+    const int recoveredReads = readCalls;
+    assert(font.readAdvance('A', 0, &width) && readCalls == recoveredReads);
     assert(font.prewarm("ABCDEFGHIJKLMNOPQRSTUVWXYZ", 3) == 0);
     const EpdFontFamily family(font.getEpdFont(), font.getEpdFont(1));
     assert(family.getFallbackCodepoint('A', EpdFontFamily::REGULAR) == 'A');
@@ -380,14 +804,32 @@ void contentSizeChecks(const std::string& path) {
     font.freeAll();
     clean(font);
   }
-  // Scratch OOM and interval OOM must release the successful earlier allocations.
-  for (int failure = 0; failure < 2; ++failure) {
+  // Scratch, width-cache and interval OOM must release all earlier allocations.
+  for (int failure = 0; failure < 3; ++failure) {
     SdCardFont font;
     arrayCalls = 0;
     failArrayCall = failure;
     assert(!font.load(path.c_str(), limit));
     failArrayCall = -1;
     clean(font);
+  }
+  // A file changed after load must not overrun its now-smaller scratch.
+  {
+    SdCardFont font;
+    assert(font.load(path.c_str(), limit) && font.contentBitmapBytes_ == 1);
+    {
+      std::fstream out(path, std::ios::in | std::ios::out | std::ios::binary);
+      EpdGlyph larger{};
+      larger.width = 9;
+      larger.height = 1;
+      larger.dataLength = 2;  // Valid 1-bit packing, larger than the loaded scratch.
+      out.seekp(96 + sizeof(EpdUnicodeInterval));
+      out.write(reinterpret_cast<const char*>(&larger), sizeof(larger));
+    }
+    assert(font.getEpdFont()->getGlyph(0x41) == nullptr);
+    font.freeAll();
+    clean(font);
+    fixture(path, {{0, table({{0x41, 0x5A}})}, {1, table({{0x41, 0x5A}})}});
   }
   // A supported file whose glyphs cannot fit scratch falls back before registration.
   {
@@ -398,6 +840,7 @@ void contentSizeChecks(const std::string& path) {
   }
   {
     SdCardFont font;
+    assert(SdCardFont::contentResidentBytes(path.c_str(), limit) == 0);
     assert(!font.load(path.c_str(), limit));
     clean(font);
   }
@@ -410,20 +853,60 @@ void contentSizeChecks(const std::string& path) {
   }
   GfxRenderer renderer;
   SdCardFontManager manager;
+  // Manager admission must read each selected file exactly once. The prior
+  // separate preflight added a second scan of every optional glyph table.
+  int expectedReads = 0;
+  for (const uint8_t size : {12, 24, 8}) {
+    SdCardFont font;
+    readCalls = 0;
+    assert(font.load(family.findFile(size)->path.c_str(), size == 12 ? 0 : limit));
+    expectedReads += readCalls;
+  }
+  readCalls = 0;
   assert(manager.loadFamilyClosest(family, renderer, 12));
+  assert(readCalls == expectedReads);
   const int highId = manager.getFontId(family.name);
+  size_t scratchOwners = 0, scratchBorrowers = 0;
+  for (const auto& [id, font] : renderer.getSdCardFonts()) {
+    if (!font->leanContent_) continue;
+    scratchOwners += bool(font->contentBitmap_);
+    scratchBorrowers += bool(font->contentScratchOwner_);
+  }
+  assert(scratchOwners == 1 && scratchBorrowers == 1);
   assert(renderer.getFontMap().size() == 3 && renderer.getSdCardFonts().size() == 3);
   for (const auto& [id, font] : renderer.getFontMap()) assert(font.sizeFamilyId() == highId);
+  // Reordered/rounded CSS hints request the same installed sizes. A low-heap
+  // reentry must reuse this live profile instead of rerunning admission.
+  assert(manager.setContentSizeScales({192, 512}));
+  const int reads = readCalls;
+  freeHeap = 97 * 1024;
+  maxAllocHeap = 49 * 1024;
+  assert(manager.matchesContentSizeRequests(family));
+  assert(manager.getFontId(family.name) == highId && readCalls == reads);
+  freeHeap = maxAllocHeap = 1024 * 1024;
+  manager.unloadAll(renderer);
+  assert(manager.loadFamilyClosest(family, renderer, 12));
+  assert(manager.getFontId(family.name) == highId);  // Same set, opposite load order.
+  assert(manager.setContentSizeScales({191, 513}));
+  assert(manager.matchesContentSizeRequests(family));
+  manager.setContentSizeScales({341, 299});
+  assert(!manager.matchesContentSizeRequests(family));
+  manager.setContentSizeScales({512, 192});
   manager.unloadAll(renderer);
   assert(renderer.getFontMap().empty() && renderer.getSdCardFonts().empty());
   assert(arrayBytes() == 0);
-  freeHeap = 100 * 1024;  // Enough for body, below the optional-size reserve.
+  freeHeap = 97 * 1024;  // Enough for body, below reserve plus actual optional bytes.
   assert(manager.loadFamilyClosest(family, renderer, 12));
   const int lowId = manager.getFontId(family.name);
   assert(lowId != highId && renderer.getFontMap().size() == 1);
+  assert(manager.matchesContentSizeRequests(family));  // Remembers skipped requests too.
+  manager.setContentSizeScales({192, 512});
+  freeHeap = 1024 * 1024;
+  assert(manager.matchesContentSizeRequests(family) && manager.getFontId(family.name) == lowId);
+  manager.setContentSizeScales({512, 192});
   manager.unloadAll(renderer);
   freeHeap = 1024 * 1024;
-  maxAllocHeap = 52 * 1024;  // Fragmented heap must also decline optional sizes.
+  maxAllocHeap = 49 * 1024;  // Fragmented heap must also decline optional sizes.
   assert(manager.loadFamilyClosest(family, renderer, 12));
   assert(manager.getFontId(family.name) == lowId && renderer.getFontMap().size() == 1);
   manager.unloadAll(renderer);
@@ -431,10 +914,31 @@ void contentSizeChecks(const std::string& path) {
   assert(manager.loadFamilyClosest(family, renderer, 12));
   assert(manager.getFontId(family.name) == highId);
   manager.unloadAll(renderer);
+  // Real byte costs admit small fonts that the old fixed 12KB allowance
+  // rejected, while still leaving the full 96KB/48KB reserves.
+  freeHeap = 110 * 1024;
+  maxAllocHeap = 62 * 1024;
+  assert(manager.loadFamilyClosest(family, renderer, 12));
+  assert(manager.getFontId(family.name) == highId && renderer.getFontMap().size() == 3);
+  const size_t optionalBytes = arrayBytes() - sizeof(SdCardFont::PerStyle::BmpInterval16) +
+                               2 * (sizeof(SdCardFont) + 512);  // Objects and registration overhead.
+  assert(freeHeap - optionalBytes >= 96 * 1024 && maxAllocHeap - optionalBytes >= 48 * 1024);
+  manager.unloadAll(renderer);
+  freeHeap = maxAllocHeap = 1024 * 1024;
+  // Simulate another allocation consuming headroom during the optional load.
+  // Body has one compact interval; extra scratch/tables trigger the drop.
+  freeHeapProbe = []() -> uint32_t {
+    return arrayBytes() > sizeof(SdCardFont::PerStyle::BmpInterval16) ? 95U * 1024U : freeHeap;
+  };
+  assert(manager.loadFamilyClosest(family, renderer, 12));
+  assert(manager.getFontId(family.name) == lowId && renderer.getFontMap().size() == 1);
+  manager.unloadAll(renderer);
+  freeHeapProbe = nullptr;
   // Book-aware content choices remain limited to two budgeted font objects.
   // Changing the preferences changes the identity, and a dictionary-style
   // unload/reload must restore that same identity and actual size set.
   assert(manager.setContentSizeScales({341, 299}));
+  assert(!manager.matchesContentSizeRequests(family));
   assert(!manager.setContentSizeScales({341, 299}));
   assert((manager.contentSizeTargetsForBody(12) == std::array<uint8_t, 2>{16, 14}));
   assert(manager.loadFamilyClosest(family, renderer, 12));
@@ -448,7 +952,7 @@ void contentSizeChecks(const std::string& path) {
   assert(manager.loadFamilyClosest(family, renderer, 12));
   assert(manager.getFontId(family.name) == bookId);
   manager.unloadAll(renderer);
-  freeHeap = 100 * 1024;
+  freeHeap = 97 * 1024;
   assert(manager.loadFamilyClosest(family, renderer, 12));
   assert(renderer.getFontMap().size() == 1 && manager.getFontId(family.name) == lowId);
   manager.unloadAll(renderer);
@@ -700,7 +1204,12 @@ int main() {
     clean(font);
   }
   streamingChecks(path);
+  incrementalChecks(path);
+  contentPreparationChecks(path);
   contentSizeChecks(path);
+  contentCacheCollisionChecks(path);
+  compactContentBudgetChecks(path);
+  sharedContentScratchChecks(path);
   std::filesystem::remove_all(dir);
   std::puts("SD font interval regression checks passed");
 }

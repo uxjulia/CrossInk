@@ -6,7 +6,7 @@ nav_order: 5
 # Dictionary
 
 > [!TIP]
-> For the best experience, prepare your dictionary on a computer using CrossInk's web companion tool [Inky](https://inky.crossink.dev/#dictionary-tools). It prepares the files for faster lookups. A dictionary you have not prepared also works if its `.dict` and `.idx` files are uncompressed: the first lookup may take longer while the reader prepares it.
+> For the best experience, prepare your dictionary on a computer using CrossInk's web companion tool [Inky](https://inky.crossink.dev/#dictionary-tools). It prepares the files for faster lookups. A dictionary you have not prepared also works if its `.idx` file is uncompressed: the first lookup may take longer while the reader prepares it.
 
 ## Supported Format
 
@@ -14,12 +14,12 @@ The reader supports **StarDict** dictionaries. When searching for dictionaries o
 
 A dictionary folder typically contains:
 
-- `.dict` -- definition data (required; compressed `.dict.dz` files must be prepared on a computer first)
+- `.dict` or `.dict.dz` -- definition data (required; dictzip-compressed `.dict.dz` works directly)
 - `.idx` -- word index (required)
 - `.ifo` -- dictionary name and word count (recommended)
 - `.syn` -- alternate forms and synonyms (optional, enhances lookup coverage)
 
-Minimum requirement: one `.dict` and one `.idx` file in the same folder. Use matching names, such as `english.dict` and `english.idx`. Keep `.ifo` too when it is supplied so the dictionary name and formatting display correctly.
+Minimum requirement: one `.dict` or `.dict.dz` and one uncompressed `.idx` file in the same folder. Use matching names, such as `english.dict` and `english.idx`. Keep `.ifo` too when it is supplied so the dictionary name and formatting display correctly.
 
 ---
 
@@ -34,12 +34,18 @@ Example folder structure: `SDCARD/.dictionaries/Cambridge/*.dict`. Make sure the
 
 ### Preparing Compressed or Large Dictionaries
 
-If your download contains `.dict.dz` or `.syn.dz` files, prepare it with
-[Inky](https://inky.crossink.dev/#dictionary-tools) before copying it to the SD
-card. Preparation is also recommended for large dictionaries to make lookups
-faster.
+Dictzip-compressed `.dict.dz` files work directly. Keep the matching uncompressed
+`.idx` alongside them. CrossInk decompresses only the selected entry to a temporary
+SD file, then reuses it for paging. The file is removed when changing definitions
+or leaving the viewer. If both `.dict` and `.dict.dz` exist, `.dict` is preferred.
 
-Uncompressed dictionaries can be used without preparation. The first lookup
+Decompress `.idx.gz` on a computer first. Use
+[Inky](https://inky.crossink.dev/#dictionary-tools) to prepare `.syn.dz` files.
+Preparation is also recommended
+for large dictionaries to make lookups faster. If compressed lookup fails because
+memory is tight, prepare the dictionary with Inky or decompress `.dict.dz` on a computer.
+
+Both `.dict` and `.dict.dz` dictionaries can be used without preparation. The first lookup
 may take longer; later lookups should be quicker. If you cancel that first
 lookup, the reader can try preparing it again next time.
 

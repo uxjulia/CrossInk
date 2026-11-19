@@ -1357,6 +1357,7 @@ ReaderRenderSpec CrossPointSettings::readerRenderSpec(const uint16_t viewportWid
   spec.imageRendering = imageRendering;
   spec.focusReadingEnabled = focusReadingEnabled != 0;
   spec.guideReadingEnabled = guideReadingEnabled != 0;
+  spec.ruled = ruledLines != 0;
   spec.wordSpacing = wordSpacing;
   spec.characterSpacing = characterSpacingLevel(characterSpacing);
   spec.renderMode = renderMode;

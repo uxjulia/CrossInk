@@ -5,6 +5,9 @@
 struct HttpRequestDiagnostics {
   int status = 0;
   bool attempted = false;
+  bool basicChallenge = false;
+  bool authorizationOriginMatched = false;
+  bool challengeComplete = false;
   bool authorizationWithheld = false;
   bool callbackRejected = false;
 };

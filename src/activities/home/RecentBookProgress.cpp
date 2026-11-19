@@ -23,7 +23,7 @@ constexpr uint32_t EPUB_PERCENT_CACHE_MAGIC = 0x45505250;  // "EPRP"
 constexpr uint8_t EPUB_PERCENT_CACHE_VERSION = 1;
 constexpr char EPUB_PERCENT_CACHE_FILE[] = "/progress_percent.bin";
 constexpr uint32_t TXT_CACHE_MAGIC = 0x54585449;  // "TXTI"
-constexpr uint8_t TXT_CACHE_VERSION = 5;
+constexpr uint8_t TXT_CACHE_VERSION = 9;
 
 float clampProgressPercent(const float progress) { return std::clamp(progress, 0.0f, 100.0f); }
 
@@ -223,7 +223,8 @@ float loadTxtProgressPercent(const RecentBook& book) {
   (void)horizontalMargin;
   (void)alignment;
 
-  if (magic != TXT_CACHE_MAGIC || version != TXT_CACHE_VERSION || fileSize != txt.getFileSize() || totalPages == 0) {
+  if (magic != TXT_CACHE_MAGIC || (version < 5 || version > TXT_CACHE_VERSION) || fileSize != txt.getFileSize() ||
+      totalPages == 0) {
     return -1.0f;
   }
 

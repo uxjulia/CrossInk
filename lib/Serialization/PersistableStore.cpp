@@ -77,9 +77,14 @@ bool PersistableStoreBase::readDocFromFile(const char* path, JsonDocument& doc) 
       readPath = recoveryPath.c_str();
     }
   }
-  String json = Storage.readFile(readPath);
-  if (json.isEmpty()) {
-    LOG_ERR("PERSIST", "Failed to read %s (empty)", path);
+  // Preserve the legacy 50,000-byte limit, but reject an oversized/short read
+  // instead of parsing a truncated prefix. The HAL sizes once and reads in bulk,
+  // avoiding one String append and SD call per byte. This cold-path buffer is
+  // bounded; a stack buffer of this size is unsafe on device tasks.
+  constexpr size_t MAX_STORE_BYTES = 50000;
+  std::string json;
+  if (!Storage.readFileToString("PERSIST", readPath, MAX_STORE_BYTES, json) || json.empty()) {
+    LOG_ERR("PERSIST", "Failed to read %s (empty or incomplete)", path);
     return false;
   }
   auto error = deserializeJson(doc, json);

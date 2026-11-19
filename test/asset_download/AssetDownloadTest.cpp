@@ -13,13 +13,16 @@
 using namespace AssetDownloadService;
 std::string response;
 std::function<void()> beforeValidation;
+std::function<void()> duringCompanions;
 int downloads = 0;
 bool cancelledTransfer = false;
+HttpDownloader::DownloadError transferResult = HttpDownloader::OK;
 int companionPreparations = 0;
 Result companionResult = Result::Ok;
-Result AssetCompanionStore::prepare(const AssetCatalog::Catalog&, const AssetCatalog::Entry&, const Endpoints&,
+Result AssetCompanionStore::prepare(const AssetCatalog::Metadata&, const AssetCatalog::Entry&, const Endpoints&,
                                     const Callbacks&) {
   ++companionPreparations;
+  if (duringCompanions) duringCompanions();
   assert(downloads == 0 || companionResult == Result::Ok);
   return companionResult;
 }
@@ -31,9 +34,11 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
   assert(options.transport == Transport::ESP_HTTP);
   assert(options.stageAsPart && !options.preservePartial && !options.resumePartial);
   assert(options.checkFreeSpace && options.requireBackupCleanup);
+  assert(options.httpReceiveBufferSize == 1024);
   assert(options.bufferSize == 1024 && options.maxBytes == 262144 && options.maxRedirects == 2);
   assert(options.allowUrl(url, options.urlContext));
   if (options.shouldCancel && options.shouldCancel()) return ABORTED;
+  if (transferResult != OK) return transferResult;
   if (response.size() != options.expectedBytes || response.size() > options.maxBytes) return HTTP_ERROR;
   const auto partial = destination + ".part";
   files[partial] = response;
@@ -72,7 +77,9 @@ void reset() {
   downloads = 0;
   response = yaml;
   beforeValidation = {};
+  duringCompanions = {};
   cancelledTransfer = false;
+  transferResult = HttpDownloader::OK;
   companionPreparations = 0;
   companionResult = Result::Ok;
 }
@@ -99,6 +106,74 @@ void pinResponse(AssetCatalog::Entry& entry, const std::string& bytes) {
   response = bytes;
   entry.bytes = bytes.size();
   std::strcpy(entry.sha256, digest(bytes).c_str());
+}
+void selectedAssetTests(const Endpoints& endpoints) {
+  for (const auto kind : {AssetCatalog::Kind::Translation, AssetCatalog::Kind::Hyphenation}) {
+    reset();
+    AssetCatalog::Selection selected;
+    {
+      auto full = std::make_unique<AssetCatalog::Catalog>(catalog(kind));
+      static_cast<AssetCatalog::Metadata&>(selected) = *full;
+      selected.entry = full->entries[0];
+    }  // License/payload requests must work after releasing the parsed catalog.
+    assert(download(selected, selected.entry, endpoints, false) == Result::Ok);
+    Source source;
+    assert(discover(kind, selected.entry, source) == Result::Ok && source.status == Status::Current);
+    assert(companionPreparations == 1 && downloads == 1);
+    // A failed transfer and retry also retain a usable, independent selection.
+    transferResult = HttpDownloader::HTTP_ERROR;
+    assert(download(selected, selected.entry, endpoints, false) == Result::Network);
+    transferResult = HttpDownloader::OK;
+    assert(download(selected, selected.entry, endpoints, false) == Result::Ok);
+  }
+}
+void companionIdentityTests(const Endpoints& endpoints) {
+  for (const auto kind : {AssetCatalog::Kind::Translation, AssetCatalog::Kind::Hyphenation}) {
+    reset();
+    auto cat = catalog(kind);
+    const std::string destination = kind == AssetCatalog::Kind::Translation ? "/.crossink/languages/DE.yaml"
+                                                                            : "/.crossink/hyphenation/hyph-de.cphyph";
+    const auto original = yaml + "# original source\n";
+    const auto changed = yaml + "# changed while licenses download\n";
+    put(destination, original);
+    duringCompanions = [&] { put(destination, changed); };
+    // Recreating payload scratch must retain the pre-license approval identity.
+    assert(download(cat, cat.entries[0], endpoints, true) == Result::Collision);
+    assert(files.at(destination) == changed);
+    assert(!files.count(destination + ".part"));
+    duringCompanions = {};
+    assert(download(cat, cat.entries[0], endpoints, true) == Result::Ok);
+    assert(files.at(destination) == yaml);
+  }
+}
+void missingSourceTests(const Endpoints& endpoints) {
+  for (const auto kind : {AssetCatalog::Kind::Translation, AssetCatalog::Kind::Hyphenation}) {
+    for (const bool misplaced : {false, true}) {
+      reset();
+      auto cat = catalog(kind);
+      const bool translation = kind == AssetCatalog::Kind::Translation;
+      const std::string suffix = translation ? "/languages/DE.yaml" : "/hyphenation/hyph-de.cphyph";
+      const std::string legacy = "/.crosspoint" + suffix;
+      const std::string destination = "/.crossink" + suffix;
+      if (misplaced) put(legacy, yaml);
+      const auto original = files;
+      Source source;
+      assert(discover(kind, cat.entries[0], source) == Result::Ok && source.status == Status::Missing);
+
+      // A failed online fallback must preserve misplaced files and publish no
+      // source. A later retry must remain possible after releasing its guard.
+      transferResult = HttpDownloader::HTTP_ERROR;
+      assert(download(cat, cat.entries[0], endpoints, false) == Result::Network);
+      assert(files == original && downloads == 1);
+      assert(discover(kind, cat.entries[0], source) == Result::Ok && source.status == Status::Missing);
+      transferResult = HttpDownloader::OK;
+      assert(download(cat, cat.entries[0], endpoints, false) == Result::Ok && downloads == 2);
+      assert(files.at(destination) == yaml && files.size() == original.size() + 1);
+      if (misplaced) assert(files.at(legacy) == yaml);
+      assert(discover(kind, cat.entries[0], source) == Result::Ok && source.status == Status::Current);
+      for (const auto& reader : openReaders) assert(reader.second == 0);
+    }
+  }
 }
 void fillSources(size_t count) {
   for (size_t i = 0; i < count; ++i) {
@@ -373,6 +448,8 @@ void macMetadataTests() {
 }
 
 int main() {
+  companionIdentityTests(Endpoints{"https://assets.example.invalid/", ""});
+  selectedAssetTests(Endpoints{"https://assets.example/", ""});
   macMetadataTests();
   sourceDiagnosticsTests();
   assert(digest("abc") == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
@@ -508,6 +585,7 @@ int main() {
   assert(discover(cat.kind, entry, source) == Result::Collision);
   for (const auto& reader : openReaders) assert(reader.second == 0);
   capacityTests(endpoints);
+  missingSourceTests(endpoints);
   cleanupRetryTests(endpoints);
   companionGateTests(endpoints);
   std::cout << "Asset download tests passed (real SHA-256, storage fault injection, transport contract stub)\n";

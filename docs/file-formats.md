@@ -90,6 +90,14 @@ Word Spacing preserves saved values `0..4`. Values `5..8` encode levels `-1..-4`
 
 ## TXT `index.bin`
 
+Version 9 rebuilds page offsets for ruled rows centered on the main letter body. Its binary layout matches version 8.
+
+Version 8 rebuilds page offsets for the one-pixel shift in ruled text. Its binary layout matches version 7.
+
+Version 7 rebuilds page offsets for the updated ruled baseline. Its binary layout matches version 6.
+
+Version 6 appends two signed 32-bit values after the page count and before page offsets. Ruled pages store their viewport height and requested row height in pixels. Unruled pages store -1 and 0.
+
 Version 5 adds signed `characterSpacing` (-5..5) after the source file size in the index header. A changed spacing value or older version rebuilds pagination around the stored text position. Home reads this same header before displaying reading progress.
 
 ## TXT `progress.bin`
@@ -578,7 +586,7 @@ if (parsedSize != fileSize) {
 
 ## `reader_settings.bin`
 
-### Version 13
+### Version 16
 
 Each EPUB cache directory may contain `reader_settings.bin`. Missing files mean
 the book uses global Reader settings and the default auto-page-turn interval.
@@ -603,6 +611,12 @@ Version 11 appends the image-grayscale toggle after the mask and moves the SD-fo
 mask bit from 18 to 19. Older records retain their existing overrides and inherit
 the global image-grayscale setting. This drawing-only setting does not invalidate
 EPUB layout or image caches.
+Version 16 appends `u8 ruledLines` (0 Off, 1 Light, 2 Medium, 3 Dark), with override bit 24. Older books inherit the global setting. Changing the shade redraws the page using its existing layout.
+
+Version 15 appends `u8 twoToneTextAA` (0 off, 1 on), with override bit 23. Older records inherit the global EEGO text AA quality. Changing it preserves the EPUB layout cache.
+
+Version 14 appends `u8 textDarkness` (0 Normal, 1 Dark, 2 Darker), with override bit 22. Older records inherit global text darkness. This affects glyph shading only; existing EPUB layout caches remain valid.
+
 Version 13 appends `u8 publisherFonts` (0 Off, 1 Ignore Body Font, 2 All Text), with override bit 21. Versions 1–12 retain their previous fields and inherit the global publisher-font mode.
 
 Version 12 appends `u8 characterSpacing` (0–10 encodes -5–+5, default 5), with override bit 20. Existing field bits, including the SD font at bit 19, stay unchanged. Older records inherit global character spacing. Each displayed step adjusts inter-character gaps by half a pixel; spaces keep their word-spacing behavior.
@@ -617,7 +631,7 @@ fallback successfully opens a difficult book.
 
 ```c++
 struct ReaderSettingsBin {
-    u8 version; // 12
+    u8 version; // 16
     u8 flags;   // bit 0 = at least one custom reader field, bit 1 = custom auto-page-turn interval, bit 2 = render mode override, bit 3 = dictionary font override, bit 4 = Safe Mode override
     u16 autoPageTurnSeconds;
     u8 renderMode; // 0 = CrossInk Default, 1 = Balanced, 2 = Light
@@ -647,6 +661,10 @@ struct ReaderSettingsBin {
     u32 readerSettingsOverrideMask; // bits 0-17 = snapshot fields excluding snapshotRenderMode; bit 18 = imageGrayscale; bit 19 = sdFontFamilyName
     u8 imageGrayscale; // 0 = BW only, 1 = grayscale (default)
     u8 characterSpacing; // 0..10 encodes -5..+5; override bit 20
+    u8 publisherFonts; // 0..2; override bit 21
+    u8 textDarkness; // 0 Normal, 1 Dark, 2 Darker; override bit 22
+    u8 twoToneTextAA; // 0 off, 1 on; override bit 23
+    u8 ruledLines; // 0 Off, 1 Light, 2 Medium, 3 Dark; override bit 24
 };
 ```
 
@@ -1119,9 +1137,58 @@ includes those paths and thumbnail availability, invalidating old snapshots.
 Images regenerate as needed; this does not change book paths, bookmarks,
 clippings, progress or statistics. The PXC byte layout itself is unchanged.
 
+## SD bitmap content-size identity
+
+SD `.cpfont` families with optional EPUB sizes include content-layout revision `1`
+in their combined reader font identity. Secondary-size ligatures remain resident
+through cache cleanup, so measurement and drawing use the same glyph substitutions.
+The new identity rebuilds existing full and partial layouts for these families;
+body-only and built-in font identities stay unchanged. No binary payload changes.
+
 ## `section.bin`
 
-### Version 108 (current development)
+### Version 115 (current development)
+
+Ruled prose centers the regular ascender-to-baseline band between rules. The binary layout matches version 114. Complete sections use version 115 and suspended sections use `0xE4`.
+
+### Version 114
+
+Ruled prose sits one pixel lower. Capital-only rows center their visible ink. A row can grow one pixel to retain clearance. The binary layout matches version 113. Complete sections use version 114 and suspended sections use `0xE3`.
+
+### Version 113
+
+Ruled prose uses a common font baseline. The binary layout matches version 112. Complete sections use version 113 and suspended sections use `0xE2`.
+
+### Version 112
+
+Each text block stores a signed 16-bit text offset after its row height so selections and rules share the centered layout. A boolean after Guide Dots records whether the page layout reserves space for ruled lines.
+Changing between Off and a shade rebuilds the section. All three shades share one layout.
+Complete sections use version 112 and suspended sections use `0xE1`.
+
+### Version 111
+
+Smaller publisher body-font declarations no longer shrink prose below the
+reader-selected size. Complete section caches use `111`; suspended partial
+caches use `0xE0`. Both previous layouts rebuild automatically, without deleting
+reading progress or requiring a manual cache reset. CSS rule-cache data is unchanged.
+
+### Version 110
+
+Image-backed `<hr>` elements retain a visible fallback line when publisher CSS
+hides their borders. Complete section caches use byte `110`; suspended partial
+caches use `0xDF`. Earlier layouts rebuild automatically. CSS rule cache revision
+`22` adds one background-image-presence byte after `initialLetter` and defined
+bit 30, making the style payload 97 bytes. Image URLs and pixels are not cached;
+the existing centered rule is used instead of decoding CSS background images.
+
+### Version 109
+
+Complete caches use `109` and suspended partial caches use `0xDE`. Both rebuild
+automatically to restore drop caps marked only by an oversized opening span,
+including initials inside nested bold or font-family spans. The binary payload
+and saved reading progress are unchanged.
+
+### Version 108
 
 Complete caches use `108` and suspended partial caches use `0xDD`. Both rebuild
 automatically because runtime TrueType/OpenType advances no longer round up
@@ -1332,7 +1399,11 @@ geometry, oversized-word wrapping, inline-image margins, and ruby continuation
 layout. Full and suspended section caches rebuild together; complete files use
 version byte `61`, and suspended partials use sentinel byte `0xF8`.
 
-Each file in `sections/*.bin` stores one laid-out spine section. The header is
+Chapter layouts live in `layout/<bucket>/<spine>[suffix].bin`. Extracted chapter
+HTML lives in `content/<bucket>/<spine>.html`. The bucket number is the spine
+index divided by 32, rounded down. Layout invalidation preserves the HTML.
+Older flat `sections/` and `html/` caches rebuild on demand and are removed
+when the book cache is cleared. The section header is
 also the cache-busting key: if any layout-affecting setting differs from the
 current reader settings, the section is discarded and rebuilt.
 
@@ -2096,7 +2167,14 @@ decoded content and are usable by the reader only after its book-open access che
 ## Optional battery diagnostic log (CSV v3)
 
 `/battery_log.csv` is enabled only with `CROSSINK_BATTERY_DIAG_LOG=1` and appends
-one row at the existing wake and sleep events. There are no periodic log writes.
+one row on wake and sleep. Picco also appends a `charge_complete` row when a
+USB poll first observes charger completion during a boot. It checks once a minute
+while awake and every 30 seconds on the USB sleep screen. A confirmed return to
+charging or a disconnect allows a later completion to be logged again. On the
+sleep screen, this row’s `display_soc` is the last percentage the overlay
+successfully painted. While awake it comes from the status bar in the last
+completed foreground render. The field is empty when that source has no
+numeric battery readout.
 The v3 header is:
 
 ```text
@@ -2144,3 +2222,55 @@ Save writes all six values together; Reset and Cancel only affect the working
 copy until Save. Eight-byte version 1 records retain their four edges and inherit
 the device's default corner clearances; the next saved adjustment writes version 2.
 Older firmware does not understand version 2 and falls back to its defaults.
+
+
+## Reading-stat backup recovery
+
+New files in `/.crossink-stats-backup/` use the global-stats payload followed by
+the existing alternating-slot trailer: little-endian `u32` sequence and IEEE
+CRC-32 of payload plus sequence. The current payload is 175 bytes (version 4),
+so a checked snapshot is 183 bytes. `<name>.bin` and `<name>.bin.bak` retain
+alternating snapshots. Keep both when copying a backup. Existing raw version
+1–4 snapshots remain readable for explicit recovery. No EPUB cache change is
+required.
+
+If neither local global-stat slot can be read, automatic saves, exports, resets
+and backups are blocked for that boot. Settings → Reading Stats → Backup Now
+offers recovery from a readable backup and displays its filename for confirmation.
+Recovery preserves the original counter ID. Existing local slots are renamed
+to `.damaged.0` through `.damaged.15` without replacing earlier archives.
+
+`global_stats_<reader>.bin.recovery` is a one-byte recovery marker (value 1).
+Any presence, including an interrupted empty marker, blocks ordinary saves. It
+is written before archiving originals and removed only after the replacement
+has been saved and read back. An interrupted recovery remains protected on the
+next boot. A confirmed restore advances the same live-reader refresh revision
+as an explicit statistics reset, so an open reader imports the recovered totals.
+
+
+### CSS rules cache revision 23
+
+The rule payload and offsets are unchanged from revision 22. Header flag bit 0
+still marks partial CSS. Bit 1 additionally marks a parse stopped at the fixed
+1500-rule cap (always also partial), not a memory or I/O failure. Older revisions
+rebuild once. A terminal cache is reused on book reopen only with a matching
+`css_terminal.source` sidecar: six little-endian u32 fields, magic `0x43535401`,
+CSS cache version, source size low/high words, FAT modification time, and current
+CSS source-size policy limit. Missing, truncated, unreadable, or stale identity
+forces retry. Source timestamps of zero are not trusted. As with the in-memory
+ZIP directory cache, changing bytes while preserving size and timestamp requires
+clearing the book cache. This does not add content hashing or validate unrelated
+metadata caches.
+
+The marker is removed before cache replacement and written only after a successful
+terminal cache save and unchanged source stat. Removal failure disables terminal
+publication; partial marker writes cannot authorize reuse. Existing layouts remain
+unchanged during unchanged terminal reuse or a retry that is still transiently
+partial. Source/version invalidation rebuilds CSS and refreshes layouts under the
+existing invalid-cache policy. Progress files are unaffected.
+
+### CSS rules cache revision 24
+
+Mixed-case selectors now use the same comparison when merging and matching
+rules. Revision 24 rebuilds the rules and chapter layouts on book reopen so
+cached pages pick up the corrected styling. The binary format is unchanged.

@@ -6,6 +6,7 @@
 #include <I18n.h>
 #include <KOReaderCredentialStore.h>
 #include <Logging.h>
+#include <SDL.h>
 
 #include <cstdio>
 #include <cstdlib>
@@ -14,11 +15,15 @@
 #include <vector>
 
 #include "CrossPointSettings.h"
+#include "CrossPointState.h"
+#include "SilentRestart.h"
 #include "activities/network/StatsUploadActivity.h"
 #include "activities/reader/DailyReadingStats.h"
 #include "activities/reader/KOReaderSyncActivity.h"
 #include "activities/reader/ReadingSessionJournal.h"
+#include "activities/reader/StatsBackup.h"
 #include "activities/reader/StatsUploadPayload.h"
+#include "activities/settings/BackupStatsActivity.h"
 #include "network/ReadingSyncUpload.h"
 #include "network/StatsUploadClient.h"
 #include "util/StatsStorage.h"
@@ -407,9 +412,51 @@ struct SyncDiagnosticsSmokeTest {
         for (int x = 0; x < renderer.getScreenWidth(); ++x) fputc(renderer.isPixelBlack(x, y) ? 0 : 255, file);
       require(fclose(file) == 0, "close diagnostic screenshot");
     };
+    SDL_setenv("CROSSINK_FAIL_STORAGE_SYNC", "1", 1);
+    require(!silentRestartToNetwork(NetworkBootTarget::KOREADER_SYNC), "failed flush cancels network restart");
+    require(APP_STATE.hasPendingAlert.load(), "failed flush queues a dismissible storage alert");
+    armSilentRestartReaderPageBuild("/books/Example.epub", 1, 3, false);
+    {
+      RenderLock held;
+      require(!silentRestartToReader(), "failed flush borrows an existing render lock and cancels restart");
+    }
+    uint16_t stagedSpine = 0, stagedPage = 0;
+    bool stagedAutomatic = false;
+    require(!consumeSilentRestartReaderPageBuild("/books/Example.epub", stagedSpine, stagedPage, stagedAutomatic),
+            "failed restart clears staged page-build token");
+    SDL_setenv("CROSSINK_FAIL_STORAGE_SYNC", "0", 1);
+    APP_STATE.hasPendingAlert.store(false);
+
+    auto history = GlobalReadingStats::load();
+    history.totalReadingSeconds = 97000;
+    require(history.save() && backupGlobalStats(false), "prepare recovery snapshot");
+    const auto historyPath = StatsStorage::localPath("/.crosspoint/global_stats.bin");
+    for (const auto& slot : {historyPath, historyPath + ".bak"}) {
+      if (!Storage.exists(slot.c_str())) continue;
+      auto damaged = Storage.open(slot.c_str(), O_RDWR);
+      require(bool(damaged) && damaged.seekSet(damaged.fileSize() - 1), "open stats for corruption fixture");
+      uint8_t last = 0;
+      require(damaged.read(&last, 1) == 1 && damaged.seekSet(damaged.fileSize() - 1), "read checksum fixture");
+      last ^= 1;
+      require(damaged.write(&last, 1) == 1 && damaged.close(), "corrupt stats checksum fixture");
+    }
+
     for (const auto orientation : {GfxRenderer::Orientation::Portrait, GfxRenderer::Orientation::LandscapeClockwise}) {
       renderer.setOrientation(orientation);
       const bool portrait = orientation == GfxRenderer::Orientation::Portrait;
+      if (portrait) {
+        BackupStatsActivity recovery(renderer, input);
+        recovery.onEnter();
+        require(recovery.recovering && recovery.state == BackupStatsActivity::WARNING,
+                "unreadable history offers a verified backup instead of replacing it");
+        capture("stats-recovery-confirm", recovery);
+        recovery.runBackup();
+        require(recovery.state == BackupStatsActivity::SUCCESS && !GlobalReadingStats::recoveryRequired(),
+                "confirmed backup recovery succeeds");
+        require(GlobalReadingStats::load().counterId.bytes == history.counterId.bytes,
+                "backup recovery keeps original counter identity");
+        capture("stats-recovery-done", recovery);
+      }
       auto bulk = std::make_unique<StatsUploadActivity>(renderer, input, "", StatsUploadActivity::Scope::ReadingStats);
       bulk->statsFailed = 1;
       bulk->globalResult = StatsUploadClient::Result::Server;
@@ -460,6 +507,21 @@ struct SyncDiagnosticsSmokeTest {
       reader->extrasAttempted = false;
       reader->statusMessage = tr(STR_CONNECTION_FAILED);
       capture(portrait ? "position-failed-portrait" : "position-failed-landscape", *reader);
+      reader->epub = std::make_shared<Epub>("/books/Example.epub", "/.crosspoint");
+      require(!reader->ensureLocalProgressLoaded() && reader->localPositionUnavailable,
+              "unreadable local position is not mapped to chapter one");
+      reader->performUpload();
+      require(reader->state == KOReaderSyncActivity::SYNC_FAILED,
+              "missing local position cannot enter the upload path");
+      reader->remotePosition.valid = true;
+      reader->remotePosition.spineIndex = 0;
+      reader->remotePosition.pageNumber = 12;
+      reader->remoteProgress.percentage = 0.4f;
+      reader->remoteProgress.device = "Other reader";
+      reader->finishComparison(KOReaderSyncClient::OK);
+      require(reader->state == KOReaderSyncActivity::SHOWING_RESULT && reader->selectedOption == 0,
+              "server progress offers explicit download-only recovery");
+      capture(portrait ? "progress-recovery-portrait" : "progress-recovery-landscape", *reader);
       // Each independent failure category must reject the success heading.
       for (unsigned kind = 0; kind < 4; ++kind) {
         bulk->failed = kind == 0;

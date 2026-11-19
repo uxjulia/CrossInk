@@ -1,5 +1,9 @@
 #include "ActivityManager.h"
 
+#if FREEINK_DEVICE_PICCO && CROSSINK_BATTERY_DIAG_LOG
+#include "util/BatteryDiagnosticLog.h"
+#endif
+
 #include "activities/plugins/PluginCatalogActivity.h"
 
 #if CROSSINK_SCALABLE_FONTS
@@ -12,6 +16,7 @@
 #include <FsHelpers.h>
 #include <HalPowerManager.h>
 #include <HalStorage.h>
+#include <I18n.h>
 #if defined(CROSSINK_LANGUAGE_BENCHMARK)
 #include <LanguageBenchmark.h>
 #endif
@@ -33,6 +38,7 @@
 #include "boot_sleep/SleepActivity.h"
 #include "browser/OpdsBookBrowserActivity.h"
 #include "components/TouchRegistry.h"
+#include "components/UITheme.h"
 #include "home/AlertActivity.h"
 #include "home/CrashActivity.h"
 #include "home/FileBrowserActivity.h"
@@ -46,6 +52,7 @@
 #include "reader/BookReadingStats.h"
 #include "reader/BookStatsActivity.h"
 #include "reader/BookStatsTracking.h"
+#include "reader/EpubReaderActivity.h"
 #include "reader/GlobalReadingStats.h"
 #include "reader/ReaderActivity.h"
 #include "settings/OpdsServerListActivity.h"
@@ -53,6 +60,7 @@
 #include "settings/SettingsActivity.h"
 #include "util/FrontlightPanelActivity.h"
 #include "util/FullScreenMessageActivity.h"
+#include "util/PluginEvents.h"
 #include "util/SwipeAdjustment.h"
 #include "util/TwoFingerSwipe.h"
 
@@ -507,7 +515,13 @@ void ActivityManager::renderTaskLoop() {
       language_benchmark::beginFrame(currentActivity->name.c_str());
 #endif
       mappedInput.setMenuMode(currentActivity->usesMenuButtonOrientation());
+#if FREEINK_DEVICE_PICCO && CROSSINK_BATTERY_DIAG_LOG
+      BatteryDiagnosticLog::beginDisplayFrame();
+#endif
       currentActivity->render(std::move(lock));
+#if FREEINK_DEVICE_PICCO && CROSSINK_BATTERY_DIAG_LOG
+      BatteryDiagnosticLog::finishDisplayFrame();
+#endif
 #if defined(CROSSINK_LANGUAGE_BENCHMARK)
       language_benchmark::endFrame();
 #endif
@@ -1150,37 +1164,47 @@ void ActivityManager::goToReaderAndRunMenuAction(std::string path, const uint8_t
   goToReader(std::move(path));
 }
 
-void ActivityManager::goToSleep(bool fromTimeout) {
-  const bool canSnapshotOverlay = currentActivity && currentActivity->canSnapshotForSleepOverlay();
-  const GfxRenderer::Orientation sleepPopupOrientation = renderer.getOrientation();
-  std::string currentBookPath = getCurrentBookPath();
-  auto sleepActivity = makeUniqueNoThrow<SleepActivity>(renderer, mappedInput, canSnapshotOverlay,
-                                                        std::move(currentBookPath), fromTimeout, sleepPopupOrientation);
-  const bool renderBeforeExit = currentActivity && sleepActivity && sleepActivity->rendersBeforeExit();
+bool ActivityManager::goToSleep(bool fromTimeout) {
+  // Hold the visible page steady from the first sleep indication through reader saves.
+  RenderLock lock;
+  const bool readerPage = canSnapshotForSleepOverlay();
+  const bool quickResume = SETTINGS.usesQuickResumeSleep(fromTimeout);
+  auto sleepActivity = makeUniqueNoThrow<SleepActivity>(renderer, mappedInput, readerPage, getCurrentBookPath(),
+                                                        fromTimeout, renderer.getOrientation());
+  // Image viewers can repaint on exit. Only these activities retain an early final frame.
+  const bool fromReaderOrHome = readerPage || isHomeActivity();
+  const bool earlyMoon = sleepActivity && quickResume && fromReaderOrHome;
   if (!sleepActivity) {
     LOG_ERR("ACT", "Could not allocate sleep activity; saving outgoing activities before sleep");
+    GUI.drawPopup(renderer, tr(STR_ENTERING_SLEEP));
+  } else if (earlyMoon) {
+    sleepActivity->onEnter();
+  } else {
+    sleepActivity->showSleepPopup();
   }
-  if (renderBeforeExit || !sleepActivity) {
-    // Keep the outgoing render task from repainting over the sleep screen while
-    // onExit() flushes progress, stats and bookmarks to the card.
-    RenderLock lock;
-    TouchRegistry::getInstance().clear();
-    if (sleepActivity) sleepActivity->onEnter();
-    exitActivity(lock);
-    while (!stackActivities.empty()) {
-      stackActivities.back()->onExit();
-      stackActivities.pop_back();
-    }
-    pendingActivity.reset();
-    pendingAction = PendingAction::None;
-    currentActivity = std::move(sleepActivity);
-    return;
+
+  const bool deliverAfterScreen = prepareSleepPlugins(quickResume, fromReaderOrHome);
+  // Artwork can change during delivery. Check the cover cache only after plugins have run.
+  const bool renderBeforeExit = sleepActivity && fromReaderOrHome && sleepActivity->rendersBeforeExit();
+  if (renderBeforeExit) sleepActivity->onEnter();
+
+  TouchRegistry::getInstance().clear();
+  exitActivity(lock);
+  while (!stackActivities.empty()) {
+    stackActivities.back()->onExit();
+    stackActivities.pop_back();
   }
-  replaceActivity(std::move(sleepActivity));
-  // Input capture has stopped. Do not poll the outgoing reader again: the
-  // fallback input state can still contain the Power hold from boot, turning a
-  // short sleep press into a reader long-press shortcut. onExit still saves it.
-  processPendingActivities();  // Sleep renders synchronously in onEnter before the caller powers down.
+  pendingHomeReaderTarget = nullptr;
+  afterReturnActivity.reset();
+  afterReturnOwner = nullptr;
+  afterReturnOwnerExited = false;
+  pendingActivity.reset();
+  pendingAction = PendingAction::None;
+  auto* sleepScreen = sleepActivity.get();
+  currentActivity = std::move(sleepActivity);
+  if (sleepScreen && !earlyMoon && !renderBeforeExit) sleepScreen->onEnter();
+  if (deliverAfterScreen) pluginevents::deliverSleepEvents();
+  return sleepScreen && sleepScreen->hasMonochromeFrame();
 }
 
 void ActivityManager::goToBoot() { replaceActivity(std::make_unique<BootActivity>(renderer, mappedInput)); }
@@ -1257,6 +1281,19 @@ bool ActivityManager::requiresExclusiveStorageLoop() const {
 bool ActivityManager::blocksGlobalInput() const { return currentActivity && currentActivity->blocksGlobalInput(); }
 
 bool ActivityManager::isHomeActivity() const { return currentActivity && currentActivity->name == "Home"; }
+
+bool ActivityManager::canSyncOpenEpubOverUsb() const {
+  return pendingAction == PendingAction::None && currentActivity && currentActivity->isEpubReaderActivity();
+}
+
+bool ActivityManager::closeOpenEpubForUsbSync(std::string& path) {
+  if (!canSyncOpenEpubOverUsb()) return false;
+  auto& reader = static_cast<EpubReaderActivity&>(*currentActivity);
+  path = reader.getCurrentBookPath();
+  if (path.empty() || !reader.checkpointForUsbSync()) return false;
+  goHome();
+  return true;
+}
 
 bool ActivityManager::isReaderActivity() const {
   if (currentActivity && currentActivity->isReaderActivity()) {
@@ -1537,8 +1574,21 @@ bool RenderLock::heldByCurrentTask() {
   return xSemaphoreGetMutexHolder(activityManager.renderingMutex) == xTaskGetCurrentTaskHandle();
 }
 
-void ActivityManager::preparePluginSleep() {
-  RenderLock lock;
+bool ActivityManager::prepareSleepPlugins(bool quickResume, bool fromReaderOrHome) {
+  if (!SETTINGS.pluginsEnabled) return false;
   for (auto& activity : stackActivities) activity->prepareForSleep();
   if (currentActivity) currentActivity->prepareForSleep();
+  const std::string book = getCurrentBookPath();
+  pluginevents::queueSleep(book.c_str(), getScreenshotInfo().progressPercent);
+  if (powerManager.getBatteryPercentage() < 20) return false;
+
+  // Built-in screens don't need downloaded artwork. Book pages and Home have
+  // no active network session that reader exit would disconnect.
+  const auto mode = SETTINGS.sleepScreen;
+  const bool builtInScreen = quickResume || mode == CrossPointSettings::READING_STATS_SLEEP ||
+                             mode == CrossPointSettings::DARK || mode == CrossPointSettings::LIGHT ||
+                             mode == CrossPointSettings::BLANK;
+  if (builtInScreen && fromReaderOrHome) return true;
+  pluginevents::deliverSleepEvents();
+  return false;
 }

@@ -7,8 +7,10 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdio>
 #include <cstring>
 
+#include "DictZip.h"
 #include "TextPool.h"
 
 // Static member definitions
@@ -244,7 +246,7 @@ bool Dictionary::exists(const char* cachePath) {
   if (folderPath.empty()) return false;
   DictPaths dp(folderPath);
   if (!Storage.exists(dp.idx().c_str())) return false;
-  return Storage.exists(dp.dict().c_str());
+  return Storage.exists(dp.dict().c_str()) || Storage.exists(dp.dictDz().c_str());
 }
 
 bool Dictionary::hasAltForms(const char* cachePath) {
@@ -258,7 +260,7 @@ bool Dictionary::isValidDictionary() {
   if (folderPath.empty()) return false;
   DictPaths dp(folderPath);
   const bool idxExists = Storage.exists(dp.idx().c_str());
-  const bool valid = idxExists && Storage.exists(dp.dict().c_str());
+  const bool valid = idxExists && (Storage.exists(dp.dict().c_str()) || Storage.exists(dp.dictDz().c_str()));
   if (!valid) {
     LOG_DBG("DICT", "Stored dictionary path no longer valid, resetting");
     saveGlobalDictPath("");
@@ -474,6 +476,7 @@ bool Dictionary::buildQuickIndex(HalFile& idx, uint32_t idxFileSize, uint8_t suf
   bool ok = out.write(placeholder, sizeof(placeholder)) == static_cast<int>(sizeof(placeholder)) &&
             out.write(&firstOffset, sizeof(firstOffset)) == static_cast<int>(sizeof(firstOffset)) && idx.seekSet(0);
   uint32_t entryCount = 0;
+  uint32_t nextEntryOffset = 0;
   uint32_t position = 0;
   uint8_t suffixLeft = 0;
 
@@ -494,7 +497,7 @@ bool Dictionary::buildQuickIndex(HalFile& idx, uint32_t idxFileSize, uint8_t suf
         if (buffer[i] == 0) suffixLeft = suffixBytes;
       } else if (--suffixLeft == 0) {
         entryCount++;
-        const uint32_t nextEntryOffset = position + static_cast<uint32_t>(i) + 1;
+        nextEntryOffset = position + static_cast<uint32_t>(i) + 1;
         if (entryCount % QIDX_SAMPLE_INTERVAL == 0 && nextEntryOffset < idxFileSize) {
           ok = out.write(&nextEntryOffset, sizeof(nextEntryOffset)) == static_cast<int>(sizeof(nextEntryOffset));
           if (ok) sampleCount++;
@@ -507,8 +510,8 @@ bool Dictionary::buildQuickIndex(HalFile& idx, uint32_t idxFileSize, uint8_t suf
     }
   }
 
-  if (ok && suffixLeft != 0) {
-    LOG_ERR("DICT", "Quick-index scan found a truncated .idx entry");
+  if (ok && nextEntryOffset != idxFileSize) {
+    LOG_ERR("DICT", "Quick-index scan found a truncated entry for %s", qidxPath);
     ok = false;
   }
   if (ok) {
@@ -538,36 +541,38 @@ bool Dictionary::buildQuickIndex(HalFile& idx, uint32_t idxFileSize, uint8_t suf
   return true;
 }
 
+bool Dictionary::ensureQuickIndex(const std::string& sourcePath, const std::string& indexPath, uint8_t suffixBytes,
+                                  const DictLookupCallbacks& cbs) {
+  HalFile source;
+  if (!Storage.openFileForRead("DICT", sourcePath.c_str(), source)) return false;
+  const uint32_t size = static_cast<uint32_t>(source.fileSize());
+  HalFile index;
+  bool ready = false;
+  if (Storage.openFileForRead("DICT", indexPath.c_str(), index)) {
+    ready = readQidxHeader(index, size).valid;
+    index.close();
+  }
+  if (!ready) ready = buildQuickIndex(source, size, suffixBytes, indexPath.c_str(), cbs);
+  source.close();
+  return ready;
+}
+
 bool Dictionary::prepareQuickIndex(const DictLookupCallbacks& cbs, const char* cachePath) {
   const std::string folderPath = readDictPath(cachePath);
   if (folderPath.empty()) return false;
   const DictPaths paths(folderPath);
-
-  // Desktop-generated accelerators are denser and remain the preferred path.
-  if (Storage.exists(paths.idxOftCspt().c_str()) || Storage.exists(paths.idxOft().c_str())) return true;
-
-  HalFile idx;
-  if (!Storage.openFileForRead("DICT", paths.idx().c_str(), idx)) return false;
-  const uint32_t idxFileSize = static_cast<uint32_t>(idx.fileSize());
-
-  HalFile qidx;
-  if (Storage.openFileForRead("DICT", paths.quickIdx().c_str(), qidx)) {
-    const bool valid = readQidxHeader(qidx, idxFileSize).valid;
-    qidx.close();
-    if (valid) {
-      idx.close();
-      return true;
-    }
-  }
-
+  const bool hasSyn = Storage.exists(paths.syn().c_str());
   const uint8_t suffixBytes = idxEntrySuffixBytes(readInfo(folderPath.c_str()));
-  const bool built = buildQuickIndex(idx, idxFileSize, suffixBytes, paths.quickIdx().c_str(), cbs);
-  idx.close();
-  return built;
+  // A prefix table alone can find spellings, but numbered synonym targets need offset samples.
+  const bool preparedIdx = suffixBytes == 8 && (Storage.exists(paths.idxOft().c_str()) ||
+                                                (!hasSyn && Storage.exists(paths.idxOftCspt().c_str())));
+  if (!preparedIdx && !ensureQuickIndex(paths.idx(), paths.quickIdx(), suffixBytes, cbs)) return false;
+  return !hasSyn || Storage.exists(paths.synOft().c_str()) || Storage.exists(paths.synOftCspt().c_str()) ||
+         ensureQuickIndex(paths.syn(), paths.synQuickIdx(), 4, cbs);
 }
 
-bool Dictionary::binarySearchCspt(HalFile& cspt, const char* target, uint32_t idxFileSize, uint32_t* startByte,
-                                  uint32_t* endByte, bool startBeforeCaseMatches) {
+bool Dictionary::binarySearchCspt(HalFile& cspt, HalFile& source, const char* target, uint32_t idxFileSize,
+                                  uint32_t* startByte, uint32_t* endByte, bool startBeforeCaseMatches) {
   // Read and validate header (12 bytes).
   uint8_t hdr[CSPT_HEADER_SIZE];
   cspt.seekSet(0);
@@ -598,9 +603,16 @@ bool Dictionary::binarySearchCspt(HalFile& cspt, const char* target, uint32_t id
     cspt.seekSet(CSPT_HEADER_SIZE + mid * entrySize);
     if (cspt.read(entry, entrySize) != static_cast<int>(entrySize)) return false;
 
-    // Null-terminate prefix for cistrcmp (prefix is already null-padded if shorter).
-    entry[prefixLen] = '\0';
-    const int cmp = cistrcmp(reinterpret_cast<const char*>(entry), target);
+    const char* prefix = reinterpret_cast<const char*>(entry);
+    int cmp = strncasecmp(prefix, target, prefixLen);
+    if (cmp == 0 && entry[prefixLen - 1] != 0) {
+      // The sample may end mid-word or mid-UTF-8 character. Compare the real headword only on a prefix tie.
+      uint32_t offset;
+      memcpy(&offset, entry + prefixLen, sizeof(offset));
+      if (offset >= idxFileSize || !source.seekSet(offset) || readWordInto(source, wordBuf, sizeof(wordBuf)) < 0)
+        return false;
+      cmp = cistrcmp(wordBuf, target);
+    }
     if (cmp > 0 || (startBeforeCaseMatches && cmp == 0)) {
       hi = mid - 1;
     } else {
@@ -665,7 +677,7 @@ bool Dictionary::resolveScanBounds(const char* csptPath, const char* oftPath, Ha
   bool boundsResolved = false;
   HalFile cspt;
   if (Storage.openFileForRead("DICT", csptPath, cspt)) {
-    boundsResolved = binarySearchCspt(cspt, target, srcFileSize, startByte, endByte, startBeforeCaseMatches);
+    boundsResolved = binarySearchCspt(cspt, src, target, srcFileSize, startByte, endByte, startBeforeCaseMatches);
     cspt.close();
   }
   if (!boundsResolved) {
@@ -727,9 +739,68 @@ void Dictionary::findPageBounds(HalFile& oft, HalFile& src, uint32_t srcFileSize
 // Reading helpers
 // ---------------------------------------------------------------------------
 
-std::string Dictionary::readDefinition(const std::string& folderPath, uint32_t offset, uint32_t size) {
+void DictionaryDefinitionSource::reset() {
+  if (temporary_ && !path_.empty() && Storage.exists(path_.c_str()) && !Storage.remove(path_.c_str())) {
+    LOG_ERR("DICT", "Failed to remove temporary definition %s", path_.c_str());
+  }
+  path_.clear();
+  dictionaryPath_.clear();
+  entryOffset_ = entrySize_ = 0;
+  offset_ = 0;
+  temporary_ = false;
+}
+
+bool DictionaryDefinitionSource::open(const DictLocation& location) {
+  // Font fallback and modal redraw reflow an unchanged definition, sometimes
+  // under memory pressure. Keep its backing without allocating inflate buffers
+  // again or discarding a usable scratch file.
+  if (location.found && dictionaryPath_ == location.folderPath && entryOffset_ == location.offset &&
+      entrySize_ == location.size && !path_.empty() && Storage.exists(path_.c_str())) {
+    return true;
+  }
+  reset();
+  if (!location.found || location.folderPath.empty() || location.size == 0) return false;
+  dictionaryPath_ = location.folderPath;
+  entryOffset_ = location.offset;
+  entrySize_ = location.size;
+  const DictPaths paths(location.folderPath);
+  path_ = paths.dict();
+  if (Storage.exists(path_.c_str())) {
+    offset_ = location.offset;
+    return true;
+  }
+  path_.clear();
+  if (!Storage.ensureDirectoryExists("/.crosspoint")) {
+    LOG_ERR("DICT", "Cannot create temporary definition directory");
+    return false;
+  }
+  // Each owner gets its own scratch file, so another lookup cannot overwrite
+  // the entry being paged. Only the selected entry is written, never the book.
+  char temporaryPath[80];
+  snprintf(temporaryPath, sizeof(temporaryPath), "/.crosspoint/dict-entry-%p.tmp", static_cast<void*>(this));
+  path_ = temporaryPath;
+  temporary_ = true;
+  HalFile output;
+  if (!Storage.openFileForWrite("DICT", path_.c_str(), output)) {
+    LOG_ERR("DICT", "Cannot create temporary definition");
+    reset();
+    return false;
+  }
+  DictZip::ExtractError error = DictZip::ExtractError::None;
+  const bool extracted = DictZip::extractEntry(paths.dictDz().c_str(), location.offset, location.size, output, &error);
+  const bool synced = extracted && output.sync();
+  output.close();  // Hardware cannot reopen the same file until its writer closes.
+  if (!synced) {
+    LOG_ERR("DICT", "Cannot extract definition (dictzip error %u)", static_cast<unsigned>(error));
+    reset();
+    return false;
+  }
+  return true;
+}
+
+std::string Dictionary::readDefinition(const std::string& path, uint32_t offset, uint32_t size) {
   HalFile dict;
-  if (!Storage.openFileForRead("DICT", DictPaths(folderPath).dict().c_str(), dict)) return "";
+  if (!Storage.openFileForRead("DICT", path.c_str(), dict)) return "";
 
   dict.seekSet(offset);
 
@@ -742,16 +813,23 @@ std::string Dictionary::readDefinition(const std::string& folderPath, uint32_t o
   return def;
 }
 
-DictDefinitionSlice Dictionary::resolveDefinitionSlice(const DictLocation& location, const DictInfo& info) {
+DictDefinitionSlice Dictionary::resolveDefinitionSlice(const DictLocation& location, const DictInfo& info,
+                                                       const DictionaryDefinitionSource& source) {
   DictDefinitionSlice slice;
   slice.folderPath = location.folderPath;
   if (!location.found || location.folderPath.empty() || location.size == 0) return slice;
 
-  const uint32_t entryEnd = location.offset + location.size;
-  if (entryEnd < location.offset) return slice;
+  const uint32_t entryStart = source.offset();
+  const uint32_t entryEnd = entryStart + location.size;
+  if (entryEnd < entryStart) return slice;
 
   HalFile dict;
-  if (!Storage.openFileForRead("DICT", DictPaths(location.folderPath).dict().c_str(), dict)) return slice;
+  if (!Storage.openFileForRead("DICT", source.path().c_str(), dict)) return slice;
+  if (entryEnd > dict.fileSize()) {
+    LOG_ERR("DICT", "Definition exceeds data bounds");
+    dict.close();
+    return slice;
+  }
 
   auto setSlice = [&](uint32_t offset, uint32_t size, char type) {
     slice.offset = offset;
@@ -762,7 +840,7 @@ DictDefinitionSlice Dictionary::resolveDefinitionSlice(const DictLocation& locat
   };
 
   if (info.valid && info.sametypesequence[0] != '\0') {
-    uint32_t pos = location.offset;
+    uint32_t pos = entryStart;
     for (size_t i = 0; info.sametypesequence[i] != '\0' && pos < entryEnd; i++) {
       const char type = info.sametypesequence[i];
       if (isTextDefinitionType(type)) {
@@ -776,7 +854,7 @@ DictDefinitionSlice Dictionary::resolveDefinitionSlice(const DictLocation& locat
       break;
     }
   } else if (info.valid) {
-    uint32_t pos = location.offset;
+    uint32_t pos = entryStart;
     while (pos < entryEnd) {
       dict.seekSet(pos);
       const int typeRaw = dict.read();
@@ -797,7 +875,7 @@ DictDefinitionSlice Dictionary::resolveDefinitionSlice(const DictLocation& locat
 
   // Fallback for dictionaries without usable .ifo metadata: preserve the old
   // behavior and render the raw range as plain text.
-  setSlice(location.offset, location.size, 'm');
+  setSlice(entryStart, location.size, 'm');
   dict.close();
   return slice;
 }
@@ -805,6 +883,18 @@ DictDefinitionSlice Dictionary::resolveDefinitionSlice(const DictLocation& locat
 // ---------------------------------------------------------------------------
 // Locate (index search only — no definition read, zero RAM growth)
 // ---------------------------------------------------------------------------
+
+static bool setEntryLocation(DictLocation& result, const char* headword, const uint8_t* suffix, uint8_t suffixBytes) {
+  if (suffixBytes == 12 && readBigEndian32(suffix) != 0) {
+    LOG_ERR("DICT", "64-bit dictionary offset exceeds supported range");
+    return false;
+  }
+  result.headword = headword;
+  result.offset = readBigEndian32(suffix + suffixBytes - 8);
+  result.size = readBigEndian32(suffix + suffixBytes - 4);
+  result.found = true;
+  return true;
+}
 
 bool Dictionary::openLookupSession(LookupSession& session, const char* cachePath) {
   session.folderPath = readDictPath(cachePath);
@@ -880,7 +970,8 @@ DictLocation Dictionary::locateExactInSession(LookupSession& session, const std:
 
   switch (session.acceleratorKind) {
     case LookupAccelerator::Cspt:
-      if (!binarySearchCspt(session.accelerator, word.c_str(), session.idxFileSize, &startByte, &endByte, true)) {
+      if (!binarySearchCspt(session.accelerator, session.idx, word.c_str(), session.idxFileSize, &startByte, &endByte,
+                            true)) {
         // A structurally valid but unreadable .cspt should degrade to .oft for
         // this and later probes, matching the single-locate fallback order.
         session.accelerator.close();
@@ -944,18 +1035,9 @@ DictLocation Dictionary::locateExactInSession(LookupSession& session, const std:
 
     int cmp = cistrcmp(wordBuf, word.c_str());
     if (cmp == 0) {
-      if (session.suffixBytes == 12 && readBigEndian32(suffix) != 0) {
-        LOG_ERR("DICT", "64-bit dictionary offset exceeds supported range");
-        return result;
-      }
-      const uint8_t sizeOffset = session.suffixBytes == 12 ? 8 : 4;
       const bool exactCase = strcmp(wordBuf, word.c_str()) == 0;
-      if (!result.found || exactCase) {
-        result.headword.assign(wordBuf, static_cast<size_t>(len));
-        result.offset = session.suffixBytes == 12 ? readBigEndian32(suffix + 4) : readBigEndian32(suffix);
-        result.size = readBigEndian32(suffix + sizeOffset);
-        result.found = true;
-      }
+      if ((!result.found || exactCase) && !setEntryLocation(result, wordBuf, suffix, session.suffixBytes))
+        return result;
       if (exactCase) {
         if (cbs.onProgress) cbs.onProgress(cbs.ctx, 100);
         return result;
@@ -1019,86 +1101,113 @@ std::string Dictionary::lookup(const std::string& word, const DictLookupCallback
   auto loc = locate(word, cbs, cachePath);
   if (!loc.found) return "";
   const DictInfo info = readInfo(loc.folderPath.c_str());
-  const DictDefinitionSlice slice = resolveDefinitionSlice(loc, info);
+  DictionaryDefinitionSource source;
+  if (!source.open(loc)) return "";
+  const DictDefinitionSlice slice = resolveDefinitionSlice(loc, info, source);
   if (!slice.found) return "";
-  return readDefinition(slice.folderPath, slice.offset, slice.size);
+  return readDefinition(source.path(), slice.offset, slice.size);
 }
 
 // ---------------------------------------------------------------------------
 // Alternate-form lookup (.syn)
 // ---------------------------------------------------------------------------
 
-// Resolve the word at 0-based ordinal in .idx using .idx.oft for fast page seek.
-std::string Dictionary::wordAtOrdinal(const std::string& folderPath, uint32_t ordinal) {
-  DictPaths dp(folderPath);
-  const DictInfo info = readInfo(folderPath.c_str());
-  const uint8_t suffixBytes = idxEntrySuffixBytes(info);
+// Read the exact index record named by a synonym, including its definition range.
+DictLocation Dictionary::locateByOrdinal(const std::string& folderPath, uint32_t ordinal) {
+  DictLocation result;
+  const DictPaths paths(folderPath);
+  const uint8_t suffixBytes = idxEntrySuffixBytes(readInfo(folderPath.c_str()));
   HalFile idx;
-  if (!Storage.openFileForRead("DICT", dp.idx().c_str(), idx)) return "";
-
-  const uint32_t pageNum = ordinal / OFT_STRIDE;
-  const uint32_t withinPage = ordinal % OFT_STRIDE;
-  uint32_t pageStartByte = 0;
-  uint32_t entriesToSkip = ordinal;
-
-  if (suffixBytes == 8 && pageNum > 0) {
-    HalFile oft;
-    if (Storage.openFileForRead("DICT", dp.idxOft().c_str(), oft)) {
-      oft.seekSet(OFT_HEADER_SIZE + (pageNum - 1) * 4);
-      uint8_t raw[4];
-      if (oft.read(raw, 4) == 4) memcpy(&pageStartByte, raw, 4);  // LE uint32
-      oft.close();
-      entriesToSkip = withinPage;
-    }
+  if (!Storage.openFileForRead("DICT", paths.idx().c_str(), idx)) {
+    result.readError = true;
+    return result;
   }
-
-  idx.seekSet(pageStartByte);
-
-  // Skip entries to reach the target. With a usable .idx.oft this is at most
-  // 31 entries; otherwise fall back to a full ordinal scan.
-  for (uint32_t i = 0; i < entriesToSkip; i++) {
-    if (readWordInto(idx, wordBuf, sizeof(wordBuf)) < 0) {
-      idx.close();
-      return "";
+  const uint32_t idxSize = static_cast<uint32_t>(idx.fileSize());
+  uint32_t offset = 0;
+  uint32_t toSkip = ordinal;
+  HalFile samples;
+  if (ordinal >= OFT_STRIDE && suffixBytes == 8 && Storage.openFileForRead("DICT", paths.idxOft().c_str(), samples)) {
+    const uint32_t page = ordinal / OFT_STRIDE;
+    uint32_t sample;
+    if (samples.seekSet(OFT_HEADER_SIZE + (page - 1) * sizeof(sample)) &&
+        samples.read(&sample, sizeof(sample)) == sizeof(sample) && sample < idxSize) {
+      offset = sample;
+      toSkip = ordinal % OFT_STRIDE;
     }
-    uint8_t skip[12];
-    if (idx.read(skip, suffixBytes) != suffixBytes) {
-      idx.close();
-      return "";
-    }
+    samples.close();
   }
-
-  int len = readWordInto(idx, wordBuf, sizeof(wordBuf));
+  if (toSkip >= QIDX_SAMPLE_INTERVAL && Storage.openFileForRead("DICT", paths.quickIdx().c_str(), samples)) {
+    const uint32_t sampleNumber = ordinal / QIDX_SAMPLE_INTERVAL;
+    const auto header = readQidxHeader(samples, idxSize);
+    uint32_t sample;
+    if (sampleNumber < header.sampleCount && readQidxOffset(samples, sampleNumber, &sample) && sample < idxSize) {
+      offset = sample;
+      toSkip = ordinal % QIDX_SAMPLE_INTERVAL;
+    } else if (header.valid && sampleNumber >= header.sampleCount) {
+      samples.close();
+      idx.close();
+      return result;
+    }
+    samples.close();
+  }
+  uint8_t suffix[12];
+  bool ok = idx.seekSet(offset);
+  while (ok && idx.position() < idxSize) {
+    ok = readWordInto(idx, wordBuf, sizeof(wordBuf)) >= 0 && idx.read(suffix, suffixBytes) == suffixBytes;
+    if (!ok) break;
+    if (toSkip == 0) {
+      if (setEntryLocation(result, wordBuf, suffix, suffixBytes)) result.folderPath = folderPath;
+      break;
+    }
+    --toSkip;
+  }
   idx.close();
-  if (len < 0) return "";
-  return std::string(wordBuf, static_cast<size_t>(len));
+  if (!ok) {
+    LOG_ERR("DICT", "Failed reading numbered dictionary entry %lu", static_cast<unsigned long>(ordinal));
+    result.readError = true;
+  }
+  return result;
 }
 
-std::string Dictionary::resolveAltForm(const std::string& word, const char* cachePath) {
-  std::string headword = resolveExactAltForm(word, cachePath);
-  if (!headword.empty()) return headword;
+DictLocation Dictionary::resolveAltForm(const std::string& word, const char* cachePath) {
+  const std::string folderPath = readDictPath(cachePath);
+  if (folderPath.empty()) return {};
+  auto result = resolveExactAltForm(word, folderPath);
+  if (result.found || result.readError) return result;
   const std::string fallback = strippedLookupFallback(word);
-  return !fallback.empty() && fallback != word ? resolveExactAltForm(fallback, cachePath) : std::string{};
+  return !fallback.empty() && fallback != word ? resolveExactAltForm(fallback, folderPath) : result;
 }
 
-std::string Dictionary::resolveExactAltForm(const std::string& word, const char* cachePath) {
-  std::string folderPath = readDictPath(cachePath);
-  if (folderPath.empty()) return "";
-
+DictLocation Dictionary::resolveExactAltForm(const std::string& word, const std::string& folderPath) {
   DictPaths dp(folderPath);
-  if (!Storage.exists(dp.syn().c_str())) return "";
+  if (!Storage.exists(dp.syn().c_str())) return {};
 
   HalFile syn;
-  if (!Storage.openFileForRead("DICT", dp.syn().c_str(), syn)) return "";
+  DictLocation error;
+  error.readError = true;
+  if (!Storage.openFileForRead("DICT", dp.syn().c_str(), syn)) return error;
 
   const uint32_t synFileSize = static_cast<uint32_t>(syn.fileSize());
   uint32_t startByte = 0;
   uint32_t endByte = synFileSize;
 
-  resolveScanBounds(dp.synOftCspt().c_str(), dp.synOft().c_str(), syn, synFileSize, word.c_str(), &startByte, &endByte,
-                    true);
+  if (!resolveScanBounds(dp.synOftCspt().c_str(), dp.synOft().c_str(), syn, synFileSize, word.c_str(), &startByte,
+                         &endByte, true)) {
+    HalFile samples;
+    if (Storage.openFileForRead("DICT", dp.synQuickIdx().c_str(), samples)) {
+      const auto header = readQidxHeader(samples, synFileSize);
+      if (!header.valid ||
+          !binarySearchQuickIndex(samples, syn, header.sampleCount, word.c_str(), synFileSize, &startByte, &endByte))
+        startByte = 0;
+      samples.close();
+    }
+  }
 
-  syn.seekSet(startByte);
+  if (!syn.seekSet(startByte)) {
+    LOG_ERR("DICT", "Failed to seek synonym index");
+    syn.close();
+    return error;
+  }
 
   bool fallbackFound = false;
   uint32_t fallbackIdx = 0;
@@ -1106,19 +1215,20 @@ std::string Dictionary::resolveExactAltForm(const std::string& word, const char*
   // on the next accelerator boundary.
   while (static_cast<uint32_t>(syn.position()) < synFileSize) {
     int len = readWordInto(syn, wordBuf, sizeof(wordBuf));
-    if (len < 0) break;
-
     uint8_t idxBuf[4];
-    if (syn.read(idxBuf, 4) != 4) break;
+    if (len < 0 || syn.read(idxBuf, sizeof(idxBuf)) != sizeof(idxBuf)) {
+      LOG_ERR("DICT", "Truncated synonym entry");
+      syn.close();
+      return error;
+    }
 
     int cmp = cistrcmp(wordBuf, word.c_str());
     if (cmp == 0) {
       // Big-endian original word index in .idx
-      uint32_t originalIdx = (static_cast<uint32_t>(idxBuf[0]) << 24) | (static_cast<uint32_t>(idxBuf[1]) << 16) |
-                             (static_cast<uint32_t>(idxBuf[2]) << 8) | static_cast<uint32_t>(idxBuf[3]);
+      uint32_t originalIdx = readBigEndian32(idxBuf);
       if (strcmp(wordBuf, word.c_str()) == 0) {
         syn.close();
-        return wordAtOrdinal(folderPath, originalIdx);
+        return locateByOrdinal(folderPath, originalIdx);
       }
       if (!fallbackFound) {
         fallbackFound = true;
@@ -1131,7 +1241,7 @@ std::string Dictionary::resolveExactAltForm(const std::string& word, const char*
   }
 
   syn.close();
-  return fallbackFound ? wordAtOrdinal(folderPath, fallbackIdx) : "";
+  return fallbackFound ? locateByOrdinal(folderPath, fallbackIdx) : DictLocation{};
 }
 
 // ---------------------------------------------------------------------------

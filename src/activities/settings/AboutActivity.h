@@ -38,6 +38,9 @@ class AboutActivity final : public Activity {
   freeink::ui::GfxRendererTarget uiTarget;
   UiApp app;
   HalDeviceInfo::Snapshot snapshot;
+#if FREEINK_DEVICE_EEGO_A4
+  char uid[9]{};
+#endif
   // Reused by the render-only row provider; no strings/arrays per row or frame.
   char valueBuffer[96]{};
   OptionPopup scopePopup;  // At most three scope choices; reuse the existing popup lifecycle.

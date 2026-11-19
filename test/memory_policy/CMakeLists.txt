@@ -41,6 +41,9 @@ function(add_layout_test name root)
     ${root}/lib/Epub/Epub/ParsedText.cpp ${root}/lib/Epub/Epub/blocks/TextBlock.cpp
     ${root}/lib/Epub/Epub/hyphenation/HyphenationCommon.cpp
     ${root}/lib/MiniBidi/BidiUtils.cpp ${root}/lib/MiniBidi/minibidi.c ${root}/lib/Utf8/Utf8.cpp)
+  if(EXISTS "${root}/lib/Epub/Epub/RuledLineLayout.cpp")
+    target_sources(${name} PRIVATE ${root}/lib/Epub/Epub/RuledLineLayout.cpp)
+  endif()
   target_include_directories(${name} PRIVATE stubs ${root}/lib/Memory ${root}/lib/MemoryBudget
     ${root}/lib/Epub ${root}/lib/EpdFont ${root}/lib/Utf8 ${root}/lib/MiniBidi ${root}/lib/Serialization)
   target_compile_definitions(${name} PRIVATE ARDUINO_ARCH_ESP32=1 CROSSINK_MEMORY_TEST=1)
@@ -52,3 +55,14 @@ if(PSRAM_REFERENCE_ROOT)
   add_layout_test(TextLayoutReferenceTest ${PSRAM_REFERENCE_ROOT})
   target_compile_definitions(TextLayoutReferenceTest PRIVATE PSRAM_REFERENCE=1)
 endif()
+
+add_executable(BackgroundBuildMemoryGuardTest BackgroundBuildMemoryGuardTest.cpp)
+target_include_directories(BackgroundBuildMemoryGuardTest PRIVATE stubs ${REPO_ROOT}/lib/Memory ${REPO_ROOT}/lib/MemoryBudget)
+target_compile_definitions(BackgroundBuildMemoryGuardTest PRIVATE ARDUINO_ARCH_ESP32=1 CROSSINK_MEMORY_TEST=1)
+target_link_libraries(BackgroundBuildMemoryGuardTest PRIVATE crosspoint_test_common GTest::gtest_main)
+gtest_discover_tests(BackgroundBuildMemoryGuardTest)
+
+add_executable(CssCacheSourceTest CssCacheSourceTest.cpp)
+target_include_directories(CssCacheSourceTest PRIVATE stubs ${REPO_ROOT}/lib/Epub/Epub/css)
+target_link_libraries(CssCacheSourceTest PRIVATE crosspoint_test_common GTest::gtest_main)
+gtest_discover_tests(CssCacheSourceTest)

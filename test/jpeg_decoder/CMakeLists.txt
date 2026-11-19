@@ -30,3 +30,12 @@ add_executable(JpegDecoderTest JpegDecoderTest.cpp)
 target_compile_definitions(JpegDecoderTest PRIVATE JPEG_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures")
 target_link_libraries(JpegDecoderTest PRIVATE crosspoint_test_common GTest::gtest_main jpegdec_host)
 gtest_discover_tests(JpegDecoderTest)
+
+add_executable(JpegThumbnailTest JpegThumbnailTest.cpp
+  ${REPO_ROOT}/lib/JpegToBmpConverter/JpegToBmpConverter.cpp
+  ${REPO_ROOT}/lib/GfxRenderer/BitmapHelpers.cpp)
+target_include_directories(JpegThumbnailTest PRIVATE ../pxc_v2/stubs ../gif_support/stubs
+  ${REPO_ROOT}/lib/JpegToBmpConverter ${REPO_ROOT}/lib/GfxRenderer ${REPO_ROOT}/lib/Memory)
+target_compile_definitions(JpegThumbnailTest PRIVATE JPEG_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures")
+target_link_libraries(JpegThumbnailTest PRIVATE crosspoint_test_common GTest::gtest_main jpegdec_host)
+gtest_discover_tests(JpegThumbnailTest)

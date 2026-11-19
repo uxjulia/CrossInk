@@ -16,7 +16,8 @@ struct Saved;
 // Foreground helpers shared by reader sync and the explicit folder upload.
 namespace ReadingSyncUpload {
 // Only saved, mappable EPUB positions qualify. Never invent progress for an unread book.
-bool prepareProgress(const std::string& path, KOReaderProgress& progress);
+// localUnavailable distinguishes missing/stale pagination from mapping or I/O failure.
+bool prepareProgress(const std::string& path, KOReaderProgress& progress, bool* localUnavailable = nullptr);
 bool stageProgress(const std::string& path);
 bool loadPreparedProgress(const std::string& path, KOReaderProgress& progress,
                           PreparedProgress::Saved* saved = nullptr);
@@ -29,11 +30,12 @@ struct ExtrasResult {
 };
 enum class GlobalStatsStep : uint8_t { None, Setup, Totals, Daily, Sessions, Streak };
 // Reports the step that could not finish; success/skipped clears any previous failure.
-StatsUploadClient::Result globalStats(GlobalStatsStep* failedStep = nullptr);
+StatsUploadClient::Result globalStats(GlobalStatsStep* failedStep = nullptr, StatsUploadClient::Relay* relay = nullptr);
 // Reuse the explicit stats activity's existing buffer/client rather than allocating a second pair.
 StatsUploadClient::Result globalStats(StatsUploadClient& client, char* payload, size_t capacity, const char* deviceId,
                                       GlobalStatsStep* failedStep = nullptr);
-StatsUploadClient::Result stats(const std::string& path, const std::string& document);
+StatsUploadClient::Result stats(const std::string& path, const std::string& document,
+                                StatsUploadClient::Relay* relay = nullptr);
 // A book's saved stats when there are any to send (stats tracking on for it).
 // Only a stats-file existence check and one small read; never loads the book.
 bool loadBookStats(const std::string& path, BookReadingStats& stats);

@@ -5,11 +5,13 @@ import copy
 import importlib.util
 import io
 import json
+import os
 from pathlib import Path
 import re
 import subprocess
 import sys
 import tempfile
+import textwrap
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -438,7 +440,9 @@ class ReleaseWorkflowTest(unittest.TestCase):
                 self.assertIn('prepare-language-assets', self.needs(draft))
                 self.assertIn(build_job, self.needs(gate))
                 self.assertIn('scripts/prepare_release_downloads.py --tag', gate)
-                self.assertIn('SOURCE_COMMIT: ${{ github.sha }}', gate)
+                source = ('${{ github.sha }}' if filename == 'release.yml' else
+                          '${{ inputs.source_commit || github.sha }}')
+                self.assertIn('SOURCE_COMMIT: ' + source, gate)
                 self.assertIn('GH_TOKEN: ${{ secrets.RELEASE_PAT }}', gate)
                 self.assertNotIn('continue-on-error:', draft + gate)
                 self.assertNotIn('always()', draft + gate)
@@ -448,6 +452,60 @@ class ReleaseWorkflowTest(unittest.TestCase):
                     results = {job: 'success' for job in self.needs(draft)}
                     results['prepare-language-assets'] = outcome
                     self.assertFalse(all(results[job] == 'success' for job in self.needs(draft)))
+
+    def test_rc_override_pins_firmware_downloads_and_release_to_one_source(self):
+        jobs = self.jobs('release_candidate.yml')
+        source = '${{ inputs.source_commit || github.sha }}'
+        for name in ('build-release-candidate', 'prepare-language-assets',
+                     'publish-release-candidate'):
+            with self.subTest(job=name):
+                job = jobs[name]
+                self.assertIn('ref: ' + source, job)
+                variable = 'SOURCE_COMMIT' if name == 'prepare-language-assets' else 'RC_HASH'
+                self.assertIn(variable + ': ' + source, job)
+        draft = jobs['publish-release-candidate']
+        self.assertIn('target_commitish: ' + source, draft)
+        self.assertIn('--source-commit "$RC_HASH" --status release-build', draft)
+        self.assertIn('--source-commit "$SOURCE_COMMIT"', jobs['prepare-language-assets'])
+
+    def test_rc_metadata_executes_exact_source_validation_and_tag_derivation(self):
+        # Run the actual shell steps locally: no release or network operations.
+        # The workflow wiring above checks the GitHub expression; these cases
+        # exercise the selected SHA against the actual checkout in both jobs.
+        jobs = self.jobs('release_candidate.yml')
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            subprocess.run(['git', 'init', '-q', directory], check=True)
+            subprocess.run(['git', '-C', directory, '-c', 'user.name=Release test',
+                            '-c', 'user.email=release-test@example.invalid',
+                            '-c', 'commit.gpgsign=false', 'commit', '--allow-empty',
+                            '-qm', 'source'], check=True)
+            commit = subprocess.check_output(['git', '-C', directory, 'rev-parse', 'HEAD'],
+                                             text=True).strip()
+            for name in ('build-release-candidate', 'publish-release-candidate'):
+                step = jobs[name].split('      - name: Resolve release-candidate metadata\n', 1)[1]
+                script = textwrap.dedent(step.split('        run: |\n', 1)[1]
+                                        .split('\n      - ', 1)[0])
+                for source in (commit, 'f' * 40, commit[:7], 'main'):
+                    with self.subTest(job=name, source=source):
+                        env_file, output = root / 'env', root / 'output'
+                        env_file.write_text('')
+                        output.write_text('')
+                        result = subprocess.run(['bash', '-e', '-c', script], cwd=root,
+                                                env={**os.environ, 'RC_BRANCH': 'release/next',
+                                                     'RC_HASH': source, 'GITHUB_ENV': str(env_file),
+                                                     'GITHUB_OUTPUT': str(output)},
+                                                capture_output=True, text=True)
+                        if source == commit:
+                            self.assertEqual(result.returncode, 0, result.stderr)
+                            self.assertIn('RC_TAG=rc-next-' + commit[:7], env_file.read_text())
+                            if name == 'build-release-candidate':
+                                self.assertIn('rc_tag=rc-next-' + commit[:7], output.read_text())
+                        else:
+                            self.assertNotEqual(result.returncode, 0)
+                            self.assertIn('exact source commit', result.stdout)
+                            self.assertEqual(env_file.read_text(), '')
+                            self.assertEqual(output.read_text(), '')
 
     def test_shared_workflow_prepares_both_destinations_without_release_events(self):
         path = ROOT / '.github/workflows/publish-language-assets.yml'

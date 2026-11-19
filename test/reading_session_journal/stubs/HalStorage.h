@@ -27,6 +27,10 @@ struct HostFaults {
   size_t readErrorAfter = 0;
   bool shortRead = false;
   size_t writes = 0;
+  size_t existsChecks = 0;
+  size_t readOpens = 0;
+  size_t directoryOpens = 0;
+  size_t directorySteps = 0;
 };
 inline HostFaults faults;
 class HalFile : public Print {
@@ -84,6 +88,7 @@ class HalFile : public Print {
     return name.size();
   }
   HalFile openNextFile() {
+    ++faults.directorySteps;
     if (faults.failScan) {
       scanFailed_ = true;
       return {};
@@ -118,7 +123,11 @@ class HalStorage {
     files[path] = data;
     return true;
   }
-  bool exists(const char* path) const { return files.contains(path); }
+  bool exists(const char* path) const {
+    ++faults.existsChecks;
+    return files.contains(path);
+  }
+  bool ensureDirectoryExists(const char* path) { return exists(path) || mkdir(path); }
   bool remove(const char* path) {
     if (failRemovePath_ == path) {
       failRemovePath_.clear();
@@ -152,6 +161,7 @@ class HalStorage {
     if (it == files.end()) return {};
     HalFile file(it->second, path);
     if (it->second->directory) {
+      ++faults.directoryOpens;
       const std::string prefix = std::string(path) + "/";
       for (const auto& entry : files)
         if (entry.first.starts_with(prefix)) file.entries_.push_back(entry);
@@ -159,6 +169,7 @@ class HalStorage {
     return file;
   }
   bool openFileForRead(const char*, const std::string& path, HalFile& file) {
+    ++faults.readOpens;
     if (faults.failReadPath == path) return false;
     const auto it = files.find(path);
     if (it == files.end()) return false;

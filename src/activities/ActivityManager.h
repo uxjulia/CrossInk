@@ -82,6 +82,7 @@ class ActivityManager {
   void exitActivity(const RenderLock& lock);
   // Apply navigation and render requests without polling the outgoing activity.
   void processPendingActivities();
+  bool prepareSleepPlugins(bool quickResume, bool fromReaderOrHome);
 
   // Pending activity to be launched on next loop iteration
   std::unique_ptr<Activity> pendingActivity;
@@ -177,8 +178,8 @@ class ActivityManager {
   void goToReader(std::string path, bool suppressBackRelease = false, bool allowFastInitialRefresh = false,
                   bool cleanImageBaseOnEntry = false, bool keepWakeFrame = false);
   void goToReaderAndRunMenuAction(std::string path, uint8_t action);
-  void preparePluginSleep();
-  void goToSleep(bool fromTimeout = false);
+  // Returns true only when sleep rendered a known complete B/W frame.
+  bool goToSleep(bool fromTimeout = false);
   void goToBoot();
   void goToFullScreenMessage(std::string message, EpdFontFamily::Style style = EpdFontFamily::REGULAR);
   void goToCrashReport();
@@ -206,6 +207,8 @@ class ActivityManager {
   // gestures until it is dismissed.
   bool blocksGlobalInput() const;
   bool isHomeActivity() const;
+  bool canSyncOpenEpubOverUsb() const;
+  bool closeOpenEpubForUsbSync(std::string& path);
   bool isReaderActivity() const;
   bool openReaderSettingsForTouchscreenEscapeHatch();
   bool handleHomeButtonBackOrHome();

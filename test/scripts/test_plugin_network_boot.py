@@ -95,11 +95,12 @@ struct PluginCatalogActivity : CatalogActivity {
 bool failAllocation = false;
 unsigned allocations = 0, restarts = 0;
 NetworkBootTarget destination = NetworkBootTarget::OTA;
-void silentRestart() { events.push_back("home"); }
-void silentRestartToNetwork(NetworkBootTarget target, uint32_t payload) {
+bool silentRestart() { events.push_back("home"); return true; }
+bool silentRestartToNetwork(NetworkBootTarget target, uint32_t payload) {
   ++restarts;
   destination = target;
   assert(payload == 0);
+  return true;
 }
 template <class T, class... Args>
 std::unique_ptr<T> makeUniqueNoThrow(Args&&... args) {

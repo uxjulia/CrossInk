@@ -74,20 +74,25 @@ bool applyEdit(SyncFiles::Reader& reader, const Edit& edit, SyncFiles::Writer* w
   return true;
 }
 
-bool rewrite(const Edit& edit, const char* target = PATH) {
+// A caller asking whether the source was missing may only use an existing,
+// readable queue. The on-device repair path can recreate a lost queue.
+bool rewrite(const Edit& edit, const char* target = PATH, bool* missingSource = nullptr) {
   SyncFiles::Reader reader(PATH);
   bool missing = false;
   auto source = reader.open(&missing);
+  if (missingSource) *missingSource = missing;
   if (source == SyncFiles::Reader::Source::None) {
     // Never created, or lost along with its backup. A reader that has
     // completed sync work must redo it, since unpushed changes were lost.
     if (!missing) LOG_ERR("SYNC", "Pending list and backup unreadable");
+    if (missingSource) return false;
     SyncState::resetAfterPendingLoss();
   } else {
     uint8_t version = 0;
     if (!reader.pod(version) || version != VERSION) {
       // Written by newer firmware: its entries can't be read, so treat them as lost.
-      LOG_ERR("SYNC", "Unknown pending list version %u; starting empty", version);
+      LOG_ERR("SYNC", "Unknown pending list version %u", version);
+      if (missingSource) return false;
       SyncState::resetAfterPendingLoss();
       reader.close();
       source = SyncFiles::Reader::Source::None;
@@ -145,6 +150,14 @@ bool clear(const std::string& path, const uint8_t bits) {
   edit.path = &path;
   edit.clearBits = bits;
   return rewrite(edit);
+}
+
+bool clearExisting(const std::string& path, const uint8_t bits) {
+  Edit edit;
+  edit.path = &path;
+  edit.clearBits = bits;
+  bool missing = false;
+  return rewrite(edit, PATH, &missing) || missing;
 }
 
 bool clearPaths(const std::vector<std::string>& paths, const uint8_t bits) {

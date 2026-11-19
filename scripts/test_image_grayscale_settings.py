@@ -25,8 +25,9 @@ FIXTURE = r'''
 #define LOG_ERR(...) ((void)0)
 struct CrossPointSettings {
   static constexpr uint8_t INDEXING_FULL_SECTION = 1, INDEXING_METHOD_COUNT = 2;
-  static constexpr uint8_t MIN_SCREEN_MARGIN = 5, MAX_WORD_SPACING = 4;
+  static constexpr uint8_t MIN_SCREEN_MARGIN = 5, MAX_WORD_SPACING = 8, MAX_CHARACTER_SPACING = 10;
 };
+enum class PublisherFonts : uint8_t { Off, Accents, All };
 enum class EpubRenderMode : uint8_t { CrossInkDefault };
 uint8_t normalizeRenderModeRaw(uint8_t v) { return v < 3 ? v : 0; }
 uint16_t clampAutoPageTurnIntervalSeconds(uint16_t v) { return std::clamp<uint16_t>(v, 5, 120); }
@@ -57,6 +58,82 @@ struct StorageFake {
 
 CASES = r'''
 int main() {
+  for (uint8_t global : {0, 1, 2, 3}) {
+    globalSnapshot.ruledLines = global;
+    for (uint8_t book : {0, 1, 2, 3}) {
+      Storage.bytes.clear();
+      auto data = loadBookReaderSettingsFile("");
+      assert(data.readerSettings.ruledLines == global);
+      data.readerSettings.ruledLines = book;
+      data.readerSettingsOverrideMask = changedReaderSettingsMask(data.readerSettings, globalSnapshot);
+      assert(data.readerSettingsOverrideMask == (book == global ? 0 : RULED_LINES_OVERRIDE));
+      assert(!(data.readerSettingsOverrideMask & READER_LAYOUT_SETTING_OVERRIDES));
+      assert(saveBookReaderSettingsFile("", data));
+      assert(loadBookReaderSettingsFile("").readerSettings.ruledLines == book);
+    }
+    auto data = loadBookReaderSettingsFile("");
+    data.readerSettings.twoToneTextAA = 1;
+    data.readerSettingsOverrideMask = TWO_TONE_TEXT_AA_OVERRIDE;
+    assert(saveBookReaderSettingsFile("", data));
+    Storage.bytes[0] = 15;
+    Storage.bytes.pop_back();
+    const auto old = loadBookReaderSettingsFile("");
+    assert(old.readerSettingsOverrideMask == TWO_TONE_TEXT_AA_OVERRIDE);
+    assert(old.readerSettings.ruledLines == global && old.readerSettings.twoToneTextAA == 1);
+  }
+  for (uint8_t global : {0, 1}) {
+    globalSnapshot.twoToneTextAA = global;
+    Storage.bytes.clear();
+    auto data = loadBookReaderSettingsFile("");
+    assert(data.readerSettings.twoToneTextAA == global);
+    data.readerSettings.twoToneTextAA = !global;
+    data.readerSettingsOverrideMask = changedReaderSettingsMask(data.readerSettings, globalSnapshot);
+    assert(data.readerSettingsOverrideMask == TWO_TONE_TEXT_AA_OVERRIDE);
+    assert(!(data.readerSettingsOverrideMask & READER_LAYOUT_SETTING_OVERRIDES));
+    assert(saveBookReaderSettingsFile("", data));
+    assert(Storage.bytes[0] == 16);
+    assert(loadBookReaderSettingsFile("").readerSettings.twoToneTextAA == !global);
+
+    // A v14 book with custom darkness inherits the current AA quality.
+    data.readerSettingsOverrideMask = TEXT_DARKNESS_OVERRIDE;
+    data.readerSettings.textDarkness = 2;
+    assert(saveBookReaderSettingsFile("", data));
+    Storage.bytes[0] = 14;
+    Storage.bytes.resize(Storage.bytes.size() - 2);
+    auto old = loadBookReaderSettingsFile("");
+    assert(old.readerSettingsOverrideMask == TEXT_DARKNESS_OVERRIDE);
+    assert(old.readerSettings.twoToneTextAA == global);
+    assert(old.readerSettings.textDarkness == 2);
+  }
+  for (uint8_t global : {0, 1, 2}) {
+    globalSnapshot.textDarkness = global;
+    for (uint8_t book : {0, 1, 2}) {
+      Storage.bytes.clear();
+      auto data = loadBookReaderSettingsFile("");
+      assert(data.readerSettings.textDarkness == global);
+      data.readerSettings.textDarkness = book;
+      data.readerSettingsOverrideMask = TEXT_DARKNESS_OVERRIDE;
+      assert(saveBookReaderSettingsFile("", data));
+      assert(Storage.bytes[0] == 16);
+      auto loaded = loadBookReaderSettingsFile("");
+      assert(loaded.readerSettings.textDarkness == book);
+      assert(changedReaderSettingsMask(data.readerSettings, globalSnapshot) ==
+             (book == global ? 0 : TEXT_DARKNESS_OVERRIDE));
+      assert(!(loaded.readerSettingsOverrideMask & READER_LAYOUT_SETTING_OVERRIDES));
+      // Version 13 fixture retains publisher-font override and inherits darkness.
+      Storage.bytes.resize(Storage.bytes.size() - 3);
+      Storage.bytes[0] = 13;
+      Storage.bytes[155] = 0x20; // bit 21
+      Storage.bytes.back() = 2; // publisherFonts = All
+      loaded = loadBookReaderSettingsFile("");
+      assert(loaded.readerSettings.publisherFonts == 2);
+      assert(loaded.readerSettings.textDarkness == global);
+      assert(!(loaded.readerSettingsOverrideMask & TEXT_DARKNESS_OVERRIDE));
+    }
+  }
+  Storage.bytes.clear();
+  globalSnapshot.textDarkness = 2;
+
   for (uint8_t global : {0, 1}) {
     globalSnapshot.imageGrayscale = global;
     Storage.bytes.clear();
@@ -96,6 +173,10 @@ int main() {
       assert(loaded.autoPageTurnSeconds == 30);
       assert(loaded.readerSettings.imageGrayscale == global);
       assert(!(loaded.readerSettingsOverrideMask & IMAGE_GRAYSCALE_OVERRIDE));
+      assert(!(loaded.readerSettingsOverrideMask & TEXT_DARKNESS_OVERRIDE));
+      assert(loaded.readerSettings.textDarkness == 2);
+      assert(loaded.readerSettings.twoToneTextAA == globalSnapshot.twoToneTextAA);
+      assert(!(loaded.readerSettingsOverrideMask & TWO_TONE_TEXT_AA_OVERRIDE));
       assert(loaded.readerSettingsOverrideMask & SD_FONT_FAMILY_OVERRIDE);
       assert(std::strcmp(loaded.readerSettings.sdFontFamilyName, "OldFont") == 0);
       if (version == 9) {
@@ -114,6 +195,16 @@ int main() {
   data.readerSettings.imageGrayscale = 0;
   data.readerSettingsOverrideMask = IMAGE_GRAYSCALE_OVERRIDE;
   assert(saveBookReaderSettingsFile("", data));
+  const auto validBytes = Storage.bytes;
+  Storage.bytes.back() = 4; // Reject an out-of-range ruling.
+  assert(!loadBookReaderSettingsFile("").hasCustomReaderSettings);
+  Storage.bytes = validBytes;
+  Storage.bytes[Storage.bytes.size() - 2] = 2; // Reject an out-of-range two-tone setting.
+  assert(!loadBookReaderSettingsFile("").hasCustomReaderSettings);
+  Storage.bytes = validBytes;
+  Storage.bytes[Storage.bytes.size() - 3] = 3; // Reject an out-of-range darkness value.
+  assert(!loadBookReaderSettingsFile("").hasCustomReaderSettings);
+  Storage.bytes = validBytes;
   Storage.bytes.pop_back(); // Truncated new byte must fall back safely.
   assert(!loadBookReaderSettingsFile("").hasCustomReaderSettings);
   ReaderSettingsSnapshot current = globalSnapshot;
@@ -125,7 +216,7 @@ int main() {
 
 def main():
     structs = between(HEADER, '  struct ReaderSettingsSnapshot {', '\n private:')
-    constants = between(SOURCE, 'constexpr uint8_t LEGACY_READER_SETTINGS_FILE_VERSION', 'constexpr char BALANCED_SECTION_CACHE_SUFFIX')
+    constants = between(SOURCE, 'constexpr uint8_t LEGACY_READER_SETTINGS_FILE_VERSION', 'constexpr unsigned long RENDER_MODE_TOAST_MS')
     io = between(SOURCE, 'bool readExact(', 'void captureReaderSettings(')
     production = between(SOURCE, 'using ReaderSettingsSnapshot =', 'bool saveBookRenderModeForCache(')
     setup = '''
@@ -140,7 +231,7 @@ void captureReaderSettings(EpubReaderActivity::ReaderSettingsSnapshot& out) { ou
         source.write_text(program)
         subprocess.run(['c++', '-std=c++20', '-Wall', '-Wextra', '-Wno-unused-const-variable', str(source), '-o', str(binary)], check=True)
         subprocess.run([str(binary)], check=True)
-    print('PASS: grayscale overrides, inheritance, version 9/10 migrations, font preservation, truncated records')
+    print('PASS: ruled lines round trips, version 15 inheritance, two-tone AA round trips, version 14 inheritance, text darkness round trips, version 13 inheritance, grayscale overrides, inheritance, version 9/10 migrations, font preservation, truncated records')
 
 
 if __name__ == '__main__':

@@ -398,7 +398,8 @@ void IntervalSelectionActivity::renderReaderPreview(const Rect& area) {
       renderer, fontId, left, top, width, lineHeight, wordSpacing, SETTINGS.paragraphAlignment,
       SETTINGS.focusReadingEnabled, SETTINGS.guideReadingEnabled, true, top + height,
       CrossPointSettings::characterSpacingLevel(
-          readerPreviewSetting == ReaderPreviewSetting::CharacterSpacing ? value : SETTINGS.characterSpacing));
+          readerPreviewSetting == ReaderPreviewSetting::CharacterSpacing ? value : SETTINGS.characterSpacing),
+      SETTINGS.ruledLines);
   renderer.endTextClip();
 }
 
@@ -723,7 +724,12 @@ void IntervalSelectionActivity::render(RenderLock&&) {
       drawStepHintLine(layout.stepsY + renderer.getLineHeight(SMALL_FONT_ID) + 4, StrId::STR_SIDE_BUTTONS, largeStep);
     }
 
-    const auto labels = mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), tr(STR_SELECT), "-", "+");
+    char decreaseLabel[12];
+    char increaseLabel[12];
+    snprintf(decreaseLabel, sizeof(decreaseLabel), "%+d", -smallStep);
+    snprintf(increaseLabel, sizeof(increaseLabel), "%+d", smallStep);
+    const auto labels =
+        mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), tr(STR_SELECT), decreaseLabel, increaseLabel);
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4, readerActivity);
   }
 

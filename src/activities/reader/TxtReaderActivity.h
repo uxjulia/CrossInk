@@ -51,6 +51,8 @@ class TxtReaderActivity final : public Activity {
 
   // Cached settings for cache validation (different fonts/margins require re-indexing)
   int8_t cachedCharacterSpacing = 0;
+  int cachedRuledViewport = -1;
+  int cachedRowHeight = 0;
   int cachedFontId = 0;
   uint8_t cachedVerticalMargin = 0;
   uint8_t cachedHorizontalMargin = 0;
