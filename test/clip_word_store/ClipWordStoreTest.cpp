@@ -112,6 +112,27 @@ TEST(ClipTextBuilder, JoinsInsertedHyphenAcrossParagraphBoundary) {
   EXPECT_EQ(result.text, "hyphenated");
 }
 
+TEST(ClipTextBuilder, PreservesNarrowSpacesAndAttachedFragmentsInEitherLineOrder) {
+  ClipWordStore store;
+  const char* texts[] = {"master", "’s", "tools"};
+  for (uint16_t i = 0; i < 3; ++i) {
+    WordRef word;
+    word.x = 12 * i;
+    word.w = 10;
+    word.pageWordIndex = i;
+    word.hasSpaceBefore = i == 2;
+    ASSERT_TRUE(store.appendText(word, texts[i]));
+    store.words.push_back(word);
+  }
+
+  const uint16_t forward[] = {0, 1, 2};
+  EXPECT_EQ(ClipTextBuilder::build(store, forward, 0, 2, 0, 1).text, "master’s tools");
+
+  // An RTL line is visited in reverse layout order. The space still belongs to the same pair.
+  const uint16_t reverse[] = {2, 1, 0};
+  EXPECT_EQ(ClipTextBuilder::build(store, reverse, 0, 2, 0, 1).text, "tools ’smaster");
+}
+
 TEST(ClipTextBuilder, AppliesDictionaryFragmentBoundsToTheirOwnPages) {
   ClipWordStore store;
   WordRef first;

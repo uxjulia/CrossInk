@@ -19,9 +19,10 @@ struct WordRef {
   uint16_t textLength = 0;
   uint16_t tableSelection = UINT16_MAX;
   EpdFontFamily::Style style = EpdFontFamily::REGULAR;
-  bool paragraphStart = false;
-  bool endsWithInsertedHyphen = false;
-  bool lineIsRtl = false;
+  bool paragraphStart : 1 = false;
+  bool endsWithInsertedHyphen : 1 = false;
+  bool lineIsRtl : 1 = false;
+  bool hasSpaceBefore : 1 = false;
   uint32_t sourceStart = UINT32_MAX;
   uint32_t sourceEnd = UINT32_MAX;
 };

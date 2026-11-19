@@ -73,6 +73,14 @@ bool areWordsVisuallyAttached(const WordRef& previousWord, const WordRef& word) 
   return previousWord.x <= word.x + word.w + 2;
 }
 
+bool hasLayoutSpaceBetween(const WordRef& previousWord, const WordRef& word) {
+  if (word.pageIdx != previousWord.pageIdx || word.y != previousWord.y) return false;
+
+  // Selection traverses RTL rows in reverse, but the space flag follows layout order.
+  if (previousWord.pageWordIndex + 1 == word.pageWordIndex) return word.hasSpaceBefore;
+  return word.pageWordIndex + 1 == previousWord.pageWordIndex && previousWord.hasSpaceBefore;
+}
+
 std::string selectedWordText(const ClipWordStore& wordStore, const WordRef& word,
                              const SelectionBounds* selectionBounds) {
   const bool isFirstBound = selectionBounds && word.pageIdx == selectionBounds->firstPageIdx &&
@@ -207,8 +215,9 @@ ClippingResult build(const ClipWordStore& wordStore, const uint16_t* wordOrder, 
     const bool yGap =
         previousWord && word.pageIdx == previousWord->pageIdx && word.y > previousWord->y + previousWord->h;
     const bool paragraphStart = previousWord && (hasEmSpace(wordStore.text(word)) || word.paragraphStart || yGap);
+    const bool hasLayoutSpace = previousWord && hasLayoutSpaceBetween(*previousWord, word);
 
-    if (previousWord && !text.empty() && !paragraphStart) {
+    if (previousWord && !text.empty() && !paragraphStart && !hasLayoutSpace) {
       if (!previousClean.empty() && previousClean.back() == '-' &&
           !std::isspace(static_cast<unsigned char>(wordText[0])) &&
           !std::ispunct(static_cast<unsigned char>(wordText[0]))) {
@@ -223,7 +232,7 @@ ClippingResult build(const ClipWordStore& wordStore, const uint16_t* wordOrder, 
       text += '\n';
     } else if (!text.empty()) {
       const bool attached = previousWord && areWordsVisuallyAttached(*previousWord, word);
-      if (!attached) {
+      if (hasLayoutSpace || !attached) {
         text += ' ';
       }
     }
