@@ -7,6 +7,7 @@
 ### Fixed
 
 - Stay in the selected chapter when following EPUB Contents links, including links to positions within a chapter.
+- Indent EPUB blockquotes that rely on default margins (#956).
 
 ## [v2.0.0] - 2026-11-19
 
@@ -91,6 +92,7 @@
 - Keep multibyte network names and masked password previews intact (CrossPoint #4079, #4106).
 - Keep Nearby and firmware transfers responsive during storage checks and let USB waits yield to other tasks. Preserve serial screenshots and pre-crash logs, including after low-power USB interruptions (CrossPoint #3737).
 - Hide tilt controls when the sensor cannot support page turning or fails its startup check, while keeping saved preferences (CrossPoint 8fc2b66 and #4078).
+- Indent EPUB blockquotes that rely on default margins (#956).
 
 ## [v1.6.1] - 2026-10-03
 

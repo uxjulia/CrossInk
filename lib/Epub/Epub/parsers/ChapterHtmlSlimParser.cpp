@@ -3338,8 +3338,22 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
     userAlignmentBlockStyle.alignment = cssStyle.textAlign;
   }
 
-  if (!self->embeddedStyle || self->isLightMode()) {
+  const bool usePublisherSpacing = self->embeddedStyle && !self->isLightMode();
+  if (!usePublisherSpacing) {
     stripPublisherSpacing(userAlignmentBlockStyle);
+  }
+
+  if (strcmp(name, "blockquote") == 0) {
+    // Give unstyled quotes a visible inset, without letting nested defaults eat the text column.
+    const auto& parentStyle = self->blockStyleBuf_[self->blockStyleCount_ - 1];
+    const int existingInset = parentStyle.totalHorizontalInset() + userAlignmentBlockStyle.totalHorizontalInset();
+    const int quoteMargin = std::clamp((self->viewportWidth / 2 - existingInset) / 2, 0, static_cast<int>(emSize));
+    if (!usePublisherSpacing || !cssStyle.hasMarginLeft()) {
+      userAlignmentBlockStyle.marginLeft = quoteMargin;
+    }
+    if (!usePublisherSpacing || !cssStyle.hasMarginRight()) {
+      userAlignmentBlockStyle.marginRight = quoteMargin;
+    }
   }
 
   // <html> and <body> are transparent to the block layout stack, but CSS

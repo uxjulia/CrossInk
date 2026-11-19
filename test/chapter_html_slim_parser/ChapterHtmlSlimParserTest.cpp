@@ -272,6 +272,59 @@ TEST_F(ChapterHtmlSlimParserTest, NestedHeadingDoesNotAbsorbSingleBufferedWord) 
   }
 }
 
+TEST_F(ChapterHtmlSlimParserTest, UnstyledBlockquoteIndentsEachParagraphOnlyInsideTheQuote) {
+  parser.cssParser = nullptr;
+  const int quoteMargin = renderer.getFontAscenderSize(0);
+  ChapterHtmlSlimParser::startElement(&parser, "blockquote", nullptr);
+  for (int i = 0; i < 2; ++i) {
+    const auto paragraph = parseParagraph("paraNoIndent");
+    EXPECT_EQ(paragraph.leftInset(), quoteMargin);
+    EXPECT_EQ(paragraph.rightInset(), quoteMargin);
+  }
+  ChapterHtmlSlimParser::endElement(&parser, "blockquote");
+  const auto following = parseParagraph("plain");
+  EXPECT_EQ(following.leftInset(), 0);
+  EXPECT_EQ(following.rightInset(), 0);
+}
+
+TEST_F(ChapterHtmlSlimParserTest, BlockquotePublisherMarginsOverrideDefaultsPerSide) {
+  cssParser.rulesBySelector_["blockquote"] = CssParser::parseInlineStyle("margin-left: 0");
+  ChapterHtmlSlimParser::startElement(&parser, "blockquote", nullptr);
+  const auto stylesheetOnly = parseParagraph("plain");
+  EXPECT_EQ(stylesheetOnly.leftInset(), 0);
+  EXPECT_EQ(stylesheetOnly.rightInset(), renderer.getFontAscenderSize(0));
+  ChapterHtmlSlimParser::endElement(&parser, "blockquote");
+
+  const XML_Char* attrs[] = {"style", "margin-right: 9px", nullptr};
+  ChapterHtmlSlimParser::startElement(&parser, "blockquote", attrs);
+  const auto paragraph = parseParagraph("plain");
+  EXPECT_EQ(paragraph.leftInset(), 0);
+  EXPECT_EQ(paragraph.rightInset(), 9);
+}
+
+TEST_F(ChapterHtmlSlimParserTest, BlockquoteUsesDefaultMarginsWithoutPublisherSpacing) {
+  cssParser.rulesBySelector_["blockquote"] = CssParser::parseInlineStyle("margin: 0");
+  for (const bool embeddedStyle : {true, false}) {
+    parser.embeddedStyle = embeddedStyle;
+    parser.renderMode = embeddedStyle ? EpubRenderMode::Light : EpubRenderMode::CrossInkDefault;
+    ChapterHtmlSlimParser::startElement(&parser, "blockquote", nullptr);
+    const auto paragraph = parseParagraph("plain");
+    const int quoteMargin = renderer.getFontAscenderSize(0);
+    EXPECT_EQ(paragraph.leftInset(), quoteMargin);
+    EXPECT_EQ(paragraph.rightInset(), quoteMargin);
+    ChapterHtmlSlimParser::endElement(&parser, "blockquote");
+  }
+}
+
+TEST_F(ChapterHtmlSlimParserTest, NestedBlockquoteDefaultsLeaveRoomForText) {
+  parser.viewportWidth = 64;
+  ChapterHtmlSlimParser::startElement(&parser, "blockquote", nullptr);
+  ChapterHtmlSlimParser::startElement(&parser, "blockquote", nullptr);
+  const auto paragraph = parseParagraph("plain");
+  EXPECT_EQ(paragraph.leftInset(), 16);
+  EXPECT_EQ(paragraph.rightInset(), 16);
+}
+
 TEST_F(ChapterHtmlSlimParserTest, BlockquoteParagraphsInheritItalicAndRestoreFollowingText) {
   cssParser.rulesBySelector_["blockquote"] =
       CssParser::parseInlineStyle("margin-left: 2em; margin-right: 1em; font-style: italic");

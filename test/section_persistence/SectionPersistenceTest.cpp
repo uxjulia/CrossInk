@@ -206,7 +206,9 @@ TEST_F(SectionPersistenceTest, FailedCommitKeepsThePreviousReadableCache) {
 }
 
 TEST_F(SectionPersistenceTest, RejectsCachesFromPreviousLayoutRevisions) {
-  for (const uint8_t staleVersion : {uint8_t{114},
+  for (const uint8_t staleVersion : {uint8_t{115},
+                                     uint8_t{0xE4},
+                                     uint8_t{114},
                                      uint8_t{0xE3},
                                      uint8_t{113},
                                      uint8_t{0xE2},

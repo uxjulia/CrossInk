@@ -690,13 +690,13 @@ valid remains the file starts fresh (see below). Integers are little-endian.
 
 Books whose local state changed since their last successful upload.
 
-| Field | Type | Notes |
-| --- | --- | --- |
-| version | `uint8` | `1` |
-| entries | repeated | until the CRC |
-| entry.mask | `uint8` | `1` progress, `2` reading stats, `4` clippings |
-| entry.path | `uint16` length + bytes | absolute book path, at most 1024 bytes |
-| crc | `uint32` | |
+| Field      | Type                    | Notes                                          |
+| ---------- | ----------------------- | ---------------------------------------------- |
+| version    | `uint8`                 | `1`                                            |
+| entries    | repeated                | until the CRC                                  |
+| entry.mask | `uint8`                 | `1` progress, `2` reading stats, `4` clippings |
+| entry.path | `uint16` length + bytes | absolute book path, at most 1024 bytes         |
+| crc        | `uint32`                |                                                |
 
 Entries are only added while a sync account exists, and stats/clippings bits
 only while their What to Sync toggle is on. An entry is removed when its mask is
@@ -706,24 +706,24 @@ in `sync_state.bin` are reset so they run again.
 
 ### `/.crosspoint/sync_state.bin` (version 2)
 
-| Field | Type | Notes |
-| --- | --- | --- |
-| version | `uint8` | `1` |
-| baseUrl | `uint16` length + bytes | account this state belongs to |
-| username | `uint16` length + bytes | |
-| flags | `uint8` | bit 0 stats caught up, bit 1 clippings caught up |
-| statsCatchupId | `uint32` | non-zero while a stats catch-up is unfinished |
-| clippingsCatchupId | `uint32` | same for clippings |
-| nextStampId | `uint32` | next catch-up/walk id; random start, never reused |
-| scopes | repeated | version 2: prepared sync scopes, until the CRC |
-| scope.path | `uint16` length + bytes | folder, or `/` for the whole card; at most 255 bytes |
-| scope.flags | `uint8` | bit 0 prepared, bit 1 stats caught up, bit 2 clippings caught up |
-| scope.cursor | `uint32` | change feed cursor for this scope |
-| scope.lastSynced | `uint32` | stamp id of the last sync; the oldest is dropped beyond 32 scopes |
-| scope.walkId | `uint32` | non-zero while the scope's first walk is unfinished |
-| scope.statsCatchupId | `uint32` | unfinished stats catch-up for this scope |
-| scope.clippingsCatchupId | `uint32` | unfinished clippings catch-up for this scope |
-| crc | `uint32` | |
+| Field                    | Type                    | Notes                                                             |
+| ------------------------ | ----------------------- | ----------------------------------------------------------------- |
+| version                  | `uint8`                 | `1`                                                               |
+| baseUrl                  | `uint16` length + bytes | account this state belongs to                                     |
+| username                 | `uint16` length + bytes |                                                                   |
+| flags                    | `uint8`                 | bit 0 stats caught up, bit 1 clippings caught up                  |
+| statsCatchupId           | `uint32`                | non-zero while a stats catch-up is unfinished                     |
+| clippingsCatchupId       | `uint32`                | same for clippings                                                |
+| nextStampId              | `uint32`                | next catch-up/walk id; random start, never reused                 |
+| scopes                   | repeated                | version 2: prepared sync scopes, until the CRC                    |
+| scope.path               | `uint16` length + bytes | folder, or `/` for the whole card; at most 255 bytes              |
+| scope.flags              | `uint8`                 | bit 0 prepared, bit 1 stats caught up, bit 2 clippings caught up  |
+| scope.cursor             | `uint32`                | change feed cursor for this scope                                 |
+| scope.lastSynced         | `uint32`                | stamp id of the last sync; the oldest is dropped beyond 32 scopes |
+| scope.walkId             | `uint32`                | non-zero while the scope's first walk is unfinished               |
+| scope.statsCatchupId     | `uint32`                | unfinished stats catch-up for this scope                          |
+| scope.clippingsCatchupId | `uint32`                | unfinished clippings catch-up for this scope                      |
+| crc                      | `uint32`                |                                                                   |
 
 Version 1 files (no scopes) are read and rewritten as version 2. A different
 base URL or username reads as a fresh state (catch-ups and first walks run
@@ -740,15 +740,15 @@ compaction) still use the `.tmp` swap. A confirmed Document Matching change
 deletes it, together with `sync_parked.bin` and every scope's cursor, first walk
 and catch-ups in `sync_state.bin`.
 
-| Field | Type | Notes |
-| --- | --- | --- |
-| version | `uint8` | `1` |
-| method | `uint8` | `DocumentMatchMethod`; another method reads as an empty map |
-| generation | `uint32` | changes whenever the file is created anew, compacted, or rebuilt after a corrupt entry |
-| headerCrc | `uint32` | CRC32 of the 6 bytes above |
-| entry.id | 16 bytes | raw KOReader document MD5 |
-| entry.path | `uint8` length + bytes | absolute book path, at most 255 bytes |
-| entry.crc | `uint32` | CRC32 of the entry's id, length and path |
+| Field      | Type                   | Notes                                                                                  |
+| ---------- | ---------------------- | -------------------------------------------------------------------------------------- |
+| version    | `uint8`                | `1`                                                                                    |
+| method     | `uint8`                | `DocumentMatchMethod`; another method reads as an empty map                            |
+| generation | `uint32`               | changes whenever the file is created anew, compacted, or rebuilt after a corrupt entry |
+| headerCrc  | `uint32`               | CRC32 of the 6 bytes above                                                             |
+| entry.id   | 16 bytes               | raw KOReader document MD5                                                              |
+| entry.path | `uint8` length + bytes | absolute book path, at most 255 bytes                                                  |
+| entry.crc  | `uint32`               | CRC32 of the entry's id, length and path                                               |
 
 A torn append only loses that entry: the next record finds the partial tail and
 rewrites the file before appending. If the main file is missing after a crash
@@ -767,39 +767,39 @@ whose CRC does not match (torn write, or zeroed by a removal) is empty. There is
 no file header or file CRC. Removing the last valid entry deletes the file, so
 opening a book with nothing kept stops at the missing file.
 
-| Offset | Field | Type | Notes |
-| --- | --- | --- | --- |
-| 0 | version | `uint8` | `1`; `0` = empty slot |
-| 1 | hashCount | `uint8` | 1-4 |
-| 2 | flags | `uint8` | bit 0: rich position present |
-| 3 | reserved | `uint8` | |
-| 4 | hashes | 4 x 16 bytes | raw document MD5s: canonical first, then aliases |
-| 68 | percentage | `float` | |
-| 72 | timestamp | `int64` | remote write time |
-| 80 | pctQ | `uint32` | rich position |
-| 84 | spine, page, pages, paragraph | 4 x `uint16` | rich position; paragraph 0 = none |
-| 92 | device | 32 bytes | remote device name, NUL-padded |
-| 124 | xpath length | `uint16` | at most 252; longer positions are not parked |
-| 126 | xpath | 252 bytes | |
-| 380 | crc | `uint32` | CRC32 of bytes 0-379 |
+| Offset | Field                         | Type         | Notes                                            |
+| ------ | ----------------------------- | ------------ | ------------------------------------------------ |
+| 0      | version                       | `uint8`      | `1`; `0` = empty slot                            |
+| 1      | hashCount                     | `uint8`      | 1-4                                              |
+| 2      | flags                         | `uint8`      | bit 0: rich position present                     |
+| 3      | reserved                      | `uint8`      |                                                  |
+| 4      | hashes                        | 4 x 16 bytes | raw document MD5s: canonical first, then aliases |
+| 68     | percentage                    | `float`      |                                                  |
+| 72     | timestamp                     | `int64`      | remote write time                                |
+| 80     | pctQ                          | `uint32`     | rich position                                    |
+| 84     | spine, page, pages, paragraph | 4 x `uint16` | rich position; paragraph 0 = none                |
+| 92     | device                        | 32 bytes     | remote device name, NUL-padded                   |
+| 124    | xpath length                  | `uint16`     | at most 252; longer positions are not parked     |
+| 126    | xpath                         | 252 bytes    |                                                  |
+| 380    | crc                           | `uint32`     | CRC32 of bytes 0-379                             |
 
 ### `<book cache>/sync.bin` (version 2)
 
 In the book's `epub_<hash>/` or `xtc_<hash>/` folder; only written when that
 folder already exists.
 
-| Field | Type | Notes |
-| --- | --- | --- |
-| version | `uint8` | `1` |
-| hasId | `uint8` | `1` when `id` is valid |
-| method | `uint8` | `DocumentMatchMethod` the id was computed with |
-| id | 16 bytes | raw KOReader document MD5 |
-| fileSize | `uint32` | book size when `id` was recorded; binary matching samples the current file at lookup |
-| statsStamp | `uint32` | stats catch-up id that last sent this book |
-| clippingsStamp | `uint32` | clippings catch-up id that last sent this book |
-| walkStamp | `uint32` | version 2: first-walk id that finished this book |
-| idsGeneration | `uint32` | version 2: `sync_ids.bin` generation the book was recorded in; 0 = not recorded |
-| crc | `uint32` | |
+| Field          | Type     | Notes                                                                                |
+| -------------- | -------- | ------------------------------------------------------------------------------------ |
+| version        | `uint8`  | `1`                                                                                  |
+| hasId          | `uint8`  | `1` when `id` is valid                                                               |
+| method         | `uint8`  | `DocumentMatchMethod` the id was computed with                                       |
+| id             | 16 bytes | raw KOReader document MD5                                                            |
+| fileSize       | `uint32` | book size when `id` was recorded; binary matching samples the current file at lookup |
+| statsStamp     | `uint32` | stats catch-up id that last sent this book                                           |
+| clippingsStamp | `uint32` | clippings catch-up id that last sent this book                                       |
+| walkStamp      | `uint32` | version 2: first-walk id that finished this book                                     |
+| idsGeneration  | `uint32` | version 2: `sync_ids.bin` generation the book was recorded in; 0 = not recorded      |
+| crc            | `uint32` |                                                                                      |
 
 Version 1 records are read with both new fields 0.
 
@@ -956,16 +956,16 @@ progress is not written; existing progress-save debounce remains in effect.
 
 Each new record is 20 bytes, little-endian:
 
-| Offset | Bytes | Value |
-| --- | --- | --- |
-| 0 | 2 | Spine index |
-| 2 | 2 | Page index |
-| 4 | 2 | Page count |
-| 6 | 4 | Visible-text offset, zero if absent |
-| 10 | 1 | Marker `0xC5` |
-| 11 | 1 | Flags: bit 0 means visible-text offset is present |
-| 12 | 4 | Sequence, compared modulo 2^32 |
-| 16 | 4 | IEEE CRC-32 of bytes 0–15 |
+| Offset | Bytes | Value                                             |
+| ------ | ----- | ------------------------------------------------- |
+| 0      | 2     | Spine index                                       |
+| 2      | 2     | Page index                                        |
+| 4      | 2     | Page count                                        |
+| 6      | 4     | Visible-text offset, zero if absent               |
+| 10     | 1     | Marker `0xC5`                                     |
+| 11     | 1     | Flags: bit 0 means visible-text offset is present |
+| 12     | 4     | Sequence, compared modulo 2^32                    |
+| 16     | 4     | IEEE CRC-32 of bytes 0–15                         |
 
 Legacy 4-, 6-, and 10-byte records remain readable. Migration writes the other
 slot first so an interrupted first save cannot destroy the only legacy copy.
@@ -1149,7 +1149,7 @@ body-only and built-in font identities stay unchanged. No binary payload changes
 
 ### Version 116 (current development)
 
-The section anchor map includes inline publisher page breaks for Page List links. The binary layout matches version 115. Complete sections use version 116 and suspended sections use `0xE5`.
+Blockquotes receive a default horizontal inset where publisher margins are absent or ignored. Complete and suspended sections rebuild so existing books use the new layout. Complete sections use version 116 and suspended sections use `0xE5`. The binary layout matches version 115.
 
 ### Version 115
 
@@ -1896,13 +1896,13 @@ Device-local counters live in `/.crosspoint/daily_reading/YYYY-MM.a.bin` and
 `YYYY-MM.b.bin`. Each month uses at most two 264-byte snapshots, regardless of
 how many days were read (dates support 2000–2099). All integers are little-endian:
 
-| Offset | Size | Meaning |
-| --- | --- | --- |
-| 0 | 4 | Version 2, ASCII `D`, ASCII `R`, reserved zero |
-| 4 | 4 | Month's first day index since 2000-01-01 |
-| 8 | 4 | Generation, incremented for each snapshot (wrap-safe comparison) |
-| 12 | 248 | 31 pairs of uint32 cumulative seconds and acknowledged seconds |
-| 260 | 4 | FNV-1a checksum of bytes 0–259, initial hash 2166136261 |
+| Offset | Size | Meaning                                                          |
+| ------ | ---- | ---------------------------------------------------------------- |
+| 0      | 4    | Version 2, ASCII `D`, ASCII `R`, reserved zero                   |
+| 4      | 4    | Month's first day index since 2000-01-01                         |
+| 8      | 4    | Generation, incremented for each snapshot (wrap-safe comparison) |
+| 12     | 248  | 31 pairs of uint32 cumulative seconds and acknowledged seconds   |
+| 260    | 4    | FNV-1a checksum of bytes 0–259, initial hash 2166136261          |
 
 Records after the month's last day must be zero. Acknowledged seconds must not
 exceed cumulative seconds. Saves overwrite the older/invalid slot, sync and close
@@ -2103,7 +2103,6 @@ Section cache version 96 (partial version `0xD1`) adds breakable, space-free tok
 
 Section cache version 97 (partial version `0xD2`) prevents justification from stretching boundaries inside hyphenated words. Complete and suspended layouts from earlier versions rebuild automatically; the binary payload is unchanged.
 
-
 ## Reading session outbox
 
 New measured sessions supplement the existing book/global counters and daily
@@ -2121,16 +2120,16 @@ cache cleanup and follows the configured KOReader document identity at capture.
 writes, CRC validation, and `.tmp`/`.bak` recovery. Fields are written separately
 in the firmware's little-endian integer representation, without struct padding:
 
-| Field | Bytes |
-|---|---:|
-| Format version (1) | 1 |
-| Session ID, ASCII hex without terminator | 32 |
-| Document ID, ASCII hex without terminator | 32 |
-| UTC start timestamp, seconds | 8 |
-| UTC end timestamp, seconds | 8 |
-| Cumulative active reading seconds | 4 |
-| Signed UTC offset, minutes | 2 |
-| CRC32 over preceding bytes | 4 |
+| Field                                     | Bytes |
+| ----------------------------------------- | ----: |
+| Format version (1)                        |     1 |
+| Session ID, ASCII hex without terminator  |    32 |
+| Document ID, ASCII hex without terminator |    32 |
+| UTC start timestamp, seconds              |     8 |
+| UTC end timestamp, seconds                |     8 |
+| Cumulative active reading seconds         |     4 |
+| Signed UTC offset, minutes                |     2 |
+| CRC32 over preceding bytes                |     4 |
 
 Session IDs remain unchanged as checkpoints grow and across upload retries.
 Uploads use the existing stats credentials and privacy switches, with at most
@@ -2227,7 +2226,6 @@ copy until Save. Eight-byte version 1 records retain their four edges and inheri
 the device's default corner clearances; the next saved adjustment writes version 2.
 Older firmware does not understand version 2 and falls back to its defaults.
 
-
 ## Reading-stat backup recovery
 
 New files in `/.crossink-stats-backup/` use the global-stats payload followed by
@@ -2250,7 +2248,6 @@ is written before archiving originals and removed only after the replacement
 has been saved and read back. An interrupted recovery remains protected on the
 next boot. A confirmed restore advances the same live-reader refresh revision
 as an explicit statistics reset, so an open reader imports the recovered totals.
-
 
 ### CSS rules cache revision 23
 

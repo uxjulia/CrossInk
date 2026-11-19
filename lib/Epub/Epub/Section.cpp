@@ -21,37 +21,7 @@
 
 namespace {
 constexpr uint32_t SECTION_CACHE_MAGIC = 0x535843FF;  // bytes: 0xFF, "CXS"
-// v62: Text blocks persist source whitespace semantics for font-preview reflow.
-// This changes their serialized payload, so full and suspended section caches
-// must rebuild together.
-// v63: Paragraph base direction excludes direction changes from inline elements.
-// v66: Internal EPUB links preserve CSS superscript/subscript positioning.
-// v75: HTML hidden attributes suppress content in all reading modes.
-// v76: Paragraphs without source CSS indentation no longer receive a synthetic indent.
-// v77: Ordered lists, marker suppression, and list-container insets affect page layout.
-// v78: Inline CSS padding affects dialogue and other styled text positions.
-// v79: Hangul word boundaries and line-end splits change cached page positions.
-// v80: Small EPUB images can share text lines, changing cached page positions.
-// v81: HTML and body text indents now inherit into descendant blocks.
-// v82: Scalable headings and blocks serialize point size and line height.
-// v83: Nested blocks inherit bold and italic styles, changing glyphs and wrapping.
-// v84 (2.0.0 RC): normalize development revisions 84-103 into one release bump.
-// Publisher decorations/fonts, spacing, hyphenation identity, GIFs, and reference
-// text offsets change both the payload and generated layout.
-// Keep the post-RC development revisions so cached layouts rebuild on upgrade.
-// v104: Spend chapter-wrapper closing spacing before the following paragraph.
-// v105: Keep CSS active below 48 KiB free heap; rebuild previously unstyled pages.
-// v106: Persist per-word source ranges for stable clipping anchors.
-// v107: Lay out chapter heading groups with their publisher spacing and alignment.
-// v108: Runtime outline advances defer rounding until pixel placement.
-// v109: Recognize oversized opening spans as drop caps, including nested styles.
-// v110: Image-backed thematic breaks retain a visible fallback rule.
-// v111: Smaller body declarations retain the reader-selected font size.
-// v112: Reserve clearance below descenders on ruled pages.
-// v113: Ruled text shares a font baseline across ordinary prose rows.
-// v114: Lower ruled text by a pixel while preserving descender clearance.
-// v115: Center the main letter body between rules independently of descenders.
-// v116: Include inline publisher page breaks in the anchor map.
+
 constexpr uint8_t SECTION_FILE_VERSION = 116;
 // Suspended incremental build: valid pages plus LUTs and a parse-watermark trailer.
 // Change this with layout or payload changes so stale partial pages cannot resume
