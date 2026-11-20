@@ -15,6 +15,7 @@
 #include <string>
 #include <vector>
 
+#include "CrossPointSettings.h"
 #include "EpubReaderMenuModel.h"
 #include "TouchReaderPreviewModel.h"
 #include "activities/Activity.h"
@@ -28,6 +29,7 @@ class EpubReaderDrawerActivity final : public Activity {
  public:
 #ifdef SIMULATOR
   friend struct SliderOrientationSmokeTest;
+  friend struct ClippingSelectionSmokeTest;
 #endif
   using SaveSettingsCallback = void (*)(void* ctx);
   using SaveGlobalSettingsCallback = void (*)(void* ctx);
@@ -51,6 +53,13 @@ class EpubReaderDrawerActivity final : public Activity {
       void* dictionaryFontChangedContext = nullptr,
       ReaderDrawerState initialState = initialReaderDrawerState(CROSSINK_APP_CAP_TOUCH),
       std::unique_ptr<EpubReaderPreviewModel> ownedPreviewModel = nullptr);
+
+  using SaveBookWordHoldAction = bool (*)(void* ctx, uint8_t action);
+  // Uses the reader settings context supplied to the constructor.
+  void setBookWordHoldAction(uint8_t action, SaveBookWordHoldAction save) {
+    bookWordHoldAction = action;
+    saveBookWordHoldAction = save;
+  }
 
   // Button menu only: shown under the book title. Set before the activity starts.
   void setChapterTitle(std::string title) { chapterTitle = std::move(title); }
@@ -200,6 +209,8 @@ class EpubReaderDrawerActivity final : public Activity {
 
   SaveSettingsCallback saveReaderSettingsCallback = nullptr;
   void* saveReaderSettingsContext = nullptr;
+  SaveBookWordHoldAction saveBookWordHoldAction = nullptr;
+  uint8_t bookWordHoldAction = CrossPointSettings::WORD_HOLD_USE_GLOBAL;
   SaveGlobalSettingsCallback saveGlobalSettingsCallback = nullptr;
   void* saveGlobalSettingsContext = nullptr;
   GlobalSettingsEditCallback beginGlobalSettingsEditCallback = nullptr;

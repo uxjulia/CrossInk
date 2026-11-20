@@ -32,6 +32,7 @@
 - Use a UI Fallback Font for missing menu and dialog characters, independently of the reading font.
 - Layer a transparent sleep image over the current book cover with Cover Overlay (CrossPoint #3770).
 - See hardware, display, firmware, FreeInk SDK revision, storage, and memory details in About. Export local support JSON with selected diagnostics and preferences. Optional EPUB overrides are anonymized, and identifiers, credentials, and reading history are excluded.
+- Choose whether holding a word opens its definition, saves a clipping, or shows the action toolbar. Dictionary lookup tries other installed dictionaries when the selected one has no match (#966).
 
 ### Changed
 

@@ -156,6 +156,7 @@ enum class ReaderDrawerCatalogItem : uint8_t {
   SyncProgress,
   NearbyPositionSync,
   SendNearbyBook,
+  BookWordHoldAction,
 };
 
 struct ReaderDrawerAvailability {
@@ -240,6 +241,9 @@ constexpr ReaderDrawerCatalog makeReaderDrawerCatalog(const ReaderDrawerAvailabi
   auto& settings = catalog[static_cast<size_t>(ReaderDrawerTab::Settings)];
   settings.add(ReaderDrawerCatalogItem::StatusBar);
   settings.add(ReaderDrawerCatalogItem::Controls);
+#if CROSSINK_APP_CAP_TOUCH
+  if (!available.buttonDevice) settings.add(ReaderDrawerCatalogItem::BookWordHoldAction);
+#endif
   settings.add(ReaderDrawerCatalogItem::BookDictionary);
   settings.add(ReaderDrawerCatalogItem::RenderMode);
   settings.add(ReaderDrawerCatalogItem::IndexingMethod);
