@@ -104,6 +104,7 @@ bool BookMetadataCache::endContentOpfPass() {
 }
 
 bool BookMetadataCache::beginTocPass() {
+  tocSpineMemo.clear();
   if (!Storage.openFileForRead("BMC", cachePath + tmpSpineBinFile, spineFile)) {
     return false;
   }
@@ -150,6 +151,7 @@ bool BookMetadataCache::beginTocPass() {
 }
 
 bool BookMetadataCache::endTocPass() {
+  tocSpineMemo.clear();
   const bool flushed = !passOut || passOut->flush();
   passOut.reset();
   if (!flushed) {
@@ -474,14 +476,13 @@ void BookMetadataCache::createTocEntry(const std::string& title, const std::stri
       LOG_DBG("BMC", "createTocEntry: Could not find spine item for TOC href %s", href.c_str());
     }
   } else {
-    spineFile.seek(0);
-    for (int i = 0; i < spineCount; i++) {
-      auto spineEntry = readSpineEntry(spineFile);
-      if (spineEntry.href == href) {
-        spineIndex = static_cast<int16_t>(i);
-        break;
+    spineIndex = tocSpineMemo.lookup(href, [&]() -> int16_t {
+      spineFile.seek(0);
+      for (int i = 0; i < spineCount; i++) {
+        if (readSpineEntry(spineFile).href == href) return static_cast<int16_t>(i);
       }
-    }
+      return -1;
+    });
     if (spineIndex == -1) {
       LOG_DBG("BMC", "createTocEntry: Could not find spine item for TOC href %s", href.c_str());
     }
