@@ -9,6 +9,7 @@
 #include <string>
 
 #include "LibraryInputBuffer.h"
+#include "RecentBadgeWork.h"
 #include "RecentBooksStore.h"
 #include "activities/Activity.h"
 #include "activities/home/FinishedBookCache.h"
@@ -128,7 +129,10 @@ class LibraryActivity final : public Activity {
   // path hash, so cache hits do not read the full path. Any dialog or the
   // frontlight panel clears it because they can change a book's status.
   FinishedBookCache finishedCache;
+  RecentBadgeWork recentBadgeWork;
+  uint32_t recentBadgeIdleSince = 0;
   bool isFinishedRow(int row);
+  void resolveRecentBadgeWhileIdle();
 
   static void listScreen(UiApp::ScreenType& screen, void* user);
   static void onDeleteEvent(const freeink::ui::ActionEvent& event, void* user);
