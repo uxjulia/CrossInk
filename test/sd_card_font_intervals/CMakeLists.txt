@@ -7,3 +7,5 @@ target_include_directories(sd_card_font_intervals PRIVATE stubs ../../src ../../
 target_compile_options(sd_card_font_intervals PRIVATE -UNDEBUG -fsanitize=address,undefined -fno-omit-frame-pointer)
 target_link_options(sd_card_font_intervals PRIVATE -fsanitize=address,undefined)
 add_test(NAME sd_card_font_intervals COMMAND sd_card_font_intervals)
+
+target_link_libraries(sd_card_font_intervals PRIVATE host_indic_shaper)

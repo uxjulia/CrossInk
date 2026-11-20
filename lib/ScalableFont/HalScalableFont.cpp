@@ -1,7 +1,9 @@
 #include "HalScalableFont.h"
 #if CROSSINK_SCALABLE_FONTS
 #include <HalStorage.h>
+#include <IndicScripts.h>
 #include <Logging.h>
+#include <ShapingTokens.h>
 #include <freertos/task.h>
 #ifndef SIMULATOR
 #include <Arduino.h>
@@ -31,7 +33,7 @@ constexpr size_t PixelBytes = 512 * 1024;
 constexpr size_t PixelCacheSlots = 512;
 constexpr size_t MetricCacheSlots = 512;
 constexpr size_t KerningCacheSlots = 512;
-constexpr uint32_t AdapterRevision = 10;
+constexpr uint32_t AdapterRevision = 11;
 constexpr uint32_t SfntChecksumMagic = 0xB1B0AFBAu;
 // Unicode ends at 0x10FFFF, so the high bit safely marks a shaped glyph ID in
 // EpdGlyph::dataOffset without adding renderer-specific state to the SDK.
@@ -361,6 +363,8 @@ HalScalableFont::BitmapPreparation HalScalableFont::prepareIdleBitmap(const EpdF
 HalScalableFont::~HalScalableFont() {
   ScalableFontAccess access;
   if (font_.ready() && liveRuntime) liveRuntime->clearCaches();
+  if (sizes_)
+    for (size_t i = 0; i < SizeCount; ++i) sizes_[i].~Size();
   font_.deinit();
   streamFile_.close();
 }
@@ -440,6 +444,10 @@ bool HalScalableFont::openSource(const uint8_t* bytes, size_t size, const bool s
   }
   renderOptions_ = options;
   streamed_ = streamed;
+  sourceBytes_ = bytes;
+  sourceSize_ = size;
+  drawsIndic_ = false;
+  for (const auto& script : indic::SCRIPTS) drawsIndic_ |= font_.hasGlyph(script.probe);
   // Large streamed fonts can carry multi-hundred-KiB GPOS tables. CrossPoint
   // skips these in streamed mode, keeping the shared FreeType arena for glyphs.
   if (streamed) font_.setGposByteBudget(0);
@@ -886,6 +894,19 @@ const EpdFont* HalScalableFont::atSize(uint8_t points) {
     d.coverageHandler = covers;
     d.kerningHandler = kerning;
     d.ligatureHandler = ligature;
+    if (drawsIndic_ && !size.shaper) {
+      // Only sizes actually used for Indic text own a shaper. The face tables
+      // are shared by ComplexShaper across these small, stable descriptors.
+      size.shaper = makeUniqueNoThrow<ComplexShaper>();
+      if (size.shaper) {
+        size.shaper->setTableSource(loadShapingTable, this);
+        size.shaper->setScale(scalableFontPixelSize26_6(points));
+        if (renderOptions_.embolden26_6) size.shaper->setAdvanceSource(shapingAdvance, &size);
+        d.shapeHandler = shape;
+      } else {
+        LOG_ERR("TTF", "Cannot allocate Indic shaper at %u pt", unsigned(points));
+      }
+    }
     freeink::font::FtFont::LineMetrics metrics;
     if (!font_.lineMetrics26_6(scalableFontPixelSize26_6(points), metrics)) {
       LOG_ERR("TTF", "Line metrics failed at %u pt: %s (size=%u)", unsigned(points), streamPath_,
@@ -914,10 +935,13 @@ const EpdGlyph* HalScalableFont::glyph(void* ctx, uint32_t cp) {
   ScalableFontAccess access;
   auto& s = *static_cast<Size*>(ctx);
   s.owner->fontDataFailure_ = false;
-  const auto ligatureGlyph = cp >= 0xfb00 && cp <= 0xfb04 ? s.owner->ligatureGlyphs_[cp - 0xfb00] : 0;
+  if (shaping::isGlyphToken(cp) && !s.shaper) return nullptr;
+  const auto ligatureGlyph = shaping::isGlyphToken(cp)      ? shaping::glyphTokenId(cp)
+                             : cp >= 0xfb00 && cp <= 0xfb04 ? s.owner->ligatureGlyphs_[cp - 0xfb00]
+                                                            : 0;
+  const uint32_t glyphOrCodepoint = shaping::isGlyphToken(cp) || ligatureGlyph ? GlyphIdMarker | ligatureGlyph : cp;
   auto& g = s.glyphs[s.cursor++ % 32];
-  if (!runtime().glyphMetrics(s.owner->font_, s.owner->cacheId_, ligatureGlyph ? GlyphIdMarker | ligatureGlyph : cp,
-                              s.points, g)) {
+  if (!runtime().glyphMetrics(s.owner->font_, s.owner->cacheId_, glyphOrCodepoint, s.points, g)) {
     const auto failure = s.owner->font_.lastGlyphFailure();
     const int error = s.owner->font_.lastGlyphError();
     s.owner->fontDataFailure_ = !s.owner->streamFailureLogged_ && runtime().allocator.lastFailedRequest() == 0 &&
@@ -945,6 +969,63 @@ const EpdGlyph* HalScalableFont::glyph(void* ctx, uint32_t cp) {
   }
   return &g;
 }
+bool HalScalableFont::shape(void* ctx, const char* text, std::string* out) {
+  ScalableFontAccess access;
+  auto& size = *static_cast<Size*>(ctx);
+  return size.shaper && size.shaper->shape(text, *out);
+}
+
+int32_t HalScalableFont::shapingAdvance(void* ctx, uint32_t glyph) {
+  auto& size = *static_cast<Size*>(ctx);
+  freeink::font::FtFont::GlyphMetrics metrics;
+  return size.owner->font_.metricsGlyph26_6(glyph, scalableFontPixelSize26_6(size.points), metrics)
+             ? metrics.advance26_6
+             : -1;
+}
+
+bool HalScalableFont::readSource(size_t offset, uint8_t* buffer, size_t count) {
+  if (offset > sourceSize_ || count > sourceSize_ - offset) return false;
+  if (!streamed_) {
+    std::memcpy(buffer, sourceBytes_ + offset, count);
+    return true;
+  }
+  if (streamRead(this, offset, buffer, count) == count) return true;
+  ComplexShaper::noteSourceUnavailable();
+  return false;
+}
+
+uint8_t* HalScalableFont::loadShapingTable(void* ctx, uint32_t tag, uint32_t* length) {
+  auto& self = *static_cast<HalScalableFont*>(ctx);
+  const auto read = [&self](size_t offset, uint8_t* dest, size_t count) {
+    return self.readSource(offset, dest, count);
+  };
+  size_t base;
+  if (truetype::firstFaceOffset(self.sourceSize_, read, base) != truetype::Result::Supported) return nullptr;
+  uint8_t record[16];
+  if (!read(base, record, 12)) return nullptr;
+  const unsigned tables = (unsigned(record[4]) << 8) | record[5];
+  if (tables > (self.sourceSize_ - base - 12) / 16) return nullptr;
+  for (unsigned i = 0; i < tables; ++i) {
+    if (!read(base + 12 + size_t(i) * 16, record, sizeof(record))) return nullptr;
+    if (truetype::u32(record) != tag) continue;
+    const size_t offset = truetype::u32(record + 8), size = truetype::u32(record + 12);
+    if (offset > self.sourceSize_ || size > self.sourceSize_ - offset) return nullptr;
+    // The loader transfers this budgeted allocation to ComplexShaper.
+    auto* bytes = static_cast<uint8_t*>(ComplexShaper::allocate(size ? size : 1));
+    if (!bytes) {
+      LOG_ERR("TTF", "Cannot allocate %u-byte shaping table", unsigned(size));
+      return nullptr;
+    }
+    if (!read(offset, bytes, size)) {
+      ComplexShaper::deallocate(bytes);
+      return nullptr;
+    }
+    *length = size;
+    return bytes;
+  }
+  return nullptr;
+}
+
 const uint8_t* HalScalableFont::bitmap(void* ctx, const EpdGlyph* g) {
   ScalableFontAccess access;
   auto& s = *static_cast<Size*>(ctx);
@@ -977,6 +1058,7 @@ const uint8_t* HalScalableFont::bitmap(void* ctx, const EpdGlyph* g) {
 bool HalScalableFont::covers(void* ctx, uint32_t cp) {
   ScalableFontAccess access;
   auto& s = *static_cast<Size*>(ctx);
+  if (shaping::isGlyphToken(cp)) return bool(s.shaper);
   if (cp >= 0xfb00 && cp <= 0xfb04 && s.owner->ligatureGlyphs_[cp - 0xfb00]) return true;
   return s.owner->font_.hasGlyph(cp);
 }

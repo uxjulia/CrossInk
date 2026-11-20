@@ -16,3 +16,8 @@ target_include_directories(ui_font_errors PRIVATE stubs ../otf_fonts/stubs ../sc
   ../../src ../../include ../../lib/ScalableFont ../../lib/EpdFont ../../lib/Epub ../../lib/Memory
   ${SDK}/include ${SDK}/third_party/freetype/include ${SDK}/third_party/stb)
 add_test(NAME ui_font_errors COMMAND ui_font_errors ${CMAKE_CURRENT_SOURCE_DIR}/../..)
+
+file(GLOB ui_font_errors_SHAPER_SOURCES ../../lib/OtShaper/*.cpp)
+target_sources(ui_font_errors PRIVATE ../../lib/EpdFont/ComplexShaper.cpp
+  ../../lib/Utf8/Utf8.cpp ${ui_font_errors_SHAPER_SOURCES})
+target_include_directories(ui_font_errors PRIVATE ../../lib/OtShaper ../../lib/Utf8 ../complex_shaper/stubs)

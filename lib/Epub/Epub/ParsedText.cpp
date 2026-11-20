@@ -5,6 +5,7 @@
 #include <BidiUtils.h>
 #include <GfxRenderer.h>
 #include <Logging.h>
+#include <TextScan.h>
 #include <Utf8.h>
 
 #include <algorithm>
@@ -37,13 +38,6 @@ constexpr uint32_t GUIDE_DOT_CODEPOINT = 0x00B7;
 constexpr size_t FOCUS_READING_PERCENT = 43;
 constexpr size_t LAYOUT_ARENA_SLAB_BYTES = 4096;
 constexpr size_t INITIAL_TOKEN_VECTOR_RESERVE = 16;
-
-bool mayContainRtlBytes(const char* str) {
-  for (const auto* p = reinterpret_cast<const unsigned char*>(str); *p; ++p) {
-    if (*p >= 0xD6 && *p <= 0xDB) return true;
-  }
-  return false;
-}
 
 // Returns the first rendered codepoint of a word (skipping leading soft hyphens and variation selectors).
 uint32_t firstCodepoint(const std::string& word) {
@@ -322,6 +316,9 @@ FocusTokenMetadata computeFocusMetadata(const std::string_view segment, const Ep
     return {baseStyle, 0};
   }
 
+  for (size_t i = 0; i + 1 < segment.size(); ++i) {
+    if (indic::startsIndic(reinterpret_cast<const unsigned char*>(segment.data() + i))) return {baseStyle, 0};
+  }
   size_t charCount = 0;
   const auto* countPtr = reinterpret_cast<const unsigned char*>(segment.data());
   const auto* const countEnd = countPtr + segment.length();
@@ -742,8 +739,10 @@ void ParsedText::addWord(std::string word, const EpdFontFamily::Style fontStyle,
   if (underline) {
     baseStyle = static_cast<EpdFontFamily::Style>(baseStyle | EpdFontFamily::UNDERLINE);
   }
-  const bool wordStartsRtl = !hasRtlWord && mayContainRtlBytes(word.c_str()) &&
-                             BidiUtils::startsWithRtl(word.c_str(), RTL_PER_WORD_PROBE_DEPTH);
+  const auto scan = utf8ScanText(word.c_str());
+  hasIndicWords |= scan.complexScript;
+  const bool wordStartsRtl =
+      !hasRtlWord && scan.rtl && BidiUtils::startsWithRtl(word.c_str(), RTL_PER_WORD_PROBE_DEPTH);
 
   const uint32_t sourceBase = sourceTextOffset == UINT32_MAX ? visibleTextOffset : sourceTextOffset;
   bool guideDotBeforeNextToken = false;
@@ -825,7 +824,7 @@ void ParsedText::addWord(std::string word, const EpdFontFamily::Style fontStyle,
     // CJK-heavy paragraphs can push hundreds of tiny tokens quickly when CSS toggles
     // inline styles. Reserve once up front to avoid repeated vector growth reallocations.
     reserveTokenCapacity(breakOffsets.size() + 1);
-    const bool focusSplitTokens = focusReadingEnabled && !containsCjkBreakableCodepoint(word);
+    const bool focusSplitTokens = focusReadingEnabled && !scan.complexScript && !containsCjkBreakableCodepoint(word);
     bool firstToken = true;
     size_t tokenStart = 0;
     uint32_t tokenVisibleOffset = visibleTextOffset;
@@ -867,7 +866,7 @@ void ParsedText::addWord(std::string word, const EpdFontFamily::Style fontStyle,
   }
 
   // Already-bold text should stay fully bold; focus splitting would make its suffix regular later.
-  if (!this->focusReadingEnabled || (baseStyle & EpdFontFamily::BOLD) != 0) {
+  if (!this->focusReadingEnabled || scan.complexScript || (baseStyle & EpdFontFamily::BOLD) != 0) {
     pushToken(std::move(word), effectiveAttachToPrevious, effectiveNoSpaceBefore, baseStyle, 0, visibleTextOffset,
               referenceTextOffset, leadingPadding);
     if (wordStartsRtl) {
@@ -1074,6 +1073,7 @@ bool ParsedText::layoutAndExtractLines(
     }
   }
 
+  const GfxRenderer::ShapingMemoScope memo(hasIndicWords);
   const int pageWidth = viewportWidth;
   ArenaVector<uint16_t> wordWidths(layoutArena);
   if (!calculateWordWidths(wordWidths, renderer, fontId)) {
@@ -1749,12 +1749,14 @@ bool ParsedText::splitTokenAtCodepointBoundary(const size_t wordIndex, const int
   const auto* const wordEnd = wordStart + word.size();
   while (cursor < wordEnd) {
     const auto* next = cursor;
-    if (utf8NextCodepoint(&next) == 0 || next <= cursor || next >= wordEnd) break;
+    const uint32_t currentCp = utf8NextCodepoint(&next);
+    if (!currentCp || next <= cursor || next >= wordEnd) break;
 
     // Keep combining marks and variation selectors attached to their base codepoint.
     const auto* following = next;
     const uint32_t followingCp = utf8NextCodepoint(&following);
-    if (utf8IsCombiningMark(followingCp) || utf8IsVariationSelector(followingCp)) {
+    if (!indic::syllableBreakAllowed(currentCp, followingCp) || utf8IsCombiningMark(followingCp) ||
+        utf8IsVariationSelector(followingCp)) {
       cursor = next;
       continue;
     }
@@ -2154,6 +2156,7 @@ bool ParsedText::extractLine(Arena& scratchArena, const size_t breakIndex, const
   if (!wordFontFamilies.empty()) outFontFamilies.reserve(lineWordCount);
   std::vector<uint8_t> outFontSizes;
   if (!wordFontSizes.empty()) outFontSizes.reserve(lineWordCount);
+  std::vector<std::string> displayForms;
   std::vector<std::string> outWords;
   std::vector<int16_t> outXPos;
   std::vector<EpdFontFamily::Style> outStyles;
@@ -2200,6 +2203,16 @@ bool ParsedText::extractLine(Arena& scratchArena, const size_t breakIndex, const
                                                              boundary, wordIsRtl, characterSpacing)))
                      : 0;
 
+    if (hasIndicWords && indic::containsIndic(lineWords[i].c_str())) {
+      if (displayForms.empty()) displayForms.resize(lineWordCount);
+      const auto dir = wordIsRtl ? BidiUtils::BidiBaseDir::RTL : BidiUtils::BidiBaseDir::LTR;
+      auto& form = displayForms[outWords.size()];
+      if (renderer.resolveForDisplay(tokenFontId, lineWords[i].c_str(), lineWordStyles[i], dir, form)) {
+        const int width = renderer.getTextAdvanceX(tokenFontId, lineWords[i].c_str(), lineWordStyles[i], 0,
+                                                   characterSpacing, form.c_str());
+        if (width + inlinePaddingBefore(sourceIndex) != wordWidths[sourceIndex]) form.clear();
+      }
+    }
     outWords.push_back(std::move(lineWords[i]));
     if (!lineRubyTexts.empty()) outRubyTexts.push_back(std::move(lineRubyTexts[i]));
     outXPos.push_back(lineXPos[i]);
@@ -2233,10 +2246,11 @@ bool ParsedText::extractLine(Arena& scratchArena, const size_t breakIndex, const
     }
   }
 
-  auto block =
-      std::make_shared<TextBlock>(outWords, outXPos, outStyles, outBoundaries, outRunOffsets, outGuideDotXOffset,
-                                  outBackgroundBlack, outHasSpaceBefore, blockStyle, std::move(outRubyTexts),
-                                  outFontSizes, initialLetter, characterSpacing, outFontFamilies, outSourceRanges);
+  if (!displayForms.empty()) displayForms.resize(outWords.size());
+  auto block = std::make_shared<TextBlock>(outWords, outXPos, outStyles, outBoundaries, outRunOffsets,
+                                           outGuideDotXOffset, outBackgroundBlack, outHasSpaceBefore, blockStyle,
+                                           std::move(outRubyTexts), outFontSizes, initialLetter, characterSpacing,
+                                           outFontFamilies, outSourceRanges, displayForms);
   initialLetter[0] = '\0';
   if (!block->valid()) {
     LOG_ERR("PTX", "Dropping line: TextBlock arena allocation failed");

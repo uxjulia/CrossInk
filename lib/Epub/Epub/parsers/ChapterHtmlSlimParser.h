@@ -59,7 +59,12 @@ class ChapterHtmlSlimParser {
   bool headingOpenerActive = false;
   // buffer for building up words from characters, will auto break if longer than this
   // leave one char at end for null pointer
-  char partWordBuffer[MAX_WORD_SIZE + 1] = {};
+  char inlineWordBuffer[MAX_WORD_SIZE + 1] = {};
+  // Used only if the normal token limit falls inside an Indic run.
+  std::unique_ptr<char[]> extendedWordBuffer;
+  int wordBufferCapacity = MAX_WORD_SIZE;
+  char* partWordBuffer() { return extendedWordBuffer ? extendedWordBuffer.get() : inlineWordBuffer; }
+  bool makeRoomForWordCodepoint(const unsigned char* next);
   int partWordBufferIndex = 0;
   uint32_t partWordVisibleOffset = 0;
   uint32_t visibleTextOffset = 0;

@@ -1,4 +1,5 @@
 #include <HalScalableFont.h>
+#include <ShapingTokens.h>
 
 #include <algorithm>
 #include <array>
@@ -73,6 +74,10 @@ int main(int argc, char** argv) {
     bytes[i] = {std::istreambuf_iterator<char>(file), {}};
     assert(builtin[i].openMemory(bytes[i].data(), bytes[i].size()));
     assert(builtin[i].probeGlyph('T', 12));
+    const auto* latin = builtin[i].atSize(12)->data;
+    assert(!latin->shapeHandler);
+    assert(!latin->coverageHandler(latin->glyphMissCtx, shaping::glyphToken(1)));
+    assert(!latin->dynamicGlyphHandler(latin->glyphMissCtx, shaping::glyphToken(1)));
   }
   // These real regular/bold glyphs collide in the old direct-mapped cache:
   // 65 * 31 + face 1 == (98 * 31 + face 2) modulo 512. Page prewarm and
@@ -146,7 +151,7 @@ int main(int argc, char** argv) {
   }
   assert(doubleRoundedSteps > 0);
   assert(shapedGlyphs > 0);
-  assert(HalScalableFont::renderingRevision() == 10);
+  assert(HalScalableFont::renderingRevision() == 11);
   std::printf("ADVANCE regression cases=%zu shaped glyphs=%zu\n", doubleRoundedSteps, shapedGlyphs);
   uint32_t residentIdentity = 0;
   uint64_t residentPixels = 0;
@@ -175,8 +180,8 @@ int main(int argc, char** argv) {
     const auto openedBytes = storageReadBytes;
     if (mode == FileMode::Temporary) {
       size_t totalFileBytes = 0;
-      // Opening now includes a bounded static-outline table-directory preflight.
-      for (int i = 2; i < argc; ++i) totalFileBytes += family[i - 2].fileBytes() + 12 + 16 * tableCount(argv[i]);
+      // Opening now includes a bounded collection-header and table-directory preflight.
+      for (int i = 2; i < argc; ++i) totalFileBytes += family[i - 2].fileBytes() + 24 + 16 * tableCount(argv[i]);
       if (argc > 2) assert(openedBytes <= totalFileBytes);
     }
     const auto renderGlyph = [&](int i, unsigned cp, unsigned size) {
@@ -288,7 +293,7 @@ int main(int argc, char** argv) {
   size_t fileBytes = 0;
   assert(HalScalableFont::fileSize(path.c_str(), fileBytes));
   const auto failures = injectedReadFailures;
-  failStorageRead = storageReadCalls + 1 + tableCount(path.c_str()) + (fileBytes + 4095) / 4096 + 1;
+  failStorageRead = storageReadCalls + 2 + tableCount(path.c_str()) + (fileBytes + 4095) / 4096 + 1;
   {
     HalScalableFont streamed;
     assert(streamed.openFile(path.c_str(), HalScalableFont::MaxFileBytes, options, FileMode::Stream));

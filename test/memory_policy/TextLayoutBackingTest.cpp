@@ -256,3 +256,22 @@ TEST_F(TextLayoutBackingTest, SourceRangesSurviveCacheRoundTrip) {
   EXPECT_EQ(restored->wordSourceRange(1).start, 25U);
   EXPECT_EQ(restored->wordSourceRange(1).end, 31U);
 }
+
+TEST_F(TextLayoutBackingTest, CachedIndicWordPreservesLogicalTextAndSourceRange) {
+  const std::vector<std::string> words{"कि", "end"};
+  const std::vector<std::string> forms{"display", ""};
+  const std::vector<TextBlock::SourceRange> ranges{{10, 12}, {13, 16}};
+  TextBlock block(words, {0, 50}, {EpdFontFamily::REGULAR, EpdFontFamily::BOLD}, {}, {}, {}, {}, {}, BlockStyle{}, {},
+                  {}, "", 0, {}, ranges, forms);
+  ASSERT_TRUE(block.valid());
+  HalFile file(std::make_shared<HostFileData>());
+  ASSERT_TRUE(block.serialize(file));
+  ASSERT_TRUE(file.seek(0));
+  auto restored = TextBlock::deserialize(file);
+  ASSERT_NE(restored, nullptr);
+  EXPECT_STREQ(restored->wordText(0), words[0].c_str());
+  EXPECT_EQ(restored->wordTextLen(0), words[0].size());
+  EXPECT_STREQ(restored->displayForm(0), "display");
+  EXPECT_EQ(restored->displayForm(1), nullptr);
+  EXPECT_EQ(restored->wordSourceRange(0).end, 12u);
+}

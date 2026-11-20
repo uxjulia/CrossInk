@@ -3,6 +3,7 @@
 #include <Arduino.h>
 #include <AssetCacheReadSession.h>
 #include <AssetCacheStorage.h>
+#include <AssetFlashLayout.h>
 #include <HalStorage.h>
 #include <LanguageCache.h>
 #include <Logging.h>
@@ -43,12 +44,22 @@ bool initialize(bool create) {
     LOG_ERR("HYPH", "Cannot read installed pack cache");
     return false;
   }
-  const auto result =
-      store.begin({nullptr, capacity(), readFlash, writeFlash, eraseFlash, [] { delay(1); }}, supported);
+  const hyphenation_pack::Flash region{nullptr, capacity(), readFlash, writeFlash, eraseFlash, [] { delay(1); }};
+  size_t reservedTail = 0;
+#if CROSSINK_SHAPING_FLASH_CACHE
+  const size_t proposedReserve = asset_flash_layout::shapingReserve(capacity());
+  // An older full bank stays editable until its next rewrite frees the tail.
+  // FlashBlobCache makes the same check and refuses that occupied region.
+  if (!flash.usesSd() && proposedReserve &&
+      hyphenation_pack::tailAvailable(region, capacity() / 2, capacity() / 2, proposedReserve))
+    reservedTail = proposedReserve;
+#endif
+  const auto result = store.begin(region, supported, reservedTail);
   if (result != hyphenation_pack::Result::Ok && result != hyphenation_pack::Result::Unchanged) {
     LOG_ERR("HYPH", "%s", hyphenation_pack::resultName(result));
     return false;
   }
+  asset_flash_layout::confirmShapingReservation(store.reservedTailBytes());
   if (store.count() && !flash.map(store.bankOffset(), store.usedBytes(), mapping)) {
     LOG_ERR("HYPH", "Cannot map installed patterns");
     return false;

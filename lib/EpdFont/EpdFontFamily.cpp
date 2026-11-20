@@ -195,6 +195,12 @@ void EpdFontFamily::getTextDimensions(const char* string, int* w, int* h, const 
 
 const EpdFontData* EpdFontFamily::getData(const Style style) const { return getFont(style)->data; }
 
+const EpdFontData* EpdFontFamily::shapingData(const Style style) const {
+  const auto* primary = getData(style);
+  const auto* extra = getFallbackFont(style);
+  return primary->shapeHandler || !extra ? primary : extra->data;
+}
+
 EpdFontFamily::GlyphData EpdFontFamily::findGlyphData(const uint32_t cp, const Style style) const {
   const EpdFont* font = getFont(style);
   if (const EpdGlyph* glyph = font->findGlyph(cp)) {

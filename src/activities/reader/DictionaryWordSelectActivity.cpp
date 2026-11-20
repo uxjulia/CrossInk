@@ -680,9 +680,9 @@ bool DictionaryWordSelectActivity::extractWords() {
 
       bool partSucceeded = true;
       const size_t prefixBytes = block->visibleWordText(wordIndex) - wordText;
-      int fullWordWidth =
-          renderer.getTextAdvanceX(wordFontId, wordText + prefixBytes, wordStyle, 0,
-                                   CrossPointSettings::characterSpacingLevel(SETTINGS.characterSpacing));
+      int fullWordWidth = renderer.getTextAdvanceX(wordFontId, wordText + prefixBytes, wordStyle, 0,
+                                                   CrossPointSettings::characterSpacingLevel(SETTINGS.characterSpacing),
+                                                   block->displayForm(wordIndex));
       if (wordIndex + 1 < sourceWordCount && block->wordXpos(wordIndex + 1) > block->wordXpos(wordIndex)) {
         fullWordWidth =
             std::min(fullWordWidth, static_cast<int>(block->wordXpos(wordIndex + 1) - block->wordXpos(wordIndex)));

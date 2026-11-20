@@ -1,5 +1,6 @@
 #include "Hyphenator.h"
 
+#include <IndicScripts.h>
 #include <Utf8.h>
 
 #include <algorithm>
@@ -31,6 +32,16 @@ static constexpr Iso639Mapping kIso639Mappings[] = {{"eng", "en"}, {"fra", "fr"}
 const LanguageHyphenator* hyphenatorForLanguage(const std::string& langTag) {
   char primary[3];
   return Hyphenator::primaryLanguageTag(langTag, primary) ? getLanguageHyphenatorForPrimaryTag(primary) : nullptr;
+}
+
+// Fallback break indexes for a word the language patterns could not split:
+// every index leaving minPrefix/minSuffix codepoints on each side, except
+// inside an Indic syllable, whose halves would each shape on their own.
+void appendFallbackIndexes(const std::vector<CodepointInfo>& cps, const size_t minPrefix, const size_t minSuffix,
+                           std::vector<size_t>& out) {
+  for (size_t idx = std::max<size_t>(1, minPrefix); idx < cps.size() && cps.size() - idx >= minSuffix; ++idx) {
+    if (indic::syllableBreakAllowed(cps[idx - 1].value, cps[idx].value)) out.push_back(idx);
+  }
 }
 
 // Maps a codepoint index back to its byte offset inside the source word.
@@ -82,11 +93,7 @@ void appendSegmentPatternBreaks(const std::vector<CodepointInfo>& cps, const Lan
       auto segIndexes = hyphenator.breakIndexes(segment);
 
       if (includeFallback && segIndexes.empty()) {
-        const size_t minPrefix = hyphenator.minPrefix();
-        const size_t minSuffix = hyphenator.minSuffix();
-        for (size_t idx = minPrefix; idx + minSuffix <= segment.size(); ++idx) {
-          segIndexes.push_back(idx);
-        }
+        appendFallbackIndexes(segment, hyphenator.minPrefix(), hyphenator.minSuffix(), segIndexes);
       }
 
       for (const size_t idx : segIndexes) {
@@ -227,9 +234,7 @@ std::vector<Hyphenator::BreakInfo> Hyphenator::breakOffsets(const std::string& w
   if (includeFallback && indexes.empty()) {
     const size_t minPrefix = hyphenator ? hyphenator->minPrefix() : LiangWordConfig::kDefaultMinPrefix;
     const size_t minSuffix = hyphenator ? hyphenator->minSuffix() : LiangWordConfig::kDefaultMinSuffix;
-    for (size_t idx = minPrefix; idx + minSuffix <= cps.size(); ++idx) {
-      indexes.push_back(idx);
-    }
+    appendFallbackIndexes(cps, minPrefix, minSuffix, indexes);
   }
 
   if (indexes.empty()) {

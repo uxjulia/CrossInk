@@ -6,6 +6,7 @@
 #include <GfxRenderer.h>
 #include <HalStorage.h>
 #include <I18n.h>
+#include <IndicScripts.h>
 #include <Logging.h>
 #include <Memory.h>
 #include <MemoryBudget.h>
@@ -810,7 +811,8 @@ bool isDropCapPunctuation(const uint32_t cp) {
 // capture is too long to be an initial letter.
 bool ChapterHtmlSlimParser::captureDropCapCodepoint(const char* bytes, const int length) {
   constexpr uint8_t MAX_DROP_CAP_CODEPOINTS = 3;
-  if (dropCap.length + length > static_cast<int>(MAX_DROP_CAP_BYTES) || dropCap.codepoints >= MAX_DROP_CAP_CODEPOINTS) {
+  if ((length >= 3 && indic::startsIndic(reinterpret_cast<const unsigned char*>(bytes))) ||
+      dropCap.length + length > static_cast<int>(MAX_DROP_CAP_BYTES) || dropCap.codepoints >= MAX_DROP_CAP_CODEPOINTS) {
     cancelDropCapToWord();
     return false;
   }
@@ -831,7 +833,7 @@ void ChapterHtmlSlimParser::cancelDropCapToWord() {
   partWordVisibleOffset = dropCap.visibleOffset;
   partWordSourceOffset = dropCap.sourceOffset;
   partWordReferenceOffset = dropCap.referenceOffset;
-  memcpy(partWordBuffer + partWordBufferIndex, dropCap.text, dropCap.length);
+  memcpy(partWordBuffer() + partWordBufferIndex, dropCap.text, dropCap.length);
   partWordBufferIndex += dropCap.length;
   dropCap = DropCapState{};
 }
@@ -1102,15 +1104,53 @@ void ChapterHtmlSlimParser::recordPartWordSourceGap(const uint32_t length) {
   if (partWordBufferIndex == 0 || length == 0) return;
   uint16_t characters = 0;
   for (int i = 0; i < partWordBufferIndex; ++i)
-    if ((static_cast<uint8_t>(partWordBuffer[i]) & 0xC0) != 0x80) ++characters;
+    if ((static_cast<uint8_t>(partWordBuffer()[i]) & 0xC0) != 0x80) ++characters;
   if (!partWordSourceGaps.empty() && partWordSourceGaps.back().beforeCharacter == characters)
     partWordSourceGaps.back().length += length;
   else {
-    // At most one entry per boundary in the fixed 200-byte pending word.
+    // At most one entry per boundary in the pending word.
     if (partWordSourceGaps.size() == partWordSourceGaps.capacity())
       partWordSourceGaps.reserve(std::max<size_t>(4, partWordSourceGaps.size() * 2));
     partWordSourceGaps.push_back({characters, length});
   }
+}
+
+// Expat delivers complete UTF-8 codepoints. Decide before appending the lead byte
+// so a continuation starts with its own visible, reference, and source offsets.
+bool ChapterHtmlSlimParser::makeRoomForWordCodepoint(const unsigned char* next) {
+  const auto* after = next;
+  const auto incoming = utf8NextCodepoint(&after);
+  const int needed = partWordBufferIndex + static_cast<int>(after - next);
+  if (needed <= MAX_WORD_SIZE) return true;
+  const auto* begin = reinterpret_cast<const unsigned char*>(partWordBuffer());
+  const auto* prev = begin + partWordBufferIndex - 1;
+  while (prev > begin && (*prev & 0xC0) == 0x80) --prev;
+  const auto last = utf8NextCodepoint(&prev);
+  // A left vowel can have a special word-initial form even at a valid
+  // syllable boundary. Let layout choose breaks once the whole run is known.
+  const auto* script = indic::scriptOf(last);
+  const auto* nextScript = indic::scriptOf(incoming);
+  const bool sameRun = (script && (script == nextScript || indic::isShared(incoming))) ||
+                       (indic::isShared(last) && (nextScript || indic::isShared(incoming)));
+  if (!sameRun && indic::syllableBreakAllowed(last, incoming)) {
+    flushPartWordBuffer();
+    nextWordContinues = true;
+    return !lowMemoryAbort;
+  }
+  if (needed <= wordBufferCapacity) return true;
+  // Reuse storage for long words in this chapter. Word lengths in the section
+  // format include a terminator and fit in 16 bits.
+  const int capacity = std::min<int>(UINT16_MAX - 1, wordBufferCapacity * 2);
+  auto grown = needed <= capacity ? makeUniqueNoThrow<char[]>(capacity + 1) : nullptr;
+  if (!grown) {
+    LOG_ERR("EHP", "Cannot extend pending word to %d bytes", needed);
+    lowMemoryAbort = true;
+    return false;
+  }
+  memcpy(grown.get(), begin, partWordBufferIndex);
+  extendedWordBuffer = std::move(grown);
+  wordBufferCapacity = capacity;
+  return true;
 }
 
 // flush the contents of partWordBuffer to currentTextBlock
@@ -1154,7 +1194,7 @@ void ChapterHtmlSlimParser::flushPartWordBuffer() {
 
   if (currentCompactTable && currentCompactTable->valid() && currentCompactTable->hasActiveCell()) {
     if (!currentCompactTable->appendWord(
-            std::string_view(partWordBuffer, static_cast<size_t>(partWordBufferIndex)), fontStyle, nextWordContinues,
+            std::string_view(partWordBuffer(), static_cast<size_t>(partWordBufferIndex)), fontStyle, nextWordContinues,
             honorsPublisherDecorations() && effectiveBackgroundBlack, insideFootnoteLink ? currentFootnote.linkId : 0,
             (syntheticCharacterData || !partWordSourceGaps.empty()) ? UINT32_MAX : partWordSourceOffset)) {
       // The row exceeded the compact model's fixed text/token budget. Degrade
@@ -1185,9 +1225,9 @@ void ChapterHtmlSlimParser::flushPartWordBuffer() {
   }
 
   // flush the buffer
-  partWordBuffer[partWordBufferIndex] = '\0';
+  partWordBuffer()[partWordBufferIndex] = '\0';
   currentTextBlock->addWord(
-      partWordBuffer, fontStyle, false, nextWordContinues, honorsPublisherDecorations() && effectiveBackgroundBlack,
+      partWordBuffer(), fontStyle, false, nextWordContinues, honorsPublisherDecorations() && effectiveBackgroundBlack,
       insideFootnoteLink ? currentFootnote.linkId : 0, partWordVisibleOffset, partWordReferenceOffset,
       partWordInlinePadding, effectivePreserveWhitespace, effectiveInlineFontSize, effectiveFontFamily,
       !syntheticCharacterData, partWordSourceOffset, partWordSourceGaps);
@@ -3935,7 +3975,7 @@ void XMLCALL ChapterHtmlSlimParser::characterData(void* userData, const XML_Char
       continue;
     }
     if (isWhitespace(s[i])) {
-      // Currently looking at whitespace, if there's anything in the partWordBuffer, flush it
+      // Currently looking at whitespace, if there's anything in the word buffer, flush it
       if (self->partWordBufferIndex > 0) {
         self->flushPartWordBuffer();
       }
@@ -3970,8 +4010,8 @@ void XMLCALL ChapterHtmlSlimParser::characterData(void* userData, const XML_Char
         self->flushPartWordBuffer();
       }
 
-      self->partWordBuffer[0] = ' ';
-      self->partWordBuffer[1] = '\0';
+      self->partWordBuffer()[0] = ' ';
+      self->partWordBuffer()[1] = '\0';
       self->partWordBufferIndex = 1;
       self->partWordInlinePadding = self->pendingInlinePadding;
       self->pendingInlinePadding = 0;
@@ -3996,8 +4036,8 @@ void XMLCALL ChapterHtmlSlimParser::characterData(void* userData, const XML_Char
         self->flushPartWordBuffer();
       }
 
-      self->partWordBuffer[0] = ' ';
-      self->partWordBuffer[1] = '\0';
+      self->partWordBuffer()[0] = ' ';
+      self->partWordBuffer()[1] = '\0';
       self->partWordBufferIndex = 1;
       self->partWordInlinePadding = self->pendingInlinePadding;
       self->pendingInlinePadding = 0;
@@ -4033,49 +4073,9 @@ void XMLCALL ChapterHtmlSlimParser::characterData(void* userData, const XML_Char
       }
     }
 
-    // If we're about to run out of space, then cut the word off and start a new one.
-    // For CJK text (no spaces), this is the primary word-breaking mechanism.
-    // We must avoid splitting multi-byte UTF-8 sequences across word boundaries,
-    // otherwise the trailing bytes become orphaned continuation bytes that the
-    // decoder can't interpret.
-    if (self->partWordBufferIndex >= MAX_WORD_SIZE) {
-      int safeLen = utf8SafeTruncateBuffer(self->partWordBuffer, self->partWordBufferIndex);
-
-      if (safeLen < self->partWordBufferIndex && safeLen > 0) {
-        // Incomplete UTF-8 sequence at the end — save it before flushing
-        int overflow = self->partWordBufferIndex - safeLen;
-        uint32_t overflowOffset = self->partWordVisibleOffset;
-        uint32_t overflowSourceOffset = self->partWordSourceOffset;
-        uint32_t overflowReferenceOffset = self->partWordReferenceOffset;
-        const auto* codepoint = reinterpret_cast<const unsigned char*>(self->partWordBuffer);
-        const auto* const prefixEnd = codepoint + safeLen;
-        while (codepoint < prefixEnd) {
-          utf8NextCodepoint(&codepoint);
-          overflowOffset++;
-          overflowSourceOffset++;
-          overflowReferenceOffset++;
-        }
-        const auto prefixCharacters = overflowSourceOffset - self->partWordSourceOffset;
-        for (const auto& gap : self->partWordSourceGaps)
-          if (gap.beforeCharacter <= prefixCharacters) overflowSourceOffset += gap.length;
-        char saved[4];
-        for (int j = 0; j < overflow; j++) {
-          saved[j] = self->partWordBuffer[safeLen + j];
-        }
-        self->partWordBufferIndex = safeLen;
-        self->flushPartWordBuffer();
-        self->nextWordContinues = true;
-        for (int j = 0; j < overflow; j++) {
-          self->partWordBuffer[j] = saved[j];
-        }
-        self->partWordBufferIndex = overflow;
-        self->partWordVisibleOffset = overflowOffset;
-        self->partWordSourceOffset = overflowSourceOffset;
-        self->partWordReferenceOffset = overflowReferenceOffset;
-      } else {
-        self->flushPartWordBuffer();
-        self->nextWordContinues = true;
-      }
+    if (startsCodepoint && self->partWordBufferIndex > MAX_WORD_SIZE - 4 &&
+        !self->makeRoomForWordCodepoint(reinterpret_cast<const unsigned char*>(s + i))) {
+      return;
     }
 
     if (self->partWordBufferIndex == 0) {
@@ -4085,14 +4085,14 @@ void XMLCALL ChapterHtmlSlimParser::characterData(void* userData, const XML_Char
       self->partWordInlinePadding = self->pendingInlinePadding;
       self->pendingInlinePadding = 0;
     }
-    self->partWordBuffer[self->partWordBufferIndex++] = s[i];
+    self->partWordBuffer()[self->partWordBufferIndex++] = s[i];
     if (startsCodepoint && countVisibleOffsets) codepointOffset++;
     if (startsCodepoint && countSourceOffsets) codepointSourceOffset++;
   }
 
   // If a paragraph keeps growing, perform the layout and consume all but the last line.
   // Keep the unfinished word across Expat callbacks: callback boundaries are not word boundaries.
-  // MAX_WORD_SIZE already bounds partWordBuffer and flushes it UTF-8 safely above.
+  // The size guard above flushes only between complete codepoints and Indic syllables.
   self->flushLongTextRunIfNeeded();
 }
 

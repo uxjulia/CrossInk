@@ -2,6 +2,7 @@
 
 #include <Arduino.h>
 #include <BufferedFile.h>
+#include <ComplexShaper.h>
 #include <FontCacheManager.h>
 #include <GfxRenderer.h>
 #include <HalStorage.h>
@@ -22,11 +23,11 @@
 namespace {
 constexpr uint32_t SECTION_CACHE_MAGIC = 0x535843FF;  // bytes: 0xFF, "CXS"
 
-constexpr uint8_t SECTION_FILE_VERSION = 116;
+constexpr uint8_t SECTION_FILE_VERSION = 117;
 // Suspended incremental build: valid pages plus LUTs and a parse-watermark trailer.
 // Change this with layout or payload changes so stale partial pages cannot resume
 // under a different layout contract.
-constexpr uint8_t SECTION_FILE_PARTIAL_VERSION = 0xE5;
+constexpr uint8_t SECTION_FILE_PARTIAL_VERSION = 0xE6;
 constexpr uint32_t HEADER_SIZE =
     sizeof(bool) + 4 * sizeof(uint32_t) + sizeof(PublisherFonts) + sizeof(SECTION_CACHE_MAGIC) + sizeof(uint8_t) +
     sizeof(int) + sizeof(float) + sizeof(bool) + sizeof(bool) + sizeof(uint8_t) + sizeof(uint16_t) + sizeof(uint16_t) +
@@ -719,6 +720,7 @@ bool Section::createSectionFile(const ReaderRenderSpec& spec, const std::functio
       buildOptions.isPreview() ? std::string(buildOptions.previewAnchor) : std::string{}, buildOptions.previewMaxPages,
       true, spec.characterSpacing);
   Hyphenator::setPreferredLanguage(epub->getLanguage());
+  ComplexShaper::setDocumentLanguage(epub->getLanguage().c_str());
   bool cancelled = false;
   bool success = false;
   if (cancelBuild()) {
@@ -1060,6 +1062,7 @@ bool Section::startBuild(const ReaderRenderSpec& spec, const SectionBuildOptions
   }
 
   Hyphenator::setPreferredLanguage(epub->getLanguage());
+  ComplexShaper::setDocumentLanguage(epub->getLanguage().c_str());
   build_ = std::move(ctx);
   build_->parser->setRuled(spec.ruled);
   build_->parser->setPublisherFonts(spec.publisherFonts);

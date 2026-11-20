@@ -22,7 +22,7 @@ class FontInstaller {
   /// Validate a family name: safe filename chars only, no path traversal.
   static bool isValidFamilyName(const char* name);
 
-  /// Validate .cpfont, or .ttf/.otf on scalable-capable devices; no path separators or
+  /// Validate .cpfont, or .ttf/.otf/.ttc on scalable-capable devices; no path separators or
   /// traversal sequences, basename uses only safe filename chars. Rejects
   /// "../foo.cpfont" and "evil/foo.cpfont".
   static bool isValidCpfontFilename(const char* name);

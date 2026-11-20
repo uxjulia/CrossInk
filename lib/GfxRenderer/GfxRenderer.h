@@ -338,7 +338,8 @@ class GfxRenderer {
 
  private:
   void drawOrMeasureText(int fontId, int x, int y, const char* text, bool black, EpdFontFamily::Style style,
-                         BidiUtils::BidiBaseDir baseDir, int8_t spacing, TextVerticalBounds* bounds) const;
+                         BidiUtils::BidiBaseDir baseDir, int8_t spacing, TextVerticalBounds* bounds,
+                         const char* display = nullptr) const;
 
  public:
   // Regular ascender-to-baseline band and ordinary ink extents, relative to the text origin.
@@ -347,7 +348,7 @@ class GfxRenderer {
   TextVerticalBounds getTextVerticalBounds(int fontId, const char* text,
                                            EpdFontFamily::Style style = EpdFontFamily::REGULAR,
                                            BidiUtils::BidiBaseDir baseDir = BidiUtils::BidiBaseDir::AUTO,
-                                           int8_t spacing = 0) const;
+                                           int8_t spacing = 0, const char* display = nullptr) const;
   int getTextWidth(int fontId, const char* text, EpdFontFamily::Style style = EpdFontFamily::REGULAR,
                    BidiUtils::BidiBaseDir baseDir = BidiUtils::BidiBaseDir::AUTO, int8_t characterSpacing = 0) const;
   void drawCenteredText(int fontId, int y, const char* text, bool black = true,
@@ -355,7 +356,8 @@ class GfxRenderer {
                         BidiUtils::BidiBaseDir baseDir = BidiUtils::BidiBaseDir::AUTO) const;
   void drawText(int fontId, int x, int y, const char* text, bool black = true,
                 EpdFontFamily::Style style = EpdFontFamily::REGULAR,
-                BidiUtils::BidiBaseDir baseDir = BidiUtils::BidiBaseDir::AUTO, int8_t characterSpacing = 0) const;
+                BidiUtils::BidiBaseDir baseDir = BidiUtils::BidiBaseDir::AUTO, int8_t characterSpacing = 0,
+                const char* display = nullptr) const;
   // Guard text/background pixels while a table cell is rendered. The guard is
   // intentionally single-level and scoped by the caller; nested use is a
   // programming error caught in debug builds.
@@ -372,8 +374,19 @@ class GfxRenderer {
   /// Returns the rendered advance of \p text. When \p followingCp is supplied,
   /// includes its kerning with the final glyph in the same fixed-point rounding
   /// step that drawText() uses, without drawing or consuming that codepoint.
+  class ShapingMemoScope {
+    bool enabled_;
+
+   public:
+    explicit ShapingMemoScope(bool enabled);
+    ~ShapingMemoScope();
+    ShapingMemoScope(const ShapingMemoScope&) = delete;
+    ShapingMemoScope& operator=(const ShapingMemoScope&) = delete;
+  };
+  bool resolveForDisplay(int fontId, const char* text, EpdFontFamily::Style style, BidiUtils::BidiBaseDir dir,
+                         std::string& out) const;
   int getTextAdvanceX(int fontId, const char* text, EpdFontFamily::Style style, uint32_t followingCp = 0,
-                      int8_t characterSpacing = 0) const;
+                      int8_t characterSpacing = 0, const char* display = nullptr) const;
   bool getCodepointMetrics(int fontId, uint32_t cp, EpdFontFamily::Style style, int32_t& advanceFP, int& top) const;
   int drawScaledCodepoint(int fontId, uint32_t cp, EpdFontFamily::Style style, int x, int baselineY, int scale256,
                           bool pixelState = true) const;

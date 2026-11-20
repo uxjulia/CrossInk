@@ -21,8 +21,7 @@ No font conversion or separate files for each size are needed.
 
 > [!NOTE]
 > A "static" font file holds one fixed style, such as Regular or Bold. These are
-> supported. "Variable" fonts (one file that holds many weights) and font
-> collections are not.
+> supported. Collections (`.ttc`) use the first face. Choose a static export for variable fonts.
 
 For the full range of text styles, add all four files for a family: **regular**,
 **bold**, **italic**, and **bold italic**. CrossInk can use a family with fewer
@@ -46,8 +45,7 @@ positions can change. Your bookmarks and clippings remain saved.
 
 ## Supported files and limits
 
-- Use static TrueType `.ttf` or OpenType `.otf` files. Variable fonts and font
-  collections are not supported.
+- Use static TrueType `.ttf` or OpenType `.otf` files. For a static `.ttc` collection the reader uses its first face. Variable fonts require a static export.
 - Each file must be **2 MiB or smaller**, and the four files in one family must
   total **6 MiB or less**.
 - If both `/fonts` and `/.fonts` contain the same family, the copy in

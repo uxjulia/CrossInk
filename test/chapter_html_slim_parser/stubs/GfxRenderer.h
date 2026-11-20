@@ -13,6 +13,12 @@ enum class BidiBaseDir : signed char { AUTO = -1, LTR = 0, RTL = 1 };
 
 class GfxRenderer {
  public:
+  struct ShapingMemoScope {
+    explicit ShapingMemoScope(bool) {}
+  };
+  bool resolveForDisplay(int, const char*, EpdFontFamily::Style, BidiUtils::BidiBaseDir, std::string&) const {
+    return false;
+  }
   inline static bool loanActive = false;
   inline static bool fileProbeHadLoan = false;
   uint32_t loans = 0;
@@ -62,7 +68,8 @@ class GfxRenderer {
   }
   int getLineHeight(int id) const { return scalableBaseSize ? getFontPointSize(id) * 2 : 16; }
   int getTextWidth(int, const char*, EpdFontFamily::Style = EpdFontFamily::REGULAR) const { return 0; }
-  int getTextAdvanceX(int id, const char* text, EpdFontFamily::Style, uint32_t = 0, int8_t = 0) const {
+  int getTextAdvanceX(int id, const char* text, EpdFontFamily::Style, uint32_t = 0, int8_t = 0,
+                      const char* = nullptr) const {
     return static_cast<int>(std::strlen(text)) * textAdvancePerChar * (scalableBaseSize ? getFontPointSize(id) : 1) /
            (scalableBaseSize ? scalableBaseSize : 1);
   }

@@ -3,6 +3,7 @@
 #include <Arduino.h>
 #include <BidiUtils.h>
 #include <BookKey.h>
+#include <ComplexShaper.h>
 #include <Epub/Page.h>
 #include <Epub/PageCountEstimator.h>
 #include <Epub/SpineSizeLookup.h>
@@ -2510,6 +2511,7 @@ bool EpubReaderActivity::usesMenuButtonOrientation() const {
 
 void EpubReaderActivity::onEnter() {
   Activity::onEnter();
+  ComplexShaper::setDocumentLanguage(epub->getLanguage().c_str());
   pageLoadRetryCount = 0;
   touchReaderDrawerState = initialReaderDrawerState(mappedInput.hasTouchHardware());
 
@@ -2728,6 +2730,8 @@ void EpubReaderActivity::onExit() {
   bookFontSystem.close();
 #endif
   section.reset();
+  ComplexShaper::releaseAll();
+  ComplexShaper::setDocumentLanguage("");
   if (epub && !saveLinkStack()) {
     LOG_ERR("ERS", "Failed to save link return stack on exit");
   }

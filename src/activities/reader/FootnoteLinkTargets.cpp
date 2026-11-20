@@ -34,8 +34,8 @@ FootnoteLinkTargets buildFootnoteLinkTargets(const Page& page, const std::vector
       const int wordX = marginLeft + line.xPos + block.wordXpos(wordIndex);
       const int wordY = marginTop + line.yPos + block.wordYOffset(renderer, lineFontId, wordIndex);
       const int wordFontId = block.wordFontId(renderer, lineFontId, wordIndex);
-      int wordWidth =
-          renderer.getTextAdvanceX(wordFontId, block.visibleWordText(wordIndex), style, 0, block.getCharacterSpacing());
+      int wordWidth = renderer.getTextAdvanceX(wordFontId, block.visibleWordText(wordIndex), style, 0,
+                                               block.getCharacterSpacing(), block.displayForm(wordIndex));
       if (wordIndex + 1 < block.wordCount() && block.wordXpos(wordIndex + 1) > block.wordXpos(wordIndex)) {
         wordWidth = std::min(wordWidth, static_cast<int>(block.wordXpos(wordIndex + 1) - block.wordXpos(wordIndex)));
       }

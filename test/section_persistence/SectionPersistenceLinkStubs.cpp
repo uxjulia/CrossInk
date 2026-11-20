@@ -1,3 +1,4 @@
+#include <ComplexShaper.h>
 #include <Epub.h>
 #include <GfxRenderer.h>
 #include <PrintSerialization.h>
@@ -50,3 +51,5 @@ std::unique_ptr<Page> Page::deserialize(FsFile& file) {
 }
 
 uint16_t Page::imageEstimateUnits(uint16_t, uint16_t) const { return 0; }
+
+void ComplexShaper::setDocumentLanguage(const char*) {}

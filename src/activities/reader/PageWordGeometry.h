@@ -21,7 +21,8 @@ inline PageWordGeometry pageWordGeometry(const GfxRenderer& renderer, const int 
                                          const TextBlock& block, const uint16_t wordIndex) {
   const auto style = static_cast<EpdFontFamily::Style>(block.wordStyle(wordIndex) & ~EpdFontFamily::UNDERLINE);
   const int lineFontId = block.wordFontId(renderer, fontId, wordIndex);
-  int width = renderer.getTextAdvanceX(lineFontId, block.visibleWordText(wordIndex), style);
+  int width = renderer.getTextAdvanceX(lineFontId, block.visibleWordText(wordIndex), style, 0,
+                                       block.getCharacterSpacing(), block.displayForm(wordIndex));
   if (wordIndex + 1 < block.wordCount() && block.wordXpos(wordIndex + 1) > block.wordXpos(wordIndex)) {
     width = std::min(width, static_cast<int>(block.wordXpos(wordIndex + 1) - block.wordXpos(wordIndex)));
   }

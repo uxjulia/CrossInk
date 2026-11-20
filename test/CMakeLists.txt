@@ -24,6 +24,18 @@ FetchContent_MakeAvailable(googletest)
 
 set(REPO_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/..")
 
+# lib/OtShaper, the Indic shaping engine, for tests that shape.
+file(GLOB OT_SHAPER_SOURCES ${REPO_ROOT}/lib/OtShaper/*.cpp)
+set(OT_SHAPER_INCLUDE_DIR ${REPO_ROOT}/lib/OtShaper)
+
+# The full-display tests exercise the real shaper and its bounded host allocator.
+add_library(host_indic_shaper STATIC ${OT_SHAPER_SOURCES}
+  ${REPO_ROOT}/lib/EpdFont/ComplexShaper.cpp ${REPO_ROOT}/lib/EpdFont/FlashBlobCache.cpp
+  ${REPO_ROOT}/lib/Utf8/IndicReorder.cpp)
+target_include_directories(host_indic_shaper PRIVATE ${REPO_ROOT}/test/complex_shaper/stubs
+  ${REPO_ROOT}/lib/EpdFont ${REPO_ROOT}/lib/Utf8 ${REPO_ROOT}/lib/HalFlashPartition ${OT_SHAPER_INCLUDE_DIR})
+target_compile_definitions(host_indic_shaper PRIVATE ESP=indicHostEsp millis=indicHostMillis)
+
 add_library(crosspoint_test_common INTERFACE)
 target_include_directories(crosspoint_test_common INTERFACE
   ${REPO_ROOT}
@@ -111,6 +123,11 @@ add_subdirectory(fs_helpers)
 add_subdirectory(persistable_store_atomic)
 add_subdirectory(book_reading_stats_atomic)
 add_subdirectory(opds_parser)
+
+add_subdirectory(indic_text)
+add_subdirectory(ot_shaper)
+add_subdirectory(complex_shaper)
+add_subdirectory(flash_blob_cache)
 add_subdirectory(library_text)
 add_subdirectory(library_format)
 add_subdirectory(library_index_file)

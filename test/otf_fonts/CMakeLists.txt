@@ -27,3 +27,8 @@ if(OTF_NODE)
   add_test(NAME otf_web_filter COMMAND ${OTF_NODE}
     ${CMAKE_CURRENT_SOURCE_DIR}/WebFontFilterTest.js ${CMAKE_CURRENT_SOURCE_DIR}/../../web/pages/fonts.js)
 endif()
+
+file(GLOB OTF_SHAPER_SOURCES ../../lib/OtShaper/*.cpp)
+target_sources(otf_scalable PRIVATE ../../lib/EpdFont/ComplexShaper.cpp
+  ../../lib/Utf8/Utf8.cpp ${OTF_SHAPER_SOURCES})
+target_include_directories(otf_scalable PRIVATE ../../lib/OtShaper ../../lib/Utf8 ../complex_shaper/stubs)

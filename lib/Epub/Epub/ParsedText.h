@@ -89,6 +89,7 @@ class ParsedText {
   bool extraParagraphSpacing;
   bool forceParagraphIndents;
   bool hyphenationEnabled;
+  bool hasIndicWords = false;
   bool focusReadingEnabled;
   bool guideReadingEnabled;
   uint8_t wordSpacing;

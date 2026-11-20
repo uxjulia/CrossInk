@@ -144,6 +144,25 @@ void sourceValidation() {
   assert(validate(broken, supported, entry) == Result::Io);
   assert(validate({}, supported, entry) == Result::Invalid);
 }
+void reservedTailTests() {
+  Device device;
+  Store store;
+  const size_t reserved = CAPACITY / 2 - 2 * SECTOR_SIZE;
+  assert(store.begin(device.flash(), supported, reserved) == Result::Ok);
+  assert(store.availablePayloadBytes("de") == SECTOR_SIZE);
+  auto large = pack("de", SECTOR_SIZE + 1);
+  assert(store.install(input(large)) == Result::NoSpace);
+  assert(device.mutations == 0);
+  auto small = pack("de", 1000);
+  assert(store.install(input(small)) == Result::Ok);
+  Store rebooted;
+  assert(rebooted.begin(device.flash(), supported, reserved) == Result::Ok);
+  Entry entry;
+  assert(rebooted.find("de", entry));
+  assert(rebooted.availablePayloadBytes("fr") == SECTOR_SIZE - 1000);
+  assert(tailAvailable(device.flash(), CAPACITY / 2, CAPACITY / 2, reserved));
+  device.checkUi();
+}
 void storageTests() {
   assert(crc32("123456789", 9) == 0xcbf43926u);
   assert(crc32("56789", 5, crc32("1234", 4)) == 0xcbf43926u);
@@ -258,6 +277,7 @@ void storageTests() {
 int main(int argc, char** argv) {
   sourceValidation();
   storageTests();
+  reservedTailTests();
   // Exercise release-generated real dictionaries through the production loader.
   Device device;
   for (int i = 1; i < argc; ++i) {

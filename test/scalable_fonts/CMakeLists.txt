@@ -96,3 +96,8 @@ if(SANITIZE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
   target_link_options(font_byte_digest_test PRIVATE -fsanitize=address,undefined)
 endif()
 add_test(NAME font_byte_digest COMMAND font_byte_digest_test)
+
+file(GLOB scalable_font_adapter_test_SHAPER_SOURCES ../../lib/OtShaper/*.cpp)
+target_sources(scalable_font_adapter_test PRIVATE ../../lib/EpdFont/ComplexShaper.cpp
+  ../../lib/Utf8/Utf8.cpp ${scalable_font_adapter_test_SHAPER_SOURCES})
+target_include_directories(scalable_font_adapter_test PRIVATE ../../lib/OtShaper ../../lib/Utf8 ../complex_shaper/stubs)

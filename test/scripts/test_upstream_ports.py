@@ -30,6 +30,7 @@ source = r'''
 #include <vector>
 #include <Utf8.h>
 #include <EpdFontData.h>
+#include <ShapingTokens.h>
 #define LOG_ERR(...) ((void)0)
 class KeyboardEntryActivity {
  public:
@@ -92,8 +93,10 @@ start = gfx.index('  // Advance table fast-path for SD card fonts during layout.
 end = gfx.index('\n  const auto fontIt = fontMap.find(resolvedFontId);', start + 300)
 source += r'''
 int measure(const char* text, int advance = 17, EpdFontFamily::Style style = EpdFontFamily::REGULAR,
-            int8_t characterSpacing = 0, uint32_t followingCp = 0, int kern = 0) {
+            int8_t characterSpacing = 0, uint32_t followingCp = 0, int kern = 0, bool shaped = false) {
   const int resolvedFontId = 1;
+  const struct { bool shaped; } resolved{shaped};
+  shaping::PendingGlyph position;
   SdCardFont sd{advance};
   std::map<int, SdCardFont*> sdCardFonts_{{1, &sd}};
   std::map<int, EpdFontFamily> fontMap{{1, EpdFontFamily{kern}}};
@@ -141,6 +144,7 @@ int main() {
     assert(measure("abcd", 17, EpdFontFamily::REGULAR, level, 'e', 7) == 3 + fp4::toPixel(24) + fp4::toPixel(4*level*8));
   }
   assert(measure("") == 0);
+  assert(measure("\U000fe020\U000f0001\U000fe030\U000f0002", 0, EpdFontFamily::REGULAR, 2, 0, 0, true) == 5);
 }
 '''
 with tempfile.TemporaryDirectory(prefix='crossink-upstream-ports-') as directory:

@@ -64,7 +64,7 @@ class ChapterHtmlSlimParserTest : public ::testing::TestWithParam<const char*> {
     ChapterHtmlSlimParser::characterData(&parser, prefix.data(), prefix.size());
     ASSERT_EQ(parser.currentTextRunBytes, prefixBytes);
     ChapterHtmlSlimParser::characterData(&parser, first.data(), first.size());
-    EXPECT_EQ(std::string(parser.partWordBuffer, parser.partWordBufferIndex), first);
+    EXPECT_EQ(std::string(parser.partWordBuffer(), parser.partWordBufferIndex), first);
     const std::string tail = second + " ";
     ChapterHtmlSlimParser::characterData(&parser, tail.data(), tail.size());
     const auto& words = parser.currentTextBlock->words;
@@ -189,6 +189,30 @@ class ChapterHtmlSlimParserTest : public ::testing::TestWithParam<const char*> {
     return style;
   }
 };
+
+TEST_F(ChapterHtmlSlimParserTest, KeepsIndicConjunctAcrossPendingWordLimitAndXmlCallbacks) {
+  std::string prefix;
+  for (int i = 0; i < 65; ++i) prefix += "क";
+  const std::string first = prefix + "र";
+  ChapterHtmlSlimParser::characterData(&parser, first.data(), first.size());
+  const std::string second = "्कक ";
+  ChapterHtmlSlimParser::characterData(&parser, second.data(), second.size());
+  const auto& words = parser.currentTextBlock->words;
+  ASSERT_EQ(words.size(), 1u);
+  EXPECT_EQ(words[0], prefix + "र्कक");
+  EXPECT_FALSE(parser.lowMemoryAbort);
+}
+
+TEST_F(ChapterHtmlSlimParserTest, RetainsBengaliWordContextBeyondTokenLimit) {
+  std::string word;
+  for (int i = 0; i < 66; ++i) word += "ক";
+  word += "কে";
+  ChapterHtmlSlimParser::characterData(&parser, word.data(), word.size());
+  ChapterHtmlSlimParser::characterData(&parser, " ", 1);
+  const auto& words = parser.currentTextBlock->words;
+  ASSERT_EQ(words.size(), 1u);
+  EXPECT_EQ(words[0], word);
+}
 
 TEST_F(ChapterHtmlSlimParserTest, HeadingGroupSpacesBothTitleLinesTogether) {
   parser.paragraphAlignment = static_cast<uint8_t>(CssTextAlign::Left);
@@ -1824,7 +1848,7 @@ TEST_F(ChapterHtmlSlimParserTest, CombinedReadingAidByteLimitKeepsWordAcrossCall
 TEST_F(ChapterHtmlSlimParserTest, FragmentAppendChecksBoundBeforeCallbackEnds) {
   renderer.textAdvancePerChar = 4;
   for (size_t i = 0; i < parser.bufferedWordsBeforeLayoutLimit() + 1; ++i) {
-    std::strcpy(parser.partWordBuffer, "word");
+    std::strcpy(parser.partWordBuffer(), "word");
     parser.partWordBufferIndex = 4;
     parser.flushPartWordBuffer();
   }
@@ -1853,7 +1877,7 @@ TEST_F(ChapterHtmlSlimParserTest, FragmentFlushKeepsRubyGroupBuffered) {
   renderer.textAdvancePerChar = 4;
   parser.inRuby = true;
   for (size_t i = 0; i < parser.bufferedWordsBeforeLayoutLimit() + 1; ++i) {
-    std::strcpy(parser.partWordBuffer, "word");
+    std::strcpy(parser.partWordBuffer(), "word");
     parser.partWordBufferIndex = 4;
     parser.flushPartWordBuffer();
   }
@@ -1871,7 +1895,7 @@ TEST_F(ChapterHtmlSlimParserTest, FragmentFlushKeepsBufferedTableCellIntact) {
   ChapterHtmlSlimParser::startElement(&parser, "td", nullptr);
   ASSERT_NE(parser.currentTableBuffer, nullptr);
   for (size_t i = 0; i < parser.bufferedWordsBeforeLayoutLimit() + 1; ++i) {
-    std::strcpy(parser.partWordBuffer, "word");
+    std::strcpy(parser.partWordBuffer(), "word");
     parser.partWordBufferIndex = 4;
     parser.flushPartWordBuffer();
   }

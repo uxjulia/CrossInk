@@ -11,7 +11,7 @@ writing systems (Chinese/Japanese/Korean, Cyrillic, Greek, and more).
 - **Every reader** can use `.cpfont` font packs. These are fonts converted for
   CrossInk, with one file per size.
 - **X4 Classic, X4 Pro, and Sticky** can also use ordinary static TrueType
-  (`.ttf`) and OpenType (`.otf`) font files directly, in any size. The original
+  (`.ttf`) and OpenType (`.otf`) font files and the first face of static TrueType collections (`.ttc`) directly, in any size. The original
   X3 and X4 need `.cpfont` files.
 
 ## Available Pre-Built Fonts
@@ -31,6 +31,12 @@ source font license when distributing regenerated packs. Built-in and `reading`
 presets already include this range and do not need regeneration for this fix.
 The maintained `build-sd-fonts.py` pipeline adds `builtin`, so its existing packs
 also already request these marks.
+
+## Indic fonts
+
+Select a font for the script used in your book. The local SD font builder has Noto Sans and Noto Serif presets for Devanagari, Bengali/Assamese, Gurmukhi, Gujarati, Odia, Tamil, Telugu, Kannada, Malayalam and Sinhala. For example, use `--intervals devanagari,latin-ext,punctuation` with `fontconvert_sdcard.py` to embed Devanagari shaping data. Use `--no-shaping` to omit it. Older packs can be regenerated from the original fonts.
+
+With shaping data, conjuncts and vowel signs follow the font's OpenType rules. On scalable-font readers a supported static font can provide those tables directly. Without the tables, CrossInk reorders supported vowel signs. EPUB selection and clippings retain the original text.
 
 ## Installing Fonts
 

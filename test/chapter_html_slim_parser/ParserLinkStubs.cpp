@@ -27,7 +27,8 @@ TextBlock::TextBlock(const std::vector<std::string>& words, const std::vector<in
                      const std::vector<uint16_t>&, const std::vector<uint16_t>&, const std::vector<uint8_t>& wordFlags,
                      const std::vector<bool>&, const BlockStyle& blockStyle, std::vector<std::string> rubyTexts,
                      const std::vector<uint8_t>& wordSizes, const char*, int8_t characterSpacing,
-                     const std::vector<uint32_t>& fontFamilies, const std::vector<SourceRange>& sourceRanges)
+                     const std::vector<uint32_t>& fontFamilies, const std::vector<SourceRange>& sourceRanges,
+                     const std::vector<std::string>&)
     : blockStyle(blockStyle),
       characterSpacing(characterSpacing),
       numWords(static_cast<uint16_t>(words.size())),

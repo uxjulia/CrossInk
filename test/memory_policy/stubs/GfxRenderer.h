@@ -12,6 +12,12 @@ enum class BidiBaseDir : signed char { AUTO = -1, LTR = 0, RTL = 1 };
 
 class GfxRenderer {
  public:
+  struct ShapingMemoScope {
+    explicit ShapingMemoScope(bool) {}
+  };
+  bool resolveForDisplay(int, const char*, EpdFontFamily::Style, BidiUtils::BidiBaseDir, std::string&) const {
+    return false;
+  }
   uint64_t textCullGeneration() const { return 0; }
   int getWriteOriginY() const { return 0; }
   int getWriteRows() const { return 480; }
@@ -53,7 +59,8 @@ class GfxRenderer {
                    BidiUtils::BidiBaseDir = BidiUtils::BidiBaseDir::AUTO, int8_t = 0) const {
     return characters(text) * (6 + id);
   }
-  int getTextAdvanceX(int id, const char* text, EpdFontFamily::Style style, uint32_t = 0, int8_t = 0) const {
+  int getTextAdvanceX(int id, const char* text, EpdFontFamily::Style style, uint32_t = 0, int8_t = 0,
+                      const char* = nullptr) const {
     return getTextWidth(id, text, style);
   }
   int getSpaceWidth(int id, EpdFontFamily::Style) const { return 3 + id; }

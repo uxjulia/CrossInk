@@ -123,7 +123,8 @@ TextBlock::TextBlock(const std::vector<std::string>& words, const std::vector<in
                      const std::vector<uint8_t>& wordFlags, const std::vector<bool>& wordHasSpaceBefore,
                      const BlockStyle& blockStyle, std::vector<std::string> rubyTexts,
                      const std::vector<uint8_t>& wordSizes, const char* initialLetter, const int8_t characterSpacing,
-                     const std::vector<uint32_t>& fontFamilies, const std::vector<SourceRange>& sourceRanges)
+                     const std::vector<uint32_t>& fontFamilies, const std::vector<SourceRange>& sourceRanges,
+                     const std::vector<std::string>& display)
     : blockStyle(blockStyle), characterSpacing(characterSpacing), rubyTexts(std::move(rubyTexts)) {
   // A ruby-less line needs no per-word ruby vector. ParsedText passes one for
   // every extracted line once a book contains any ruby, so free all-empty
@@ -192,7 +193,18 @@ TextBlock::TextBlock(const std::vector<std::string>& words, const std::vector<in
     return;
   }
 
+  if (!display.empty() && display.size() != words.size()) {
+    LOG_ERR("TXB", "Display form count differs from word count");
+    isValid = false;
+    return;
+  }
   size_t totalText = initialLetterBytes;
+  for (const auto& form : display) {
+    if (!form.empty()) {
+      displayPresent = true;
+      totalText += form.size() + 1;
+    }
+  }
   for (const auto& word : words) {
     totalText += word.size() + 1;
   }
@@ -246,6 +258,11 @@ TextBlock::TextBlock(const std::vector<std::string>& words, const std::vector<in
     memcpy(text + off, words[i].data(), words[i].size());
     off += static_cast<uint16_t>(words[i].size());
     text[off++] = '\0';
+    if (displayPresent && !display[i].empty()) {
+      const auto bytes = display[i].size() + 1;
+      memcpy(text + off, display[i].c_str(), bytes);
+      off += bytes;
+    }
   }
   if (focusPresent) {
     auto* runOffset = const_cast<uint16_t*>(focusRunOffsetArr);
@@ -354,13 +371,13 @@ void TextBlock::renderOrMeasure(const GfxRenderer& renderer, int fontId, const i
   }
 
   const auto drawText = [&](int id, int left, int top, const char* text, bool black, EpdFontFamily::Style style,
-                            BidiUtils::BidiBaseDir dir, int8_t spacing) {
+                            BidiUtils::BidiBaseDir dir, int8_t spacing, const char* display = nullptr) {
     if (ink) {
-      const auto bounds = renderer.getTextVerticalBounds(id, text, style, dir, spacing);
+      const auto bounds = renderer.getTextVerticalBounds(id, text, style, dir, spacing, display);
       ink->include(top + bounds.top, top + bounds.bottom);
       ink->observeText(text);
     } else {
-      renderer.drawText(id, left, top, text, black, style, dir, spacing);
+      renderer.drawText(id, left, top, text, black, style, dir, spacing, display);
     }
   };
   const bool scanning = !ink && renderer.isFontCacheScanning();
@@ -433,7 +450,7 @@ void TextBlock::renderOrMeasure(const GfxRenderer& renderer, int fontId, const i
           drawText(fontId, secondRunX, wordY, word + boldLen, foregroundBlack, currentStyle, baseDir, characterSpacing);
         }
       } else {
-        drawText(fontId, wordX, wordY, word, foregroundBlack, currentStyle, baseDir, characterSpacing);
+        drawText(fontId, wordX, wordY, word, foregroundBlack, currentStyle, baseDir, characterSpacing, displayForm(i));
       }
 
       if (i < rubyTexts.size() && !rubyTexts[i].empty() && (currentStyle & EpdFontFamily::RUBY_CONTINUE) == 0) {
@@ -446,7 +463,7 @@ void TextBlock::renderOrMeasure(const GfxRenderer& renderer, int fontId, const i
           int groupWidth = 0;
           for (uint16_t j = 0; j < groupWords; ++j) {
             groupWidth += renderer.getTextAdvanceX(wordFontId(renderer, baseFont, i + j), wordText(i + j),
-                                                   wordStyle(i + j), 0, characterSpacing);
+                                                   wordStyle(i + j), 0, characterSpacing, displayForm(i + j));
           }
           const int rubyWidth =
               renderer.getTextAdvanceX(fontId, rubyTexts[i].c_str(), EpdFontFamily::SUP, 0, characterSpacing);
@@ -468,7 +485,9 @@ void TextBlock::renderOrMeasure(const GfxRenderer& renderer, int fontId, const i
 
       if (!scanning && (currentStyle & EpdFontFamily::UNDERLINE) != 0) {
         int startX = wordX;
-        int underlineWidth = renderer.getTextWidth(fontId, word, currentStyle, baseDir, characterSpacing);
+        int underlineWidth =
+            displayForm(i) ? renderer.getTextAdvanceX(fontId, word, currentStyle, 0, characterSpacing, displayForm(i))
+                           : renderer.getTextWidth(fontId, word, currentStyle, baseDir, characterSpacing);
         const int underlineY = wordY + ascender + 2;
 
         if (hasSyntheticIndentPrefix(word, wordLen)) {
@@ -478,7 +497,8 @@ void TextBlock::renderOrMeasure(const GfxRenderer& renderer, int fontId, const i
           underlineWidth = renderer.getTextWidth(fontId, visiblePtr, currentStyle, baseDir, characterSpacing);
         }
 
-        if (characterSpacing == 0 && (currentStyle & (EpdFontFamily::SUP | EpdFontFamily::SUB)) != 0) {
+        if (!displayForm(i) && characterSpacing == 0 &&
+            (currentStyle & (EpdFontFamily::SUP | EpdFontFamily::SUB)) != 0) {
           underlineWidth = (underlineWidth + 1) / 2;
         }
 
@@ -502,7 +522,9 @@ void TextBlock::renderOrMeasure(const GfxRenderer& renderer, int fontId, const i
 
       if (!scanning && (currentStyle & EpdFontFamily::STRIKETHROUGH) != 0) {
         int startX = wordX;
-        int strikeWidth = renderer.getTextWidth(fontId, word, currentStyle, baseDir, characterSpacing);
+        int strikeWidth =
+            displayForm(i) ? renderer.getTextAdvanceX(fontId, word, currentStyle, 0, characterSpacing, displayForm(i))
+                           : renderer.getTextWidth(fontId, word, currentStyle, baseDir, characterSpacing);
         int32_t unusedAdvance = 0;
         int height = 0;
         const bool smallCaps = (currentStyle & EpdFontFamily::SMALL_CAPS) != 0;
@@ -522,7 +544,8 @@ void TextBlock::renderOrMeasure(const GfxRenderer& renderer, int fontId, const i
           strikeWidth = renderer.getTextWidth(fontId, visiblePtr, currentStyle, baseDir, characterSpacing);
         }
 
-        if (characterSpacing == 0 && (currentStyle & (EpdFontFamily::SUP | EpdFontFamily::SUB)) != 0) {
+        if (!displayForm(i) && characterSpacing == 0 &&
+            (currentStyle & (EpdFontFamily::SUP | EpdFontFamily::SUB)) != 0) {
           strikeWidth = (strikeWidth + 1) / 2;
         }
 
@@ -565,7 +588,7 @@ bool TextBlock::serialize(Print& file) const {
       !serialization::tryWritePod(file, static_cast<uint8_t>(wordFlagsPresent ? 1 : 0)) ||
       !serialization::tryWritePod(file, static_cast<uint8_t>(wordSpacesPresent ? 1 : 0)) ||
       !serialization::tryWritePod(file, static_cast<uint8_t>(wordSizesPresent)) ||
-      !serialization::tryWritePod(file, static_cast<uint8_t>(sourceRangesPresent)) ||
+      !serialization::tryWritePod(file, static_cast<uint8_t>(sourceRangesPresent | (displayPresent << 1))) ||
       !serialization::tryWritePod(file, characterSpacing) || !serialization::tryWritePod(file, initialLetterBytes) ||
       !serialization::tryWritePod(file, textBytes)) {
     LOG_ERR("TXB", "Serialization failed: could not write block header");
@@ -640,7 +663,7 @@ std::unique_ptr<TextBlock> TextBlock::deserialize(HalFile& file) {
     return nullptr;
   }
   if (hasFocus > 1 || hasGuideDots > 1 || hasWordFlags > 1 || hasWordSpaces > 1 || hasWordSizes > 1 ||
-      hasSourceRanges > 1) {
+      hasSourceRanges > 3) {
     LOG_ERR("TXB", "Deserialization failed: invalid metadata flags");
     return nullptr;
   }
@@ -662,7 +685,8 @@ std::unique_ptr<TextBlock> TextBlock::deserialize(HalFile& file) {
   block->wordFlagsPresent = hasWordFlags != 0;
   block->wordSpacesPresent = hasWordSpaces != 0;
   block->wordSizesPresent = hasWordSizes != 0;
-  block->sourceRangesPresent = hasSourceRanges != 0;
+  block->displayPresent = (hasSourceRanges & 2) != 0;
+  block->sourceRangesPresent = (hasSourceRanges & 1) != 0;
   block->initialLetterBytes = initialLetterBytes;
   block->characterSpacing = characterSpacing;
 

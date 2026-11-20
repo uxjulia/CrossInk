@@ -3,7 +3,9 @@
 #include <HalStorage.h>
 #if CROSSINK_SCALABLE_FONTS
 #include <HalScalableFont.h>
+#include <ShapingTokens.h>
 #include <TrueTypeFormat.h>
+#include <Utf8.h>
 #endif
 #include <unistd.h>
 
@@ -31,6 +33,21 @@ static void put(const char* path, const Bytes& bytes) {
 static void put32(Bytes& b, size_t at, uint32_t value) {
   for (unsigned i = 0; i < 4; ++i) b[at + i] = value >> (24 - 8 * i);
 }
+static Bytes collection(const Bytes& font) {
+  Bytes result(16 + font.size());
+  std::memcpy(result.data(), "ttcf", 4);
+  put32(result, 4, 0x00010000u);
+  put32(result, 8, 1);
+  put32(result, 12, 16);
+  std::copy(font.begin(), font.end(), result.begin() + 16);
+  const unsigned tables = (unsigned(font[4]) << 8) | font[5];
+  for (unsigned i = 0; i < tables; ++i) {
+    const size_t offsetField = 16 + 12 + i * 16 + 8;
+    put32(result, offsetField, truetype::u32(result.data() + offsetField) + 16);
+  }
+  return result;
+}
+
 static void retag(Bytes& b, const char* oldTag, const char* newTag) {
   const size_t count = (unsigned(b[4]) << 8) | b[5];
   bool found = false;
@@ -62,7 +79,7 @@ static void rejected(const Bytes& bytes) {
 }
 #endif
 int main(int argc, char** argv) {
-  assert(argc == 3);
+  assert(argc == 3 || argc == 4);
   char temp[] = "/tmp/crossink-otf-XXXXXX";
   testRoot = mkdtemp(temp);
   assert(!testRoot.empty());
@@ -77,7 +94,7 @@ int main(int argc, char** argv) {
     assert(FontInstaller::isValidCpfontFilename(names[i]) == bool(CROSSINK_SCALABLE_FONTS));
     put((std::string("/fonts/Bitter/") + names[i]).c_str(), read(fonts + sources[i]));
   }
-  for (const char* name : {"../Bad.otf", "A/Bad.otf", "A\\Bad.otf", "Bad.otf.tmp", ".otf", "Bad.ttc"})
+  for (const char* name : {"../Bad.otf", "A/Bad.otf", "A\\Bad.otf", "Bad.otf.tmp", ".otf", ".ttc"})
     assert(!FontInstaller::isValidCpfontFilename(name));
   assert(FontInstaller::isValidCpfontFilename("Bitmap_14.cpfont"));
   put("/fonts/Bitmap/Bitmap_14.cpfont", Bytes{'C', 'P', 'F', 'O', 'N', 'T', 0, 0});
@@ -134,6 +151,63 @@ int main(int argc, char** argv) {
       }
     }
   }
+  for (const auto& outline : {valid, cff}) {
+    const auto ttc = collection(outline);
+    put("/fonts/Collection/First.ttc", ttc);
+    HalScalableFont::Info info;
+    assert(HalScalableFont::inspectFile("/fonts/Collection/First.ttc", info));
+    for (auto mode : {HalScalableFont::FileMode::Auto, HalScalableFont::FileMode::Stream}) {
+      HalScalableFont font;
+      assert(font.openFile("/fonts/Collection/First.ttc", HalScalableFont::MaxFileBytes, {}, mode));
+      assert(font.probeGlyph(outline == cff ? 0xF000 : 'A', 16));
+    }
+    auto malformed = ttc;
+    put32(malformed, 8, 0xffffffffu);
+    rejected(malformed);
+    malformed = ttc;
+    put32(malformed, 12, uint32_t(ttc.size() - 4));
+    rejected(malformed);
+    malformed = ttc;
+    put32(malformed, 12, 4);
+    rejected(malformed);
+  }
+  if (argc == 4) {
+    const auto indic = read(argv[3]);
+    assert(!indic.empty());
+    std::string expected;
+    for (const auto& bytes : {indic, collection(indic)}) {
+      put("/fonts/Indic/Indic.ttc", bytes);
+      for (auto mode : {HalScalableFont::FileMode::Auto, HalScalableFont::FileMode::Stream}) {
+        HalScalableFont font;
+        assert(font.openFile("/fonts/Indic/Indic.ttc", HalScalableFont::MaxFileBytes, {}, mode));
+        for (uint8_t points : {12, 18, 12}) {
+          const auto* data = font.atSize(points)->data;
+          assert(data->shapeHandler);
+          const auto* missing = data->dynamicGlyphHandler(data->glyphMissCtx, shaping::glyphToken(0));
+          assert(missing && missing->dataOffset == 0x80000000u);
+          std::string shaped;
+          assert(data->shapeHandler(data->glyphMissCtx, "क्षि त्रि हिन्दी", &shaped));
+          if (points == 12) {
+            if (expected.empty()) expected = shaped;
+            assert(shaped == expected);
+          }
+          const auto* p = reinterpret_cast<const unsigned char*>(shaped.c_str());
+          unsigned glyphs = 0;
+          while (*p) {
+            const auto cp = utf8NextCodepoint(&p);
+            if (!shaping::isGlyphToken(cp)) continue;
+            ++glyphs;
+            assert(data->coverageHandler(data->glyphMissCtx, cp));
+            const auto* glyph = data->dynamicGlyphHandler(data->glyphMissCtx, cp);
+            assert(glyph && glyph->dataOffset & 0x80000000u);
+            assert(!glyph->width || !glyph->height || data->bitmapHandler(data->glyphMissCtx, glyph));
+          }
+          assert(glyphs);
+        }
+      }
+    }
+  }
+  assert(ComplexShaper::memoryStats().current == 0);
   auto bad = cff;
   std::memcpy(bad.data(), "\0\1\0\0", 4);
   rejected(bad);  // TrueType version without glyf/loca.

@@ -8,6 +8,7 @@ namespace fontfiles {
 inline bool isScalable(const char* name) {
   if (!name) return false;
   const size_t length = std::strlen(name);
-  return length > 4 && (strcasecmp(name + length - 4, ".ttf") == 0 || strcasecmp(name + length - 4, ".otf") == 0);
+  return length > 4 && (strcasecmp(name + length - 4, ".ttf") == 0 || strcasecmp(name + length - 4, ".otf") == 0 ||
+                        strcasecmp(name + length - 4, ".ttc") == 0);
 }
 }  // namespace fontfiles

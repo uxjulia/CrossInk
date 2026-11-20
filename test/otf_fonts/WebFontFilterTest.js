@@ -18,7 +18,7 @@ vm.runInContext(script, context);
 vm.runInContext(`
   ttfSupported = true;
   if (familyFromFilename('Bitter-BoldItalic.OTF') !== 'Bitter') throw Error('OTF family');
-  if (cpfontFilesOnly([{name:'A.OtF'}, {name:'A.TTF'}, {name:'A_14.cpfont'}, {name:'A.ttc'}, {name:'A.otf.tmp'}]).length !== 3)
+  if (cpfontFilesOnly([{name:'A.OtF'}, {name:'A.TTF'}, {name:'A_14.cpfont'}, {name:'A.ttc'}, {name:'A.otf.tmp'}]).length !== 4)
     throw Error('scalable filter');
   ttfSupported = false;
   if (cpfontFilesOnly([{name:'A.OTF'}, {name:'A.ttf'}, {name:'A_14.cpfont'}]).length !== 1)

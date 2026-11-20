@@ -343,16 +343,28 @@ Result validate(Input input, Supported supported, Entry& entry, const Validation
   return result;
 }
 
-Result Store::begin(Flash flash, Supported supported) {
+bool tailAvailable(Flash flash, size_t bankOffset, size_t bankSize, size_t tailBytes) {
+  if (!flash.read || bankSize < HEADER_SIZE || tailBytes > bankSize || bankOffset > flash.size ||
+      bankSize > flash.size - bankOffset)
+    return false;
+  uint8_t header[HEADER_SIZE];
+  if (!flash.read(flash.context, bankOffset, header, sizeof(header))) return false;
+  if (std::all_of(header, header + HEADER_SIZE, [](uint8_t byte) { return byte == 0xff; })) return true;
+  const auto anyPack = [](const char*, uint8_t, uint8_t) { return true; };
+  return validHeader(header, bankSize, anyPack) && u32(header + 16) <= bankSize - tailBytes;
+}
+
+Result Store::begin(Flash flash, Supported supported, size_t reservedTailBytes) {
   if (ready_) return Result::Unchanged;
   if (!supported || !flash.read || !flash.write || !flash.erase || flash.size < 2 * 65536 || flash.size % (2 * 65536) ||
-      flash.size > 16 * 1024 * 1024)
+      flash.size > 16 * 1024 * 1024 || reservedTailBytes % SECTOR_SIZE || reservedTailBytes >= flash.size / 2)
     return Result::Unavailable;
   auto work = makeUniqueNoThrow<Workspace>();
   if (!work) return Result::Memory;
   flash_ = flash;
   supported_ = supported;
   bankSize_ = flash.size / 2;
+  writeCapacity_ = bankSize_ - reservedTailBytes;
   bank_ = -1;  // A previous attempt may have failed after reading only one bank.
   for (int bank = 0; bank < 2; ++bank) {
     const size_t base = static_cast<size_t>(bank) * bankSize_;
@@ -379,7 +391,7 @@ size_t Store::availablePayloadBytes(const char* replacementCode) const {
     used += align4(entry.size);
     ++retained;
   }
-  return retained < MAX_PACKS && used <= bankSize_ ? bankSize_ - used : 0;
+  return retained < MAX_PACKS && used <= writeCapacity_ ? writeCapacity_ - used : 0;
 }
 bool Store::find(const char* code, Entry& entry) const {
   if (!code || std::strlen(code) != 2) return false;
@@ -425,7 +437,8 @@ Result Store::rewrite(const char* code, const Input* input, const Entry* replace
     next = align4(next + entry.size);
   }
   if (replacement) {
-    if (entries == MAX_PACKS || next > bankSize_ || replacement->size > bankSize_ - next) return Result::NoSpace;
+    if (entries == MAX_PACKS || next > writeCapacity_ || replacement->size > writeCapacity_ - next)
+      return Result::NoSpace;
     Entry entry = *replacement;
     entry.offset = next;
     encode(work->header + ENTRY_OFFSET + entries++ * ENTRY_SIZE, entry);
@@ -445,6 +458,7 @@ Result Store::rewrite(const char* code, const Input* input, const Entry* replace
         existing.checksum == entry.checksum)
       return Result::Unchanged;
   }
+  if (next > writeCapacity_) return Result::NoSpace;
   put32(work->header + 12, entries);
   put32(work->header + 16, next);
   put32(work->header + 20, headerCrc(work->header));

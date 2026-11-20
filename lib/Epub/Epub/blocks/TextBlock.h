@@ -3,6 +3,7 @@
 #include <HalStorage.h>
 
 #include <cstddef>
+#include <cstring>
 #include <memory>
 #include <string>
 #include <vector>
@@ -30,6 +31,7 @@ class TextBlock final : public Block {
   int8_t characterSpacing = 0;
   uint16_t numWords = 0;
   uint16_t textBytes = 0;  // Total size of the text region, including NULs.
+  bool displayPresent = false;
   bool focusPresent = false;
   bool guideDotsPresent = false;
   bool wordFlagsPresent = false;
@@ -82,7 +84,7 @@ class TextBlock final : public Block {
                      const BlockStyle& blockStyle = BlockStyle(), std::vector<std::string> rubyTexts = {},
                      const std::vector<uint8_t>& wordSizes = {}, const char* initialLetter = "",
                      int8_t characterSpacing = 0, const std::vector<uint32_t>& fontFamilies = {},
-                     const std::vector<SourceRange>& sourceRanges = {});
+                     const std::vector<SourceRange>& sourceRanges = {}, const std::vector<std::string>& display = {});
   ~TextBlock() override = default;
   TextBlock(const TextBlock&) = delete;
   TextBlock& operator=(const TextBlock&) = delete;
@@ -97,9 +99,17 @@ class TextBlock final : public Block {
   uint16_t wordCount() const { return numWords; }
   SourceRange wordSourceRange(uint16_t i) const { return sourceRangesPresent ? sourceRangesArr[i] : SourceRange{}; }
   const char* wordText(const uint16_t i) const { return textArr + textOffArr[i]; }
-  uint16_t wordTextLen(const uint16_t i) const {
+  uint16_t wordSlotBytes(const uint16_t i) const {
     const uint16_t end = (i + 1 < numWords) ? textOffArr[i + 1] : textBytes;
-    return end - textOffArr[i] - 1;
+    return end - textOffArr[i];
+  }
+  uint16_t wordTextLen(const uint16_t i) const {
+    return displayPresent ? static_cast<uint16_t>(std::strlen(wordText(i))) : wordSlotBytes(i) - 1;
+  }
+  const char* displayForm(uint16_t i) const {
+    if (!displayPresent) return nullptr;
+    const size_t afterWord = wordTextLen(i) + 1U;
+    return afterWord < wordSlotBytes(i) ? wordText(i) + afterWord : nullptr;
   }
   int16_t wordXpos(const uint16_t i) const { return xposArr[i]; }
   EpdFontFamily::Style wordStyle(const uint16_t i) const { return static_cast<EpdFontFamily::Style>(stylesArr[i]); }

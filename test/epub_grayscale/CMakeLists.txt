@@ -71,3 +71,6 @@ target_include_directories(IdleTextScanTest PRIVATE scalable_stubs ${idle_text_i
 target_compile_definitions(IdleTextScanTest PRIVATE ${idle_text_definitions} CROSSINK_SCALABLE_FONTS=1)
 target_link_libraries(IdleTextScanTest PRIVATE crosspoint_test_common GTest::gtest_main)
 gtest_discover_tests(IdleTextScanTest)
+
+target_link_libraries(EpubTextGrayscaleTest PRIVATE host_indic_shaper)
+target_link_libraries(IdleTextScanTest PRIVATE host_indic_shaper)

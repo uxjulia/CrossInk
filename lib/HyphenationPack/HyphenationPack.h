@@ -39,6 +39,9 @@ enum class Result { Ok, Unchanged, Invalid, Unsupported, Io, Memory, NoSpace, Un
 const char* resultName(Result result);
 uint32_t crc32(const void* bytes, size_t length, uint32_t previous = 0);
 uint32_t identity(const Entry& entry);
+// Checks only the committed bank header and its full used extent. An erased
+// header is free; unknown/corrupt headers are conservatively unavailable.
+bool tailAvailable(Flash flash, size_t bankOffset, size_t bankSize, size_t tailBytes);
 
 struct ValidationOptions {
   const char* expectedCode = nullptr;
@@ -55,13 +58,16 @@ Result validate(Input input, Supported supported, Entry& entry, const Validation
 
 class Store {
  public:
-  Result begin(Flash flash, Supported supported);
+  // Keep bank addresses and old full-capacity contents readable while reserving
+  // a tail for another flash user on subsequent writes.
+  Result begin(Flash flash, Supported supported, size_t reservedTailBytes = 0);
   Result install(Input input);
   Result remove(const char* code);
   bool find(const char* code, Entry& entry) const;
   size_t count() const;
   size_t bankOffset() const { return bank_ < 0 ? 0 : static_cast<size_t>(bank_) * bankSize_; }
   size_t usedBytes() const;
+  size_t reservedTailBytes() const { return ready_ ? bankSize_ - writeCapacity_ : 0; }
   // Payload capacity after retaining every installed pack except this code.
   // Zero when unavailable, restart is pending, or no entry slot remains.
   size_t availablePayloadBytes(const char* replacementCode) const;
@@ -73,6 +79,7 @@ class Store {
   Flash flash_{};
   Supported supported_ = nullptr;
   size_t bankSize_ = 0;
+  size_t writeCapacity_ = 0;
   int bank_ = -1;
   bool ready_ = false;
   bool pending_ = false;
