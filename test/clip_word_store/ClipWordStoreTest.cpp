@@ -112,6 +112,43 @@ TEST(ClipTextBuilder, JoinsInsertedHyphenAcrossParagraphBoundary) {
   EXPECT_EQ(result.text, "hyphenated");
 }
 
+TEST(ClipTextBuilder, RespectsAuthoredSpacesAfterHyphensAtLineWraps) {
+  const struct {
+    const char* prefix;
+    const char* suffix;
+    bool spaceBeforeSuffix;
+    bool insertedHyphen;
+    const char* expected;
+  } cases[] = {
+      {"short-", "and long-term plans.", true, false, "short- and long-term plans."},
+      {"short-", "term", false, false, "short-term"},
+      {"hyphen-", "ated", false, true, "hyphenated"},
+  };
+  for (const auto& test : cases) {
+    SCOPED_TRACE(test.expected);
+    ClipWordStore store;
+    WordRef prefix;
+    prefix.x = 100;
+    prefix.y = 10;
+    prefix.w = 40;
+    prefix.h = 20;
+    prefix.endsWithInsertedHyphen = test.insertedHyphen;
+    ASSERT_TRUE(store.appendText(prefix, test.prefix));
+    store.words.push_back(prefix);
+
+    WordRef suffix;
+    suffix.y = 30;
+    suffix.h = 20;
+    suffix.pageWordIndex = 1;
+    suffix.hasSpaceBefore = test.spaceBeforeSuffix;
+    ASSERT_TRUE(store.appendText(suffix, test.suffix));
+    store.words.push_back(suffix);
+
+    const uint16_t order[] = {0, 1};
+    EXPECT_EQ(ClipTextBuilder::build(store, order, 0, 1, 0, 1).text, test.expected);
+  }
+}
+
 TEST(ClipTextBuilder, PreservesNarrowSpacesAndAttachedFragmentsInEitherLineOrder) {
   ClipWordStore store;
   const char* texts[] = {"master", "’s", "tools"};

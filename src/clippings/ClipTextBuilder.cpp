@@ -78,7 +78,8 @@ bool areWordsVisuallyAttached(const WordRef& previousWord, const WordRef& word) 
 }
 
 bool hasLayoutSpaceBetween(const WordRef& previousWord, const WordRef& word) {
-  if (word.pageIdx != previousWord.pageIdx || word.y != previousWord.y) return false;
+  // Layout ordinals remain consecutive across line wraps on the same page.
+  if (word.pageIdx != previousWord.pageIdx) return false;
 
   // Selection traverses RTL rows in reverse, but the space flag follows layout order.
   if (previousWord.pageWordIndex + 1 == word.pageWordIndex) return word.hasSpaceBefore;

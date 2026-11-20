@@ -5265,7 +5265,8 @@ void EpubReaderActivity::startClipSelection(const DictionaryClippingRequest* dic
             static_cast<uint8_t>((std::clamp<int>(block.getCharacterSpacing(), 0, 5) + 1) / 2);
         for (uint16_t i = 0; i < count; ++i) {
           const char* wordText = block.wordText(i);
-          hasSpaceBefore |= i > 0 && block.wordHasSpaceBefore(i);
+          // The first word of a wrapped line can still have an authored preceding space.
+          hasSpaceBefore |= block.wordHasSpaceBefore(i);
           if (!hasVisibleWordText(wordText)) {
             // Nonbreaking spaces are separate layout tokens, but cannot be selected.
             hasSpaceBefore |= *wordText != '\0';
