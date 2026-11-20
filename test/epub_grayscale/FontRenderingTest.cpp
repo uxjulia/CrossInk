@@ -1,10 +1,13 @@
 #include <FontCacheManager.h>
 #include <FontDecompressor.h>
 #include <GfxRenderer.h>
+#include <ShapingTokens.h>
+#include <Utf8.h>
 #include <gtest/gtest.h>
 
 #include <algorithm>
 #include <array>
+#include <string>
 #include <vector>
 
 namespace {
@@ -204,6 +207,7 @@ TEST(VerticalGlyphBounds, ConsumesOneLookupAndKeepsFallbackMetrics) {
       case 'v':
         return &counts.body;
       case 0x2018:
+      case shaping::glyphToken(1):
         return &counts.quote;
       case 0xfffd:
         return &counts.replacement;
@@ -217,8 +221,19 @@ TEST(VerticalGlyphBounds, ConsumesOneLookupAndKeepsFallbackMetrics) {
   renderer.insertFont(1, EpdFontFamily(&font));
 
   auto bounds = renderer.getTextVerticalBounds(1, "vvvv");
-  EXPECT_EQ(lookups.calls, 4);
+  EXPECT_EQ(lookups.calls, 1);  // All four letters share the first measurement.
   EXPECT_EQ(bounds.top, 4);
+  EXPECT_EQ(bounds.bottom, 11);
+
+  // Measure a stored display form with both a cached letter and a positioned glyph.
+  std::string shaped = "v";
+  utf8AppendCodepoint(shaping::offsetToken(0, -3), shaped);
+  utf8AppendCodepoint(shaping::glyphToken(1), shaped);
+  lookups.calls = 0;
+  bounds =
+      renderer.getTextVerticalBounds(1, "vv", EpdFontFamily::REGULAR, BidiUtils::BidiBaseDir::AUTO, 0, shaped.c_str());
+  EXPECT_EQ(lookups.calls, 1);
+  EXPECT_EQ(bounds.top, -2);
   EXPECT_EQ(bounds.bottom, 11);
 
   lookups.calls = 0;

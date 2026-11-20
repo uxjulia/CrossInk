@@ -483,48 +483,40 @@ void TextBlock::renderOrMeasure(const GfxRenderer& renderer, int fontId, const i
                  characterSpacing);
       }
 
-      if (!scanning && (currentStyle & EpdFontFamily::UNDERLINE) != 0) {
+      const auto decoration = [&](EpdFontFamily::Style flag, int lineY) {
+        if (ink) {
+          ink->include(lineY, lineY + 3);
+          return;
+        }
+
         int startX = wordX;
-        int underlineWidth =
-            displayForm(i) ? renderer.getTextAdvanceX(fontId, word, currentStyle, 0, characterSpacing, displayForm(i))
-                           : renderer.getTextWidth(fontId, word, currentStyle, baseDir, characterSpacing);
-        const int underlineY = wordY + ascender + 2;
+        const bool hasIndent = hasSyntheticIndentPrefix(word, wordLen);
+        if (hasIndent) startX += renderer.getTextAdvanceX(fontId, "\xe2\x80\x83", currentStyle, 0, characterSpacing);
+        const char* display = displayForm(i);
+        int width =
+            display && !hasIndent
+                ? renderer.getTextAdvanceX(fontId, word, currentStyle, 0, characterSpacing, display)
+                : renderer.getTextWidth(fontId, hasIndent ? word + 3 : word, currentStyle, baseDir, characterSpacing);
+        if (!display && characterSpacing == 0 && (currentStyle & (EpdFontFamily::SUP | EpdFontFamily::SUB)) != 0)
+          width = (width + 1) / 2;
 
-        if (hasSyntheticIndentPrefix(word, wordLen)) {
-          const char* visiblePtr = word + 3;
-          const int prefixWidth = renderer.getTextAdvanceX(fontId, "\xe2\x80\x83", currentStyle, 0, characterSpacing);
-          startX = wordX + prefixWidth;
-          underlineWidth = renderer.getTextWidth(fontId, visiblePtr, currentStyle, baseDir, characterSpacing);
-        }
-
-        if (!displayForm(i) && characterSpacing == 0 &&
-            (currentStyle & (EpdFontFamily::SUP | EpdFontFamily::SUB)) != 0) {
-          underlineWidth = (underlineWidth + 1) / 2;
-        }
-
-        int underlineEndX = startX + underlineWidth;
+        int endX = startX + width;
         if (i + 1 < numWords) {
-          const EpdFontFamily::Style nextStyle = wordStyle(i + 1);
-          const bool nextSharesBaseline = (nextStyle & (EpdFontFamily::SUP | EpdFontFamily::SUB)) ==
-                                          (currentStyle & (EpdFontFamily::SUP | EpdFontFamily::SUB));
-          if ((nextStyle & EpdFontFamily::UNDERLINE) != 0 && nextSharesBaseline) {
-            const int nextStartX = wordXpos(i + 1) + x;
-            underlineEndX = std::max(underlineEndX, nextStartX);
-            startX = std::min(startX, nextStartX);
+          const auto nextStyle = wordStyle(i + 1);
+          const bool sameBaseline = (nextStyle & (EpdFontFamily::SUP | EpdFontFamily::SUB)) ==
+                                    (currentStyle & (EpdFontFamily::SUP | EpdFontFamily::SUB));
+          if ((nextStyle & flag) != 0 && sameBaseline) {
+            const int nextX = wordXpos(i + 1) + x;
+            endX = std::max(endX, nextX);
+            startX = std::min(startX, nextX);
           }
         }
+        renderer.drawLine(startX, lineY, endX, lineY, 3, textBlack);
+      };
 
-        if (ink)
-          ink->include(underlineY, underlineY + 3);
-        else
-          renderer.drawLine(startX, underlineY, underlineEndX, underlineY, 3, textBlack);
-      }
-
+      if (!scanning && (currentStyle & EpdFontFamily::UNDERLINE) != 0)
+        decoration(EpdFontFamily::UNDERLINE, wordY + ascender + 2);
       if (!scanning && (currentStyle & EpdFontFamily::STRIKETHROUGH) != 0) {
-        int startX = wordX;
-        int strikeWidth =
-            displayForm(i) ? renderer.getTextAdvanceX(fontId, word, currentStyle, 0, characterSpacing, displayForm(i))
-                           : renderer.getTextWidth(fontId, word, currentStyle, baseDir, characterSpacing);
         int32_t unusedAdvance = 0;
         int height = 0;
         const bool smallCaps = (currentStyle & EpdFontFamily::SMALL_CAPS) != 0;
@@ -537,34 +529,7 @@ void TextBlock::renderOrMeasure(const GfxRenderer& renderer, int fontId, const i
           height = (height * 3 + 3) / 4;
         const int strikeY = wordY + ascender - std::max(1, height / 2);
 
-        if (hasSyntheticIndentPrefix(word, wordLen)) {
-          const char* visiblePtr = word + 3;
-          const int prefixWidth = renderer.getTextAdvanceX(fontId, "\xe2\x80\x83", currentStyle, 0, characterSpacing);
-          startX = wordX + prefixWidth;
-          strikeWidth = renderer.getTextWidth(fontId, visiblePtr, currentStyle, baseDir, characterSpacing);
-        }
-
-        if (!displayForm(i) && characterSpacing == 0 &&
-            (currentStyle & (EpdFontFamily::SUP | EpdFontFamily::SUB)) != 0) {
-          strikeWidth = (strikeWidth + 1) / 2;
-        }
-
-        int strikeEndX = startX + strikeWidth;
-        if (i + 1 < numWords) {
-          const EpdFontFamily::Style nextStyle = wordStyle(i + 1);
-          const bool nextSharesBaseline = (nextStyle & (EpdFontFamily::SUP | EpdFontFamily::SUB)) ==
-                                          (currentStyle & (EpdFontFamily::SUP | EpdFontFamily::SUB));
-          if ((nextStyle & EpdFontFamily::STRIKETHROUGH) != 0 && nextSharesBaseline) {
-            const int nextStartX = wordXpos(i + 1) + x;
-            strikeEndX = std::max(strikeEndX, nextStartX);
-            startX = std::min(startX, nextStartX);
-          }
-        }
-
-        if (ink)
-          ink->include(strikeY, strikeY + 3);
-        else
-          renderer.drawLine(startX, strikeY, strikeEndX, strikeY, 3, textBlack);
+        decoration(EpdFontFamily::STRIKETHROUGH, strikeY);
       }
     }
     if (collectBounds) {

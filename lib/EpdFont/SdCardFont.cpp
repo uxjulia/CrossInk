@@ -2404,7 +2404,7 @@ const EpdGlyph* SdCardFont::onGlyphMiss(void* ctx, uint32_t codepoint) {
     if (MemoryBudget::canAllocateInternal(CONTENT_METRICS_CACHE_BYTES, MemoryBudget::EPUB_LAYOUT_INTERNAL_RESERVE,
                                           MINI_RETAIN_MIN_MAX_ALLOC_HEAP + CONTENT_METRICS_CACHE_BYTES)) {
       self->contentMetrics_ = makeUniqueNoThrow<ContentMetricsEntry[]>(CONTENT_METRICS_CACHE_SIZE);
-      if (!self->contentMetrics_) LOG_ERR("SDCF", "Body metrics cache unavailable; using overflow glyphs");
+      if (!self->contentMetrics_) LOG_ERR("SDCF", "Body metrics cache unavailable; using the small metrics ring");
     }
   }
   if (self->metricsDepth_ && self->contentMetrics_) {
@@ -2456,7 +2456,9 @@ const EpdGlyph* SdCardFont::onGlyphMiss(void* ctx, uint32_t codepoint) {
   const uint32_t latest = (self->overflowNext_ + OVERFLOW_CAPACITY - 1) % OVERFLOW_CAPACITY;
   for (uint32_t i = 0; i < self->overflowCount_; i++) {
     if (self->leanContent_ && (i != latest || scratchOwner->contentScratchUser_ != self)) continue;
-    if (self->overflow_[i].codepoint == codepoint && self->overflow_[i].styleIdx == styleIdx) {
+    const auto& entry = self->overflow_[i];
+    if (entry.codepoint == codepoint && entry.styleIdx == styleIdx &&
+        (self->metricsDepth_ || !entry.glyph.dataLength || entry.bitmap)) {
       return &self->overflow_[i].glyph;
     }
   }
@@ -2500,7 +2502,9 @@ const EpdGlyph* SdCardFont::onGlyphMiss(void* ctx, uint32_t codepoint) {
 
   // Read bitmap data into temporary (if any)
   uint8_t* tempBitmap = nullptr;
-  if (tempGlyph.dataLength > 0) {
+  // A measurement miss may use the existing ring without allocating or reading pixels.
+  // A later draw skips this metadata-only slot and loads the bitmap normally.
+  if (!self->metricsDepth_ && tempGlyph.dataLength > 0) {
     if (self->leanContent_ && tempGlyph.dataLength > self->contentBitmapBytes_) {
       LOG_ERR("SDCF", "Content bitmap changed beyond its fixed scratch");
       file.close();

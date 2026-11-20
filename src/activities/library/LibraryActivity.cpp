@@ -166,6 +166,7 @@ void LibraryActivity::onEnter() {
 }
 
 void LibraryActivity::onExit() {
+  recentBadgeWork.reset();
   pendingInput.clear();
   index.close();
   filterBits.reset();
@@ -457,6 +458,7 @@ bool LibraryActivity::readBook(const int row, RecentBook& book, const bool fullP
 }
 
 void LibraryActivity::applyFilter() {
+  recentBadgeWork.reset();
   filteredCount = 0;
   filterFailed = false;
   filterBits.reset();
@@ -577,6 +579,7 @@ void LibraryActivity::applyFilter() {
 }
 
 void LibraryActivity::resetViewport() {
+  recentBadgeWork.reset();
   swipeDelete.close();
   selection = rowCount() || !mappedInput.hasTouchHardware() ? CONTROL_COUNT : 3;
   showSelection = !mappedInput.hasTouchHardware();
@@ -614,6 +617,7 @@ void LibraryActivity::openDialog(std::unique_ptr<Activity>&& child, ActivityResu
   pendingInput.clear();
   touchTracking = false;
   app.clearTapFlash();
+  recentBadgeWork.reset();
   startActivityForResult(std::move(child), [this, handler = std::move(handler)](const ActivityResult& result) {
     RenderLock lock;
     ignoreConfirmRelease = mappedInput.isPressed(MappedInputManager::Button::Confirm);
@@ -629,6 +633,7 @@ void LibraryActivity::openBook(const int row) {
   RecentBook book;
   if (!readBook(row, book)) return;
   app.clearTapFlash();
+  recentBadgeWork.reset();
   index.close();
   onSelectBook(book.path);
 }
@@ -893,11 +898,15 @@ void LibraryActivity::loop() {
   }
   LibraryInputBuffer::Event input;
   if (pendingInput.pop(input)) {
+    recentBadgeIdleSince = millis();
     handleInput(input);
     return;
   }
   // Prepare at most one cover between input checks, then repaint the completed page.
-  loadGridPageCovers();
+  if (gridEnabled())
+    loadGridPageCovers();
+  else
+    resolveRecentBadgeWhileIdle();
 }
 
 void LibraryActivity::handleInput(const LibraryInputBuffer::Event& input) {
@@ -985,6 +994,7 @@ void LibraryActivity::handleInput(const LibraryInputBuffer::Event& input) {
       gridProgressRow = -1;
       loadGridProgress();
     } else {
+      recentBadgeWork.reset();
       listNav.top = topIndex;
       const int page = listNav.pageRowsFor(rowCount());
       listNav.scrollBy(swipe == MappedInputManager::SwipeDir::Up ? page : -page, rowCount());
@@ -1007,6 +1017,7 @@ void LibraryActivity::handleInput(const LibraryInputBuffer::Event& input) {
   }
   const int count = rowCount() + CONTROL_COUNT;
   const auto move = [this](const int next) {
+    recentBadgeWork.reset();
     swipeDelete.close();
     if (!showSelection) {
       showSelection = true;
@@ -1072,24 +1083,49 @@ bool LibraryActivity::isFinishedRow(const int row) {
   bool finished = false;
   if (finishedCache.lookup(key, finished)) return finished;
 
-  if (recentRow) {
-    finished = BookActions::isBookCompletedForList(rowScratch.path);
-  } else {
-    std::string fullPath;
-    if (!index.readPath(record, fullPath)) {
-      LOG_ERR("LIB", "Cannot read Library book path");
-      finishedCache.store(key, false);  // log once, not on every render
-      return false;
-    }
-    finished = BookActions::isBookCompletedForList(fullPath);
+  if (recentRow) return false;
+  std::string fullPath;
+  if (!index.readPath(record, fullPath)) {
+    LOG_ERR("LIB", "Cannot read Library book path");
+    finishedCache.store(key, false);  // log once, not on every render
+    return false;
   }
+  finished = BookActions::isBookCompletedForList(fullPath);
   finishedCache.store(key, finished);
   return finished;
+}
+
+void LibraryActivity::resolveRecentBadgeWhileIdle() {
+  // The pending mask was produced by the last completed list frame. Work
+  // stays on the main task and keeps RenderLock for one book, so folder and
+  // stats reads never compete with the renderer or outlive this activity.
+  if (!uiReady || sort != Sort::RecentlyRead || SETTINGS.libraryHideFinishedBooks || touchTracking ||
+      pendingCacheDeletedFeedback || !recentBadgeWork.busy()) {
+    return;
+  }
+  constexpr uint32_t idleDelayMs = 160;
+  if (static_cast<uint32_t>(millis() - recentBadgeIdleSince) < idleDelayMs) return;
+  if (mappedInput.hasPendingActivity()) return;
+
+  const auto slot = recentBadgeWork.takeNext();
+  const auto& books = RECENT_BOOKS.getBooks();
+  if (slot && *slot < books.size()) {
+    const auto& path = books[*slot].path;
+    const auto key = static_cast<uint32_t>(std::hash<std::string>{}(path));
+    bool finished = false;
+    if (!finishedCache.lookup(key, finished)) {
+      finished = BookActions::isBookCompletedForList(path);
+      finishedCache.store(key, finished);
+      recentBadgeWork.resolved(finished);
+    }
+  }
+  if (recentBadgeWork.consumeRedraw()) requestUpdate();
 }
 
 void LibraryActivity::onFrontlightPanelClosed() {
   // The panel's Reading Stats page can set or clear a book's finished date.
   // ActivityManager calls this while it already holds the render lock.
+  recentBadgeWork.reset();
   finishedCache.clear();
   if (sort == Sort::RecentlyRead && SETTINGS.libraryHideFinishedBooks) {
     reloadAfterBookAction();
@@ -1362,6 +1398,22 @@ void LibraryActivity::buildListScreen(UiApp::ScreenType& screen) {
     FilenameUiFontScope fonts(uiTarget, renderer);
     screen.list(props);
   }
+  if (sort == Sort::RecentlyRead && !SETTINGS.libraryHideFinishedBooks && listNav.trusts(props.count)) {
+    // Use the actual full-row count after layout. The row provider can be
+    // called for a clipped preview or a row that never appears at all.
+    static_assert(RecentBooksStore::MAX_RECENT_BOOKS <= RecentBadgeWork::CAPACITY);
+    const auto& books = RECENT_BOOKS.getBooks();
+    const int end = std::min<int>(props.count, props.topIndex + listNav.inputPageRows());
+    for (int row = props.topIndex; row < end; ++row) {
+      const auto slot = library::recentHistoryRow(row, books.size(), recentRows, recentCount, descending);
+      if (slot == UINT16_MAX) continue;
+      const auto& path = books[slot].path;
+      if (UITheme::getFileIcon(path) != UIIcon::Book) continue;
+      bool finished = false;
+      const auto key = static_cast<uint32_t>(std::hash<std::string>{}(path));
+      if (!finishedCache.lookup(key, finished)) recentBadgeWork.queue(slot);
+    }
+  }
 }
 
 void LibraryActivity::buildGrid(UiApp::ScreenType& screen) {
@@ -1477,7 +1529,7 @@ void LibraryActivity::buildGrid(UiApp::ScreenType& screen) {
 }
 
 void LibraryActivity::loadGridPageCovers() {
-  if (!gridEnabled() || gridCoverWidth <= 0 || gridCoverHeight <= 0 || gridPageStart == loadedGridPageStart) return;
+  if (gridCoverWidth <= 0 || gridCoverHeight <= 0 || gridPageStart == loadedGridPageStart) return;
   const int pageEnd = std::min(gridPageStart + GRID_PAGE_SIZE, rowCount());
   if (nextGridCoverRow < 0) {
     nextGridCoverRow = gridPageStart;
@@ -1530,6 +1582,7 @@ bool LibraryActivity::loadGridCover(const int row) {
 
 void LibraryActivity::render(RenderLock&&) {
   uiReady = false;
+  recentBadgeWork.reset();
   if (initialScanPending) {
     drawScanScreen(tr(STR_LIBRARY_SCANNING));
     return;
@@ -1542,6 +1595,8 @@ void LibraryActivity::render(RenderLock&&) {
                                   3 * HEADER_CONTROL_SIZE + 2 * HEADER_CONTROL_GAP + headerControlRightInset() + 10);
     else
       GUI.drawHeader(renderer, header, tr(STR_LIBRARY));
+    // Only the finally drawn viewport can schedule checks.
+    recentBadgeWork.reset();
     renderUiApp(app, uiTarget);
     topIndex = listNav.top;
     if (!listNav.consumeRebuildNeeded()) break;
@@ -1572,6 +1627,7 @@ void LibraryActivity::render(RenderLock&&) {
   } else {
     renderer.displayBuffer();
   }
+  recentBadgeIdleSince = millis();
 }
 
 void LibraryActivity::promptDeleteBook(const RecentBook& book) {

@@ -154,6 +154,8 @@ add_subdirectory(interval_selection_layout)
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 add_test(NAME CrashTaskContextRegression
   COMMAND ${Python3_EXECUTABLE} ${REPO_ROOT}/test/scripts/test_crash_task_context.py)
+add_test(NAME EpubBookMetadataBounds
+  COMMAND ${Python3_EXECUTABLE} ${REPO_ROOT}/test/scripts/test_epub_book_metadata_bounds.py)
 add_subdirectory(frontlight_settings_boot)
 add_subdirectory(eego_frontlight)
 add_subdirectory(eego_uid)

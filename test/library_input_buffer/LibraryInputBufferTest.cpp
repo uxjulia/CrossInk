@@ -2,6 +2,7 @@
 
 #include "LibraryInputBuffer.h"
 #include "LibraryScanSleepToken.h"
+#include "RecentBadgeWork.h"
 
 using Type = LibraryInputBuffer::Type;
 
@@ -76,4 +77,37 @@ TEST(LibraryScanSleepTokenTest, DirtyAndCorruptedScansDoNotSkipReconciliation) {
   token.save(true);
   token.magic ^= 1;
   EXPECT_FALSE(token.consume(true));
+}
+
+TEST(RecentBadgeWorkTest, ResolvesDistinctVisibleSlotsOneAtATimeAndCoalescesRefresh) {
+  RecentBadgeWork work;
+  constexpr uint16_t slots[] = {4, 4, 7, 12, UINT16_MAX};
+  for (const uint16_t slot : slots) work.queue(slot);
+  ASSERT_EQ(work.takeNext(), 4);
+  work.resolved(true);
+  EXPECT_FALSE(work.consumeRedraw());
+  ASSERT_EQ(work.takeNext(), 7);
+  work.resolved(false);
+  EXPECT_FALSE(work.consumeRedraw());
+  ASSERT_EQ(work.takeNext(), 12);
+  work.resolved(true);
+  EXPECT_FALSE(work.takeNext());
+  EXPECT_TRUE(work.consumeRedraw());
+  EXPECT_FALSE(work.consumeRedraw());
+}
+
+TEST(RecentBadgeWorkTest, AViewportChangeDiscardsBothPendingRowsAndAnOldRefresh) {
+  RecentBadgeWork work;
+  work.queue(2);
+  work.queue(3);
+  ASSERT_EQ(work.takeNext(), 2);
+  work.resolved(true);
+  work.reset();
+  EXPECT_FALSE(work.takeNext());
+  EXPECT_FALSE(work.consumeRedraw());
+
+  work.queue(10);
+  ASSERT_EQ(work.takeNext(), 10);
+  work.resolved(false);
+  EXPECT_FALSE(work.consumeRedraw());
 }

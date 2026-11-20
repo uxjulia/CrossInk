@@ -1151,6 +1151,10 @@ body-only and built-in font identities stay unchanged. No binary payload changes
 
 Complete sections use version 119 and partial sections use `0xE8`. Block-styled spans can affect pagination. In the optional per-word font-size byte, bits 0–5 store the point size, bit 6 marks a black background on the preceding space, and bit 7 hides the glyphs while retaining their layout width.
 
+### Version 118 (2.0.0 release)
+
+The release branch uses version 118 and partial version `0xE7` for the same span layout and paint changes. Version 119 also includes the display forms introduced on development in version 117.
+
 ### Version 117
 
 EPUB layout stores each shaped word beside its logical UTF-8 text in the existing line arena. The source-range flags byte uses bit 0 for source ranges and bit 1 for display forms. In a line with display forms, each word slot holds the NUL-terminated logical text and optionally a second NUL-terminated display string. Word offsets delimit each slot. Selection and search continue to use the logical text. Complete sections use version 117 and suspended sections use `0xE6`.

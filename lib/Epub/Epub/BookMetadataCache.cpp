@@ -8,6 +8,7 @@
 #include <ZipFile.h>
 
 #include <cstring>
+#include <iterator>
 #include <limits>
 
 #include "FsHelpers.h"
@@ -606,51 +607,80 @@ bool BookMetadataCache::exists(const std::string& cachePath) {
   return Storage.exists((cachePath + bookBinFile).c_str());
 }
 
+namespace {
+// A book.bin metadata field is length-prefixed and ends before the LUT.
+// Check it against that boundary before resizing, not after a short read.
+bool readMetadataField(HalFile& file, std::string& value, const size_t metadataEnd) {
+  const size_t start = file.position();
+  uint32_t length = 0;
+  if (start > metadataEnd || metadataEnd - start < sizeof(length) || !serialization::tryReadPod(file, length) ||
+      length > metadataEnd - start - sizeof(length) || length > value.max_size() ||
+      length > static_cast<uint32_t>(std::numeric_limits<int>::max())) {
+    return false;
+  }
+  value.resize(length);
+  return length == 0 || file.read(value.data(), length) == static_cast<int>(length);
+}
+}  // namespace
+
 bool BookMetadataCache::load() {
+  loaded = false;
+  cumulativeSizes.reset();
+  cumulativeSizeCount = 0;
+  if (bookFile) bookFile.close();
+
   const auto bookBinPath = cachePath + bookBinFile;
   if (!Storage.openFileForRead("BMC", bookBinPath, bookFile)) {
     return false;
   }
 
-  uint32_t magic;
-  if (!serialization::tryReadPod(bookFile, magic)) {
-    LOG_DBG("BMC", "Cache header is truncated");
+  const auto rejectCache = [&] {
+    // Only the derived metadata cache is removed; preserve progress and other
+    // user files so the reader can rebuild the metadata normally.
     bookFile.close();
     Storage.remove(bookBinPath.c_str());
     return false;
+  };
+  uint32_t magic = 0;
+  uint8_t version = 0;
+  if (!serialization::tryReadPod(bookFile, magic) || magic != BOOK_CACHE_MAGIC) {
+    LOG_DBG("BMC", "Cache magic missing or invalid");
+    return rejectCache();
   }
-  if (magic != BOOK_CACHE_MAGIC) {
-    LOG_DBG("BMC", "Cache magic mismatch");
-    bookFile.close();
-    Storage.remove(bookBinPath.c_str());
-    return false;
-  }
-
-  uint8_t version;
-  if (!serialization::tryReadPod(bookFile, version)) {
-    LOG_DBG("BMC", "Cache version is missing");
-    bookFile.close();
-    Storage.remove(bookBinPath.c_str());
-    return false;
-  }
-  if (version != BOOK_CACHE_VERSION) {
+  if (!serialization::tryReadPod(bookFile, version) || version != BOOK_CACHE_VERSION) {
     LOG_DBG("BMC", "Cache version mismatch: expected %d, got %d", BOOK_CACHE_VERSION, version);
-    // Explicit close() required: member variable persists beyond function scope
-    bookFile.close();
-    Storage.remove(bookBinPath.c_str());
-    return false;
+    return rejectCache();
+  }
+  if (!serialization::tryReadPod(bookFile, lutOffset) || !serialization::tryReadPod(bookFile, spineCount) ||
+      !serialization::tryReadPod(bookFile, tocCount)) {
+    LOG_DBG("BMC", "Cache header is truncated");
+    return rejectCache();
   }
 
-  if (!serialization::tryReadPod(bookFile, lutOffset) || !serialization::tryReadPod(bookFile, spineCount) ||
-      !serialization::tryReadPod(bookFile, tocCount) || !serialization::tryReadString(bookFile, coreMetadata.title) ||
-      !serialization::tryReadString(bookFile, coreMetadata.author) ||
-      !serialization::tryReadString(bookFile, coreMetadata.language) ||
-      !serialization::tryReadString(bookFile, coreMetadata.coverItemHref) ||
-      !serialization::tryReadString(bookFile, coreMetadata.textReferenceHref)) {
-    LOG_DBG("BMC", "Cache metadata is truncated");
-    bookFile.close();
-    Storage.remove(bookBinPath.c_str());
-    return false;
+  const size_t fileSize = bookFile.size();
+  const size_t lutSize = (static_cast<size_t>(spineCount) + tocCount) * sizeof(uint32_t);
+  if (lutOffset > fileSize || lutSize > fileSize - lutOffset) {
+    LOG_DBG("BMC", "Cache lookup table is outside the file");
+    return rejectCache();
+  }
+  std::string* const fields[] = {&coreMetadata.title, &coreMetadata.author, &coreMetadata.language,
+                                 &coreMetadata.coverItemHref, &coreMetadata.textReferenceHref};
+  const size_t metadataStart = bookFile.position();
+  if (lutOffset < metadataStart || lutOffset - metadataStart < std::size(fields) * sizeof(uint32_t)) {
+    LOG_DBG("BMC", "Cache metadata is missing required lengths");
+    return rejectCache();
+  }
+  for (size_t i = 0; i < std::size(fields); ++i) {
+    // A field cannot consume even the required length prefixes of later fields.
+    const size_t fieldEnd = lutOffset - (std::size(fields) - i - 1) * sizeof(uint32_t);
+    if (!readMetadataField(bookFile, *fields[i], fieldEnd)) {
+      LOG_DBG("BMC", "Cache metadata is truncated or inconsistent");
+      return rejectCache();
+    }
+  }
+  if (bookFile.position() != lutOffset) {
+    LOG_DBG("BMC", "Cache metadata does not end at the lookup table");
+    return rejectCache();
   }
 
   cacheSpineCumulativeSizes();
