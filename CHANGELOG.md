@@ -4,6 +4,7 @@
 
 - Show a Delete button when opening a clipping on button-only readers (#936).
 - Support ten new Indic scripts when you using a compatible font. (CrossPoint #3787).
+- Add a Delete button below Open when viewing a clipping on touch readers.
 
 ### Changed
 
