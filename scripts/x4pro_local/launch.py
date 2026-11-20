@@ -107,7 +107,9 @@ def main(argv=None):
     runtime = runtime_path(args.device, args.network)
     binary = runtime / "bin" / profile["binary"]
     if not binary.is_file() or sha(binary) != profile["binary_sha256"]:
-        raise ValueError(f"Missing or changed pinned emulator: {binary}. See docs/x4pro-local-testing.md for installation")
+        raise ValueError(
+            f"Missing or changed pinned emulator: {binary}. Install the matching eInk-QEMU release ({profile['release']})."
+        )
     for tool in ("mcopy", "mtype", "mkfs.fat"):
         if not shutil.which(tool):
             raise ValueError("Missing required host tool: " + tool)
