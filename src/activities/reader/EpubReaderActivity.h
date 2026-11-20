@@ -112,6 +112,7 @@ class EpubReaderActivity final : public Activity {
     char dictionarySdFontFamilyName[64] = "";
     // Zero follows the reader's current physical point size.
     uint8_t dictionaryFontPointSize = 0;
+    uint8_t wordHoldAction = CrossPointSettings::WORD_HOLD_USE_GLOBAL;
     ReaderSettingsSnapshot readerSettings;
   };
 

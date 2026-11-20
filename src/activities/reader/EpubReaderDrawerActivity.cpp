@@ -56,6 +56,9 @@
 namespace fui = freeink::ui;
 
 namespace {
+constexpr std::array<StrId, 4> WORD_HOLD_LABELS = {StrId::STR_LOOKUP_SHORT, StrId::STR_CLIP, StrId::STR_ASK,
+                                                   StrId::STR_DICT_USE_GLOBAL};
+
 constexpr int16_t TAB_BAR_HEIGHT = 58;
 constexpr int16_t SLIDER_CONTROL_HEIGHT = 30;
 constexpr int16_t SLIDER_CAPTION_GAP = 15;
@@ -1832,6 +1835,7 @@ void EpubReaderDrawerActivity::activateRow(const RowId row) {
     case RowId::Images:
     case RowId::PublisherFonts:
     case RowId::RenderMode:
+    case RowId::BookWordHoldAction:
       showEnumOptions(row);
       return;
     case RowId::IndexingMethod:
@@ -2103,6 +2107,13 @@ void EpubReaderDrawerActivity::showEnumOptions(const RowId row) {
       raw = {0, 1, 2};
       currentRaw = draft.epubRenderMode;
       break;
+    case RowId::BookWordHoldAction:
+      title = StrId::STR_WORD_HOLD_ACTION;
+      raw = {CrossPointSettings::WORD_HOLD_USE_GLOBAL, CrossPointSettings::WORD_HOLD_LOOKUP,
+             CrossPointSettings::WORD_HOLD_CLIP, CrossPointSettings::WORD_HOLD_ASK};
+      for (const auto action : raw) labels.emplace_back(I18N.get(WORD_HOLD_LABELS[action]));
+      currentRaw = bookWordHoldAction;
+      break;
     case RowId::DictionaryFontFamily: {
       title = StrId::STR_FONT_FAMILY;
       labels.emplace_back(tr(STR_DICT_USE_GLOBAL));
@@ -2228,6 +2239,12 @@ void EpubReaderDrawerActivity::selectEnumOption(const int index) {
     case RowId::RenderMode:
       draft.epubRenderMode = value;
       markSettingChanged(ReaderSettingsChangeMask::Relayout);
+      break;
+    case RowId::BookWordHoldAction:
+      if (value != bookWordHoldAction && saveBookWordHoldAction &&
+          saveBookWordHoldAction(saveReaderSettingsContext, value)) {
+        bookWordHoldAction = value;
+      }
       break;
     case RowId::DictionaryFontFamily:
       if (index == 0) {
@@ -3261,6 +3278,8 @@ const char* EpubReaderDrawerActivity::rowLabel(const RowId row) const {
       return tr(STR_TRACK_READING_STATS);
     case RowId::Controls:
       return tr(STR_CAT_CONTROLS);
+    case RowId::BookWordHoldAction:
+      return tr(STR_WORD_HOLD_ACTION);
     case RowId::ResetReadingPace:
       return tr(STR_RESET_READING_PACE);
     case RowId::ResetBookReaderSettings:
@@ -3404,6 +3423,8 @@ const char* EpubReaderDrawerActivity::rowValue(const RowId row, char* buffer, co
     }
     case RowId::IndexingMethod:
       return draft.indexingMethod == 0 ? tr(STR_INDEXING_INCREMENTAL) : tr(STR_INDEXING_FULL_SECTION);
+    case RowId::BookWordHoldAction:
+      return I18N.get(WORD_HOLD_LABELS[bookWordHoldAction]);
     case RowId::BookDictionary:
       if (bookDictionaryPath.empty()) return tr(STR_DICT_USE_GLOBAL);
       for (size_t i = 1; i < dictionaryPaths.size(); ++i) {

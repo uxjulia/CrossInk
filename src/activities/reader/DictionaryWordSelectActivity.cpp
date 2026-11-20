@@ -1116,11 +1116,10 @@ bool DictionaryWordSelectActivity::handleTouchSelection() {
     hasPendingClippingRequest_ = false;
     captureClippingRequest();
     touchLookupEnabled_ = Dictionary::exists(cachePath.c_str());
-    if (applyAction &&
-        ((SETTINGS.wordHoldAction == CrossPointSettings::WORD_HOLD_LOOKUP && touchLookupEnabled_) ||
-         (SETTINGS.wordHoldAction == CrossPointSettings::WORD_HOLD_CLIP && hasPendingClippingRequest_))) {
+    if (applyAction && ((wordHoldAction_ == CrossPointSettings::WORD_HOLD_LOOKUP && touchLookupEnabled_) ||
+                        (wordHoldAction_ == CrossPointSettings::WORD_HOLD_CLIP && hasPendingClippingRequest_))) {
       lock.unlock();
-      performTouchSelectionAction(SETTINGS.wordHoldAction == CrossPointSettings::WORD_HOLD_LOOKUP
+      performTouchSelectionAction(wordHoldAction_ == CrossPointSettings::WORD_HOLD_LOOKUP
                                       ? TextSelectionOverlay::lookupAction
                                       : TextSelectionOverlay::clipAction);
       return true;

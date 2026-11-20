@@ -132,7 +132,8 @@ constexpr uint8_t PRE_PUBLISHER_FONTS_READER_SETTINGS_FILE_VERSION = 12;
 constexpr uint8_t PRE_TEXT_DARKNESS_READER_SETTINGS_FILE_VERSION = 13;
 constexpr uint8_t PRE_TWO_TONE_AA_READER_SETTINGS_FILE_VERSION = 14;
 constexpr uint8_t PRE_RULED_LINES_READER_SETTINGS_FILE_VERSION = 15;
-constexpr uint8_t READER_SETTINGS_FILE_VERSION = 16;
+constexpr uint8_t PRE_WORD_HOLD_ACTION_READER_SETTINGS_FILE_VERSION = 16;
+constexpr uint8_t READER_SETTINGS_FILE_VERSION = 17;
 constexpr uint8_t READER_SETTINGS_FLAG_CUSTOM = 1 << 0;
 constexpr uint8_t READER_SETTINGS_FLAG_AUTO_PAGE_TURN = 1 << 1;
 constexpr uint8_t READER_SETTINGS_FLAG_RENDER_MODE = 1 << 2;
@@ -1459,7 +1460,8 @@ BookReaderSettingsData loadBookReaderSettingsFile(const std::string& cachePath,
       version != PRE_PUBLISHER_FONTS_READER_SETTINGS_FILE_VERSION &&
       version != PRE_TEXT_DARKNESS_READER_SETTINGS_FILE_VERSION &&
       version != PRE_TWO_TONE_AA_READER_SETTINGS_FILE_VERSION &&
-      version != PRE_RULED_LINES_READER_SETTINGS_FILE_VERSION && version != READER_SETTINGS_FILE_VERSION) {
+      version != PRE_RULED_LINES_READER_SETTINGS_FILE_VERSION &&
+      version != PRE_WORD_HOLD_ACTION_READER_SETTINGS_FILE_VERSION && version != READER_SETTINGS_FILE_VERSION) {
     file.close();
     LOG_DBG("ERS", "Reader settings version mismatch, using defaults");
     return data;
@@ -1521,8 +1523,12 @@ BookReaderSettingsData loadBookReaderSettingsFile(const std::string& cachePath,
   if (ok && version >= PRE_RULED_LINES_READER_SETTINGS_FILE_VERSION) {
     ok = readU8(file, snapshot.twoToneTextAA) && snapshot.twoToneTextAA <= 1;
   }
-  if (ok && version >= READER_SETTINGS_FILE_VERSION) {
+  if (ok && version >= PRE_WORD_HOLD_ACTION_READER_SETTINGS_FILE_VERSION) {
     ok = readU8(file, snapshot.ruledLines) && snapshot.ruledLines <= 3;
+  }
+  uint8_t wordHoldAction = CrossPointSettings::WORD_HOLD_USE_GLOBAL;
+  if (ok && version >= READER_SETTINGS_FILE_VERSION) {
+    ok = readU8(file, wordHoldAction);
   }
   file.close();
   if (!ok) {
@@ -1561,6 +1567,7 @@ BookReaderSettingsData loadBookReaderSettingsFile(const std::string& cachePath,
     data.dictionarySdFontFamilyName[sizeof(data.dictionarySdFontFamilyName) - 1] = '\0';
     data.dictionaryFontPointSize = SETTINGS.dictionaryFontPointSize;
   }
+  if (wordHoldAction <= CrossPointSettings::WORD_HOLD_ASK) data.wordHoldAction = wordHoldAction;
   if (status) *status = ReadStatus::Loaded;
   return data;
 }
@@ -1583,8 +1590,12 @@ bool saveBookReaderSettingsFile(const std::string& cachePath, const BookReaderSe
   const uint16_t clampedSeconds = clampAutoPageTurnIntervalSeconds(data.autoPageTurnSeconds);
   EpubReaderActivity::ReaderSettingsSnapshot normalizedReaderSettings = data.readerSettings;
   normalizedReaderSettings.epubRenderMode = normalizeRenderModeRaw(data.renderMode);
+  // Keep version 16 readable by older firmware when the book has no long-press override.
+  const bool hasWordHoldOverride = data.wordHoldAction <= CrossPointSettings::WORD_HOLD_ASK;
+  const uint8_t version =
+      hasWordHoldOverride ? READER_SETTINGS_FILE_VERSION : PRE_WORD_HOLD_ACTION_READER_SETTINGS_FILE_VERSION;
   const bool ok =
-      writeU8(file, READER_SETTINGS_FILE_VERSION) && writeU8(file, flags) && writeU16(file, clampedSeconds) &&
+      writeU8(file, version) && writeU8(file, flags) && writeU16(file, clampedSeconds) &&
       writeU8(file, normalizeRenderModeRaw(data.renderMode)) &&
       writeReaderSettingsSnapshot(file, normalizedReaderSettings) &&
       writeExact(file, data.dictionarySdFontFamilyName, sizeof(data.dictionarySdFontFamilyName)) &&
@@ -1596,7 +1607,8 @@ bool saveBookReaderSettingsFile(const std::string& cachePath, const BookReaderSe
       writeU8(file, normalizedReaderSettings.publisherFonts) &&
       writeU8(file, normalizedReaderSettings.textDarkness <= 2 ? normalizedReaderSettings.textDarkness : 0) &&
       writeU8(file, normalizedReaderSettings.twoToneTextAA != 0) &&
-      writeU8(file, normalizedReaderSettings.ruledLines <= 3 ? normalizedReaderSettings.ruledLines : 0);
+      writeU8(file, normalizedReaderSettings.ruledLines <= 3 ? normalizedReaderSettings.ruledLines : 0) &&
+      (!hasWordHoldOverride || writeU8(file, data.wordHoldAction));
   file.close();
   if (!ok) {
     LOG_ERR("ERS", "Short write saving reader settings");
@@ -2839,6 +2851,14 @@ void EpubReaderActivity::openReaderMenu() {
     requestUpdate();
     return;
   }
+  menuActivity->setBookWordHoldAction(bookSettings.wordHoldAction, [](void* context, const uint8_t action) {
+    auto& reader = *static_cast<EpubReaderActivity*>(context);
+    if (reader.section && reader.section->isBuilding()) reader.section->releaseBuildFile();
+    const auto& cachePath = reader.epub->getCachePath();
+    auto data = loadBookReaderSettingsFile(cachePath);
+    data.wordHoldAction = action;
+    return saveBookReaderSettingsFile(cachePath, data);
+  });
   menuActivity->setChapterTitle(std::move(chapterTitle));
 #if CROSSINK_SCALABLE_FONTS
   menuActivity->setPublisherBodyFontProbe(
@@ -4167,7 +4187,9 @@ void EpubReaderActivity::openWordSelect(bool framebufferContainsPage, int initia
       renderer, mappedInput, std::move(pageForLookup), layout.marginLeft, layout.marginTop, std::move(bookCachePath),
       std::move(nextPageFirstWord), hasNextPageForLookup, framebufferContainsPage, layout.marginBottom, initialTouchX,
       initialTouchY, autoLookupInitialWord, bookSettings.dictionarySdFontFamilyName,
-      bookSettings.dictionaryFontPointSize, this, &EpubReaderActivity::reloadDictionaryLookupPageCallback);
+      bookSettings.dictionaryFontPointSize, this, &EpubReaderActivity::reloadDictionaryLookupPageCallback,
+      bookSettings.wordHoldAction == CrossPointSettings::WORD_HOLD_USE_GLOBAL ? SETTINGS.wordHoldAction
+                                                                              : bookSettings.wordHoldAction);
   if (!wordSelect) {
     LOG_ERR("DICT", "OOM allocating DictionaryWordSelectActivity (%u bytes)",
             static_cast<unsigned>(sizeof(DictionaryWordSelectActivity)));

@@ -20,6 +20,7 @@
 #include "activities/reader/DictionaryDefinitionActivity.h"
 #include "activities/reader/DictionaryWordSelectActivity.h"
 #include "activities/reader/EpubReaderActivity.h"
+#include "activities/reader/EpubReaderDrawerActivity.h"
 
 extern ActivityManager activityManager;
 extern GfxRenderer renderer;
@@ -630,14 +631,61 @@ bool ClippingSelectionSmokeTest::tick() {
       };
       choose(StrId::STR_DICTIONARY, "Primary");
 
+      require(EpubReaderActivity::saveBookRenderMode(reader->epub->getPath(),
+                                                     static_cast<uint8_t>(EpubRenderMode::CrossInkDefault)),
+              "Could not create pre-override reader settings");
+      stage = 87;
+      break;
+    }
+    case 87:
+      require(reader, "Long press did not return to reader");
+      SETTINGS.wordHoldAction = CrossPointSettings::WORD_HOLD_LOOKUP;
+      reader->openReaderMenu();
+      break;
+    case 88: {
+      auto* drawer = dynamic_cast<EpubReaderDrawerActivity*>(activityManager.simulatorCurrentActivity());
+      require(drawer, "Could not open EPUB drawer");
+      drawer->changeTab(ReaderDrawerTab::Settings);
+      const auto& rows = drawer->activeRows();
+      constexpr auto row = ReaderDrawerCatalogItem::BookWordHoldAction;
+      require(std::find(rows.begin(), rows.end(), row) != rows.end(), "Missing per-book long-press setting");
+      drawer->activateRow(row);
+      require(drawer->state.pane == ReaderDrawerPane::EnumOptions, "Long-press options did not open");
+      const int expectedIndex = holdMode == 0 ? 0 : holdMode == 1 ? 3 : holdMode == 2 ? 2 : 1;
+      require(drawer->enumOptionSelectedIndex == expectedIndex, "Saved long-press action was not selected");
+      break;
+    }
+    case 89: {
+      auto* drawer = dynamic_cast<EpubReaderDrawerActivity*>(activityManager.simulatorCurrentActivity());
+      require(drawer, "Long-press picker closed before choosing");
+      const int index = holdMode == 0 ? 3 : holdMode == 1 ? 2 : holdMode == 2 ? 1 : 0;
+      if (holdMode == 0) capture("book-word-hold-picker");
+      drawer->selectEnumOption(index);
+      require(SETTINGS.wordHoldAction == CrossPointSettings::WORD_HOLD_LOOKUP,
+              "Per-book choice changed the global setting");
+      drawer->closeAndReturn(true);
+      break;
+    }
+    case 90: {
+      require(reader, "Long-press picker did not return to reader");
+      const auto saved = EpubReaderActivity::readBookReaderSettings(*reader->epub);
+      const uint8_t expected = holdMode == 0   ? CrossPointSettings::WORD_HOLD_ASK
+                               : holdMode == 1 ? CrossPointSettings::WORD_HOLD_CLIP
+                               : holdMode == 2 ? CrossPointSettings::WORD_HOLD_LOOKUP
+                                               : CrossPointSettings::WORD_HOLD_USE_GLOBAL;
+      require(saved.wordHoldAction == expected && saved.hasRenderModeOverride,
+              "Per-book action did not persist alongside existing settings");
+      Epub otherBook("/books/other.epub", "/.crosspoint");
+      require(EpubReaderActivity::readBookReaderSettings(otherBook).wordHoldAction ==
+                  CrossPointSettings::WORD_HOLD_USE_GLOBAL,
+              "Another book picked up the override");
+      // The explicit Look Up matched the global value when selected and must survive a change to it.
+      if (holdMode == 2) SETTINGS.wordHoldAction = CrossPointSettings::WORD_HOLD_ASK;
       stage = 82;
       break;
     }
     case 82:
       require(reader, "Long press did not return to reader");
-      SETTINGS.wordHoldAction = holdMode == 0   ? CrossPointSettings::WORD_HOLD_ASK
-                                : holdMode == 1 ? CrossPointSettings::WORD_HOLD_CLIP
-                                                : CrossPointSettings::WORD_HOLD_LOOKUP;
       mappedInputManager.simulatorInjectTouchDown(holdX, holdY);
       break;
     case 83:
@@ -661,7 +709,7 @@ bool ClippingSelectionSmokeTest::tick() {
         require(CLIPPINGS.clippingCount() == initialCount + 3, "Direct clip did not save exactly once");
         capture("word-hold-clip");
         ++holdMode;
-        stage = 82;
+        stage = 87;
       } else {
         auto* definition = dynamic_cast<DictionaryDefinitionActivity*>(activityManager.simulatorCurrentActivity());
         if (!definition) {
@@ -686,7 +734,7 @@ bool ClippingSelectionSmokeTest::tick() {
     case 85:
       mappedInputManager.simulatorInjectTouchRelease(x, y);
       ++holdMode;
-      stage = 82;
+      stage = 87;
       break;
     case 86:
       if (!reader) {
@@ -699,7 +747,7 @@ bool ClippingSelectionSmokeTest::tick() {
         if (holdMode == 4) Dictionary::saveGlobalDictPath("/.dictionaries/Zeta/dict");
         holdX = synonymX;
         holdY = synonymY;
-        stage = 82;
+        stage = holdMode == 4 ? 87 : 82;
         break;
       }
 

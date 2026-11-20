@@ -586,7 +586,7 @@ if (parsedSize != fileSize) {
 
 ## `reader_settings.bin`
 
-### Version 16
+### Version 17
 
 Each EPUB cache directory may contain `reader_settings.bin`. Missing files mean
 the book uses global Reader settings and the default auto-page-turn interval.
@@ -611,6 +611,11 @@ Version 11 appends the image-grayscale toggle after the mask and moves the SD-fo
 mask bit from 18 to 19. Older records retain their existing overrides and inherit
 the global image-grayscale setting. This drawing-only setting does not invalidate
 EPUB layout or image caches.
+Version 17 appends `u8 wordHoldAction` when the book overrides the global
+Long-press Text setting. Books that use the global setting are still saved as
+version 16. Versions 1–16 inherit the global action. This setting does not
+affect EPUB layout caches.
+
 Version 16 appends `u8 ruledLines` (0 Off, 1 Light, 2 Medium, 3 Dark), with override bit 24. Older books inherit the global setting. Changing the shade redraws the page using its existing layout.
 
 Version 15 appends `u8 twoToneTextAA` (0 off, 1 on), with override bit 23. Older records inherit the global EEGO text AA quality. Changing it preserves the EPUB layout cache.
@@ -631,7 +636,7 @@ fallback successfully opens a difficult book.
 
 ```c++
 struct ReaderSettingsBin {
-    u8 version; // 16
+    u8 version; // 16 or 17
     u8 flags;   // bit 0 = at least one custom reader field, bit 1 = custom auto-page-turn interval, bit 2 = render mode override, bit 3 = dictionary font override, bit 4 = Safe Mode override
     u16 autoPageTurnSeconds;
     u8 renderMode; // 0 = CrossInk Default, 1 = Balanced, 2 = Light
@@ -665,6 +670,7 @@ struct ReaderSettingsBin {
     u8 textDarkness; // 0 Normal, 1 Dark, 2 Darker; override bit 22
     u8 twoToneTextAA; // 0 off, 1 on; override bit 23
     u8 ruledLines; // 0 Off, 1 Light, 2 Medium, 3 Dark; override bit 24
+    u8 wordHoldAction; // version 17 only: 0 Look Up, 1 Clip, 2 Ask
 };
 ```
 
