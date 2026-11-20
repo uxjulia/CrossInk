@@ -15,7 +15,8 @@
 class DictionarySelectActivity final : public Activity {
  public:
   DictionarySelectActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::string bookCachePath = "",
-                           bool disableCurrentSelection = false, bool temporarySelection = false);
+                           bool disableCurrentSelection = false, bool temporarySelection = false,
+                           std::string displayedDictionary = {});
 
   void onEnter() override;
   void onExit() override;

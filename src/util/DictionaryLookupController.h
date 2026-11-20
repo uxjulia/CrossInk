@@ -66,7 +66,7 @@ class DictionaryLookupController {
   // Start a lookup. Transitions Idle → LookingUp and notifies the shared
   // background worker.
   // If recordHistory is true (default), adds the word to lookup history on success.
-  void startLookup(const std::string& word, bool recordHistory = true);
+  void startLookup(const std::string& word, bool recordHistory = true, bool allowFallback = true);
 
   // Like startLookup but marks the result as Suggestion (word came from fuzzy suggestions list).
   void startLookupAsSuggestion(const std::string& word);
@@ -159,6 +159,7 @@ class DictionaryLookupController {
   FoundStatus foundStatus = FoundStatus::Direct;
   bool nextIsSuggestion = false;
   bool lookupMatchedStem = false;
+  bool allowFallback_ = true;
   bool recordHistory_ = true;
   bool lookupToastEnabled_ = true;
   bool fullScreenChildWasShown_ = false;
@@ -169,7 +170,8 @@ class DictionaryLookupController {
   std::string lookupWord;
   std::string foundWord;
   DictLocation foundLocation;
-  std::string altFormWord;
+  bool searchingAltForms_ = false;
+  bool hasAltForms_ = false;
 
   // CLEANUP: on Auto-only commit, delete only this line (threshold/cache/method below drive Auto mode — keep)
   static constexpr uint32_t AUTO_POPUP_CSPT_ENTRY_THRESHOLD = 50000;

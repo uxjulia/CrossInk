@@ -190,7 +190,6 @@ std::string Dictionary::readConfiguredDictPath(const char* cachePath) {
     // Per-book file absent or empty ("Use Global") — fall through to global.
   }
 
-  // Read global dictionary.bin.
   snprintf(binPath, sizeof(binPath), "%s/%s", GLOBAL_DICT_DIR, DICT_BIN);
   HalFile f;
   if (!Storage.openFileForRead("DICT", binPath, f)) return "";
@@ -241,26 +240,23 @@ bool Dictionary::hasGlobalDictPathFile() {
 // Validity checks
 // ---------------------------------------------------------------------------
 
-bool Dictionary::exists(const char* cachePath) {
-  std::string folderPath = readDictPath(cachePath);
+bool Dictionary::exists(const char* cachePath) { return existsAt(readDictPath(cachePath)); }
+
+bool Dictionary::existsAt(const std::string& folderPath) {
   if (folderPath.empty()) return false;
   DictPaths dp(folderPath);
   if (!Storage.exists(dp.idx().c_str())) return false;
   return Storage.exists(dp.dict().c_str()) || Storage.exists(dp.dictDz().c_str());
 }
 
-bool Dictionary::hasAltForms(const char* cachePath) {
-  std::string folderPath = readDictPath(cachePath);
-  if (folderPath.empty()) return false;
-  return Storage.exists(DictPaths(folderPath).syn().c_str());
+bool Dictionary::hasAltFormsAt(const std::string& path) {
+  return !path.empty() && Storage.exists(DictPaths(path).syn().c_str());
 }
 
 bool Dictionary::isValidDictionary() {
   std::string folderPath = readDictPath(nullptr);
   if (folderPath.empty()) return false;
-  DictPaths dp(folderPath);
-  const bool idxExists = Storage.exists(dp.idx().c_str());
-  const bool valid = idxExists && (Storage.exists(dp.dict().c_str()) || Storage.exists(dp.dictDz().c_str()));
+  const bool valid = existsAt(folderPath);
   if (!valid) {
     LOG_DBG("DICT", "Stored dictionary path no longer valid, resetting");
     saveGlobalDictPath("");
@@ -558,7 +554,10 @@ bool Dictionary::ensureQuickIndex(const std::string& sourcePath, const std::stri
 }
 
 bool Dictionary::prepareQuickIndex(const DictLookupCallbacks& cbs, const char* cachePath) {
-  const std::string folderPath = readDictPath(cachePath);
+  return prepareQuickIndexIn(readDictPath(cachePath), cbs);
+}
+
+bool Dictionary::prepareQuickIndexIn(const std::string& folderPath, const DictLookupCallbacks& cbs) {
   if (folderPath.empty()) return false;
   const DictPaths paths(folderPath);
   const bool hasSyn = Storage.exists(paths.syn().c_str());
@@ -896,8 +895,8 @@ static bool setEntryLocation(DictLocation& result, const char* headword, const u
   return true;
 }
 
-bool Dictionary::openLookupSession(LookupSession& session, const char* cachePath) {
-  session.folderPath = readDictPath(cachePath);
+bool Dictionary::openLookupSession(LookupSession& session, const std::string& folderPath) {
+  session.folderPath = folderPath;
   if (session.folderPath.empty()) return false;
 
   const DictPaths paths(session.folderPath);
@@ -1054,7 +1053,7 @@ DictLocation Dictionary::locateExactInSession(LookupSession& session, const std:
 
 DictLocation Dictionary::locate(const std::string& word, const DictLookupCallbacks& cbs, const char* cachePath) {
   LookupSession session;
-  if (!openLookupSession(session, cachePath)) {
+  if (!openLookupSession(session, readDictPath(cachePath))) {
     DictLocation result;
     result.readError = !session.folderPath.empty();
     return result;
@@ -1067,9 +1066,14 @@ DictLocation Dictionary::locate(const std::string& word, const DictLookupCallbac
 
 DictLocation Dictionary::locateWithStemVariants(const std::string& word, bool* matchedStem,
                                                 const DictLookupCallbacks& cbs, const char* cachePath) {
+  return locateWithStemVariantsIn(readDictPath(cachePath), word, matchedStem, cbs);
+}
+
+DictLocation Dictionary::locateWithStemVariantsIn(const std::string& folderPath, const std::string& word,
+                                                  bool* matchedStem, const DictLookupCallbacks& cbs) {
   if (matchedStem) *matchedStem = false;
   LookupSession session;
-  if (!openLookupSession(session, cachePath)) {
+  if (!openLookupSession(session, folderPath)) {
     DictLocation result;
     result.readError = !session.folderPath.empty();
     return result;
@@ -1113,7 +1117,8 @@ std::string Dictionary::lookup(const std::string& word, const DictLookupCallback
 // ---------------------------------------------------------------------------
 
 // Read the exact index record named by a synonym, including its definition range.
-DictLocation Dictionary::locateByOrdinal(const std::string& folderPath, uint32_t ordinal) {
+DictLocation Dictionary::locateByOrdinal(const std::string& folderPath, uint32_t ordinal,
+                                         const DictLookupCallbacks& cbs) {
   DictLocation result;
   const DictPaths paths(folderPath);
   const uint8_t suffixBytes = idxEntrySuffixBytes(readInfo(folderPath.c_str()));
@@ -1153,6 +1158,7 @@ DictLocation Dictionary::locateByOrdinal(const std::string& folderPath, uint32_t
   uint8_t suffix[12];
   bool ok = idx.seekSet(offset);
   while (ok && idx.position() < idxSize) {
+    if (cbs.shouldCancel && cbs.shouldCancel(cbs.ctx)) break;
     ok = readWordInto(idx, wordBuf, sizeof(wordBuf)) >= 0 && idx.read(suffix, suffixBytes) == suffixBytes;
     if (!ok) break;
     if (toSkip == 0) {
@@ -1170,15 +1176,20 @@ DictLocation Dictionary::locateByOrdinal(const std::string& folderPath, uint32_t
 }
 
 DictLocation Dictionary::resolveAltForm(const std::string& word, const char* cachePath) {
-  const std::string folderPath = readDictPath(cachePath);
-  if (folderPath.empty()) return {};
-  auto result = resolveExactAltForm(word, folderPath);
-  if (result.found || result.readError) return result;
-  const std::string fallback = strippedLookupFallback(word);
-  return !fallback.empty() && fallback != word ? resolveExactAltForm(fallback, folderPath) : result;
+  return resolveAltFormIn(readDictPath(cachePath), word, {});
 }
 
-DictLocation Dictionary::resolveExactAltForm(const std::string& word, const std::string& folderPath) {
+DictLocation Dictionary::resolveAltFormIn(const std::string& path, const std::string& word,
+                                          const DictLookupCallbacks& cbs) {
+  if (path.empty()) return {};
+  auto result = resolveExactAltForm(word, path, cbs);
+  if (result.found || result.readError || (cbs.shouldCancel && cbs.shouldCancel(cbs.ctx))) return result;
+  const auto stripped = strippedLookupFallback(word);
+  return !stripped.empty() && stripped != word ? resolveExactAltForm(stripped, path, cbs) : result;
+}
+
+DictLocation Dictionary::resolveExactAltForm(const std::string& word, const std::string& folderPath,
+                                             const DictLookupCallbacks& cbs) {
   DictPaths dp(folderPath);
   if (!Storage.exists(dp.syn().c_str())) return {};
 
@@ -1214,6 +1225,10 @@ DictLocation Dictionary::resolveExactAltForm(const std::string& word, const std:
   // As with .idx lookup, include a case-equivalent entry that begins exactly
   // on the next accelerator boundary.
   while (static_cast<uint32_t>(syn.position()) < synFileSize) {
+    if (cbs.shouldCancel && cbs.shouldCancel(cbs.ctx)) {
+      syn.close();
+      return {};
+    }
     int len = readWordInto(syn, wordBuf, sizeof(wordBuf));
     uint8_t idxBuf[4];
     if (len < 0 || syn.read(idxBuf, sizeof(idxBuf)) != sizeof(idxBuf)) {
@@ -1228,7 +1243,7 @@ DictLocation Dictionary::resolveExactAltForm(const std::string& word, const std:
       uint32_t originalIdx = readBigEndian32(idxBuf);
       if (strcmp(wordBuf, word.c_str()) == 0) {
         syn.close();
-        return locateByOrdinal(folderPath, originalIdx);
+        return locateByOrdinal(folderPath, originalIdx, cbs);
       }
       if (!fallbackFound) {
         fallbackFound = true;
@@ -1241,7 +1256,7 @@ DictLocation Dictionary::resolveExactAltForm(const std::string& word, const std:
   }
 
   syn.close();
-  return fallbackFound ? locateByOrdinal(folderPath, fallbackIdx) : DictLocation{};
+  return fallbackFound ? locateByOrdinal(folderPath, fallbackIdx, cbs) : DictLocation{};
 }
 
 // ---------------------------------------------------------------------------

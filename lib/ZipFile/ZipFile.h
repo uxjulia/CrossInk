@@ -65,6 +65,7 @@ class ZipFile {
   struct ZipDetails {
     uint32_t centralDirOffset;
     uint32_t centralDirSize;
+    size_t eocdOffset;
     uint16_t totalEntries;
     bool isSet;
   };
@@ -137,9 +138,12 @@ class ZipFile {
   int fillUncompressedSizes(const SizeTarget* targets, size_t targetCount, uint32_t* sizes, size_t sizeCount);
   // Batch lookup for duplicate detection. Targets must be sorted by (hash,
   // len); identities[target.index] receives the ZIP entry's CRC and sizes.
-  // Returns matches, or -1 on open/header/directory read failure.
+  // Returns matches, or -1 on open/header/directory read failure. For callers
+  // that must preserve the cursor's duplicate-name behavior, a nonzero
+  // exactScanEntryLimit requires a complete bounded scan and rejects duplicate
+  // matches or embedded-NUL names.
   int fillEntryIdentities(const EntryTarget* targets, size_t targetCount, EntryIdentity* identities,
-                          size_t identityCount);
+                          size_t identityCount, size_t exactScanEntryLimit = 0);
   // Due to the memory required to run each of these, it is recommended to not preopen the zip file for multiple
   // These functions will open and close the zip as needed
   uint8_t* readFileToMemory(const char* filename, size_t* size = nullptr, bool trailingNullByte = false);

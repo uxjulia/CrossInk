@@ -10,10 +10,9 @@ namespace ClipTextBuilder {
 
 struct AllocationBudget {
   size_t textCapacity = 0;
-  size_t temporaryBytes = 0;
 
   bool fits(size_t freeBytes, size_t largestBlockBytes) const {
-    return largestBlockBytes > textCapacity && freeBytes > textCapacity + temporaryBytes + 1024;
+    return largestBlockBytes > textCapacity && freeBytes > textCapacity + 1024;
   }
 };
 

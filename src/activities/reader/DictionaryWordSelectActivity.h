@@ -166,6 +166,7 @@ class DictionaryWordSelectActivity final : public Activity {
   void performTouchSelectionAction(int action);
   void drawTouchSelection() const;
 #endif
+  bool applyWordHoldAction_ = false;
   bool touchDragLookup_ = false;
   bool touchDragHasMoved_ = false;
   int touchDragStartX_ = 0;
@@ -232,5 +233,5 @@ class DictionaryWordSelectActivity final : public Activity {
   bool appendText(const char* text, size_t length, uint16_t& offset);
   bool appendMergedText(const char* first, size_t firstLength, const char* second, size_t secondLength,
                         uint16_t& offset);
-  bool appendWord(WordSelectNavigator::WordInfo word);
+  bool appendWord(WordSelectNavigator::WordInfo word, int16_t rowY);
 };

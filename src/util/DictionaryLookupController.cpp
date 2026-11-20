@@ -13,6 +13,7 @@
 #include "../activities/reader/DictionarySuggestionsActivity.h"
 #include "CrossPointSettings.h"
 #include "DictionaryLookupWorker.h"
+#include "DictionaryRegistry.h"
 #include "MappedInputManager.h"
 #include "Memory.h"
 #include "MemoryBudget.h"
@@ -64,7 +65,10 @@ void logDictionaryLookupTaskEnd() {
 
 }  // namespace
 
-void DictionaryLookupController::startLookup(const std::string& word, bool recordHistory) {
+void DictionaryLookupController::startLookup(const std::string& word, bool recordHistory, bool allowFallback) {
+  allowFallback_ = allowFallback;
+  searchingAltForms_ = false;
+  hasAltForms_ = false;
   MemoryBudget::logHeapShape("dict.lookup_start");
   lookupWord = word;
   foundWord.clear();
@@ -138,20 +142,18 @@ DictionaryLookupController::LookupEvent DictionaryLookupController::handleInput(
 
       if (foundLocation.found) {
         foundWord = std::move(foundLocation.headword);
-        foundStatus =
-            nextIsSuggestion ? FoundStatus::Suggestion : (lookupMatchedStem ? FoundStatus::Stem : FoundStatus::Direct);
+        if (nextIsSuggestion)
+          foundStatus = FoundStatus::Suggestion;
+        else if (searchingAltForms_)
+          foundStatus = FoundStatus::AltForm;
+        else
+          foundStatus = lookupMatchedStem ? FoundStatus::Stem : FoundStatus::Direct;
         nextIsSuggestion = false;
         return LookupEvent::FoundDefinition;
       }
 
-      if (lookupReadError) {
-        showReadError();
-        return LookupEvent::None;
-      }
-
       // Try alt forms
-      if (shouldOfferAltForms_ && Dictionary::hasAltForms(cachePath.c_str())) {
-        altFormWord = lookupWord;
+      if (!searchingAltForms_ && hasAltForms_) {
         state = LookupState::AltFormPrompt;
 #if CROSSINK_APP_CAP_TOUCH
         altFormUiReady = false;
@@ -159,6 +161,11 @@ DictionaryLookupController::LookupEvent DictionaryLookupController::handleInput(
         altFormUiApp.setScreen(&DictionaryLookupController::altFormPromptScreen, this);
 #endif
         owner.requestUpdate();
+        return LookupEvent::None;
+      }
+
+      if (lookupReadError) {
+        showReadError();
         return LookupEvent::None;
       }
 
@@ -189,20 +196,13 @@ DictionaryLookupController::LookupEvent DictionaryLookupController::handleInput(
         || touchAction == ACTION_ALT_FORM_YES
 #endif
     ) {
-      state = LookupState::Idle;
-      auto loc = Dictionary::resolveAltForm(altFormWord, cachePath.c_str());
-      if (loc.found) {
-        foundWord = std::move(loc.headword);
-        foundLocation = std::move(loc);
-        foundStatus = nextIsSuggestion ? FoundStatus::Suggestion : FoundStatus::AltForm;
-        nextIsSuggestion = false;
-        return LookupEvent::FoundDefinition;
-      }
-      if (loc.readError) {
-        showReadError();
-        return LookupEvent::None;
-      }
-      handleLookupFailed();
+      searchingAltForms_ = true;
+      lookupDone = false;
+      state = LookupState::LookingUp;
+      if (!DictionaryLookupWorker::instance().start(*this))
+        showMemoryErrorAndReset();
+      else
+        owner.requestUpdate();
       return LookupEvent::None;
     }
     if (mappedInput.wasReleased(MappedInputManager::Button::Back)
@@ -368,7 +368,7 @@ bool DictionaryLookupController::render() {
           freeink::ui::Rect{static_cast<int16_t>(metrics.contentSidePadding), static_cast<int16_t>(promptTop),
                             static_cast<int16_t>(std::max(1, pageWidth - metrics.contentSidePadding * 2)),
                             static_cast<int16_t>(std::max(1, bottom - promptTop))},
-          altFormWord.c_str(), phraseStyle);
+          lookupWord.c_str(), phraseStyle);
     } else
 #endif
     {
@@ -380,7 +380,7 @@ bool DictionaryLookupController::render() {
       const Rect textArea{metrics.contentSidePadding, y, std::max(1, pageWidth - metrics.contentSidePadding * 2),
                           std::max(1, bottom - y)};
       const int maxLines = std::max(1, textArea.height / renderer.getLineHeight(UI_10_FONT_ID));
-      UITheme::drawCenteredWrappedText(renderer, textArea, UI_10_FONT_ID, y, altFormWord.c_str(), maxLines);
+      UITheme::drawCenteredWrappedText(renderer, textArea, UI_10_FONT_ID, y, lookupWord.c_str(), maxLines);
     }
 #if CROSSINK_APP_CAP_TOUCH
     if (mappedInput.hasTouch()) {
@@ -587,18 +587,32 @@ void DictionaryLookupController::runLookup() {
   cbs.onProgress = &DictionaryLookupController::progressCallback;
   cbs.shouldCancel = &DictionaryLookupController::cancelCallback;
   const std::string dictionaryPath = Dictionary::readDictPath(cachePath.c_str());
-  if (!dictionaryPath.empty() && dictionaryPath != preparedQuickIndexPath &&
-      Dictionary::prepareQuickIndex(cbs, cachePath.c_str())) {
-    preparedQuickIndexPath = dictionaryPath;
+  const auto search = [&](const std::string& path) {
+    if (searchingAltForms_) {
+      foundLocation = Dictionary::resolveAltFormIn(path, lookupWord, cbs);
+    } else {
+      if (path != preparedQuickIndexPath && Dictionary::prepareQuickIndexIn(path, cbs)) preparedQuickIndexPath = path;
+      if (lookupCancelRequested) return;
+      foundLocation = Dictionary::locateWithStemVariantsIn(path, lookupWord, &lookupMatchedStem, cbs);
+      if (!foundLocation.found && !foundLocation.readError && shouldOfferAltForms_ && !hasAltForms_)
+        hasAltForms_ = Dictionary::hasAltFormsAt(path);
+    }
+  };
+  search(dictionaryPath);
+  if (allowFallback_ && !dictionaryPath.empty() && !foundLocation.found && !foundLocation.readError &&
+      !lookupCancelRequested) {
+    DictionaryRegistry installed;
+    if (!installed.scan(cbs)) lookupReadError = true;
+    for (const auto& entry : installed.getEntries()) {
+      if (lookupCancelRequested) break;
+      if (entry.basePath == dictionaryPath) continue;
+      search(entry.basePath);
+      if (foundLocation.found) break;
+      // A damaged secondary dictionary must not hide a match in a later one.
+      if (foundLocation.readError) lookupReadError = true;
+    }
   }
-  if (lookupCancelRequested) {
-    lookupCancelled = true;
-    lookupDone = true;
-    logDictionaryLookupTaskEnd();
-    return;
-  }
-  foundLocation = Dictionary::locateWithStemVariants(lookupWord, &lookupMatchedStem, cbs, cachePath.c_str());
-  lookupReadError = foundLocation.readError;
+  lookupReadError = lookupReadError || foundLocation.readError;
   lookupCancelled = lookupCancelRequested.load();
   lookupDone = true;
   logDictionaryLookupTaskEnd();

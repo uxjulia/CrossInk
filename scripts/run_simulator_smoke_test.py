@@ -419,6 +419,14 @@ def run_smoke(args: argparse.Namespace) -> int:
                 "StarDict's dict ifo file\nversion=2.4.2\nbookname=French smoke\n"
                 f"wordcount={len(words)}\nidxfilesize={len(index)}\nsametypesequence=m\n"
             )
+            if args.clipping_selection:
+                fallback = temp_root / "fs_" / "Fallback"
+                fallback.mkdir()
+                definition = b"Definition from the fallback dictionary."
+                (fallback / "dict.dict").write_bytes(definition)
+                (fallback / "dict.idx").write_bytes(b"the\0" + struct.pack(">II", 0, len(definition)))
+                (fallback / "dict.syn").write_bytes(b"bottom\0" + struct.pack(">I", 0))
+                (fallback / "dict.ifo").write_text("StarDict's dict ifo file\nsametypesequence=m\n")
             if args.dictionary and not args.clipping_selection:
                 env["CROSSINK_SIMULATOR_SMOKE_DICTIONARY"] = "1"
         if args.dictionary_dictzip:

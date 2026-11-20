@@ -595,6 +595,47 @@ void contentCacheFixture(const std::string& path) {
   std::ofstream out(path, std::ios::binary);
   out.write(reinterpret_cast<const char*>(bytes.data()), bytes.size());
 }
+void bodyMetricsCacheSaturationChecks(const std::string& path) {
+  contentCacheFixture(path);
+  SdCardFont font;
+  assert(font.load(path.c_str()));
+  auto hash = [](uint32_t cp, uint8_t style) { return ((cp ^ (uint32_t(style) << 21)) * 2654435761U) >> 25; };
+  uint32_t hot = 0, miss = 0;
+  for (uint32_t cp = 3; cp < 131 && !hot; ++cp) {
+    if (hash(cp, 0) == 0) continue;
+    for (uint32_t other = 131; other < 256; ++other) {
+      if (hash(cp, 0) != hash(other, 0)) continue;
+      hot = cp;
+      miss = other;
+      break;
+    }
+  }
+  assert(hot && miss);
+  SdCardFont::MetricsScope scope(&font);
+  auto measure = [&](uint32_t cp, uint8_t style = 0) {
+    const auto* glyph = font.getEpdFont(style)->getGlyph(cp);
+    assert(glyph && glyph->advanceX == advance(cp, style));
+  };
+  measure(hot);
+  for (uint32_t cp = 3; cp < 131; ++cp) measure(cp);
+  const int warmReads = readCalls;
+  measure(miss);
+  measure(hot);
+  assert(readCalls - warmReads == 1);  // A colliding cold glyph must not evict the hot one.
+  for (int pass = 0; pass < 4; ++pass) {
+    for (uint32_t cp = 3; cp < 256; ++cp) {
+      measure(cp, pass % 2);  // Repeated full scans wrap the clock; the style remains part of the key.
+      measure(hot);
+    }
+  }
+  font.releaseForLowMemory(true);
+  assert(!font.contentMetrics_);
+  const int coldReads = readCalls;
+  measure(hot);
+  measure(hot);
+  assert(readCalls - coldReads == 1);
+}
+
 void contentCacheCollisionChecks(const std::string& path) {
   contentCacheFixture(path);
   SdCardFont font;
@@ -1207,6 +1248,39 @@ int main() {
   incrementalChecks(path);
   contentPreparationChecks(path);
   contentSizeChecks(path);
+  contentCacheFixture(path);
+  {
+    SdCardFont body;
+    assert(body.load(path.c_str()));
+    const int before = readCalls;
+    {
+      SdCardFont::MetricsScope metrics(&body);
+      for (int row = 0; row < 100; ++row) {
+        for (unsigned char cp = 'a'; cp <= 'z'; ++cp) {
+          const auto* glyph = body.getEpdFont()->getGlyph(cp);
+          assert(glyph && glyph->advanceX == advance(cp, 0));
+        }
+      }
+    }
+    // Cold metadata reads only. The same workload read 5,200 records on RC-3.
+    assert(readCalls - before == 26);
+    const auto* glyph = body.getEpdFont()->getGlyph('z');
+    assert(glyph && body.getOverflowBitmap(glyph)[0] == 'z');
+    body.releaseForLowMemory(true);
+    assert(!body.contentMetrics_);
+
+    failArrayCall = arrayCalls;
+    {
+      SdCardFont::MetricsScope metrics(&body);
+      const auto* measured = body.getEpdFont()->getGlyph('a');
+      assert(measured && measured->advanceX == advance('a', 0));
+      assert(!body.contentMetrics_);
+    }
+    failArrayCall = -1;
+    const auto* drawn = body.getEpdFont()->getGlyph('a');
+    assert(drawn && body.getOverflowBitmap(drawn)[0] == 'a');
+  }
+  bodyMetricsCacheSaturationChecks(path);
   contentCacheCollisionChecks(path);
   compactContentBudgetChecks(path);
   sharedContentScratchChecks(path);

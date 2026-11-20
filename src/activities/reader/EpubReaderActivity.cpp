@@ -36,6 +36,7 @@
 #include <memory>
 #include <new>
 #include <type_traits>
+#include <utility>
 
 #include "../settings/DictionarySelectActivity.h"
 #include "../settings/KOReaderSettingsActivity.h"
@@ -5262,13 +5263,24 @@ void EpubReaderActivity::startClipSelection(const DictionaryClippingRequest* dic
         if (textPoolFull) return false;
         const auto& block = *line.block;
         const uint16_t count = block.wordCount();
+        bool hasSpaceBefore = false;
+        bool hasWordInBlock = false;
+        const auto trackingJoinSlack =
+            static_cast<uint8_t>((std::clamp<int>(block.getCharacterSpacing(), 0, 5) + 1) / 2);
         for (uint16_t i = 0; i < count; ++i) {
           const char* wordText = block.wordText(i);
-          if (!hasVisibleWordText(wordText)) continue;
+          hasSpaceBefore |= i > 0 && block.wordHasSpaceBefore(i);
+          if (!hasVisibleWordText(wordText)) {
+            // Nonbreaking spaces are separate layout tokens, but cannot be selected.
+            hasSpaceBefore |= *wordText != '\0';
+            continue;
+          }
 
           const auto textStyle = static_cast<EpdFontFamily::Style>(block.wordStyle(i) & ~EpdFontFamily::UNDERLINE);
           const PageWordGeometry geometry = pageWordGeometry(renderer, readerFontId, line, block, i);
           if (geometry.width <= 0) continue;
+          const bool wordHasSpaceBefore = std::exchange(hasSpaceBefore, false);
+          const bool followsWordInBlock = std::exchange(hasWordInBlock, true);
           const size_t wordIndexOnPage = pageWordIndex++;
           if (wordIndexOnPage < firstWordToKeep) continue;
           if (wordIndexOnPage >= firstWordToKeep + wordsToKeep) break;
@@ -5303,6 +5315,9 @@ void EpubReaderActivity::startClipSelection(const DictionaryClippingRequest* dic
           word.style = textStyle;
           word.endsWithInsertedHyphen = block.wordEndsWithInsertedHyphen(i);
           word.lineIsRtl = block.getBlockStyle().isRtl;
+          word.hasSpaceBefore = wordHasSpaceBefore;
+          word.followsWordInBlock = followsWordInBlock;
+          word.trackingJoinSlack = trackingJoinSlack;
           wordStore.words.push_back(word);
         }
         return !textPoolFull && wordStore.words.size() < maxSelectableWords;

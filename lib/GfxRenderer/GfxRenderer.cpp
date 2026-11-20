@@ -1298,8 +1298,11 @@ void GfxRenderer::drawOrMeasureText(const int fontId, const int x, const int y, 
     } else if (characterSpacing == 0) {
       cp = font.applyLigatures(cp, textCursor, style);
     }
-    cp = font.getFallbackCodepoint(cp, style);
-    const bool hasRealGlyph = font.findGlyphData(cp, style).glyph != nullptr;
+    // A vertical-only measurement can consume the resolved metrics directly.
+    // Do not carry an on-demand glyph pointer across the drawing path's kerning or raster lookups.
+    const EpdGlyph* measuredGlyph = nullptr;
+    cp = font.getFallbackCodepoint(cp, style, bounds ? &measuredGlyph : nullptr);
+    const bool hasRealGlyph = bounds ? measuredGlyph != nullptr : font.findGlyphData(cp, style).glyph != nullptr;
 
     // Differential rounding: snap (previous advance + current kern) as one unit so
     // identical character pairs always produce the same pixel step regardless of
@@ -1318,7 +1321,7 @@ void GfxRenderer::drawOrMeasureText(const int fontId, const int x, const int y, 
     }
 
     if (syntheticGlyph::isBlankSpace(cp, hasRealGlyph)) {
-      prevAdvanceFP = font.getSpaceAdvanceX(cp, style);
+      if (!bounds) prevAdvanceFP = font.getSpaceAdvanceX(cp, style);
       if ((style & (EpdFontFamily::SUP | EpdFontFamily::SUB)) != 0) prevAdvanceFP = halfAdvanceFP(prevAdvanceFP);
       lastBaseLeft = 0;
       lastBaseWidth = 0;
@@ -1373,7 +1376,7 @@ void GfxRenderer::drawOrMeasureText(const int fontId, const int x, const int y, 
       continue;
     }
 
-    const EpdGlyph* glyph = font.getGlyph(cp, style);
+    const EpdGlyph* glyph = bounds ? measuredGlyph : font.getGlyph(cp, style);
 
     if (!glyph) {
       // Advance was already flushed into lastBaseX above; clear base metrics so the

@@ -5035,6 +5035,19 @@ class SimulatorSmokeTest {
       press(MappedInputManager::Button::Confirm);
       if (!editor.simulatorOptionPopupActive()) fail("Enabled page gesture picker unavailable");
       press(MappedInputManager::Button::Back);
+      const auto hold = std::find_if(gestures.begin(), gestures.end(), [](const SettingInfo& setting) {
+        return setting.nameId == StrId::STR_WORD_HOLD_ACTION;
+      });
+      if (hold == gestures.end() || hold->enumValues.size() <= CrossPointSettings::WORD_HOLD_ASK ||
+          hold->enumValues[CrossPointSettings::WORD_HOLD_ASK] != StrId::STR_ASK)
+        fail("Missing Ask option for long-press text");
+      for (int i = 0; i < std::distance(gestures.begin(), hold); ++i)
+        press(mappedInputManager.menuButton(MappedInputManager::Button::Down));
+      press(MappedInputManager::Button::Confirm);
+      if (!editor.simulatorOptionPopupActive()) fail("Long-press text picker unavailable");
+      editor.render(std::move(editorLock));
+      captureStatusBarScreen("long-press-text-options");
+      press(MappedInputManager::Button::Back);
       editor.simulatorOpenFrontButtons();
       editor.render(std::move(editorLock));
       captureStatusBarScreen("front-button-shortcuts");

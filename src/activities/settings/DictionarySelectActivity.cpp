@@ -25,9 +25,10 @@ constexpr fui::ActionId ACTION_ROW = 1;
 
 DictionarySelectActivity::DictionarySelectActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
                                                    std::string bookCachePath, const bool disableCurrentSelection,
-                                                   const bool temporarySelection)
+                                                   const bool temporarySelection, std::string displayedDictionary)
     : Activity("DictionarySelect", renderer, mappedInput),
       bookCachePath(std::move(bookCachePath)),
+      currentEffectiveDictPath(std::move(displayedDictionary)),
       disableCurrentSelection(disableCurrentSelection),
       temporarySelection(temporarySelection),
       uiTarget(makeUiTarget(renderer)),
@@ -108,7 +109,7 @@ void DictionarySelectActivity::onEnter() {
       }
     }
     useGlobalLabel = std::string(tr(STR_DICT_USE_GLOBAL)) + " (" + globalFolderName + ")";
-    currentEffectiveDictPath = Dictionary::readDictPath(bookCachePath.c_str());
+    if (currentEffectiveDictPath.empty()) currentEffectiveDictPath = Dictionary::readDictPath(bookCachePath.c_str());
   }
 
   totalItems = 1 + static_cast<int>(dictFolders.size());

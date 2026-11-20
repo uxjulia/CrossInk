@@ -14,10 +14,10 @@
 namespace TextSelectionOverlay {
 namespace fui = freeink::ui;
 namespace {
-// Device pixels. The hit size keeps handles at roughly 7 mm on current panels.
+// Device pixels. Keep the visible handle compact while leaving room for a fingertip.
 constexpr int kStemWidth = 3;
 constexpr int kDotSize = 16;
-constexpr int kHandleHitSize = 60;
+constexpr int kHandleHitSize = 72;
 constexpr int kBarMinHeight = 56;
 constexpr int kBarPaddingY = 10;
 constexpr int kSegmentMinWidth = 116;
@@ -85,14 +85,26 @@ Handle handle(const Rect safe, const Rect word, const bool onLeft, const bool is
       std::clamp(isStart ? stemTop - kDotSize + 1 : stemBottom - 1, static_cast<int>(safe.y), safe.bottom() - kDotSize);
   result.dot = makeRect(dotX, dotY, kDotSize, kDotSize);
 
-  // Split the touch area at the word's middle so a one-word selection's start
-  // and end handles never overlap.
-  const int wordMiddle = word.y + word.height / 2;
   const int dotMiddle = dotY + kDotSize / 2;
-  const int hitTop = isStart ? std::min(dotMiddle - kHandleHitSize / 2, dotY) : wordMiddle;
-  const int hitBottom = isStart ? wordMiddle : std::max(dotMiddle + kHandleHitSize / 2, dotY + kDotSize);
+  const int hitTop = std::min(stemTop, dotMiddle - kHandleHitSize / 2);
+  const int hitBottom = std::max(stemBottom, dotMiddle + kHandleHitSize / 2);
   result.hit = clipTo(makeRect(middleX - kHandleHitSize / 2, hitTop, kHandleHitSize, hitBottom - hitTop), safe);
   return result;
+}
+
+const Handle* handleAt(const Layout& layout, const int x, const int y) {
+  const bool start = layout.start.hit.contains(x, y);
+  const bool end = layout.end.hit.contains(x, y);
+  if (!start) return end ? &layout.end : nullptr;
+  if (!end) return &layout.start;
+  // Overlapping fingertip targets are common on a short word. Pick the closest ink.
+  const auto distance = [x, y](const Rect rect) {
+    const int dx = x - std::clamp(x, static_cast<int>(rect.x), rect.right() - 1);
+    const int dy = y - std::clamp(y, static_cast<int>(rect.y), rect.bottom() - 1);
+    return dx * dx + dy * dy;
+  };
+  const auto score = [&](const Handle& handle) { return std::min(distance(handle.dot), distance(handle.stem)); };
+  return score(layout.start) < score(layout.end) ? &layout.start : &layout.end;
 }
 
 void placeActions(const GfxRenderer& renderer, Layout& layout, Rect firstWord, Rect lastWord,
