@@ -71,6 +71,10 @@ X3 and X4 share the C3 application environment, but run different hardware model
 Sticky and X4 Classic are rejected before building: sharing an ESP32 chip with
 another board does not make its display, storage or input hardware compatible.
 
+For X4 Pro tests that depend on activity-entry debug logs, set
+`s3_debug_log_level = 2` under `[crossink]` in the source checkout’s
+`platformio.local.ini` before building. The default S3 debug level is 1.
+
 Each launch builds exactly one debug environment with `-j1`, using
 `~/.local/bin/codex-pio-s3` for X4 Pro or `codex-pio-c3` for X3/X4. It builds in
 the selected source checkout, with separate incremental build
@@ -246,8 +250,8 @@ letting PlatformIO install anything missing. Do not reuse the C3 package core.
 Runs use the installed verified image by default. `--build-dir` can select a
 separately built feature image, including an existing feature worktree; no merge or
 edit is needed. Native manual readiness and all scenario predicates require
-the supported `x4-pro-debug` configuration (`LOG_LEVEL=2`), because activity-entry
-messages are debug logs. The runner checks for their format-string signature
+an `x4-pro-debug` build with the verbose local override (`LOG_LEVEL=2`),
+because activity-entry messages are debug logs. The runner checks for their format-string signature
 in the application before launching QEMU. An image without it exits `2`, with
 manifest status `unsupported-image` and `firmware_started: false`; this is a
 log-profile incompatibility, not a firmware crash or a failed Home boot.

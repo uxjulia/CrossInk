@@ -67,10 +67,13 @@ pio run -e default -j1
 ```
 
 Always select one environment and use `-j1`. EEGO A4 uses `eego_a4`
-for production builds and `eego_a4-debug` for development with verbose serial
-logs. Both are included in PR build validation; stable and RC workflows publish
+for production builds and `eego_a4-debug` for development with serial logs.
+Both are included in PR build validation; stable and RC workflows publish
 `firmware-eego_a4-*.bin`. See [EEGO A4](./eego-a4-hardware.md) for flashing and
 hardware checks.
+
+S3 debug builds log errors and info by default. To include verbose debug logs,
+set `s3_debug_log_level = 2` under `[crossink]` in `platformio.local.ini`.
 
 ### Font download hosting
 
