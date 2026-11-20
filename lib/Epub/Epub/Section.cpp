@@ -1083,7 +1083,7 @@ bool Section::startBuild(const ReaderRenderSpec& spec, const SectionBuildOptions
 
 bool Section::prewarmSomeMore() { return build_ && build_->parser && build_->parser->prewarmSectionAdvanceStep(); }
 
-bool Section::buildSomeMore(const int maxPages) {
+bool Section::buildSomeMore(const int maxPages, const bool singleParseStep) {
   if (!build_ || !build_->parser) {
     LOG_ERR("SCT", "buildSomeMore called with no active build");
     return false;
@@ -1111,7 +1111,7 @@ bool Section::buildSomeMore(const int maxPages) {
       return finalizeBuild();
     }
     // ParseStatus::More: yield once we've laid out the requested number of pages.
-    if (maxPages > 0 && (builtPageCount_ - startCount) >= maxPages) {
+    if (singleParseStep || (maxPages > 0 && (builtPageCount_ - startCount) >= maxPages)) {
       build_->bytesConsumed = build_->parser->parseBytesConsumed();
       return true;
     }

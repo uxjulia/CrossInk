@@ -133,7 +133,8 @@ class Section {
 
   bool startBuild(const ReaderRenderSpec& spec, SectionBuildOptions buildOptions = {},
                   const std::function<void()>& popupFn = nullptr);
-  bool buildSomeMore(int maxPages);
+  // Idle work may yield after one parser input block, even before a page is finished.
+  bool buildSomeMore(int maxPages, bool singleParseStep = false);
   // One slice of the build's deferred font advance prewarm; false when none is left.
   bool prewarmSomeMore();
   void releaseBuildFile();

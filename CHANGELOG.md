@@ -2,11 +2,12 @@
 
 ### Added
 
-- Show a Delete button when opening a clipping on button-only readers (#936).
 - Support ten new Indic scripts when you using a compatible font. (CrossPoint #3787).
-- Add a Delete button below Open when viewing a clipping on touch readers.
+- Show a Delete button when viewing a clipping (#936).
 
 ### Changed
+
+- With Incremental indexing, devices with PSRAM finish laying out the current EPUB chapter while you read instead of stopping after a set number of pages.
 
 ### Fixed
 

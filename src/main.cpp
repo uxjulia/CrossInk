@@ -2247,7 +2247,8 @@ void loop() {
 #endif
   const unsigned long activityDuration = millis() - activityStartTime;
   // A blocking activity (for example an OPDS download) is not idle time.
-  lastActivityTime += activityDuration;
+  // Optional work performed while reading counts toward the ordinary sleep deadline.
+  lastActivityTime += activityDuration - std::min(activityDuration, activityManager.lastLoopIdleWorkMs());
 
 #ifdef SIMULATOR
   runSimulatorSmokeTestTick();

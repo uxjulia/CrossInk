@@ -144,6 +144,8 @@ constexpr unsigned long MIN_MANUAL_PAGE_TURN_GAP_MS = 200UL;
 // Shared dwell time for the transient bookmark/completed/tilt confirmations.
 constexpr unsigned long TRANSIENT_FEEDBACK_MS = 1000UL;
 constexpr unsigned long IDLE_SD_FONT_PREWARM_DELAY_MS = 400UL;
+constexpr unsigned long IDLE_CHAPTER_START_MS = 800UL;
+constexpr unsigned long IDLE_CHAPTER_SLICE_GAP_MS = 150UL;
 constexpr uint32_t IDLE_SD_FONT_PREWARM_MIN_FREE = 64U * 1024U;
 constexpr uint32_t IDLE_SD_FONT_PREWARM_MIN_MAX_ALLOC = 40U * 1024U;
 constexpr unsigned long MIN_READING_STATS_PAGE_MS = 2000UL;
@@ -2512,6 +2514,7 @@ bool EpubReaderActivity::usesMenuButtonOrientation() const {
 
 void EpubReaderActivity::onEnter() {
   Activity::onEnter();
+  hasIndexingPsram = psramHeapAvailable();
   ComplexShaper::setDocumentLanguage(epub->getLanguage().c_str());
   pageLoadRetryCount = 0;
   touchReaderDrawerState = initialReaderDrawerState(mappedInput.hasTouchHardware());
@@ -3026,6 +3029,78 @@ bool EpubReaderActivity::backgroundSectionBuildHasHeap() {
   return false;
 }
 
+void EpubReaderActivity::advanceBackgroundSectionBuild() {
+  RenderLock lock(*this, RenderLock::Mode::Try);
+  if (!lock.ownsLock() || !section || (!section->isBuilding() && !section->isPartial()) ||
+      !backgroundBuildCanUsePageBuffer())
+    return;
+
+  const bool nearPartialEnd = section->currentPage + PARTIAL_REBUILD_START_MARGIN >= section->pageCount;
+  const bool needsPages = section->isBuilding() ? sectionBuildNeedsFastTick() : nearPartialEnd;
+  const bool yieldForInput = backgroundBuildYieldForInput.load(std::memory_order_relaxed);
+  const bool idleSlice = !needsPages || yieldForInput;
+  if (idleSlice) {
+    const unsigned long now = millis();
+    if (!hasIndexingPsram || SETTINGS.indexingMethod != CrossPointSettings::INDEXING_INCREMENTAL ||
+        activeFootnotePreview || lastRenderCompleteMs == 0 || now - lastRenderCompleteMs < IDLE_CHAPTER_START_MS ||
+        now - lastIdleIndexMs < IDLE_CHAPTER_SLICE_GAP_MS || pendingManualPageTurns.hasPending() ||
+        mappedInput.hasPendingActivity())
+      return;
+    // An ignored input edge may never request a render. After the quiet period it
+    // is safe to resume paced work; urgent work still yields to a requested render.
+  }
+  if (!section->isBuilding() &&
+      (buildViewportWidth == 0 || partialRebuildStartFailed || partialRebuildAbortedForLowMemory))
+    return;
+  const unsigned long started = millis();
+  runBackgroundSectionBuildStep(idleSlice);
+  if (idleSlice) {
+    lastIdleIndexMs = millis();
+    activityManager.recordIdleWork(lastIdleIndexMs - started);
+  }
+}
+
+// Called with RenderLock held. Return to polling after each parser or font step.
+void EpubReaderActivity::runBackgroundSectionBuildStep(const bool idleSlice) {
+  releaseGrayscaleStripScratch();
+  if (!backgroundSectionBuildHasHeap()) return;
+  const uint32_t loansBefore = renderer.frameBufferLoanCount();
+  if (!section->isBuilding()) {
+    const int fontId = activeSectionFontId != 0 ? activeSectionFontId : SETTINGS.getReaderFontId();
+    const auto profile = buildProfileForRenderMode(normalizeRenderMode(SETTINGS.epubRenderMode));
+    SectionBuildOptions options{};
+    options.deferAdvancePrewarm = hasIndexingPsram;
+    partialRebuildStartFailed = !section->startBuild(
+        readerRenderSpecForProfile(fontId, buildViewportWidth, buildViewportHeight, profile), options);
+    invalidatePageBufferAfterBuild(loansBefore);
+    if (partialRebuildStartFailed) LOG_ERR("ERS", "Failed to start deferred partial extension build");
+    return;
+  }
+
+  const bool prewarmed = section->activeBuildHasCaughtReadablePages() &&
+                         static_cast<int>(section->pageCount) > section->currentPage + 2 && section->prewarmSomeMore();
+  const bool built = prewarmed || section->buildSomeMore(BACKGROUND_BUILD_PAGES_PER_TICK, idleSlice);
+  invalidatePageBufferAfterBuild(loansBefore);
+  if (!built) {
+    LOG_ERR("ERS", "Background section build failed");
+    if (section->lastBuildLayoutAbortedForLowMemory() && section->pageCount > 0) {
+      partialRebuildAbortedForLowMemory = true;
+    } else {
+      section.reset();
+      requestUpdate();
+    }
+  } else if (section->isBuildComplete()) {
+    LOG_DBG("ERS", "Background chapter complete: spine=%d pages=%u", currentSpineIndex, section->pageCount);
+    if (applyDeferredReposition() || progressSaveRequiredAfterRelayout) {
+      requestUpdate();
+    } else if (section->currentPage >= 0 && section->currentPage < section->pageCount &&
+               !queueProgressSave(currentSpineIndex, section->currentPage, section->pageCount)) {
+      // The final page count became available without repainting the visible page.
+      pendingSyncSaveError = true;
+    }
+  }
+}
+
 void EpubReaderActivity::idlePrewarmNextPage() {
   RenderLock lock(*this, RenderLock::Mode::Try);
   if (!lock.ownsLock()) return;
@@ -3393,6 +3468,7 @@ void EpubReaderActivity::loop() {
   };
   const bool userInputPending = rawReaderInput || touch.tapped || touch.prev || touch.next;
   if (userInputPending) {
+    lastIdleIndexMs = millis();
     // Do not tear down the parser: suspending here would write a partial cache and
     // make the next build replay from page 0. Yield until the requested render starts.
     backgroundBuildYieldForInput.store(true, std::memory_order_relaxed);
@@ -3422,81 +3498,7 @@ void EpubReaderActivity::loop() {
   }
 #endif
 
-  // Lazily resume a partial's extension build once the reader nears its watermark. Far from it the
-  // rebuild is all cost (whole-chapter re-layout from page 0) and no benefit this session.
-  {
-    RenderLock lock(*this, RenderLock::Mode::Try);
-    if (lock.ownsLock() && backgroundBuildCanUsePageBuffer() &&
-        !backgroundBuildYieldForInput.load(std::memory_order_relaxed) && section && !section->isBuilding() &&
-        section->isPartial() && buildViewportWidth > 0 && !partialRebuildStartFailed &&
-        !partialRebuildAbortedForLowMemory &&
-        section->currentPage + PARTIAL_REBUILD_START_MARGIN >= static_cast<int>(section->pageCount)) {
-      releaseGrayscaleStripScratch();
-      if (backgroundSectionBuildHasHeap()) {
-        const int renderFontId = activeSectionFontId != 0 ? activeSectionFontId : SETTINGS.getReaderFontId();
-        const SectionBuildProfile profile = buildProfileForRenderMode(normalizeRenderMode(SETTINGS.epubRenderMode));
-        const uint32_t loansBefore = renderer.frameBufferLoanCount();
-        const bool started = section->startBuild(
-            readerRenderSpecForProfile(renderFontId, buildViewportWidth, buildViewportHeight, profile));
-        invalidatePageBufferAfterBuild(loansBefore);
-        if (!started) {
-          partialRebuildStartFailed = true;
-          LOG_ERR("ERS", "Failed to start deferred partial extension build");
-        } else {
-          LOG_DBG("ERS", "Reader near partial watermark (%d/%d), resuming extension build", section->currentPage,
-                  section->pageCount);
-        }
-      }
-    }
-  }
-
-  // Drive any in-progress incremental section build forward, off the page-turn critical path,
-  // but only within a small window ahead of the reader: an unbounded build monopolized the
-  // RenderLock and locked out page turns. The build follows the reader instead, and instant
-  // reopen comes from suspendBuild() persisting the laid-out pages as a partial on exit.
-  // Try the render mutex before inspecting section state; skip optional work
-  // while rendering so input can be polled again without waiting for the lock.
-  // While extending a partial, pageCount is pinned at the partial watermark until the rebuild
-  // catches up, so keep ticking it even before activeBuildHasCaughtReadablePages() turns true;
-  // the window check below would compare against the pinned watermark and stall the catch-up.
-  // Once the extension has caught up, the window applies again: without that, a resumed partial
-  // rebuilt its whole chapter in one hot-loop burst instead of following the reader.
-  // sectionBuildWantsTick() holds the catch-up/window logic and is shared with
-  // skipLoopDelay(), so the loop only runs hot while a tick can actually happen.
-  {
-    RenderLock lock(*this, RenderLock::Mode::Try);
-    if (lock.ownsLock() && backgroundBuildCanUsePageBuffer() &&
-        !backgroundBuildYieldForInput.load(std::memory_order_relaxed) && sectionBuildWantsTick() &&
-        (section->isPartial() || section->activeBuildHasCaughtReadablePages())) {
-      releaseGrayscaleStripScratch();
-      if (backgroundSectionBuildHasHeap()) {
-        const uint32_t loansBefore = renderer.frameBufferLoanCount();
-        // Keep two ready pages ahead before spending a tick on optional font work.
-        const bool prewarmed = section->activeBuildHasCaughtReadablePages() &&
-                               static_cast<int>(section->pageCount) > section->currentPage + 2 &&
-                               section->prewarmSomeMore();
-        const bool built = prewarmed || section->buildSomeMore(BACKGROUND_BUILD_PAGES_PER_TICK);
-        invalidatePageBufferAfterBuild(loansBefore);
-        if (!built) {
-          LOG_ERR("ERS", "Background section build failed");
-          if (section->lastBuildLayoutAbortedForLowMemory() && section->pageCount > 0) {
-            partialRebuildAbortedForLowMemory = true;
-            LOG_ERR("ERS", "Background section build suspended for low heap; not retrying for this section");
-            return;
-          }
-          section.reset();
-          requestUpdate();
-          return;
-        }
-        if (section->isBuildComplete()) {
-          const bool repositioned = applyDeferredReposition();
-          if (repositioned || progressSaveRequiredAfterRelayout) {
-            requestUpdate();
-          }
-        }
-      }
-    }
-  }
+  if (!userInputPending) advanceBackgroundSectionBuild();
 
   if (completionPromptQueued) {
     completionPromptQueued = false;
@@ -6873,9 +6875,9 @@ void EpubReaderActivity::render(RenderLock&& lock) {
                    (static_cast<int>(*page) < static_cast<int>(section->pageCount) || section->isBuildComplete());
           };
           const bool deferPartialBuild =
-              section->isPartial() &&
-              (anchorJump ? anchorPageReady()
-                          : target + PARTIAL_REBUILD_START_MARGIN < static_cast<int>(section->pageCount));
+              section->isPartial() && (anchorJump ? anchorPageReady()
+                                                  : target + (hasIndexingPsram ? 0 : PARTIAL_REBUILD_START_MARGIN) <
+                                                        static_cast<int>(section->pageCount));
           if (deferPartialBuild) {
             LOG_DBG("ERS", "Partial covers target %d of %d; deferring extension build", target, section->pageCount);
             buildSucceeded = true;

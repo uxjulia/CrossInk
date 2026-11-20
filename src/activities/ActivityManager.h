@@ -84,6 +84,8 @@ class ActivityManager {
   void processPendingActivities();
   bool prepareSleepPlugins(bool quickResume, bool fromReaderOrHome);
 
+  unsigned long idleWorkMs = 0;  // Main task only, reset at the start of each dispatch.
+
   // Pending activity to be launched on next loop iteration
   std::unique_ptr<Activity> pendingActivity;
   enum class PendingAction { None, Push, Pop, Replace };
@@ -153,6 +155,8 @@ class ActivityManager {
 
   void begin(uint32_t renderTaskStackBytes = 16384);
   void loop();
+  void recordIdleWork(unsigned long durationMs) { idleWorkMs += durationMs; }
+  unsigned long lastLoopIdleWorkMs() const { return idleWorkMs; }
 
   // Will replace currentActivity and drop all activities on stack
   void replaceActivity(std::unique_ptr<Activity>&& newActivity);
