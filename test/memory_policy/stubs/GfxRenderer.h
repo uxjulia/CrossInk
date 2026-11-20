@@ -12,6 +12,8 @@ enum class BidiBaseDir : signed char { AUTO = -1, LTR = 0, RTL = 1 };
 
 class GfxRenderer {
  public:
+  enum RenderMode { BW };
+  RenderMode getRenderMode() const { return BW; }
   struct ShapingMemoScope {
     explicit ShapingMemoScope(bool) {}
   };

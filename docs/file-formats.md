@@ -1147,7 +1147,11 @@ body-only and built-in font identities stay unchanged. No binary payload changes
 
 ## `section.bin`
 
-### Version 117 (current development)
+### Version 119 (current development)
+
+Complete sections use version 119 and partial sections use `0xE8`. Block-styled spans can affect pagination. In the optional per-word font-size byte, bits 0–5 store the point size, bit 6 marks a black background on the preceding space, and bit 7 hides the glyphs while retaining their layout width.
+
+### Version 117
 
 EPUB layout stores each shaped word beside its logical UTF-8 text in the existing line arena. The source-range flags byte uses bit 0 for source ranges and bit 1 for display forms. In a line with display forms, each word slot holds the NUL-terminated logical text and optionally a second NUL-terminated display string. Word offsets delimit each slot. Selection and search continue to use the logical text. Complete sections use version 117 and suspended sections use `0xE6`.
 
@@ -2273,6 +2277,10 @@ publication; partial marker writes cannot authorize reuse. Existing layouts rema
 unchanged during unchanged terminal reuse or a retry that is still transiently
 partial. Source/version invalidation rebuilds CSS and refreshes layouts under the
 existing invalid-cache policy. Progress files are unaffected.
+
+### CSS rules cache revision 25
+
+The defined-property mask uses bit 31 for CSS visibility. In the background byte, bit 0 indicates black and bit 1 indicates hidden text. Older rules rebuild on reopen.
 
 ### CSS rules cache revision 24
 

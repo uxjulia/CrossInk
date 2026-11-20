@@ -119,7 +119,8 @@ TEST_F(TextLayoutBackingTest, MixedWordSizesSurviveCacheRoundTripAcrossPools) {
     fakeheap::reset(psram);
     ParsedText text(false, false, false, false, false, 0, BlockStyle{});
     text.addWord("Base", EpdFontFamily::REGULAR, false, false, false, 0, 0);
-    text.addWord("Large", EpdFontFamily::BOLD, false, false, false, 0, 5, 5, 0, false, 36);
+    text.addWord("Large", EpdFontFamily::BOLD, false, false, true, 0, 5, 5, 0, false,
+                 TextBlock::packWordSize(36, true, true));
     text.addWord("Base", EpdFontFamily::REGULAR, false, false, false, 0, 11);
     GfxRenderer renderer;
     FsFile output;
@@ -137,6 +138,8 @@ TEST_F(TextLayoutBackingTest, MixedWordSizesSurviveCacheRoundTripAcrossPools) {
     EXPECT_EQ(restored->wordFontSize(0), 0);
     EXPECT_EQ(restored->wordFontSize(1), 36);
     EXPECT_EQ(restored->wordFontSize(2), 0);
+    EXPECT_TRUE(restored->wordHidden(1));
+    EXPECT_TRUE(restored->wordBackgroundSpace(1));
     EXPECT_STREQ(restored->wordText(1), "Large");
   }
 }

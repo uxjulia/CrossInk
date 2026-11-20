@@ -53,6 +53,10 @@ class TextBlock {
   uint16_t wordTextLen(uint16_t index) const { return static_cast<uint16_t>(words[index].text.size()); }
   int16_t wordXpos(uint16_t index) const { return words[index].x; }
   EpdFontFamily::Style wordStyle(uint16_t index) const { return words[index].style; }
+  static constexpr uint8_t WORD_FLAG_BACKGROUND_BLACK = 1;
+  uint8_t wordFlags(uint16_t) const { return 0; }
+  bool wordHidden(uint16_t) const { return false; }
+  bool wordBackgroundSpace(uint16_t) const { return false; }
   uint8_t focusBoundary(uint16_t) const { return 0; }
   bool wordEndsWithInsertedHyphen(uint16_t index) const { return words[index].endsWithInsertedHyphen; }
   bool wordHasSpaceBefore(uint16_t index) const { return words[index].hasSpaceBefore; }

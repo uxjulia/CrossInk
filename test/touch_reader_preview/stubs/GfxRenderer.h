@@ -26,6 +26,7 @@ class GfxRenderer {
   enum RenderMode { BW };
   RenderMode getRenderMode() const { return BW; }
   bool isPixelBlack(int, int) const { return false; }
+  void fillRect(int, int, int, int, bool) const {}
   void drawPixel(int, int) const {}
   struct TextVerticalBounds {
     int top;

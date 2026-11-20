@@ -131,6 +131,80 @@ TEST(EpubTextGrayscaleTest, CharacterSpacingMeasuresAndDrawsTheSameGlyphPosition
   }
 }
 
+TEST(EpubTextGrayscaleTest, RedactionUsesWordAdvanceAndPaintsNoLetters) {
+  fakeheap::reset(true);
+  RasterFont fixture(12);
+  HalDisplay display(800, 480);
+  GfxRenderer renderer(display);
+  renderer.begin();
+  renderer.insertFont(1, EpdFontFamily(&fixture.font));
+  renderer.setOrientation(GfxRenderer::LandscapeCounterClockwise);
+  const auto black = TextBlock::WORD_FLAG_BACKGROUND_BLACK;
+  TextBlock line(
+      {"AB", "C", "D"}, {0, 32, 90}, {EpdFontFamily::UNDERLINE, EpdFontFamily::REGULAR, EpdFontFamily::REGULAR}, {}, {},
+      {}, {black, black, 0}, {}, {}, {},
+      {TextBlock::packWordSize(0, true), TextBlock::packWordSize(0, true, true), TextBlock::packWordSize(0, true)});
+  ASSERT_TRUE(line.valid());
+  renderer.clearScreen();
+  line.render(renderer, 1, 20, 20);
+  const auto actual = display.bw;
+  renderer.clearScreen();
+  renderer.fillRect(20, 20, 32 + renderer.getTextAdvanceX(1, "C", EpdFontFamily::REGULAR), renderer.getLineHeight(1),
+                    true);
+  EXPECT_EQ(actual, display.bw);
+}
+
+TEST(EpubTextGrayscaleTest, BlackBackgroundCoversFocusedGlyphsAndDescenders) {
+  fakeheap::reset(true);
+  RasterFont regular(12), bold(18);
+  HalDisplay display(800, 480);
+  GfxRenderer renderer(display);
+  renderer.begin();
+  renderer.insertFont(1, EpdFontFamily(&regular.font, &bold.font));
+  renderer.setOrientation(GfxRenderer::LandscapeCounterClockwise);
+  const int split = renderer.getTextAdvanceX(1, "g", EpdFontFamily::BOLD, 'y');
+  TextBlock line({"gyp"}, {0}, {EpdFontFamily::REGULAR}, {1}, {static_cast<uint16_t>(split)}, {},
+                 {TextBlock::WORD_FLAG_BACKGROUND_BLACK}, {}, {});
+  renderer.clearScreen();
+  line.render(renderer, 1, 20, 20);
+  const auto actual = display.bw;
+  renderer.clearScreen();
+  renderer.fillRect(20, 20, split + renderer.getTextAdvanceX(1, "yp", EpdFontFamily::REGULAR),
+                    renderer.getLineHeight(1), true);
+  renderer.drawText(1, 20, 20, "g", false, EpdFontFamily::BOLD);
+  renderer.drawText(1, 20 + split, 20, "yp", false, EpdFontFamily::REGULAR);
+  EXPECT_EQ(actual, display.bw);
+}
+
+TEST(EpubTextGrayscaleTest, RubyOutsideBlackBackgroundKeepsPageForeground) {
+  fakeheap::reset(true);
+  RasterFont font(12);
+  HalDisplay display(800, 480);
+  GfxRenderer renderer(display);
+  renderer.begin();
+  renderer.insertFont(1, EpdFontFamily(&font.font));
+  renderer.setOrientation(GfxRenderer::LandscapeCounterClockwise);
+  TextBlock line({"AB"}, {0}, {EpdFontFamily::REGULAR}, {}, {}, {}, {TextBlock::WORD_FLAG_BACKGROUND_BLACK}, {}, {},
+                 {"a"});
+  const int width = renderer.getTextAdvanceX(1, "AB", EpdFontFamily::REGULAR);
+  const int rubyWidth = renderer.getTextAdvanceX(1, "a", EpdFontFamily::SUP);
+  const int y = 25 + line.wordYOffset(renderer, 1, 0);
+  for (auto mode : {GfxRenderer::BW, GfxRenderer::GRAYSCALE_LSB, GfxRenderer::GRAYSCALE_MSB}) {
+    renderer.setRenderMode(mode);
+    renderer.clearScreen();
+    line.render(renderer, 1, 20, 25);
+    const auto actual = display.bw;
+    renderer.clearScreen();
+    if (mode == GfxRenderer::BW) {
+      renderer.fillRect(20, y, width, renderer.getLineHeight(1), true);
+      renderer.drawText(1, 20, y, "AB", false);
+    }
+    renderer.drawText(1, 20 + (width - rubyWidth) / 2, y - renderer.getFontAscenderSize(1), "a", true,
+                      EpdFontFamily::SUP);
+    EXPECT_EQ(actual, display.bw);
+  }
+}
+
 TEST(EpubTextGrayscaleTest, CharacterSpacingDecorationsFollowTextWidth) {
   fakeheap::reset(true);
   Storage.reset();
@@ -209,7 +283,9 @@ TEST(EpubTextGrayscaleTest, RealTextRasterMatchesFullAndStripTargets) {
                   feature == 1 ? std::vector<uint8_t>(words.size(), 1) : std::vector<uint8_t>{},
                   feature == 1 ? std::vector<uint16_t>(words.size(), 12) : std::vector<uint16_t>{},
                   std::vector<uint16_t>(words.size(), 6),
-                  std::vector<uint8_t>(words.size(), TextBlock::WORD_FLAG_BACKGROUND_BLACK), {}, blockStyle,
+                  std::vector<uint8_t>{0, 0, 0, TextBlock::WORD_FLAG_BACKGROUND_BLACK, 0, 0,
+                                       TextBlock::WORD_FLAG_BACKGROUND_BLACK},
+                  {}, blockStyle,
                   feature == 4 ? std::vector<std::string>(words.size(), "Ab") : std::vector<std::string>{}));
               ASSERT_TRUE(lines.back()->valid());
             }

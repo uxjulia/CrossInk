@@ -16,7 +16,7 @@ struct CssArenaBackingTest : testing::Test {
     const std::string text =
         "p { text-align: center; margin-top: 12px; font-size: 150%; } .em { font-weight: bold; } div p { font-style: "
         "italic; } "
-        ".plain { list-style-type: none; }";
+        ".plain { list-style-type: none; visibility:hidden; background-color:black; }";
     Storage.put("input.css", {text.begin(), text.end()});
     FsFile file;
     ASSERT_TRUE(Storage.openFileForRead("test", "input.css", file));
@@ -41,6 +41,8 @@ struct CssArenaBackingTest : testing::Test {
     EXPECT_EQ(style.fontStyle, CssFontStyle::Italic);
     EXPECT_EQ(style.textAlign, CssTextAlign::Center);
     const auto listStyle = css.resolveStyle("ol", "plain");
+    EXPECT_TRUE(listStyle.defined.visibility && listStyle.visibilityHidden);
+    EXPECT_TRUE(listStyle.hasBackgroundBlack() && listStyle.backgroundBlack);
     EXPECT_TRUE(listStyle.hasListStyleType());
     EXPECT_EQ(listStyle.listStyleType, CssListStyleType::None);
   }

@@ -29,5 +29,8 @@ class TextBlock {
             int8_t = 0, const std::vector<uint32_t>& = {}, const std::vector<SourceRange>& sourceRanges = {})
       : words(words), xPositions(xPositions), styles(styles), style(style), sources(sourceRanges) {}
 
+  static uint8_t packWordSize(uint8_t size, bool hidden, bool space) {
+    return size | (hidden ? 0x80 : 0) | (space ? 0x40 : 0);
+  }
   bool valid() const { return true; }
 };

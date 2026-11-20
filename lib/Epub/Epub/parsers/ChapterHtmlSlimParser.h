@@ -166,6 +166,7 @@ class ChapterHtmlSlimParser {
     bool hasUnderline = false, underline = false;
     bool hasStrikethrough = false, strikethrough = false;
     bool hasBackgroundBlack = false, backgroundBlack = false;
+    bool hasVisibility = false, visibilityHidden = false;
     bool hasDirection = false;
     CssTextDirection direction = CssTextDirection::Ltr;
     bool setsParagraphDirection = false;
@@ -191,6 +192,8 @@ class ChapterHtmlSlimParser {
   bool effectiveUnderline = false;
   bool effectiveStrikethrough = false;
   bool effectiveBackgroundBlack = false;
+  bool effectiveHidden = false;
+  bool pendingBackgroundSpace = false;
   bool effectiveDirectionDefined = false;
   CssTextDirection effectiveDirection = CssTextDirection::Ltr;
   bool effectiveSup = false;
@@ -357,7 +360,7 @@ class ChapterHtmlSlimParser {
   void pushCssAncestor(int depth, const char* tag, std::string_view classAttr, std::string_view idAttr = {});
   void pushBlockFontStyle(const CssStyle& cssStyle);
   static void applyDirectionToEntry(StyleStackEntry& entry, const CssStyle& css);
-  static void applySmallCapsToEntry(StyleStackEntry& entry, const CssStyle& css);
+  static void applyInheritedTextStyle(StyleStackEntry& entry, const CssStyle& css);
   static void applyVerticalAlignToEntry(StyleStackEntry& entry, const CssStyle& css);
   void emitHorizontalRule(const BlockStyle& blockStyle, bool visible);
   void finalizeCurrentTableCell();
