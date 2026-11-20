@@ -51,7 +51,9 @@ class EpdFontFamily {
   const EpdGlyph* getGlyph(uint32_t cp, Style style = REGULAR) const;
   // Blank spacing metrics, without replacement-glyph lookup or bitmap allocation.
   uint16_t getSpaceAdvanceX(uint32_t cp, Style style = REGULAR) const;
-  uint32_t getFallbackCodepoint(uint32_t cp, Style style = REGULAR) const;
+  // If requested, return glyph metrics for the resolved codepoint as well.
+  // Use the result before another lookup, which may replace an on-demand slot.
+  uint32_t getFallbackCodepoint(uint32_t cp, Style style = REGULAR, const EpdGlyph** glyph = nullptr) const;
   /// Returns true if the resolved style or shared fallback can render `cp`
   /// (interval coverage only — see EpdFont::hasCodepoint).
   bool hasCodepoint(uint32_t cp, Style style = REGULAR) const;

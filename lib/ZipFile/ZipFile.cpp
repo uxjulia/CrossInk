@@ -681,6 +681,7 @@ bool ZipFile::loadZipDetails() {
   memcpy(&zipDetails.totalEntries, buffer + foundOffset + 10, sizeof(zipDetails.totalEntries));
   memcpy(&zipDetails.centralDirOffset, buffer + foundOffset + 16, sizeof(zipDetails.centralDirOffset));
   memcpy(&zipDetails.centralDirSize, buffer + foundOffset + 12, sizeof(zipDetails.centralDirSize));
+  zipDetails.eocdOffset = fileSize - scanRange + static_cast<size_t>(foundOffset);
   zipDetails.isSet = true;
 
   free(buffer);
@@ -760,7 +761,7 @@ int ZipFile::fillUncompressedSizes(const SizeTarget* targets, const size_t targe
 }
 
 int ZipFile::fillEntryIdentities(const EntryTarget* targets, const size_t targetCount, EntryIdentity* identities,
-                                 const size_t identityCount) {
+                                 const size_t identityCount, const size_t exactScanEntryLimit) {
   if (targets == nullptr || identities == nullptr || targetCount == 0) {
     return 0;
   }
@@ -769,6 +770,12 @@ int ZipFile::fillEntryIdentities(const EntryTarget* targets, const size_t target
   if (!zip) return -1;
 
   if (!loadZipDetails()) return -1;
+  const bool rejectAmbiguous = exactScanEntryLimit != 0;
+  if (rejectAmbiguous && (zipDetails.totalEntries > exactScanEntryLimit || zipDetails.centralDirSize > 64 * 1024 ||
+                          zipDetails.eocdOffset < zipDetails.centralDirOffset ||
+                          zipDetails.eocdOffset - zipDetails.centralDirOffset != zipDetails.centralDirSize)) {
+    return -1;
+  }
 
   int matched = 0;
   const auto expectedMatches = static_cast<int>(targetCount);
@@ -787,6 +794,7 @@ int ZipFile::fillEntryIdentities(const EntryTarget* targets, const size_t target
       return -1;
     }
     if (!entry.nameStored) continue;
+    if (rejectAmbiguous && memchr(itemName, '\0', entry.nameLen) != nullptr) return -1;
 
     EntryIdentity identity;
     identity.crc32 = entry.crc32;
@@ -802,6 +810,7 @@ int ZipFile::fillEntryIdentities(const EntryTarget* targets, const size_t target
     while (it != targetEnd && it->hash == hash && it->len == nameLen) {
       if (it->index < identityCount && it->path != nullptr && memcmp(it->path, itemName, nameLen) == 0 &&
           it->path[nameLen] == '\0') {
+        if (rejectAmbiguous && identities[it->index].found) return -1;
         identity.found = true;
         identities[it->index] = identity;
         ++matched;
@@ -809,11 +818,17 @@ int ZipFile::fillEntryIdentities(const EntryTarget* targets, const size_t target
       ++it;
     }
 
-    if (matched >= expectedMatches) {
+    if (!rejectAmbiguous && matched >= expectedMatches) {
       break;
     }
   }
 
+  // An understated EOCD entry count could hide a duplicate after the last
+  // claimed header. Fall back unless the count and byte length both agree.
+  if (rejectAmbiguous && (cursor.position() < zipDetails.centralDirOffset ||
+                          cursor.position() - zipDetails.centralDirOffset != zipDetails.centralDirSize)) {
+    return -1;
+  }
   return matched;
 }
 

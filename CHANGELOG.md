@@ -51,11 +51,13 @@
 
 ### Fixed
 
-- Index EPUBs faster when many table-of-contents entries point to the same chapter file.
+- Index EPUBs faster when many table-of-contents entries point to the same chapter file or chapter files are stored out of reading order.
 - Credit EPUB and XTC reading to the correct local day across midnight. Preserve live stats if a save fails, retry updates after SD errors, and finish pending saves before sleep, reader restart, or USB Drive handoff.
 - Preserve unreadable stats and offer to restore them from a verified backup. Keep daily, manual, and clockless backups separate and prune numbered backups in the correct order beyond 999.
 - Sync EPUB positions more accurately in bare body text, nested markup, deep chapters, and the first chapter. Use the configured Document Matching method and each book’s render-mode cache, accept percentage-only positions, and skip uploads when a position cannot be mapped. Return to the original Library or File Browser view after context-menu sync (CrossPoint #3923 and #4472, CrossInk #853).
 - Keep highlights tied to the original EPUB passage after changing font, spacing, orientation, or layout, including tight line spacing. Sync stable source positions, upgrade verifiable older clippings, and preserve nearby text and ruled lines (#893, #931).
+- Preserve words split across styles at high character spacing and keep authored hyphens in partial EPUB clippings (#968).
+- Use less temporary memory when assembling EPUB clippings, with no change to saved text.
 - Preserve clippings and bookmarks across failed loads and interrupted rewrites. Open long bookmark lists with less memory and recover missing book titles and authors after moving EPUBs to Read (#892, #945).
 - Keep publisher CSS working in low memory. Preserve spacing in long paragraphs, center chapter ornaments and image-only paragraphs as intended, align grouped headings and subtitles, and honor hidden section breaks (CrossPoint #3875 and #4032, CrossInk #856 and #940).
 - Fix EPUB drop caps with nested spans or mixed-case selectors and keep words intact as text returns to full width. Honor body text size, align fallback glyphs, and draw image-backed dividers (adapted from CrossPoint #4173, and CrossInk #962).

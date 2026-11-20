@@ -133,6 +133,65 @@ TEST(ClipTextBuilder, PreservesNarrowSpacesAndAttachedFragmentsInEitherLineOrder
   EXPECT_EQ(ClipTextBuilder::build(store, reverse, 0, 2, 0, 1).text, "tools ’smaster");
 }
 
+TEST(ClipTextBuilder, JoinsMaxTrackingStyleFragmentsWithoutLosingExplicitSpaces) {
+  ClipWordStore store;
+  const char* texts[] = {"master", "’s", "tools", "next"};
+  for (uint16_t i = 0; i < 4; ++i) {
+    WordRef word;
+    word.x = 15 * i;
+    word.w = 10;
+    word.pageWordIndex = i;
+    word.followsWordInBlock = i == 1 || i == 2;
+    word.trackingJoinSlack = 3;
+    word.hasSpaceBefore = i == 2;
+    ASSERT_TRUE(store.appendText(word, texts[i]));
+    store.words.push_back(word);
+  }
+
+  const uint16_t forward[] = {0, 1, 2, 3};
+  EXPECT_EQ(ClipTextBuilder::build(store, forward, 0, 3, 0, 1).text, "master’s tools next");
+  const uint16_t reverse[] = {3, 2, 1, 0};
+  EXPECT_EQ(ClipTextBuilder::build(store, reverse, 0, 3, 0, 1).text, "next tools ’smaster");
+
+  store.words[1].trackingJoinSlack = 0;
+  EXPECT_EQ(ClipTextBuilder::build(store, forward, 0, 1, 0, 1).text, "master ’s");
+}
+
+TEST(ClipTextBuilder, KeepsAnAuthoredHyphenInAPartialSelectionOfALayoutHyphenatedWord) {
+  ClipWordStore store;
+  WordRef word;
+  word.sourceStart = 90;
+  word.sourceEnd = 98;
+  word.endsWithInsertedHyphen = true;
+  ASSERT_TRUE(store.appendText(word, "wëll-kno-"));
+  store.words.push_back(word);
+  const uint16_t order[] = {0};
+  const ClipTextBuilder::SelectionBounds bounds{0, 0, 0, 0, 0, 6};
+  const auto result = ClipTextBuilder::build(store, order, 0, 0, 0, 1, &bounds);
+  EXPECT_EQ(result.text, "wëll-");
+  EXPECT_EQ(result.sourceStart, 90U);
+  EXPECT_EQ(result.sourceEnd, 95U);
+
+  const ClipTextBuilder::SelectionBounds completeBounds{0, 0, 0, 0, 0, word.textLength};
+  EXPECT_EQ(ClipTextBuilder::build(store, order, 0, 0, 0, 1, &completeBounds).text, "wëll-kno");
+}
+
+TEST(ClipTextBuilder, DoesNotJoinAfterAnAuthoredHyphenSelectedFirstInReverseOrder) {
+  ClipWordStore store;
+  WordRef leading;
+  leading.paragraphStart = true;
+  ASSERT_TRUE(store.appendText(leading, "other"));
+  store.words.push_back(leading);
+  WordRef trailing;
+  trailing.pageWordIndex = 1;
+  trailing.endsWithInsertedHyphen = true;
+  ASSERT_TRUE(store.appendText(trailing, "well-kno-"));
+  store.words.push_back(trailing);
+  const uint16_t reverse[] = {1, 0};
+  const ClipTextBuilder::SelectionBounds bounds{0, 0, 0, 0, 1, 5};
+  EXPECT_EQ(ClipTextBuilder::build(store, reverse, 0, 1, 0, 1, &bounds).text, "well-\nother");
+}
+
 TEST(ClipTextBuilder, AppliesDictionaryFragmentBoundsToTheirOwnPages) {
   ClipWordStore store;
   WordRef first;
@@ -524,7 +583,7 @@ TEST(ClippingTextMatcher, PreservesCompleteShortClippingsAndLongerRelayoutRuns) 
   EXPECT_FALSE(ClippingTextMatcher::isReliableRun(0, false, 0, 3));
 }
 
-TEST(ClipTextBuilder, BudgetsTheCompleteSelectionAndTemporaryWords) {
+TEST(ClipTextBuilder, BudgetsTheCompleteSelectionWithSingleBuffer) {
   ClipWordStore store;
   WordRef first;
   first.tableSelection = 1;
@@ -537,12 +596,38 @@ TEST(ClipTextBuilder, BudgetsTheCompleteSelectionAndTemporaryWords) {
   const uint16_t order[] = {0, 1};
   const auto budget = ClipTextBuilder::allocationBudget(store, order, 0, 1);
   EXPECT_EQ(budget.textCapacity, 13);
-  EXPECT_EQ(budget.temporaryBytes, 28);
   EXPECT_FALSE(budget.fits(100000, 13));
-  EXPECT_FALSE(budget.fits(1065, 100000));
-  EXPECT_TRUE(budget.fits(1066, 14));
+  EXPECT_FALSE(budget.fits(1037, 100000));
+  EXPECT_TRUE(budget.fits(1038, 14));
   EXPECT_EQ(ClipTextBuilder::allocationBudget(store, order, 0, 1, 1).textCapacity, 6);
   EXPECT_LE(ClipTextBuilder::build(store, order, 0, 1, 0, 1).text.size(), budget.textCapacity);
+}
+
+TEST(ClipTextBuilder, SingleBufferPreservesWhitespaceAndHyphenJoinState) {
+  ClipWordStore store;
+  const char* words[] = {"   café  \tend  ",
+                         "\xe2\x80\x83"
+                         "re-",
+                         "\xc2\xa0\r\n",
+                         "open",
+                         "one \xe2\x80\xaf  two",
+                         "a\r\n\tb"};
+  for (uint16_t i = 0; i < std::size(words); ++i) {
+    WordRef word;
+    word.x = 100 * i;
+    word.w = 10;
+    word.pageWordIndex = i;
+    word.endsWithInsertedHyphen = i == 1;
+    ASSERT_TRUE(store.appendText(word, words[i]));
+    store.words.push_back(word);
+  }
+  const uint16_t order[] = {0, 1, 2, 3, 4, 5};
+  const auto budget = ClipTextBuilder::allocationBudget(store, order, 0, 5);
+  const auto clip = ClipTextBuilder::build(store, order, 0, 5, 0, 1);
+  // A whitespace-only token emits nothing but still resets previous-word
+  // state, as before. Authored internal ASCII spaces keep their count.
+  EXPECT_EQ(clip.text, "café  end\nre open one   two a b");
+  EXPECT_LE(clip.text.size(), budget.textCapacity);
 }
 
 TEST(ClipTextBuilder, CapturesSourceRangeAcrossPagesAndRejectsMissingMetadata) {

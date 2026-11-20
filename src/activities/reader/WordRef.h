@@ -23,11 +23,15 @@ struct WordRef {
   bool endsWithInsertedHyphen : 1 = false;
   bool lineIsRtl : 1 = false;
   bool hasSpaceBefore : 1 = false;
+  bool followsWordInBlock : 1 = false;
+  uint8_t trackingJoinSlack : 2 = 0;
   uint32_t sourceStart = UINT32_MAX;
   uint32_t sourceEnd = UINT32_MAX;
 };
 
 static_assert(std::is_trivially_copyable_v<WordRef>, "Clip word metadata must stay allocation-free");
+
+static_assert(sizeof(WordRef) <= 40, "Clipping word metadata must not grow");
 
 struct ClipWordStore {
   static constexpr size_t MAX_TEXT_POOL_BYTES = UINT16_MAX;

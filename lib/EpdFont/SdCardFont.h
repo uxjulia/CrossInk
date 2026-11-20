@@ -317,7 +317,8 @@ class SdCardFont {
   struct ContentMetricsEntry {
     uint32_t codepoint = 0;
     EpdGlyph glyph{};
-    uint8_t style = MAX_STYLES;  // Invalid until a successful read.
+    uint8_t style : 7 = MAX_STYLES;  // Invalid until a successful read.
+    uint8_t recentlyUsed : 1 = 0;    // Body metrics only; leaves bitmap eviction unchanged.
     bool bitmapValid = false;
     uint16_t bitmapOffset = 0;  // Packed cache offset; uses the entry's existing padding.
   };
@@ -335,6 +336,7 @@ class SdCardFont {
   uint16_t contentBitmapInternalLimit_ = 0;
   bool contentBitmapsAttempted_ = false;
   bool bodyMetricsAttempted_ = false;
+  mutable uint8_t bodyMetricsClock_ = 0;
   uint16_t metricsDepth_ = 0;
   ContentMetricsEntry* contentGlyphMetrics(uint32_t codepoint, uint8_t styleIdx, int32_t glyphIndex) const;
   void prepareContentBitmaps();
