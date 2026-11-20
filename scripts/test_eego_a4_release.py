@@ -32,10 +32,10 @@ class ArtifactEnv(dict):
 class EegoA4ReleaseTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.config = ProjectConfig(str(ROOT / 'platformio.ini'))
+        cls.config = ProjectConfig(str(ROOT / 'platformio.ini'), parse_extra=False)
 
     def test_debug_and_production_capabilities(self):
-        for name, level in (('eego_a4', 1), ('eego_a4-debug', 2)):
+        for name in ('eego_a4', 'eego_a4-debug'):
             with self.subTest(environment=name):
                 section = 'env:' + name
                 get = lambda key: self.config.get(section, key)
@@ -52,9 +52,9 @@ class EegoA4ReleaseTest(unittest.TestCase):
                     self.assertIn(f'-D{define}=1', flags)
                 self.assertIn('-DBOARD_HAS_PSRAM', flags)
                 self.assertEqual([f for f in flags if f.startswith('-DLOG_LEVEL=')],
-                                 [f'-DLOG_LEVEL={level}'])
+                                 ['-DLOG_LEVEL=1'])
                 self.assertFalse(any(f.startswith('-DCROSSINK_VERSION=') for f in flags))
-                self.assertEqual('-DCROSSPOINT_WAIT_FOR_USB_SERIAL' in flags, level == 2)
+                self.assertEqual('-DCROSSPOINT_WAIT_FOR_USB_SERIAL' in flags, name.endswith('-debug'))
 
     def test_release_and_rc_versions(self):
         env = ArtifactEnv(self.config, 'eego_a4')

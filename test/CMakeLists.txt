@@ -231,6 +231,8 @@ add_test(NAME BookmarkListMemoryRegression
 add_subdirectory(bookmark_store)
 add_test(NAME UpstreamPortRegressions
   COMMAND ${Python3_EXECUTABLE} ${REPO_ROOT}/test/scripts/test_upstream_ports.py)
+add_test(NAME SharedBuiltinFontTables
+  COMMAND ${Python3_EXECUTABLE} ${REPO_ROOT}/test/scripts/test_shared_builtin_font_tables.py)
 add_subdirectory(gif_support)
 add_subdirectory(clipping_sync)
 add_subdirectory(progress_slots)
