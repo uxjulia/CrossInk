@@ -363,13 +363,8 @@ bool DictionaryWordSelectActivity::allocateWorkingSet() {
   forEachPageTextLine(*page, [&](const PageTextLine& line) {
     const auto* block = line.block;
     if (!block) return true;
+    const int16_t rowY = line.yPos + marginTop;
     for (uint16_t wordIndex = 0; wordIndex < block->wordCount(); ++wordIndex) {
-      const int baseFont = SETTINGS.getReaderFontId();
-      const int baseline = block->maxAscender(renderer, baseFont);
-      const int16_t screenY =
-          static_cast<int16_t>(line.yPos + marginTop + baseline -
-                               renderer.getFontAscenderSize(block->wordFontId(renderer, baseFont, wordIndex)) +
-                               block->getRubyShift(baseline));
       const char* word = block->wordText(wordIndex);
       const size_t wordLength = block->wordTextLen(wordIndex);
       budget.maxSourceWordBytes = std::max(budget.maxSourceWordBytes, wordLength + 1);
@@ -388,13 +383,13 @@ bool DictionaryWordSelectActivity::allocateWorkingSet() {
 
         if (!haveRow) {
           haveRow = true;
-          currentRowY = screenY;
-        } else if (std::abs(static_cast<int>(screenY) - static_cast<int>(currentRowY)) > 2) {
+          currentRowY = rowY;
+        } else if (std::abs(static_cast<int>(rowY) - static_cast<int>(currentRowY)) > 2) {
           budget.rowCount++;
           if (!previousRowLastWasTableText && !line.isTableText) {
             addMergedBudget(previousRowLast, part, /*stripLeadingSecond=*/true);
           }
-          currentRowY = screenY;
+          currentRowY = rowY;
         }
         previousRowLast = part;
         previousRowLastWasTableText = line.isTableText;
@@ -525,18 +520,18 @@ bool DictionaryWordSelectActivity::appendMergedText(const char* first, const siz
   return true;
 }
 
-bool DictionaryWordSelectActivity::appendWord(WordSelectNavigator::WordInfo word) {
+bool DictionaryWordSelectActivity::appendWord(WordSelectNavigator::WordInfo word, const int16_t rowY) {
   if (workingSet_.wordCount >= workingSet_.wordCapacity) {
     LOG_ERR("DICT", "Word metadata capacity exceeded");
     return false;
   }
-  if (workingSet_.rowCount == 0 || std::abs(static_cast<int>(word.screenY) -
-                                            static_cast<int>(workingSet_.rows[workingSet_.rowCount - 1].yPos)) > 2) {
+  if (workingSet_.rowCount == 0 ||
+      std::abs(static_cast<int>(rowY) - static_cast<int>(workingSet_.rows[workingSet_.rowCount - 1].yPos)) > 2) {
     if (workingSet_.rowCount >= workingSet_.rowCapacity || workingSet_.wordCount > UINT16_MAX) {
       LOG_ERR("DICT", "Row metadata capacity exceeded");
       return false;
     }
-    workingSet_.rows[workingSet_.rowCount] = {word.screenY, static_cast<uint16_t>(workingSet_.wordCount), 0};
+    workingSet_.rows[workingSet_.rowCount] = {rowY, static_cast<uint16_t>(workingSet_.wordCount), 0};
     workingSet_.rowCount++;
   }
   auto& row = workingSet_.rows[workingSet_.rowCount - 1];
@@ -674,7 +669,7 @@ bool DictionaryWordSelectActivity::extractWords() {
         word.isTableText = line.isTableText;
         word.focusBoundary = focusBoundary;
         word.focusSuffixX = focusSuffixX;
-        if (!appendWord(word)) return false;
+        if (!appendWord(word, line.yPos + marginTop)) return false;
         lastSelectableWordIndex = wordIndex;
         continue;
       }
@@ -733,7 +728,7 @@ bool DictionaryWordSelectActivity::extractWords() {
         word.isRtl = wordIsRtl;
         word.compoundSeparatorBefore = static_cast<uint8_t>(part.separatorBefore);
         word.isTableText = line.isTableText;
-        if (!appendWord(word)) partSucceeded = false;
+        if (!appendWord(word, line.yPos + marginTop)) partSucceeded = false;
       });
       if (!partSucceeded) return false;
       lastSelectableWordIndex = -2;
@@ -1036,7 +1031,7 @@ TextSelectionOverlay::Layout DictionaryWordSelectActivity::touchSelectionLayout(
   if (endWord) {
     layout.end = TextSelectionOverlay::handle(safe, lastRect, endWord->isRtl, false);
   }
-  TextSelectionOverlay::placeActions(renderer, layout, firstRect, lastRect, touchLookupEnabled_);
+  if (!touchDragLookup_) TextSelectionOverlay::placeActions(renderer, layout, firstRect, lastRect, touchLookupEnabled_);
   return layout;
 }
 
@@ -1169,7 +1164,7 @@ bool DictionaryWordSelectActivity::handleTouchSelection() {
       touchPressedAction_ = -1;
       return true;
     }
-    if (layout.start.hit.contains(x, y) || layout.end.hit.contains(x, y)) return true;
+    if (TextSelectionOverlay::handleAt(layout, x, y)) return true;
     int first = -1, last = -1;
     navigator.getExpandedSelectionRange(first, last);
     for (int i = first; i <= last; ++i) {
@@ -1187,15 +1182,18 @@ bool DictionaryWordSelectActivity::handleTouchSelection() {
     bool startDrag = false;
     touchDragOffsetX_ = touchDragOffsetY_ = 0;
     if (touchSelectionActive_) {
-      const bool start = layout.start.hit.contains(x, y);
-      const bool end = layout.end.hit.contains(x, y);
-      if (!start && !end) return true;
+      const auto* handle = TextSelectionOverlay::handleAt(layout, x, y);
+      if (!handle) return true;
+      const bool start = handle == &layout.start;
       int first = -1, last = -1;
       navigator.getExpandedSelectionRange(first, last);
       startDrag = navigator.setTouchSelection(start ? last : first, start ? first : last);
       if (const auto* word = navigator.getSelected()) {
-        touchDragOffsetX_ = word->screenX + word->width / 2 - x;
-        touchDragOffsetY_ = word->screenY + word->heightOr(renderer.getLineHeight(SETTINGS.getReaderFontId())) / 2 - y;
+        // Track the grabbed text edge, even when the starting word is very wide.
+        const bool onLeft = start != word->isRtl;
+        touchDragOffsetX_ = word->screenX + (onLeft ? 0 : std::max(0, word->width - 1)) - x;
+        touchDragOffsetY_ = workingSet_.rows[word->row].yPos +
+                            word->heightOr(renderer.getLineHeight(SETTINGS.getReaderFontId())) / 2 - y;
       }
     } else {
       resetCrossPageSelection();

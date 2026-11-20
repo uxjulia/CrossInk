@@ -233,5 +233,5 @@ class DictionaryWordSelectActivity final : public Activity {
   bool appendText(const char* text, size_t length, uint16_t& offset);
   bool appendMergedText(const char* first, size_t firstLength, const char* second, size_t secondLength,
                         uint16_t& offset);
-  bool appendWord(WordSelectNavigator::WordInfo word);
+  bool appendWord(WordSelectNavigator::WordInfo word, int16_t rowY);
 };

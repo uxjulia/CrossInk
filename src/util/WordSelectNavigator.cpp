@@ -366,7 +366,7 @@ bool WordSelectNavigator::selectWordAtPoint(const int x, const int y, const int 
   const int horizontalPad = 6;
 
   int bestIdx = -1;
-  int bestScore = INT_MAX;
+  int bestDistance = INT_MAX, bestCenterY = INT_MAX;
 
   for (int idx = 0; idx < static_cast<int>(words.size()); idx++) {
     const auto& word = words[idx];
@@ -378,11 +378,13 @@ bool WordSelectNavigator::selectWordAtPoint(const int x, const int y, const int 
     const int bottom = static_cast<int>(word.screenY) + wordHeight + verticalPad;
     if (x < left || x > right || y < top || y > bottom) continue;
 
-    const int centerX = static_cast<int>(word.screenX) + static_cast<int>(word.width) / 2;
-    const int centerY = static_cast<int>(word.screenY) + wordHeight / 2;
-    const int score = std::abs(x - centerX) + std::abs(y - centerY);
-    if (score < bestScore) {
-      bestScore = score;
+    const int dx = std::max({word.screenX - x, 0, x - (word.screenX + std::max(0, word.width - 1))});
+    const int dy = std::max({word.screenY - y, 0, y - (word.screenY + wordHeight - 1)});
+    const int distance = dx + dy;
+    const int centerY = std::abs(y - (word.screenY + wordHeight / 2));
+    if (distance < bestDistance || (distance == bestDistance && centerY < bestCenterY)) {
+      bestDistance = distance;
+      bestCenterY = centerY;
       bestIdx = idx;
     }
   }
@@ -406,14 +408,26 @@ bool WordSelectNavigator::selectIndex(const int index) {
 }
 
 bool WordSelectNavigator::selectNearestWord(const int x, const int y, const int lineHeight) {
-  int nearest = -1, bestY = INT_MAX, bestX = INT_MAX;
-  for (int i = 0; i < static_cast<int>(words.size()); ++i) {
-    const auto& word = words[i];
-    const int dy = std::abs(word.screenY + word.heightOr(lineHeight) / 2 - y);
-    const int dx = std::max({word.screenX - x, 0, x - (word.screenX + word.width)});
-    if (dy < bestY || (dy == bestY && dx < bestX)) {
-      nearest = i;
+  // Compare whole rows first. Different word heights or a small baseline
+  // offset on one line must not override the finger's horizontal position.
+  const Row* nearestRow = nullptr;
+  int bestY = INT_MAX;
+  for (size_t r = 0; r < rows.size(); ++r) {
+    const auto& row = rows[r];
+    if (!row.wordCount) continue;
+    const int dy = std::abs(row.yPos + words[row.firstWord].heightOr(lineHeight) / 2 - y);
+    if (dy < bestY) {
+      nearestRow = &row;
       bestY = dy;
+    }
+  }
+  if (!nearestRow) return false;
+  int nearest = -1, bestX = INT_MAX;
+  for (int i = nearestRow->firstWord; i < nearestRow->firstWord + nearestRow->wordCount; ++i) {
+    const auto& word = words[i];
+    const int dx = std::max({word.screenX - x, 0, x - (word.screenX + std::max(0, word.width - 1))});
+    if (dx < bestX) {
+      nearest = i;
       bestX = dx;
     }
   }

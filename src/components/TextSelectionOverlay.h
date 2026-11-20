@@ -37,6 +37,7 @@ struct Layout {
 Rect safeArea(const GfxRenderer& renderer);
 // `word` is the selected word's line box; `onLeft` puts the handle on its left edge.
 Handle handle(Rect safe, Rect word, bool onLeft, bool isStart);
+const Handle* handleAt(const Layout& layout, int x, int y);
 // Places the toolbar from the selection's first and last word boxes (either may
 // be empty) and the handles already stored in `layout`:
 //   1. above the selection when it fits, pointing down at the first word;
