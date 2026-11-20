@@ -351,6 +351,7 @@ void SdCardFont::freeAll() {
   contentBitmapNext_ = 0;
   contentBitmapsAttempted_ = false;
   contentMetrics_.reset();
+  bodyMetricsAttempted_ = false;
   contentBitmapBytes_ = 0;
   contentBitmapInternalLimit_ = 0;
   leanContent_ = false;
@@ -1784,7 +1785,10 @@ void SdCardFont::releaseForLowMemory(const bool preserveAdvanceTable) {
   contentBitmapCapacity_ = 0;
   contentBitmapNext_ = 0;
   contentBitmapsAttempted_ = false;
-  if (contentMetrics_) {
+  if (!leanContent_) {
+    contentMetrics_.reset();
+    bodyMetricsAttempted_ = false;
+  } else if (contentMetrics_) {
     for (size_t i = 0; i < CONTENT_METRICS_CACHE_SIZE; ++i) contentMetrics_[i].bitmapValid = false;
   }
   if (!preserveAdvanceTable) {
@@ -2250,6 +2254,16 @@ const EpdGlyph* SdCardFont::onGlyphMiss(void* ctx, uint32_t codepoint) {
   const auto& s = self->styles_[styleIdx];
   if (!s.fullIntervals && !s.bmpIntervals) return nullptr;
 
+  // Ruled layout measures body glyphs before page bitmaps are prepared. Reuse
+  // the optional-size metrics cache so repeated letters need no SD pixel reads.
+  if (self->metricsDepth_ && !self->leanContent_ && !self->bodyMetricsAttempted_) {
+    self->bodyMetricsAttempted_ = true;
+    if (MemoryBudget::canAllocateInternal(CONTENT_METRICS_CACHE_BYTES, MemoryBudget::EPUB_LAYOUT_INTERNAL_RESERVE,
+                                          MINI_RETAIN_MIN_MAX_ALLOC_HEAP + CONTENT_METRICS_CACHE_BYTES)) {
+      self->contentMetrics_ = makeUniqueNoThrow<ContentMetricsEntry[]>(CONTENT_METRICS_CACHE_SIZE);
+      if (!self->contentMetrics_) LOG_ERR("SDCF", "Body metrics cache unavailable; using overflow glyphs");
+    }
+  }
   if (self->metricsDepth_ && self->contentMetrics_) {
     const int32_t index = self->findGlobalGlyphIndex(s, codepoint);
     const auto* entry = index < 0 ? nullptr : self->contentGlyphMetrics(codepoint, styleIdx, index);

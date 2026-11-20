@@ -1207,6 +1207,38 @@ int main() {
   incrementalChecks(path);
   contentPreparationChecks(path);
   contentSizeChecks(path);
+  contentCacheFixture(path);
+  {
+    SdCardFont body;
+    assert(body.load(path.c_str()));
+    const int before = readCalls;
+    {
+      SdCardFont::MetricsScope metrics(&body);
+      for (int row = 0; row < 100; ++row) {
+        for (unsigned char cp = 'a'; cp <= 'z'; ++cp) {
+          const auto* glyph = body.getEpdFont()->getGlyph(cp);
+          assert(glyph && glyph->advanceX == advance(cp, 0));
+        }
+      }
+    }
+    // Cold metadata reads only. The same workload read 5,200 records on RC-3.
+    assert(readCalls - before == 26);
+    const auto* glyph = body.getEpdFont()->getGlyph('z');
+    assert(glyph && body.getOverflowBitmap(glyph)[0] == 'z');
+    body.releaseForLowMemory(true);
+    assert(!body.contentMetrics_);
+
+    failArrayCall = arrayCalls;
+    {
+      SdCardFont::MetricsScope metrics(&body);
+      const auto* measured = body.getEpdFont()->getGlyph('a');
+      assert(measured && measured->advanceX == advance('a', 0));
+      assert(!body.contentMetrics_);
+    }
+    failArrayCall = -1;
+    const auto* drawn = body.getEpdFont()->getGlyph('a');
+    assert(drawn && body.getOverflowBitmap(drawn)[0] == 'a');
+  }
   contentCacheCollisionChecks(path);
   compactContentBudgetChecks(path);
   sharedContentScratchChecks(path);

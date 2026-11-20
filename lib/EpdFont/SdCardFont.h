@@ -334,6 +334,7 @@ class SdCardFont {
   uint32_t contentBitmapNext_ = 0;
   uint16_t contentBitmapInternalLimit_ = 0;
   bool contentBitmapsAttempted_ = false;
+  bool bodyMetricsAttempted_ = false;
   uint16_t metricsDepth_ = 0;
   ContentMetricsEntry* contentGlyphMetrics(uint32_t codepoint, uint8_t styleIdx, int32_t glyphIndex) const;
   void prepareContentBitmaps();
