@@ -1272,9 +1272,15 @@ int main() {
     failArrayCall = arrayCalls;
     {
       SdCardFont::MetricsScope metrics(&body);
+      const int startReads = readCalls;
+      const int startAllocations = arrayCalls;
       const auto* measured = body.getEpdFont()->getGlyph('a');
       assert(measured && measured->advanceX == advance('a', 0));
       assert(!body.contentMetrics_);
+      assert(!body.getOverflowBitmap(measured));
+      assert(body.getEpdFont()->getGlyph('a') == measured);
+      assert(readCalls == startReads + 1);         // One metadata record, no pixels.
+      assert(arrayCalls == startAllocations + 1);  // Only the failed optional-cache allocation.
     }
     failArrayCall = -1;
     const auto* drawn = body.getEpdFont()->getGlyph('a');

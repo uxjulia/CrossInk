@@ -45,13 +45,18 @@ struct ReaderRuling {
     const auto fillUntil = [&](int end) {
       for (; nextDot < end; nextDot += step) renderer.drawPixel(nextDot, y);
     };
-    for (int x = left - padding; x < right + padding; ++x) {
-      for (int dy = -padding; dy <= padding; ++dy) {
-        if (!renderer.isPixelBlack(x, y + dy)) continue;
-        fillUntil(x - padding);
-        const int firstClear = x + padding + 1;
-        nextDot = left + ((firstClear - left + step - 1) / step) * step;
-        break;
+    constexpr int chunkWidth = 32;
+    for (int start = left - padding; start < right + padding; start += chunkWidth) {
+      const int end = std::min(start + chunkWidth, right + padding);
+      if (!renderer.hasBlackPixels(start, y - padding, end - start, 2 * padding + 1)) continue;
+      for (int x = start; x < end; ++x) {
+        for (int dy = -padding; dy <= padding; ++dy) {
+          if (!renderer.isPixelBlack(x, y + dy)) continue;
+          fillUntil(x - padding);
+          const int firstClear = x + padding + 1;
+          nextDot = left + ((firstClear - left + step - 1) / step) * step;
+          break;
+        }
       }
     }
     fillUntil(right);

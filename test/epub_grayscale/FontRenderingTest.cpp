@@ -217,7 +217,7 @@ TEST(VerticalGlyphBounds, ConsumesOneLookupAndKeepsFallbackMetrics) {
   renderer.insertFont(1, EpdFontFamily(&font));
 
   auto bounds = renderer.getTextVerticalBounds(1, "vvvv");
-  EXPECT_EQ(lookups.calls, 4);
+  EXPECT_EQ(lookups.calls, 1);  // All four letters share the first measurement.
   EXPECT_EQ(bounds.top, 4);
   EXPECT_EQ(bounds.bottom, 11);
 

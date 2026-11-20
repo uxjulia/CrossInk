@@ -1,4 +1,5 @@
 #pragma once
+#include <Epub/RuledLineLayout.h>
 #include <Txt.h>
 
 #include <optional>
@@ -44,7 +45,11 @@ class TxtReaderActivity final : public Activity {
 
   // Streaming text reader - stores file offsets for each page
   std::vector<size_t> pageOffsets;  // File offset for start of each page
-  std::vector<std::string> currentPageLines;
+  struct PageLine {
+    std::string text;
+    RuledLineLayout row;
+  };
+  std::vector<PageLine> currentPageLines;
   int linesPerPage = 0;
   int viewportWidth = 0;
   bool initialized = false;
@@ -73,8 +78,11 @@ class TxtReaderActivity final : public Activity {
   void requestPageTurn(bool previous, bool next);
 
   void initializeReader();
-  bool loadPageAtOffset(size_t offset, std::vector<std::string>& outLines, size_t& nextOffset,
-                        uint8_t* scratch = nullptr);
+  static size_t parseAndWrapLines(const uint8_t* buffer, size_t chunkSize, size_t fileOffset, size_t fileSize,
+                                  int linesPerPage, GfxRenderer& renderer, int fontId, int vw,
+                                  std::vector<PageLine>* outLines, int8_t characterSpacing, int ruledViewportHeight,
+                                  int requestedHeight);
+  bool loadPageAtOffset(size_t offset, std::vector<PageLine>* outLines, size_t& nextOffset, uint8_t* scratch = nullptr);
   void buildPageIndex();
   bool loadPageIndexCache();
   void savePageIndexCache() const;

@@ -16,10 +16,12 @@ enum class BidiBaseDir : signed char { AUTO = -1, LTR = 0, RTL = 1 };
 class FontCacheManager;
 class SdCardFont;
 
+#include <array>
 #include <cassert>
 #include <cstring>
 #include <deque>
 #include <map>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -176,6 +178,7 @@ class GfxRenderer {
   // Coupled to avoid dangling SdCardFont* in sdCardFonts_ when callers free
   // the underlying SdCardFont and forget the SD-side unregister.
   void removeFont(int fontId) {
+    ruledFontCached_ = false;
     fontMap.erase(fontId);
     sdCardFonts_.erase(fontId);
   }
@@ -183,9 +186,15 @@ class GfxRenderer {
   FontCacheManager* getFontCacheManager() const { return fontCacheManager_; }
   bool isFontCacheScanning() const;
   const std::map<int, EpdFontFamily>& getFontMap() const { return fontMap; }
-  void registerSdCardFont(int fontId, SdCardFont* font) { sdCardFonts_[fontId] = font; }
+  void registerSdCardFont(int fontId, SdCardFont* font) {
+    ruledFontCached_ = false;
+    sdCardFonts_[fontId] = font;
+  }
   void unregisterSdCardFont(int fontId) { removeFont(fontId); }
-  void clearSdCardFonts() { sdCardFonts_.clear(); }
+  void clearSdCardFonts() {
+    ruledFontCached_ = false;
+    sdCardFonts_.clear();
+  }
   const std::map<int, SdCardFont*>& getSdCardFonts() const { return sdCardFonts_; }
   bool isSdCardFont(int fontId) const { return sdCardFonts_.count(fontId) > 0; }
   // Shared UI families fill missing characters; legacy metadata aliases use
@@ -272,6 +281,7 @@ class GfxRenderer {
 
   // Drawing
   bool isPixelBlack(int x, int y) const;
+  bool hasBlackPixels(int x, int y, int width, int height) const;
   void drawPixel(int x, int y, bool state = true) const;
   // Unscaled glyphs share one clipped, orientation-aware rasterizer.
   void drawGlyphBitmap(const uint8_t* bitmap, int width, int height, const glyphBitmap::Frame& frame, bool twoBit,
@@ -337,8 +347,21 @@ class GfxRenderer {
   };
 
  private:
+  // One entry for the last regular face. Font registration changes run with readers quiesced.
+  mutable std::mutex ruledFontMutex_;
+  mutable bool ruledFontCached_ = false;
+  struct LetterInk {
+    uint8_t encodedTop = 0;  // Zero is empty, 1..255 encodes -127..127.
+    uint8_t height = 0;
+  };
+  mutable std::array<LetterInk, 95> latinLetters_{};
+  void selectRuledFont(int fontId) const;
+  mutable bool latinBodyValid_ = false;
+  mutable int ruledFontId_ = 0;
+  mutable TextVerticalBounds latinBody_{}, latinExtent_{};
   void drawOrMeasureText(int fontId, int x, int y, const char* text, bool black, EpdFontFamily::Style style,
-                         BidiUtils::BidiBaseDir baseDir, int8_t spacing, TextVerticalBounds* bounds) const;
+                         BidiUtils::BidiBaseDir baseDir, int8_t spacing, TextVerticalBounds* bounds,
+                         LetterInk* letters = nullptr) const;
 
  public:
   // Regular ascender-to-baseline band and ordinary ink extents, relative to the text origin.

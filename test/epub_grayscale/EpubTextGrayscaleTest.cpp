@@ -315,6 +315,89 @@ TEST(ReaderRuling, LeavesSpaceAroundDescendersAndAccentsWithoutBreakingTheDotPat
   EXPECT_FALSE(renderer.isPixelBlack(1, 34));
 }
 
+TEST(ReaderRuling, BufferedCollisionChecksMatchPixelClearanceInEveryOrientation) {
+  fakeheap::reset(true);
+  HalDisplay display(101, 87);
+  GfxRenderer renderer(display);
+  renderer.begin();
+  for (int orientation = 0; orientation < 4; ++orientation) {
+    renderer.setOrientation(static_cast<GfxRenderer::Orientation>(orientation));
+    const int w = renderer.getScreenWidth(), h = renderer.getScreenHeight();
+    for (const uint8_t level : {1, 2, 3}) {
+      for (const int y : {0, 15, h - 1}) {
+        renderer.clearScreen();
+        for (int x : {0, 29, 30, 31, 32, 63, w - 1}) renderer.drawPixel(x, std::clamp(y + x % 5 - 2, 0, h - 1));
+        const auto original = display.bw;
+        std::vector<int> expectedDots;
+        for (int x = 0; x < w; x += 1 << (3 - level)) {
+          bool clear = true;
+          for (int dy = -2; dy <= 2; ++dy)
+            for (int dx = -2; dx <= 2; ++dx) clear &= !renderer.isPixelBlack(x + dx, y + dy);
+          if (clear) expectedDots.push_back(x);
+        }
+        ReaderRuling{level, 0, w, h}.draw(renderer, y + 1);
+        const auto actual = display.bw;
+        std::copy(original.begin(), original.end(), display.bw.begin());
+        for (const int x : expectedDots) renderer.drawPixel(x, y);
+        EXPECT_EQ(actual, display.bw);
+      }
+    }
+  }
+}
+
+TEST(ReaderRuling, CollisionChecksClipToTheActiveStrip) {
+  HalDisplay display(65, 41);
+  GfxRenderer renderer(display);
+  renderer.begin();
+  constexpr int origin = 7, rows = 11;
+  std::vector<uint8_t> strip(display.stride * rows);
+  for (int i = 0; i < static_cast<int>(strip.size()); ++i) strip[i] = i % 11 == 0 ? 0xe7 : 0xff;
+  renderer.beginStripTarget(strip.data(), origin, rows);
+  for (int orientation = 0; orientation < 4; ++orientation) {
+    renderer.setOrientation(static_cast<GfxRenderer::Orientation>(orientation));
+    for (int y = -2; y < renderer.getScreenHeight() + 1; y += 3) {
+      for (int x = -2; x < renderer.getScreenWidth() + 1; x += 7) {
+        bool hasInk = false;
+        for (int dy = 0; dy < 5; ++dy)
+          for (int dx = 0; dx < 32; ++dx) hasInk |= renderer.isPixelBlack(x + dx, y + dy);
+        EXPECT_EQ(renderer.hasBlackPixels(x, y, 32, 5), hasInk);
+      }
+    }
+  }
+  renderer.endStripTarget();
+}
+
+TEST(ReaderRuling, RetainsRegularLetterMetricsUnderPressureAndRefreshesReusedFontIds) {
+  fakeheap::reset(true);
+  Storage.reset();
+  RasterFont fixture(12), replacement(20);
+  Storage.put("metrics.cpfont", fixture.file());
+  SdCardFont sd;
+  ASSERT_TRUE(sd.load("metrics.cpfont"));
+  HalDisplay display;
+  GfxRenderer renderer(display);
+  renderer.begin();
+  renderer.insertFont(1, EpdFontFamily(sd.getEpdFont()));
+  renderer.registerSdCardFont(1, &sd);
+  fakeheap::internal.largest = 30 * 1024;
+  auto& file = Storage.data("metrics.cpfont");
+  GfxRenderer::TextVerticalBounds body{}, extent{};
+  ASSERT_TRUE(renderer.getLatinBodyBounds(1, body, extent));
+  const auto row = renderer.getTextVerticalBounds(1, "abcdefghijklmnopqrstuvwxyz");
+  const auto reads = file.readCalls;
+  for (int n = 0; n < 10; ++n) {
+    ASSERT_TRUE(renderer.getLatinBodyBounds(1, body, extent));
+    EXPECT_EQ(renderer.getTextVerticalBounds(1, "abcdefghijklmnopqrstuvwxyz").bottom, row.bottom);
+  }
+  EXPECT_EQ(file.readCalls, reads);
+  renderer.removeFont(1);
+  renderer.insertFont(1, EpdFontFamily(&replacement.font));
+  GfxRenderer::TextVerticalBounds newBody{}, newExtent{};
+  ASSERT_TRUE(renderer.getLatinBodyBounds(1, newBody, newExtent));
+  EXPECT_NE(newBody.bottom, body.bottom);
+  EXPECT_NE(renderer.getTextVerticalBounds(1, "a").bottom, row.bottom);
+}
+
 TEST(ReaderRuling, MeasuresDeepGlyphsAndOnlyExpandsRuledRows) {
   for (bool sd : {false, true}) {
     fakeheap::reset(true);
