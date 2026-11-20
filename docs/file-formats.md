@@ -1147,7 +1147,11 @@ body-only and built-in font identities stay unchanged. No binary payload changes
 
 ## `section.bin`
 
-### Version 115 (current development)
+### Version 118 (current release)
+
+Complete sections use version 118 and partial sections use `0xE7`. Block-styled spans can affect pagination. In the optional per-word font-size byte, bits 0–5 store the point size, bit 6 marks a black background on the preceding space, and bit 7 hides the glyphs while retaining their layout width.
+
+### Version 115
 
 Ruled prose centers the regular ascender-to-baseline band between rules. The binary layout matches version 114. Complete sections use version 115 and suspended sections use `0xE4`.
 
@@ -2268,6 +2272,10 @@ publication; partial marker writes cannot authorize reuse. Existing layouts rema
 unchanged during unchanged terminal reuse or a retry that is still transiently
 partial. Source/version invalidation rebuilds CSS and refreshes layouts under the
 existing invalid-cache policy. Progress files are unaffected.
+
+### CSS rules cache revision 25
+
+The defined-property mask uses bit 31 for CSS visibility. In the background byte, bit 0 indicates black and bit 1 indicates hidden text. Older rules rebuild on reopen.
 
 ### CSS rules cache revision 24
 

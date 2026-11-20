@@ -85,7 +85,7 @@ constexpr uint8_t CSS_TEXT_DECORATION_MASK =
     static_cast<uint8_t>(CssTextDecoration::Underline) | static_cast<uint8_t>(CssTextDecoration::LineThrough);
 
 // Keep inline distinct so replaced elements can participate in text layout.
-enum class CssDisplay : uint8_t { Block = 0, None = 1, Inline = 2 };
+enum class CssDisplay : uint8_t { Block = 0, None = 1, Inline = 2, Other = 3 };
 
 // Vertical alignment options for inline elements (e.g. superscript/subscript)
 enum class CssVerticalAlign : uint8_t { Baseline = 0, Super = 1, Sub = 2 };
@@ -133,6 +133,7 @@ struct CssPropertyFlags {
   uint32_t initialLetter : 1;
   uint32_t fontFamily : 1;
   uint32_t backgroundImage : 1;
+  uint32_t visibility : 1;
 
   CssPropertyFlags()
       : textAlign(0),
@@ -165,13 +166,14 @@ struct CssPropertyFlags {
         floatLeft(0),
         initialLetter(0),
         fontFamily(0),
-        backgroundImage(0) {}
+        backgroundImage(0),
+        visibility(0) {}
 
   [[nodiscard]] bool anySet() const {
-    return backgroundImage || fontFamily || shaded || floatLeft || initialLetter || whiteSpace || border || fontSize ||
-           textAlign || fontStyle || fontWeight || textDecoration || textIndent || marginTop || marginBottom ||
-           marginLeft || marginRight || paddingTop || paddingBottom || paddingLeft || paddingRight || imageHeight ||
-           imageWidth || display || backgroundBlack || verticalAlign || direction || pageBreakBefore ||
+    return visibility || backgroundImage || fontFamily || shaded || floatLeft || initialLetter || whiteSpace ||
+           border || fontSize || textAlign || fontStyle || fontWeight || textDecoration || textIndent || marginTop ||
+           marginBottom || marginLeft || marginRight || paddingTop || paddingBottom || paddingLeft || paddingRight ||
+           imageHeight || imageWidth || display || backgroundBlack || verticalAlign || direction || pageBreakBefore ||
            pageBreakAfter || fontVariantCaps || listStyleType;
   }
 
@@ -181,7 +183,7 @@ struct CssPropertyFlags {
     paddingTop = paddingBottom = paddingLeft = paddingRight = 0;
     imageHeight = imageWidth = display = backgroundBlack = verticalAlign = direction = 0;
     pageBreakBefore = pageBreakAfter = fontVariantCaps = listStyleType = fontSize = border = whiteSpace = shaded =
-        floatLeft = initialLetter = fontFamily = backgroundImage = 0;
+        floatLeft = initialLetter = fontFamily = backgroundImage = visibility = 0;
   }
 };
 
@@ -214,6 +216,7 @@ struct CssStyle {
   CssLength imageWidth;     // Width for img when both or only width set
   CssDisplay display = CssDisplay::Block;
   CssBorderSide borders[4];  // top, right, bottom, left; shares the existing defined edge masks
+  bool visibilityHidden = false;
   bool shaded = false;
   bool floatLeft = false;
   uint8_t initialLetter = 0;
@@ -343,6 +346,10 @@ struct CssStyle {
     if (base.hasDisplay()) {
       display = base.display;
       defined.display = 1;
+    }
+    if (base.defined.visibility) {
+      visibilityHidden = base.visibilityHidden;
+      defined.visibility = 1;
     }
     if (base.hasBackgroundBlack()) {
       backgroundBlack = base.backgroundBlack;

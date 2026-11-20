@@ -13,6 +13,7 @@
 #include "../../../ScalableFont/ScalableFontSizing.h"
 
 namespace {
+static_assert(ScalableContentMaxPointSize < TextBlock::BACKGROUND_SPACE);
 
 constexpr uint16_t MAX_WORDS_PER_TEXT_BLOCK = 512;
 
@@ -22,32 +23,6 @@ uint16_t measureBackgroundWidth(const GfxRenderer& renderer, const int fontId, c
     return renderer.getSpaceWidth(fontId, style);
   }
   return static_cast<uint16_t>(std::max(0, renderer.getTextAdvanceX(fontId, word, style, 0, characterSpacing)));
-}
-
-bool isWhitespaceOnlyBackgroundToken(const char* word) {
-  if (!word || *word == '\0') {
-    return false;
-  }
-
-  for (size_t i = 0; word[i] != '\0';) {
-    const auto c = static_cast<uint8_t>(word[i]);
-    if (c == ' ' || c == '\r' || c == '\n' || c == '\t') {
-      ++i;
-      continue;
-    }
-    if (c == 0xC2 && word[i + 1] != '\0' && static_cast<uint8_t>(word[i + 1]) == 0xA0) {
-      i += 2;
-      continue;
-    }
-    if (c == 0xE2 && word[i + 1] != '\0' && word[i + 2] != '\0' && static_cast<uint8_t>(word[i + 1]) == 0x80 &&
-        static_cast<uint8_t>(word[i + 2]) == 0xAF) {
-      i += 3;
-      continue;
-    }
-    return false;
-  }
-
-  return true;
 }
 
 bool hasSyntheticIndentPrefix(const char* word, const uint16_t len) {
@@ -405,35 +380,58 @@ void TextBlock::renderOrMeasure(const GfxRenderer& renderer, int fontId, const i
       const auto baseDir =
           static_cast<BidiUtils::BidiBaseDir>(BidiUtils::detectParagraphLevel(word, blockStyle.isRtl ? 1 : 0));
 
-      if (!scanning && (wordFlags(i) & WORD_FLAG_BACKGROUND_BLACK) != 0 && isWhitespaceOnlyBackgroundToken(word)) {
-        const uint16_t backgroundWidth = measureBackgroundWidth(renderer, fontId, word, currentStyle, characterSpacing);
+      const auto boldStyle = static_cast<EpdFontFamily::Style>(currentStyle | EpdFontFamily::BOLD);
+      char boldBuf[40];
+      const size_t boldLen = std::min<size_t>({boundary, wordLen, sizeof(boldBuf) - 1});
+      if (boldLen) {
+        memcpy(boldBuf, word, boldLen);
+        boldBuf[boldLen] = '\0';
+      }
+      const bool blackBackground = (wordFlags(i) & WORD_FLAG_BACKGROUND_BLACK) != 0;
+      const int wordY = y + baselineOffset(baseline, ascender, currentStyle);
+      if (!scanning && blackBackground && (ink || renderer.getRenderMode() == GfxRenderer::BW)) {
+        const int start = wordX;
+        const bool rtl = baseDir == BidiUtils::BidiBaseDir::RTL;
+        const int advance =
+            boldLen ? focusRunOffset(i) + renderer.getTextAdvanceX(fontId, rtl ? boldBuf : word + boldLen,
+                                                                   rtl ? boldStyle : currentStyle, 0, characterSpacing)
+                    : measureBackgroundWidth(renderer, fontId, word, currentStyle, characterSpacing);
+        int end = start + advance;
+        // Cover a collapsed or justified space only when the source space itself was painted.
+        if (i + 1 < numWords && wordBackgroundSpace(i + 1) && (wordFlags(i + 1) & WORD_FLAG_BACKGROUND_BLACK)) {
+          const int nextX = x + wordXpos(i + 1);
+          if (nextX >= start) end = std::max(end, nextX);
+        }
+        if (i && wordBackgroundSpace(i) && (wordFlags(i - 1) & WORD_FLAG_BACKGROUND_BLACK)) {
+          const int prevX = x + wordXpos(i - 1);
+          if (prevX > start) end = std::max(end, prevX);
+        }
+        const int backgroundWidth = end - start;
         if (backgroundWidth > 0) {
+          const int height = renderer.getLineHeight(fontId);
           if (ink)
-            ink->include(y, y + renderer.getFontAscenderSize(fontId));
+            ink->include(wordY, wordY + height);
           else
-            renderer.fillRect(wordX, y, backgroundWidth, renderer.getFontAscenderSize(fontId), true);
+            renderer.fillRect(start, wordY, backgroundWidth, height, foregroundBlack);
         }
       }
 
-      const int wordY = y + baselineOffset(baseline, ascender, currentStyle);
+      if (wordHidden(i) && !scanning) continue;
+      // A monochrome publisher background needs contrasting, solid glyphs.
+      const bool paintGlyphs = !blackBackground || ink || scanning || renderer.getRenderMode() == GfxRenderer::BW;
+      const bool textBlack = blackBackground ? !foregroundBlack : foregroundBlack;
 
-      if (boundary > 0) {
-        const auto boldStyle = static_cast<EpdFontFamily::Style>(currentStyle | EpdFontFamily::BOLD);
-        char boldBuf[40];
-        const size_t boldLen =
-            std::min<size_t>({static_cast<size_t>(boundary), static_cast<size_t>(wordLen), sizeof(boldBuf) - 1});
-        memcpy(boldBuf, word, boldLen);
-        boldBuf[boldLen] = '\0';
+      if (paintGlyphs && boldLen > 0) {
         const int secondRunX = wordX + focusRunOffset(i);
         if (baseDir == BidiUtils::BidiBaseDir::RTL) {
-          drawText(fontId, wordX, wordY, word + boldLen, foregroundBlack, currentStyle, baseDir, characterSpacing);
-          drawText(fontId, secondRunX, wordY, boldBuf, foregroundBlack, boldStyle, baseDir, characterSpacing);
+          drawText(fontId, wordX, wordY, word + boldLen, textBlack, currentStyle, baseDir, characterSpacing);
+          drawText(fontId, secondRunX, wordY, boldBuf, textBlack, boldStyle, baseDir, characterSpacing);
         } else {
-          drawText(fontId, wordX, wordY, boldBuf, foregroundBlack, boldStyle, baseDir, characterSpacing);
-          drawText(fontId, secondRunX, wordY, word + boldLen, foregroundBlack, currentStyle, baseDir, characterSpacing);
+          drawText(fontId, wordX, wordY, boldBuf, textBlack, boldStyle, baseDir, characterSpacing);
+          drawText(fontId, secondRunX, wordY, word + boldLen, textBlack, currentStyle, baseDir, characterSpacing);
         }
-      } else {
-        drawText(fontId, wordX, wordY, word, foregroundBlack, currentStyle, baseDir, characterSpacing);
+      } else if (paintGlyphs) {
+        drawText(fontId, wordX, wordY, word, textBlack, currentStyle, baseDir, characterSpacing);
       }
 
       if (i < rubyTexts.size() && !rubyTexts[i].empty() && (currentStyle & EpdFontFamily::RUBY_CONTINUE) == 0) {
@@ -460,9 +458,10 @@ void TextBlock::renderOrMeasure(const GfxRenderer& renderer, int fontId, const i
                  characterSpacing);
       }
 
+      if (!paintGlyphs) continue;
       const uint16_t dotOffset = guideDotXOffset(i);
       if (dotOffset > 0) {
-        drawText(fontId, wordX + dotOffset, wordY, "\xc2\xb7", foregroundBlack, EpdFontFamily::REGULAR, baseDir,
+        drawText(fontId, wordX + dotOffset, wordY, "\xc2\xb7", textBlack, EpdFontFamily::REGULAR, baseDir,
                  characterSpacing);
       }
 
@@ -490,7 +489,7 @@ void TextBlock::renderOrMeasure(const GfxRenderer& renderer, int fontId, const i
             startX = std::min(startX, nextX);
           }
         }
-        renderer.drawLine(startX, lineY, endX, lineY, 3, foregroundBlack);
+        renderer.drawLine(startX, lineY, endX, lineY, 3, textBlack);
       };
 
       if (!scanning && (currentStyle & EpdFontFamily::UNDERLINE) != 0)

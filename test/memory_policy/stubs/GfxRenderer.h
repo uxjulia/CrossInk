@@ -12,6 +12,8 @@ enum class BidiBaseDir : signed char { AUTO = -1, LTR = 0, RTL = 1 };
 
 class GfxRenderer {
  public:
+  enum RenderMode { BW };
+  RenderMode getRenderMode() const { return BW; }
   uint64_t textCullGeneration() const { return 0; }
   int getWriteOriginY() const { return 0; }
   int getWriteRows() const { return 480; }

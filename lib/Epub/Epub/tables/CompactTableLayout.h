@@ -37,7 +37,8 @@ class CompactTableLayout final {
   bool beginRow();
   bool beginCell(bool isHeader, uint8_t colSpan, uint32_t visibleTextOffset, const BlockStyle& style);
   bool appendWord(std::string_view text, EpdFontFamily::Style style, bool attachToPrevious, bool backgroundBlack,
-                  uint8_t linkId, uint32_t sourceOffset = UINT32_MAX);
+                  uint8_t linkId, uint32_t sourceOffset = UINT32_MAX, bool hidden = false,
+                  bool backgroundSpace = false);
   bool endCell(const std::vector<std::pair<int, FootnoteEntry>>& footnotes);
   void markUnsupported() { unsupported_ = true; }
   bool unsupported() const { return unsupported_; }
@@ -62,6 +63,7 @@ class CompactTableLayout final {
     EpdFontFamily::Style style = EpdFontFamily::REGULAR;
     uint8_t flags = 0;
     bool attachToPrevious = false;
+    uint8_t paint = 0;
   };
 
   struct Cell {
@@ -80,6 +82,7 @@ class CompactTableLayout final {
     EpdFontFamily::Style style = EpdFontFamily::REGULAR;
     uint8_t flags = 0;
     bool attachToPrevious = false;
+    uint8_t paint = 0;
   };
 
   static constexpr uint16_t MAX_ROW_TOKENS = 256;
@@ -131,7 +134,8 @@ class CompactTableLayout final {
   uint16_t measure(uint16_t offset, uint16_t length, EpdFontFamily::Style style);
   bool appendLineToken(std::array<LineToken, MAX_ROW_TOKENS>& line, uint16_t& lineCount, uint16_t& lineWidth,
                        uint16_t maxWidth, uint16_t offset, uint16_t length, EpdFontFamily::Style style, uint8_t flags,
-                       bool attachToPrevious, bool& emittedAny, const BlockStyle& cellStyle, TableFragmentCell& output);
+                       bool attachToPrevious, uint8_t paint, bool& emittedAny, const BlockStyle& cellStyle,
+                       TableFragmentCell& output);
   bool emitLine(std::array<LineToken, MAX_ROW_TOKENS>& line, uint16_t lineCount, uint16_t lineWidth, uint16_t maxWidth,
                 const BlockStyle& style, TableFragmentCell& output);
   bool wrapCell(const Cell& cell, uint16_t maxWidth, TableFragmentCell& output);

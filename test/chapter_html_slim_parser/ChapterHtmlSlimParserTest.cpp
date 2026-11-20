@@ -1986,6 +1986,63 @@ TEST_F(ChapterHtmlSlimParserTest, MixedCaseFirstLetterClassProducesDropCap) {
   EXPECT_EQ(parser.currentTextBlock->words.front(), "he");
 }
 
+TEST_F(ChapterHtmlSlimParserTest, BlockSpanHeadingNumbersKeepTheirOwnCenteredLine) {
+  renderer.scalableBaseSize = 16;
+  renderer.textAdvancePerChar = 8;
+  parser.paragraphAlignment = static_cast<uint8_t>(CssTextAlign::Left);
+  const XML_Char* number[] = {"style", "display:block; font-size:2.1em; text-align:center", nullptr};
+  const XML_Char* title[] = {"style", "display:block; text-align:center", nullptr};
+  parser.tocAnchors.push_back("chapter");
+  const XML_Char* link[] = {"id", "chapter", "href", "contents.xhtml#part", nullptr};
+  ChapterHtmlSlimParser::startElement(&parser, "h2", nullptr);
+  ChapterHtmlSlimParser::startElement(&parser, "span", number);
+  ChapterHtmlSlimParser::startElement(&parser, "a", link);
+  ASSERT_TRUE(parser.pendingAnchorId.empty());
+  ChapterHtmlSlimParser::characterData(&parser, "II", 2);
+  ChapterHtmlSlimParser::endElement(&parser, "a");
+  ChapterHtmlSlimParser::endElement(&parser, "span");
+  ChapterHtmlSlimParser::startElement(&parser, "span", title);
+  ChapterHtmlSlimParser::characterData(&parser, "Title", 5);
+  ChapterHtmlSlimParser::endElement(&parser, "span");
+  ChapterHtmlSlimParser::endElement(&parser, "h2");
+  ASSERT_TRUE(parser.currentPage);
+  ASSERT_EQ(parser.currentPage->elements.size(), 2u);
+  for (const auto& el : parser.currentPage->elements) {
+    ASSERT_EQ(el->getTag(), TAG_PageLine);
+    const auto& block = static_cast<PageLine&>(*el).getBlock();
+    EXPECT_EQ(block->getBlockStyle().alignment, CssTextAlign::Center);
+    EXPECT_EQ(block->wordCount(), 1u);
+  }
+  EXPECT_GT(parser.currentPage->elements[1]->yPos, parser.currentPage->elements[0]->yPos);
+}
+
+TEST_F(ChapterHtmlSlimParserTest, InlineRedactionKeepsWordWidthsAndRestoresVisibility) {
+  const XML_Char* black[] = {"style", "background:black", nullptr};
+  const XML_Char* hidden[] = {"style", "visibility:hidden", nullptr};
+  const XML_Char* visible[] = {"style", "visibility:visible", nullptr};
+  ChapterHtmlSlimParser::startElement(&parser, "p", nullptr);
+  ChapterHtmlSlimParser::startElement(&parser, "span", black);
+  ChapterHtmlSlimParser::startElement(&parser, "span", hidden);
+  ChapterHtmlSlimParser::characterData(&parser, "one two ", 8);
+  ChapterHtmlSlimParser::startElement(&parser, "em", visible);
+  ChapterHtmlSlimParser::characterData(&parser, "three", 5);
+  ChapterHtmlSlimParser::endElement(&parser, "em");
+  ChapterHtmlSlimParser::endElement(&parser, "span");
+  ChapterHtmlSlimParser::endElement(&parser, "span");
+  ChapterHtmlSlimParser::characterData(&parser, " four", 5);
+  parser.flushPartWordBuffer();
+  parser.makePages();
+  ASSERT_TRUE(parser.currentPage);
+  const auto& block = static_cast<PageLine&>(*parser.currentPage->elements.front()).getBlock();
+  ASSERT_EQ(block->wordCount(), 4u);
+  for (uint16_t i = 0; i < 4; ++i) {
+    EXPECT_EQ(block->wordHidden(i), i < 2);
+    EXPECT_EQ(bool(block->wordFlags(i) & TextBlock::WORD_FLAG_BACKGROUND_BLACK), i < 3);
+    EXPECT_EQ(block->wordBackgroundSpace(i), i == 1 || i == 2);
+    EXPECT_EQ(block->wordFontSize(i), 0);
+  }
+}
+
 TEST_F(ChapterHtmlSlimParserTest, OversizedDropCapSpanFallsBackWithoutLosingLetters) {
   ChapterHtmlSlimParser::startElement(&parser, "p", nullptr);
   const XML_Char* attrs[] = {"style", "float: left; font-size: 3em", nullptr};

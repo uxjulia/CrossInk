@@ -762,8 +762,15 @@ void CssParser::parseDeclarationIntoStyle(std::string_view decl, CssStyle& style
     const std::string_view displayValue = stripTrailingImportant(value);
     style.display = iequalsAscii(displayValue, "none")     ? CssDisplay::None
                     : iequalsAscii(displayValue, "inline") ? CssDisplay::Inline
-                                                           : CssDisplay::Block;
+                    : iequalsAscii(displayValue, "block")  ? CssDisplay::Block
+                                                           : CssDisplay::Other;
     style.defined.display = 1;
+  } else if (iequalsAscii(name, "visibility")) {
+    const auto visibility = stripTrailingImportant(value);
+    if (iequalsAscii(visibility, "hidden") || iequalsAscii(visibility, "visible")) {
+      style.visibilityHidden = iequalsAscii(visibility, "hidden");
+      style.defined.visibility = 1;
+    }
   } else if (iequalsAscii(name, "background-image")) {
     const auto image = trimCssWhitespace(stripTrailingImportant(value));
     const bool hasImage = hasBackgroundImageUrl(image);
@@ -1403,7 +1410,7 @@ bool CssParser::writeCssStylePayload(FsFile& file, const CssStyle& style) {
       !writeLength(style.paddingLeft) || !writeLength(style.paddingRight) || !writeLength(style.imageHeight) ||
       !writeLength(style.imageWidth) || !writeLength(style.fontSize) ||
       !writeByte(static_cast<uint8_t>(style.display)) ||
-      !writeByte(static_cast<uint8_t>(style.backgroundBlack ? 1 : 0)) ||
+      !writeByte((style.backgroundBlack ? 1 : 0) | (style.visibilityHidden ? 2 : 0)) ||
       !writeByte(static_cast<uint8_t>(style.verticalAlign)) || !writeByte(static_cast<uint8_t>(style.direction)) ||
       !writeByte(static_cast<uint8_t>(style.pageBreakBefore ? 1 : 0)) ||
       !writeByte(static_cast<uint8_t>(style.pageBreakAfter ? 1 : 0)) ||
@@ -1451,6 +1458,7 @@ bool CssParser::writeCssStylePayload(FsFile& file, const CssStyle& style) {
   if (style.defined.initialLetter) definedBits |= 1u << 28;
   if (style.defined.fontFamily) definedBits |= 1u << 29;
   if (style.defined.backgroundImage) definedBits |= 1u << 30;
+  if (style.defined.visibility) definedBits |= 1u << 31;
   return writeBytes(&definedBits, sizeof(definedBits)) && writeBytes(&style.fontFamily, sizeof(style.fontFamily));
 }
 
@@ -1486,7 +1494,9 @@ bool CssParser::readCssStylePayload(FsFile& file, CssStyle& style) {
   style.display = static_cast<CssDisplay>(displayVal);
   uint8_t backgroundBlackVal = 0;
   if (file.read(&backgroundBlackVal, 1) != 1) return false;
-  style.backgroundBlack = backgroundBlackVal != 0;
+  if (backgroundBlackVal > 3) return false;
+  style.backgroundBlack = (backgroundBlackVal & 1) != 0;
+  style.visibilityHidden = (backgroundBlackVal & 2) != 0;
   uint8_t verticalAlignVal = 0;
   if (file.read(&verticalAlignVal, 1) != 1) return false;
   style.verticalAlign = static_cast<CssVerticalAlign>(verticalAlignVal);
@@ -1559,6 +1569,7 @@ bool CssParser::readCssStylePayload(FsFile& file, CssStyle& style) {
   style.defined.floatLeft = (definedBits & 1u << 27) != 0;
   style.defined.initialLetter = (definedBits & 1u << 28) != 0;
   style.defined.fontFamily = (definedBits & 1u << 29) != 0;
+  style.defined.visibility = (definedBits & (1u << 31)) != 0;
   style.defined.backgroundImage = (definedBits & 1u << 30) != 0;
   if (file.read(&style.fontFamily, sizeof(style.fontFamily)) != sizeof(style.fontFamily)) return false;
   if (style.hasFontSize() && (!std::isfinite(style.fontSize.value()) || style.fontSize.value() <= 0 ||

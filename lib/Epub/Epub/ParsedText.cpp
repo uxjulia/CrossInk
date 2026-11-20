@@ -1208,7 +1208,7 @@ int ParsedText::calculateRubyExtraEndOffset(const size_t lineStartIdx, const siz
 
 int ParsedText::wordFontId(const GfxRenderer& renderer, const int base, const size_t index) const {
   return renderer.resolveBookFont(base, wordFontFamilies.empty() ? 0 : wordFontFamilies[index],
-                                  wordFontSizes.empty() ? 0 : wordFontSizes[index]);
+                                  wordFontSizes.empty() ? 0 : TextBlock::unpackWordSize(wordFontSizes[index]));
 }
 
 bool ParsedText::calculateWordWidths(ArenaVector<uint16_t>& wordWidths, const GfxRenderer& renderer, const int fontId) {

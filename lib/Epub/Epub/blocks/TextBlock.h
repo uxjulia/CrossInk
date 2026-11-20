@@ -123,7 +123,16 @@ class TextBlock final : public Block {
   const char* visibleWordText(uint16_t i) const { return wordText(i) + (i == 0 ? initialLetterBytes : 0); }
   uint16_t visibleWordTextLen(uint16_t i) const { return wordTextLen(i) - (i == 0 ? initialLetterBytes : 0); }
   int wordYOffset(const GfxRenderer& renderer, int fontId, uint16_t i) const;
-  uint8_t wordFontSize(uint16_t i) const { return wordSizesPresent ? wordSizesArr[i] : 0; }
+  // Font sizes occupy the low six bits of the optional per-word byte.
+  static constexpr uint8_t HIDDEN_WORD = 0x80;
+  static constexpr uint8_t BACKGROUND_SPACE = 0x40;
+  static constexpr uint8_t packWordSize(uint8_t size, bool hidden, bool backgroundSpace = false) {
+    return size | (hidden ? HIDDEN_WORD : 0) | (backgroundSpace ? BACKGROUND_SPACE : 0);
+  }
+  bool wordBackgroundSpace(uint16_t i) const { return wordSizesPresent && (wordSizesArr[i] & BACKGROUND_SPACE); }
+  static constexpr uint8_t unpackWordSize(uint8_t packed) { return packed & ~(HIDDEN_WORD | BACKGROUND_SPACE); }
+  bool wordHidden(uint16_t i) const { return wordSizesPresent && (wordSizesArr[i] & HIDDEN_WORD); }
+  uint8_t wordFontSize(uint16_t i) const { return wordSizesPresent ? unpackWordSize(wordSizesArr[i]) : 0; }
   int wordFontId(const GfxRenderer& renderer, int fontId, uint16_t i) const;
   int maxAscender(const GfxRenderer& renderer, int fontId) const;
   int maxLineHeight(const GfxRenderer& renderer, int fontId) const;
