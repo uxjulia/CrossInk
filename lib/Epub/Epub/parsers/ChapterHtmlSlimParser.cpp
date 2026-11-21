@@ -2644,9 +2644,37 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
       self->currentTextBlock.reset();
       const uint16_t lineHeight =
           static_cast<uint16_t>(self->renderer.getLineHeight(self->fontId) * self->lineCompression);
+      TableColumnLayout::Plan columnPlan;
+      if (self->activeParser && self->parseFile_) {
+        const XML_Index opening = XML_GetCurrentByteIndex(self->activeParser);
+        const size_t resume = self->parseFile_.position();
+        if (opening >= 0 && self->parseFile_.seek(static_cast<size_t>(opening))) {
+          const int inset = tableBlockStyle.totalHorizontalInset();
+          const uint16_t width = inset < self->viewportWidth ? self->viewportWidth - inset : self->viewportWidth;
+          const auto measure = TableColumnLayout::measureSimpleTable(
+              [&](char* buffer, const unsigned count) { return self->parseFile_.read(buffer, count); },
+              [&](const char* word, const bool bold) {
+                return self->renderer.getTextAdvanceX(self->fontId, word,
+                                                      bold ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR, 0,
+                                                      self->characterSpacing, word);
+              },
+              width, std::max(0, self->renderer.getSpaceWidth(self->fontId, EpdFontFamily::REGULAR)));
+          columnPlan = TableColumnLayout::proportionalPlan(measure, width, TABLE_CELL_PADDING);
+          if (columnPlan.count) {
+            LOG_DBG("EHP", "Compact table intrinsic columns: count=%u first=%u width=%u", columnPlan.count,
+                    columnPlan.ends[0], width);
+          }
+        }
+        // Expat owns its input buffer. Restore only the stream cursor so the
+        // next iteration resumes after it, even when lookahead was rejected.
+        if (!self->parseFile_.seek(resume)) {
+          self->parseFile_.close();
+          self->parseFileOffset_ = resume;
+        }
+      }
       self->currentCompactTable = makeUniqueNoThrow<CompactTableLayout>(
           self->renderer, self->fontId, self->viewportWidth, self->viewportHeight, lineHeight, TABLE_CELL_PADDING,
-          tableBlockStyle, self->characterSpacing);
+          tableBlockStyle, self->characterSpacing, columnPlan);
       if (!self->currentCompactTable || !self->currentCompactTable->valid()) {
         LOG_ERR("EHP", "Failed to allocate compact table layout (free=%u, maxAlloc=%u)", heap.freeHeap,
                 heap.maxAllocHeap);
@@ -2662,7 +2690,8 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
       self->compactFragmentFootnotes.reserve(Page::MAX_FOOTNOTES_PER_PAGE);
       self->compactFragmentHeight = 1;
       self->compactFragmentColumnCount = 0;
-      LOG_DBG("EHP", "Compact table layout selected (free=%u, maxAlloc=%u)", heap.freeHeap, heap.maxAllocHeap);
+      LOG_DBG("EHP", "Compact table layout selected (free=%u, maxAlloc=%u, object=%u)", heap.freeHeap,
+              heap.maxAllocHeap, static_cast<unsigned>(sizeof(CompactTableLayout)));
     } else {
       self->currentTableBuffer = makeUniqueNoThrow<BufferedTable>();
       if (!self->currentTableBuffer) {
@@ -4311,8 +4340,9 @@ void XMLCALL ChapterHtmlSlimParser::endElement(void* userData, const XML_Char* n
         self->lowMemoryAbort = true;
         return;
       }
-      const bool flatten = result == CompactTableLayout::RowResult::Flatten;
-      if (flatten) self->compactTableFlattened = true;
+      const bool flattenTable = result == CompactTableLayout::RowResult::Flatten;
+      const bool flatten = flattenTable || result == CompactTableLayout::RowResult::FlattenRow;
+      if (flattenTable) self->compactTableFlattened = true;
       if (!self->emitCompactTableRow(row, flatLines, rowFootnotes, rowVisibleOffset,
                                      self->currentCompactTable->fragmentColumnCount(), flatten)) {
         self->lowMemoryAbort = true;

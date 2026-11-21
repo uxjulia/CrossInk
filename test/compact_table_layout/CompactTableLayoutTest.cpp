@@ -57,6 +57,118 @@ TEST(CompactTableLayoutTest, SourceFixtureModelsLargeAndUnsupportedTables) {
   EXPECT_NE(source.find("长"), std::string::npos);
 }
 
+TEST(CompactTableLayoutTest, IntrinsicPlanKeepsNumericalColumnsCompactAndHonorsViewport) {
+  TableColumnLayout::Measures measure;
+  measure.count = 3;
+  measure.minimum = {85, 24, 22, 0};
+  measure.preferred = {210, 44, 35, 0};
+  for (const uint16_t width : {uint16_t{320}, uint16_t{200}, uint16_t{100}}) {
+    const auto plan = TableColumnLayout::proportionalPlan(measure, width, 4);
+    ASSERT_EQ(plan.count, 3);
+    EXPECT_GT(plan.ends[0], width / 3);
+    EXPECT_GE(plan.ends[0], 28);
+    EXPECT_GE(plan.ends[1] - plan.ends[0], 28);
+    EXPECT_GE(plan.ends[2] - plan.ends[1], 28);
+    EXPECT_EQ(plan.ends[2], width);
+  }
+  EXPECT_EQ(TableColumnLayout::proportionalPlan(measure, 83, 4).count, 0);
+}
+
+TableColumnLayout::Measures probe(std::string_view input) {
+  return TableColumnLayout::measureSimpleTable(
+      [&](char* buffer, const unsigned count) {
+        const auto n = std::min<size_t>({input.size(), count, 7});
+        if (n == 0) return 0;
+        std::copy_n(input.begin(), n, buffer);
+        input.remove_prefix(n);
+        return static_cast<int>(n);
+      },
+      [](const char* token, const bool bold) {
+        return static_cast<int>(std::string_view(token).size()) * (bold ? 7 : 6);
+      },
+      480, 4);
+}
+
+TEST(CompactTableLayoutTest, RawProbeIgnoresSpanningNotesAndStopsAtTheFirstTable) {
+  const auto measure = probe(
+      "<table><caption>Table 2</caption><thead><tr><th></th><th>ΔRSS</th><th>p</th></tr></thead>"
+      "<tbody><tr><td>A wider community label</td><td>0.224</td><td>0.009</td></tr>"
+      "<tr><td colspan='3'>An unrelated long note won't change the column widths</td></tr></tbody></table>"
+      "<table><tr><td>Other</td><td>Table</td></tr></table>");
+  EXPECT_EQ(measure.count, 3);
+  EXPECT_GT(measure.preferred[0], measure.preferred[1]);
+  EXPECT_EQ(measure.preferred[2], 30);
+  EXPECT_EQ(probe("<table><tr><td>a</td><td>b</td></tr><tr><td>c</td></tr></table>").count, 0);
+  EXPECT_EQ(probe("<table><tr><td><table></table></td><td>b</td></tr></table>").count, 0);
+  EXPECT_EQ(probe("<table><tr><td>" + std::string(45, 'x') + "</td><td>b</td></tr></table>").count, 0);
+  EXPECT_EQ(probe("<table><caption>" + std::string(32768, 'x') + "</caption></table>").count, 0);
+  std::string manyWords;
+  for (unsigned i = 0; i < 400; ++i) manyWords += "x ";
+  EXPECT_EQ(probe("<table><tr><td>" + manyWords + "</td><td>b</td></tr></table>").count, 0);
+}
+
+TEST(CompactTableLayoutTest, PlannedGeometryCarriesThroughSpanningAndUnspannedRows) {
+  GfxRenderer renderer;
+  TableColumnLayout::Plan plan{{82, 122, 160, 0}, 3};
+  CompactTableLayout layout(renderer, 0, 160, 480, 16, 4, leftStyle(), 0, plan);
+  ASSERT_TRUE(layout.valid());
+  for (const bool merged : {false, true}) {
+    ASSERT_TRUE(layout.beginRow());
+    const uint8_t cols = merged ? 2 : 3;
+    for (uint8_t column = 0; column < cols; ++column) {
+      ASSERT_TRUE(layout.beginCell(false, merged && column == 0 ? 2 : 1, 0, leftStyle()));
+      ASSERT_TRUE(layout.appendWord("word", EpdFontFamily::REGULAR, false, false, 0));
+      ASSERT_TRUE(layout.endCell({}));
+    }
+    TableFragmentRow row;
+    std::vector<std::shared_ptr<TextBlock>> flattened;
+    std::vector<FootnoteEntry> notes;
+    uint32_t offset = 0;
+    ASSERT_EQ(layout.finishRow(row, flattened, notes, offset), CompactTableLayout::RowResult::Ok);
+    ASSERT_EQ(row.cells.size(), cols);
+    EXPECT_EQ(row.cells.front().rightEdge, merged ? 122 : 82);
+    EXPECT_EQ(row.cells.front().colSpan, merged ? 2 : 1);
+    EXPECT_EQ(row.cells.back().rightEdge, 160);
+  }
+}
+
+TEST(CompactTableLayoutTest, TallRowTriesLegacyBeforePublishOrFlattensOnlyItself) {
+  GfxRenderer renderer;
+  const TableColumnLayout::Plan plan{{120, 148, 270, 0}, 3};
+  const auto emit = [&](CompactTableLayout& layout, const bool tall, TableFragmentRow& row,
+                        std::vector<std::shared_ptr<TextBlock>>& flat) {
+    EXPECT_TRUE(layout.beginRow());
+    for (uint8_t col = 0; col < 3; ++col) {
+      EXPECT_TRUE(layout.beginCell(false, 1, 0, leftStyle()));
+      const int words = tall && col == 1 ? 8 : 1;
+      for (int i = 0; i < words; ++i) {
+        EXPECT_TRUE(layout.appendWord("abcdefghijklmnopqrst", EpdFontFamily::REGULAR, false, false, 0));
+      }
+      EXPECT_TRUE(layout.endCell({}));
+    }
+    std::vector<FootnoteEntry> notes;
+    uint32_t offset = 0;
+    return layout.finishRow(row, flat, notes, offset);
+  };
+  TableFragmentRow row;
+  std::vector<std::shared_ptr<TextBlock>> flat;
+  CompactTableLayout firstTall(renderer, 0, 270, 96, 16, 4, leftStyle(), 0, plan);
+  ASSERT_EQ(emit(firstTall, true, row, flat), CompactTableLayout::RowResult::Ok);
+  ASSERT_EQ(row.cells.size(), 3);
+  EXPECT_EQ(row.cells.front().rightEdge, 0);  // legacy equal width prevented flattening
+  EXPECT_TRUE(flat.empty());
+
+  CompactTableLayout laterTall(renderer, 0, 270, 96, 16, 4, leftStyle(), 0, plan);
+  ASSERT_EQ(emit(laterTall, false, row, flat), CompactTableLayout::RowResult::Ok);
+  EXPECT_EQ(row.cells.front().rightEdge, 120);
+  ASSERT_EQ(emit(laterTall, true, row, flat), CompactTableLayout::RowResult::FlattenRow);
+  EXPECT_FALSE(flat.empty());
+  EXPECT_FALSE(laterTall.flattened());
+  ASSERT_EQ(emit(laterTall, false, row, flat), CompactTableLayout::RowResult::Ok);
+  EXPECT_EQ(row.cells.front().rightEdge, 120);
+  EXPECT_TRUE(flat.empty());
+}
+
 TEST(CompactTableLayoutTest, WideLeadingColumnKeepsEightColumnTableLabelsReadable) {
   constexpr uint16_t tableWidth = 480;
   EXPECT_EQ(TableColumnLayout::columnWidth(tableWidth, 8, 0, 1), 106);

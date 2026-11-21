@@ -1153,7 +1153,16 @@ body-only and built-in font identities stay unchanged. No binary payload changes
 
 ## `section.bin`
 
-### Version 120 (current development)
+### Version 121 (current development)
+
+Compact tables can carry optional content-proportional column geometry. A
+table cell's two-byte geometry packs its colspan into bits 0–3, header flag
+into bit 4 and its right edge relative to the table in pixels into bits 5–15.
+A zero edge retains the default grid geometry. This replaces the former separate
+header/span bytes without increasing the serialized cell size. Complete layouts
+use version 121 and partial layouts use `0xEA`; reading progress is unchanged.
+
+### Version 120
 
 Native EPUB `<pre>` blocks preserve the book's spaces and hard line breaks.
 Complete sections use version 120 and suspended sections use `0xE9`; the
@@ -1634,7 +1643,7 @@ struct PageHorizontalRule {
 };
 
 struct TableFragmentCell {
-    bool isHeader;
+    u16 geometry; // bits 0..3 colspan, bit 4 header, bits 5..15 right edge
     u8 lineCount;
     TextBlock lines[lineCount];
 };

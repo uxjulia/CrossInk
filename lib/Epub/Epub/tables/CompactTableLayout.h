@@ -11,6 +11,7 @@
 #include "Epub/FootnoteEntry.h"
 #include "Epub/Page.h"
 #include "Epub/blocks/BlockStyle.h"
+#include "TableColumnPlan.h"
 
 class GfxRenderer;
 
@@ -24,10 +25,11 @@ class CompactTableLayout final {
   static constexpr uint16_t INITIAL_ROW_TEXT_BYTES = 2048;
   static constexpr uint16_t MAX_ROW_TEXT_BYTES = 4096;
 
-  enum class RowResult : uint8_t { Ok, Flatten, Abort };
+  enum class RowResult : uint8_t { Ok, Flatten, FlattenRow, Abort };
 
   CompactTableLayout(GfxRenderer& renderer, int fontId, uint16_t viewportWidth, uint16_t viewportHeight,
-                     uint16_t lineHeight, uint8_t cellPadding, BlockStyle tableStyle, int8_t characterSpacing = 0);
+                     uint16_t lineHeight, uint8_t cellPadding, BlockStyle tableStyle, int8_t characterSpacing = 0,
+                     TableColumnLayout::Plan columnPlan = {});
   ~CompactTableLayout() = default;
 
   CompactTableLayout(const CompactTableLayout&) = delete;
@@ -77,13 +79,19 @@ class CompactTableLayout final {
 
   struct LineToken {
     uint16_t offset = 0;
-    uint16_t length = 0;
+    uint16_t lengthAndPaint = 0;
     uint16_t width = 0;
     EpdFontFamily::Style style = EpdFontFamily::REGULAR;
     uint8_t flags = 0;
-    bool attachToPrevious = false;
-    uint8_t paint = 0;
+
+    uint16_t length() const { return lengthAndPaint & 0x1FFF; }
+    bool attached() const { return lengthAndPaint & 0x2000; }
+    uint8_t paint() const { return lengthAndPaint >> 8 & 0xC0; }
+    static uint16_t pack(uint16_t length, bool attach, uint8_t paint) {
+      return length | (attach ? 0x2000 : 0) | static_cast<uint16_t>((paint & 0xC0) << 8);
+    }
   };
+  static_assert(MAX_ROW_TEXT_BYTES <= 0x1FFF && sizeof(LineToken) == 8);
 
   static constexpr uint16_t MAX_ROW_TOKENS = 256;
   // Keep enough metadata to flatten a malformed/wide row without retaining a
@@ -99,6 +107,7 @@ class CompactTableLayout final {
   uint16_t lineHeight_;
   uint8_t cellPadding_;
   BlockStyle tableStyle_;
+  TableColumnLayout::Plan columnPlan_;
 
   std::unique_ptr<char[]> buffer_;
   uint16_t bufferCapacity_ = 0;
@@ -122,6 +131,7 @@ class CompactTableLayout final {
   bool flattened_ = false;
   bool fatal_ = false;
   bool allocationFailure_ = false;
+  bool plannedRowEmitted_ = false;
   bool rowActive_ = false;
   bool cellActive_ = false;
   uint8_t fragmentColumnCount_ = 0;

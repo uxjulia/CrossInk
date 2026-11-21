@@ -391,6 +391,15 @@ std::unique_ptr<PageBorderBox> PageBorderBox::deserialize(FsFile& file) {
   return box;
 }
 
+namespace {
+struct LegacyTableFragmentCellFootprint {
+  bool header;
+  uint8_t span;
+  std::vector<std::shared_ptr<TextBlock>> lines;
+};
+static_assert(sizeof(TableFragmentCell) == sizeof(LegacyTableFragmentCellFootprint));
+}  // namespace
+
 bool TableFragmentCell::serialize(Print& file) const {
   if (colSpan == 0 || colSpan > MAX_TABLE_CELLS_PER_ROW || lines.size() > MAX_TABLE_LINES_PER_CELL) {
     LOG_ERR("PTB", "Serialization failed: invalid cell span/line count (span=%u lines=%u)", colSpan,
@@ -398,7 +407,9 @@ bool TableFragmentCell::serialize(Print& file) const {
     return false;
   }
 
-  if (!serialization::tryWritePod(file, isHeader) || !serialization::tryWritePod(file, colSpan) ||
+  if (rightEdge > 2047) return false;
+  const uint16_t geometry = colSpan | (isHeader ? 0x10 : 0) | (rightEdge << 5);
+  if (!serialization::tryWritePod(file, geometry) ||
       !serialization::tryWritePod(file, static_cast<uint8_t>(lines.size()))) {
     LOG_ERR("PTB", "Serialization failed: could not write table cell header");
     return false;
@@ -414,11 +425,14 @@ bool TableFragmentCell::serialize(Print& file) const {
 
 bool TableFragmentCell::deserialize(FsFile& file, TableFragmentCell& outCell) {
   uint8_t lineCount = 0;
-  if (!serialization::tryReadPod(file, outCell.isHeader) || !serialization::tryReadPod(file, outCell.colSpan) ||
-      !serialization::tryReadPod(file, lineCount)) {
+  uint16_t geometry = 0;
+  if (!serialization::tryReadPod(file, geometry) || !serialization::tryReadPod(file, lineCount)) {
     LOG_ERR("PTB", "Deserialization failed: truncated table cell metadata");
     return false;
   }
+  outCell.colSpan = geometry & 0x0F;
+  outCell.isHeader = geometry & 0x10;
+  outCell.rightEdge = geometry >> 5;
   if (outCell.colSpan == 0 || outCell.colSpan > MAX_TABLE_CELLS_PER_ROW || lineCount > MAX_TABLE_LINES_PER_CELL) {
     LOG_ERR("PTB", "Deserialization failed: invalid cell span/line count (span=%u lines=%u)", outCell.colSpan,
             lineCount);
@@ -513,7 +527,7 @@ void PageTableFragment::render(GfxRenderer& renderer, const int fontId, const in
   const int drawY = yPos + yOffset;
   const uint16_t totalHeight = getHeight();
 
-  std::vector<int16_t> columnStarts(columnCount + 1);
+  std::array<int16_t, MAX_TABLE_CELLS_PER_ROW + 1> columnStarts{};
   for (uint8_t i = 0; i < columnCount; i++) {
     columnStarts[i] = static_cast<int16_t>(TableColumnLayout::columnStart(width, columnCount, i));
   }
@@ -534,6 +548,9 @@ void PageTableFragment::render(GfxRenderer& renderer, const int fontId, const in
       const auto& cell = row.cells[colIndex];
       const uint8_t span =
           std::min<uint8_t>(cell.colSpan == 0 ? 1 : cell.colSpan, static_cast<uint8_t>(columnCount - logicalColumn));
+      columnStarts[logicalColumn + span] =
+          cell.rightEdge != 0 ? cell.rightEdge
+                              : TableColumnLayout::columnStart(width, columnCount, logicalColumn + span);
       const int cellTextX = drawX + columnStarts[logicalColumn] + cellPadding;
       const int cellTextY = drawY + currentY + cellPadding;
       const int cellTextWidth = columnStarts[logicalColumn + span] - columnStarts[logicalColumn] - cellPadding * 2;
@@ -652,12 +669,16 @@ bool Page::forEachTextLine(const PageTextLineVisitor visitor, void* context) con
             if (!cell.lines[lineIndex]) return true;
             const uint8_t span = std::min<uint8_t>(cell.colSpan == 0 ? 1 : cell.colSpan,
                                                    static_cast<uint8_t>(fragment.columnCount - logicalColumn));
-            const int cellX = fragment.xPos +
-                              TableColumnLayout::columnStart(fragment.width, fragment.columnCount, logicalColumn) +
-                              fragment.cellPadding;
+            const uint16_t precedingEdge = cellIndex > 0 ? row.cells[cellIndex - 1].rightEdge : 0;
+            const int leftEdge = precedingEdge != 0 ? precedingEdge
+                                                    : TableColumnLayout::columnStart(
+                                                          fragment.width, fragment.columnCount, logicalColumn);
+            const int rightEdge = cell.rightEdge != 0 ? cell.rightEdge
+                                                      : TableColumnLayout::columnStart(
+                                                            fragment.width, fragment.columnCount, logicalColumn + span);
+            const int cellX = fragment.xPos + leftEdge + fragment.cellPadding;
             const int cellY = fragment.yPos + currentY + fragment.cellPadding;
-            const int cellWidth = TableColumnLayout::innerWidth(fragment.width, fragment.columnCount, logicalColumn,
-                                                                span, fragment.cellPadding);
+            const int cellWidth = std::max(0, rightEdge - leftEdge - fragment.cellPadding * 2);
             const int cellHeight = std::max(0, static_cast<int>(row.height) - fragment.cellPadding * 2);
             const int lineY = cellY + static_cast<int>(lineIndex) * fragment.lineHeight;
             const PageTextLine line{cell.lines[lineIndex].get(),
@@ -729,6 +750,20 @@ std::unique_ptr<PageTableFragment> PageTableFragment::deserialize(FsFile& file) 
     TableFragmentRow row;
     if (!TableFragmentRow::deserialize(file, row)) {
       return nullptr;
+    }
+    if (!row.cells.empty() && row.cells.front().rightEdge != 0) {
+      uint16_t before = 0;
+      uint16_t spans = 0;
+      for (const auto& cell : row.cells) {
+        if (cell.rightEdge > width || cell.rightEdge <= before + 2 * cellPadding) return nullptr;
+        before = cell.rightEdge;
+        spans += cell.colSpan;
+      }
+      if (before != width || spans != columnCount) return nullptr;
+    } else {
+      for (const auto& cell : row.cells) {
+        if (cell.rightEdge != 0) return nullptr;
+      }
     }
     rows.push_back(std::move(row));
   }
