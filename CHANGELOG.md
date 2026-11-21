@@ -106,6 +106,7 @@
 - Hide tilt controls when the sensor cannot support page turning or fails its startup check, while keeping saved preferences (CrossPoint 8fc2b66 and #4078).
 - Make EPUB highlight handles easier to grab and drag across lines on touch readers.
 - Reduce repeated SD card reads when indexing EPUBs with ruled lines and a custom reader font.
+- Dither EPUB illustrations only after resizing, with separate output for Gray and B&W (including Night Mode).
 
 ## [v1.6.1] - 2026-10-03
 

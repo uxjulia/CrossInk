@@ -821,7 +821,7 @@ void Page::renderImagesWithPlaceholders(GfxRenderer& renderer, const int fontId,
       continue;
     }
     auto& pageImage = static_cast<PageImage&>(*element);
-    if (!renderCachedImages || pageImage.getImageBlock().needsDecode()) {
+    if (!renderCachedImages || pageImage.getImageBlock().needsDecode(imageGrayscale && !renderer.isDisplayInverted())) {
       pageImage.renderPlaceholder(renderer, xOffset, yOffset, foregroundBlack);
     } else {
       pageImage.render(renderer, fontId, xOffset, yOffset, foregroundBlack, imageGrayscale);
@@ -1046,10 +1046,10 @@ std::unique_ptr<Page> Page::deserialize(FsFile& file) {
   return page;
 }
 
-void Page::prepareImageCaches() const {
+void Page::prepareImageCaches(const bool grayscale) const {
   for (const auto& element : elements) {
     if (element->getTag() == TAG_PageImage) {
-      static_cast<const PageImage&>(*element).getImageBlock().prepareCache();
+      static_cast<const PageImage&>(*element).getImageBlock().prepareCache(grayscale);
     }
   }
 }

@@ -8058,7 +8058,8 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
   if (deferImageLoading) {
     needsImageGrayscale = false;
   }
-  const bool pageHasImagesNeedingDecode = !deferImageLoading && pageHasImages && page->hasImagesNeedingDecode();
+  const bool pageHasImagesNeedingDecode =
+      !deferImageLoading && pageHasImages && page->hasImagesNeedingDecode(needsImageGrayscale);
 
   if (updatePanel) {
     // First-page glyph and image checks can be slower than opening the book.
@@ -8121,7 +8122,7 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
     // materialization. The loan can overwrite the framebuffer, so rebuild
     // the complete page after returning it; the panel keeps the preview.
     GfxRenderer::FrameBufferLoan loan(renderer);
-    page->prepareImageCaches();
+    page->prepareImageCaches(needsImageGrayscale);
     loan.end();
     renderer.clearScreen(ReaderUtils::readerBackgroundColor());
   }
@@ -8187,6 +8188,12 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
   }
   const auto displayMonochromePage = [&]() {
     renderer.setRenderMode(GfxRenderer::BW);
+    // An optimizer Gray hit may never have extracted the original. Let ZIP
+    // inflation borrow the framebuffer before drawing the monochrome fallback.
+    if (pageHasImages) {
+      GfxRenderer::FrameBufferLoan loan(renderer);
+      page->prepareImageCaches(/*grayscale=*/false);
+    }
     renderer.clearScreen(ReaderUtils::readerBackgroundColor());
     drawTextAndRules();
     page->renderImages(renderer, fontId, orientedMarginLeft, orientedMarginTop, foregroundBlack, false);
@@ -8327,6 +8334,7 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
   const bool canApplyGrayscale = needsAnyGrayscale && storedBwBuffer;
   if (needsAnyGrayscale && !storedBwBuffer) {
     LOG_ERR("ERS", "Skipping grayscale enhancement: failed to store BW backup");
+    if (needsImageGrayscale) return displayMonochromePage();
     // A combined driver has not painted this page yet. Complete its B/W fallback
     // while the live framebuffer still contains the intact page.
     renderer.cleanupGrayscaleWithFrameBuffer();
@@ -9101,7 +9109,7 @@ bool EpubReaderActivity::drawCurrentPageToBuffer(const std::string& filePath, Gf
         [](void* context, const char* source, int width, int height, const char* destination) {
           return static_cast<Epub*>(context)->seedOptimizerImageCache(source, width, height, destination);
         });
-    page->prepareImageCaches();
+    page->prepareImageCaches(/*grayscale=*/false);
     ImageBlock::setExtractor(nullptr, nullptr, nullptr);
   }
   renderer.clearScreen(ReaderUtils::readerBackgroundColor());
@@ -9109,7 +9117,8 @@ bool EpubReaderActivity::drawCurrentPageToBuffer(const std::string& filePath, Gf
   ReaderRuling{SETTINGS.ruledLines, layout.marginLeft, layout.viewportWidth, layout.marginTop + layout.viewportHeight,
                SETTINGS.lineHeightPercent}
       .drawPage(renderer, *page, renderFontId, layout.marginTop);
-  page->renderImages(renderer, renderFontId, layout.marginLeft, layout.marginTop, ReaderUtils::readerForegroundBlack());
+  page->renderImages(renderer, renderFontId, layout.marginLeft, layout.marginTop, ReaderUtils::readerForegroundBlack(),
+                     false);
   drawPublisherPageMarkers(renderer, *page, layout.marginTop, renderer.getScreenHeight() - layout.marginBottom,
                            ReaderUtils::readerForegroundBlack());
   // No displayBuffer call; caller (SleepActivity) handles that after compositing the overlay.

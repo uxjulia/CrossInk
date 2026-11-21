@@ -65,7 +65,7 @@ void renderCanvasRow(const uint8_t* grayRow, int srcY, GifContext& ctx) {
   if (endDstY > ctx.dstHeight) endDstY = ctx.dstHeight;
 
   DirectPixelWriter pw;
-  pw.init(*ctx.renderer, ctx.config->useGrayscale);
+  pw.init(*ctx.renderer, ctx.config->useGrayscale, ctx.config->finalMonochrome);
 
   for (int dstY = firstDstY; dstY < endDstY; ++dstY) {
     ctx.lastDstY = dstY;
@@ -95,13 +95,9 @@ void renderCanvasRow(const uint8_t* grayRow, int srcY, GifContext& ctx) {
       const int outX = outXBase + dstX;
       if (outX >= 0 && outX < ctx.screenWidth) {
         const uint8_t gray = grayRow[srcX];
-        uint8_t ditheredGray;
-        if (useDithering) {
-          ditheredGray = applyBayerDither4Level(gray, outX, outY);
-        } else {
-          ditheredGray = gray / 85;
-          if (ditheredGray > 3) ditheredGray = 3;
-        }
+        const uint8_t ditheredGray = ctx.config->finalMonochrome ? quantizeGrayToMono(gray, dstX, dstY, useDithering)
+                                     : useDithering              ? applyBayerDither4Level(gray, outX, outY)
+                                                                 : gray / 85;
         pw.writePixel(outX, ditheredGray);
         if (caching) cw.writePixel(outX, ditheredGray);
       }

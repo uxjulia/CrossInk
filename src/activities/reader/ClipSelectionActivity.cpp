@@ -586,14 +586,14 @@ bool ClipSelectionActivity::switchToPage(const int pageIdx) {
 
   if (page->hasImages()) {
     GfxRenderer::FrameBufferLoan loan(renderer);
-    page->prepareImageCaches();
+    page->prepareImageCaches(/*grayscale=*/false);
   }
 
   const auto drawPage = [&]() {
     renderer.clearScreen(ReaderUtils::readerBackgroundColor());
     page->renderText(renderer, renderFontId, marginLeft, marginTop, ReaderUtils::readerForegroundBlack());
     ReaderRuling::drawSelectionPage(renderer, *page, renderFontId, marginLeft, marginTop);
-    page->renderImages(renderer, renderFontId, marginLeft, marginTop, ReaderUtils::readerForegroundBlack());
+    page->renderImages(renderer, renderFontId, marginLeft, marginTop, ReaderUtils::readerForegroundBlack(), false);
   };
   if (auto* fcm = renderer.getFontCacheManager()) {
     bool renderWithFallback = false;

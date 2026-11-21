@@ -200,24 +200,38 @@ TEST_F(RetainedPxcCacheTest, RetentionLeavesPsramForTheNextJpegDecoder) {
 TEST_F(RetainedPxcCacheTest, RegeneratingTheSamePathInvalidatesRetainedPixels) {
   constexpr int width = 200;
   constexpr int height = 120;
-  Storage.put("image_v2.pxc", cache(width, height, 0));
+  Storage.put("image_gray_v4.pxc", cache(width, height, 0));
   GfxRenderer renderer(800, 480);
   renderer.orientation = GfxRenderer::LandscapeCounterClockwise;
-  render(renderer, "image_v2.pxc", width, height);
+  render(renderer, "image_gray_v4.pxc", width, height);
   const auto stalePixels = renderer.bw;
 
-  Storage.remove("image_v2.pxc");
+  Storage.remove("image_gray_v4.pxc");
   SeedContext seed{.bytes = cache(width, height, 1)};
   ImageBlock::setExtractor(&seed, nullptr, seedCache);
   ImageBlock image("image.jpg", "source.jpg", width, height);
-  image.prepareCache();
+  image.prepareCache(true);
   ASSERT_EQ(seed.calls, 1);
 
-  const size_t bytesBeforeReload = Storage.data("image_v2.pxc").readBytes;
-  render(renderer, "image_v2.pxc", width, height);
+  const size_t bytesBeforeReload = Storage.data("image_gray_v4.pxc").readBytes;
+  render(renderer, "image_gray_v4.pxc", width, height);
   EXPECT_NE(renderer.bw, stalePixels);
-  EXPECT_EQ(Storage.data("image_v2.pxc").readBytes - bytesBeforeReload,
+  EXPECT_EQ(Storage.data("image_gray_v4.pxc").readBytes - bytesBeforeReload,
             4u + static_cast<size_t>((width + 3) / 4) * height);
+}
+
+TEST_F(RetainedPxcCacheTest, MonochromePreflightNeverSeedsGrayOptimizerPixels) {
+  SeedContext seed{.bytes = cache(20, 20, 1)};
+  ImageBlock::setExtractor(&seed, nullptr, seedCache);
+  ImageBlock image("image.png", "source.png", 20, 20);
+  image.prepareCache(false);
+  EXPECT_EQ(seed.calls, 0);
+  EXPECT_TRUE(image.needsDecode(false));
+  EXPECT_FALSE(Storage.exists("image_mono_v1.pxc"));
+  image.prepareCache(true);
+  EXPECT_EQ(seed.calls, 1);
+  EXPECT_FALSE(image.needsDecode(true));
+  EXPECT_TRUE(image.needsDecode(false));
 }
 
 TEST_F(RetainedPxcCacheTest, ChangedDimensionsBypassThePreviousPathEntry) {
@@ -277,7 +291,7 @@ TEST_F(RetainedPxcCacheTest, MemoryImageSourceAvoidsTemporarySdFile) {
   testDecoder = &decoder;
   ImageBlock::setExtractor(&context, extractSource, nullptr, loadSource);
   ImageBlock block("source.jpg", "chapter/image.jpg", 20, 20);
-  block.prepareCache();
+  block.prepareCache(true);
   EXPECT_EQ(context.extracted, 0);
   GfxRenderer renderer;
   block.render(renderer, 0, 0, true);
@@ -294,7 +308,7 @@ TEST_F(RetainedPxcCacheTest, MemoryImageFailureFallsBackToSdExtraction) {
   testDecoder = &decoder;
   ImageBlock::setExtractor(&context, extractSource, nullptr, loadSource);
   ImageBlock block("source.png", "chapter/image.png", 20, 20);
-  block.prepareCache();
+  block.prepareCache(true);
   GfxRenderer renderer;
   block.render(renderer, 0, 0, true);
   EXPECT_EQ(context.loaded, 1);

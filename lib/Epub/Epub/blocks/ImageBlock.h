@@ -16,9 +16,9 @@ class ImageBlock final : public Block {
   int16_t getWidth() const { return width; }
   int16_t getHeight() const { return height; }
 
-  void prepareCache() const;
-  bool hasValidCache() const;
-  bool needsDecode() const;
+  void prepareCache(bool grayscale) const;
+  bool hasValidCache(bool grayscale) const;
+  bool needsDecode(bool grayscale) const;
   void renderPlaceholder(GfxRenderer& renderer, int x, int y, bool foregroundBlack) const;
   static void clearSessionRenderFailures();
   static void releaseSessionPixelCache();

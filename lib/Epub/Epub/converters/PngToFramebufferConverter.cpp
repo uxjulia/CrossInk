@@ -215,7 +215,7 @@ void mappedPngRow(void* user, int dstY, const uint8_t* levels, int width) {
   auto* ctx = static_cast<PngContext*>(user);
   const int outY = ctx->config->y + dstY;
   DirectPixelWriter pw;
-  pw.init(*ctx->renderer, ctx->config->useGrayscale);
+  pw.init(*ctx->renderer, ctx->config->useGrayscale, ctx->config->finalMonochrome);
   pw.beginRow(outY);
   DirectCacheWriter cw;
   if (ctx->caching) {
@@ -228,11 +228,12 @@ void mappedPngRow(void* user, int dstY, const uint8_t* levels, int width) {
   }
   for (int x = 0; x < width; ++x) {
     const int outX = ctx->config->x + x;
+    const uint8_t value = ctx->config->finalMonochrome ? levels[x] * 3 : levels[x];
     if (outX >= 0 && outX < ctx->screenWidth && outY >= 0 && outY < ctx->screenHeight) {
-      pw.writePixel(outX, levels[x]);
+      pw.writePixel(outX, value);
     }
     // Cache all image pixels even when the live framebuffer clips the row.
-    if (ctx->caching) cw.writePixel(outX, levels[x]);
+    if (ctx->caching) cw.writePixel(outX, value);
   }
 }
 
@@ -286,7 +287,7 @@ int pngDrawCallback(PNGDRAW* pDraw) {
 
   // Pre-compute orientation and render-mode state once per callback.
   DirectPixelWriter pw;
-  pw.init(*ctx->renderer, ctx->config->useGrayscale);
+  pw.init(*ctx->renderer, ctx->config->useGrayscale, ctx->config->finalMonochrome);
 
   for (int dstY = firstDstY; dstY < endDstY; dstY++) {
     ctx->lastDstY = dstY;
@@ -319,12 +320,9 @@ int pngDrawCallback(PNGDRAW* pDraw) {
       if (outX >= 0 && outX < screenWidth) {
         uint8_t gray = ctx->grayLineBuffer[srcX];
 
-        uint8_t ditheredGray;
-        if (useDithering) {
-          ditheredGray = applyBayerDither4Level(gray, outX, outY);
-        } else {
-          ditheredGray = quantizeGrayTo4Level(gray);
-        }
+        const uint8_t ditheredGray = ctx->config->finalMonochrome ? quantizeGrayToMono(gray, dstX, dstY, useDithering)
+                                     : useDithering               ? applyBayerDither4Level(gray, outX, outY)
+                                                                  : quantizeGrayTo4Level(gray);
         pw.writePixel(outX, ditheredGray);
         if (caching) cw.writePixel(outX, ditheredGray);
       }
@@ -501,7 +499,8 @@ bool PngToFramebufferConverter::decodeToFramebuffer(const std::string& imagePath
   if (PngToneMapperPolicy::mayMap(config.useDithering, renderer.getRenderMode() == GfxRenderer::BW, ctx.caching) &&
       PngToneMapperPolicy::admits(ctx.srcWidth, ctx.srcHeight, ctx.dstWidth, ctx.dstHeight, heap.freeHeap,
                                   heap.maxAllocHeap)) {
-    if (toneMapper.begin(ctx.srcWidth, ctx.srcHeight, ctx.dstWidth, ctx.dstHeight, 4, mappedPngRow, &ctx)) {
+    if (toneMapper.begin(ctx.srcWidth, ctx.srcHeight, ctx.dstWidth, ctx.dstHeight, config.finalMonochrome ? 2 : 4,
+                         mappedPngRow, &ctx)) {
       ctx.toneMapper = &toneMapper;
     } else {
       LOG_ERR("PNG", "Tone mapper OOM; using nearest-neighbor scaling");
