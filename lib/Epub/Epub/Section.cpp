@@ -26,11 +26,11 @@
 namespace {
 constexpr uint32_t SECTION_CACHE_MAGIC = 0x535843FF;  // bytes: 0xFF, "CXS"
 
-constexpr uint8_t SECTION_FILE_VERSION = 121;
+constexpr uint8_t SECTION_FILE_VERSION = 122;
 // Suspended incremental build: valid pages plus LUTs and a parse-watermark trailer.
 // Change this with layout or payload changes so stale partial pages cannot resume
 // under a different layout contract.
-constexpr uint8_t SECTION_FILE_PARTIAL_VERSION = 0xEA;
+constexpr uint8_t SECTION_FILE_PARTIAL_VERSION = 0xEB;
 constexpr uint32_t SHAPING_STAMP_MAGIC = 0x31524853;  // "SHR1"
 constexpr uint32_t SHAPING_STAMP_BYTES = 7 * sizeof(uint32_t);
 

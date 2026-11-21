@@ -7,7 +7,6 @@
 
 #include <algorithm>
 #include <cstring>
-#include <iterator>
 #include <new>
 #include <string>
 
@@ -234,8 +233,9 @@ TextBlock::SourceRange CompactTableLayout::sourceRange(const uint16_t offset, co
 
 bool CompactTableLayout::emitLine(std::array<LineToken, MAX_ROW_TOKENS>& line, const uint16_t lineCount,
                                   const uint16_t lineWidth, const uint16_t maxWidth, const BlockStyle& style,
-                                  TableFragmentCell& output) {
+                                  const LineOutput& output) {
   if (lineCount == 0) return true;
+  if (output.grid && output.grid->lines.size() >= MAX_LINES_PER_CELL) return false;
 
   std::vector<TextBlock::SourceRange> sources;
   sources.reserve(lineCount);
@@ -316,15 +316,16 @@ bool CompactTableLayout::emitLine(std::array<LineToken, MAX_ROW_TOKENS>& line, c
     allocationFailure_ = true;
     return false;
   }
-  output.lines.emplace_back(std::move(owned));
-  return output.lines.size() <= TableFragmentCell::MAX_SERIALIZED_LINES;
+  if (output.paragraph) return output.paragraph(output.context, std::move(owned), output.visibleOffset);
+  output.grid->lines.emplace_back(std::move(owned));
+  return true;
 }
 
 bool CompactTableLayout::appendLineToken(std::array<LineToken, MAX_ROW_TOKENS>& line, uint16_t& lineCount,
                                          uint16_t& lineWidth, const uint16_t maxWidth, const uint16_t offset,
                                          const uint16_t length, const EpdFontFamily::Style style, const uint8_t flags,
                                          const bool attachToPrevious, const uint8_t paint, bool& emittedAny,
-                                         const BlockStyle& cellStyle, TableFragmentCell& output) {
+                                         const BlockStyle& cellStyle, const LineOutput& output) {
   const uint16_t width = measure(offset, length, style);
   const int gap = lineCount > 0 ? gapBefore(line[lineCount - 1], offset, style, attachToPrevious) : 0;
   if (lineCount > 0 && static_cast<int>(lineWidth) + gap + width > maxWidth) {
@@ -339,7 +340,7 @@ bool CompactTableLayout::appendLineToken(std::array<LineToken, MAX_ROW_TOKENS>& 
   return true;
 }
 
-bool CompactTableLayout::wrapCell(const Cell& cell, const uint16_t maxWidth, TableFragmentCell& output) {
+bool CompactTableLayout::wrapCell(const Cell& cell, const uint16_t maxWidth, const LineOutput& output) {
   if (maxWidth < 1) return false;
   auto& line = lineScratch_;
   uint16_t lineCount = 0;
@@ -421,22 +422,21 @@ bool CompactTableLayout::wrapCell(const Cell& cell, const uint16_t maxWidth, Tab
   }
 
   if (!flush()) return false;
-  return output.lines.size() <= MAX_LINES_PER_CELL;
+  return true;
 }
 
-bool CompactTableLayout::flattenCell(const Cell& cell, std::vector<std::shared_ptr<TextBlock>>& output) {
-  TableFragmentCell flattened;
-  if (!wrapCell(cell, static_cast<uint16_t>(tableWidth() > cellPadding_ * 2 ? tableWidth() - cellPadding_ * 2 : 1),
-                flattened)) {
-    return false;
+bool CompactTableLayout::visitCapturedParagraphs(const ParagraphVisitor visitor, void* context) {
+  if (!visitor || fatal_ || !rowActive_ || cellActive_) return false;
+  const uint16_t width = static_cast<uint16_t>(tableWidth() > cellPadding_ * 2 ? tableWidth() - cellPadding_ * 2 : 1);
+  for (uint8_t i = 0; i < cellCount_; ++i) {
+    const auto& cell = cells_[i];
+    if (!wrapCell(cell, width, {nullptr, visitor, context, cell.visibleTextOffset})) return false;
   }
-  output.insert(output.end(), std::make_move_iterator(flattened.lines.begin()),
-                std::make_move_iterator(flattened.lines.end()));
+  rowActive_ = false;
   return true;
 }
 
 CompactTableLayout::RowResult CompactTableLayout::finishRowInternal(const bool forceFlatten, TableFragmentRow& gridRow,
-                                                                    std::vector<std::shared_ptr<TextBlock>>& flatLines,
                                                                     std::vector<FootnoteEntry>& footnotes,
                                                                     uint32_t& visibleTextOffset) {
   if (fatal_ || !rowActive_ || cellActive_) return RowResult::Abort;
@@ -449,9 +449,6 @@ CompactTableLayout::RowResult CompactTableLayout::finishRowInternal(const bool f
   }
 
   if (flatten) {
-    for (uint8_t i = 0; i < cellCount_; ++i) {
-      if (!flattenCell(cells_[i], flatLines)) return RowResult::Abort;
-    }
     flattened_ = true;
   } else {
     if (columnCount_ == 0) {
@@ -461,24 +458,23 @@ CompactTableLayout::RowResult CompactTableLayout::finishRowInternal(const bool f
     bool validGrid = fullWidth || effectiveColumnCount_ == columnCount_;
     if (!validGrid || columnCount_ == 0 || columnCount_ > MAX_COLUMNS) {
       unsupported_ = true;
-      return finishRowInternal(true, gridRow, flatLines, footnotes, visibleTextOffset);
+      return finishRowInternal(true, gridRow, footnotes, visibleTextOffset);
     }
 
     const bool planned = !fullWidth && columnCount_ == columnPlan_.count;
     const auto fallback = [&] {
       // Release the partially wrapped cells before rewrapping the same tokens.
       gridRow.cells.clear();
-      flatLines.clear();
       if (planned && !plannedRowEmitted_) {
         // No planned row is visible yet, so keep the old widths for the
         // entire table rather than taking a new and premature fallback.
         columnPlan_ = {};
-        return finishRowInternal(false, gridRow, flatLines, footnotes, visibleTextOffset);
+        return finishRowInternal(false, gridRow, footnotes, visibleTextOffset);
       }
-      const auto result = finishRowInternal(true, gridRow, flatLines, footnotes, visibleTextOffset);
-      if (planned && result == RowResult::Flatten) {
-        // Earlier fragments used the plan. Keep those widths and flatten only
-        // this overheight/ineligible row, not the rest of the table.
+      const auto result = finishRowInternal(true, gridRow, footnotes, visibleTextOffset);
+      if (result == RowResult::Flatten) {
+        // This row alone could not fit. The established column geometry is
+        // still usable by subsequent rows, including in the equal grid.
         flattened_ = false;
         return RowResult::FlattenRow;
       }
@@ -506,7 +502,7 @@ CompactTableLayout::RowResult CompactTableLayout::finishRowInternal(const bool f
       }
       hasHeader = hasHeader || cells_[i].isHeader;
       hasData = hasData || !cells_[i].isHeader;
-      if (!wrapCell(cells_[i], innerWidthForSpan(columnCount_, logicalColumn, destination.colSpan), destination)) {
+      if (!wrapCell(cells_[i], innerWidthForSpan(columnCount_, logicalColumn, destination.colSpan), {&destination})) {
         if (allocationFailure_) return RowResult::Abort;
         return fallback();
       }
@@ -525,18 +521,15 @@ CompactTableLayout::RowResult CompactTableLayout::finishRowInternal(const bool f
     gridRow.headerSeparator = hasHeader && !hasData;
   }
 
-  rowActive_ = false;
+  rowActive_ = flatten;
   cellActive_ = false;
   return flatten ? RowResult::Flatten : RowResult::Ok;
 }
 
 CompactTableLayout::RowResult CompactTableLayout::finishRow(TableFragmentRow& gridRow,
-                                                            std::vector<std::shared_ptr<TextBlock>>& flatLines,
                                                             std::vector<FootnoteEntry>& footnotes,
                                                             uint32_t& visibleTextOffset) {
-  flatLines.clear();
-  const RowResult result =
-      finishRowInternal(unsupported_ || flattened_, gridRow, flatLines, footnotes, visibleTextOffset);
+  const RowResult result = finishRowInternal(unsupported_ || flattened_, gridRow, footnotes, visibleTextOffset);
   if (result == RowResult::Abort) {
     fatal_ = true;
     LOG_ERR("EHP", "Compact table row layout failed");

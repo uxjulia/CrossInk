@@ -287,6 +287,8 @@ class ChapterHtmlSlimParser {
   bool compactTableFlattened = false;
   bool compactTableUnsupported = false;
   bool compactTableTopSpacingApplied = false;
+  bool compactTableParagraphFallback = false;
+  int compactTableFallbackBottomSpacing = 0;
   uint8_t compactFragmentColumnCount = 0;
   uint16_t compactFragmentHeight = 1;
   uint32_t compactFragmentVisibleOffset = 0;
@@ -372,9 +374,11 @@ class ChapterHtmlSlimParser {
   void emitStreamingTableRowsAsParagraphs(BufferedTable& table);
   void finishStreamingTable(BufferedTable& table);
   bool flushCompactTableFragment();
-  bool emitCompactTableRow(TableFragmentRow& row, std::vector<std::shared_ptr<TextBlock>>& flatLines,
-                           const std::vector<FootnoteEntry>& footnotes, uint32_t visibleTextOffset,
-                           uint8_t fragmentColumnCount, bool flatten);
+  bool emitCompactTableRow(TableFragmentRow& row, const std::vector<FootnoteEntry>& footnotes,
+                           uint32_t visibleTextOffset, uint8_t fragmentColumnCount, bool flatten);
+  bool emitCompactTableParagraphLine(const std::shared_ptr<TextBlock>& line, uint32_t visibleOffset);
+  bool streamCapturedTableParagraphs();
+  bool startCompactTableParagraphFallback(const BlockStyle& cellStyle);
   void finishCompactTable();
   void fallbackStreamingTableToParagraphs(const char* reason);
   void emitCurrentTableBuffer();

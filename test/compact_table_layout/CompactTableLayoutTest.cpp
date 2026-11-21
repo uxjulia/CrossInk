@@ -7,6 +7,7 @@
 #include "CompactTableLayout.h"
 #include "GfxRenderer.h"
 #include "TableColumnLayout.h"
+#include "TableLayoutPolicy.h"
 #include "TableTextLineOrder.h"
 
 namespace {
@@ -24,6 +25,34 @@ BlockStyle leftStyle() {
   style.alignment = CssTextAlign::Left;
   style.isRtl = false;
   return style;
+}
+
+CompactTableLayout::RowResult finishAndDrain(CompactTableLayout& layout, TableFragmentRow& row,
+                                             std::vector<std::shared_ptr<TextBlock>>& flat,
+                                             std::vector<FootnoteEntry>& notes, uint32_t& offset) {
+  flat.clear();
+  using Result = CompactTableLayout::RowResult;
+  const auto result = layout.finishRow(row, notes, offset);
+  if (result == Result::Flatten || result == Result::FlattenRow) {
+    if (!layout.visitCapturedParagraphs(
+            [](void* context, std::shared_ptr<TextBlock> line, uint32_t) {
+              static_cast<std::vector<std::shared_ptr<TextBlock>>*>(context)->push_back(std::move(line));
+              return true;
+            },
+            &flat)) {
+      return Result::Abort;
+    }
+  }
+  return result;
+}
+
+TEST(CompactTableLayoutTest, C3AlwaysUsesCompactButOtherTargetsKeepBothHeapGates) {
+  constexpr unsigned KiB = 1024;
+  EXPECT_TRUE(TableLayoutPolicy::useCompact(true, 150 * KiB, 120 * KiB));
+  EXPECT_TRUE(TableLayoutPolicy::useCompact(true, 85 * KiB, 49 * KiB));
+  EXPECT_FALSE(TableLayoutPolicy::useCompact(false, 96 * KiB, 56 * KiB));
+  EXPECT_TRUE(TableLayoutPolicy::useCompact(false, 96 * KiB - 1, 56 * KiB));
+  EXPECT_TRUE(TableLayoutPolicy::useCompact(false, 96 * KiB, 56 * KiB - 1));
 }
 
 TEST(CompactTableLayoutTest, SourceFixtureModelsLargeAndUnsupportedTables) {
@@ -124,7 +153,7 @@ TEST(CompactTableLayoutTest, PlannedGeometryCarriesThroughSpanningAndUnspannedRo
     std::vector<std::shared_ptr<TextBlock>> flattened;
     std::vector<FootnoteEntry> notes;
     uint32_t offset = 0;
-    ASSERT_EQ(layout.finishRow(row, flattened, notes, offset), CompactTableLayout::RowResult::Ok);
+    ASSERT_EQ(finishAndDrain(layout, row, flattened, notes, offset), CompactTableLayout::RowResult::Ok);
     ASSERT_EQ(row.cells.size(), cols);
     EXPECT_EQ(row.cells.front().rightEdge, merged ? 122 : 82);
     EXPECT_EQ(row.cells.front().colSpan, merged ? 2 : 1);
@@ -148,7 +177,7 @@ TEST(CompactTableLayoutTest, TallRowTriesLegacyBeforePublishOrFlattensOnlyItself
     }
     std::vector<FootnoteEntry> notes;
     uint32_t offset = 0;
-    return layout.finishRow(row, flat, notes, offset);
+    return finishAndDrain(layout, row, flat, notes, offset);
   };
   TableFragmentRow row;
   std::vector<std::shared_ptr<TextBlock>> flat;
@@ -167,6 +196,47 @@ TEST(CompactTableLayoutTest, TallRowTriesLegacyBeforePublishOrFlattensOnlyItself
   ASSERT_EQ(emit(laterTall, false, row, flat), CompactTableLayout::RowResult::Ok);
   EXPECT_EQ(row.cells.front().rightEdge, 120);
   EXPECT_TRUE(flat.empty());
+
+  CompactTableLayout equal(renderer, 0, 270, 96, 16, 4, leftStyle());
+  ASSERT_EQ(emit(equal, false, row, flat), CompactTableLayout::RowResult::Ok);
+  ASSERT_EQ(emit(equal, true, row, flat), CompactTableLayout::RowResult::Ok);
+  // Use a narrower viewport so a long row also exercises row-local fallback
+  // in a table whose prepass did not produce a proportional plan.
+  CompactTableLayout narrow(renderer, 0, 84, 96, 16, 4, leftStyle());
+  ASSERT_EQ(emit(narrow, false, row, flat), CompactTableLayout::RowResult::Ok);
+  ASSERT_EQ(emit(narrow, true, row, flat), CompactTableLayout::RowResult::FlattenRow);
+  EXPECT_FALSE(flat.empty());
+  EXPECT_FALSE(narrow.flattened());
+  ASSERT_EQ(emit(narrow, false, row, flat), CompactTableLayout::RowResult::Ok);
+  EXPECT_TRUE(flat.empty());
+}
+
+TEST(CompactTableLayoutTest, OversizedCapturePrefixStreamsMoreThanOneGridCellsLineLimit) {
+  GfxRenderer renderer;
+  CompactTableLayout layout(renderer, 0, 60, 96, 16, 4, leftStyle());
+  ASSERT_TRUE(layout.beginRow());
+  ASSERT_TRUE(layout.beginCell(false, 1, 42, leftStyle()));
+  for (int i = 0; i < 160; ++i) {
+    ASSERT_TRUE(layout.appendWord("abcdefghijklmnopqrst", EpdFontFamily::REGULAR, false, false, 0));
+  }
+  ASSERT_TRUE(layout.endCell({}));
+  TableFragmentRow row;
+  std::vector<FootnoteEntry> notes;
+  uint32_t offset = 0;
+  ASSERT_EQ(layout.finishRow(row, notes, offset), CompactTableLayout::RowResult::FlattenRow);
+  EXPECT_TRUE(layout.hasActiveRow());
+  unsigned lines = 0;
+  ASSERT_TRUE(layout.visitCapturedParagraphs(
+      [](void* context, std::shared_ptr<TextBlock> line, uint32_t offset) {
+        EXPECT_NE(line, nullptr);
+        EXPECT_EQ(offset, 42u);
+        ++*static_cast<unsigned*>(context);
+        return true;
+      },
+      &lines));
+  EXPECT_GT(lines, 64u);
+  EXPECT_FALSE(layout.hasActiveRow());
+  EXPECT_TRUE(layout.beginRow());
 }
 
 TEST(CompactTableLayoutTest, WideLeadingColumnKeepsEightColumnTableLabelsReadable) {
@@ -217,7 +287,7 @@ TEST(CompactTableLayoutTest, CharacterSpacingCrossesAttachedStyleBoundaries) {
       std::vector<std::shared_ptr<TextBlock>> flattened;
       std::vector<FootnoteEntry> notes;
       uint32_t offset = 0;
-      ASSERT_EQ(layout.finishRow(row, flattened, notes, offset), CompactTableLayout::RowResult::Ok);
+      ASSERT_EQ(finishAndDrain(layout, row, flattened, notes, offset), CompactTableLayout::RowResult::Ok);
       ASSERT_EQ(row.cells.size(), 1u);
       ASSERT_EQ(row.cells[0].lines.size(), 1u);
       const auto& positions = row.cells[0].lines[0]->xPositions;
@@ -243,7 +313,7 @@ TEST(CompactTableLayoutTest, CompactLayoutUsesWideLeadingColumnForEightCellRows)
   std::vector<std::shared_ptr<TextBlock>> flatLines;
   std::vector<FootnoteEntry> footnotes;
   uint32_t offset = 0;
-  ASSERT_EQ(layout.finishRow(row, flatLines, footnotes, offset), CompactTableLayout::RowResult::Ok);
+  ASSERT_EQ(finishAndDrain(layout, row, flatLines, footnotes, offset), CompactTableLayout::RowResult::Ok);
   ASSERT_EQ(row.cells.size(), 8u);
   EXPECT_EQ(row.cells.front().lines.size(), 1u);
 }
@@ -261,7 +331,7 @@ TEST(CompactTableLayoutTest, PreservesColspanAndFullWidthRows) {
   std::vector<std::shared_ptr<TextBlock>> flatLines;
   std::vector<FootnoteEntry> footnotes;
   uint32_t offset = 0;
-  const auto result = layout.finishRow(row, flatLines, footnotes, offset);
+  const auto result = finishAndDrain(layout, row, flatLines, footnotes, offset);
 
   EXPECT_EQ(result, CompactTableLayout::RowResult::Ok);
   ASSERT_EQ(row.cells.size(), 1u);
@@ -282,7 +352,7 @@ TEST(CompactTableLayoutTest, BreaksUtf8AndOversizedCodepointsWithoutAbort) {
   std::vector<std::shared_ptr<TextBlock>> flatLines;
   std::vector<FootnoteEntry> footnotes;
   uint32_t offset = 0;
-  EXPECT_EQ(layout.finishRow(row, flatLines, footnotes, offset), CompactTableLayout::RowResult::Ok);
+  EXPECT_EQ(finishAndDrain(layout, row, flatLines, footnotes, offset), CompactTableLayout::RowResult::Ok);
   ASSERT_EQ(row.cells.size(), 1u);
   EXPECT_GE(row.cells.front().lines.size(), 2u);
 
@@ -294,7 +364,7 @@ TEST(CompactTableLayoutTest, BreaksUtf8AndOversizedCodepointsWithoutAbort) {
   row = {};
   flatLines.clear();
   footnotes.clear();
-  const auto oversizedResult = layout.finishRow(row, flatLines, footnotes, offset);
+  const auto oversizedResult = finishAndDrain(layout, row, flatLines, footnotes, offset);
   EXPECT_NE(oversizedResult, CompactTableLayout::RowResult::Abort);
   ASSERT_EQ(row.cells.size(), 1u);
   ASSERT_EQ(row.cells.front().lines.size(), 1u);
@@ -313,7 +383,7 @@ TEST(CompactTableLayoutTest, UnsupportedRowsFlattenDeterministically) {
   std::vector<std::shared_ptr<TextBlock>> flatLines;
   std::vector<FootnoteEntry> footnotes;
   uint32_t offset = 0;
-  EXPECT_EQ(layout.finishRow(row, flatLines, footnotes, offset), CompactTableLayout::RowResult::Flatten);
+  EXPECT_EQ(finishAndDrain(layout, row, flatLines, footnotes, offset), CompactTableLayout::RowResult::Flatten);
   EXPECT_FALSE(flatLines.empty());
 }
 
@@ -331,7 +401,7 @@ TEST(CompactTableLayoutTest, SourceRangesSurviveEmergencyUtf8Wrapping) {
   std::vector<std::shared_ptr<TextBlock>> flat;
   std::vector<FootnoteEntry> notes;
   uint32_t offset = 0;
-  ASSERT_EQ(layout.finishRow(row, flat, notes, offset), CompactTableLayout::RowResult::Ok);
+  ASSERT_EQ(finishAndDrain(layout, row, flat, notes, offset), CompactTableLayout::RowResult::Ok);
   ASSERT_EQ(row.cells.size(), 1U);
   uint32_t position = 70;
   for (const auto& line : row.cells[0].lines) {

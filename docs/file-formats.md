@@ -1153,7 +1153,13 @@ body-only and built-in font identities stay unchanged. No binary payload changes
 
 ## `section.bin`
 
-### Version 121 (current development)
+### Version 122 (current development)
+
+C3 uses compact-first table pagination. Complete sections use version 122 and
+partials use `0xEB` so existing pages rebuild using the new layout policy. The
+binary format and reading progress are unchanged.
+
+### Version 121
 
 Compact tables can carry optional content-proportional column geometry. A
 table cell's two-byte geometry packs its colspan into bits 0–3, header flag
