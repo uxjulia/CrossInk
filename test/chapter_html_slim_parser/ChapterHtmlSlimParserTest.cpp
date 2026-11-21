@@ -2228,6 +2228,95 @@ TEST_F(ChapterHtmlSlimParserTest, PreservedWhitespaceKeepsSpacesAndLineBreaks) {
   EXPECT_EQ(parser.visibleTextOffset, 6u);
 }
 
+TEST_F(ChapterHtmlSlimParserTest, PrePreservesPoemIndentationAndDoesNotLeakIntoProse) {
+  parser.embeddedStyle = false;
+  parser.cssParser = nullptr;
+  ChapterHtmlSlimParser::startElement(&parser, "pre", nullptr);
+  EXPECT_TRUE(parser.effectivePreserveWhitespace);
+  ChapterHtmlSlimParser::characterData(&parser, "  First\n   ", 11);
+  ChapterHtmlSlimParser::startElement(&parser, "em", nullptr);
+  ChapterHtmlSlimParser::characterData(&parser, "Second", 6);
+  ChapterHtmlSlimParser::endElement(&parser, "em");
+  ASSERT_EQ(parser.currentTextBlock->words.size(), 4u);
+  EXPECT_EQ(parser.currentTextBlock->words[0], " ");
+  EXPECT_EQ(parser.currentTextBlock->words[2], " ");
+  EXPECT_EQ(parser.currentTextBlock->words[3], "Second");
+  EXPECT_EQ(parser.currentTextBlock->wordStyles.back(), EpdFontFamily::ITALIC);
+  ChapterHtmlSlimParser::endElement(&parser, "pre");
+  EXPECT_FALSE(parser.effectivePreserveWhitespace);
+  // Bare text may follow a pre block with no paragraph tag in between.
+  ChapterHtmlSlimParser::characterData(&parser, "After   poem", 12);
+  parser.flushPartWordBuffer();
+  EXPECT_EQ(parser.currentTextBlock->words.size(), 2u);
+  EXPECT_EQ(parser.currentTextBlock->words.front(), "After");
+}
+
+TEST_F(ChapterHtmlSlimParserTest, PreKeepsHardLineRhythmWithProseSpacingEnabled) {
+  parser.extraParagraphSpacing = true;
+  ChapterHtmlSlimParser::startElement(&parser, "pre", nullptr);
+  ChapterHtmlSlimParser::characterData(&parser, "A\nB\n\nC", 6);
+  ChapterHtmlSlimParser::endElement(&parser, "pre");
+  ChapterHtmlSlimParser::startElement(&parser, "p", nullptr);
+  ChapterHtmlSlimParser::characterData(&parser, "D", 1);
+  ChapterHtmlSlimParser::endElement(&parser, "p");
+  ChapterHtmlSlimParser::startElement(&parser, "p", nullptr);
+  ChapterHtmlSlimParser::characterData(&parser, "E", 1);
+  ChapterHtmlSlimParser::endElement(&parser, "p");
+  parser.makePages();
+  ASSERT_TRUE(parser.currentPage);
+  std::vector<int> lines;
+  for (const auto& element : parser.currentPage->elements) {
+    if (element->getTag() == TAG_PageLine) lines.push_back(element->yPos);
+  }
+  ASSERT_EQ(lines.size(), 5u);
+  const int lineHeight = renderer.getLineHeight(0);
+  EXPECT_EQ(lines[1] - lines[0], lineHeight);
+  EXPECT_EQ(lines[2] - lines[1], lineHeight * 2);
+  EXPECT_EQ(lines[3] - lines[2], lineHeight + lineHeight / 2);
+  EXPECT_EQ(lines[4] - lines[3], lineHeight + lineHeight / 2);
+}
+
+TEST_F(ChapterHtmlSlimParserTest, PreClosingGapDoesNotDependOnTrailingNewline) {
+  parser.extraParagraphSpacing = true;
+  for (const std::string_view verse : {"A", "B\n"}) {
+    ChapterHtmlSlimParser::startElement(&parser, "pre", nullptr);
+    ChapterHtmlSlimParser::characterData(&parser, verse.data(), verse.size());
+    ChapterHtmlSlimParser::endElement(&parser, "pre");
+    ChapterHtmlSlimParser::startElement(&parser, "p", nullptr);
+    ChapterHtmlSlimParser::characterData(&parser, "Prose", 5);
+    ChapterHtmlSlimParser::endElement(&parser, "p");
+  }
+  parser.makePages();
+  ASSERT_TRUE(parser.currentPage);
+  std::vector<int> lines;
+  for (const auto& element : parser.currentPage->elements) {
+    if (element->getTag() == TAG_PageLine) lines.push_back(element->yPos);
+  }
+  ASSERT_EQ(lines.size(), 4u);
+  const int lineHeight = renderer.getLineHeight(0);
+  EXPECT_EQ(lines[1] - lines[0], lineHeight + lineHeight / 2);
+  EXPECT_EQ(lines[3] - lines[2], lines[1] - lines[0]);
+}
+
+TEST_F(ChapterHtmlSlimParserTest, PreKeepsPublisherAlignmentInheritedFromContainer) {
+  parser.paragraphAlignment = static_cast<uint8_t>(CssTextAlign::None);
+  const XML_Char* parentAttrs[] = {"style", "text-align: center", nullptr};
+  ChapterHtmlSlimParser::startElement(&parser, "div", parentAttrs);
+  ChapterHtmlSlimParser::startElement(&parser, "pre", nullptr);
+  EXPECT_EQ(parser.currentTextBlock->getBlockStyle().alignment, CssTextAlign::Center);
+}
+
+TEST_F(ChapterHtmlSlimParserTest, AuthorWhiteSpaceNormalOverridesPreDefault) {
+  ASSERT_TRUE(cssParser.processRuleBlockWithStyle("pre", CssParser::parseInlineStyle("white-space: normal")));
+  ChapterHtmlSlimParser::startElement(&parser, "pre", nullptr);
+  EXPECT_FALSE(parser.effectivePreserveWhitespace);
+  ChapterHtmlSlimParser::characterData(&parser, "A  B\nC", 6);
+  parser.flushPartWordBuffer();
+  ASSERT_EQ(parser.currentTextBlock->words.size(), 3u);
+  EXPECT_EQ(parser.currentTextBlock->words.back(), "C");
+  ChapterHtmlSlimParser::endElement(&parser, "pre");
+}
+
 TEST_F(ChapterHtmlSlimParserTest, WhitespaceOverrideRestoresParentStyle) {
   const XML_Char* pre[] = {"style", "white-space: pre-wrap", nullptr};
   const XML_Char* normal[] = {"style", "white-space: normal", nullptr};

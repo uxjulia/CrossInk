@@ -1153,7 +1153,13 @@ body-only and built-in font identities stay unchanged. No binary payload changes
 
 ## `section.bin`
 
-### Version 119 (current development)
+### Version 120 (current development)
+
+Native EPUB `<pre>` blocks preserve the book's spaces and hard line breaks.
+Complete sections use version 120 and suspended sections use `0xE9`; the
+binary payload and reading progress format are unchanged.
+
+### Version 119
 
 Complete sections use version 119 and partial sections use `0xE8`. Block-styled spans can affect pagination. In the optional per-word font-size byte, bits 0–5 store the point size, bit 6 marks a black background on the preceding space, and bit 7 hides the glyphs while retaining their layout width.
 

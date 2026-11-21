@@ -12,6 +12,8 @@
 
 ### Fixed
 
+- Preserve the original line breaks and indentation in EPUB preformatted text, such as shaped poems.
+
 - Stay in the selected chapter when following EPUB Contents links, including links to positions within a chapter.
 - Indent EPUB blockquotes that rely on default margins (#956).
 

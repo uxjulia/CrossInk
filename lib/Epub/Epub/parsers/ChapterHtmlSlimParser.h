@@ -200,6 +200,7 @@ class ChapterHtmlSlimParser {
   bool effectiveSub = false;
   bool effectiveSmallCaps = false;
   bool effectivePreserveWhitespace = false;
+  bool afterPreservedBreak = false;
   uint8_t effectiveInlineFontSize = 0;
   void applyInlineFontSize(StyleStackEntry& entry, const CssStyle& css, const char* tag);
 
@@ -344,7 +345,7 @@ class ChapterHtmlSlimParser {
   void markCurrentPageFromCurrentElement();
   void setCurrentPageVisibleOffset(uint32_t offset, uint32_t referenceOffset = UINT32_MAX);
   void completeCurrentPage();
-  void makePages(bool completeBlock = true);
+  void makePages(bool completeBlock = true, bool addParagraphSpacing = true);
   int textRowHeight(TextBlock& line, int rowFont) const;
   int effectiveLineHeight() const;
   bool isPreviewBuild() const { return !previewAnchor.empty() && previewMaxPages > 0; }

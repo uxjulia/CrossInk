@@ -84,8 +84,8 @@ constexpr uint32_t MIN_FREE_HEAP_FOR_RICH_TABLE = 96U * 1024U;
 constexpr uint32_t MIN_MAX_ALLOC_FOR_RICH_TABLE = 56U * 1024U;
 
 static constexpr const char* const HEADER_TAGS[] = {"h1", "h2", "h3", "h4", "h5", "h6"};
-static constexpr const char* const BLOCK_TAGS[] = {"p",  "li", "div",    "br",       "blockquote",
-                                                   "ul", "ol", "figure", "fieldset", "hgroup"};
+static constexpr const char* const BLOCK_TAGS[] = {"p",  "li",     "div",      "br",     "blockquote", "ul",
+                                                   "ol", "figure", "fieldset", "hgroup", "pre"};
 static constexpr const char* const BOLD_TAGS[] = {"b", "strong"};
 static constexpr const char* const ITALIC_TAGS[] = {"i", "em"};
 static constexpr const char* const UNDERLINE_TAGS[] = {"u", "ins"};
@@ -1365,6 +1365,7 @@ void ChapterHtmlSlimParser::startNewTextBlock(const BlockStyle& blockStyle) {
   }
 
   emptyTextBlockAfterImage = false;
+  afterPreservedBreak = false;
   pendingBackgroundSpace = false;
   nextWordContinues = false;  // New block = new paragraph, no continuation
   pendingInlinePadding = 0;
@@ -2413,6 +2414,13 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
   // Compute CSS style for this element early so display:none can short-circuit
   // before tag-specific branches emit any content or metadata.
   CssStyle cssStyle;
+  const bool preformattedTag = strcmp(name, "pre") == 0;
+  if (preformattedTag) {
+    // Native HTML structure, even with publisher styles disabled. Author CSS
+    // can still override this default when the reader loads the stylesheet.
+    cssStyle.defined.whiteSpace = 1;
+    cssStyle.preserveWhitespace = true;
+  }
   if (strcmp(name, "fieldset") == 0) {
     // Reader defaults sit below publisher CSS. Use a crisp e-ink outline instead
     // of a browser's groove border, reusing the existing bounded box renderer.
@@ -3394,6 +3402,21 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
     stripPublisherSpacing(userAlignmentBlockStyle);
   }
 
+  if (preformattedTag && cssStyle.preserveWhitespace) {
+    // Source spaces, rather than a reader paragraph indent, position the text.
+    if (!userAlignmentBlockStyle.textIndentDefined) {
+      userAlignmentBlockStyle.textIndentDefined = true;
+      userAlignmentBlockStyle.textIndent = 0;
+    }
+    const auto& parentStyle = self->blockStyleBuf_[self->blockStyleCount_ - 1];
+    const bool publisherAlignment =
+        self->embeddedStyle && (cssStyle.hasTextAlign() || parentStyle.publisherAlignment != CssTextAlign::None);
+    if (!publisherAlignment && requestedAlign == CssTextAlign::None) {
+      userAlignmentBlockStyle.textAlignDefined = true;
+      userAlignmentBlockStyle.alignment = CssTextAlign::Left;
+    }
+  }
+
   if (strcmp(name, "blockquote") == 0) {
     // Give unstyled quotes a visible inset, without letting nested defaults eat the text column.
     const auto& parentStyle = self->blockStyleBuf_[self->blockStyleCount_ - 1];
@@ -3943,19 +3966,21 @@ void XMLCALL ChapterHtmlSlimParser::characterData(void* userData, const XML_Char
       if (self->partWordBufferIndex > 0) self->flushPartWordBuffer();
       if (s[i] == '\n' || s[i] == '\r') {
         const bool hadText = self->currentTextBlock && !self->currentTextBlock->isEmpty();
+        const bool followsText = hadText || self->afterPreservedBreak;
         auto style = self->currentTextBlock ? self->currentTextBlock->getBlockStyle().withoutTop().withoutBottom()
                                             : BlockStyle{};
         style.textIndent = 0;
         style.textIndentDefined = true;
-        // Preserved newlines split one paragraph just like <br>; later text is unknown.
+        // A source newline is a line break, not a new paragraph.
         style.publisherAlignment = CssTextAlign::None;
         if (hadText) {
-          self->makePages(false);
+          self->makePages(/*completeBlock=*/false, /*addParagraphSpacing=*/false);
           self->currentTextBlock.reset();
         } else {
           self->currentPageNextY += self->effectiveLineHeight();
         }
         self->startNewTextBlock(style);
+        self->afterPreservedBreak = followsText;
       } else if (self->currentTextBlock) {
         // A source space is a token with a legal wrap before it and no added gap.
         self->currentTextBlock->addWord(s[i] == '\t' ? "    " : " ", EpdFontFamily::REGULAR, false, false,
@@ -4411,14 +4436,25 @@ void XMLCALL ChapterHtmlSlimParser::endElement(void* userData, const XML_Char* n
         self->blockStyleDepths_[self->blockStyleCount_ - 1] == self->depth) {
       self->blockStyleCount_--;
       self->updateEffectiveInlineStyle();
+      const bool preformattedTag = strcmp(name, "pre") == 0;
       if (self->tableDepth == 0 &&
-          (blockSpan || (!self->isLightMode() && self->renderer.getFontPointSize(self->fontId)))) {
+          (blockSpan || preformattedTag || (!self->isLightMode() && self->renderer.getFontPointSize(self->fontId)))) {
         if (self->currentTextBlock && !self->currentTextBlock->isEmpty()) {
           self->makePages();
           self->currentTextBlock.reset();
         }
         const bool emptyAfterImage =
             self->currentTextBlock && self->currentTextBlock->isEmpty() && self->emptyTextBlockAfterImage;
+        if (preformattedTag) {
+          // When the source ends in a hard break, the final verse line already
+          // flushed but its outer paragraph spacing has not yet been applied.
+          if (self->currentTextBlock && self->currentTextBlock->isEmpty() && self->afterPreservedBreak &&
+              self->extraParagraphSpacing) {
+            self->currentPageNextY += self->effectiveLineHeight() / 2;
+          }
+          // Do not reuse the empty placeholder as the next prose block.
+          self->currentTextBlock.reset();
+        }
         self->startNewTextBlock(self->blockStyleBuf_[self->blockStyleCount_ - 1].withoutTop().withoutBottom());
         self->emptyTextBlockAfterImage = emptyAfterImage;
       }
@@ -5106,7 +5142,7 @@ int ChapterHtmlSlimParser::effectiveLineHeight() const {
   return std::max(1, static_cast<int>(renderer.getLineHeight(currentTextFontId()) * lineCompression + 0.5f));
 }
 
-void ChapterHtmlSlimParser::makePages(const bool completeBlock) {
+void ChapterHtmlSlimParser::makePages(const bool completeBlock, const bool addParagraphSpacing) {
   if (shouldAbortForLowMemory("page layout")) {
     return;
   }
@@ -5167,7 +5203,7 @@ void ChapterHtmlSlimParser::makePages(const bool completeBlock) {
   }
 
   // Extra paragraph spacing if enabled (default behavior)
-  if (extraParagraphSpacing) {
+  if (addParagraphSpacing && extraParagraphSpacing) {
     currentPageNextY += lineHeight / 2;
   }
 
