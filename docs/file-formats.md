@@ -2095,6 +2095,16 @@ are rejected. Boot selects the highest fully valid generation. Generations do
 not wrap; exhausting u32 rejects a further update. A successful update requires
 a restart before another operation or activation of its new mapping.
 
+Local-only packs use an optional 256-byte header at bank offset 256. It shares
+the entry format, generation, and CRC rules of the first header, but uses
+`CIHX` version 1 and has zero at offset 24. Its entries begin immediately after
+the ordinary payloads, and both headers together describe at most ten packs.
+The legacy `CIHP` header describes only the ordinary prefix. Installing either
+kind writes and verifies all payloads before programming the original `CIHP`
+commit marker. If the optional header or its data fails validation, only the
+legacy prefix is exposed. Older firmware can still read the prefix; rewriting
+the bank with older firmware drops the extension without deleting its SD sources.
+
 ## OPDS server filenames
 
 Each server in `/.crosspoint/opds.json` stores `filenameFormat` (`author_title` or

@@ -68,11 +68,12 @@ Good to know:
 
 ## Hyphenation packs
 
-English hyphenation is included. Packs are available for French, German,
-Russian, Spanish, Italian, Polish, Portuguese, Swedish, and Ukrainian.
+English hyphenation is included. CrossInk offers downloads for French, German,
+Russian, Spanish, Italian, Polish, Portuguese, Swedish, and Ukrainian. Other
+compatible packs can be installed from SD.
 
 A book uses the pack for its own language, regardless of your menu language.
-If a needed pack is missing, CrossInk offers once per reading session to open
+If a downloadable pack is missing, CrossInk offers once per reading session to open
 **Hyphenation Packs**. You can cancel and keep reading.
 
 ### Download and install
@@ -94,10 +95,32 @@ replaced. English is always available and cannot be removed.
 3. Select the pack marked **Install**. The reader installs it and restarts to
    Home; reopen your book afterward.
 
+You can also copy a compatible community or self-made pack to
+`/.crossink/hyphenation/hyph-xx.cphyph`. Replace `xx` with the lowercase
+two-letter language code, which must match the code inside the file. The EPUB
+should use that code (for example, `da` or `da-DK`). Use a
+CPHY v1 pack with minimum prefix and suffix lengths of 2. Packs must use the
+Latin or Cyrillic character ranges already supported by the reader's
+hyphenation engine. A pack does not add a font or support for a new script.
+
+Copying the file does not install it. Open **Hyphenation Packs** and select
+**Install**; CrossInk checks the filename and pack header when listing a
+file, then verifies the full pack before installing it. The list shows up
+to 16 local-only entries and keeps installed packs visible even if their SD
+files are missing. You can install up to 10 packs, depending on their combined
+size. Local-only packs are not available from the download screen. To replace
+an installed local-only pack, copy the new file to the same path and select
+**Update**. If the file is missing, you can still delete the installed pack.
+
 Deleting an installed pack also restarts the reader. Its SD file stays available
 for reinstallation. Removing or replacing an SD file alone does not change the
-installed pack. To replace a pack from SD without Wi-Fi, delete the installed
-copy first, then select **Install** to install the replacement file.
+installed pack. To replace an installed pack from the download catalog with an
+SD copy without Wi-Fi, delete the installed copy first, then select **Install**.
+
+Keep the SD copies if you switch firmware versions. Older builds still read
+their supported installed packs, but do not show local-only packs. If you change
+any installed packs on an older build, reinstall your local-only packs from SD
+when you return to a build that supports them.
 
 Turn **Hyphenation** on under **Settings > Reader > Page Layout** to use automatic
 hyphenation. Turning it off does not remove your packs. Hyphens already present

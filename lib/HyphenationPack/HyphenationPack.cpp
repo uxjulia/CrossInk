@@ -12,12 +12,17 @@ constexpr uint32_t COMMITTED = 0x50485950;
 constexpr size_t ENTRY_OFFSET = 32;
 constexpr size_t ENTRY_SIZE = 20;
 constexpr size_t BUFFER_SIZE = 1024;
+// The legacy header describes only downloadable packs and their prefix of the
+// payload. The optional CIHX header occupies spare bytes in the same sector.
+constexpr size_t LOCAL_HEADER_OFFSET = HEADER_SIZE;
+static_assert(LOCAL_HEADER_OFFSET + HEADER_SIZE <= SECTOR_SIZE);
 static_assert(ENTRY_OFFSET + MAX_PACKS * ENTRY_SIZE <= HEADER_SIZE);
 
-// One 1280-byte cold-path workspace; too large for the C3 task stack and
+// One 1536-byte cold-path workspace; too large for the C3 task stack and
 // unnecessary as permanent RAM. Reused for all checks/copies in an operation.
 struct Workspace {
   uint8_t header[HEADER_SIZE];
+  uint8_t localHeader[HEADER_SIZE];
   uint8_t buffer[BUFFER_SIZE];
 };
 uint32_t u32(const uint8_t* p) {
@@ -72,6 +77,27 @@ bool validHeader(const uint8_t* header, size_t bankSize, Supported supported) {
   }
   return end == u32(header + 16) && end <= bankSize;
 }
+bool validLocalHeader(const uint8_t* local, const uint8_t* legacy, size_t bankSize, Supported supported) {
+  const size_t knownCount = u32(legacy + 12);
+  const size_t localCount = u32(local + 12);
+  if (std::memcmp(local, "CIHX\1\0\0\0", 8) || u32(local + 8) != u32(legacy + 8) || !localCount ||
+      localCount > MAX_PACKS - knownCount || u32(local + 24) || u32(local + 28) || u32(local + 20) != headerCrc(local))
+    return false;
+  size_t end = u32(legacy + 16);
+  for (size_t i = 0; i < localCount; ++i) {
+    const auto* raw = local + ENTRY_OFFSET + i * ENTRY_SIZE;
+    const Entry entry = decode(raw);
+    if (!supported(entry.code, entry.minPrefix, entry.minSuffix) || entry.offset != end || !entry.size ||
+        entry.rootOffset >= entry.size || entry.offset > bankSize || entry.size > bankSize - entry.offset)
+      return false;
+    for (size_t j = 0; j < knownCount; ++j)
+      if (!std::memcmp(raw, legacy + ENTRY_OFFSET + j * ENTRY_SIZE, 2)) return false;
+    for (size_t j = 0; j < i; ++j)
+      if (!std::memcmp(raw, local + ENTRY_OFFSET + j * ENTRY_SIZE, 2)) return false;
+    end = align4(entry.offset + entry.size);
+  }
+  return end == u32(local + 16) && end <= bankSize;
+}
 bool checkPayload(const Flash& flash, size_t offset, size_t size, uint32_t expected, uint8_t* buffer) {
   uint32_t crc = 0;
   for (size_t copied = 0; copied < size;) {
@@ -92,7 +118,7 @@ bool validPayloads(const Flash& flash, size_t bankOffset, const uint8_t* header,
 }
 // The source header is shared with the installer; full online admission below
 // additionally checks the serialized trie before the SD transaction publishes it.
-Result readSourceHeader(Input input, Supported supported, Entry& entry) {
+Result readSourceHeader(Input input, Supported supported, Entry& entry, Supported alsoSupported = nullptr) {
   uint8_t header[PACK_HEADER_SIZE];
   if (!input.read || input.size < sizeof(header)) return Result::Invalid;
   if (!input.read(input.context, 0, header, sizeof(header))) return Result::Io;
@@ -107,7 +133,9 @@ Result readSourceHeader(Input input, Supported supported, Entry& entry) {
   entry.checksum = u32(header + 20);
   if (!entry.size || entry.rootOffset >= entry.size || entry.size != input.size - sizeof(header))
     return Result::Invalid;
-  if (!supported || !supported(entry.code, entry.minPrefix, entry.minSuffix)) return Result::Unsupported;
+  if ((!supported || !supported(entry.code, entry.minPrefix, entry.minSuffix)) &&
+      (!alsoSupported || !alsoSupported(entry.code, entry.minPrefix, entry.minSuffix)))
+    return Result::Unsupported;
   return Result::Ok;
 }
 
@@ -314,17 +342,25 @@ const char* resultName(Result result) {
   }
   return "unknown error";
 }
-Result validate(Input input, Supported supported, Entry& entry, const ValidationOptions& options) {
+Result inspect(Input input, Supported supported, const char* expectedCode, Entry& entry) {
   entry = {};
   if (input.size > MAX_SOURCE_SIZE) return Result::NoSpace;
-  if (options.continueWork && !options.continueWork(options.context)) return Result::Cancelled;
   Entry candidate;
   const auto headerResult = readSourceHeader(input, supported, candidate);
   if (headerResult != Result::Ok) return headerResult;
   if (candidate.code[0] < 'a' || candidate.code[0] > 'z' || candidate.code[1] < 'a' || candidate.code[1] > 'z' ||
       candidate.minPrefix != 2 || candidate.minSuffix != 2 ||
-      (options.expectedCode && std::strcmp(candidate.code, options.expectedCode)))
+      (expectedCode && std::strcmp(candidate.code, expectedCode)))
     return Result::Invalid;
+  entry = candidate;
+  return Result::Ok;
+}
+Result validate(Input input, Supported supported, Entry& entry, const ValidationOptions& options) {
+  entry = {};
+  if (options.continueWork && !options.continueWork(options.context)) return Result::Cancelled;
+  Entry candidate;
+  const auto headerResult = inspect(input, supported, options.expectedCode, candidate);
+  if (headerResult != Result::Ok) return headerResult;
   if (candidate.size > options.maxPayloadSize) return Result::NoSpace;
   auto work = makeUniqueNoThrow<ValidationWorkspace>();
   if (!work) return Result::Memory;
@@ -343,7 +379,7 @@ Result validate(Input input, Supported supported, Entry& entry, const Validation
   return result;
 }
 
-Result Store::begin(Flash flash, Supported supported) {
+Result Store::begin(Flash flash, Supported supported, Supported localSupported, size_t localReservedTailBytes) {
   if (ready_) return Result::Unchanged;
   if (!supported || !flash.read || !flash.write || !flash.erase || flash.size < 2 * 65536 || flash.size % (2 * 65536) ||
       flash.size > 16 * 1024 * 1024)
@@ -352,7 +388,11 @@ Result Store::begin(Flash flash, Supported supported) {
   if (!work) return Result::Memory;
   flash_ = flash;
   supported_ = supported;
+  localSupported_ = localSupported;
   bankSize_ = flash.size / 2;
+  if (localReservedTailBytes % SECTOR_SIZE || localReservedTailBytes > bankSize_ - SECTOR_SIZE)
+    return Result::Unavailable;
+  localWriteCapacity_ = bankSize_ - localReservedTailBytes;
   bank_ = -1;  // A previous attempt may have failed after reading only one bank.
   for (int bank = 0; bank < 2; ++bank) {
     const size_t base = static_cast<size_t>(bank) * bankSize_;
@@ -364,6 +404,19 @@ Result Store::begin(Flash flash, Supported supported) {
       bank_ = bank;
     }
   }
+  if (bank_ >= 0 && localSupported_) {
+    const size_t base = bankOffset();
+    // Preserve the selected legacy packs if only the optional extension is
+    // missing or damaged. Never resurrect a stale extension from the other bank.
+    if (flash.read(flash.context, base + LOCAL_HEADER_OFFSET, work->localHeader, HEADER_SIZE) &&
+        validLocalHeader(work->localHeader, header_, bankSize_, localSupported_) &&
+        validPayloads(flash, base, work->localHeader, work->buffer)) {
+      const size_t extra = u32(work->localHeader + 12);
+      std::memcpy(header_ + ENTRY_OFFSET + count() * ENTRY_SIZE, work->localHeader + ENTRY_OFFSET, extra * ENTRY_SIZE);
+      put32(header_ + 12, count() + extra);
+      put32(header_ + 16, u32(work->localHeader + 16));
+    }
+  }
   ready_ = true;
   return Result::Ok;
 }
@@ -373,13 +426,21 @@ size_t Store::availablePayloadBytes(const char* replacementCode) const {
   if (!ready_ || pending_ || !replacementCode) return 0;
   size_t used = SECTOR_SIZE;
   size_t retained = 0;
+  bool local = !supported_(replacementCode, 2, 2) && localSupported_ && localSupported_(replacementCode, 2, 2);
   for (size_t i = 0; i < count(); ++i) {
     const auto entry = decode(header_ + ENTRY_OFFSET + i * ENTRY_SIZE);
     if (!std::strcmp(entry.code, replacementCode)) continue;
     used += align4(entry.size);
+    local |= !supported_(entry.code, entry.minPrefix, entry.minSuffix);
     ++retained;
   }
-  return retained < MAX_PACKS && used <= bankSize_ ? bankSize_ - used : 0;
+  const size_t capacity = local ? localWriteCapacity_ : bankSize_;
+  return retained < MAX_PACKS && used <= capacity ? capacity - used : 0;
+}
+bool Store::entryAt(size_t index, Entry& entry) const {
+  if (index >= count()) return false;
+  entry = decode(header_ + ENTRY_OFFSET + index * ENTRY_SIZE);
+  return true;
 }
 bool Store::find(const char* code, Entry& entry) const {
   if (!code || std::strlen(code) != 2) return false;
@@ -396,8 +457,24 @@ Result Store::install(Input input) {
   if (!ready_) return Result::Unavailable;
   if (pending_) return Result::RestartRequired;
   Entry entry;
-  const auto result = readSourceHeader(input, supported_, entry);
+  const auto result = readSourceHeader(input, supported_, entry, localSupported_);
   if (result != Result::Ok) return result;
+  if (!supported_(entry.code, entry.minPrefix, entry.minSuffix)) {
+    ValidationOptions options;
+    options.maxPayloadSize = availablePayloadBytes(entry.code);
+    struct ValidationYield {
+      void (*yield)();
+      unsigned polls;
+    } callback{flash_.yield, 0};
+    options.context = &callback;
+    options.continueWork = [](void* context) {
+      auto& slice = *static_cast<ValidationYield*>(context);
+      if (slice.yield && !(++slice.polls % 16)) slice.yield();
+      return true;
+    };
+    const auto validated = validate(input, localSupported_, entry, options);
+    if (validated != Result::Ok) return validated;
+  }
   return rewrite(entry.code, &input, &entry);
 }
 Result Store::remove(const char* code) {
@@ -411,25 +488,45 @@ Result Store::rewrite(const char* code, const Input* input, const Entry* replace
   if (bank_ >= 0 && u32(header_ + 8) == std::numeric_limits<uint32_t>::max()) return Result::Unavailable;
   auto work = makeUniqueNoThrow<Workspace>();
   if (!work) return Result::Memory;
-  std::memset(work->header, 0, HEADER_SIZE);
-  std::memcpy(work->header, "CIHP\1\0\0\0", 8);
-  put32(work->header + 8, bank_ < 0 ? 1 : u32(header_ + 8) + 1);
-  put32(work->header + 24, 0xffffffffu);
+  auto* legacy = work->header;
+  auto* local = work->localHeader;
+  std::memset(legacy, 0, HEADER_SIZE);
+  std::memset(local, 0, HEADER_SIZE);
+  std::memcpy(legacy, "CIHP\1\0\0\0", 8);
+  std::memcpy(local, "CIHX\1\0\0\0", 8);
+  const uint32_t generation = bank_ < 0 ? 1 : u32(header_ + 8) + 1;
+  put32(legacy + 8, generation);
+  put32(local + 8, generation);
+  put32(legacy + 24, 0xffffffffu);
+  const bool replacementIsLocal =
+      replacement && !supported_(replacement->code, replacement->minPrefix, replacement->minSuffix);
   size_t next = SECTOR_SIZE;
   size_t entries = 0;
-  for (size_t i = 0; i < count(); ++i) {
-    Entry entry = decode(header_ + ENTRY_OFFSET + i * ENTRY_SIZE);
-    if (!std::strcmp(entry.code, code)) continue;
-    entry.offset = next;
-    encode(work->header + ENTRY_OFFSET + entries++ * ENTRY_SIZE, entry);
-    next = align4(next + entry.size);
+  for (const bool localOnly : {false, true}) {
+    auto* disk = localOnly ? local : legacy;
+    size_t diskCount = 0;
+    auto append = [&](Entry entry) {
+      if (entries == MAX_PACKS || next > bankSize_ || align4(entry.size) > bankSize_ - next) return false;
+      entry.offset = next;
+      encode(disk + ENTRY_OFFSET + diskCount++ * ENTRY_SIZE, entry);
+      ++entries;
+      next += align4(entry.size);
+      return true;
+    };
+    for (size_t i = 0; i < count(); ++i) {
+      const Entry entry = decode(header_ + ENTRY_OFFSET + i * ENTRY_SIZE);
+      if (!std::strcmp(entry.code, code) || localOnly == supported_(entry.code, entry.minPrefix, entry.minSuffix))
+        continue;
+      if (!append(entry)) return Result::NoSpace;
+    }
+    if (replacement && replacementIsLocal == localOnly && !append(*replacement)) return Result::NoSpace;
+    if (localOnly && diskCount && next > localWriteCapacity_) return Result::NoSpace;
+    put32(disk + 12, diskCount);
+    put32(disk + 16, next);
+    put32(disk + 20, headerCrc(disk));
   }
   if (replacement) {
-    if (entries == MAX_PACKS || next > bankSize_ || replacement->size > bankSize_ - next) return Result::NoSpace;
-    Entry entry = *replacement;
-    entry.offset = next;
-    encode(work->header + ENTRY_OFFSET + entries++ * ENTRY_SIZE, entry);
-    next = align4(next + entry.size);
+    const auto& entry = *replacement;
     uint32_t crc = 0;
     for (size_t copied = 0; copied < entry.size;) {
       const size_t n = std::min<size_t>(BUFFER_SIZE, entry.size - copied);
@@ -445,16 +542,15 @@ Result Store::rewrite(const char* code, const Input* input, const Entry* replace
         existing.checksum == entry.checksum)
       return Result::Unchanged;
   }
-  put32(work->header + 12, entries);
-  put32(work->header + 16, next);
-  put32(work->header + 20, headerCrc(work->header));
   const size_t target = bank_ == 0 ? bankSize_ : 0;
   for (size_t offset = 0; offset < next; offset += SECTOR_SIZE) {
     if (!flash_.erase(flash_.context, target + offset, SECTOR_SIZE)) return Result::Io;
     if (flash_.yield) flash_.yield();
   }
   for (size_t i = 0; i < entries; ++i) {
-    const Entry entry = decode(work->header + ENTRY_OFFSET + i * ENTRY_SIZE);
+    const size_t known = u32(legacy + 12);
+    const Entry entry = i < known ? decode(legacy + ENTRY_OFFSET + i * ENTRY_SIZE)
+                                  : decode(local + ENTRY_OFFSET + (i - known) * ENTRY_SIZE);
     const bool added = replacement && !std::strcmp(entry.code, code);
     Entry source;
     if (!added && !find(entry.code, source)) return Result::Invalid;
@@ -468,10 +564,14 @@ Result Store::rewrite(const char* code, const Input* input, const Entry* replace
     }
   }
   // Verify the actual flash bytes, including copied old packs, before publishing.
-  if (!validPayloads(flash_, target, work->header, work->buffer) ||
-      !flash_.write(flash_.context, target, work->header, HEADER_SIZE) ||
-      !flash_.read(flash_.context, target, work->buffer, HEADER_SIZE) ||
-      std::memcmp(work->header, work->buffer, HEADER_SIZE))
+  if (u32(local + 12) && (!validPayloads(flash_, target, local, work->buffer) ||
+                          !flash_.write(flash_.context, target + LOCAL_HEADER_OFFSET, local, HEADER_SIZE) ||
+                          !flash_.read(flash_.context, target + LOCAL_HEADER_OFFSET, work->buffer, HEADER_SIZE) ||
+                          std::memcmp(local, work->buffer, HEADER_SIZE)))
+    return Result::Io;
+  if (!validPayloads(flash_, target, legacy, work->buffer) ||
+      !flash_.write(flash_.context, target, legacy, HEADER_SIZE) ||
+      !flash_.read(flash_.context, target, work->buffer, HEADER_SIZE) || std::memcmp(legacy, work->buffer, HEADER_SIZE))
     return Result::Io;
   uint8_t marker[4];
   put32(marker, COMMITTED);

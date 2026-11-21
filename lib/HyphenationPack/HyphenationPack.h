@@ -52,13 +52,18 @@ struct ValidationOptions {
 // Full read-only CPHY source validation, including CRC and serialized trie
 // boundaries. No flash API is accepted and no bank can be mutated.
 Result validate(Input input, Supported supported, Entry& entry, const ValidationOptions& options = {});
+// Cheap directory discovery only. Full validation is still required for installation.
+Result inspect(Input input, Supported supported, const char* expectedCode, Entry& entry);
 
 class Store {
  public:
-  Result begin(Flash flash, Supported supported);
+  // Local-only entries live in a compatible extension invisible to legacy firmware.
+  Result begin(Flash flash, Supported legacySupported, Supported localSupported = nullptr,
+               size_t localReservedTailBytes = 0);
   Result install(Input input);
   Result remove(const char* code);
   bool find(const char* code, Entry& entry) const;
+  bool entryAt(size_t index, Entry& entry) const;
   size_t count() const;
   size_t bankOffset() const { return bank_ < 0 ? 0 : static_cast<size_t>(bank_) * bankSize_; }
   size_t usedBytes() const;
@@ -72,7 +77,9 @@ class Store {
   uint8_t header_[HEADER_SIZE] = {};
   Flash flash_{};
   Supported supported_ = nullptr;
+  Supported localSupported_ = nullptr;
   size_t bankSize_ = 0;
+  size_t localWriteCapacity_ = 0;
   int bank_ = -1;
   bool ready_ = false;
   bool pending_ = false;

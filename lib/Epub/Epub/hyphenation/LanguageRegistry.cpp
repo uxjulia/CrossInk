@@ -32,6 +32,10 @@ ExternalHyphenationLookup externalLookup = nullptr;
 SerializedHyphenationPatterns externalPatterns{0, nullptr, 0};
 LanguageHyphenator externalHyphenator(externalPatterns, isLatinLetter, toLowerLatin);
 
+uint32_t toLowerExternal(uint32_t cp) { return isCyrillicLetter(cp) ? toLowerCyrillic(cp) : toLowerLatin(cp); }
+bool isPrimaryTag(const char* code) {
+  return code && code[0] >= 'a' && code[0] <= 'z' && code[1] >= 'a' && code[1] <= 'z' && !code[2];
+}
 }  // namespace
 
 // Adapted from CrossPoint Reader PR #3706 (MIT): external pattern provider.
@@ -46,23 +50,30 @@ const LanguageEntry* findLanguageEntry(const char* primaryTag) {
 
 const LanguageHyphenator* getLanguageHyphenatorForPrimaryTag(const std::string& primaryTag) {
   const auto* entry = findLanguageEntry(primaryTag.c_str());
-  if (!entry) return nullptr;
-  if (entry->hyphenator) return entry->hyphenator;
+  if (!isPrimaryTag(primaryTag.c_str()) || primaryTag.size() != 2) return nullptr;
+  if (entry && entry->hyphenator) return entry->hyphenator;
   ExternalHyphenationPatterns found{};
-  if (!externalLookup || !externalLookup(entry->primaryTag, found)) return nullptr;
+  if (!externalLookup || !externalLookup(primaryTag.c_str(), found)) return nullptr;
   externalPatterns = found.patterns;
   const bool cyrillic = primaryTag == "ru" || primaryTag == "uk";
-  externalHyphenator.configure(cyrillic ? isCyrillicLetter : isLatinLetter, cyrillic ? toLowerCyrillic : toLowerLatin);
+  // Legacy packs retain the same word filtering; new local codes need no
+  // per-language script registration to use the engine's supported alphabets.
+  externalHyphenator.configure(!entry     ? isAlphabetic
+                               : cyrillic ? isCyrillicLetter
+                                          : isLatinLetter,
+                               !entry     ? toLowerExternal
+                               : cyrillic ? toLowerCyrillic
+                                          : toLowerLatin);
   return &externalHyphenator;
 }
 
 uint32_t getLanguagePatternIdentity(const char* primaryTag) {
   const auto* entry = findLanguageEntry(primaryTag);
-  if (!entry) return 0;
+  if (!isPrimaryTag(primaryTag)) return 0;
   // Built-in pattern changes already require the section format version bump.
-  if (entry->hyphenator) return 1;
+  if (entry && entry->hyphenator) return 1;
   ExternalHyphenationPatterns found{};
-  return externalLookup && externalLookup(entry->primaryTag, found) ? found.identity : 0;
+  return externalLookup && externalLookup(primaryTag, found) ? found.identity : 0;
 }
 
 LanguageEntryView getLanguageEntries() {

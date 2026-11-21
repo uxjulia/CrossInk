@@ -20,7 +20,7 @@ HyphenationManagerActivity::HyphenationManagerActivity(GfxRenderer& renderer, Ma
 void HyphenationManagerActivity::onEnter() {
   Activity::onEnter();
   mappedInput.setReaderTouchscreenOverride(true);
-  // 1280 bytes, once per activity: labels outlive popup renders, but need not
+  // Allocate once per activity: labels outlive popup renders, but need not
   // consume permanent RAM or the small C3 main-task stack.
   catalog_ = makeUniqueNoThrow<Catalog>();
   if (!catalog_) {
@@ -39,30 +39,52 @@ void HyphenationManagerActivity::onExit() {
 void HyphenationManagerActivity::showLanguages() {
   RenderLock lock(*this);
   const auto languages = getLanguageEntries();
-  if (languages.size > 10) {
+  if (languages.size > KNOWN_CAPACITY) {
     LOG_ERR("HYPH", "Language list exceeds catalog capacity");
     finish();
     return;
   }
+  catalog_->count = 0;
   int builtInIndex = -1;
+  const auto appendRow = [&](const char* code, const char* status, int onlineIndex) {
+    const size_t i = catalog_->count++;
+    auto& row = catalog_->rows[i];
+    std::memcpy(row.code, code, sizeof(row.code));
+    row.onlineIndex = onlineIndex;
+    const char uiCode[] = {static_cast<char>(code[0] - 'a' + 'A'), static_cast<char>(code[1] - 'a' + 'A'), '\0'};
+    const auto language = I18n::languageFromCode(uiCode);
+    // Unknown UI language codes fall back to English; use the pack code instead.
+    if (language == Language::EN && std::strcmp(code, "en") != 0) {
+      std::snprintf(row.label, sizeof(row.label), "%s: %s", code, status);
+    } else {
+      std::snprintf(row.label, sizeof(row.label), "%s (%s): %s", I18N.getLanguageName(language), code, status);
+    }
+    if (!std::strcmp(wanted_, code)) selected_ = static_cast<int>(i);
+  };
   for (size_t i = 0; i < languages.size; ++i) {
     const auto& entry = languages.data[i];
-    const char uiCode[] = {static_cast<char>(entry.primaryTag[0] - 'a' + 'A'),
-                           static_cast<char>(entry.primaryTag[1] - 'a' + 'A'), '\0'};
-    const char* name = I18N.getLanguageName(I18n::languageFromCode(uiCode));
-    const char* status = entry.hyphenator                                      ? tr(STR_HYPHENATION_BUILT_IN)
-                         : HyphenationPackStore::isInstalled(entry.primaryTag) ? tr(STR_INSTALLED)
-                                                                               : tr(STR_HYPHENATION_INSTALL_ACTION);
-    std::snprintf(catalog_->labels[i], sizeof(catalog_->labels[i]), "%s (%s): %s", name, entry.primaryTag, status);
     if (entry.hyphenator) builtInIndex = static_cast<int>(i);
-    if (!std::strcmp(wanted_, entry.primaryTag)) selected_ = static_cast<int>(i);
+    appendRow(entry.primaryTag,
+              entry.hyphenator                                      ? tr(STR_HYPHENATION_BUILT_IN)
+              : HyphenationPackStore::isInstalled(entry.primaryTag) ? tr(STR_INSTALLED)
+                                                                    : tr(STR_HYPHENATION_INSTALL_ACTION),
+              entry.hyphenator ? -1 : static_cast<int>(i));
   }
+  // Catalog languages can also be present in the SD/cache union. Leave room
+  // for them so they do not count against the local-only row limit.
+  HyphenationPackStore::LocalPack local[KNOWN_CAPACITY + LOCAL_CAPACITY];
+  const size_t count = HyphenationPackStore::listLocalPacks(local, KNOWN_CAPACITY + LOCAL_CAPACITY);
+  for (size_t i = 0; i < count && catalog_->count < languages.size + LOCAL_CAPACITY; ++i) {
+    if (findLanguageEntry(local[i].code)) continue;
+    appendRow(local[i].code, local[i].installed ? tr(STR_INSTALLED) : tr(STR_HYPHENATION_INSTALL_ACTION), -1);
+  }
+  if (selected_ < 0 || size_t(selected_) >= catalog_->count) selected_ = 0;
   wanted_[0] = '\0';
   popup_.showBorrowed(
       StrId::STR_HYPHENATION_PACKS,
       OptionLabels(
-          catalog_.get(), languages.size,
-          [](const void* context, size_t index) { return static_cast<const Catalog*>(context)->labels[index]; }),
+          catalog_.get(), catalog_->count,
+          [](const void* context, size_t index) { return static_cast<const Catalog*>(context)->rows[index].label; }),
       selected_,
       [this](int index) {
         selected_ = index;
@@ -73,35 +95,57 @@ void HyphenationManagerActivity::showLanguages() {
   popup_.setCancelCallback([this] { finish(); });
   requestUpdate();
 }
+const HyphenationManagerActivity::Row* HyphenationManagerActivity::selectedRow() const {
+  if (selected_ < 0 || size_t(selected_) >= catalog_->count) return nullptr;
+  const auto& row = catalog_->rows[selected_];
+  const auto* entry = findLanguageEntry(row.code);
+  return entry && entry->hyphenator ? nullptr : &row;
+}
 void HyphenationManagerActivity::select() {
-  const auto languages = getLanguageEntries();
-  if (selected_ < 0 || size_t(selected_) >= languages.size || languages.data[selected_].hyphenator) return;
-  const char* code = languages.data[selected_].primaryTag;
-  if (!HyphenationPackStore::isInstalled(code)) {
-    // An SD copy installs offline; otherwise the Wi-Fi screen downloads and installs it.
-    if (HyphenationPackStore::hasSource(code))
+  const auto* row = selectedRow();
+  if (!row) return;
+  const bool localOnly = row->onlineIndex < 0;
+  const bool hasSource = HyphenationPackStore::hasSource(row->code);
+  if (!HyphenationPackStore::isInstalled(row->code)) {
+    if (hasSource)
       apply(false);
+    else if (localOnly)
+      showLanguages();
     else
       connect();
     return;
   }
   RenderLock lock(*this);
+  const bool canUpdate = !localOnly || hasSource;
   const char* options[] = {tr(STR_UPDATE), tr(STR_DELETE), tr(STR_CANCEL)};
+  const int firstOption = canUpdate ? 0 : 1;
   popup_.show(
-      catalog_->labels[selected_], options, 3, 2,
-      [this](int index) { pending_ = index == 0   ? Pending::Connect
-                                     : index == 1 ? Pending::Remove
-                                                  : Pending::List; },
+      row->label, options + firstOption, 3 - firstOption, 2 - firstOption,
+      [this, firstOption, localOnly](int index) {
+        switch (index + firstOption) {
+          case 0:
+            pending_ = localOnly ? Pending::Install : Pending::Connect;
+            break;
+          case 1:
+            pending_ = Pending::Remove;
+            break;
+          default:
+            pending_ = Pending::List;
+            break;
+        }
+      },
       OptionPopup::Note(tr(STR_HYPHENATION_APPLY_HINT), ""));
   popup_.setCancelCallback([this] { pending_ = Pending::List; });
   requestUpdate();
 }
 void HyphenationManagerActivity::connect() {
+  const auto* row = selectedRow();
+  if (!row || row->onlineIndex < 0) return;
   APP_STATE.pendingOverlayResume.clear();
   if (APP_STATE.saveToFile() && SETTINGS.saveToFile()) {
     RenderLock restartLock(*this);
     silentRestartToNetwork(NetworkBootTarget::DOWNLOAD_ASSETS,
-                           AssetDownloadActivity::bootPayload(AssetCatalog::Kind::Hyphenation, selected_));
+                           AssetDownloadActivity::bootPayload(AssetCatalog::Kind::Hyphenation, row->onlineIndex));
     return;
   }
   LOG_ERR("ASSET", "Cannot save state before network restart");
@@ -109,9 +153,9 @@ void HyphenationManagerActivity::connect() {
 }
 void HyphenationManagerActivity::apply(bool remove) {
   RenderLock lock(*this);
-  const auto languages = getLanguageEntries();
-  if (selected_ < 0 || size_t(selected_) >= languages.size || languages.data[selected_].hyphenator) return;
-  const char* code = languages.data[selected_].primaryTag;
+  const auto* row = selectedRow();
+  if (!row) return;
+  const char* code = row->code;
   popup_.clear();
   GUI.drawPopup(renderer, tr(STR_LOADING), true);
   // Do not commit a pack if SD state cannot be saved for the following restart.
@@ -160,6 +204,9 @@ void HyphenationManagerActivity::loop() {
     }
     case Pending::Connect:
       connect();
+      return;
+    case Pending::Install:
+      apply(false);
       return;
     case Pending::Remove:
       apply(true);

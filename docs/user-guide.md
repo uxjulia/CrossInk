@@ -290,7 +290,7 @@ individual global changes. **Delete Book Cache** does not reset these choices.
   - **Orientation**: How the screen is turned while reading: "Portrait" (default), "Landscape CW", "Portrait 180°", or "Landscape CCW".
   - **Screen Margins**: Opens **Top/Bottom** and **Left/Right** sliders. Each goes from 5 to 150 pixels with a live preview (default 5).
   - **Paragraph Alignment**: "Justify" (default), "Left", "Center", "Right", or "Book's Style".
-  - **Hyphenation**: Whether long words are split with a hyphen at the end of a line. The default is OFF. Korean text wraps at spaces when OFF; when ON, a Korean word may also split at a line end without a hyphen. **Hyphenation Packs** manages the per-language rules; see [SD language files](./languages.md).
+  - **Hyphenation**: Whether long words are split with a hyphen at the end of a line. The default is OFF. Korean text wraps at spaces when OFF; when ON, a Korean word may also split at a line end without a hyphen. **Hyphenation Packs** installs per-language rules from Wi-Fi or SD, including compatible packs outside the download catalog. See [Hyphenation packs](./languages.md#hyphenation-packs).
   - **Extra Paragraph Spacing**: ON (default) adds vertical space between paragraphs. OFF removes it and shows the book's first-line indentation when it has one.
   - **Force Paragraph Indents**: Indents every paragraph, whatever the book's own formatting; see [Reader Features](./reader-features.md#force-paragraph-indents).
 

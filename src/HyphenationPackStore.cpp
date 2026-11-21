@@ -3,10 +3,14 @@
 #include <Arduino.h>
 #include <AssetCacheReadSession.h>
 #include <AssetCacheStorage.h>
+#if defined(ESP_PLATFORM)
+#include <BoardConfig.h>
+#endif
 #include <HalStorage.h>
 #include <LanguageCache.h>
 #include <Logging.h>
 
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 
@@ -33,6 +37,10 @@ bool supported(const char* code, uint8_t prefix, uint8_t suffix) {
   const auto* language = findLanguageEntry(code);
   return language && !language->hyphenator && prefix == 2 && suffix == 2;
 }
+bool localSupported(const char* code, uint8_t prefix, uint8_t suffix) {
+  return code && code[0] >= 'a' && code[0] <= 'z' && code[1] >= 'a' && code[1] <= 'z' && !code[2] &&
+         std::strcmp(code, "en") && prefix == 2 && suffix == 2;
+}
 bool initialize(bool create) {
   // Simulator read-only initialization can represent an erased, unprovisioned
   // image. Only an explicit install may create its backing storage later.
@@ -43,8 +51,17 @@ bool initialize(bool create) {
     LOG_ERR("HYPH", "Cannot read installed pack cache");
     return false;
   }
-  const auto result =
-      store.begin({nullptr, capacity(), readFlash, writeFlash, eraseFlash, [] { delay(1); }}, supported);
+  const size_t regionSize = capacity();
+  size_t localReservedTail = 0;
+#if defined(ESP_PLATFORM) && FREEINK_MCU_C3
+  // Development's C3 Indic cache can claim the end of bank 1 when the
+  // legacy prefix fits below it. Keep optional data out of that tail on
+  // release so switching to existing development can't overwrite it.
+  constexpr size_t C3ShapingBytes = 384 * 1024;
+  if (!flash.usesSd() && regionSize >= 4 * C3ShapingBytes) localReservedTail = C3ShapingBytes;
+#endif
+  const auto result = store.begin({nullptr, regionSize, readFlash, writeFlash, eraseFlash, [] { delay(1); }}, supported,
+                                  localSupported, localReservedTail);
   if (result != hyphenation_pack::Result::Ok && result != hyphenation_pack::Result::Unchanged) {
     LOG_ERR("HYPH", "%s", hyphenation_pack::resultName(result));
     return false;
@@ -58,13 +75,18 @@ bool initialize(bool create) {
   return true;
 }
 bool sourcePath(const char* code, char (&path)[64]) {
-  if (!supported(code, 2, 2)) return false;
+  if (!localSupported(code, 2, 2)) return false;
   std::snprintf(path, sizeof(path), "%s/hyph-%s.cphyph", DIRECTORY, code);
   return true;
 }
 bool readInput(void* context, size_t offset, void* bytes, size_t size) {
   auto* file = static_cast<FsFile*>(context);
   return file->seek(offset) && file->read(bytes, size) == static_cast<int>(size);
+}
+bool compatibleSource(HalFile& file, const char* code) {
+  hyphenation_pack::Entry entry;
+  return hyphenation_pack::inspect({&file, file.size(), readInput}, localSupported, code, entry) ==
+         hyphenation_pack::Result::Ok;
 }
 }  // namespace
 
@@ -85,7 +107,47 @@ bool isInstalled(const char* code) {
 }
 bool hasSource(const char* code) {
   char path[64];
-  return sourcePath(code, path) && Storage.exists(path);
+  if (!sourcePath(code, path)) return false;
+  if (supported(code, 2, 2)) return Storage.exists(path);
+  auto file = Storage.open(path);
+  return file && !file.isDirectory() && compatibleSource(file, code);
+}
+size_t listLocalPacks(LocalPack* out, size_t capacity) {
+  if (!out || !capacity) return 0;
+  size_t count = 0;
+  if (initialized) {
+    for (hyphenation_pack::Entry entry; count < capacity && store.entryAt(count, entry); ++count) {
+      out[count] = {{entry.code[0], entry.code[1], 0}, false, true};
+    }
+  }
+  auto dir = Storage.open(DIRECTORY);
+  if (dir && dir.isDirectory()) {
+    // The menu has a fixed-size result. Cap filesystem work as well, even on
+    // cards with large unrelated directories.
+    constexpr size_t MAX_DIRECTORY_ENTRIES = 512;
+    for (size_t seen = 0; seen < MAX_DIRECTORY_ENTRIES; ++seen) {
+      if (seen && !(seen % 32)) delay(1);
+      auto file = dir.openNextFile();
+      if (!file) break;
+      char name[32] = {};
+      // Require the exact canonical filename including case and extension.
+      if (file.isDirectory() || file.getName(name, sizeof(name)) != 14 || std::strncmp(name, "hyph-", 5) ||
+          std::strcmp(name + 7, ".cphyph"))
+        continue;
+      const char code[3] = {name[5], name[6], 0};
+      if (!localSupported(code, 2, 2) || !compatibleSource(file, code)) continue;
+      auto* const existing =
+          std::find_if(out, out + count, [&](const LocalPack& pack) { return !std::strcmp(pack.code, code); });
+      if (existing != out + count)
+        existing->hasSource = true;
+      else if (count < capacity)
+        out[count++] = {{code[0], code[1], 0}, true, false};
+    }
+  }
+  std::sort(out, out + count, [](const LocalPack& a, const LocalPack& b) {
+    return a.installed != b.installed ? a.installed : std::strcmp(a.code, b.code) < 0;
+  });
+  return count;
 }
 hyphenation_pack::Result validateSource(const char* path, const char* code, void* context,
                                         bool (*continueWork)(void*)) {

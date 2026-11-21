@@ -6,6 +6,7 @@
 #include <cstring>
 #include <fstream>
 #include <iterator>
+#include <string>
 #include <vector>
 
 using namespace hyphenation_pack;
@@ -85,10 +86,33 @@ std::vector<uint8_t> pack(const char* code, size_t size = 2301, uint8_t content 
   put32(data.data() + 20, crc32(data.data() + PACK_HEADER_SIZE, size));
   return data;
 }
+bool locallySupported(const char* code, uint8_t prefix, uint8_t suffix) {
+  return prefix == 2 && suffix == 2 &&
+         (!std::strcmp(code, "cs") || !std::strcmp(code, "fi") || !std::strcmp(code, "tr"));
+}
+
 Store boot(Device& device) {
   Store store;
   assert(store.begin(device.flash(), supported) == Result::Ok);
   return store;
+}
+
+Store bootWithLocal(Device& device) {
+  Store store;
+  assert(store.begin(device.flash(), supported, locallySupported) == Result::Ok);
+  return store;
+}
+
+std::vector<uint8_t> validLocalPack(const char* code, uint8_t edge = 'a') {
+  auto source = pack(code, 4);
+  // Empty levels tape, leaf at zero, root at one with a backward edge.
+  source[24] = 0;
+  source[25] = 1;
+  source[26] = edge;
+  source[27] = 255;
+  put32(source.data() + 12, 1);
+  put32(source.data() + 20, crc32(source.data() + PACK_HEADER_SIZE, 4));
+  return source;
 }
 void sourceValidation() {
   // Empty levels tape; leaf node at zero, root at one with one backward edge.
@@ -254,10 +278,167 @@ void storageTests() {
   device.checkUi();
   std::puts("Atomic pack storage, recovery, CRC and UI-slot isolation passed");
 }
+
+void localOnlyBankDoesNotResurrectRemovedPacks() {
+  Device device;
+  auto german = pack("de");
+  auto local = validLocalPack("cs");
+  assert(boot(device).install(input(german)) == Result::Ok);
+  assert(bootWithLocal(device).install(input(local)) == Result::Ok);
+  assert(bootWithLocal(device).remove("de") == Result::Ok);
+
+  auto current = bootWithLocal(device);
+  auto legacy = boot(device);
+  Entry entry;
+  assert(current.count() == 1 && current.find("cs", entry) && !current.find("de", entry));
+  assert(legacy.bankOffset() == current.bankOffset());
+  assert(legacy.count() == 0 && !legacy.find("de", entry) && !legacy.find("cs", entry));
+  assert(current.remove("cs") == Result::Ok);
+  assert(bootWithLocal(device).count() == 0);
+  assert(boot(device).count() == 0);
+  device.checkUi();
+}
+
+void localTailReservationTests() {
+  Device device;
+  const size_t reserve = CAPACITY / 2 - 2 * SECTOR_SIZE;
+  auto bootReserved = [&] {
+    Store store;
+    assert(store.begin(device.flash(), supported, locallySupported, reserve) == Result::Ok);
+    return store;
+  };
+  auto german = pack("de", SECTOR_SIZE - 4);
+  auto french = pack("fr", 16);
+  auto czech = validLocalPack("cs");
+  assert(bootReserved().install(input(german)) == Result::Ok);
+  auto store = bootReserved();
+  assert(store.availablePayloadBytes("cs") == 4);
+  assert(store.install(input(czech)) == Result::Ok);
+  store = bootReserved();
+  assert(store.usedBytes() == 2 * SECTOR_SIZE && store.availablePayloadBytes("fr") == 0);
+  device.mutations = 0;
+  assert(store.install(input(french)) == Result::NoSpace);
+  assert(device.mutations == 0);
+  assert(store.remove("cs") == Result::Ok);
+  // No extension: retain legacy ability to install into the remaining bank.
+  assert(bootReserved().install(input(french)) == Result::Ok);
+  assert(boot(device).count() == 2);
+  device.checkUi();
+}
+
+void localDiscoveryStorageTests() {
+  Device device;
+  auto german = pack("de");
+  auto czech = validLocalPack("cs");
+  auto finnish = validLocalPack("fi", 'f');
+  auto turkish = validLocalPack("tr", 't');
+  assert(boot(device).install(input(german)) == Result::Ok);
+
+  auto store = bootWithLocal(device);
+  Entry entry;
+  assert(store.find("de", entry));
+  const uint32_t germanId = identity(entry);
+  assert(store.install(input(czech)) == Result::Ok);
+  assert(store.count() == 1 && !store.find("cs", entry));
+  store = bootWithLocal(device);
+  assert(store.count() == 2 && store.find("cs", entry));
+  const uint32_t czechId = identity(entry);
+  const size_t firstDynamicBank = store.bankOffset();
+  assert(store.install(input(finnish)) == Result::Ok);
+  store = bootWithLocal(device);
+  assert(store.bankOffset() != firstDynamicBank);
+  assert(store.count() == 3 && store.find("fi", entry));
+  std::vector<std::string> codes;
+  for (size_t index = 0; index < store.count(); ++index) {
+    assert(store.entryAt(index, entry));
+    codes.emplace_back(entry.code);
+  }
+  std::sort(codes.begin(), codes.end());
+  assert((codes == std::vector<std::string>{"cs", "de", "fi"}));
+  assert(!store.entryAt(store.count(), entry));
+
+  // Both banks now contain extensions: an old reader must see the same
+  // newest known payload, not fall back to a prehistoric known-only bank.
+  auto legacy = boot(device);
+  assert(legacy.bankOffset() == store.bankOffset());
+  assert(legacy.count() == 1 && legacy.find("de", entry) && identity(entry) == germanId);
+  assert(!legacy.find("cs", entry) && !legacy.find("fi", entry));
+
+  auto bad = turkish;
+  bad[27] = 0;
+  put32(bad.data() + 20, crc32(bad.data() + PACK_HEADER_SIZE, 4));
+  device.mutations = 0;
+  assert(store.install(input(bad)) == Result::Invalid);
+  assert(device.mutations == 0);
+
+  // Exercise both namespaces in the same rewrite. Changes remain invisible
+  // until a restart, and removing a local item cannot lose other content.
+  auto updatedGerman = pack("de", 2313, 0x53);
+  assert(store.install(input(updatedGerman)) == Result::Ok);
+  store = bootWithLocal(device);
+  assert(store.find("de", entry) && identity(entry) != germanId);
+  const uint32_t updatedGermanId = identity(entry);
+  assert(store.find("cs", entry) && identity(entry) == czechId);
+  assert(store.find("fi", entry));
+  assert(store.remove("cs") == Result::Ok);
+  store = bootWithLocal(device);
+  assert(store.count() == 2 && !store.find("cs", entry) && store.find("fi", entry));
+  assert(store.find("de", entry) && identity(entry) == updatedGermanId);
+  device.checkUi();
+
+  // Interrupted rewrites cannot expose a new local suffix without the
+  // original commit marker or lose the previously pinned known/local data.
+  Device complete = device;
+  complete.mutations = 0;
+  assert(bootWithLocal(complete).install(input(turkish)) == Result::Ok);
+  assert(complete.mutations > 0);
+  for (int stop = 0; stop < complete.mutations; ++stop) {
+    Device interrupted = device;
+    interrupted.mutations = 0;
+    interrupted.failAt = stop;
+    assert(bootWithLocal(interrupted).install(input(turkish)) == Result::Io);
+    interrupted.failAt = -1;
+    auto recovered = bootWithLocal(interrupted);
+    assert(recovered.count() == 2 && !recovered.find("tr", entry) && recovered.find("fi", entry));
+    assert(recovered.find("de", entry) && identity(entry) == updatedGermanId);
+    assert(boot(interrupted).find("de", entry) && identity(entry) == updatedGermanId);
+    interrupted.checkUi();
+  }
+
+  // Damage only the committed extension (once in its header, and once in
+  // its payload). Existing firmware must still open the newest known data.
+  // Current firmware must not return any data from the damaged suffix.
+  auto newest = bootWithLocal(complete);
+  assert(newest.find("tr", entry));
+  const size_t bank = newest.bankOffset();
+  for (const auto offset : {bank + HEADER_SIZE, bank + entry.offset}) {
+    Device corrupted = complete;
+    corrupted.bytes[offset] ^= 1;
+    auto oldReader = boot(corrupted);
+    assert(oldReader.bankOffset() == bank && oldReader.find("de", entry) && identity(entry) == updatedGermanId);
+    auto newReader = bootWithLocal(corrupted);
+    assert(newReader.find("de", entry) && identity(entry) == updatedGermanId);
+    assert(!newReader.find("tr", entry));
+    corrupted.checkUi();
+  }
+
+  // A downlevel firmware install intentionally rewrites only what it knows.
+  // Its newer known bank must still win when current firmware boots again.
+  auto french = pack("fr");
+  assert(boot(complete).install(input(french)) == Result::Ok);
+  auto upgraded = bootWithLocal(complete);
+  assert(upgraded.count() == 2 && upgraded.find("fr", entry) && upgraded.find("de", entry));
+  assert(!upgraded.find("fi", entry) && !upgraded.find("tr", entry));
+  complete.checkUi();
+  std::puts("SD-local extension rotation, rollback, validation and interrupted writes passed");
+}
 }  // namespace
 int main(int argc, char** argv) {
   sourceValidation();
   storageTests();
+  localDiscoveryStorageTests();
+  localOnlyBankDoesNotResurrectRemovedPacks();
+  localTailReservationTests();
   // Exercise release-generated real dictionaries through the production loader.
   Device device;
   for (int i = 1; i < argc; ++i) {
