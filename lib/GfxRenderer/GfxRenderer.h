@@ -186,6 +186,16 @@ class GfxRenderer {
   FontCacheManager* getFontCacheManager() const { return fontCacheManager_; }
   bool isFontCacheScanning() const;
   const std::map<int, EpdFontFamily>& getFontMap() const { return fontMap; }
+  bool hasComplexShapingSource(int fontId) const {
+    const auto font = fontMap.find(fontId);
+    if (font == fontMap.end()) return false;
+    for (auto style :
+         {EpdFontFamily::REGULAR, EpdFontFamily::BOLD, EpdFontFamily::ITALIC, EpdFontFamily::BOLD_ITALIC}) {
+      const auto* data = font->second.shapingData(style);
+      if (data && data->shapeHandler) return true;
+    }
+    return false;
+  }
   void registerSdCardFont(int fontId, SdCardFont* font) {
     ruledFontCached_ = false;
     sdCardFonts_[fontId] = font;
@@ -216,6 +226,9 @@ class GfxRenderer {
   bool collectSdCardFontShapedRtlCodepoints(const char* utf8Text, uint32_t* codepoints, uint16_t& cpCount,
                                             uint16_t capacity, std::string& tokenScratch,
                                             std::string& visualScratch) const;
+  // Safe between scan/draw operations, when no caller holds a glyph pointer.
+  // Leaves live shapers and layout advances alone; reports actual eviction.
+  bool releaseSdCardFontBitmapsForLowMemory(int fontId) const;
   bool releaseSdCardFontForLowMemory(int fontId, bool preserveAdvanceTable = false) const;
 
   // Orientation control (affects logical width/height and coordinate transforms)

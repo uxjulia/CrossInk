@@ -107,6 +107,11 @@ class SdCardFont {
   // cache is also preserved so repeated layout passes can reuse fetched metrics.
   void clearCache();
 
+  // Shed discardable bitmap storage (and any mini metadata coupled to it).
+  // Keeps advances, standalone metrics, and shaping state. True if storage
+  // was freed; only call when there are no borrowed glyph or bitmap pointers.
+  bool releaseBitmapCachesForLowMemory();
+
   // Release optional resident caches before memory-heavy work such as EPUB
   // image extraction. Keeps the font loaded and usable, but future layout or
   // rendering may need to re-read font metadata from SD.

@@ -17,9 +17,11 @@
 #undef private
 #undef class
 
+#include <Arduino.h>
 #include <GfxRenderer.h>
 
 extern uint32_t testHyphenationIdentity;
+extern bool testShapingProbeReady;
 extern std::vector<BookMetadataCache::TocEntry> testTocEntries;
 
 namespace {
@@ -113,6 +115,8 @@ class SectionPersistenceTest : public testing::Test {
  protected:
   void SetUp() override {
     Storage.reset();
+    ESP = {};
+    testShapingProbeReady = true;
     testTocEntries.clear();
     testHyphenationIdentity = 1;
   }
@@ -575,4 +579,73 @@ TEST_F(SectionPersistenceTest, PreviousReferenceLessCachesAreRejected) {
     Section reopened(harness.epub, 0, harness.renderer);
     EXPECT_FALSE(reopened.loadSectionFile(harness.spec));
   }
+}
+
+TEST_F(SectionPersistenceTest, DegradedCompleteSectionRetainsPagesAndClaimsOnlyAfterHeapImproves) {
+  SectionHarness harness;
+  harness.begin({{"kept", 0}});
+  harness.appendPages(2);
+  auto& build = *harness.section.build_;
+  build.shapingFailures.record(0x1235, 1, 40000, 20000);
+  build.shapingFailures.record(0x789b, 1, 39999, 19999);
+  ASSERT_TRUE(harness.commit(kFullVersion));
+  harness.finishSuccessfulCommit();
+
+  ESP.freeHeap = 40000;
+  ESP.largest = 20000;
+  Section reopen(harness.epub, 0, harness.renderer);
+  ASSERT_TRUE(reopen.loadSectionFile(harness.spec));
+  EXPECT_TRUE(reopen.cachedShapingFailures_.degraded);
+  EXPECT_EQ(reopen.cachedShapingFailures_.faces[0].key, 0x1235u);
+  EXPECT_EQ(reopen.cachedShapingFailures_.faces[1].scripts, 2u);
+  EXPECT_FALSE(reopen.claimShapingRecovery(harness.spec));
+  ESP.freeHeap += 17000;
+  EXPECT_TRUE(reopen.claimShapingRecovery(harness.spec));
+  EXPECT_FALSE(reopen.claimShapingRecovery(harness.spec));
+
+  Section reopenedAfterAttempt(harness.epub, 0, harness.renderer);
+  ASSERT_TRUE(reopenedAfterAttempt.loadSectionFile(harness.spec));
+  EXPECT_FALSE(reopenedAfterAttempt.claimShapingRecovery(harness.spec));
+  EXPECT_NE(reopenedAfterAttempt.loadPage(1), nullptr);
+  EXPECT_EQ(reopenedAfterAttempt.getVisibleTextOffsetForPage(1), 17u);
+}
+
+TEST_F(SectionPersistenceTest, SuspendedLayoutKeepsShapingStampSeparateFromWatermark) {
+  SectionHarness harness;
+  harness.begin({{"before", 0}});
+  harness.appendPages(1);
+  harness.section.build_->shapingFailures.record(0x3275, 2, 37000, 17000);
+  ASSERT_TRUE(harness.commit(kPartialVersion, 1234, 5678));
+  harness.finishSuccessfulCommit();
+  Section reopen(harness.epub, 0, harness.renderer);
+  ASSERT_TRUE(reopen.loadSectionFile(harness.spec));
+  EXPECT_TRUE(reopen.isPartial());
+  EXPECT_EQ(reopen.partialBytesConsumed_, 1234u);
+  EXPECT_EQ(reopen.partialTotalBytes_, 5678u);
+  EXPECT_EQ(reopen.cachedShapingFailures_.faces[0].scripts, 4u);
+  EXPECT_EQ(reopen.cachedShapingReadiness_.free, 37000u);
+}
+
+TEST_F(SectionPersistenceTest, TransientSourceRetriesAtSameHeapOnlyAfterSuccessfulWitness) {
+  SectionHarness harness;
+  harness.begin({});
+  harness.appendPages(1);
+  harness.section.build_->shapingFailures.record(0x1235, 1, 40000, 20000, true);
+  ASSERT_TRUE(harness.commit(kFullVersion));
+  harness.finishSuccessfulCommit();
+  ESP.freeHeap = 40000;
+  ESP.largest = 20000;
+
+  Section section(harness.epub, 0, harness.renderer);
+  ASSERT_TRUE(section.loadSectionFile(harness.spec));
+  testShapingProbeReady = false;
+  EXPECT_FALSE(section.claimShapingRecovery(harness.spec));
+  EXPECT_TRUE(section.cachedShapingFailures_.sourceUnavailable);
+  EXPECT_NE(section.loadPage(0), nullptr);
+
+  testShapingProbeReady = true;
+  EXPECT_TRUE(section.claimShapingRecovery(harness.spec));
+  EXPECT_FALSE(section.cachedShapingFailures_.sourceUnavailable);
+  EXPECT_FALSE(section.claimShapingRecovery(harness.spec));
+  EXPECT_NE(section.loadPage(0), nullptr);
 }

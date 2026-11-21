@@ -262,12 +262,17 @@ bool GfxRenderer::collectSdCardFontShapedRtlCodepoints(const char* utf8Text, uin
   return truncated;
 }
 
+bool GfxRenderer::releaseSdCardFontBitmapsForLowMemory(const int fontId) const {
+  const auto it = sdCardFonts_.find(fontId);
+  return it != sdCardFonts_.end() && it->second->releaseBitmapCachesForLowMemory();
+}
+
 bool GfxRenderer::releaseSdCardFontForLowMemory(int fontId, const bool preserveAdvanceTable) const {
   auto it = sdCardFonts_.find(fontId);
   if (it == sdCardFonts_.end()) return false;
 
-  ComplexShaper::releaseAll();
   it->second->releaseForLowMemory(preserveAdvanceTable);
+  ComplexShaper::releaseAll();
   return true;
 }
 

@@ -53,3 +53,10 @@ std::unique_ptr<Page> Page::deserialize(FsFile& file) {
 uint16_t Page::imageEstimateUnits(uint16_t, uint16_t) const { return 0; }
 
 void ComplexShaper::setDocumentLanguage(const char*) {}
+
+bool testShapingProbeReady = true;
+bool ComplexShaper::probeRecovery(const shaping_recovery::Failures&) { return testShapingProbeReady; }
+ComplexShaper::LayoutObservation::LayoutObservation(shaping_recovery::Failures&) : previous_(nullptr) {}
+ComplexShaper::LayoutObservation::~LayoutObservation() = default;
+
+bool Page::hasRecoverableUnshapedText(const GfxRenderer&, int) const { return false; }

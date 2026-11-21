@@ -2,6 +2,9 @@
 // CrossPoint #3831 (9610da70), including the correctness fixes in #3838.
 #include "SdCardFont.h"
 
+#if defined(ESP_PLATFORM) || defined(SIMULATOR)
+#include <AssetFlashLayout.h>
+#endif
 #include <HalStorage.h>
 #include <Logging.h>
 #include <Memory.h>
@@ -764,6 +767,13 @@ bool SdCardFont::loadShapingBlob(void* ctx, ComplexShaper::Blob* out) {
     } else {
       LOG_ERR("SDCF", "%u-byte shaping data fits neither the heap nor a flash cache here; text is not shaped",
               s.shapingBlobLength);
+#if CROSSINK_SHAPING_FLASH_CACHE
+      // A valid source that needs the reserved flash tail can recover on a
+      // later boot. Do not permanently classify it as malformed.
+      if (!asset_flash_layout::hasShapingReservation() && s.shapingBlobLength <= FlashBlobCache::MAX_BLOB_BYTES) {
+        ComplexShaper::noteSourceUnavailable(true);
+      }
+#endif
     }
     file.close();
     return false;
@@ -1919,6 +1929,45 @@ void SdCardFont::clearCache() {
     resetStyleMiniData(styles_[i]);
     applyGlyphMissCallback(i);
   }
+}
+
+bool SdCardFont::releaseBitmapCachesForLowMemory() {
+  // Lean content overflow points into fixed/shared scratch, not heap owned
+  // by the ring. Keep that required drawing scratch allocated.
+  const bool hadContentBitmaps = contentBitmaps_ != nullptr;
+  bool released = hadContentBitmaps;
+  if (!leanContent_) {
+    for (uint32_t i = 0; i < overflowCount_; ++i) {
+      released |= overflow_[i].bitmap != nullptr;
+    }
+  }
+  clearOverflow();
+  contentBitmaps_.reset();
+  contentBitmapCapacity_ = 0;
+  contentBitmapNext_ = 0;
+  contentBitmapsAttempted_ = false;
+  if (hadContentBitmaps && contentMetrics_) {
+    for (size_t i = 0; i < CONTENT_METRICS_CACHE_SIZE; ++i) contentMetrics_[i].bitmapValid = false;
+  }
+
+  for (uint8_t i = 0; i < MAX_STYLES; ++i) {
+    auto& style = styles_[i];
+    if (!style.present || !style.miniBitmap) continue;
+    if (style.miniMetadataOnly) {
+      // The old pixel block is just retained capacity. These glyph offsets
+      // still refer to the file, not to that block.
+      style.miniBitmap.reset();
+      style.miniBitmapCapacity = 0;
+      style.miniBitmapPool = MemoryPool::None;
+    } else {
+      // These glyph offsets refer to the mini atlas, not the font file. Switch
+      // back to the lazy stub rather than publishing a bitmap-less mini view.
+      freeStyleMiniData(style);
+      applyGlyphMissCallback(i);
+    }
+    released = true;
+  }
+  return released;
 }
 
 void SdCardFont::releaseForLowMemory(const bool preserveAdvanceTable) {

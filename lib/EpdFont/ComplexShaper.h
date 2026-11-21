@@ -6,6 +6,8 @@
 #include <cstdint>
 #include <string>
 
+#include "ShapingRecovery.h"
+
 // OpenType shaping of complex-script runs (the Indic scripts listed in
 // IndicScripts.h) for one font face.
 //
@@ -94,7 +96,22 @@ class ComplexShaper {
   // Loaders call this when their source cannot be loaded now (a read failed,
   // or it fits neither flash nor the budget), so the shaper retries later
   // instead of treating the source as malformed.
-  static void noteSourceUnavailable();
+  static void noteSourceUnavailable(bool blockedFlash = false);
+
+  // Only observe real fallback decisions while the caller owns a layout pass.
+  // Each incremental slice can reattach the same accumulator.
+  static bool probeRecovery(const shaping_recovery::Failures& failures);
+
+  class LayoutObservation {
+   public:
+    explicit LayoutObservation(shaping_recovery::Failures& failures);
+    ~LayoutObservation();
+    LayoutObservation(const LayoutObservation&) = delete;
+    LayoutObservation& operator=(const LayoutObservation&) = delete;
+
+   private:
+    shaping_recovery::Failures* previous_;
+  };
 
   struct MemoryStats {
     size_t current = 0;
@@ -161,7 +178,9 @@ class ComplexShaper {
   // (pages drawn from the page cache) shapes the next word it gets.
   uint16_t retryBackoff_ = 0;
   uint32_t backoffStartMs_ = 0;
-  bool unusable_ = false;  // the source was read but is malformed
+  bool blockedFlash_ = false;
+  bool sourceUnavailable_ = false;  // reason for the current face-load cooldown
+  bool unusable_ = false;           // the source was read but is malformed
   // One bit per indic::SCRIPTS entry. Coverage is a property of the source,
   // so it survives release().
   uint16_t coverageChecked_ = 0;

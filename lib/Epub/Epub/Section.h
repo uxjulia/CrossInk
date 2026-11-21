@@ -1,4 +1,6 @@
 #pragma once
+#include <ShapingRecovery.h>
+
 #include <functional>
 #include <memory>
 #include <optional>
@@ -25,6 +27,7 @@ struct SectionBuildOptions {
   // Leave the whole-section font advance prewarm out of the first chunk so the first
   // page lays out sooner; the caller then runs it with prewarmSomeMore().
   bool deferAdvancePrewarm = false;
+  const shaping_recovery::Failures* expectedShapingRecovery = nullptr;
   // Stable-page coordinates stay in the manifest's word/character units until
   // the parser knows the spine's source-text length. This avoids treating page
   // density as uniform when selecting the rendered screen.
@@ -64,6 +67,8 @@ class Section {
     // HTML byte progress, for estimating the section's total page count while it's still building.
     uint32_t bytesConsumed = 0;
     uint32_t totalBytes = 0;
+    shaping_recovery::Failures shapingFailures;
+    shaping_recovery::Readiness shapingReadiness;
     // Exponentially-smoothed page-count estimate (0 = not yet seeded) and the bytesConsumed at its
     // last update. The raw byte-ratio estimate jitters as the build crosses dense/sparse regions;
     // the EMA is stepped once per build advance (not per redraw) to damp that wobble.
@@ -91,6 +96,13 @@ class Section {
   uint32_t partialBytesConsumed_ = 0;
   uint32_t partialTotalBytes_ = 0;
   std::string activeBuildTmpSectionPath_;
+
+  // The optional trailer is outside the page/LUT payload, so existing layouts
+  // remain readable while a corrected staging file is built.
+  uint32_t shapingTrailerOffset_ = 0;
+  bool shapingTrailerKnown_ = false;
+  shaping_recovery::Failures cachedShapingFailures_;
+  shaping_recovery::Readiness cachedShapingReadiness_;
 
   uint32_t baseLayoutSignature_ = 0;
   bool publisherFontsEnabled_ = false;
@@ -127,6 +139,10 @@ class Section {
   ~Section();
   bool loadSectionFile(const ReaderRenderSpec& spec);
   bool clearCache() const;
+  // Stamp a bounded retry before rebuilding. If it fails, the original page
+  // and position data remain on disk and readable.
+  bool claimShapingRecovery(const ReaderRenderSpec& spec, int targetPage = 0);
+  const shaping_recovery::Failures& shapingRecoveryTarget() const { return cachedShapingFailures_; }
   bool createSectionFile(const ReaderRenderSpec& spec, const std::function<void()>& popupFn = nullptr,
                          bool* imagesWereSuppressed = nullptr, bool* layoutAbortedForLowMemory = nullptr,
                          SectionBuildOptions buildOptions = {});

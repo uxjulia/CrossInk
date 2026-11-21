@@ -1,10 +1,12 @@
 #include "Page.h"
 
+#include <ComplexShaper.h>
 #include <GfxRenderer.h>
 #include <Logging.h>
 #include <Memory.h>
 #include <PrintSerialization.h>
 #include <Serialization.h>
+#include <ShapingTokens.h>
 #include <Utf8.h>
 
 #include "tables/TableColumnLayout.h"
@@ -568,6 +570,47 @@ void PageTableFragment::render(GfxRenderer& renderer, const int fontId, const in
       renderer.drawLine(drawX, drawY + currentY, drawX + width - 1, drawY + currentY, lineWidth, foregroundBlack);
     }
   }
+}
+
+bool Page::hasRecoverableUnshapedText(const GfxRenderer& renderer, const int fontId) const {
+  struct Probe {
+    const GfxRenderer& renderer;
+    int fontId;
+    unsigned attempts = 0;
+    bool recovered = false;
+    std::string output;
+  } probe{renderer, fontId};
+  const auto hasTokens = [](const char* text) {
+    const auto* p = reinterpret_cast<const unsigned char*>(text);
+    while (*p) {
+      if (shaping::isGlyphToken(utf8NextCodepoint(&p))) return true;
+    }
+    return false;
+  };
+  struct Context {
+    Probe& probe;
+    const decltype(hasTokens)& containsTokens;
+  } context{probe, hasTokens};
+  forEachTextLine(
+      [](const PageTextLine& line, void* opaque) {
+        auto& ctx = *static_cast<Context*>(opaque);
+        for (uint16_t i = 0; i < line.block->wordCount(); ++i) {
+          const auto* text = line.block->wordText(i);
+          const auto* display = line.block->displayForm(i);
+          if (!ComplexShaper::containsComplexScript(text) || (display && ctx.containsTokens(display))) continue;
+          if (++ctx.probe.attempts > 4) return false;
+          const int font = line.block->wordFontId(ctx.probe.renderer, ctx.probe.fontId, i);
+          if (ctx.probe.renderer.resolveForDisplay(font, text, line.block->wordStyle(i), BidiUtils::BidiBaseDir::AUTO,
+                                                   ctx.probe.output) &&
+              ctx.containsTokens(ctx.probe.output.c_str())) {
+            ctx.probe.recovered = true;
+            return false;
+          }
+        }
+        return true;
+      },
+      &context);
+  return probe.recovered;
 }
 
 bool Page::forEachTextLine(const PageTextLineVisitor visitor, void* context) const {

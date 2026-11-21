@@ -17,6 +17,8 @@ class GfxRenderer {
     return loaded == mask && signature == publisherSignature;
   }
   FontCacheManager* getFontCacheManager() const { return nullptr; }
+  bool hasComplexShapingSource(int) const { return false; }
   bool isSdCardFont(int) const { return false; }
+  bool releaseSdCardFontBitmapsForLowMemory(int) { return false; }
   bool releaseSdCardFontForLowMemory(int, bool = false) { return false; }
 };

@@ -69,7 +69,9 @@ uint32_t gFailures = 0;
 // Loads that failed for a reason that may pass: allocations refused
 // (gFailures) plus sources that could not be read (noteSourceUnavailable).
 uint32_t gUnavailable = 0;
+uint32_t gBlockedFlash = 0;
 uint32_t transientFailures() { return gFailures + gUnavailable; }
+thread_local shaping_recovery::Failures* gLayoutObservation = nullptr;
 
 // `growth` is what the allocation adds to the heap in use; `block` is the
 // contiguous size it needs (they differ for realloc).
@@ -609,7 +611,8 @@ void ComplexShaper::setBlobSource(const BlobLoader loader, void* ctx, const uint
   tableLoader_ = nullptr;
   sourceCtx_ = ctx;
   contentKey_ = contentKey;
-  unusable_ = false;
+  unusable_ = sourceUnavailable_ = blockedFlash_ = false;
+  retryBackoff_ = 0;
   coverageChecked_ = coverageMask_ = 0;
 }
 
@@ -622,7 +625,8 @@ void ComplexShaper::setTableSource(const TableLoader loader, void* ctx) {
   blobLoader_ = nullptr;
   sourceCtx_ = ctx;
   contentKey_ = 0;
-  unusable_ = false;
+  unusable_ = sourceUnavailable_ = blockedFlash_ = false;
+  retryBackoff_ = 0;
   coverageChecked_ = coverageMask_ = 0;
 }
 
@@ -662,9 +666,13 @@ bool ComplexShaper::ensureFace() {
   }
   if (shared == nullptr) {
     const uint32_t failuresBefore = transientFailures();
+    const uint32_t unavailableBefore = gUnavailable;
+    const uint32_t blockedFlashBefore = gBlockedFlash;
     uint32_t key = contentKey_;
     SharedFace* built = blobLoader_ != nullptr ? buildBlobFace(blobLoader_, sourceCtx_, key)
                                                : buildTableFace_(tableLoader_, sourceCtx_, &key);
+    sourceUnavailable_ = gUnavailable != unavailableBefore;
+    blockedFlash_ = gBlockedFlash != blockedFlashBefore;
     if (built == nullptr) {
       if (transientFailures() == failuresBefore) {
         LOG_ERR("SHAPE", "Shaping source unusable; shaping disabled for this face");
@@ -683,6 +691,7 @@ bool ComplexShaper::ensureFace() {
   }
   shared->users++;
   face_ = shared;
+  sourceUnavailable_ = blockedFlash_ = false;
   LOG_DBG("SHAPE", "Face ready at %u/64 ppem: %u glyphs, shared by %u, %u bytes in use", scale26_6_,
           static_cast<unsigned>(face_->face.glyphCount()), face_->users, static_cast<unsigned>(gCurrent));
   return true;
@@ -894,13 +903,31 @@ bool ComplexShaper::shapeRuns(const char* utf8, std::string& out) {
     // Shared codepoints alone (a lone danda) and scripts the layout tables do
     // not cover stay text, drawn glyph by glyph like any unshaped string.
     const Coverage covered = run.script != nullptr ? coverage(*run.script) : Coverage::NotCovered;
-    if (covered == Coverage::Unknown) return false;
+    if (covered == Coverage::Unknown) {
+      if (!unusable_ && contentKey_ != 0 && gLayoutObservation && run.script) {
+        gLayoutObservation->record(contentKey_, indic::indexOf(*run.script), ESP.getFreeHeap(), ESP.getMaxAllocHeap(),
+                                   sourceUnavailable_, blockedFlash_);
+      }
+      return false;
+    }
     if (covered == Coverage::NotCovered) {
       if (!reserveOutput(out, length)) return false;
       out.append(runText, length);
       continue;
     }
-    if (!appendShapedRun(runText, length, *run.script, out)) return false;
+    const uint32_t failuresBefore = transientFailures();
+    const bool wasCoolingDown = retryBackoff_ > 0;
+    if (!appendShapedRun(runText, length, *run.script, out)) {
+      if (contentKey_ != 0 && gLayoutObservation &&
+          (transientFailures() != failuresBefore || (!unusable_ && (wasCoolingDown || retryBackoff_ > 0)))) {
+        gLayoutObservation->record(contentKey_, indic::indexOf(*run.script), ESP.getFreeHeap(), ESP.getMaxAllocHeap(),
+                                   sourceUnavailable_, blockedFlash_);
+      }
+      return false;
+    }
+    if (gLayoutObservation && gLayoutObservation->expected) {
+      gLayoutObservation->recordSuccess(contentKey_, indic::indexOf(*run.script));
+    }
     shapedAny = true;
   }
   return shapedAny;
@@ -923,9 +950,49 @@ void* ComplexShaper::allocate(const size_t size) {
   return budgetedMalloc(size);
 }
 
-void ComplexShaper::noteSourceUnavailable() {
+bool ComplexShaper::probeRecovery(const shaping_recovery::Failures& failures) {
+  std::lock_guard<std::recursive_mutex> lock(shaperMutex());
+  std::string out;
+  for (const auto& failure : failures.faces) {
+    if (failure.scripts == 0) continue;
+    // An uninitialized vector face has no stable source key. Never witness
+    // readiness using a different vector font that also has key zero.
+    if (failure.key == 0) return false;
+    bool ready = false;
+    for (ComplexShaper* candidate = gShapers; candidate != nullptr; candidate = candidate->next_) {
+      if (candidate->contentKey_ != failure.key) continue;
+      bool scriptsReady = true;
+      for (size_t i = 0; i < indic::SCRIPT_COUNT; ++i) {
+        if ((failure.scripts & (1u << i)) == 0) continue;
+        const auto& script = indic::SCRIPTS[i];
+        char sample[5]{};
+        utf8AppendCodepoint(sample, script.probe);
+        if (candidate->coverage(script) != Coverage::Covered || !candidate->shapeRuns(sample, out)) {
+          scriptsReady = false;
+          break;
+        }
+      }
+      if (scriptsReady) {
+        ready = true;
+        break;
+      }
+    }
+    if (!ready) return false;
+  }
+  return true;
+}
+
+ComplexShaper::LayoutObservation::LayoutObservation(shaping_recovery::Failures& failures)
+    : previous_(gLayoutObservation) {
+  gLayoutObservation = &failures;
+}
+
+ComplexShaper::LayoutObservation::~LayoutObservation() { gLayoutObservation = previous_; }
+
+void ComplexShaper::noteSourceUnavailable(const bool blockedFlash) {
   std::lock_guard<std::recursive_mutex> lock(shaperMutex());
   gUnavailable++;
+  if (blockedFlash) ++gBlockedFlash;
 }
 
 void ComplexShaper::deallocate(void* ptr) {

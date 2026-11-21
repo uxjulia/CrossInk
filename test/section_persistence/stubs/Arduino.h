@@ -8,8 +8,10 @@
 using String = std::string;
 
 struct EspHostStub {
-  uint32_t getFreeHeap() const { return UINT32_MAX; }
-  uint32_t getMaxAllocHeap() const { return UINT32_MAX; }
+  uint32_t freeHeap = UINT32_MAX;
+  uint32_t largest = UINT32_MAX;
+  uint32_t getFreeHeap() const { return freeHeap; }
+  uint32_t getMaxAllocHeap() const { return largest; }
 };
 
 inline EspHostStub ESP;

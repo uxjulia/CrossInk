@@ -1,6 +1,9 @@
 #include "Section.h"
 
 #include <Arduino.h>
+#if defined(ESP_PLATFORM) || defined(SIMULATOR)
+#include <AssetFlashLayout.h>
+#endif
 #include <BufferedFile.h>
 #include <ComplexShaper.h>
 #include <FontCacheManager.h>
@@ -28,6 +31,52 @@ constexpr uint8_t SECTION_FILE_VERSION = 120;
 // Change this with layout or payload changes so stale partial pages cannot resume
 // under a different layout contract.
 constexpr uint8_t SECTION_FILE_PARTIAL_VERSION = 0xE9;
+constexpr uint32_t SHAPING_STAMP_MAGIC = 0x31524853;  // "SHR1"
+constexpr uint32_t SHAPING_STAMP_BYTES = 7 * sizeof(uint32_t);
+
+shaping_recovery::Readiness shapingReadiness() {
+#if CROSSINK_SHAPING_FLASH_CACHE
+  const bool flash = asset_flash_layout::hasShapingReservation();
+#else
+  const bool flash = false;
+#endif
+  return {ESP.getFreeHeap(), ESP.getMaxAllocHeap(), flash};
+}
+
+bool writeShapingStamp(HalFile& output, const shaping_recovery::Failures& failures,
+                       const shaping_recovery::Readiness& readiness) {
+  const uint32_t flags = uint32_t(failures.degraded) | (uint32_t(readiness.flash) << 1) |
+                         (uint32_t(failures.faces[0].scripts) << 2) | (uint32_t(failures.faces[1].scripts) << 12) |
+                         (uint32_t(failures.sourceUnavailable) << 22) | (uint32_t(failures.blockedFlash) << 23);
+  // A torn retry-gate write must never invalidate the page cache.
+  const auto checksum =
+      SHAPING_STAMP_MAGIC ^ flags ^ readiness.free ^ readiness.largest ^ failures.faces[0].key ^ failures.faces[1].key;
+  return serialization::tryWritePod(output, SHAPING_STAMP_MAGIC) && serialization::tryWritePod(output, flags) &&
+         serialization::tryWritePod(output, readiness.free) && serialization::tryWritePod(output, readiness.largest) &&
+         serialization::tryWritePod(output, failures.faces[0].key) &&
+         serialization::tryWritePod(output, failures.faces[1].key) && serialization::tryWritePod(output, checksum);
+}
+
+bool readShapingStamp(HalFile& input, shaping_recovery::Failures& failures, shaping_recovery::Readiness& readiness) {
+  uint32_t magic = 0, flags = 0, checksum = 0;
+  if (!serialization::tryReadPod(input, magic) || magic != SHAPING_STAMP_MAGIC ||
+      !serialization::tryReadPod(input, flags) || !serialization::tryReadPod(input, readiness.free) ||
+      !serialization::tryReadPod(input, readiness.largest) ||
+      !serialization::tryReadPod(input, failures.faces[0].key) ||
+      !serialization::tryReadPod(input, failures.faces[1].key) || !serialization::tryReadPod(input, checksum) ||
+      checksum !=
+          (magic ^ flags ^ readiness.free ^ readiness.largest ^ failures.faces[0].key ^ failures.faces[1].key)) {
+    return false;
+  }
+  failures.degraded = (flags & 1u) != 0;
+  failures.sourceUnavailable = (flags & (1u << 22)) != 0;
+  failures.blockedFlash = (flags & (1u << 23)) != 0;
+  readiness.flash = (flags & 2u) != 0;
+  failures.faces[0].scripts = (flags >> 2) & 0x3ff;
+  failures.faces[1].scripts = (flags >> 12) & 0x3ff;
+  return true;
+}
+
 constexpr uint32_t HEADER_SIZE =
     sizeof(bool) + 4 * sizeof(uint32_t) + sizeof(PublisherFonts) + sizeof(SECTION_CACHE_MAGIC) + sizeof(uint8_t) +
     sizeof(int) + sizeof(float) + sizeof(bool) + sizeof(bool) + sizeof(uint8_t) + sizeof(uint16_t) + sizeof(uint16_t) +
@@ -42,9 +91,10 @@ constexpr size_t PAGE_WRITE_BUFFER_SIZE = 1024;
 constexpr size_t LOW_MEMORY_SECTION_HTML_STREAM_CHUNK_SIZE = 1024;
 
 void prepareSectionZipInflate(GfxRenderer& renderer, const int fontId) {
-  if (ESP.getMaxAllocHeap() < InflateStream::requiredInternalStorageSize(true) && renderer.isSdCardFont(fontId)) {
-    renderer.releaseSdCardFontForLowMemory(fontId);
-  }
+  const auto required = InflateStream::requiredInternalStorageSize(true);
+  if (ESP.getMaxAllocHeap() >= required || !renderer.isSdCardFont(fontId)) return;
+  renderer.releaseSdCardFontBitmapsForLowMemory(fontId);
+  if (ESP.getMaxAllocHeap() < required) renderer.releaseSdCardFontForLowMemory(fontId);
 }
 
 size_t sectionHtmlStreamChunkSize(const bool preview) {
@@ -455,8 +505,67 @@ bool Section::loadSectionFile(const ReaderRenderSpec& spec) {
     partialTotalBytes_ = 0;
   }
 
-  // Explicit close() required: member variable persists beyond function scope
+  // The visible/reference offsets and the optional incremental watermark have
+  // fixed sizes. Old files end here and stay readable, even if recovery fails.
+  uint32_t visibleLut = 0;
+  shapingTrailerOffset_ = 0;
+  shapingTrailerKnown_ = false;
+  cachedShapingFailures_ = {};
+  cachedShapingReadiness_ = {};
+  if (file.seek(HEADER_SIZE - sizeof(uint32_t)) && serialization::tryReadPod(file, visibleLut) &&
+      visibleLut >= HEADER_SIZE) {
+    const uint64_t offset = uint64_t(visibleLut) + (2u * pageCount + 1u + (filePartial ? 2u : 0u)) * sizeof(uint32_t);
+    if (offset <= file.size() && offset <= UINT32_MAX) {
+      shapingTrailerOffset_ = static_cast<uint32_t>(offset);
+      if (file.size() - offset >= SHAPING_STAMP_BYTES && file.seek(offset)) {
+        shapingTrailerKnown_ = readShapingStamp(file, cachedShapingFailures_, cachedShapingReadiness_);
+      }
+    }
+  }
   file.close();
+  return true;
+}
+
+bool Section::claimShapingRecovery(const ReaderRenderSpec& spec, int targetPage) {
+  if (!shapingTrailerOffset_ || !pageCount) return false;
+  const auto now = shapingReadiness();
+  if (shapingTrailerKnown_) {
+    if (!cachedShapingFailures_.degraded ||
+        (!cachedShapingFailures_.sourceUnavailable && !now.improvedFrom(cachedShapingReadiness_)))
+      return false;
+#if CROSSINK_SHAPING_FLASH_CACHE
+    // A missing C3 reservation is a known blocked condition, not a reason
+    // to reopen large font files on every reader entry.
+    if (!now.flash && cachedShapingFailures_.blockedFlash) return false;
+#endif
+  } else {
+    // Pre-fix caches do not record shaping success. Limit lazy migration to
+    // readers with an actual shaping source, and keep the old readable pages
+    // until a quality-checked rebuild succeeds.
+    if (!renderer.hasComplexShapingSource(spec.fontId)) return false;
+#if CROSSINK_SHAPING_FLASH_CACHE
+    if (!now.flash) return false;
+#endif
+    // Avoid rebuilding a healthy Latin or already-shaped old section just
+    // because the selected font happens to contain shaping tables.
+    const auto page = loadPage(std::clamp(targetPage, 0, int(pageCount) - 1));
+    if (!page || !page->hasRecoverableUnshapedText(renderer, spec.fontId)) return false;
+    cachedShapingFailures_ = {};
+    cachedShapingFailures_.degraded = true;
+  }
+  // Do not burn a persistent retry solely because an opportunistic probe
+  // failed (e.g. temporary SD read/slot pressure). Only attempt the expensive
+  // replacement after the recorded sources actually load again.
+  if (!ComplexShaper::probeRecovery(cachedShapingFailures_)) return false;
+  cachedShapingFailures_.sourceUnavailable = false;
+  auto stamp = Storage.open(filePath.c_str(), O_RDWR);
+  if (!stamp || !stamp.seek(shapingTrailerOffset_) || !writeShapingStamp(stamp, cachedShapingFailures_, now) ||
+      !stamp.sync()) {
+    return false;  // no persistent rate limit: keep serving the old layout
+  }
+  stamp.close();
+  cachedShapingReadiness_ = now;
+  shapingTrailerKnown_ = true;
   return true;
 }
 
@@ -485,6 +594,9 @@ bool Section::clearCache() const {
 bool Section::createSectionFile(const ReaderRenderSpec& spec, const std::function<void()>& popupFn,
                                 bool* imagesWereSuppressed, bool* layoutAbortedForLowMemory,
                                 const SectionBuildOptions buildOptions) {
+  auto initialShapingReadiness = shapingReadiness();
+  shaping_recovery::Failures shapingFailures;
+  shapingFailures.expected = buildOptions.expectedShapingRecovery;
   const int fontId = spec.fontId;
   const float lineCompression = spec.lineCompression;
   const bool extraParagraphSpacing = spec.extraParagraphSpacing;
@@ -723,34 +835,37 @@ bool Section::createSectionFile(const ReaderRenderSpec& spec, const std::functio
   ComplexShaper::setDocumentLanguage(epub->getLanguage().c_str());
   bool cancelled = false;
   bool success = false;
-  if (cancelBuild()) {
-    cancelled = true;
-  } else {
-    visitor.setRuled(spec.ruled);
-    visitor.setPublisherFonts(spec.publisherFonts);
-    success = visitor.beginParse();
-  }
-  while (success && !cancelled) {
+  {
+    const ComplexShaper::LayoutObservation observe(shapingFailures);
     if (cancelBuild()) {
-      visitor.abortParse();
       cancelled = true;
-      break;
+    } else {
+      visitor.setRuled(spec.ruled);
+      visitor.setPublisherFonts(spec.publisherFonts);
+      success = visitor.beginParse();
     }
-    if (buildOptions.onBuildCheckpoint) buildOptions.onBuildCheckpoint();
-    const auto status = visitor.parseStep();
-    if (status == ChapterHtmlSlimParser::ParseStatus::Error) {
-      visitor.abortParse();
-      success = false;
-      break;
-    }
-    if (status == ChapterHtmlSlimParser::ParseStatus::Done) {
+    while (success && !cancelled) {
       if (cancelBuild()) {
         visitor.abortParse();
         cancelled = true;
-      } else {
-        success = visitor.finishParse();
+        break;
       }
-      break;
+      if (buildOptions.onBuildCheckpoint) buildOptions.onBuildCheckpoint();
+      const auto status = visitor.parseStep();
+      if (status == ChapterHtmlSlimParser::ParseStatus::Error) {
+        visitor.abortParse();
+        success = false;
+        break;
+      }
+      if (status == ChapterHtmlSlimParser::ParseStatus::Done) {
+        if (cancelBuild()) {
+          visitor.abortParse();
+          cancelled = true;
+        } else {
+          success = visitor.finishParse();
+        }
+        break;
+      }
     }
   }
   LOG_DBG("SCT", "Parser done: spine=%d success=%u pages=%u free=%u maxAlloc=%u", spineIndex, success, pageCount,
@@ -791,6 +906,14 @@ bool Section::createSectionFile(const ReaderRenderSpec& spec, const std::functio
     return false;
   }
 
+  if (!shapingFailures.recovered()) {
+    file.close();
+    Storage.remove(tmpSectionPath.c_str());
+    if (cssParser) cssParser->clear();
+    LOG_INF("SCT", "Shaping still unavailable; retained previous readable section");
+    return false;
+  }
+
   if (buildOptions.resolvedReferencePage && buildOptions.referenceUnitCount > 0 &&
       !buildOptions.referenceUnitsAreCharacters) {
     *buildOptions.resolvedReferencePage = EpubNavigation::resolveReferenceTargetToRenderedPage(
@@ -809,7 +932,12 @@ bool Section::createSectionFile(const ReaderRenderSpec& spec, const std::functio
         return true;
       },
       pageIndexOffsets);
-  if (!wrotePageIndex || !serialization::tryWritePod(file, visitor.getReferenceTextLength())) {
+  if (shapingFailures.degraded) {
+    initialShapingReadiness.free = shapingFailures.failureFree;
+    initialShapingReadiness.largest = shapingFailures.failureLargest;
+  }
+  if (!wrotePageIndex || !serialization::tryWritePod(file, visitor.getReferenceTextLength()) ||
+      !writeShapingStamp(file, shapingFailures, initialShapingReadiness)) {
     LOG_ERR("SCT", "Failed to write section page index");
     file.close();
     Storage.remove(tmpSectionPath.c_str());
@@ -1067,7 +1195,12 @@ bool Section::startBuild(const ReaderRenderSpec& spec, const SectionBuildOptions
   build_->parser->setRuled(spec.ruled);
   build_->parser->setPublisherFonts(spec.publisherFonts);
   build_->parser->setDeferAdvancePrewarm(buildOptions.deferAdvancePrewarm);
-  if (!build_->parser->beginParse()) {
+  build_->shapingReadiness = shapingReadiness();
+  const bool parseStarted = [&] {
+    const ComplexShaper::LayoutObservation observe(build_->shapingFailures);
+    return build_->parser->beginParse();
+  }();
+  if (!parseStarted) {
     LOG_ERR("SCT", "Failed to begin incremental section parse");
     lastLayoutAbortedForLowMemory_ = build_->parser->wasLowMemoryAbortTriggered();
     if (lastLayoutAbortedForLowMemory_ && partial_) {
@@ -1093,7 +1226,10 @@ bool Section::buildSomeMore(const int maxPages, const bool singleParseStep) {
   // would otherwise turn one "small" chunk into a blocking rebuild of the whole watermark.
   const int startCount = builtPageCount_;
   for (;;) {
-    const auto status = build_->parser->parseStep();
+    const auto status = [&] {
+      const ComplexShaper::LayoutObservation observe(build_->shapingFailures);
+      return build_->parser->parseStep();
+    }();
     lastImagesWereSuppressed_ = lastImagesWereSuppressed_ || build_->parser->wasLowMemoryFallbackTriggered();
     lastLayoutAbortedForLowMemory_ = lastLayoutAbortedForLowMemory_ || build_->parser->wasLowMemoryAbortTriggered();
     if (build_->pageCompletionFailed || status == ChapterHtmlSlimParser::ParseStatus::Error) {
@@ -1339,6 +1475,13 @@ bool Section::commitBuildFile(const uint8_t version, const uint32_t bytesConsume
     }
   }
 
+  auto readiness = build_->shapingReadiness;
+  if (build_->shapingFailures.degraded) {
+    readiness.free = build_->shapingFailures.failureFree;
+    readiness.largest = build_->shapingFailures.failureLargest;
+  }
+  if (!writeShapingStamp(file, build_->shapingFailures, readiness)) return failCommit();
+
   // Patch header with the built page count and section offsets...
   if (!writePublisherFontState() || !serialization::tryWritePod(file, builtPageCount_) ||
       !serialization::tryWritePod(file, protectedImageUnits_) ||
@@ -1369,7 +1512,10 @@ bool Section::finalizeBuild() {
     return false;
   }
 
-  const bool success = build_->parser->finishParse();
+  const bool success = [&] {
+    const ComplexShaper::LayoutObservation observe(build_->shapingFailures);
+    return build_->parser->finishParse();
+  }();
   lastImagesWereSuppressed_ = lastImagesWereSuppressed_ || build_->parser->wasLowMemoryFallbackTriggered();
   lastLayoutAbortedForLowMemory_ = lastLayoutAbortedForLowMemory_ || build_->parser->wasLowMemoryAbortTriggered();
   if (!success || build_->pageCompletionFailed) {

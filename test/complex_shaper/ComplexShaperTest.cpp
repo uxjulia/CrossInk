@@ -289,13 +289,14 @@ TEST_F(ComplexShaperTest, RefusesCleanlyWhenTheBudgetIsTooSmallAndRecovers) {
 struct FlakySource {
   int failuresLeft;
   bool unavailable;
+  bool blockedFlash = false;
 };
 
 bool loadFlakyBlob(void* ctx, ComplexShaper::Blob* out) {
   auto* source = static_cast<FlakySource*>(ctx);
   if (source->failuresLeft > 0) {
     source->failuresLeft--;
-    if (source->unavailable) ComplexShaper::noteSourceUnavailable();
+    if (source->unavailable) ComplexShaper::noteSourceUnavailable(source->blockedFlash);
     return false;
   }
   return loadFixture(nullptr, out);
@@ -341,6 +342,72 @@ TEST_F(ComplexShaperTest, RetriesASourceThatCouldNotBeLoaded) {
   std::string out;
   ASSERT_TRUE(shapesWithin(flaky, 300, out)) << "an unreadable source is retried after the backoff";
   EXPECT_EQ(decode(out).size(), kBengaliShaping[1].count);
+}
+
+TEST_F(ComplexShaperTest, LayoutObservesTransientCooldownAfterPreviouslyKnownCoverage) {
+  hostMillis = 0;
+  FlakySource source{0, true};
+  ComplexShaper flaky;
+  flaky.setBlobSource(loadFlakyBlob, &source, kFixtureKey + 302);
+  flaky.setScale(kFixturePpem26_6);
+  std::string out;
+  ASSERT_TRUE(flaky.shape(kBengaliShaping[0].utf8, out));
+  flaky.release();
+  ComplexShaper::releaseCache();
+  source.failuresLeft = 1;
+  ASSERT_FALSE(flaky.shape(kBengaliShaping[1].utf8, out));
+  shaping_recovery::Failures failed;
+  {
+    const ComplexShaper::LayoutObservation observation(failed);
+    EXPECT_FALSE(flaky.shape(kBengaliShaping[1].utf8, out));
+  }
+  ASSERT_TRUE(failed.degraded);
+  EXPECT_TRUE(failed.sourceUnavailable);
+  EXPECT_EQ(failed.faces[0].key, kFixtureKey + 302);
+  EXPECT_EQ(failed.faces[0].scripts, 1u << 1);
+  hostMillis += 2000;
+  EXPECT_TRUE(ComplexShaper::probeRecovery(failed));
+  shaping_recovery::Failures retry;
+  retry.expected = &failed;
+  EXPECT_FALSE(retry.recovered());
+  {
+    const ComplexShaper::LayoutObservation observation(retry);
+    ASSERT_TRUE(flaky.shape(kBengaliShaping[1].utf8, out));
+  }
+  EXPECT_TRUE(retry.recovered());
+}
+
+TEST_F(ComplexShaperTest, SameFaceRecoversAfterReservedFlashAppears) {
+  hostMillis = 0;
+  FlakySource source{1, true, true};
+  ComplexShaper flaky;
+  flaky.setBlobSource(loadFlakyBlob, &source, kFixtureKey + 304);
+  flaky.setScale(kFixturePpem26_6);
+  std::string out;
+  shaping_recovery::Failures state;
+  {
+    const ComplexShaper::LayoutObservation observation(state);
+    EXPECT_FALSE(flaky.shape(kBengaliShaping[1].utf8, out));
+  }
+  EXPECT_TRUE(state.degraded);
+  EXPECT_TRUE(state.blockedFlash);
+  hostMillis += 2000;
+  EXPECT_TRUE(ComplexShaper::probeRecovery(state));
+  EXPECT_TRUE(flaky.shape(kBengaliShaping[1].utf8, out));
+}
+
+TEST_F(ComplexShaperTest, LayoutDoesNotObserveAbsentOrMalformedSources) {
+  std::string out;
+  ComplexShaper noSource;
+  FlakySource malformed{1, false};
+  ComplexShaper broken;
+  broken.setBlobSource(loadFlakyBlob, &malformed, kFixtureKey + 303);
+  broken.setScale(kFixturePpem26_6);
+  shaping_recovery::Failures state;
+  const ComplexShaper::LayoutObservation observation(state);
+  EXPECT_FALSE(noSource.shape(kBengaliShaping[1].utf8, out));
+  EXPECT_FALSE(broken.shape(kBengaliShaping[1].utf8, out));
+  EXPECT_FALSE(state.degraded);
 }
 
 TEST_F(ComplexShaperTest, StopsLoadingAMalformedSource) {

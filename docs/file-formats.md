@@ -1157,7 +1157,16 @@ body-only and built-in font identities stay unchanged. No binary payload changes
 
 Native EPUB `<pre>` blocks preserve the book's spaces and hard line breaks.
 Complete sections use version 120 and suspended sections use `0xE9`; the
-binary payload and reading progress format are unchanged.
+page and reading-progress payloads are unchanged.
+
+Complete and suspended sections can carry an optional 28-byte `SHR1` trailer
+after the visible/reference text lookup tables and any partial-build watermark.
+It records whether an equipped SD font fell back while shaping, up to two
+face/script identities, and the relevant heap/flash retry conditions. A missing
+or torn stamp does not invalidate the cached pages. A corrected layout is only
+promoted from a temporary file after the failed face/script combinations shape
+successfully. Earlier layouts are only retried automatically when the requested
+cached page contains raw Indic text that the selected SD font can now shape.
 
 ### Version 119
 

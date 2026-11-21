@@ -1100,7 +1100,8 @@ ReaderViewportLayout computeReaderViewportLayout(GfxRenderer& renderer, const bo
   return layout;
 }
 
-bool releaseReaderSdFontCachesForLowMemory(const GfxRenderer& renderer, const char* tag, const char* reason) {
+bool releaseReaderSdFontCachesForLowMemory(const GfxRenderer& renderer, const char* tag, const char* reason,
+                                           bool textLayout = false) {
   const int fontId = SETTINGS.getReaderFontId();
   if (!renderer.isSdCardFont(fontId)) {
     return false;
@@ -1109,9 +1110,12 @@ bool releaseReaderSdFontCachesForLowMemory(const GfxRenderer& renderer, const ch
 #if defined(ENABLE_SERIAL_LOG) && LOG_LEVEL >= 2
   const auto before = MemoryBudget::snapshot();
 #endif
-  if (!renderer.releaseSdCardFontForLowMemory(fontId)) {
-    return false;
+  bool released = renderer.releaseSdCardFontBitmapsForLowMemory(fontId);
+  if (!textLayout || !MemoryBudget::hasHeap(MemoryBudget::snapshot(), MemoryBudget::EPUB_TEXT_LAYOUT_MIN_FREE,
+                                            MemoryBudget::EPUB_TEXT_LAYOUT_MIN_MAX_ALLOC)) {
+    released = renderer.releaseSdCardFontForLowMemory(fontId) || released;
   }
+  if (!released) return false;
 #if defined(ENABLE_SERIAL_LOG) && LOG_LEVEL >= 2
   const auto after = MemoryBudget::snapshot();
   LOG_DBG(tag, "Released SD font caches after %s: free=%u->%u maxAlloc=%u->%u", reason, before.freeHeap, after.freeHeap,
@@ -5066,7 +5070,7 @@ void EpubReaderActivity::reindexCurrentSection() {
       // the previous page. Release them before the relayout so the parser gets a
       // contiguous allocation window instead of reporting a memory failure as an
       // invalid book. The renderer reloads the active font lazily while parsing.
-      releaseReaderSdFontCachesForLowMemory(renderer, "ERS", "reader setting reindex");
+      releaseReaderSdFontCachesForLowMemory(renderer, "ERS", "reader setting reindex", true);
     }
   }
   if (restorePreviewPosition) {
@@ -6792,6 +6796,42 @@ void EpubReaderActivity::render(RenderLock&& lock) {
 
     loadedSection = loadSectionWithFont(readerFontId, selectedRenderMode);
     showOpeningFeedback();
+    if (loadedSection && !buildingFootnotePreview && !pendingReferenceUnitOffset && !pendingPageJump) {
+      const auto spec = readerRenderSpecForProfile(readerFontId, viewportWidth, viewportHeight,
+                                                   buildProfileForRenderMode(selectedRenderMode));
+      if (section->claimShapingRecovery(spec, nextPageNumber)) {
+        const auto resumeOffset = nextPageNumber >= 0 && nextPageNumber < section->pageCount
+                                      ? section->getVisibleTextOffsetForPage(nextPageNumber)
+                                      : std::nullopt;
+        const std::string suffix(sectionCacheSuffixForRenderMode(selectedRenderMode));
+        auto recovery = makeUniqueNoThrow<Section>(epub, currentSpineIndex, renderer, suffix.c_str());
+        SectionBuildOptions options;
+        options.expectedShapingRecovery = &section->shapingRecoveryTarget();
+#if FREEINK_DEVICE_EEGO_A4
+        options.onBuildCheckpoint = idleReaderDisplayDuringBuild;
+#endif
+        options.shouldCancel = [](void* context) {
+          return (*static_cast<const decltype(cancelBuildForBack)*>(context))();
+        };
+        options.cancelContext = const_cast<void*>(static_cast<const void*>(&cancelBuildForBack));
+        bool recovered = false;
+        if (recovery) {
+          GfxRenderer::FrameBufferLoan loan(renderer);
+          recovered = recovery->createSectionFile(spec, [this] { showBuildPopup(); }, nullptr, nullptr, options);
+        }
+        if (buildCancelledForBack) {
+          sectionBuildCancelRequested.store(false, std::memory_order_relaxed);
+          return;
+        }
+        if (recovered) {
+          LOG_INF("ERS", "Recovered complex-script shaping in section %d", currentSpineIndex);
+          section = std::move(recovery);
+          if (!pendingRelayoutReposition && !pendingPageJump && resumeOffset) {
+            if (const auto page = section->getPageForVisibleTextOffset(*resumeOffset)) nextPageNumber = *page;
+          }
+        }
+      }
+    }
     if (loadedSection && pendingReferenceUnitOffset) {
       // A finalized cache knows where rendered pages start, but it does not retain
       // the source-unit mapping needed to resolve an exact stable-page target.
@@ -6810,7 +6850,7 @@ void EpubReaderActivity::render(RenderLock&& lock) {
       if (!loadedSection) {
         // Font selection previews can leave glyph and advance-table caches resident.
         // Drop them before allocating a replacement layout after a render-spec mismatch.
-        releaseReaderSdFontCachesForLowMemory(renderer, "ERS", "uncached section build");
+        releaseReaderSdFontCachesForLowMemory(renderer, "ERS", "uncached section build", true);
       }
       if (partialCacheLoaded) {
         LOG_DBG("ERS", "Partial cache found (%u pages), resuming build... (free=%u, maxAlloc=%u)", section->pageCount,
@@ -6995,12 +7035,12 @@ void EpubReaderActivity::render(RenderLock&& lock) {
       auto beforeFallbackRetry = [&](const SectionBuildProfile& profile) {
         if (profile.safeMode) {
           LOG_ERR("ERS", "EPUB section layout aborted for low heap; retrying Safe Mode");
-          releaseReaderSdFontCachesForLowMemory(renderer, "ERS", "safe mode section rebuild");
+          releaseReaderSdFontCachesForLowMemory(renderer, "ERS", "safe mode section rebuild", true);
           return;
         }
         LOG_ERR("ERS", "EPUB section layout aborted for low heap; retrying mode %u",
                 static_cast<unsigned>(profile.renderMode));
-        releaseReaderSdFontCachesForLowMemory(renderer, "ERS", "fallback section rebuild");
+        releaseReaderSdFontCachesForLowMemory(renderer, "ERS", "fallback section rebuild", true);
       };
       const SectionBuildAttempt initialAttempt = buildWithFallback(buildProfileForRenderMode(selectedRenderMode));
       const bool canRestartInitialLayout = !buildingFootnotePreview && !pendingPercentJump && pendingAnchor.empty() &&
@@ -7090,7 +7130,7 @@ void EpubReaderActivity::render(RenderLock&& lock) {
         return;
       }
       if (!section->isBuilding()) {
-        releaseReaderSdFontCachesForLowMemory(renderer, "ERS", "section cache build");
+        releaseReaderSdFontCachesForLowMemory(renderer, "ERS", "section cache build", true);
       }
       if (usedReadablePartialFallback) {
         LOG_DBG("ERS", "Continuing from readable partial cache after failed build: pages=%u free=%u maxAlloc=%u",
@@ -7508,7 +7548,7 @@ void EpubReaderActivity::silentIndexNextChapterIfNeeded(const uint16_t viewportW
 
   releaseGrayscaleStripScratch();
   const bool releasedSdFontCaches =
-      releaseReaderSdFontCachesForLowMemory(renderer, "ERS", "preparing silent next-chapter indexing");
+      releaseReaderSdFontCachesForLowMemory(renderer, "ERS", "preparing silent next-chapter indexing", true);
   const uint32_t minFreeForPrefetch = releasedSdFontCaches
                                           ? MemoryBudget::OPTIONAL_EPUB_PREFETCH_AFTER_SD_FONT_RELEASE_MIN_FREE
                                           : MemoryBudget::OPTIONAL_EPUB_REBUILD_MIN_FREE;
@@ -7592,7 +7632,7 @@ void EpubReaderActivity::silentIndexNextChapterIfNeeded(const uint16_t viewportW
     safeModeBuildSucceeded = fallbackResult.usedSafeMode;
   }
 
-  releaseReaderSdFontCachesForLowMemory(renderer, "ERS", "silent next-chapter indexing");
+  releaseReaderSdFontCachesForLowMemory(renderer, "ERS", "silent next-chapter indexing", true);
   // FrameBufferLoan restores the storage as a blank frame. Rebuild the visible
   // page in RAM without refreshing the panel; the panel still holds the page.
   if (!restoreCurrentPageBufferAfterSilentIndex()) {
@@ -7961,6 +8001,11 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
     };
 
     bool prewarmSucceeded = prewarmVisibleText();
+    if (!prewarmSucceeded && renderer.releaseSdCardFontBitmapsForLowMemory(fontId)) {
+      LOG_DBG("ERS", "SD-font page prewarm failed; retrying after bitmap eviction (font=%d free=%u maxAlloc=%u)",
+              fontId, ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+      prewarmSucceeded = prewarmVisibleText();
+    }
     if (!prewarmSucceeded && renderer.isSdCardFont(fontId)) {
       LOG_ERR("ERS", "SD-font page prewarm failed (font=%d free=%u maxAlloc=%u); releasing caches and retrying", fontId,
               ESP.getFreeHeap(), ESP.getMaxAllocHeap());
