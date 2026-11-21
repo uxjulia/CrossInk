@@ -34,6 +34,12 @@ constexpr uint8_t SECTION_FILE_PARTIAL_VERSION = 0xEB;
 constexpr uint32_t SHAPING_STAMP_MAGIC = 0x31524853;  // "SHR1"
 constexpr uint32_t SHAPING_STAMP_BYTES = 7 * sizeof(uint32_t);
 
+uint32_t wordLayoutIdentity(const ReaderRenderSpec& spec, const std::string& language) {
+  const uint32_t hyphenationIdentity = spec.hyphenationEnabled ? Hyphenator::patternIdentity(language) : 0u;
+  // Extend the stored hyphenation identity only for Focus Reading layouts.
+  return spec.focusReadingEnabled ? hyphenationIdentity ^ FocusReading::LAYOUT_IDENTITY : hyphenationIdentity;
+}
+
 shaping_recovery::Readiness shapingReadiness() {
 #if CROSSINK_SHAPING_FLASH_CACHE
   const bool flash = asset_flash_layout::hasShapingReservation();
@@ -315,8 +321,7 @@ bool Section::writeSectionFileHeader(const ReaderRenderSpec& spec) {
          serialization::tryWritePod(file, spec.viewportWidth) &&
          serialization::tryWritePod(file, spec.viewportHeight) &&
          serialization::tryWritePod(file, spec.hyphenationEnabled) &&
-         serialization::tryWritePod(file,
-                                    spec.hyphenationEnabled ? Hyphenator::patternIdentity(epub->getLanguage()) : 0u) &&
+         serialization::tryWritePod(file, wordLayoutIdentity(spec, epub->getLanguage())) &&
          serialization::tryWritePod(file, spec.embeddedStyle) &&
          serialization::tryWritePod(file, spec.imageRendering) &&
          serialization::tryWritePod(file, spec.focusReadingEnabled) &&
@@ -387,7 +392,7 @@ bool Section::loadSectionFile(const ReaderRenderSpec& spec) {
     bool fileForceParagraphIndents;
     uint8_t fileParagraphAlignment;
     bool fileHyphenationEnabled;
-    uint32_t fileHyphenationIdentity;
+    uint32_t fileWordLayoutIdentity;
     bool fileEmbeddedStyle;
     uint8_t fileImageRendering;
     bool fileFocusReadingEnabled;
@@ -404,7 +409,7 @@ bool Section::loadSectionFile(const ReaderRenderSpec& spec) {
         !serialization::tryReadPod(file, fileParagraphAlignment) ||
         !serialization::tryReadPod(file, fileViewportWidth) || !serialization::tryReadPod(file, fileViewportHeight) ||
         !serialization::tryReadPod(file, fileHyphenationEnabled) ||
-        !serialization::tryReadPod(file, fileHyphenationIdentity) ||
+        !serialization::tryReadPod(file, fileWordLayoutIdentity) ||
         !serialization::tryReadPod(file, fileEmbeddedStyle) || !serialization::tryReadPod(file, fileImageRendering) ||
         !serialization::tryReadPod(file, fileFocusReadingEnabled) ||
         !serialization::tryReadPod(file, fileGuideReadingEnabled) || !serialization::tryReadPod(file, fileRuled) ||
@@ -422,7 +427,7 @@ bool Section::loadSectionFile(const ReaderRenderSpec& spec) {
         spec.forceParagraphIndents != fileForceParagraphIndents || spec.paragraphAlignment != fileParagraphAlignment ||
         spec.viewportWidth != fileViewportWidth || spec.viewportHeight != fileViewportHeight ||
         spec.hyphenationEnabled != fileHyphenationEnabled ||
-        fileHyphenationIdentity != (spec.hyphenationEnabled ? Hyphenator::patternIdentity(epub->getLanguage()) : 0u) ||
+        fileWordLayoutIdentity != wordLayoutIdentity(spec, epub->getLanguage()) ||
         spec.embeddedStyle != fileEmbeddedStyle || spec.imageRendering != fileImageRendering ||
         spec.focusReadingEnabled != fileFocusReadingEnabled || spec.guideReadingEnabled != fileGuideReadingEnabled ||
         spec.ruled != fileRuled || spec.wordSpacing != fileWordSpacing ||

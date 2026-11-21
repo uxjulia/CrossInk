@@ -1168,6 +1168,11 @@ C3 uses compact-first table pagination. Complete sections use version 122 and
 partials use `0xEB` so existing pages rebuild using the new layout policy. The
 binary format and reading progress are unchanged.
 
+The existing 32-bit hyphenation identity also includes the Focus Reading
+layout identity when enabled. Older Focus Reading layouts rebuild on open, including
+suspended partial layouts. Layouts with Focus Reading disabled keep their
+existing identity.
+
 ### Version 121
 
 Compact tables can carry optional content-proportional column geometry. A

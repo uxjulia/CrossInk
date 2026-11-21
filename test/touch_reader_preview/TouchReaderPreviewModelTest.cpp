@@ -49,6 +49,40 @@ TEST(TouchReaderPreviewModel, ReflowsAcrossCapturedLineBreaksBeforeJustifying) {
   EXPECT_EQ(renderer.drawCalls[3].y, 10);
 }
 
+TEST(TouchReaderPreviewModel, AppliesFocusReadingWhenEnabledInThePreview) {
+  Page page;
+  page.elements.push_back(
+      std::make_unique<PageLine>(makeLine({"a", "I!", "owl", "read", "story", "internationalization"}), 0, 0));
+  GfxRenderer renderer;
+  TouchReaderPreviewModel model;
+  ASSERT_TRUE(model.capture(page, renderer, 1, 100));
+
+  model.renderText(renderer, 2, 0, 0, 120, 100, 0, static_cast<uint8_t>(CssTextAlign::Left), true, false, true);
+
+  const std::array<const char*, 11> runs{"a", "I", "!", "o", "wl", "re", "ad", "sto", "ry", "internati", "onalization"};
+  ASSERT_EQ(renderer.drawCalls.size(), runs.size());
+  for (size_t i = 0; i < runs.size(); ++i) {
+    EXPECT_EQ(renderer.drawCalls[i].text, runs[i]);
+    EXPECT_EQ(renderer.drawCalls[i].style, i == 0 || i % 2 == 1 ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR);
+  }
+}
+
+TEST(TouchReaderPreviewModel, KeepsCjkAndIndicCharactersRegularWithFocusReading) {
+  Page page;
+  page.elements.push_back(std::make_unique<PageLine>(makeLine({"中", "क"}), 0, 0));
+  GfxRenderer renderer;
+  TouchReaderPreviewModel model;
+  ASSERT_TRUE(model.capture(page, renderer, 1, 100));
+
+  model.renderText(renderer, 2, 0, 0, 80, 100, 0, static_cast<uint8_t>(CssTextAlign::Left), true, false, true);
+
+  ASSERT_EQ(renderer.drawCalls.size(), 2U);
+  EXPECT_EQ(renderer.drawCalls[0].text, "中");
+  EXPECT_EQ(renderer.drawCalls[0].style, EpdFontFamily::REGULAR);
+  EXPECT_EQ(renderer.drawCalls[1].text, "क");
+  EXPECT_EQ(renderer.drawCalls[1].style, EpdFontFamily::REGULAR);
+}
+
 TEST(TouchReaderPreviewModel, BalancesLineBreaksLikeTheReaderLayout) {
   Page page;
   page.elements.push_back(std::make_unique<PageLine>(makeLine({"aa", "b", "c", "ddd"}), 0, 0));

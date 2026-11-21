@@ -396,6 +396,35 @@ TEST_F(SectionPersistenceTest, ChangedPatternsInvalidateCompleteAndPartialSectio
   }
 }
 
+TEST_F(SectionPersistenceTest, OldFocusReadingLayoutIdentityInvalidatesCompleteAndPartialSections) {
+  for (const auto version : {kFullVersion, kPartialVersion}) {
+    Storage.reset();
+    SectionHarness harness;
+    harness.spec.focusReadingEnabled = true;
+    harness.begin();
+    harness.appendPages(1);
+    ASSERT_TRUE(harness.commit(version, version == kPartialVersion ? 100 : 0, 200));
+    harness.finishSuccessfulCommit();
+    {
+      Section current(harness.epub, 0, harness.renderer);
+      ASSERT_TRUE(current.loadSectionFile(harness.spec));
+    }
+
+    auto bytes = Storage.bytes(harness.section.filePath);
+    constexpr size_t wordLayoutIdentityOffset =
+        sizeof(uint32_t) + 2 * sizeof(uint8_t) + sizeof(int) + sizeof(float) + 3 * sizeof(bool) + 2 * sizeof(uint16_t);
+    ASSERT_GE(bytes.size(), wordLayoutIdentityOffset + sizeof(testHyphenationIdentity));
+    // The original 43% layout used only the hyphenation identity. The 44% branch added its own mask.
+    for (const uint32_t oldFocusMask : {0u, 0x4652432Cu}) {
+      const uint32_t oldIdentity = testHyphenationIdentity ^ oldFocusMask;
+      memcpy(bytes.data() + wordLayoutIdentityOffset, &oldIdentity, sizeof(oldIdentity));
+      Storage.put(harness.section.filePath, bytes);
+      Section reopened(harness.epub, 0, harness.renderer);
+      EXPECT_FALSE(reopened.loadSectionFile(harness.spec));
+    }
+  }
+}
+
 TEST_F(SectionPersistenceTest, PatternChangesDoNotInvalidateDisabledHyphenation) {
   SectionHarness harness;
   harness.spec.hyphenationEnabled = false;

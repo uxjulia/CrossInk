@@ -9,6 +9,7 @@
 ### Changed
 
 - With Incremental indexing, devices with PSRAM finish laying out the current EPUB chapter while you read instead of stopping after a set number of pages.
+- Focus Reading bolds the first letter of short words and half of longer words, rounded up to a maximum of nine letters.
 
 ### Fixed
 

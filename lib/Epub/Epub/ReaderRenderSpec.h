@@ -2,6 +2,7 @@
 #include <cstdint>
 
 #include "EpubRenderMode.h"
+#include "FocusReading.h"
 
 enum class PublisherFonts : uint8_t { Off, Accents, All };
 
@@ -52,6 +53,7 @@ inline uint32_t readerRenderSpecSignature(const ReaderRenderSpec& spec) {
   mix(spec.embeddedStyle);
   mix(spec.imageRendering);
   mix(spec.focusReadingEnabled);
+  if (spec.focusReadingEnabled) mix(FocusReading::LAYOUT_IDENTITY);
   mix(spec.guideReadingEnabled);
   mix(spec.wordSpacing);
   mix(static_cast<uint8_t>(spec.characterSpacing));

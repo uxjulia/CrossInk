@@ -9,6 +9,7 @@ target_include_directories(TouchReaderPreviewModelTest PRIVATE
   ${REPO_ROOT}/src/activities/reader
   ${REPO_ROOT}/include
   ${REPO_ROOT}/lib/Epub
+  ${REPO_ROOT}/lib/Utf8
 )
 
 target_link_libraries(TouchReaderPreviewModelTest PRIVATE

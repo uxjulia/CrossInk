@@ -16,6 +16,7 @@
 #include <limits>
 #include <vector>
 
+#include "FocusReading.h"
 #include "InlineImageToken.h"
 #include "TokenBoundary.h"
 #include "WordSpacing.h"
@@ -35,7 +36,6 @@ constexpr int RTL_PER_WORD_PROBE_DEPTH = 64;
 constexpr size_t MIN_JUSTIFY_GAPS = 1;
 constexpr char GUIDE_DOT_UTF8[] = "\xc2\xb7";
 constexpr uint32_t GUIDE_DOT_CODEPOINT = 0x00B7;
-constexpr size_t FOCUS_READING_PERCENT = 43;
 constexpr size_t LAYOUT_ARENA_SLAB_BYTES = 4096;
 constexpr size_t INITIAL_TOKEN_VECTOR_RESERVE = 16;
 
@@ -338,9 +338,7 @@ FocusTokenMetadata computeFocusMetadata(const std::string_view segment, const Ep
     return {baseStyle, 0};
   }
 
-  // Target 43% for 1-bold at 4 chars and 3-bold at 7 chars with floor truncation.
-  size_t targetBoldChars = (charCount * FOCUS_READING_PERCENT) / 100;
-  targetBoldChars = std::clamp<size_t>(targetBoldChars, 1, 9);
+  const size_t targetBoldChars = FocusReading::boldPrefixLength(charCount);
 
   if (targetBoldChars >= charCount) {
     return {static_cast<EpdFontFamily::Style>(baseStyle | EpdFontFamily::BOLD), 0};

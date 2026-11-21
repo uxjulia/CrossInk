@@ -1,9 +1,11 @@
 #pragma once
 
 #include <AppCapabilities.h>
+#include <Epub/FocusReading.h>
 #include <Epub/Page.h>
 #include <Epub/WordSpacing.h>
 #include <GfxRenderer.h>
+#include <IndicScripts.h>
 #include <Utf8.h>
 
 #include <algorithm>
@@ -508,12 +510,13 @@ class ReaderPreviewModel {
     size_t characters = 0;
     while (*cursor != '\0') {
       const auto* const start = cursor;
-      if (!isFocusWordCharacter(utf8NextCodepoint(&cursor)) || cursor <= start) break;
+      const uint32_t codepoint = utf8NextCodepoint(&cursor);
+      if (utf8IsCjkBreakable(codepoint) || indic::startsIndic(start)) return 0;
+      if (!isFocusWordCharacter(codepoint) || cursor <= start) break;
       ++characters;
     }
     if (characters == 0) return 0;
-    const size_t boldCharacters = std::clamp<size_t>((characters * 43) / 100, 1, 9);
-    if (boldCharacters >= characters) return 0;
+    const size_t boldCharacters = FocusReading::boldPrefixLength(characters);
     cursor = reinterpret_cast<const unsigned char*>(value);
     for (size_t i = 0; i < boldCharacters; ++i) utf8NextCodepoint(&cursor);
     return static_cast<uint8_t>(std::min<size_t>(cursor - reinterpret_cast<const unsigned char*>(value), UINT8_MAX));
@@ -523,13 +526,15 @@ class ReaderPreviewModel {
                   const uint32_t nextCodepoint = 0) const {
     const char* value = wordText(word);
     const uint8_t boundary = resolvedFocusBoundary(word, focusEnabled);
-    if (boundary == 0 || boundary >= std::strlen(value))
-      return renderer.getTextAdvanceX(fontId, value, word.style, nextCodepoint, characterSpacing);
+    if (boundary == 0) return renderer.getTextAdvanceX(fontId, value, word.style, nextCodepoint, characterSpacing);
+    const auto boldStyle = static_cast<EpdFontFamily::Style>(word.style | EpdFontFamily::BOLD);
+    const size_t wordLength = std::strlen(value);
+    if (boundary >= wordLength)
+      return renderer.getTextAdvanceX(fontId, value, boldStyle, nextCodepoint, characterSpacing);
     char prefix[40];
-    const size_t length = std::min<size_t>({static_cast<size_t>(boundary), sizeof(prefix) - 1, std::strlen(value)});
+    const size_t length = std::min<size_t>(boundary, sizeof(prefix) - 1);
     std::memcpy(prefix, value, length);
     prefix[length] = '\0';
-    const auto boldStyle = static_cast<EpdFontFamily::Style>(word.style | EpdFontFamily::BOLD);
     return renderer.getTextAdvanceX(fontId, prefix, boldStyle, firstCodepoint(value + length), characterSpacing) +
            renderer.getTextAdvanceX(fontId, value + length, word.style, nextCodepoint, characterSpacing);
   }
@@ -652,15 +657,16 @@ class ReaderPreviewModel {
     const bool textBlack = word.blackBackground ? !foregroundBlack : foregroundBlack;
     const char* value = wordText(word);
     const uint8_t boundary = resolvedFocusBoundary(word, focusEnabled);
+    const auto boldStyle = static_cast<EpdFontFamily::Style>(word.style | EpdFontFamily::BOLD);
     if (boundary == 0 || boundary >= std::strlen(value)) {
-      draw(fontId, x, y, value, textBlack, word.style, BidiUtils::BidiBaseDir::AUTO, characterSpacing);
+      draw(fontId, x, y, value, textBlack, boundary == 0 ? word.style : boldStyle, BidiUtils::BidiBaseDir::AUTO,
+           characterSpacing);
       return;
     }
     char prefix[40];
-    const size_t length = std::min<size_t>({static_cast<size_t>(boundary), sizeof(prefix) - 1, std::strlen(value)});
+    const size_t length = std::min<size_t>(boundary, sizeof(prefix) - 1);
     std::memcpy(prefix, value, length);
     prefix[length] = '\0';
-    const auto boldStyle = static_cast<EpdFontFamily::Style>(word.style | EpdFontFamily::BOLD);
     draw(fontId, x, y, prefix, textBlack, boldStyle, BidiUtils::BidiBaseDir::AUTO, characterSpacing);
     draw(fontId,
          x + renderer.getTextAdvanceX(fontId, prefix, boldStyle, firstCodepoint(value + length), characterSpacing), y,

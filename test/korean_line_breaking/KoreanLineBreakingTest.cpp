@@ -211,6 +211,29 @@ TEST(EmDashLineBreaking, NonBreakingHyphenRemainsUnbroken) {
   EXPECT_EQ(wordsOf(layout({"a", "foo‑bar"}, false, 60)), (std::vector<std::vector<std::string>>{{"a"}, {"foo‑bar"}}));
 }
 
+TEST(FocusReadingLayout, RoundsUpHalfOfLongerWordsAndCapsTheBoldPrefix) {
+  GfxRenderer renderer;
+  ParsedText text(false, false, false, true, false, 0, BlockStyle{});
+  for (const auto* word : {"a", "an", "owl", "read", "story", "écho", "characterization", "internationalization"}) {
+    text.addWord(word, EpdFontFamily::REGULAR);
+  }
+  int lines = 0;
+  ASSERT_TRUE(text.layoutAndExtractLines(renderer, 0, 640, [&](std::shared_ptr<TextBlock> block, uint32_t, uint32_t) {
+    ASSERT_EQ(block->wordCount(), 8);
+    EXPECT_EQ(block->wordStyle(0), EpdFontFamily::BOLD);
+    EXPECT_EQ(block->focusBoundary(0), 0);
+    EXPECT_EQ(block->focusBoundary(1), 1);
+    EXPECT_EQ(block->focusBoundary(2), 1);
+    EXPECT_EQ(block->focusBoundary(3), 2);
+    EXPECT_EQ(block->focusBoundary(4), 3);
+    EXPECT_EQ(block->focusBoundary(5), 3);  // Two letters, three UTF-8 bytes.
+    EXPECT_EQ(block->focusBoundary(6), 8);
+    EXPECT_EQ(block->focusBoundary(7), 9);
+    ++lines;
+  }));
+  EXPECT_EQ(lines, 1);
+}
+
 TEST(EmDashLineBreaking, FocusReadingAndOffsetsSurviveTokenSplit) {
   GfxRenderer renderer;
   BlockStyle style;
