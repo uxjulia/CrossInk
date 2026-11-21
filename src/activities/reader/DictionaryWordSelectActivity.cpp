@@ -1429,7 +1429,7 @@ void DictionaryWordSelectActivity::render(RenderLock&&) {
   }
   if (page->hasImages()) {
     GfxRenderer::FrameBufferLoan loan(renderer);
-    page->prepareImageCaches();
+    page->prepareImageCaches(/*grayscale=*/false);
     loan.end();
     renderer.clearScreen(ReaderUtils::readerBackgroundColor());
   }
@@ -1444,7 +1444,7 @@ void DictionaryWordSelectActivity::render(RenderLock&&) {
   scope.endScanAndPrewarm();
   page->renderText(renderer, SETTINGS.getReaderFontId(), marginLeft, marginTop, foregroundBlack);
   ReaderRuling::drawSelectionPage(renderer, *page, SETTINGS.getReaderFontId(), marginLeft, marginTop);
-  page->renderImages(renderer, SETTINGS.getReaderFontId(), marginLeft, marginTop, foregroundBlack);
+  page->renderImages(renderer, SETTINGS.getReaderFontId(), marginLeft, marginTop, foregroundBlack, false);
 
   // Set up snapshot AND draw the highlight via the differential entry point with
   // prevWordIdx = -1 (no previous highlight to wipe). This both draws the highlight

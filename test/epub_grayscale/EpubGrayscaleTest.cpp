@@ -136,71 +136,63 @@ TEST_F(EpubGrayscaleTest, CachedPixelsMatchReferenceAcrossRotationsModesOffsetsA
         }
 }
 
-TEST_F(EpubGrayscaleTest, MonochromeCachedImagesKeepMidtoneDetailAcrossRotationsAndCacheHits) {
-  constexpr int expectedBlackPixels[] = {256, 176, 80, 0};
+TEST_F(EpubGrayscaleTest, MonochromeCachedPixelsKeepFinalPatternAcrossRotationsAndCacheHits) {
+  constexpr int expectedBlack[] = {256, 224, 192, 160, 128, 96, 64, 32, 0};
+  static constexpr int samples[] = {0, 32, 64, 96, 128, 160, 192, 224, 255};
   for (bool psram : {false, true}) {
     for (int orientation = 0; orientation < 4; ++orientation) {
       ImageBlock::releaseSessionPixelCache();
       fakeheap::reset(psram);
       GfxRenderer r;
       r.orientation = GfxRenderer::Orientation(orientation);
-      for (int level = 0; level < 4; ++level) {
+      for (size_t i = 0; i < std::size(samples); ++i) {
         auto pixels = cache(16, 16);
-        std::fill(pixels.begin() + 4, pixels.end(), level * 0x55);
-        const std::string path = "level" + std::to_string(level) + ".pxc";
+        std::fill(pixels.begin() + 4, pixels.end(), 0);
+        for (int y = 0; y < 16; ++y)
+          for (int x = 0; x < 16; ++x)
+            pixels[4 + y * 4 + x / 4] |= quantizeGrayToMono(samples[i], x, y, true) << (6 - (x & 3) * 2);
+        const std::string path = "mono" + std::to_string(i) + ".pxc";
         Storage.put(path, pixels);
-        for (int pass = 0; pass < 2; ++pass) {
+        for (auto [x, y] : {std::pair{9, 13}, {11, 16}}) {
           r.clearScreen(255);
-          ASSERT_TRUE(renderFromCache(r, path, 9, 13, 16, 16, false));
+          ASSERT_TRUE(renderFromCache(r, path, x, y, 16, 16, false));
           int black = 0;
-          for (auto byte : r.bw) {
+          for (auto byte : r.bw)
             for (int bit = 0; bit < 8; ++bit) black += (byte & (1 << bit)) == 0;
-          }
-          EXPECT_EQ(black, expectedBlackPixels[level]);
+          EXPECT_EQ(black, expectedBlack[i]);
         }
-        // Turning grayscale back on must use the existing dark base and cache.
-        r.clearScreen(255);
-        ASSERT_TRUE(renderFromCache(r, path, 9, 13, 16, 16, true));
-        int black = 0;
-        for (auto byte : r.bw) {
-          for (int bit = 0; bit < 8; ++bit) black += (byte & (1 << bit)) == 0;
-        }
-        EXPECT_EQ(black, level < 3 ? 256 : 0);
       }
     }
   }
+  EXPECT_EQ(quantizeGrayToMono(127, 0, 0, false), 0);
+  EXPECT_EQ(quantizeGrayToMono(128, 1, 1, false), 3);
 }
 
-TEST_F(EpubGrayscaleTest, MonochromeDitherPreservesSourceShadesAfterFourLevelQuantization) {
-  for (int orientation = 0; orientation < 4; ++orientation) {
-    GfxRenderer r;
-    r.orientation = GfxRenderer::Orientation(orientation);
-    int previousBlack = 257;
-    for (int gray : {0, 32, 64, 96, 128, 160, 192, 224, 255}) {
-      auto pixels = cache(16, 16);
-      std::fill(pixels.begin() + 4, pixels.end(), 0);
-      for (int y = 0; y < 16; ++y) {
-        for (int x = 0; x < 16; ++x) {
-          const auto level = applyBayerDither4Level(gray, x + 9, y + 13);
-          pixels[4 + y * 4 + x / 4] |= level << (6 - (x & 3) * 2);
-        }
-      }
-      Storage.put("source.pxc", pixels);
-      r.clearScreen(255);
-      ASSERT_TRUE(renderFromCache(r, "source.pxc", 9, 13, 16, 16, false));
-      int black = 0;
-      for (auto byte : r.bw) {
-        for (int bit = 0; bit < 8; ++bit) black += (byte & (1 << bit)) == 0;
-      }
-      // Increasing source brightness must retain distinct tones, including
-      // quarter tones; the two ordered dither stages must not cancel out.
-      EXPECT_LT(black, previousBlack) << gray;
-      if (gray == 0) EXPECT_EQ(black, 256);
-      if (gray == 255) EXPECT_EQ(black, 0);
-      if (gray == 128) EXPECT_EQ(black, 128);
-      previousBlack = black;
-    }
-  }
+TEST_F(EpubGrayscaleTest, EachTargetRequiresItsOwnCacheAndNightSharesMonochromePixels) {
+  GfxRenderer r(32, 32);
+  r.orientation = GfxRenderer::LandscapeCounterClockwise;
+  ImageBlock image("panel.png", "", 16, 16);
+  Storage.put("panel_v2.pxc", cache(16, 16));
+  Storage.put("panel_png_v3.pxc", cache(16, 16));
+  EXPECT_TRUE(image.needsDecode(true));
+  EXPECT_TRUE(image.needsDecode(false));
+  auto gray = cache(16, 16);
+  std::fill(gray.begin() + 4, gray.end(), 0);
+  Storage.put("panel_gray_v4.pxc", gray);
+  EXPECT_FALSE(image.needsDecode(true));
+  EXPECT_TRUE(image.needsDecode(false));
+  auto mono = cache(16, 16);
+  std::fill(mono.begin() + 4, mono.end(), 255);
+  Storage.put("panel_mono_v1.pxc", mono);
+  EXPECT_FALSE(image.needsDecode(false));
+  r.clearScreen(255);
+  ASSERT_TRUE(image.render(r, 0, 0, true, false));
+  const auto explicitMono = r.bw;
+  ASSERT_TRUE(image.render(r, 0, 0, true, true));
+  EXPECT_NE(r.bw, explicitMono);
+  r.inverted = true;
+  ASSERT_TRUE(image.render(r, 0, 0, false, true));
+  EXPECT_EQ(r.bw, explicitMono);
 }
 
 TEST_F(EpubGrayscaleTest, NoStripUsesFullScreenAndRetainedHitAvoidsReads) {
@@ -308,9 +300,11 @@ TEST_F(EpubGrayscaleTest, ImageBlockPreservesScanAndFailureFallback) {
   block.render(r, 0, 0, true);
   EXPECT_EQ(r.placeholders, 0);
   r.fonts.scanning = false;
-  Storage.put("image_v2.pxc", {0, 0, 0});
+  Storage.put("image_gray_v4.pxc", {0, 0, 0});
   block.render(r, 0, 0, true);
   EXPECT_GT(r.placeholders, 0);
+  EXPECT_FALSE(block.needsDecode(true));  // Do not retry a failed target this session.
+  EXPECT_TRUE(block.needsDecode(false));  // The other target remains eligible.
   EXPECT_FALSE(r.active);
   EXPECT_EQ(r.mode, GfxRenderer::BW);
 }
@@ -328,8 +322,8 @@ TEST_F(EpubGrayscaleTest, PlanePathsProduceIdenticalBytesAndRestoreBw) {
         if (path == 1) fakeheap::external.failOnAttempt = 1;
         if (path == 2) fakeheap::external.failOnAttempt = 2;
         int w = r.getScreenWidth() - 7, h = r.getScreenHeight() - 11;
-        Storage.put("one_v2.pxc", cache(w, h));
-        Storage.put("two_v2.pxc", cache(21, 23));
+        Storage.put("one_gray_v4.pxc", cache(w, h));
+        Storage.put("two_gray_v4.pxc", cache(21, 23));
         ImageBlock one("one.jpg", "", w, h), two("two.jpg", "", 21, 23);
         Page page;
         page.images = {{&one, -3, 2}, {&two, 9, 83}};
@@ -457,13 +451,6 @@ TEST_F(EpubGrayscaleTest, MissingScratchAndUnsupportedPathsPreserveFallbackContr
     EXPECT_EQ(r.events, reason == 3 ? (std::vector<std::string>{"wait", "cleanup"}) : std::vector<std::string>{});
   }
 }
-TEST_F(EpubGrayscaleTest, PngCacheRevisionDoesNotReuseOldPixelsOrInvalidateJpeg) {
-  EXPECT_EQ(getCachePath("chapter/image.png"), "chapter/image_png_v3.pxc");
-  EXPECT_EQ(getCachePath("chapter/image.PNG"), "chapter/image_png_v3.pxc");
-  EXPECT_EQ(getCachePath("chapter/image.jpg"), "chapter/image_v2.pxc");
-  EXPECT_EQ(getCachePath("chapter/image.gif"), "chapter/image_v2.pxc");
-}
-
 TEST_F(EpubGrayscaleTest, AbsoluteImagesReplaceAllFourLevelsAndPreserveTheRestOfThePage) {
   for (int orientation = 0; orientation < 4; ++orientation) {
     ImageBlock::releaseSessionPixelCache();
@@ -471,7 +458,7 @@ TEST_F(EpubGrayscaleTest, AbsoluteImagesReplaceAllFourLevelsAndPreserveTheRestOf
     r.orientation = GfxRenderer::Orientation(orientation);
     r.absolute = true;
     const auto base = r.bw;  // Represents text, bars and feedback outside the image.
-    Storage.put("absolute_v2.pxc", cache(21, 23));
+    Storage.put("absolute_gray_v4.pxc", cache(21, 23));
     ImageBlock image("absolute.jpg", "", 21, 23);
     Page page;
     page.images = {{&image, 9, 13}};
@@ -537,7 +524,7 @@ TEST_F(EpubGrayscaleTest, AbsoluteFeedbackIsDrawnAfterImagesInBothPlanes) {
   r.orientation = GfxRenderer::LandscapeCounterClockwise;
   r.absolute = true;
   const auto base = r.bw;
-  Storage.put("feedback_v2.pxc", cache(21, 23));
+  Storage.put("feedback_gray_v4.pxc", cache(21, 23));
   ImageBlock image("feedback.jpg", "", 21, 23);
   Page page;
   page.images = {{&image, 0, 0}};
@@ -568,17 +555,17 @@ TEST_F(EpubGrayscaleTest, CacheReadFailureAfterBwCannotRegenerateDifferentGrayPi
   GfxRenderer r(32, 32);
   r.orientation = GfxRenderer::LandscapeCounterClockwise;
   const auto pixels = cache(16, 16);
-  Storage.put("mapped_png_v3.pxc", pixels);
+  Storage.put("mapped_gray_v4.pxc", pixels);
   Storage.put("mapped.png", {1, 2, 3});
   ImageBlock image("mapped.png", "", 16, 16);
   ASSERT_TRUE(image.render(r, 0, 0, true));
   const auto base = r.bw;
-  Storage.data("mapped_png_v3.pxc").readFailAt = 4;
+  Storage.data("mapped_gray_v4.pxc").readFailAt = 4;
   const int requestsBefore = decoderRequests;
   for (auto mode : {GfxRenderer::GRAYSCALE_LSB, GfxRenderer::GRAYSCALE_MSB}) {
     r.mode = mode;
     EXPECT_FALSE(image.render(r, 0, 0, true));
-    EXPECT_EQ(Storage.data("mapped_png_v3.pxc").bytes, pixels);
+    EXPECT_EQ(Storage.data("mapped_gray_v4.pxc").bytes, pixels);
     EXPECT_EQ(decoderRequests, requestsBefore);
     EXPECT_EQ(r.bw, base);
   }

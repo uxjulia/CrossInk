@@ -46,7 +46,7 @@ struct Epub {
   std::vector<uint8_t> source = {8, 0, 4, 0, 0x1b, 0xe4, 0x55, 0xaa, 0x33, 0xcc, 0, 255};
   size_t sent = 12;
   bool inflateOk = true;
-  mutable int sourceCopies = 0, resized = 0, inflated = 0;
+  mutable int inflated = 0;
   bool findOptimizerImage(const std::string&) const { return true; }
   bool getItemSize(const std::string&, size_t* size) const {
     *size = optimizerLastHit.bytes;
@@ -59,15 +59,6 @@ struct Epub {
       if (sink.write(source[i]) != 1) return false;
     return inflateOk;
   }
-  bool extractItemToFile(const std::string&, const std::string& path, size_t) const {
-    ++sourceCopies;
-    Storage.put(path, source);
-    return true;
-  }
-  bool rescalePxcFile(const std::string&, const std::string&, int, int) const {
-    ++resized;
-    return true;
-  }
   bool seedOptimizerImageCache(const std::string&, int, int, const std::string&) const;
 };
 #include "Seed.inc"
@@ -76,7 +67,7 @@ int main() {
   Storage.reset();
   assert(epub.seedOptimizerImageCache("image", 8, 4, "/cache"));
   assert(Storage.bytes("/cache") == epub.source);
-  assert(epub.inflated == 1 && epub.sourceCopies == 0 && epub.resized == 0);
+  assert(epub.inflated == 1);
   assert(!Storage.exists("/cache.optimizer.tmp") && !Storage.exists("/cache.optimizer.source"));
   assert(epub.seedOptimizerImageCache("image", 8, 4, "/cache"));
   assert(epub.inflated == 1);  // Existing valid cache requires no extraction.
@@ -93,7 +84,11 @@ int main() {
     assert(!Storage.exists("/cache.optimizer.tmp"));
   }
   Storage.reset();
-  Epub resize;
-  assert(resize.seedOptimizerImageCache("image", 4, 2, "/cache"));
-  assert(resize.inflated == 0 && resize.sourceCopies == 1 && resize.resized == 1);
+  for (const auto format : {1, 2}) {
+    Epub mismatched;
+    mismatched.optimizerLastHit.format = format;
+    assert(!mismatched.seedOptimizerImageCache("image", 4, 2, "/cache"));
+    assert(mismatched.inflated == 0 && !mismatched.optimizerWorkspace);
+    assert(!Storage.exists("/cache"));
+  }
 }

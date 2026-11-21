@@ -1151,6 +1151,15 @@ through cache cleanup, so measurement and drawing use the same glyph substitutio
 The new identity rebuilds existing full and partial layouts for these families;
 body-only and built-in font identities stay unchanged. No binary payload changes.
 
+## Inline EPUB image pixel cache (`.pxc`)
+
+Inline images use separate target-sized Gray (`_gray_v4.pxc`) and monochrome
+(`_mono_v1.pxc`) cache identities. Both use the existing 2-bit packed rows;
+monochrome stores only black (0) and white (3), including in Night Mode. Older
+pixel-cache names are ignored and can be regenerated without invalidating
+chapter layout or reading progress. Optimizer sidecars are only usable for Gray
+and at their exact dimensions; mismatches fall back to the source EPUB image.
+
 ## `section.bin`
 
 ### Version 118 (current release)

@@ -17,6 +17,8 @@ struct RenderConfig {
   int maxWidth, maxHeight;
   bool useGrayscale = true;
   bool useDithering = true;
+  // For inline EPUB B&W/Night, quantize resized luminance straight to black/white.
+  bool finalMonochrome = false;
   bool performanceMode = false;
   bool useExactDimensions = false;      // If true, use maxWidth/maxHeight as exact output size (no recalculation)
   const uint8_t* sourceData = nullptr;  // borrowed only for this decode

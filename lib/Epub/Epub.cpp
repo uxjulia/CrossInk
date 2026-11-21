@@ -48,14 +48,9 @@ constexpr char kOptimizerManifestFormat[] = "crossink-optimizer";
 constexpr size_t kOptimizerManifestMaxBytes = 64 * 1024;
 constexpr size_t kOptimizerMaxPxcBytes = 4 + 128 * 1024;
 constexpr uint16_t kOptimizerMaxPxcDimension = 1024;
-constexpr size_t kOptimizerMaxPxcRowBytes = (kOptimizerMaxPxcDimension + 3) / 4;
 // Legacy sidecar inflation borrows framebuffer scratch during page preflight.
 // Keep the remaining ZIP input/output allocations bounded.
 constexpr size_t kOptimizerPxcExtractionChunkSize = 256;
-// The parser is single-threaded. Static row buffers avoid a cold-path heap
-// allocation and cap resize working memory at 512 bytes.
-uint8_t optimizerSourceRow[kOptimizerMaxPxcRowBytes];
-uint8_t optimizerTargetRow[kOptimizerMaxPxcRowBytes];
 
 bool isSupportedLocationsFormat(const char* format) {
   return std::strcmp(format, kXLocationsFormat) == 0 || std::strcmp(format, kLegacyXLocationsFormat) == 0;
@@ -155,65 +150,6 @@ bool readOptimizerImageMetadata(JsonObjectConst image, const size_t maxHrefLengt
 
 bool readPxcHeader(FsFile& file, uint16_t& width, uint16_t& height) {
   return file.read(&width, sizeof(width)) == sizeof(width) && file.read(&height, sizeof(height)) == sizeof(height);
-}
-
-bool rescalePxcFile(const std::string& sourcePath, const std::string& destinationPath, const int expectedWidth,
-                    const int expectedHeight) {
-  FsFile source;
-  if (!Storage.openFileForRead("EBP", sourcePath, source)) return false;
-  uint16_t sourceWidth = 0;
-  uint16_t sourceHeight = 0;
-  if (!readPxcHeader(source, sourceWidth, sourceHeight) || sourceWidth == 0 || sourceHeight == 0 ||
-      sourceWidth > kOptimizerMaxPxcDimension || sourceHeight > kOptimizerMaxPxcDimension ||
-      source.size() != pxcByteCount(sourceWidth, sourceHeight)) {
-    LOG_ERR("EBP", "Invalid optimizer PXC resize source: %s", sourcePath.c_str());
-    source.close();
-    return false;
-  }
-
-  const size_t sourceRowBytes = (sourceWidth + 3) / 4;
-  const size_t targetRowBytes = (expectedWidth + 3) / 4;
-  if (sourceRowBytes > sizeof(optimizerSourceRow) || targetRowBytes > sizeof(optimizerTargetRow)) {
-    source.close();
-    return false;
-  }
-
-  const std::string tempDestination = destinationPath + ".optimizer.tmp";
-  Storage.remove(tempDestination.c_str());
-  FsFile destination;
-  if (!Storage.openFileForWrite("EBP", tempDestination, destination)) {
-    source.close();
-    return false;
-  }
-  const uint16_t targetWidth = static_cast<uint16_t>(expectedWidth);
-  const uint16_t targetHeight = static_cast<uint16_t>(expectedHeight);
-  bool ok = destination.write(&targetWidth, sizeof(targetWidth)) == sizeof(targetWidth) &&
-            destination.write(&targetHeight, sizeof(targetHeight)) == sizeof(targetHeight);
-  int loadedSourceRow = -1;
-  for (int targetY = 0; ok && targetY < expectedHeight; targetY++) {
-    const int wantedSourceRow = static_cast<int>((static_cast<int64_t>(targetY) * sourceHeight) / expectedHeight);
-    while (ok && loadedSourceRow < wantedSourceRow) {
-      ok = source.read(optimizerSourceRow, sourceRowBytes) == static_cast<int>(sourceRowBytes);
-      loadedSourceRow++;
-    }
-    if (!ok) break;
-    memset(optimizerTargetRow, 0, targetRowBytes);
-    for (int targetX = 0; targetX < expectedWidth; targetX++) {
-      const int sourceX = static_cast<int>((static_cast<int64_t>(targetX) * sourceWidth) / expectedWidth);
-      const uint8_t value = (optimizerSourceRow[sourceX >> 2] >> (6 - ((sourceX & 3) * 2))) & 0x03;
-      optimizerTargetRow[targetX >> 2] |= static_cast<uint8_t>(value << (6 - ((targetX & 3) * 2)));
-    }
-    ok = destination.write(optimizerTargetRow, targetRowBytes) == targetRowBytes;
-  }
-  ok = source.close() && ok;
-  const std::string backup = destinationPath + ".optimizer.previous";
-  ok = OptimizerFormat::finishCache(destination, Storage, ok, tempDestination.c_str(), destinationPath.c_str(),
-                                    backup.c_str());
-  if (!ok) {
-    LOG_ERR("EBP", "Failed to publish resized optimizer image cache");
-    Storage.remove(tempDestination.c_str());
-  }
-  return ok;
 }
 
 float clampUnit(const float value) {
@@ -1930,6 +1866,12 @@ bool Epub::seedOptimizerImageCache(const std::string& itemHref, const int expect
   }
   if (!findOptimizerImage(itemHref)) return false;
   const auto& entry = optimizerLastHit;
+  // Both sidecar formats contain final 2-bit pixels. Do not resample their
+  // dither pattern; a different layout size must decode the original image.
+  if (entry.width != expectedWidth || entry.height != expectedHeight) {
+    LOG_DBG("EBP", "Optimizer image dimensions differ; decoding source: %s", itemHref.c_str());
+    return false;
+  }
   size_t bytes = 0;
   if (!getItemSize(entry.pxcHref, &bytes) || bytes != entry.bytes) return false;
   const std::string temp = destPxcPath + ".optimizer.tmp";
@@ -1959,29 +1901,17 @@ bool Epub::seedOptimizerImageCache(const std::string& itemHref, const int expect
     if (ok) LOG_DBG("EBP", "Materialized PXC2 image: %s", entry.pxcHref);
     return ok;
   }
-  if (entry.width == expectedWidth && entry.height == expectedHeight) {
-    // No resize is needed: validate while inflating directly to the publish temp file.
-    FsFile output;
-    if (!Storage.openFileForWrite("EBP", temp, output)) return false;
-    PxcHeaderSink sink(output);
-    bool ok = readItemContentsToStream(entry.pxcHref, sink, kOptimizerPxcExtractionChunkSize) &&
-              sink.width() == entry.width && sink.height() == entry.height && output.size() == entry.bytes;
-    ok = OptimizerFormat::finishCache(output, Storage, ok, temp.c_str(), destPxcPath.c_str(), backup.c_str());
-    if (!ok) {
-      LOG_ERR("EBP", "PXC extraction failed: %s", entry.pxcHref);
-      Storage.remove(temp.c_str());
-    }
-    return ok;
+  // No resize is needed: validate while inflating directly to the publish temp file.
+  FsFile output;
+  if (!Storage.openFileForWrite("EBP", temp, output)) return false;
+  PxcHeaderSink sink(output);
+  bool ok = readItemContentsToStream(entry.pxcHref, sink, kOptimizerPxcExtractionChunkSize) &&
+            sink.width() == entry.width && sink.height() == entry.height && output.size() == entry.bytes;
+  ok = OptimizerFormat::finishCache(output, Storage, ok, temp.c_str(), destPxcPath.c_str(), backup.c_str());
+  if (!ok) {
+    LOG_ERR("EBP", "PXC extraction failed: %s", entry.pxcHref);
+    Storage.remove(temp.c_str());
   }
-  const std::string source = destPxcPath + ".optimizer.source";
-  Storage.remove(source.c_str());
-  if (!extractItemToFile(entry.pxcHref, source, kOptimizerPxcExtractionChunkSize)) return false;
-  FsFile verify;
-  bool ok = Storage.openFileForRead("EBP", source, verify) && readPxcHeader(verify, w, h) && w == entry.width &&
-            h == entry.height && verify.size() == entry.bytes;
-  verify.close();
-  if (ok) ok = rescalePxcFile(source, destPxcPath, expectedWidth, expectedHeight);
-  Storage.remove(source.c_str());
   return ok;
 }
 

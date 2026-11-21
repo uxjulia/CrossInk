@@ -274,12 +274,12 @@ class Page {
     });
   }
 
-  void prepareImageCaches() const;
+  void prepareImageCaches(bool grayscale) const;
 
-  bool hasImagesNeedingDecode() const {
-    return std::any_of(elements.begin(), elements.end(), [](const std::unique_ptr<PageElement>& element) {
+  bool hasImagesNeedingDecode(const bool grayscale) const {
+    return std::any_of(elements.begin(), elements.end(), [grayscale](const std::unique_ptr<PageElement>& element) {
       return element->getTag() == TAG_PageImage &&
-             static_cast<const PageImage&>(*element).getImageBlock().needsDecode();
+             static_cast<const PageImage&>(*element).getImageBlock().needsDecode(grayscale);
     });
   }
 

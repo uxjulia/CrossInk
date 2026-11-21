@@ -906,10 +906,10 @@ TEST(EpubTextGrayscaleTest, CachedNightModeImagesMatchMonochromeAcrossStoragePat
       fakeheap::reset(psram);
       Storage.reset();
       ImageBlock::clearSessionRenderFailures();
-      std::vector<uint8_t> pixels(4 + 16 * 4, 0x1B);
+      std::vector<uint8_t> pixels(4 + 16 * 4, 0x33);
       pixels[0] = pixels[2] = 16;
       pixels[1] = pixels[3] = 0;
-      Storage.put("image_png_v3.pxc", pixels);
+      Storage.put("image_mono_v1.pxc", pixels);
       HalDisplay display(800, 480);
       GfxRenderer renderer(display);
       renderer.begin();
