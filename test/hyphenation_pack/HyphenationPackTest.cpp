@@ -439,6 +439,39 @@ int main(int argc, char** argv) {
   localDiscoveryStorageTests();
   localOnlyBankDoesNotResurrectRemovedPacks();
   localTailReservationTests();
+  // SD-only packs are installed individually; the reader has a 10-pack
+  // bank limit, so do not assume every pack in the release ZIP fits at once.
+  if (argc > 1 && std::strcmp(argv[1], "--sd-packs") == 0) {
+    for (int i = 2; i < argc; ++i) {
+      std::ifstream stream(argv[i], std::ios::binary);
+      assert(stream);
+      std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(stream)), {});
+      Entry entry;
+      const auto local = [](const char* code, uint8_t prefix, uint8_t suffix) {
+        return code && code[0] >= 'a' && code[0] <= 'z' && code[1] >= 'a' && code[1] <= 'z' && !code[2] &&
+               std::strcmp(code, "en") && prefix == 2 && suffix == 2;
+      };
+      const auto valid = validate(input(bytes), local, entry);
+      if (valid != Result::Ok) std::fprintf(stderr, "%s: %s\n", argv[i], resultName(valid));
+      assert(valid == Result::Ok);
+      assert(!supported(entry.code, entry.minPrefix, entry.minSuffix));
+      char code[3];
+      std::memcpy(code, entry.code, sizeof(code));
+      const uint32_t packId = identity(entry);
+      Device flash;
+      Store store;
+      constexpr size_t C3_RESERVED_TAIL = 384 * 1024;
+      assert(store.begin(flash.flash(), supported, local, C3_RESERVED_TAIL) == Result::Ok);
+      assert(store.install(input(bytes)) == Result::Ok);
+      Store restarted;
+      assert(restarted.begin(flash.flash(), supported, local, C3_RESERVED_TAIL) == Result::Ok);
+      assert(restarted.count() == 1 && restarted.find(code, entry) && identity(entry) == packId);
+      assert(boot(flash).count() == 0);
+      flash.checkUi();
+    }
+    return 0;
+  }
+
   // Exercise release-generated real dictionaries through the production loader.
   Device device;
   for (int i = 1; i < argc; ++i) {

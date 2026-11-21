@@ -68,9 +68,9 @@ Good to know:
 
 ## Hyphenation packs
 
-English hyphenation is included. CrossInk offers downloads for French, German,
-Russian, Spanish, Italian, Polish, Portuguese, Swedish, and Ukrainian. Other
-compatible packs can be installed from SD.
+English hyphenation is included. **Hyphenation Packs** shows what your firmware
+can download. You can also install compatible packs from SD, even if they are
+not in the download catalog.
 
 A book uses the pack for its own language, regardless of your menu language.
 If a downloadable pack is missing, CrossInk offers once per reading session to open
@@ -89,17 +89,34 @@ replaced. English is always available and cannot be removed.
 
 ### Install from SD
 
-1. Copy the `.crossink/hyphenation` folder from the language ZIP to the root
-   of your SD card.
+1. Download `crossink-languages-<version>.zip` from the
+   [CrossInk release](https://github.com/uxjulia/CrossInk/releases) that matches your
+   firmware. Unzip it and copy just the `hyph-xx.cphyph` files you want from
+   its `.crossink/hyphenation` folder into the same folder on your SD card.
+   Create it if it is missing. Show hidden files if you cannot see `.crossink`.
 2. Open **Settings > Reader > Page Layout > Hyphenation Packs**.
 3. Select the pack marked **Install**. The reader installs it and restarts to
    Home; reopen your book afterward.
 
-You can also copy a compatible community or self-made pack to
+The [CrossPoint hyphenation asset archive](https://github.com/crosspoint-reader/crosspoint-assets/releases/expanded_assets/hyphenation-v1-d81cc50)
+also has compatible [Danish](https://github.com/crosspoint-reader/crosspoint-assets/releases/download/hyphenation-v1-d81cc50/hyph-da.cphyph)
+and [Finnish](https://github.com/crosspoint-reader/crosspoint-assets/releases/download/hyphenation-v1-d81cc50/hyph-fi.cphyph) packs.
+Not every pack in that archive is compatible. Use the CrossInk release ZIP
+first; its extra packs are for SD installation and do not appear in Wi-Fi
+downloads. The extra packs cover Albanian, Bulgarian, Catalan, Croatian,
+Czech, Danish, Dutch, Finnish, Galician, Icelandic, Kurmanji, Latin,
+Lithuanian, Norwegian, and Slovenian.
+
+The Kurmanji pack matches `ku` and the Norwegian pack matches `no`, not
+`nb` or `nn`. Catalan words containing a middle dot (`l·l`) do not use
+pattern hyphenation.
+
+You can copy a compatible community or self-made pack to
 `/.crossink/hyphenation/hyph-xx.cphyph`. Replace `xx` with the lowercase
 two-letter language code, which must match the code inside the file. The EPUB
 should use that code (for example, `da` or `da-DK`). Use a
-CPHY v1 pack with minimum prefix and suffix lengths of 2. Packs must use the
+CPHY v1 pack of at most 256 KiB, with a minimum of 2 letters before and after
+a break. Packs must use the
 Latin or Cyrillic character ranges already supported by the reader's
 hyphenation engine. A pack does not add a font or support for a new script.
 
@@ -116,6 +133,48 @@ Deleting an installed pack also restarts the reader. Its SD file stays available
 for reinstallation. Removing or replacing an SD file alone does not change the
 installed pack. To replace an installed pack from the download catalog with an
 SD copy without Wi-Fi, delete the installed copy first, then select **Install**.
+
+If a pack installs but doesn't seem to do anything, check that the EPUB's
+language matches the pack and that **Hyphenation** is enabled under **Page
+Layout** or in the book's **Layout** menu.
+
+### Make a pack for another language
+
+Start with a compiled trie from [Typst Hypher's `tries/` directory](https://github.com/typst/hypher/tree/main/tries).
+The files there are Hypher tries, not installable packs. If you only have a
+UTF-8 TeX pattern file, such as one from [CTAN's hyph-utf8 collection](https://ctan.org/pkg/hyph-utf8),
+you need to compile it first. Do not rename a `.tex` or `.bin` file to
+`.cphyph`.
+
+To compile patterns yourself, use [Hypher's trie generator](https://github.com/typst/hypher/blob/d81cc506416bffef2a75ee2dc969d4b41bc36613/tests/generate.rs).
+In a checkout of that revision, put your UTF-8 patterns under `patterns/`,
+add the language and filename to the generator's `languages` array, and update
+the array's length if you added an entry. Use `Latn` or `Cyrl` as appropriate
+and use patterns intended for minima of 2 on both sides of a break.
+With Rust installed, run these commands from the Hypher checkout:
+
+```sh
+rustc --edition 2021 --test -O tests/generate.rs -o hypher-generate
+./hypher-generate --exact generate_code
+```
+
+The generator reads `\patterns{...}` blocks; it does not import separate
+TeX exception lists. It writes `tries/xx.bin`, where `xx` is your language
+code. Its test can report that files were outdated after rewriting them;
+rerun it to check that the output is current.
+Use [CrossInk's SD pack script](../scripts/package_hyphenation_sd.py) to wrap
+that trie as CPHY v1. From a CrossInk checkout, run:
+
+```sh
+python3 scripts/package_hyphenation_sd.py xx /path/to/tries/xx.bin
+```
+
+Use the same code as the compiled trie. This command is for patterns intended
+for 2/2 minima; it does not make a pack with different minima compatible.
+
+Copy the result to the SD card and install it as described above. Try it
+with an EPUB tagged for that language. If you share your pack, include
+the original pattern source and any license notices required by its terms.
 
 Keep the SD copies if you switch firmware versions. Older builds still read
 their supported installed packs, but do not show local-only packs. If you change

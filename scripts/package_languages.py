@@ -7,7 +7,7 @@ from pathlib import Path
 import zipfile
 
 from generate_language_template import generate, write_artifacts
-from package_hyphenation import artifacts as hyphenation_artifacts
+from package_hyphenation_sd import release_artifacts as hyphenation_artifacts
 
 ROOT = Path(__file__).resolve().parents[1]
 
