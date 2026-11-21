@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Verify distributable packs and run them through the actual flash store."""
 import hashlib
-import importlib.util
 import json
 from pathlib import Path
 import struct
@@ -11,10 +10,16 @@ import tempfile
 import zlib
 
 root = Path(sys.argv[1])
-spec = importlib.util.spec_from_file_location("packs", root / "scripts/package_hyphenation.py")
-module = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(module)
+sys.path.insert(0, str(root / "scripts"))
+import package_hyphenation as legacy
+import package_hyphenation_v2 as module
+
 entries = module.artifacts(root)
+old = legacy.artifacts(root)
+assert module.CODES == (*legacy.CODES, "nl")
+assert all(entries[name] == value for name, value in old.items() if name != "hyphenation-manifest.json")
+assert module.DUTCH_PACK not in old
+assert "hyphenation-sources/dutch/LICENSE-MIT" in entries
 assert not any(name.startswith(".crosspoint/") for name in entries)
 assert entries == module.artifacts(root)
 manifest = json.loads(entries["hyphenation-manifest.json"])
@@ -34,5 +39,5 @@ with tempfile.TemporaryDirectory() as temp:
         paths.append(str(path))
     subprocess.run([sys.argv[2], *paths], check=True)
 assert ".crossink/hyphenation/hyph-en.cphyph" not in entries
-assert len([name for name in entries if name.endswith(".tex")]) == 9
-print("Nine reproducible real packs, checksums, notices and flash installation passed")
+assert len([name for name in entries if name.endswith(".tex")]) == 10
+print("Ten reproducible real packs, checksums, notices and flash installation passed")

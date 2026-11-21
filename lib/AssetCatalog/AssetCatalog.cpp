@@ -30,13 +30,19 @@ bool validCode(const char* code) {
   }
   return true;
 }
-bool hyphenationCode(const char* code) {
+bool legacyHyphenationCode(const char* code) {
+  if (!code) return false;
   static constexpr const char* codes[] = {"fr", "de", "ru", "es", "it", "pl", "pt", "sv", "uk"};
   for (const auto* supported : codes)
     if (std::strcmp(code, supported) == 0) return true;
   return false;
 }
 }  // namespace
+
+bool canFallbackHyphenationCatalog(const Options& options, const int httpStatus, const char* code) {
+  return options.expectedKind == Kind::Hyphenation && options.hyphenationCatalog == HyphenationCatalog::Extended &&
+         (httpStatus == 404 || httpStatus == 403) && legacyHyphenationCode(code);
+}
 
 bool catalogPath(const Options& options, char* output, size_t capacity) {
   if (!output || !capacity) return false;
@@ -46,9 +52,12 @@ bool catalogPath(const Options& options, char* output, size_t capacity) {
                       !isHex(options.expectedKeyset, 64)))
     return false;
   const char* channel = options.expectedChannel == Channel::Rc ? "rc" : "stable";
-  const int size = translation ? std::snprintf(output, capacity, "catalogs/%s/translation/%s/%s.json", channel,
-                                               options.expectedSource, options.expectedKeyset)
-                               : std::snprintf(output, capacity, "catalogs/%s/hyphenation.json", channel);
+  const int size =
+      translation ? std::snprintf(output, capacity, "catalogs/%s/translation/%s/%s.json", channel,
+                                  options.expectedSource, options.expectedKeyset)
+                  : std::snprintf(output, capacity, "catalogs/%s/%s", channel,
+                                  options.hyphenationCatalog == HyphenationCatalog::Extended ? "hyphenation-v2.json"
+                                                                                             : "hyphenation.json");
   if (size < 0 || static_cast<size_t>(size) >= capacity) {
     output[0] = '\0';
     return false;
@@ -349,7 +358,8 @@ bool Parser::stringComplete() {
       break;
     case Code:
       if (!validCode(token_) || sameCode(token_, "en")) return fail("Invalid or built-in code");
-      if (options_.expectedKind == Kind::Hyphenation && !hyphenationCode(token_))
+      if (options_.expectedKind == Kind::Hyphenation && !legacyHyphenationCode(token_) &&
+          !(options_.hyphenationCatalog == HyphenationCatalog::Extended && std::strcmp(token_, "nl") == 0))
         return fail("Unsupported language code");
       destination = catalog_.entries[catalog_.count].code;
       break;
@@ -373,6 +383,10 @@ bool Parser::stringComplete() {
 bool Parser::numberComplete() {
   switch (field_) {
     case Schema:
+      if (number_ !=
+          (options_.expectedKind == Kind::Hyphenation ? static_cast<unsigned>(options_.hyphenationCatalog) : 1u))
+        return fail("Unsupported schema or format");
+      break;
     case Format:
       if (number_ != 1) return fail("Unsupported schema or format");
       break;
@@ -390,7 +404,9 @@ bool Parser::numberComplete() {
   return true;
 }
 bool Parser::beginEntry() {
-  const size_t limit = options_.expectedKind == Kind::Hyphenation ? MAX_HYPHENATION_ENTRIES : MAX_ENTRIES;
+  const size_t limit = options_.expectedKind == Kind::Translation                    ? MAX_ENTRIES
+                       : options_.hyphenationCatalog == HyphenationCatalog::Extended ? MAX_HYPHENATION_ENTRIES
+                                                                                     : MAX_LEGACY_HYPHENATION_ENTRIES;
   if (catalog_.count >= limit) return fail("Too many entries");
   auto& entry = catalog_.entries[catalog_.count];
   entry.code[0] = entry.name[0] = entry.sha256[0] = entry.previous[0] = '\0';

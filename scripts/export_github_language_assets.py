@@ -17,7 +17,8 @@ def github_files(bundles):
     files = {}
     for catalog, payloads in bundles:
         publisher.validate_companions(catalog, payloads)
-        key = f"catalogs/{catalog['channel']}/{catalog['kind']}.json"
+        key = (publisher.catalog_key(catalog) if catalog["kind"] == "hyphenation" else
+               f"catalogs/{catalog['channel']}/translation.json")
         data = publisher.encode(catalog)
         if len(data) > 8192:
             raise RuntimeError('GitHub catalog exceeds its byte limit')
@@ -36,6 +37,9 @@ def write_files(output, files):
             raise RuntimeError('immutable GitHub snapshot collision: ' + name)
     for name, data in files.items():
         path = output / name
+        # Released Inky versions and earlier firmware keep their legacy pointer.
+        if name in ("catalogs/stable/hyphenation.json", "catalogs/rc/hyphenation.json") and path.exists():
+            continue
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(data)
 
@@ -61,7 +65,8 @@ def main():
         version, channel = publisher.prepared_release_identity(args.prepare_release, args.source_commit, commit,
                                                               args.channel)
     publisher.args = SimpleNamespace(channel=channel, release_tag=args.release_tag, prepare_release=args.prepare_release)
-    files = github_files([publisher.build_languages(version, commit), publisher.build_hyphenation()])
+    files = github_files([publisher.build_languages(version, commit), publisher.build_hyphenation(),
+                          publisher.build_hyphenation(extended=True)])
     write_files(args.output, files)
     print(f'Exported {len(files)} GitHub files for {channel} to {args.output}; no upload performed')
 

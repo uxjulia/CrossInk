@@ -96,8 +96,17 @@ def prepare_asset_mock(temp_root: Path, snapshot: str | None, hyphenation_only: 
             raise ValueError("--asset-snapshot must name one snapshot directory or snapshot.json")
         kinds = (("hyphenation", "cphyph"),) if hyphenation_only else (("hyphenation", "cphyph"), ("translation", "yaml"))
         for kind, extension in kinds:
-            catalog_file = source / "catalogs" / "stable" / f"{kind}.json"
-            catalog = json.loads(catalog_file.read_bytes())
+            filename = "hyphenation-v2.json" if kind == "hyphenation" else f"{kind}.json"
+            catalog_file = source / "catalogs" / "stable" / filename
+            if kind == "hyphenation" and not catalog_file.is_file():
+                # Archived fixtures predate extended catalog discovery. Adapt
+                # protocol version only; leave their payloads and digests intact.
+                catalog_file = catalog_file.with_name("hyphenation.json")
+            catalog_data = catalog_file.read_bytes()
+            catalog = json.loads(catalog_data)
+            if kind == "hyphenation" and catalog_file.name == "hyphenation.json":
+                catalog["schema"] = 2
+                catalog_data = json.dumps(catalog, ensure_ascii=False, separators=(",", ":")).encode()
             for entry in catalog["entries"]:
                 if not re.fullmatch(r"[0-9a-f]{64}", entry["sha256"]) or not 0 < entry["bytes"] <= 262144:
                     raise ValueError("Snapshot contains an invalid digest or payload size")
@@ -108,7 +117,7 @@ def prepare_asset_mock(temp_root: Path, snapshot: str | None, hyphenation_only: 
                 destination = mock / "snapshots" / catalog["revision"] / kind / payload.name
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(payload, destination)
-            shutil.copy2(catalog_file, mock / catalog_file.name)
+            (mock / filename).write_bytes(catalog_data)
         # Derive each recipient closure from both exact indexes, including
         # opaque source archives. This fixture validator never approves a release.
         indexes = {}
@@ -118,7 +127,8 @@ def prepare_asset_mock(temp_root: Path, snapshot: str | None, hyphenation_only: 
                 raise ValueError("Companion index exceeds bound")
             indexes[name] = json.loads(raw)
         for kind, _ in kinds:
-            catalog = json.loads((mock / f"{kind}.json").read_bytes())
+            filename = "hyphenation-v2.json" if kind == "hyphenation" else f"{kind}.json"
+            catalog = json.loads((mock / filename).read_bytes())
             prefix = f"snapshots/{catalog['revision']}/"
             for name in indexes:
                 target = mock / prefix / name
@@ -161,14 +171,15 @@ def prepare_asset_mock(temp_root: Path, snapshot: str | None, hyphenation_only: 
         print(f"Asset smoke uses copied, unpublished snapshot and complete indexed companions: {source}", flush=True)
     else:
         from generate_language_template import generate
-        from package_hyphenation import CODES, pack_bytes
+        from package_hyphenation_v2 import CODES, artifacts as hyphenation_artifacts
+        packs = hyphenation_artifacts()
         generated = generate("simulator-local-fixture")
         contract = json.loads(generated["language-template.json"])
         common = {"schema": 1, "channel": "stable", "revision": contract["sourceCommit"],
                   "format": 1, "requires": 0, "notices": "notices.json", "sources": "sources.json"}
-        hyphenation = dict(common, kind="hyphenation", entries=[])
+        hyphenation = dict(common, schema=2, kind="hyphenation", entries=[])
         for code in CODES:
-            data = pack_bytes(code)
+            data = packs[f".crossink/hyphenation/hyph-{code}.cphyph"]
             digest = hashlib.sha256(data).hexdigest()
             (mock / f"{digest}.cphyph").write_bytes(data)
             hyphenation["entries"].append({"code": code, "bytes": len(data), "sha256": digest})
@@ -183,7 +194,8 @@ def prepare_asset_mock(temp_root: Path, snapshot: str | None, hyphenation_only: 
             translation["entries"].append({"code": language["code"], "name": language["name"],
                                             "bytes": len(data), "sha256": reference["sha256"]})
         for kind, catalog in (("hyphenation", hyphenation), ("translation", translation)):
-            (mock / f"{kind}.json").write_text(json.dumps(catalog, ensure_ascii=False, separators=(",", ":")))
+            filename = "hyphenation-v2.json" if kind == "hyphenation" else f"{kind}.json"
+            (mock / filename).write_text(json.dumps(catalog, ensure_ascii=False, separators=(",", ":")))
         revision = common["revision"]
         prefix = f"snapshots/{revision}/"
         notice = b"TEST-ONLY functional fixture; not a distributable source/license arrangement.\n"
@@ -297,7 +309,7 @@ def run_smoke(args: argparse.Namespace) -> int:
                 env["CROSSINK_ASSET_SMOKE_EXPECT_TRANSLATION_REJECTION"] = "1"
             env["CROSSINK_SIM_HTTP_MOCK_ROOT"] = str(prepare_asset_mock(temp_root, args.asset_snapshot, args.asset_hyphenation_only))
             if args.asset_empty_catalog:
-                catalog_path = Path(env["CROSSINK_SIM_HTTP_MOCK_ROOT"]) / "hyphenation.json"
+                catalog_path = Path(env["CROSSINK_SIM_HTTP_MOCK_ROOT"]) / "hyphenation-v2.json"
                 catalog = json.loads(catalog_path.read_bytes())
                 catalog["entries"] = []
                 catalog_path.write_text(json.dumps(catalog, ensure_ascii=False, separators=(",", ":")))

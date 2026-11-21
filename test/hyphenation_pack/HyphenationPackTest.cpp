@@ -22,6 +22,9 @@ bool supported(const char* code, uint8_t prefix, uint8_t suffix) {
     if (!std::strcmp(candidate, code)) return prefix == 2 && suffix == 2;
   return false;
 }
+bool extended(const char* code, uint8_t prefix, uint8_t suffix) {
+  return supported(code, prefix, suffix) || (!std::strcmp(code, "nl") && prefix == 2 && suffix == 2);
+}
 struct Device {
   std::vector<uint8_t> bytes = std::vector<uint8_t>(PARTITION_SIZE, 0xff);
   int failAt = -1;
@@ -85,10 +88,41 @@ std::vector<uint8_t> pack(const char* code, size_t size = 2301, uint8_t content 
   put32(data.data() + 20, crc32(data.data() + PACK_HEADER_SIZE, size));
   return data;
 }
-Store boot(Device& device) {
+Store boot(Device& device, Supported compatibility = supported) {
   Store store;
-  assert(store.begin(device.flash(), supported) == Result::Ok);
+  assert(store.begin(device.flash(), compatibility) == Result::Ok);
   return store;
+}
+void downgradeCompatibility() {
+  Device device;
+  Entry entry;
+  auto german = pack("de");
+  auto dutch = pack("nl");
+  auto french = pack("fr");
+  auto current = boot(device, extended);
+  assert(current.install(input(german)) == Result::Ok);
+  current = boot(device, extended);
+  assert(current.install(input(dutch)) == Result::Ok);
+  current = boot(device, extended);
+  assert(current.find("nl", entry));
+  // One older bank without Dutch is still readable by legacy firmware.
+  auto old = boot(device);
+  assert(old.count() == 1 && old.find("de", entry));
+  assert(old.install(input(dutch)) == Result::Unsupported);
+
+  // The next write makes both banks contain Dutch. Legacy firmware now
+  // skips both banks rather than reinterpreting a pack it cannot use.
+  assert(current.install(input(french)) == Result::Ok);
+  current = boot(device, extended);
+  assert(current.count() == 3);
+  assert(boot(device).count() == 0);
+
+  // Removing Dutch on the new firmware before downgrade republishes a bank
+  // containing all the other installed packs in the unchanged store format.
+  assert(current.remove("nl") == Result::Ok);
+  old = boot(device);
+  assert(old.count() == 2 && old.find("de", entry) && old.find("fr", entry) && !old.find("nl", entry));
+  device.checkUi();
 }
 void sourceValidation() {
   // Empty levels tape; leaf node at zero, root at one with one backward edge.
@@ -278,6 +312,7 @@ int main(int argc, char** argv) {
   sourceValidation();
   storageTests();
   reservedTailTests();
+  downgradeCompatibility();
   // Exercise release-generated real dictionaries through the production loader.
   Device device;
   for (int i = 1; i < argc; ++i) {
@@ -292,17 +327,17 @@ int main(int argc, char** argv) {
       ++*static_cast<size_t*>(context);
       return true;
     };
-    assert(validate(input(bytes), supported, checked, options) == Result::Ok);
+    assert(validate(input(bytes), extended, checked, options) == Result::Ok);
     // A yielding callback must not run once per trie node/edge. This bound
     // catches the previous hundreds of thousands of calls for the German pack.
     assert(polls <= bytes.size() / 16 + 64);
     polls = 0;
     options.continueWork = [](void* context) { return ++*static_cast<size_t*>(context) < 3; };
-    assert(validate(input(bytes), supported, checked, options) == Result::Cancelled);
+    assert(validate(input(bytes), extended, checked, options) == Result::Cancelled);
     assert(polls == 3 && !checked.code[0]);
-    auto store = boot(device);
+    auto store = boot(device, extended);
     assert(store.install(input(bytes)) == Result::Ok);
     device.checkUi();
   }
-  if (argc > 1) assert(boot(device).count() == static_cast<size_t>(argc - 1));
+  if (argc > 1) assert(boot(device, extended).count() == static_cast<size_t>(argc - 1));
 }

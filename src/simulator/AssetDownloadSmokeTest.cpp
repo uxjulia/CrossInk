@@ -379,13 +379,14 @@ struct AssetDownloadSmokeTest {
     AssetCatalog::Options options;
     options.expectedKind = activity.kind_;
     options.expectedChannel = activity.selection_.channel;
+    options.hyphenationCatalog = AssetCatalog::HyphenationCatalog::Extended;
     options.expectedSource = activity.selection_.source;
     options.expectedKeyset = activity.selection_.keyset;
     options.supportedTranslation = [](const char* code, void*) { return I18n::supportedDownload(code); };
     char relative[AssetCatalog::MAX_CATALOG_PATH];
     require(AssetCatalog::catalogPath(options, relative, sizeof(relative)), "fixture catalog path invalid");
     std::ifstream input(std::filesystem::path(std::getenv("CROSSINK_SIM_HTTP_MOCK_ROOT")) /
-                            (activity.kind_ == Kind::Hyphenation ? "hyphenation.json" : relative),
+                            (activity.kind_ == Kind::Hyphenation ? "hyphenation-v2.json" : relative),
                         std::ios::binary);
     require(bool(input), "fixture catalog absent");
     AssetCatalog::Parser parser(*catalog, options);

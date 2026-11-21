@@ -202,19 +202,27 @@ def build_languages(version, commit):
     return catalog, files
 
 
-def build_hyphenation():
+def build_hyphenation(extended=False):
     # Separate content identity: translation/firmware edits must not republish
     # unchanged dictionaries. Include the exact generator, tables and notices.
     from package_hyphenation import artifacts as hyphenation_artifacts, CODES, PACK_HEADER
     import zlib
+    if extended:
+        from package_hyphenation_v2 import artifacts as hyphenation_artifacts, CODES
     packed = hyphenation_artifacts(root)
     hfiles = {k.replace('hyphenation-sources/', 'source/hypher/'): v for k, v in packed.items()}
     for name in ('scripts/package_hyphenation.py', 'scripts/generate_hyphenation_trie.py'):
         hfiles['source/firmware/' + name] = (root / name).read_bytes()
+    if extended:
+        name = 'scripts/package_hyphenation_v2.py'
+        hfiles['source/firmware/' + name] = (root / name).read_bytes()
     for code in CODES:
+        if code == 'nl':
+            continue  # The Dutch input is a pinned binary trie, not a firmware header.
         name = f'lib/Epub/Epub/hyphenation/generated/hyph-{code}.trie.h'
         hfiles['source/firmware/' + name] = (root / name).read_bytes()
-    hrevision = sha(b'crossink-hyphenation-v3\n' + encode({k: sha(v) for k, v in sorted(hfiles.items())}))[:40]
+    domain = b'crossink-hyphenation-extended-v1\n' if extended else b'crossink-hyphenation-v3\n'
+    hrevision = sha(domain + encode({k: sha(v) for k, v in sorted(hfiles.items())}))[:40]
     hbase = f'snapshots/{hrevision}'
     hentries, hnotices, hsources = [], {}, {}
     def href(name):
@@ -231,6 +239,18 @@ def build_hyphenation():
             raise RuntimeError('invalid hyphenation pack: ' + code)
         hfiles['hyphenation/' + sha(data) + '.cphyph'] = data
         hentries.append({'code': code, 'bytes': len(data), 'sha256': sha(data)})
+        if code == 'nl':
+            dutch = 'source/hypher/dutch/'
+            pattern = dutch + 'patterns/hyph-nl.tex'
+            hnotices[code] = {'license': 'MIT',
+                'licenses': ['MIT'],
+                'licenseDeclaration': 'Dutch patterns, copyright (C) 1996 Piet Tutelaers. See the included original source and derivation notice.',
+                'files': [href(pattern), href(dutch + 'LICENSE-MIT'), href(dutch + 'README.md')]}
+            hsources[code] = {'provenance': 'source-snapshot', 'files': [
+                href(pattern), href(dutch + 'tries/nl.bin'),
+                href('source/firmware/scripts/package_hyphenation.py'),
+                href('source/firmware/scripts/package_hyphenation_v2.py')]}
+            continue
         pattern = 'source/hypher/patterns/hyph-' + ('de-1996' if code == 'de' else code) + '.tex'
         # The pattern's own license is authoritative, not Hypher's MIT license.
         hnotices[code] = {'license': 'See per-pattern terms', 'licenses': ['See per-pattern terms'],
@@ -246,7 +266,7 @@ def build_hyphenation():
     hfiles['sources.json'] = encode({'hyphenation': hsources})
     hfiles['snapshot.json'] = encode({'revision': hrevision, 'status': 'source-snapshot',
                                     'files': {hbase + '/' + k: sha(v) for k, v in hfiles.items()}})
-    hcatalog = {'schema': 1, 'kind': 'hyphenation', 'channel': args.channel, 'revision': hrevision,
+    hcatalog = {'schema': 2 if extended else 1, 'kind': 'hyphenation', 'channel': args.channel, 'revision': hrevision,
                 'format': 1, 'requires': 0, 'notices': 'notices.json', 'sources': 'sources.json',
                 'entries': sorted(hentries, key=lambda e: e['code'])}
     return hcatalog, {hbase + '/' + k: v for k, v in hfiles.items()}
@@ -255,14 +275,16 @@ def build_hyphenation():
 def catalog_key(catalog):
     kind, channel = catalog.get('kind'), catalog.get('channel')
     if (kind not in ('translation', 'hyphenation') or channel not in ('stable', 'rc')
-            or catalog.get('schema') != 1 or catalog.get('format') != 1 or catalog.get('requires') != 0
+            or catalog.get('schema') not in ((1, 2) if kind == 'hyphenation' else (1,))
+            or catalog.get('format') != 1 or catalog.get('requires') != 0
             or not re.fullmatch(r'[0-9a-f]{40}', catalog.get('revision', ''))):
         raise RuntimeError('invalid catalog identity')
     if kind == 'translation':
         if any(not re.fullmatch(r'[0-9a-f]{64}', catalog.get(k, '')) for k in ('source', 'keyset')):
             raise RuntimeError('invalid translation contract')
         return f"catalogs/{channel}/translation/{catalog['source']}/{catalog['keyset']}.json"
-    return f'catalogs/{channel}/hyphenation.json'
+    filename = 'hyphenation-v2.json' if catalog['schema'] == 2 else 'hyphenation.json'
+    return f'catalogs/{channel}/{filename}'
 
 
 def previous_entries(catalog, previous):
@@ -295,7 +317,7 @@ def main():
     if args.assets in ('both', 'languages'):
         bundles.append(build_languages(version, commit))
     if args.assets in ('both', 'hyphenation'):
-        bundles.append(build_hyphenation())
+        bundles.extend([build_hyphenation(), build_hyphenation(extended=True)])
     output = root / '.local-language-publish' / args.channel
     output.mkdir(parents=True, exist_ok=True)
     print(f'Target: s3://{args.bucket}/{args.prefix}/catalogs/{args.channel}/', flush=True)
@@ -352,9 +374,18 @@ def main():
                         if scoped_data is None:
                             promote(legacy_contract_key, legacy_data, None, scoped_etag)
                         print('Preserving legacy translation catalog: ' + legacy_key, flush=True)
+            legacy_hyphenation = kind == 'hyphenation' and catalog['schema'] == 1
+            # The legacy clients reject both Dutch and any tenth row. Keep
+            # their exact published catalog and immutable snapshot in place.
+            if legacy_hyphenation and old is not None:
+                dest = output / key
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                dest.write_bytes(old)
+                print('Preserving legacy hyphenation catalog: ' + key, flush=True)
+                continue
             previous_entries(catalog, previous)
             catalog_data = encode(catalog)
-            limit = 9 if kind == 'hyphenation' else 48
+            limit = (9 if legacy_hyphenation else 10) if kind == 'hyphenation' else 48
             if not 0 < len(catalog['entries']) <= limit or len(catalog_data) > 8192:
                 raise RuntimeError(kind + ' catalog exceeds device limits')
             promote(key, catalog_data, old, etag)
@@ -382,7 +413,7 @@ def main():
         # Upload and read back every missing object before exposing any selected catalog.
         for files, missing in plans:
             for name in missing:
-                content_type = ('application/octet-stream' if name.endswith('.cphyph') else
+                content_type = ('application/octet-stream' if name.endswith(('.cphyph', '.bin')) else
                                 'application/json' if name.endswith('.json') else 'text/plain; charset=utf-8')
                 aws('put-object', '--bucket', args.bucket, '--key', args.prefix + '/' + name,
                     '--body', str(output / name), '--if-none-match', '*',

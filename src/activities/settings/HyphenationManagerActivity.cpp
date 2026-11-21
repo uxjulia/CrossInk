@@ -20,7 +20,7 @@ HyphenationManagerActivity::HyphenationManagerActivity(GfxRenderer& renderer, Ma
 void HyphenationManagerActivity::onEnter() {
   Activity::onEnter();
   mappedInput.setReaderTouchscreenOverride(true);
-  // 1280 bytes, once per activity: labels outlive popup renders, but need not
+  // Allocate labels once per activity. They outlive popup renders but need not
   // consume permanent RAM or the small C3 main-task stack.
   catalog_ = makeUniqueNoThrow<Catalog>();
   if (!catalog_) {
@@ -39,7 +39,7 @@ void HyphenationManagerActivity::onExit() {
 void HyphenationManagerActivity::showLanguages() {
   RenderLock lock(*this);
   const auto languages = getLanguageEntries();
-  if (languages.size > 10) {
+  if (languages.size > HYPHENATION_LANGUAGE_COUNT) {
     LOG_ERR("HYPH", "Language list exceeds catalog capacity");
     finish();
     return;

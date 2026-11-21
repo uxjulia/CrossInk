@@ -2,6 +2,7 @@
 
 #include <Memory.h>
 
+#include "Epub/hyphenation/LanguageRegistry.h"
 #include "activities/Activity.h"
 #include "components/OptionPopup.h"
 
@@ -25,7 +26,7 @@ class HyphenationManagerActivity final : public Activity {
   friend struct AssetDownloadSmokeTest;
 #endif
   struct Catalog {
-    char labels[10][128] = {};
+    char labels[HYPHENATION_LANGUAGE_COUNT][128] = {};
   };
   std::unique_ptr<Catalog> catalog_;
   OptionPopup popup_;

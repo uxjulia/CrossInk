@@ -12,3 +12,5 @@ add_test(NAME HyphenationPackTest COMMAND HyphenationPackTest)
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 add_test(NAME HyphenationPackageTest COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/package_test.py
   ${REPO_ROOT} $<TARGET_FILE:HyphenationPackTest>)
+add_test(NAME HyphenationCatalogExporterTest COMMAND
+  ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/catalog_test.py ${REPO_ROOT})

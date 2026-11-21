@@ -5,6 +5,8 @@
 
 #include "LanguageHyphenator.h"
 
+inline constexpr size_t HYPHENATION_LANGUAGE_COUNT = 11;
+
 struct LanguageEntry {
   const char* cliName;
   const char* primaryTag;

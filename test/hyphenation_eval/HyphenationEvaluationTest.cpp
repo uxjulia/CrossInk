@@ -2,8 +2,10 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <cstring>
 #include <fstream>
 #include <iostream>
+#include <iterator>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -290,6 +292,41 @@ TEST(HyphenationPacks, ExternalPatternsFollowBookLanguageAndAliases) {
   EXPECT_EQ(Hyphenator::patternIdentity("pol"), 2U);
   EXPECT_EQ(Hyphenator::patternIdentity("unknown"), 0U);
   EXPECT_EQ(Hyphenator::patternIdentity("d3"), 0U);
+  setExternalHyphenationLookup(nullptr);
+  Hyphenator::setPreferredLanguage("en");
+}
+
+TEST(HyphenationPacks, DutchRealTrieFollowsBookLanguageAndChangesCacheIdentity) {
+  setExternalHyphenationLookup(nullptr);
+  Hyphenator::setPreferredLanguage("nl-NL");
+  EXPECT_TRUE(Hyphenator::breakOffsets("lettergrepen", false).empty());
+  EXPECT_EQ(Hyphenator::patternIdentity("nl-NL"), 0U);
+  ASSERT_NE(findLanguageEntry("nl"), nullptr);
+  EXPECT_EQ(findLanguageEntry("nl")->hyphenator, nullptr);
+
+  setExternalHyphenationLookup([](const char* code, ExternalHyphenationPatterns& out) {
+    if (std::strcmp(code, "nl") != 0) return false;
+    static const auto trie = [] {
+      std::ifstream input(DUTCH_TRIE, std::ios::binary);
+      return std::vector<uint8_t>(std::istreambuf_iterator<char>(input), {});
+    }();
+    if (trie.size() <= 4) return false;
+    const uint32_t root = (uint32_t(trie[0]) << 24) | (uint32_t(trie[1]) << 16) | (uint32_t(trie[2]) << 8) | trie[3];
+    out.patterns = {root - 4, trie.data() + 4, static_cast<uint32_t>(trie.size() - 4)};
+    out.identity = 123;
+    return true;
+  });
+  for (const auto* tag : {"nl", "nl-NL", "nl-BE", "nld", "dut"}) {
+    Hyphenator::setPreferredLanguage(tag);
+    const auto breaks = Hyphenator::breakOffsets("lettergrepen", false);
+    std::vector<size_t> offsets;
+    for (const auto& point : breaks) {
+      EXPECT_TRUE(point.requiresInsertedHyphen);
+      offsets.push_back(point.byteOffset);
+    }
+    EXPECT_EQ(offsets, (std::vector<size_t>{3, 6, 9})) << tag;
+    EXPECT_EQ(Hyphenator::patternIdentity(tag), 123U) << tag;
+  }
   setExternalHyphenationLookup(nullptr);
   Hyphenator::setPreferredLanguage("en");
 }

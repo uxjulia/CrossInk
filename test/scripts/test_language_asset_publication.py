@@ -23,13 +23,13 @@ spec.loader.exec_module(publisher)
 import export_github_language_assets as github_export
 
 
-def bundle(source='a', keyset='b', revision='c', text=b'French', channel='stable', kind='translation'):
+def bundle(source='a', keyset='b', revision='c', text=b'French', channel='stable', kind='translation', schema=1):
     prefix = f'snapshots/{revision * 40}/'
     notice = b'Pattern source and notices'
     ref = {'path': prefix + 'source/notice.txt', 'bytes': len(notice), 'sha256': publisher.sha(notice)}
     code = 'FR' if kind == 'translation' else 'fr'
     entry = {'code': code, 'bytes': len(text), 'sha256': publisher.sha(text)}
-    catalog = {'schema': 1, 'kind': kind, 'channel': channel, 'revision': revision * 40,
+    catalog = {'schema': schema, 'kind': kind, 'channel': channel, 'revision': revision * 40,
                'format': 1, 'requires': 0, 'notices': 'notices.json', 'sources': 'sources.json', 'entries': [entry]}
     if kind == 'translation':
         catalog.update(source=source * 64, keyset=keyset * 64)
@@ -52,6 +52,7 @@ class PublicationTest(unittest.TestCase):
         self.reads = []
         self.current = bundle()
         self.hyphenation = bundle(kind='hyphenation', revision='f')
+        self.extended_hyphenation = bundle(kind='hyphenation', revision='e', schema=2)
         self.fail_key = None
         self.corrupt_key = None
 
@@ -90,7 +91,8 @@ class PublicationTest(unittest.TestCase):
         with patch.object(publisher, 'root', self.root), \
              patch.object(publisher, 'aws', self.aws), \
              patch.object(publisher, 'build_languages', side_effect=lambda *_: copy.deepcopy(self.current)), \
-             patch.object(publisher, 'build_hyphenation', side_effect=lambda: copy.deepcopy(self.hyphenation)), \
+             patch.object(publisher, 'build_hyphenation', side_effect=lambda extended=False: copy.deepcopy(
+                 self.extended_hyphenation if extended else self.hyphenation)), \
              patch.object(publisher.subprocess, 'check_output', side_effect=lambda command, **_:
                           '' if clean and 'status' in command else '1' * 40), \
              patch.object(publisher.subprocess, 'run', return_value=subprocess.CompletedProcess([], 1, '', '')), \
@@ -180,8 +182,21 @@ class PublicationTest(unittest.TestCase):
         for key, data in stable.items():
             self.assertEqual(self.store[key], data)
         self.assertIn('catalogs/rc/translation.json', self.store)
-        self.assertIn('catalogs/stable/hyphenation.json', self.store)
+        legacy = 'catalogs/stable/hyphenation.json'
+        modern = 'catalogs/stable/hyphenation-v2.json'
+        self.assertIn(legacy, self.store)
+        self.assertIn(modern, self.store)
         self.assertNotIn('catalogs/rc/hyphenation.json', self.store)
+        self.assertNotIn('catalogs/rc/hyphenation-v2.json', self.store)
+        # A later extended snapshot updates its own pointer, never v1.
+        self.hyphenation = bundle(kind='hyphenation', revision='c', text=b'Unexpected legacy change')
+        self.extended_hyphenation = bundle(kind='hyphenation', revision='9', text=b'New modern content', schema=2)
+        self.run_publisher('--publish', '--assets', 'hyphenation')
+        self.assertEqual(self.store[legacy], stable[legacy])
+        self.assertNotEqual(self.store[modern], stable[modern])
+        count = len(self.writes)
+        self.run_publisher('--publish', '--assets', 'hyphenation')
+        self.assertEqual(len(self.writes), count)
 
     def test_build_is_offline_and_check_is_read_only(self):
         self.run_publisher()

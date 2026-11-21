@@ -208,18 +208,32 @@ void AssetDownloadActivity::fetch() {
   parserOptions.expectedSource = I18n::sourceContract();
   parserOptions.expectedKeyset = I18n::keysetContract();
   parserOptions.supportedTranslation = [](const char* code, void*) { return I18n::supportedDownload(code); };
-  // Parser scratch is bounded but larger than the preferred stack budget.
-  // It is released before any payload transfer or source validation.
-  auto parser = makeUniqueNoThrow<AssetCatalog::Parser>(*catalog, parserOptions);
-  if (!parser) {
-    LOG_ERR("ASSET", "OOM: catalog parser");
-    showError(StrId::STR_MEMORY_ERROR, Pending::Exit);
-    return;
-  }
-  char relative[AssetCatalog::MAX_CATALOG_PATH];
-  bool valid = AssetCatalog::catalogPath(parserOptions, relative, sizeof(relative)) &&
-               AssetDownloadService::buildUrl(catalogEndpoints_, relative, url_, sizeof(url_));
-  if (valid) {
+  // Only the language chosen before the restart is installed.
+  const bool translation = kind_ == AssetCatalog::Kind::Translation;
+  const auto languages = getLanguageEntries();
+  const char* wanted = translation
+                           ? (wantedIndex_ < getLanguageCount() ? LANGUAGE_CODES[wantedIndex_] : nullptr)
+                           : (wantedIndex_ < languages.size ? languages.data[wantedIndex_].primaryTag : nullptr);
+  if (!translation) parserOptions.hyphenationCatalog = AssetCatalog::HyphenationCatalog::Extended;
+
+  bool incompatible = false;
+  bool oom = false;
+  HttpRequestDiagnostics diagnostics;
+  const auto fetchCatalog = [&]() {
+    // Parser scratch is larger than the preferred stack budget. Retry only
+    // after the first parser is destroyed, and reuse the same catalog buffer.
+    auto parser = makeUniqueNoThrow<AssetCatalog::Parser>(*catalog, parserOptions);
+    if (!parser) {
+      LOG_ERR("ASSET", "OOM: catalog parser");
+      oom = true;
+      return false;
+    }
+    char relative[AssetCatalog::MAX_CATALOG_PATH];
+    if (!AssetCatalog::catalogPath(parserOptions, relative, sizeof(relative)) ||
+        !AssetDownloadService::buildUrl(catalogEndpoints_, relative, url_, sizeof(url_))) {
+      LOG_ERR("ASSET", "Catalog path rejected");
+      return false;
+    }
     LOG_DBG("ASSET", "Fetching catalog: %s", url_);
     HttpDownloader::DownloadOptions options;
     options.httpReceiveBufferSize = 1024;
@@ -234,32 +248,36 @@ void AssetDownloadActivity::fetch() {
         [&parser](const uint8_t* bytes, size_t count) {
           return parser->feed(reinterpret_cast<const char*>(bytes), count);
         },
-        [this](size_t received, size_t total) { progress(received, total); }, "", "", options);
-    valid = result == HttpDownloader::OK && parser->finish();
+        [this](size_t received, size_t total) { progress(received, total); }, "", "", options, &diagnostics);
+    const bool valid = result == HttpDownloader::OK && parser->finish();
+    incompatible = parser->error() != nullptr;
+    if (!valid) LOG_ERR("ASSET", "Catalog rejected: %s", incompatible ? parser->error() : "transport");
+    return valid;
+  };
+
+  bool valid = fetchCatalog();
+  if (!valid && !cancelled_ && !incompatible &&
+      AssetCatalog::canFallbackHyphenationCatalog(parserOptions, diagnostics.status, wanted)) {
+    LOG_INF("ASSET", "Extended hyphenation catalog not found; trying legacy catalog for %s", wanted);
+    parserOptions.hyphenationCatalog = AssetCatalog::HyphenationCatalog::Legacy;
+    valid = fetchCatalog();
   }
-  if (!valid) LOG_ERR("ASSET", "Catalog rejected: %s", parser->error() ? parser->error() : "transport");
-  const bool incompatible = parser->error() != nullptr;
-  parser.reset();
   busy_ = false;
   if (cancelled_) {
     pending_ = Pending::Exit;
     return;
   }
   if (!valid) {
-    showError(incompatible ? StrId::STR_ASSET_CATALOG_INVALID : StrId::STR_DOWNLOAD_FAILED, Pending::Fetch);
+    const StrId error = oom            ? StrId::STR_MEMORY_ERROR
+                        : incompatible ? StrId::STR_ASSET_CATALOG_INVALID
+                                       : StrId::STR_DOWNLOAD_FAILED;
+    showError(error, oom ? Pending::Exit : Pending::Fetch);
     return;
   }
   if (!catalog->count) {
     showError(StrId::STR_ASSET_UNAVAILABLE, Pending::Exit);
     return;
   }
-  // Only the one language chosen before the restart is installed. Translation
-  // catalog codes use the same exact spelling as LANGUAGE_CODES.
-  const bool translation = kind_ == AssetCatalog::Kind::Translation;
-  const auto languages = getLanguageEntries();
-  const char* wanted = translation
-                           ? (wantedIndex_ < getLanguageCount() ? LANGUAGE_CODES[wantedIndex_] : nullptr)
-                           : (wantedIndex_ < languages.size ? languages.data[wantedIndex_].primaryTag : nullptr);
   size_t i = 0;
   while (wanted && i < catalog->count && std::strcmp(wanted, catalog->entries[i].code)) ++i;
   if (!wanted || i == catalog->count) {

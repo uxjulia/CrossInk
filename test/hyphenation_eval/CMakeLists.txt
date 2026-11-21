@@ -13,6 +13,7 @@ target_include_directories(HyphenationEvaluationTest PRIVATE
 )
 
 target_compile_definitions(HyphenationEvaluationTest PRIVATE
+  DUTCH_TRIE="${REPO_ROOT}/assets/hyphenation-v2/tries/nl.bin"
   HYPHENATION_RESOURCES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/resources"
 )
 

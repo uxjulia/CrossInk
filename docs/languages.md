@@ -69,7 +69,9 @@ Good to know:
 ## Hyphenation packs
 
 English hyphenation is included. Packs are available for French, German,
-Russian, Spanish, Italian, Polish, Portuguese, Swedish, and Ukrainian.
+Russian, Spanish, Italian, Polish, Portuguese, Swedish, Ukrainian, and Dutch.
+Dutch requires firmware that lists Dutch in **Hyphenation Packs**; it is not
+available on v2.0.0 RC-3 or earlier.
 
 A book uses the pack for its own language, regardless of your menu language.
 If a needed pack is missing, CrossInk offers once per reading session to open
@@ -105,6 +107,15 @@ in a book's text still appear.
 
 Books adjust automatically after a pack changes. You do not need to clear the
 book cache, and your bookmarks and reading position are kept.
+
+Before downgrading to firmware without Dutch support, delete the installed
+Dutch pack in **Hyphenation Packs** and let the reader restart. This keeps your
+other installed packs visible to the older firmware. If you already
+downgraded and some packs are missing, reinstall them from their SD files or
+download them again. The older firmware may only see an earlier set of packs,
+or none, if its newest stored sets contain Dutch.
+
+Release maintainers: see [Hyphenation download catalog compatibility](./hyphenation-catalogs.md).
 
 ## Create or edit a translation
 

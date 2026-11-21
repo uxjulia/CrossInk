@@ -101,6 +101,57 @@ TEST(AssetCatalog, DiscoveryPathsKeepContractsAndChannelsSeparate) {
   ASSERT_TRUE(catalogPath(options, path, sizeof(path)));
   EXPECT_STREQ(path, "catalogs/stable/hyphenation.json");
 }
+TEST(AssetCatalog, ExtendedHyphenationCatalogPreservesLegacyContract) {
+  auto legacy = fixture("hyphenation.json");
+  ASSERT_FALSE(legacy.empty());
+  auto full = std::make_unique<Catalog>();
+  Parser legacyParser(*full, {});
+  ASSERT_TRUE(legacyParser.feed(legacy.data(), legacy.size()));
+  ASSERT_TRUE(legacyParser.finish());
+  EXPECT_EQ(full->count, MAX_LEGACY_HYPHENATION_ENTRIES);
+  EXPECT_STREQ(full->entries[0].code, "de");
+  char path[MAX_CATALOG_PATH];
+  ASSERT_TRUE(immutableAssetPath(*full, full->entries[0], path, sizeof(path)));
+  EXPECT_EQ(std::string(path),
+            "snapshots/" + std::string(full->revision) + "/hyphenation/" + full->entries[0].sha256 + ".cphyph");
+
+  Options extended;
+  extended.hyphenationCatalog = HyphenationCatalog::Extended;
+  ASSERT_TRUE(catalogPath(extended, path, sizeof(path)));
+  EXPECT_STREQ(path, "catalogs/stable/hyphenation-v2.json");
+  extended.expectedChannel = Channel::Rc;
+  ASSERT_TRUE(catalogPath(extended, path, sizeof(path)));
+  EXPECT_STREQ(path, "catalogs/rc/hyphenation-v2.json");
+  extended.expectedChannel = Channel::Stable;
+
+  auto modern = replace(legacy, "\"schema\":1", "\"schema\":2");
+  modern = replace(modern, "}]}", "}," + entry("nl") + "]}");
+  EXPECT_TRUE(parse(modern, extended));
+  EXPECT_FALSE(parse(modern));
+  EXPECT_FALSE(parse(legacy, extended));
+  EXPECT_FALSE(parse(replace(modern, "\"nl\"", "\"da\""), extended));
+  EXPECT_FALSE(parse(replace(modern, "}]}", "}," + entry("nl") + "]}"), extended));
+  EXPECT_FALSE(parse(replace(catalog(entry("nl")), "\"schema\":1", "\"schema\":2")));
+  EXPECT_FALSE(parse(catalog(entry("nl"))));
+}
+
+TEST(AssetCatalog, OnlyAbsentExtendedCatalogForLegacyPacksAllowsFallback) {
+  Options modern;
+  modern.hyphenationCatalog = HyphenationCatalog::Extended;
+  EXPECT_TRUE(canFallbackHyphenationCatalog(modern, 404, "de"));
+  EXPECT_TRUE(canFallbackHyphenationCatalog(modern, 403, "de"));
+  EXPECT_FALSE(canFallbackHyphenationCatalog(modern, 403, "nl"));
+  EXPECT_FALSE(canFallbackHyphenationCatalog(modern, 404, "nl"));
+  EXPECT_FALSE(canFallbackHyphenationCatalog(modern, 404, nullptr));
+  EXPECT_FALSE(canFallbackHyphenationCatalog(modern, 404, "en"));
+  for (const int error : {0, 200, 401, 500}) {
+    EXPECT_FALSE(canFallbackHyphenationCatalog(modern, error, "de"));
+  }
+  EXPECT_FALSE(canFallbackHyphenationCatalog({}, 404, "de"));
+  modern.expectedKind = Kind::Translation;
+  EXPECT_FALSE(canFallbackHyphenationCatalog(modern, 404, "de"));
+}
+
 TEST(AssetCatalog, DiscoveryPathsRejectInvalidContractsAndShortBuffers) {
   char path[MAX_CATALOG_PATH];
   auto options = translationOptions();
