@@ -32,6 +32,10 @@ namespace glyphBitmap {
 struct Frame;
 }
 
+#if defined(CROSSINK_MEMORY_TEST) || (defined(ENABLE_SERIAL_LOG) && defined(LOG_LEVEL) && LOG_LEVEL >= 2)
+#define CROSSINK_GFX_BUFFER_DIAGNOSTICS
+#endif
+
 // Color representation: uint8_t mapped to 4x4 Bayer matrix dithering levels
 // 0 = transparent, 1-16 = gray levels (white to black)
 enum Color : uint8_t { Clear = 0x00, White = 0x01, LightGray = 0x05, DarkGray = 0x0A, Black = 0x10 };
@@ -41,6 +45,25 @@ class GfxRenderer {
   friend struct UpstreamFeatureSmokeTest;
 #endif
  public:
+#ifdef CROSSINK_GFX_BUFFER_DIAGNOSTICS
+  struct BwBufferSnapshotStats {
+    uint32_t storeAttempts = 0;
+    uint32_t storeFailures = 0;
+    uint32_t restoreAttempts = 0;
+    uint32_t restoreFailures = 0;
+    uint32_t lastStoreMicros = 0;
+    uint32_t lastRestoreMicros = 0;
+    uint32_t lastStoredBytes = 0;
+    uint32_t lastRestoredBytes = 0;
+  };
+#endif
+
+#ifdef CROSSINK_MEMORY_TEST
+  using BwBufferAllocateForTest = uint8_t* (*)(size_t);
+  using BwBufferFreeForTest = void (*)(void*);
+  static void setBwBufferAllocatorForTest(BwBufferAllocateForTest allocate, BwBufferFreeForTest release);
+#endif
+
   enum RenderMode { BW, GRAYSCALE_LSB, GRAYSCALE_MSB };
 
   // Logical screen orientation from the perspective of callers
@@ -68,6 +91,9 @@ class GfxRenderer {
   uint16_t panelWidthBytes = HalDisplay::DISPLAY_WIDTH_BYTES;
   uint32_t frameBufferSize = HalDisplay::BUFFER_SIZE;
   std::vector<uint8_t*> bwBufferChunks;
+#ifdef CROSSINK_GFX_BUFFER_DIAGNOSTICS
+  BwBufferSnapshotStats bwBufferSnapshotStats_;
+#endif
   std::map<int, EpdFontFamily> fontMap;
   void* bookFontContext_ = nullptr;
   int (*bookFontResolver_)(void*, uint32_t, uint8_t) = nullptr;
@@ -517,6 +543,9 @@ class GfxRenderer {
   bool supportsStripGrayscale() const;
   bool storeBwBuffer();    // Returns true if buffer was stored successfully
   void restoreBwBuffer();  // Restore and free the stored buffer
+#ifdef CROSSINK_GFX_BUFFER_DIAGNOSTICS
+  const BwBufferSnapshotStats& getBwBufferSnapshotStats() const { return bwBufferSnapshotStats_; }
+#endif
   void cleanupGrayscaleWithFrameBuffer() const;
 
   // Font helpers

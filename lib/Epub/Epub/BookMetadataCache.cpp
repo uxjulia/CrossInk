@@ -23,6 +23,7 @@ constexpr size_t METADATA_ARENA_SLAB_BYTES = 4096;
 // Reuse at most 32 KiB of arena-backed targets instead of one per chapter.
 // This transient buffer is too large for the stack and is released after indexing.
 constexpr size_t MAX_SIZE_LOOKUP_TARGETS = 2048;
+constexpr size_t MIN_SIZE_LOOKUP_TARGETS = 64;
 // Buffer size for the buildBookBin streams. 3 buffers x 4KB, transient (freed on
 // return); 4KB = 8 SD sectors per transfer, enough to stop the sector-cache thrash.
 constexpr size_t BUILD_IO_BUFFER_SIZE = 4096;
@@ -345,39 +346,53 @@ bool BookMetadataCache::buildBookBin(const std::string& epubPath, const BookMeta
 
   if (spineCount >= LARGE_SPINE_THRESHOLD) {
     ArenaVector<ZipFile::SizeTarget> targets(metadataArena);
-    const size_t batchCapacity = std::min<size_t>(spineCount, MAX_SIZE_LOOKUP_TARGETS);
-    if (!targets.resize(batchCapacity) || !spineSizes.resize(spineCount)) {
-      LOG_ERR("BMC", "Failed to allocate batch size lookup scratch for %u spine items", spineCount);
-      lowMemoryFailure = true;
-      zip.close();
-      closeBuildFiles();
-      return false;
+    size_t batchCapacity = std::min<size_t>(spineCount, MAX_SIZE_LOOKUP_TARGETS);
+    bool haveBatchScratch = spineSizes.resize(spineCount);
+    if (haveBatchScratch) {
+      while (batchCapacity >= MIN_SIZE_LOOKUP_TARGETS && !targets.resize(batchCapacity)) {
+        if (batchCapacity == MIN_SIZE_LOOKUP_TARGETS) {
+          batchCapacity = 0;
+          break;
+        }
+        const size_t smaller = batchCapacity / 2;
+        batchCapacity = std::max(MIN_SIZE_LOOKUP_TARGETS, smaller);
+      }
+      haveBatchScratch = targets.capacity() >= MIN_SIZE_LOOKUP_TARGETS;
     }
 
-    size_t targetCount = 0;
-    int matched = 0;
-    spineIn.seek(0);
-    for (int i = 0; i < spineCount; i++) {
-      auto entry = readSpineEntryFrom(spineIn);
-      std::string path = FsHelpers::normalisePath(entry.href);
+    if (haveBatchScratch) {
+      size_t targetCount = 0;
+      int matched = 0;
+      spineIn.seek(0);
+      for (int i = 0; i < spineCount; i++) {
+        auto entry = readSpineEntryFrom(spineIn);
+        std::string path = FsHelpers::normalisePath(entry.href);
 
-      ZipFile::SizeTarget t;
-      t.hash = ZipFile::fnvHash64(path.c_str(), path.size());
-      t.len = static_cast<uint16_t>(path.size());
-      t.index = static_cast<uint16_t>(i);
-      targets[targetCount++] = t;
-      if (targetCount < batchCapacity && i + 1 < spineCount) continue;
+        ZipFile::SizeTarget t;
+        t.hash = ZipFile::fnvHash64(path.c_str(), path.size());
+        t.len = static_cast<uint16_t>(path.size());
+        t.index = static_cast<uint16_t>(i);
+        targets[targetCount++] = t;
+        if (targetCount < batchCapacity && i + 1 < spineCount) continue;
 
-      std::sort(targets.begin(), targets.begin() + targetCount,
-                [](const ZipFile::SizeTarget& a, const ZipFile::SizeTarget& b) {
-                  return a.hash < b.hash || (a.hash == b.hash && a.len < b.len);
-                });
-      matched += zip.fillUncompressedSizes(targets.data(), targetCount, spineSizes.data(), spineSizes.size());
-      targetCount = 0;
+        std::sort(targets.begin(), targets.begin() + targetCount,
+                  [](const ZipFile::SizeTarget& a, const ZipFile::SizeTarget& b) {
+                    return a.hash < b.hash || (a.hash == b.hash && a.len < b.len);
+                  });
+        matched += zip.fillUncompressedSizes(targets.data(), targetCount, spineSizes.data(), spineSizes.size());
+        targetCount = 0;
+      }
+      LOG_DBG("BMC", "Batch lookup matched %d/%d spine items (batch=%u)", matched, spineCount,
+              static_cast<unsigned>(batchCapacity));
+
+      useBatchSizes = true;
+    } else {
+      // Keep the existing per-entry ZIP lookup as a correctness-preserving
+      // fallback when the result vector or even the smallest scratch batch
+      // cannot be allocated. This may take longer, but avoids turning memory
+      // pressure into a failed book open.
+      LOG_DBG("BMC", "Batch size lookup unavailable; using ZIP cursor for %u spine items", spineCount);
     }
-    LOG_DBG("BMC", "Batch lookup matched %d/%d spine items", matched, spineCount);
-
-    useBatchSizes = true;
   }
 
   if (tryExactSizeBatch) {

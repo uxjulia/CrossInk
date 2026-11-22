@@ -1,6 +1,7 @@
 #include <Serialization.h>
 #include <gtest/gtest.h>
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -51,7 +52,7 @@ std::vector<uint8_t> baselineBytes(const std::vector<uint8_t>& prefix, const Sec
   return output;
 }
 
-bool writeAnchors(FsFile& file, const std::vector<Anchor>& anchors) {
+bool writeAnchors(Print& file, const std::vector<Anchor>& anchors) {
   if (!serialization::tryWritePod(file, static_cast<uint16_t>(anchors.size()))) return false;
   for (const auto& [anchor, page] : anchors) {
     if (!serialization::tryWriteString(file, anchor) || !serialization::tryWritePod(file, page)) return false;
@@ -67,15 +68,33 @@ TEST(SectionPageIndexPersistence, FullCacheFieldsMatchTheContiguousBaselineAcros
   file.bytes = prefix;
   file.cursor = prefix.size();
   SectionPageIndexOffsets offsets;
+  std::array<uint8_t, 1024> stage{};
 
   ASSERT_TRUE(writeSectionPageIndex(
-      file, index, [&anchors](FsFile& output) { return writeAnchors(output, anchors); }, offsets));
+      file, index, [&anchors](Print& output) { return writeAnchors(output, anchors); }, offsets, stage.data(),
+      stage.size()));
   EXPECT_EQ(file.bytes, baselineBytes(prefix, index, anchors));
+  EXPECT_EQ(file.writeCalls, 5U);
   EXPECT_EQ(offsets.page, prefix.size());
   EXPECT_EQ(offsets.anchorMap, prefix.size() + index.size() * sizeof(uint32_t));
   EXPECT_LT(offsets.anchorMap, offsets.paragraph);
   EXPECT_LT(offsets.paragraph, offsets.listItem);
   EXPECT_LT(offsets.listItem, offsets.visibleText);
+}
+
+TEST(SectionPageIndexPersistence, SectionWrites1024PagesInLargeBatches) {
+  const auto index = makeIndex(1024);
+  const std::vector<Anchor> noAnchors;
+  FsFile file;
+  SectionPageIndexOffsets offsets;
+  std::array<uint8_t, 1024> stage{};
+
+  ASSERT_TRUE(writeSectionPageIndex(
+      file, index, [](Print& output) { return serialization::tryWritePod(output, uint16_t{0}); }, offsets, stage.data(),
+      stage.size()));
+
+  EXPECT_EQ(file.bytes, baselineBytes({}, index, noAnchors));
+  EXPECT_EQ(file.writeCalls, 18U);
 }
 
 TEST(SectionPageIndexPersistence, PartialCacheFiltersFutureAnchorsAndKeepsTheWatermarkTrailer) {
@@ -87,17 +106,18 @@ TEST(SectionPageIndexPersistence, PartialCacheFiltersFutureAnchorsAndKeepsTheWat
   file.bytes = prefix;
   file.cursor = prefix.size();
   SectionPageIndexOffsets offsets;
+  std::array<uint8_t, 1024> stage{};
 
   ASSERT_TRUE(writeSectionPageIndex(
       file, index,
-      [&anchors, &index](FsFile& output) {
+      [&anchors, &index](Print& output) {
         std::vector<Anchor> readable;
         for (const auto& anchor : anchors) {
           if (anchor.second < index.size()) readable.push_back(anchor);
         }
         return writeAnchors(output, readable);
       },
-      offsets));
+      offsets, stage.data(), stage.size()));
   constexpr uint32_t bytesConsumed = 12345;
   constexpr uint32_t totalBytes = 67890;
   ASSERT_TRUE(serialization::tryWritePod(file, bytesConsumed));
@@ -114,11 +134,37 @@ TEST(SectionPageIndexPersistence, SerializationFailureStopsWithoutPublishingLate
   FsFile file;
   file.failAt = 64 * sizeof(uint32_t) + 2;
   SectionPageIndexOffsets offsets;
+  std::array<uint8_t, 1024> stage{};
 
   EXPECT_FALSE(writeSectionPageIndex(
-      file, index, [](FsFile& output) { return serialization::tryWritePod(output, uint16_t{0}); }, offsets));
+      file, index, [](Print& output) { return serialization::tryWritePod(output, uint16_t{0}); }, offsets, stage.data(),
+      stage.size()));
   EXPECT_EQ(file.bytes.size(), file.failAt);
   EXPECT_EQ(offsets.anchorMap, 0U);
   EXPECT_EQ(offsets.paragraph, 0U);
+}
+
+TEST(SectionPageIndexPersistence, ReverseLookupReadsBoundedChunksAndPreservesFirstMatchSemantics) {
+  FsFile file;
+  constexpr uint16_t count = 1024;
+  for (uint16_t page = 0; page < count; ++page) appendPod(file.bytes, static_cast<uint16_t>(page / 3));
+
+  EXPECT_EQ(findSectionPageAtOrAfter(file, 0, count, 0), 0);
+  EXPECT_EQ(file.readCalls, 1U);
+  EXPECT_EQ(findSectionPageAtOrAfter(file, 0, count, 20), 60);
+  EXPECT_EQ(findSectionPageAtOrAfter(file, 0, count, 21), 63);
+
+  file.readCalls = 0;
+  file.seekCalls = 0;
+  EXPECT_EQ(findSectionPageAtOrAfter(file, 0, count, 400), 1023);
+  EXPECT_EQ(file.readCalls, 16U);  // 16 reads of 128 bytes instead of 1,024 scalar reads.
+  EXPECT_EQ(file.seekCalls, 1U);   // One starting seek for the whole scan.
+
+  file.readCalls = 0;
+  file.seekCalls = 0;
+  file.failReadCall = 2;
+  EXPECT_EQ(findSectionPageAtOrAfter(file, 0, count, 400), std::nullopt);
+  EXPECT_EQ(file.readCalls, 2U);
+  EXPECT_EQ(file.seekCalls, 1U);
 }
 }  // namespace

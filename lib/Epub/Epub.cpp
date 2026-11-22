@@ -31,6 +31,7 @@
 #include "Epub/image/OptimizerCachePublish.h"
 #include "Epub/image/OptimizerIndex.h"
 #include "Epub/image/PxcHeaderSink.h"
+#include "Epub/parsers/AdobeFontObfuscation.h"
 #include "Epub/parsers/ContainerParser.h"
 #include "Epub/parsers/ContentOpfParser.h"
 #include "Epub/parsers/TocNavParser.h"
@@ -688,7 +689,7 @@ void Epub::releaseCssFileList() {
   std::vector<std::string>().swap(cssFiles);
 }
 
-Epub::CssParseStatus Epub::parseCssFiles(const bool forceRebuild) const {
+Epub::CssParseStatus Epub::parseCssFiles(const bool forceRebuild, const bool preserveExistingPartialOnFailure) const {
   const size_t maxCssFileSize = CssParser::maxSourceBytes();
   // Minimum heap required before attempting CSS parsing
   constexpr size_t MIN_HEAP_FOR_CSS_PARSING = 64 * 1024;  // 64KB
@@ -715,6 +716,9 @@ Epub::CssParseStatus Epub::parseCssFiles(const bool forceRebuild) const {
         LOG_DBG("EBP", "CSS cache invalid, rebuilding CSS rules");
         cssParser->deleteCache();
         break;
+      case CssParser::CacheStatus::ReadError:
+        LOG_ERR("EBP", "Could not inspect CSS cache; retaining it for a later retry");
+        return CssParseStatus::Failed;
       case CssParser::CacheStatus::Missing:
         break;
     }
@@ -725,8 +729,10 @@ Epub::CssParseStatus Epub::parseCssFiles(const bool forceRebuild) const {
   // chapter layout can still use most of the book's stylesheet.
   CssCacheSource::Identity sourceIdentity{};
   const bool sourceKnown = CssCacheSource::read(filepath, CssParser::CSS_CACHE_VERSION, maxCssFileSize, sourceIdentity);
-  // Remove before replacing rules, so a crash cannot pair a new cache with an old marker.
-  const bool markerRemoved = CssCacheSource::invalidate(cachePath);
+  // Remove before replacing rules, so a crash cannot pair a new cache with an old marker. A
+  // completion retry starts with a known-usable partial cache; keep its source marker too until
+  // the replacement cache has been written successfully.
+  const bool markerRemoved = preserveExistingPartialOnFailure ? false : CssCacheSource::invalidate(cachePath);
   bool transientFailure = false;
   bool parsedAllCss = true;
   size_t parsedCssFileCount = 0;
@@ -821,7 +827,15 @@ Epub::CssParseStatus Epub::parseCssFiles(const bool forceRebuild) const {
       continue;
     }
     // Explicitly close() file before reopening for reading
-    tempCssFile.close();
+    if (!tempCssFile.close()) {
+      LOG_ERR("EBP", "Could not finish writing temporary CSS file: %s", cssPath.c_str());
+      transientFailure = true;
+      parsedAllCss = false;
+      failedCssFileIndex = cssFileIndex + 1;
+      failedCssPath = cssPath;
+      Storage.remove(tmpCssPath.c_str());
+      continue;
+    }
 
     // Parse the CSS file
     if (!Storage.openFileForRead("EBP", tmpCssPath, tempCssFile)) {
@@ -854,6 +868,21 @@ Epub::CssParseStatus Epub::parseCssFiles(const bool forceRebuild) const {
     }
   }
 
+  CssCacheSource::Identity finalIdentity{};
+  const bool terminalSource =
+      !transientFailure && cssParser->ruleLimitReached() && sourceKnown &&
+      CssCacheSource::read(filepath, CssParser::CSS_CACHE_VERSION, maxCssFileSize, finalIdentity) &&
+      sourceIdentity == finalIdentity;
+
+  // A hard rule cap is a stable terminal result, unlike a temporary heap or ZIP
+  // read failure. Persist that canonical result and let the caller rebuild the
+  // layout once so the new stylesheet and pages stay in sync.
+  if (!parsedAllCss && preserveExistingPartialOnFailure && !terminalSource) {
+    LOG_ERR("EBP", "CSS completion retry stopped; keeping the existing partial rules cache and section layout");
+    cssParser->clear();
+    return CssParseStatus::Partial;
+  }
+
   if (!parsedAllCss && cssParser->empty()) {
     LOG_ERR("EBP", "CSS parsing failed for %s before any usable rules were loaded; CSS cache will not be written",
             failedCssPath.empty() ? "<unknown>" : failedCssPath.c_str());
@@ -867,14 +896,18 @@ Epub::CssParseStatus Epub::parseCssFiles(const bool forceRebuild) const {
   }
 
   // Save to cache for next time
-  CssCacheSource::Identity finalIdentity{};
-  const bool terminal = !transientFailure && cssParser->ruleLimitReached() && sourceKnown && markerRemoved &&
-                        CssCacheSource::read(filepath, CssParser::CSS_CACHE_VERSION, maxCssFileSize, finalIdentity) &&
-                        sourceIdentity == finalIdentity;
+  const bool terminal = terminalSource && (preserveExistingPartialOnFailure || markerRemoved);
   if (!cssParser->saveToCache(parsedAllCss, terminal)) {
     LOG_ERR("EBP", "Failed to save CSS rules to cache");
     cssParser->clear();
-    return CssParseStatus::Failed;
+    return preserveExistingPartialOnFailure ? CssParseStatus::Partial : CssParseStatus::Failed;
+  }
+
+  // A successful completion retry has replaced the partial cache. Its old terminal marker is no
+  // longer applicable, but only remove it after the cache write succeeds so a failed write keeps
+  // the previous cache state intact.
+  if (preserveExistingPartialOnFailure && parsedAllCss) {
+    CssCacheSource::invalidate(cachePath);
   }
 
   if (terminal && !CssCacheSource::save(cachePath, sourceIdentity)) {
@@ -887,6 +920,7 @@ Epub::CssParseStatus Epub::parseCssFiles(const bool forceRebuild) const {
     LOG_DBG("EBP", "Skipped %zu byte-identical CSS files", skippedDuplicateCount);
   }
   cssParser->clear();
+  if (terminal) return CssParseStatus::RuleLimited;
   return parsedAllCss ? CssParseStatus::Complete : CssParseStatus::Partial;
 }
 
@@ -900,6 +934,7 @@ bool Epub::openProtection() const {
 bool Epub::load(const bool buildIfMissing, const bool skipLoadingCss, const XLocationLoadMode xLocationLoadMode,
                 const bool cacheCumulativeSpineSizes) {
   zipDirectoryCache.clear();
+  cssCacheReady = false;
   lastLoadFailure = OpenFailure::InvalidOrUnreadable;
   // Enforce access before loading any previously rendered cache.
   if (!openProtection()) {
@@ -930,6 +965,7 @@ bool Epub::load(const bool buildIfMissing, const bool skipLoadingCss, const XLoc
       bool rebuildCssCache = false;
       bool forceCssRebuild = false;
       bool retryingPartialCssCache = false;
+      bool cssCacheAvailable = false;
       switch (cssParser->inspectCache()) {
         case CssParser::CacheStatus::Missing:
           LOG_DBG("EBP", "CSS rules cache missing, attempting to parse CSS files");
@@ -939,6 +975,9 @@ bool Epub::load(const bool buildIfMissing, const bool skipLoadingCss, const XLoc
           LOG_DBG("EBP", "CSS rules cache invalid, attempting to parse CSS files");
           cssParser->deleteCache();
           rebuildCssCache = true;
+          break;
+        case CssParser::CacheStatus::ReadError:
+          LOG_ERR("EBP", "Could not inspect CSS cache; preserving it and existing section caches");
           break;
         case CssParser::CacheStatus::Partial:
           LOG_DBG("EBP", "CSS rules cache is partial, attempting to rebuild complete CSS cache");
@@ -951,6 +990,7 @@ bool Epub::load(const bool buildIfMissing, const bool skipLoadingCss, const XLoc
           if (CssCacheSource::read(filepath, CssParser::CSS_CACHE_VERSION, CssParser::maxSourceBytes(), identity) &&
               CssCacheSource::matches(cachePath, identity)) {
             LOG_DBG("EBP", "CSS rule-cap cache source unchanged; skipping CSS extraction and parse");
+            cssCacheAvailable = true;
             break;
           }
           LOG_DBG("EBP", "CSS rule-cap source identity changed or unavailable; rebuilding");
@@ -959,20 +999,25 @@ bool Epub::load(const bool buildIfMissing, const bool skipLoadingCss, const XLoc
           break;
         }
         case CssParser::CacheStatus::Complete:
+          cssCacheAvailable = true;
           break;
       }
 
       if (rebuildCssCache) {
         BookMetadataCache::BookMetadata cachedMetadata = bookMetadataCache->coreMetadata;
-        if (!parseContentOpf(cachedMetadata, /*writeSpineEntries=*/false, /*collectCssFiles=*/true)) {
+        const bool cssSourcesReady =
+            parseContentOpf(cachedMetadata, /*writeSpineEntries=*/false, /*collectCssFiles=*/true);
+        if (!cssSourcesReady) {
           LOG_ERR("EBP", "Could not parse content.opf from cached bookMetadata for CSS files");
-          // continue anyway - book will work without CSS and we'll still load any inline style CSS
         } else {
           discoverCssFilesFromZip();
         }
         bookMetadataCache.reset();
-        const CssParseStatus cssStatus = parseCssFiles(forceCssRebuild);
+        const CssParseStatus cssStatus =
+            cssSourcesReady ? parseCssFiles(forceCssRebuild, retryingPartialCssCache)
+                            : (retryingPartialCssCache ? CssParseStatus::Partial : CssParseStatus::Failed);
         releaseCssFileList();
+        cssCacheAvailable = cssStatus != CssParseStatus::Failed;
         bookMetadataCache = makeBookMetadataCacheNoThrow(cachePath, cacheCumulativeSpineSizes);
         if (!bookMetadataCache) {
           lastLoadFailure = OpenFailure::OutOfMemory;
@@ -982,7 +1027,7 @@ bool Epub::load(const bool buildIfMissing, const bool skipLoadingCss, const XLoc
           LOG_ERR("EBP", "Failed to reload cache after CSS rebuild");
           return false;
         }
-        if (cssStatus == CssParseStatus::Complete ||
+        if (cssStatus == CssParseStatus::Complete || cssStatus == CssParseStatus::RuleLimited ||
             (cssStatus == CssParseStatus::Partial && !retryingPartialCssCache)) {
           // Invalidate section caches so they are rebuilt with the new CSS.
           Storage.removeDir((cachePath + "/layout").c_str());
@@ -992,6 +1037,7 @@ bool Epub::load(const bool buildIfMissing, const bool skipLoadingCss, const XLoc
           LOG_ERR("EBP", "CSS cache rebuild failed; preserving existing section caches");
         }
       }
+      cssCacheReady = cssCacheAvailable;
     }
     // Release the resolved CSS rule map: it is only needed transiently while building
     // section caches, and createSectionFile reloads it from cache on demand. Holding it
@@ -1095,7 +1141,9 @@ bool Epub::load(const bool buildIfMissing, const bool skipLoadingCss, const XLoc
   if (!skipLoadingCss) {
     // Parse CSS before reloading book.bin to keep heap as open as possible for rule-table growth.
     bookMetadataCache.reset();
-    if (parseCssFiles() != CssParseStatus::Failed) {
+    const CssParseStatus cssStatus = parseCssFiles();
+    cssCacheReady = cssStatus != CssParseStatus::Failed;
+    if (cssCacheReady) {
       Storage.removeDir((cachePath + "/layout").c_str());
     } else {
       LOG_ERR("EBP", "CSS cache build failed; leaving any existing section caches in place");
@@ -1119,6 +1167,72 @@ bool Epub::load(const bool buildIfMissing, const bool skipLoadingCss, const XLoc
   }
 
   lastLoadFailure = OpenFailure::None;
+  return true;
+}
+
+bool Epub::ensureCssCache() {
+  if (!cssParser) {
+    cssParser = makeCssParserNoThrow(cachePath);
+    if (!cssParser) return false;
+  }
+  if (cssCacheReady && cssParser->hasCache()) return true;
+  cssCacheReady = false;
+
+  bool forceCssRebuild = false;
+  switch (cssParser->inspectCache()) {
+    case CssParser::CacheStatus::Complete:
+    case CssParser::CacheStatus::Partial:
+      // Empty stylesheets are valid complete caches; partial caches are
+      // explicit and remain usable through the regular disk-backed lookup.
+      cssCacheReady = true;
+      return true;
+    case CssParser::CacheStatus::RuleLimited: {
+      CssCacheSource::Identity identity{};
+      if (CssCacheSource::read(filepath, CssParser::CSS_CACHE_VERSION, CssParser::maxSourceBytes(), identity) &&
+          CssCacheSource::matches(cachePath, identity)) {
+        cssCacheReady = true;
+        return true;
+      }
+      forceCssRebuild = true;
+      break;
+    }
+    case CssParser::CacheStatus::Invalid:
+      forceCssRebuild = true;
+      break;
+    case CssParser::CacheStatus::ReadError:
+      LOG_ERR("EBP", "Could not inspect CSS cache; preserving it for a later retry");
+      return false;
+    case CssParser::CacheStatus::Missing:
+      break;
+  }
+
+  if (!bookMetadataCache || !bookMetadataCache->isLoaded()) {
+    LOG_ERR("EBP", "Cannot build optional CSS without the already-loaded book metadata");
+    return false;
+  }
+
+  BookMetadataCache::BookMetadata cachedMetadata = bookMetadataCache->coreMetadata;
+  releaseCssFileList();
+  cssParser->clear();
+  if (!parseContentOpf(cachedMetadata, /*writeSpineEntries=*/false, /*collectCssFiles=*/true)) {
+    LOG_ERR("EBP", "Could not parse content.opf for requested CSS styles");
+    releaseCssFileList();
+    return false;
+  }
+  discoverCssFilesFromZip();
+
+  // Keep the active metadata index alive while optional styles are built. The
+  // reader may already be using it, and a second SD open after CSS parsing
+  // could fail and make a healthy book look like it has no chapters.
+  const CssParseStatus cssStatus = parseCssFiles(forceCssRebuild);
+  releaseCssFileList();
+  cssParser->clear();
+  cssCacheReady = cssStatus != CssParseStatus::Failed;
+  if (!cssCacheReady) {
+    LOG_ERR("EBP", "Requested CSS cache could not be built; styles remain unavailable");
+    return false;
+  }
+  LOG_INF("EBP", "Requested embedded styles are ready%s", cssStatus == CssParseStatus::Partial ? " (partial)" : "");
   return true;
 }
 
@@ -1791,6 +1905,47 @@ bool Epub::getItemSize(const std::string& itemHref, size_t* size) const {
     return true;
   }
   return ZipFile(filepath, &zipDirectoryCache).getInflatedFileSize(path.c_str(), size);
+}
+
+bool Epub::getItemIdentity(const std::string& itemHref, ItemIdentity& identity) const {
+  identity = {};
+  const std::string path = FsHelpers::normalisePath(itemHref);
+  if (path.empty() || path.size() > UINT16_MAX) return false;
+  ZipFile::EntryTarget target{ZipFile::fnvHash64(path.data(), path.size()), static_cast<uint16_t>(path.size()), 0,
+                              path.c_str()};
+  ZipFile::EntryIdentity source;
+  if (ZipFile(filepath, &zipDirectoryCache).fillEntryIdentities(&target, 1, &source, 1) != 1 || !source.found)
+    return false;
+  identity.crc32 = source.crc32;
+  identity.compressedSize = source.compressedSize;
+  identity.uncompressedSize = source.uncompressedSize;
+  identity.encrypted = decryptor && decryptor->isEncrypted(path);
+  if (!identity.encrypted) {
+    // Adobe's font obfuscation is a separate transform from the AES/LCP
+    // decryptor. Its output also depends on the package UUID, so include that
+    // exact public key in the cache identity before reusing extracted bytes.
+    size_t manifestSize = 0;
+    if (getItemSize("META-INF/encryption.xml", &manifestSize)) {
+      AdobeFontObfuscation fontManifest(&path);
+      if (!fontManifest.setup() || !readItemContentsToStream("META-INF/encryption.xml", fontManifest, 512) ||
+          !fontManifest.finish()) {
+        LOG_ERR("EBP", "Cannot identify publisher font obfuscation: %s", path.c_str());
+        return false;
+      }
+      if (fontManifest.isAdobeFont()) {
+        std::string opfPath;
+        AdobeFontObfuscation package;
+        if (!findContentOpfFile(&opfPath) || !package.setup() || !readItemContentsToStream(opfPath, package, 512) ||
+            !package.finish() || !package.hasKey()) {
+          LOG_ERR("EBP", "Cannot identify Adobe font key: %s", path.c_str());
+          return false;
+        }
+        identity.adobeObfuscated = true;
+        identity.adobeKey = package.key();
+      }
+    }
+  }
+  return true;
 }
 
 namespace {

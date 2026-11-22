@@ -1,3 +1,4 @@
+#include <Epub/PageDeserializationBudget.h>
 #include <Memory.h>
 #include <MemoryBudget.h>
 #include <PoolBudget.h>
@@ -34,6 +35,41 @@ TEST_F(MemoryPoolPolicyTest, AdmissionDoesNotGuaranteeAllocation) {
   EXPECT_FALSE(MemoryBudget::canAllocatePsram(1));
   EXPECT_FALSE(makePsramByteBufferNoThrow(1));
   EXPECT_FALSE(makeInternalByteBufferNoThrow(0));
+}
+
+TEST_F(MemoryPoolPolicyTest, PageVectorAdmissionChecksContiguousBytesAndSmallHeadroom) {
+  using PageDeserializationBudget::MIN_FREE_AFTER_RESERVE;
+  constexpr size_t pageElementPointers = 1024 * sizeof(void*);
+  EXPECT_TRUE(PageDeserializationBudget::canReserveVector(1024, sizeof(void*), pageElementPointers + 1024,
+                                                          pageElementPointers));
+  EXPECT_FALSE(PageDeserializationBudget::canReserveVector(1024, sizeof(void*), pageElementPointers + 1024,
+                                                           pageElementPointers - 1));
+  EXPECT_FALSE(PageDeserializationBudget::canReserveVector(
+      1024, sizeof(void*), pageElementPointers + MIN_FREE_AFTER_RESERVE - 1, pageElementPointers));
+  EXPECT_TRUE(PageDeserializationBudget::canReserveVector(0, sizeof(void*), 0, 0));
+  EXPECT_FALSE(PageDeserializationBudget::canReserveVector(SIZE_MAX, 2, SIZE_MAX, SIZE_MAX));
+}
+
+TEST_F(MemoryPoolPolicyTest, PageDeserializationRejectsTruncatedDenseCountsBeforeReserving) {
+  EXPECT_TRUE(PageDeserializationBudget::hasMinimumSerializedBytes(1027, 1024, 1, 3));
+  EXPECT_FALSE(PageDeserializationBudget::hasMinimumSerializedBytes(1026, 1024, 1, 3));
+  EXPECT_TRUE(PageDeserializationBudget::hasMinimumSerializedBytes(1024 * 8 + 3, 1024, 8, 3));
+  EXPECT_FALSE(PageDeserializationBudget::hasMinimumSerializedBytes(1024 * 8 + 2, 1024, 8, 3));
+  EXPECT_TRUE(PageDeserializationBudget::hasMinimumSerializedBytes(64 * 4, 64, 4));
+  EXPECT_FALSE(PageDeserializationBudget::hasMinimumSerializedBytes(64 * 4 - 1, 64, 4));
+  EXPECT_FALSE(PageDeserializationBudget::hasMinimumSerializedBytes(SIZE_MAX, SIZE_MAX, 2));
+}
+
+TEST_F(MemoryPoolPolicyTest, PageDeserializationReusesHeapShapeForSmallVectorsAndDebitsTheirBytes) {
+  PageDeserializationBudget::HeapBudget budget;
+  budget.refresh(512, 256);
+  for (int i = 0; i < 4; ++i) {
+    EXPECT_FALSE(budget.needsRefresh(100, sizeof(uint8_t)));
+    ASSERT_TRUE(budget.canReserve(100, sizeof(uint8_t)));
+    budget.recordReserve(100, sizeof(uint8_t));
+  }
+  EXPECT_FALSE(budget.canReserve(100, sizeof(uint8_t)));
+  EXPECT_TRUE(budget.needsRefresh(1, 1024));
 }
 
 TEST_F(MemoryPoolPolicyTest, JpegDecoderPrefersPsramWhileRetainingInternalReserve) {

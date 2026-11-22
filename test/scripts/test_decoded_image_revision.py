@@ -84,7 +84,13 @@ int main() {
   assert(!Storage.exists(thumbnail.c_str()));
   assert(UITheme::getCoverThumbPath(epub.getThumbBmpPath(), 120, 180, true) == thumbnail);
   assert(!Storage.exists(epub.getAdaptiveThumbBmpPath(120, 180).c_str()));
-  assert(!Storage.exists(getCachePath("/cache/img_0_1.jpg").c_str()));
+  const auto grayImageCache = getCachePath("/cache/img_0_1.jpg", true);
+  const auto monoImageCache = getCachePath("/cache/img_0_1.jpg", false);
+  assert(grayImageCache == "/cache/img_0_1_gray_v4.pxc");
+  assert(monoImageCache == "/cache/img_0_1_mono_v1.pxc");
+  assert(!Storage.exists(grayImageCache.c_str()));
+  assert(!Storage.exists(monoImageCache.c_str()));
+  assert(Storage.exists("/cache/img_0_1.pxc"));  // Legacy pixels remain bypassed.
   RecentBook book{"/book.epub", "Saved title", "Saved author", "/cache/thumb_[WIDTH]x[HEIGHT].bmp"};
   refreshEpubCoverPath(book);
   assert(book.path == "/book.epub" && book.title == "Saved title" && book.author == "Saved author");

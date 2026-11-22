@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <deque>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -14,6 +15,7 @@
 #define private public
 #include "Epub/Section.h"
 #include "Epub/parsers/ChapterHtmlSlimParser.h"
+#include "activities/reader/SectionCacheRepairState.h"
 #undef private
 #undef class
 
@@ -23,6 +25,49 @@
 extern uint32_t testHyphenationIdentity;
 extern bool testShapingProbeReady;
 extern std::vector<BookMetadataCache::TocEntry> testTocEntries;
+extern std::string testSpineHref;
+extern bool testStreamHtml;
+extern std::string testStreamHtmlContents;
+extern std::string testOriginalItemContents;
+extern bool testParserBeginParse;
+extern bool testParserEmitPage;
+extern bool testParserPageEmitted;
+extern int testParserEmitPageCount;
+extern int testParserPagesEmitted;
+extern std::vector<std::pair<std::string, uint16_t>> testParserAnchors;
+extern std::string testParserReadPath;
+extern ChapterHtmlSlimParser::ParseStatus testParserStatus;
+extern int testParserCalls;
+extern bool testParserMalformedMarkupTruncated;
+extern uint32_t testMalformedInputCrcLength;
+extern uint32_t testMalformedInputCrc;
+extern void (*testBeforeParserPage)();
+
+namespace {
+Section* testActiveSection = nullptr;
+std::string testProtectedCachePath;
+std::vector<uint8_t> testProtectedCacheBytes;
+
+void failActiveSectionPageWrite() {
+  if (!testActiveSection) return;
+  const std::string tmpPath =
+      testActiveSection->build_ ? testActiveSection->build_->tmpSectionPath : testActiveSection->filePath + ".tmp";
+  Storage.failWritesAt(tmpPath, testActiveSection->file.position());
+}
+
+void expectProtectedCacheUnchanged() { EXPECT_EQ(Storage.bytes(testProtectedCachePath), testProtectedCacheBytes); }
+
+std::optional<size_t> findSerializedPageMarker(const std::vector<uint8_t>& bytes) {
+  constexpr uint8_t marker[] = {0x45, 0x47, 0x41, 0x50};  // Page test stub: 0x50414745, little-endian.
+  if (bytes.size() < sizeof(marker)) return std::nullopt;
+  for (size_t offset = 0; offset <= bytes.size() - sizeof(marker); ++offset) {
+    if (std::equal(marker, marker + sizeof(marker), bytes.begin() + static_cast<std::ptrdiff_t>(offset))) {
+      return offset;
+    }
+  }
+  return std::nullopt;
+}
+}  // namespace
 
 namespace {
 constexpr uint8_t kFullVersion = 122;
@@ -119,8 +164,436 @@ class SectionPersistenceTest : public testing::Test {
     testShapingProbeReady = true;
     testTocEntries.clear();
     testHyphenationIdentity = 1;
+    testSpineHref = "chapter.xhtml";
+    testStreamHtml = false;
+    testStreamHtmlContents = "<html><body>chapter</body></html>";
+    testOriginalItemContents = "<html><body>chapter</body></html>";
+    testParserBeginParse = true;
+    testParserEmitPage = false;
+    testParserPageEmitted = false;
+    testParserEmitPageCount = 1;
+    testParserPagesEmitted = 0;
+    testParserAnchors.clear();
+    testParserReadPath.clear();
+    testParserStatus = ChapterHtmlSlimParser::ParseStatus::Done;
+    testParserCalls = 0;
+    testParserMalformedMarkupTruncated = false;
+    testMalformedInputCrcLength = 0;
+    testMalformedInputCrc = 0;
+    testBeforeParserPage = nullptr;
+    testActiveSection = nullptr;
+    testProtectedCachePath.clear();
+    testProtectedCacheBytes.clear();
   }
 };
+
+void storeText(const std::string& path, const std::string& contents) {
+  Storage.put(path, std::vector<uint8_t>(contents.begin(), contents.end()));
+}
+
+void createPriorCache(SectionHarness& harness) {
+  harness.begin({{"chapter", 0}});
+  harness.appendPages(2);
+  ASSERT_TRUE(harness.commit(kFullVersion));
+  harness.finishSuccessfulCommit();
+}
+
+void expectReadablePriorCache(SectionHarness& harness, const std::vector<uint8_t>& bytes) {
+  EXPECT_TRUE(Storage.exists(harness.section.filePath.c_str()));
+  EXPECT_EQ(Storage.bytes(harness.section.filePath), bytes);
+  EXPECT_EQ(harness.section.pageCount, 2);
+  EXPECT_NE(harness.section.loadPage(1), nullptr);
+  Section reopened(harness.epub, 0, harness.renderer);
+  ASSERT_TRUE(reopened.loadSectionFile(harness.spec));
+  EXPECT_EQ(reopened.pageCount, 2);
+  EXPECT_NE(reopened.loadPage(1), nullptr);
+}
+
+void configureParserForOnePage(const std::string& htmlPath) {
+  testParserBeginParse = true;
+  testParserEmitPage = true;
+  testParserEmitPageCount = 1;
+  testParserReadPath = htmlPath;
+  testParserStatus = ChapterHtmlSlimParser::ParseStatus::Done;
+  testParserMalformedMarkupTruncated = false;
+  testMalformedInputCrcLength = 0;
+  testMalformedInputCrc = 0;
+  testParserAnchors.clear();
+  testBeforeParserPage = nullptr;
+}
+
+void createPriorPartialCache(SectionHarness& harness) {
+  harness.begin({{"chapter", 0}, {"tail", 1}});
+  harness.appendPages(2);
+  ASSERT_TRUE(harness.commit(kPartialVersion, 123, 456));
+  harness.finishSuccessfulCommit();
+  ASSERT_TRUE(harness.section.loadSectionFile(harness.spec));
+}
+
+void expectReadablePartialCache(SectionHarness& harness, const std::vector<uint8_t>& bytes) {
+  EXPECT_EQ(Storage.bytes(harness.section.filePath), bytes);
+  Section reopened(harness.epub, 0, harness.renderer);
+  ASSERT_TRUE(reopened.loadSectionFile(harness.spec));
+  EXPECT_TRUE(reopened.isPartial());
+  EXPECT_EQ(reopened.pageCount, 2);
+  EXPECT_EQ(reopened.partialPageCount_, 2);
+  EXPECT_EQ(reopened.partialBytesConsumed_, 123U);
+  EXPECT_EQ(reopened.partialTotalBytes_, 456U);
+  EXPECT_EQ(reopened.findAnchor("tail"), 1);
+  EXPECT_NE(reopened.loadPage(1), nullptr);
+}
+
+void runFailedReadPreservesCache(const bool incremental) {
+  SectionHarness harness;
+  createPriorCache(harness);
+  const std::vector<uint8_t> previous = Storage.bytes(harness.section.filePath);
+  const std::string htmlPath = "/cache/content/0/0.html";
+  storeText(htmlPath, "<html><body>read failure test</body></html>");
+  configureParserForOnePage(htmlPath);
+  Storage.failReadsAt(htmlPath, 0);
+
+  ASSERT_TRUE(harness.section.loadSectionFile(harness.spec));
+  if (incremental) {
+    ASSERT_TRUE(harness.section.startBuild(harness.spec));
+    EXPECT_FALSE(harness.section.buildSomeMore(1, true));
+  } else {
+    EXPECT_FALSE(harness.section.createSectionFile(harness.spec));
+  }
+  EXPECT_EQ(harness.section.pageCount, 2);
+  expectReadablePriorCache(harness, previous);
+
+  if (incremental) {
+    ASSERT_TRUE(harness.section.startBuild(harness.spec));
+    ASSERT_TRUE(harness.section.buildSomeMore(1, true));
+  } else {
+    ASSERT_TRUE(harness.section.createSectionFile(harness.spec));
+  }
+  Section retried(harness.epub, 0, harness.renderer);
+  ASSERT_TRUE(retried.loadSectionFile(harness.spec));
+  EXPECT_EQ(retried.pageCount, 1);
+  EXPECT_NE(retried.loadPage(0), nullptr);
+}
+
+void runFailedPageWritePreservesCache(const bool incremental) {
+  SectionHarness harness;
+  createPriorCache(harness);
+  const std::vector<uint8_t> previous = Storage.bytes(harness.section.filePath);
+  const std::string htmlPath = "/cache/content/0/0.html";
+  storeText(htmlPath, "<html><body>write failure test</body></html>");
+  configureParserForOnePage(htmlPath);
+  testActiveSection = &harness.section;
+  testBeforeParserPage = failActiveSectionPageWrite;
+
+  ASSERT_TRUE(harness.section.loadSectionFile(harness.spec));
+  if (incremental) {
+    ASSERT_TRUE(harness.section.startBuild(harness.spec));
+    EXPECT_FALSE(harness.section.buildSomeMore(1, true));
+  } else {
+    EXPECT_FALSE(harness.section.createSectionFile(harness.spec));
+  }
+  testBeforeParserPage = nullptr;
+  testActiveSection = nullptr;
+  EXPECT_EQ(testParserCalls, 1);
+  EXPECT_EQ(harness.section.pageCount, 2);
+  expectReadablePriorCache(harness, previous);
+
+  if (incremental) {
+    ASSERT_TRUE(harness.section.startBuild(harness.spec));
+    ASSERT_TRUE(harness.section.buildSomeMore(1, true));
+  } else {
+    ASSERT_TRUE(harness.section.createSectionFile(harness.spec));
+  }
+  Section retried(harness.epub, 0, harness.renderer);
+  ASSERT_TRUE(retried.loadSectionFile(harness.spec));
+  EXPECT_EQ(retried.pageCount, 1);
+  EXPECT_NE(retried.loadPage(0), nullptr);
+}
+
+void runPartialCacheFailureAndRetry(const bool incremental, const bool failWrite) {
+  SectionHarness harness;
+  createPriorPartialCache(harness);
+  const std::vector<uint8_t> previous = Storage.bytes(harness.section.filePath);
+  const std::string htmlPath = "/cache/content/0/0.html";
+  storeText(htmlPath, "<html><body>partial recovery retry test</body></html>");
+  testParserBeginParse = true;
+  testParserEmitPage = true;
+  testParserEmitPageCount = 4;  // Advance beyond the two-page committed watermark on retry.
+  testParserReadPath = htmlPath;
+  testParserStatus = ChapterHtmlSlimParser::ParseStatus::Done;
+  testParserAnchors = {{"chapter", 0}, {"tail", 1}};
+  if (failWrite) {
+    testActiveSection = &harness.section;
+    testBeforeParserPage = failActiveSectionPageWrite;
+  } else {
+    Storage.failReadsAt(htmlPath, 0);
+  }
+
+  if (incremental) {
+    ASSERT_TRUE(harness.section.startBuild(harness.spec));
+    EXPECT_FALSE(harness.section.buildSomeMore(1, true));
+  } else {
+    EXPECT_FALSE(harness.section.createSectionFile(harness.spec));
+  }
+  testBeforeParserPage = nullptr;
+  testActiveSection = nullptr;
+  EXPECT_EQ(testParserCalls, 1);
+  EXPECT_TRUE(harness.section.isPartial());
+  EXPECT_EQ(harness.section.pageCount, 2);
+  EXPECT_EQ(harness.section.partialPageCount_, 2);
+  EXPECT_EQ(harness.section.partialBytesConsumed_, 123U);
+  EXPECT_EQ(harness.section.partialTotalBytes_, 456U);
+  EXPECT_EQ(harness.section.findAnchor("tail"), 1);
+  EXPECT_NE(harness.section.loadPage(1), nullptr);
+  expectReadablePartialCache(harness, previous);
+
+  if (incremental) {
+    ASSERT_TRUE(harness.section.startBuild(harness.spec));
+    ASSERT_TRUE(harness.section.buildSomeMore(1, true));
+  } else {
+    ASSERT_TRUE(harness.section.createSectionFile(harness.spec));
+  }
+  Section retried(harness.epub, 0, harness.renderer);
+  ASSERT_TRUE(retried.loadSectionFile(harness.spec));
+  EXPECT_FALSE(retried.isPartial());
+  EXPECT_EQ(retried.pageCount, 4);
+  EXPECT_EQ(retried.findAnchor("tail"), 1);
+  EXPECT_NE(retried.loadPage(3), nullptr);
+}
+
+void runFailedStreamFinalizePreservesCache(const bool incremental, const bool closeFailure) {
+  SectionHarness harness;
+  createPriorCache(harness);
+  const std::vector<uint8_t> previous = Storage.bytes(harness.section.filePath);
+  const std::string htmlPath = "/cache/content/0/0.html";
+  const std::string tmpHtmlPath = "/cache/content/0/.tmp_0.html";
+  const std::string tmpSectionPath = incremental ? harness.section.binTmpPath() : harness.section.filePath + ".tmp";
+  testStreamHtml = true;
+  testStreamHtmlContents = "<html><body>stream close test</body></html>";
+  Storage.failSyncPath = closeFailure ? "" : tmpHtmlPath;
+  Storage.failClosePath = closeFailure ? tmpHtmlPath : "";
+
+  ASSERT_TRUE(harness.section.loadSectionFile(harness.spec));
+  if (incremental) {
+    EXPECT_FALSE(harness.section.startBuild(harness.spec));
+  } else {
+    EXPECT_FALSE(harness.section.createSectionFile(harness.spec));
+  }
+  EXPECT_EQ(harness.section.pageCount, 2);
+  EXPECT_FALSE(Storage.exists(htmlPath.c_str()));
+  EXPECT_FALSE(Storage.exists(tmpHtmlPath.c_str()));
+  EXPECT_FALSE(Storage.exists(tmpSectionPath.c_str()));
+  expectReadablePriorCache(harness, previous);
+
+  Storage.failSyncPath.clear();
+  Storage.failClosePath.clear();
+  configureParserForOnePage("/cache/content/0/.tmp_0.html");
+  if (incremental) {
+    ASSERT_TRUE(harness.section.startBuild(harness.spec));
+    ASSERT_TRUE(harness.section.buildSomeMore(1, true));
+  } else {
+    ASSERT_TRUE(harness.section.createSectionFile(harness.spec));
+  }
+  Section retried(harness.epub, 0, harness.renderer);
+  ASSERT_TRUE(retried.loadSectionFile(harness.spec));
+  EXPECT_EQ(retried.pageCount, 1);
+  EXPECT_NE(retried.loadPage(0), nullptr);
+}
+
+void runFailedReleasePreservesCache(const bool closeFailure) {
+  SectionHarness harness;
+  createPriorCache(harness);
+  const std::vector<uint8_t> previous = Storage.bytes(harness.section.filePath);
+  storeText("/cache/content/0/0.html", "<html><body>release failure test</body></html>");
+  ASSERT_TRUE(harness.section.loadSectionFile(harness.spec));
+  testParserEmitPage = true;
+  testParserReadPath.clear();
+  testParserStatus = ChapterHtmlSlimParser::ParseStatus::More;
+  ASSERT_TRUE(harness.section.startBuild(harness.spec));
+  ASSERT_TRUE(harness.section.buildSomeMore(1, true));
+
+  const std::string tmpPath = harness.section.binTmpPath();
+  if (closeFailure) {
+    Storage.failCloseAt(tmpPath);
+  } else {
+    Storage.failSyncAt(tmpPath);
+  }
+  harness.section.releaseBuildFile();
+  testParserStatus = ChapterHtmlSlimParser::ParseStatus::Done;
+  harness.section.suspendBuild();
+
+  EXPECT_EQ(harness.section.pageCount, 2);
+  expectReadablePriorCache(harness, previous);
+}
+
+void runCorruptPageCacheRepair(const bool incremental) {
+  SectionHarness baseline;
+  createPriorCache(baseline);
+  const std::string cachePath = baseline.section.filePath;
+  const std::optional<size_t> pageMarker = findSerializedPageMarker(Storage.bytes(cachePath));
+  ASSERT_TRUE(pageMarker.has_value());
+  Storage.corruptByteAt(cachePath, *pageMarker, 0);
+  const std::vector<uint8_t> damagedCache = Storage.bytes(cachePath);
+
+  Section damaged(baseline.epub, 0, baseline.renderer);
+  ASSERT_TRUE(damaged.loadSectionFile(baseline.spec));  // The header is valid; only the page payload is bad.
+  EXPECT_EQ(damaged.pageCount, 2);
+  EXPECT_EQ(damaged.loadPage(0), nullptr);
+  EXPECT_EQ(Storage.bytes(cachePath), damagedCache);
+
+  const std::string htmlPath = "/cache/content/0/0.html";
+  storeText(htmlPath, "<html><body>source for damaged page rebuild</body></html>");
+  testParserBeginParse = true;
+  testParserEmitPage = true;
+  testParserEmitPageCount = 4;
+  testParserReadPath = htmlPath;
+  testParserStatus = ChapterHtmlSlimParser::ParseStatus::Done;
+  testProtectedCachePath = cachePath;
+  testProtectedCacheBytes = damagedCache;
+  testBeforeParserPage = expectProtectedCacheUnchanged;
+  SectionCacheRepairState repairState;
+  repairState.begin(0);
+
+  // Match the reader's forced-repair path: create a fresh Section without loading
+  // the damaged cache, then use the configured full or incremental indexing mode.
+  Section repair(baseline.epub, 0, baseline.renderer);
+  if (incremental) {
+    ASSERT_TRUE(repair.startBuild(baseline.spec));
+    ASSERT_TRUE(repair.buildSomeMore(1, true));
+  } else {
+    ASSERT_TRUE(repair.createSectionFile(baseline.spec));
+  }
+  testBeforeParserPage = nullptr;
+  ASSERT_FALSE(repair.isBuilding());
+  // Mirror the reader's durable-commit check; synchronous full builds do not set
+  // isBuildComplete(), which is reserved for incremental build completion.
+  if (!repair.isBuilding()) repairState.markCommitted(0);
+  EXPECT_FALSE(repairState.shouldBypassCache(0));
+  EXPECT_EQ(testParserPagesEmitted, 4);
+  EXPECT_NE(Storage.bytes(cachePath), damagedCache);
+
+  Section reopened(baseline.epub, 0, baseline.renderer);
+  ASSERT_TRUE(reopened.loadSectionFile(baseline.spec));
+  EXPECT_FALSE(reopened.isPartial());
+  EXPECT_EQ(reopened.pageCount, 4);
+  EXPECT_NE(reopened.loadPage(0), nullptr);
+  EXPECT_NE(reopened.loadPage(3), nullptr);
+}
+
+void runMisreportedCorruptReadPreservesLastGoodCache(const bool incremental, const bool priorPartial) {
+  SectionHarness harness;
+  if (priorPartial) {
+    createPriorPartialCache(harness);
+  } else {
+    createPriorCache(harness);
+  }
+  const std::vector<uint8_t> previous = Storage.bytes(harness.section.filePath);
+  const std::string htmlPath = "/cache/content/0/0.html";
+  const std::string source = "<html><body>" + std::string(96, 'x') + "</body></html>";
+  testOriginalItemContents = source;
+  storeText(htmlPath, source);
+  configureParserForOnePage(htmlPath);
+  testParserEmitPage = true;
+  testParserEmitPageCount = 4;
+  Storage.corruptReadsAt(htmlPath, 0, 1, 'X');  // Full read count with one corrupted byte, like masked SD EIO.
+
+  ReaderRenderSpec changed = harness.spec;
+  changed.fontId++;
+  if (incremental) {
+    ASSERT_TRUE(harness.section.startBuild(changed));
+    EXPECT_FALSE(harness.section.buildSomeMore(1, true));
+  } else {
+    EXPECT_FALSE(harness.section.createSectionFile(changed));
+  }
+  EXPECT_EQ(Storage.bytes(harness.section.filePath), previous);
+  EXPECT_FALSE(Storage.exists(htmlPath.c_str()));  // Only the proven-corrupt, rebuildable XHTML was dropped.
+
+  Section oldLayout(harness.epub, 0, harness.renderer);
+  ASSERT_TRUE(oldLayout.loadSectionFile(harness.spec));
+  EXPECT_EQ(oldLayout.isPartial(), priorPartial);
+  EXPECT_EQ(oldLayout.pageCount, 2);
+  if (priorPartial) {
+    EXPECT_EQ(oldLayout.partialPageCount_, 2);
+    EXPECT_EQ(oldLayout.partialBytesConsumed_, 123U);
+    EXPECT_EQ(oldLayout.partialTotalBytes_, 456U);
+  }
+  EXPECT_NE(oldLayout.loadPage(1), nullptr);
+  if (priorPartial) EXPECT_EQ(oldLayout.findAnchor("tail"), 1);
+
+  // The one-shot corrupted read has been consumed. A healthy retry can replace
+  // the layout under the changed font while the old bytes remain available.
+  testParserMalformedMarkupTruncated = false;
+  testParserPagesEmitted = 0;
+  testStreamHtml = true;
+  testStreamHtmlContents = source;
+  testParserReadPath = "/cache/content/0/.tmp_0.html";
+  if (incremental) {
+    ASSERT_TRUE(harness.section.startBuild(changed));
+    ASSERT_TRUE(harness.section.buildSomeMore(1, true));
+  } else {
+    ASSERT_TRUE(harness.section.createSectionFile(changed));
+  }
+  Section retried(harness.epub, 0, harness.renderer);
+  ASSERT_TRUE(retried.loadSectionFile(changed));
+  EXPECT_FALSE(retried.isPartial());
+  EXPECT_EQ(retried.pageCount, 4);
+  EXPECT_NE(retried.loadPage(3), nullptr);
+}
+
+void runVerifiedMalformedSourceCanRebuild(const bool incremental, const bool hasPriorCache) {
+  SectionHarness harness;
+  if (hasPriorCache) createPriorCache(harness);
+  const std::string htmlPath = "/cache/content/0/0.html";
+  const std::string malformedSource = "Xhtml><body>genuinely malformed but stable source</body>";
+  testOriginalItemContents = malformedSource;
+  storeText(htmlPath, malformedSource);
+  configureParserForOnePage(htmlPath);
+  testParserEmitPage = true;
+  testParserEmitPageCount = 1;
+
+  ReaderRenderSpec changed = harness.spec;
+  if (hasPriorCache) changed.fontId++;
+  if (incremental) {
+    ASSERT_TRUE(harness.section.startBuild(changed));
+    ASSERT_TRUE(harness.section.buildSomeMore(1, true));
+  } else {
+    ASSERT_TRUE(harness.section.createSectionFile(changed));
+  }
+  Section rendered(harness.epub, 0, harness.renderer);
+  ASSERT_TRUE(rendered.loadSectionFile(changed));
+  EXPECT_EQ(rendered.pageCount, 1);
+  EXPECT_NE(rendered.loadPage(0), nullptr);
+}
+
+void runSuspendedIncompatibleBuildPreservesCompleteCache() {
+  SectionHarness harness;
+  createPriorCache(harness);
+  const std::vector<uint8_t> previous = Storage.bytes(harness.section.filePath);
+  const std::string htmlPath = "/cache/content/0/0.html";
+  storeText(htmlPath, "<html><body>valid source for suspended replacement</body></html>");
+  configureParserForOnePage(htmlPath);
+  testParserEmitPage = true;
+  testParserStatus = ChapterHtmlSlimParser::ParseStatus::More;
+
+  ReaderRenderSpec changed = harness.spec;
+  changed.fontId++;
+  ASSERT_TRUE(harness.section.startBuild(changed));
+  ASSERT_TRUE(harness.section.buildSomeMore(1, true));
+  ASSERT_TRUE(harness.section.isBuilding());
+  harness.section.suspendBuild();
+  EXPECT_FALSE(harness.section.isBuilding());
+  EXPECT_EQ(Storage.bytes(harness.section.filePath), previous);
+
+  testParserStatus = ChapterHtmlSlimParser::ParseStatus::Done;
+  testParserPagesEmitted = 0;
+  testParserEmitPageCount = 4;
+  ASSERT_TRUE(harness.section.startBuild(changed));
+  ASSERT_TRUE(harness.section.buildSomeMore(1, true));
+  Section completed(harness.epub, 0, harness.renderer);
+  ASSERT_TRUE(completed.loadSectionFile(changed));
+  EXPECT_EQ(completed.pageCount, 4);
+  EXPECT_NE(completed.loadPage(3), nullptr);
+  EXPECT_NE(Storage.bytes(harness.section.filePath), previous);
+}
 
 TEST_F(SectionPersistenceTest, IsolatesChapterBucketsAndIgnoresLegacyFlatCaches) {
   SectionHarness harness;
@@ -207,6 +680,227 @@ TEST_F(SectionPersistenceTest, FailedCommitKeepsThePreviousReadableCache) {
   ASSERT_TRUE(Storage.exists(replacement.section.filePath.c_str()));
   EXPECT_EQ(Storage.bytes(replacement.section.filePath), previous);
   replacement.section.build_.reset();
+}
+
+TEST_F(SectionPersistenceTest, FailedHeaderReadPreservesCacheAndCanBeRetried) {
+  SectionHarness harness;
+  createPriorCache(harness);
+  const std::vector<uint8_t> previous = Storage.bytes(harness.section.filePath);
+  Storage.failReadsAt(harness.section.filePath, 0);
+
+  Section reopened(harness.epub, 0, harness.renderer);
+  EXPECT_FALSE(reopened.loadSectionFile(harness.spec));
+  EXPECT_EQ(Storage.bytes(harness.section.filePath), previous);
+  ASSERT_TRUE(reopened.loadSectionFile(harness.spec));
+  EXPECT_EQ(reopened.pageCount, 2);
+  EXPECT_NE(reopened.loadPage(0), nullptr);
+}
+
+TEST_F(SectionPersistenceTest, RenderSettingMismatchPreservesCacheForMatchingRetry) {
+  SectionHarness harness;
+  createPriorCache(harness);
+  const std::vector<uint8_t> previous = Storage.bytes(harness.section.filePath);
+  Section reopened(harness.epub, 0, harness.renderer);
+  ReaderRenderSpec mismatch = harness.spec;
+  ++mismatch.fontId;
+
+  ASSERT_TRUE(reopened.loadSectionFile(harness.spec));
+  ASSERT_EQ(reopened.pageCount, 2);
+  EXPECT_FALSE(reopened.loadSectionFile(mismatch));
+  EXPECT_EQ(Storage.bytes(harness.section.filePath), previous);
+  EXPECT_EQ(reopened.pageCount, 0);
+  EXPECT_EQ(reopened.loadPage(0), nullptr);
+  ASSERT_TRUE(reopened.loadSectionFile(harness.spec));
+  EXPECT_EQ(reopened.pageCount, 2);
+  EXPECT_NE(reopened.loadPage(0), nullptr);
+}
+
+TEST_F(SectionPersistenceTest, TransientPageReadFailureCanRetryTheSameCache) {
+  SectionHarness harness;
+  createPriorCache(harness);
+  const std::string cachePath = harness.section.filePath;
+  const std::vector<uint8_t> previous = Storage.bytes(cachePath);
+  const std::optional<size_t> pageMarker = findSerializedPageMarker(previous);
+  ASSERT_TRUE(pageMarker.has_value());
+
+  Section reopened(harness.epub, 0, harness.renderer);
+  ASSERT_TRUE(reopened.loadSectionFile(harness.spec));
+  Storage.failReadsAt(cachePath, *pageMarker);
+  EXPECT_EQ(reopened.loadPage(0), nullptr);
+  EXPECT_EQ(Storage.bytes(cachePath), previous);
+  EXPECT_NE(reopened.loadPage(0), nullptr);
+  EXPECT_EQ(Storage.bytes(cachePath), previous);
+}
+
+TEST_F(SectionPersistenceTest, FullIndexRebuildRepairsValidHeaderWithDamagedPagePayload) {
+  runCorruptPageCacheRepair(false);
+}
+
+TEST_F(SectionPersistenceTest, IncrementalIndexRebuildRepairsValidHeaderWithDamagedPagePayload) {
+  runCorruptPageCacheRepair(true);
+}
+
+TEST_F(SectionPersistenceTest, IncrementalRepairStaysStagedUntilCommitAndLatchesLaterFailure) {
+  SectionHarness baseline;
+  createPriorCache(baseline);
+  const std::string cachePath = baseline.section.filePath;
+  const std::optional<size_t> pageMarker = findSerializedPageMarker(Storage.bytes(cachePath));
+  ASSERT_TRUE(pageMarker.has_value());
+  Storage.corruptByteAt(cachePath, *pageMarker, 0);
+  const std::vector<uint8_t> damagedCache = Storage.bytes(cachePath);
+  storeText("/cache/content/0/0.html", "<html><body>staged repair failure</body></html>");
+  testParserBeginParse = true;
+  testParserEmitPage = true;
+  testParserEmitPageCount = 1;
+  testParserReadPath = "/cache/content/0/0.html";
+  testParserStatus = ChapterHtmlSlimParser::ParseStatus::More;
+
+  SectionCacheRepairState repairState;
+  repairState.begin(0);
+  EXPECT_TRUE(repairState.shouldBypassCache(0));
+
+  Section repair(baseline.epub, 0, baseline.renderer);  // Deliberately do not load the damaged cache.
+  ASSERT_TRUE(repair.startBuild(baseline.spec));
+  ASSERT_TRUE(repair.buildSomeMore(1, true));
+  ASSERT_TRUE(repair.isBuilding());
+  EXPECT_NE(repair.loadPage(0), nullptr);  // A readable staged page is not yet a durable repair.
+  EXPECT_TRUE(repairState.isStaging(0));
+  EXPECT_EQ(Storage.bytes(cachePath), damagedCache);
+
+  testParserStatus = ChapterHtmlSlimParser::ParseStatus::Error;
+  EXPECT_FALSE(repair.buildSomeMore(1, true));
+  repairState.markFailed(0);
+  EXPECT_TRUE(repairState.hasFailed(0));
+  EXPECT_FALSE(repairState.shouldBypassCache(0));
+  EXPECT_EQ(Storage.bytes(cachePath), damagedCache);
+
+  Section reopened(baseline.epub, 0, baseline.renderer);
+  ASSERT_TRUE(reopened.loadSectionFile(baseline.spec));
+  EXPECT_EQ(reopened.loadPage(0), nullptr);
+}
+
+TEST_F(SectionPersistenceTest, FullAndIncrementalIndexingPreserveLastGoodPartialAfterMaskedReadEio) {
+  for (const bool incremental : {false, true}) {
+    runMisreportedCorruptReadPreservesLastGoodCache(incremental, true);
+  }
+}
+
+TEST_F(SectionPersistenceTest, FullAndIncrementalIndexingPreserveLastGoodFullCacheAfterMaskedReadEio) {
+  for (const bool incremental : {false, true}) {
+    runMisreportedCorruptReadPreservesLastGoodCache(incremental, false);
+  }
+}
+
+TEST_F(SectionPersistenceTest, StableMalformedSourceCanRebuildWithChangedSettings) {
+  for (const bool incremental : {false, true}) {
+    runVerifiedMalformedSourceCanRebuild(incremental, true);
+  }
+}
+
+TEST_F(SectionPersistenceTest, FirstOpenMalformedSourceStillSalvagesInBothBuildModes) {
+  for (const bool incremental : {false, true}) {
+    runVerifiedMalformedSourceCanRebuild(incremental, false);
+  }
+}
+
+TEST_F(SectionPersistenceTest, SuspendingIncompatibleBuildKeepsCompleteCacheUntilHealthyRetry) {
+  runSuspendedIncompatibleBuildPreservesCompleteCache();
+}
+
+TEST(SectionCacheRepairStateTest, RemainsStagingUntilCommitOrFailureAndClearsOnSpineChange) {
+  SectionCacheRepairState state;
+  state.begin(2);
+  EXPECT_TRUE(state.shouldBypassCache(2));
+  EXPECT_FALSE(state.hasFailed(2));
+
+  state.markCommitted(2);
+  EXPECT_FALSE(state.shouldBypassCache(2));
+  EXPECT_FALSE(state.hasFailed(2));
+
+  state.begin(2);
+  state.markFailed(2);
+  EXPECT_TRUE(state.hasFailed(2));
+  state.resetForSpine(3);
+  EXPECT_FALSE(state.hasFailed(3));
+  EXPECT_FALSE(state.shouldBypassCache(3));
+}
+
+TEST_F(SectionPersistenceTest, FullIndexReadFailurePreservesAndRetriesLastGoodCache) {
+  runFailedReadPreservesCache(false);
+}
+
+TEST_F(SectionPersistenceTest, IncrementalIndexReadFailurePreservesAndRetriesLastGoodCache) {
+  runFailedReadPreservesCache(true);
+}
+
+TEST_F(SectionPersistenceTest, FullIndexWriteFailurePreservesAndRetriesLastGoodCache) {
+  runFailedPageWritePreservesCache(false);
+}
+
+TEST_F(SectionPersistenceTest, IncrementalIndexWriteFailurePreservesAndRetriesLastGoodCache) {
+  runFailedPageWritePreservesCache(true);
+}
+
+TEST_F(SectionPersistenceTest, FullIndexReadFailurePreservesPartialWatermarkAndRetriesPastIt) {
+  runPartialCacheFailureAndRetry(false, false);
+}
+
+TEST_F(SectionPersistenceTest, IncrementalIndexReadFailurePreservesPartialWatermarkAndRetriesPastIt) {
+  runPartialCacheFailureAndRetry(true, false);
+}
+
+TEST_F(SectionPersistenceTest, FullIndexWriteFailurePreservesPartialWatermarkAndRetriesPastIt) {
+  runPartialCacheFailureAndRetry(false, true);
+}
+
+TEST_F(SectionPersistenceTest, IncrementalIndexWriteFailurePreservesPartialWatermarkAndRetriesPastIt) {
+  runPartialCacheFailureAndRetry(true, true);
+}
+
+TEST_F(SectionPersistenceTest, FullIndexStreamSyncFailurePreservesAndRetriesLastGoodCache) {
+  runFailedStreamFinalizePreservesCache(false, false);
+}
+
+TEST_F(SectionPersistenceTest, FullIndexStreamCloseFailurePreservesAndRetriesLastGoodCache) {
+  runFailedStreamFinalizePreservesCache(false, true);
+}
+
+TEST_F(SectionPersistenceTest, IncrementalIndexStreamSyncFailurePreservesAndRetriesLastGoodCache) {
+  runFailedStreamFinalizePreservesCache(true, false);
+}
+
+TEST_F(SectionPersistenceTest, IncrementalIndexStreamCloseFailurePreservesAndRetriesLastGoodCache) {
+  runFailedStreamFinalizePreservesCache(true, true);
+}
+
+TEST_F(SectionPersistenceTest, FailedIncrementalSyncBeforeSuspendKeepsLastGoodCache) {
+  runFailedReleasePreservesCache(false);
+}
+
+TEST_F(SectionPersistenceTest, FailedIncrementalCloseBeforeSuspendKeepsLastGoodCache) {
+  runFailedReleasePreservesCache(true);
+}
+
+TEST_F(SectionPersistenceTest, FailedAppendCursorRestoreAbandonsTempAndKeepsLastGoodCache) {
+  SectionHarness harness;
+  createPriorCache(harness);
+  const std::vector<uint8_t> previous = Storage.bytes(harness.section.filePath);
+  storeText("/cache/content/0/0.html", "<html><body>append cursor failure test</body></html>");
+  ASSERT_TRUE(harness.section.loadSectionFile(harness.spec));
+  testParserEmitPage = true;
+  testParserReadPath.clear();
+  testParserStatus = ChapterHtmlSlimParser::ParseStatus::More;
+  ASSERT_TRUE(harness.section.startBuild(harness.spec));
+  ASSERT_TRUE(harness.section.buildSomeMore(1, true));
+
+  const std::string tmpPath = harness.section.binTmpPath();
+  Storage.failSeeksAt(tmpPath, harness.section.file.position());
+  EXPECT_EQ(harness.section.loadPage(0), nullptr);
+  testParserStatus = ChapterHtmlSlimParser::ParseStatus::Done;
+  EXPECT_FALSE(harness.section.buildSomeMore(1, true));
+  EXPECT_EQ(harness.section.pageCount, 2);
+  EXPECT_FALSE(Storage.exists(tmpPath.c_str()));
+  expectReadablePriorCache(harness, previous);
 }
 
 TEST_F(SectionPersistenceTest, RejectsCachesFromPreviousLayoutRevisions) {
@@ -338,6 +1032,14 @@ TEST_F(SectionPersistenceTest, PartialPositionLookupRejectsOffsetsBeyondCommitte
   EXPECT_EQ(reopened.getPageForVisibleTextOffset(1088), 64);
   EXPECT_EQ(reopened.getPageForVisibleTextOffset(1089), std::nullopt);
   EXPECT_EQ(reopened.getPageForVisibleTextOffset(1089, true), std::nullopt);
+}
+
+TEST_F(SectionPersistenceTest, PartialCacheResolvesSavedByteZeroButRejectsBeyondItsWatermark) {
+  SectionHarness harness;
+  createPriorPartialCache(harness);
+
+  EXPECT_EQ(harness.section.getPageForVisibleTextOffset(0), 0);
+  EXPECT_EQ(harness.section.getPageForVisibleTextOffset(18), std::nullopt);
 }
 
 }  // namespace

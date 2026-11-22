@@ -13,8 +13,15 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output", type=Path)
     parser.add_argument("--budget-case", action="store_true", help="Two 2 MiB body faces before an accent face")
+    parser.add_argument("--bold-recovery", action="store_true", help="Add a bold body face for representative recovery tests")
+    parser.add_argument("--invalid-regular", action="store_true", help="Write an invalid regular body face for recovery tests")
     parser.add_argument("--adobe-obfuscation", action="store_true", help="Obfuscate publisher fonts with the Adobe UUID method")
+    parser.add_argument("--identifier-uuid", help="Override the package UUID without changing the font obfuscation key")
     args = parser.parse_args()
+    if args.invalid_regular and not args.bold_recovery:
+        parser.error("--invalid-regular requires --bold-recovery")
+    if args.budget_case and args.bold_recovery:
+        parser.error("--budget-case and --bold-recovery are separate fixtures")
     entries = {'mimetype': 'application/epub+zip',
      'META-INF/container.xml': '<container xmlns="urn:oasis:names:tc:opendocument:xmlns:container" '
                                'version="1.0"><rootfiles><rootfile full-path="OEBPS/content.opf" '
@@ -70,10 +77,18 @@ def main():
             "@font-face {font-family:'Publisher Accent'")
         entries['OEBPS/content.opf'] = entries['OEBPS/content.opf'].replace(
             '</manifest>', '<item id="body-bold" href="body-bold.ttf" media-type="font/ttf"/></manifest>')
+    if args.bold_recovery:
+        entries['OEBPS/style.css'] = entries['OEBPS/style.css'].replace(
+            "@font-face {font-family:'Publisher Accent'",
+            "@font-face {font-family:'Publisher Body';font-weight:bold;src:url('body-bold.ttf')} "
+            "@font-face {font-family:'Publisher Accent'")
+        entries['OEBPS/content.opf'] = entries['OEBPS/content.opf'].replace(
+            '</manifest>', '<item id="body-bold" href="body-bold.ttf" media-type="font/ttf"/></manifest>')
     uuid = UUID("53124cf5-7195-45b2-b3a0-7f2974bc2b56")
+    identifier_uuid = UUID(args.identifier_uuid) if args.identifier_uuid else uuid
     if args.adobe_obfuscation:
         entries['OEBPS/content.opf'] = entries['OEBPS/content.opf'].replace(
-            'publisher-font-port', 'urn:uuid:' + str(uuid))
+            'publisher-font-port', 'urn:uuid:' + str(identifier_uuid))
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with ZipFile(args.output, "w", compression=ZIP_DEFLATED) as archive:
         font_paths = []
@@ -95,7 +110,10 @@ def main():
                 assert len(font) <= 2 * 1024 * 1024
                 write_font("OEBPS/" + target, font.ljust(2 * 1024 * 1024, b"\0"))
         else:
-            write_font("OEBPS/body.ttf", (fonts / "bitter_regular.ttf").read_bytes())
+            body_font = b"\0" * 64 if args.invalid_regular else (fonts / "bitter_regular.ttf").read_bytes()
+            write_font("OEBPS/body.ttf", body_font)
+        if args.bold_recovery:
+            write_font("OEBPS/body-bold.ttf", (fonts / "bitter_bold.ttf").read_bytes())
         write_font("OEBPS/accent.ttf", (ROOT / "lib/EpdFont/builtinFonts/source/NotoSans/NotoSans-Regular.ttf").read_bytes())
         if font_paths:
             archive.writestr("META-INF/encryption.xml",

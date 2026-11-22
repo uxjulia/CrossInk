@@ -30,6 +30,9 @@ constexpr auto Pool = MemoryPool::Psram;
 // 1 MiB in a warm preview; retain smaller arenas for fragmented PSRAM heaps.
 constexpr size_t WorkspaceOptions[] = {1280 * 1024, 1024 * 1024, 768 * 1024};
 constexpr size_t PixelBytes = 512 * 1024;
+// Rotate between two halves so a full arena turnover drops only the older
+// glyph generation, instead of invalidating every bitmap at once.
+constexpr size_t PixelRegionBytes = PixelBytes / 2;
 constexpr size_t PixelCacheSlots = 512;
 constexpr size_t MetricCacheSlots = 512;
 constexpr size_t KerningCacheSlots = 512;
@@ -125,12 +128,14 @@ struct Runtime {
   HeapByteBuffer workspace;
   FontLoadError beginError = FontLoadError::None;
   HeapByteBuffer pixels;
+  HeapByteBuffer pixelRegions[2];
   FixedArenaAllocator allocator;
   PixelEntry* pixelEntries = nullptr;
   MetricEntry* metricEntries = nullptr;
   KerningEntry* kerningEntries = nullptr;
-  uint8_t* pixelData = nullptr;
+  uint8_t* pixelRegionData[2] = {};
   size_t pixelUsed = 0;
+  uint8_t pixelRegion = 0;
   bool idlePrewarm = false;
   bool bitmapAdmissionRefused = false;
   uint32_t nextCacheId = 1;
@@ -165,8 +170,20 @@ struct Runtime {
 
   void clearPixels() {
     pixelUsed = 0;
+    pixelRegion = 0;
     if (pixelEntries)
       for (size_t i = 0; i < PixelCacheSlots; ++i) pixelEntries[i] = PixelEntry{};
+  }
+
+  void recyclePixelRegion(const uint8_t region) {
+    const size_t begin = size_t(region) * PixelRegionBytes;
+    const size_t end = begin + PixelRegionBytes;
+    for (size_t i = 0; i < PixelCacheSlots; ++i) {
+      const auto& entry = pixelEntries[i];
+      if (entry.key && entry.offset >= begin && entry.offset < end) pixelEntries[i] = PixelEntry{};
+    }
+    pixelRegion = region;
+    pixelUsed = 0;
   }
 
   void clearMetrics() {
@@ -231,11 +248,14 @@ struct Runtime {
                               uint8_t points, uint8_t width, uint8_t height) {
     const uint64_t key = cacheKey(cacheId, glyphOrCodepoint, points);
     auto& entry = cacheEntry(pixelEntries, cacheIndex(cacheId, glyphOrCodepoint, points, PixelCacheSlots), key);
-    if (entry.key == key) return pixelData + entry.offset;
+    if (entry.key == key) {
+      const size_t region = entry.offset / PixelRegionBytes;
+      return pixelRegionData[region] + (entry.offset % PixelRegionBytes);
+    }
     const size_t bytes = (size_t(width) * height + 3) / 4;
     // Speculation must not evict nearer pages or flush the shared arena. Check
     // before rasterization so cache pressure also bounds wasted CPU work.
-    if (idlePrewarm && (entry.key != 0 || bytes > PixelBytes - pixelUsed)) {
+    if (idlePrewarm && (entry.key != 0 || bytes > PixelRegionBytes - pixelUsed)) {
       bitmapAdmissionRefused = true;
       return nullptr;
     }
@@ -248,10 +268,19 @@ struct Runtime {
     lastBitmapWidth = bitmap ? bitmap->width : 0;
     lastBitmapHeight = bitmap ? bitmap->height : 0;
     if (!bitmap || bitmap->width != width || bitmap->height != height) return nullptr;
-    if (!bytes || bytes > PixelBytes) return nullptr;
-    if (pixelUsed + bytes > PixelBytes) clearPixels();
+    // Adapter glyph dimensions are 8-bit, so real glyphs fit comfortably in
+    // one region. Keep the bound explicit in case the renderer grows later.
+    if (!bytes || bytes > PixelRegionBytes) return nullptr;
+    if (pixelUsed + bytes > PixelRegionBytes) {
+      if (idlePrewarm) {
+        bitmapAdmissionRefused = true;
+        return nullptr;
+      }
+      recyclePixelRegion(pixelRegion ^ 1U);
+    }
 
-    auto* dest = pixelData + pixelUsed;
+    const size_t offset = size_t(pixelRegion) * PixelRegionBytes + pixelUsed;
+    auto* dest = pixelRegionData[pixelRegion] + pixelUsed;
     std::memset(dest, 0, bytes);
     for (unsigned y = 0; y < bitmap->height; ++y) {
       const uint8_t* row = bitmap->pixels + size_t(y) * bitmap->width;
@@ -264,7 +293,7 @@ struct Runtime {
         dest[index / 4] |= coverage << (6 - (index % 4) * 2);
       }
     }
-    entry = {key, pixelUsed};
+    entry = {key, offset};
     pixelUsed += bytes;
     return dest;
   }
@@ -276,20 +305,26 @@ struct Runtime {
     // neither belongs on the render stack or in scarce internal DRAM.
     HeapByteBuffer w;
     HeapByteBuffer p;
+    HeapByteBuffer region0;
+    HeapByteBuffer region1;
     size_t workspaceBytes = 0;
     for (const size_t candidate : WorkspaceOptions) {
       w = makeAlignedByteBufferNoThrow(candidate, Pool);
-      if (w) p = makeAlignedByteBufferNoThrow(PixelArenaBytes, Pool);
-      if (w && p) {
+      if (w) p = makeAlignedByteBufferNoThrow(CacheTableBytes, Pool);
+      if (p) region0 = makeAlignedByteBufferNoThrow(PixelRegionBytes, Pool);
+      if (region0) region1 = makeAlignedByteBufferNoThrow(PixelRegionBytes, Pool);
+      if (w && p && region0 && region1) {
         workspaceBytes = candidate;
         break;
       }
       w.reset();
       p.reset();
+      region0.reset();
+      region1.reset();
     }
     if (workspaceBytes && workspaceBytes != WorkspaceOptions[0])
       LOG_DBG("TTF", "Using %u-byte fallback font arena", unsigned(workspaceBytes));
-    if (!w || !p || !allocator.initialize(w.get(), workspaceBytes)) {
+    if (!w || !p || !region0 || !region1 || !allocator.initialize(w.get(), workspaceBytes)) {
       const auto heap = byteHeapSnapshot(Pool);
       LOG_ERR("TTF", "Cannot allocate font arenas (tried %u/%u/%u + %u bytes; pool free=%u largest=%u)",
               unsigned(WorkspaceOptions[0]), unsigned(WorkspaceOptions[1]), unsigned(WorkspaceOptions[2]),
@@ -306,11 +341,14 @@ struct Runtime {
       return false;
     }
     pixels = std::move(p);
+    pixelRegions[0] = std::move(region0);
+    pixelRegions[1] = std::move(region1);
     beginError = FontLoadError::None;
     pixelEntries = reinterpret_cast<PixelEntry*>(pixels.get());
     metricEntries = reinterpret_cast<MetricEntry*>(pixels.get() + PixelTableBytes);
     kerningEntries = reinterpret_cast<KerningEntry*>(pixels.get() + PixelTableBytes + MetricTableBytes);
-    pixelData = pixels.get() + CacheTableBytes;
+    pixelRegionData[0] = pixelRegions[0].get();
+    pixelRegionData[1] = pixelRegions[1].get();
     clearCaches();
     return true;
   }

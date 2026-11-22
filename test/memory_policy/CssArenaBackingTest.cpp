@@ -3,6 +3,8 @@
 #include <HalStorage.h>
 #include <gtest/gtest.h>
 
+#include <limits>
+
 struct CssArenaBackingTest : testing::Test {
   void SetUp() override {
     fakeheap::reset();
@@ -66,6 +68,170 @@ TEST_F(CssArenaBackingTest, IdenticalStylesForDefaultExternalAndDiskFallback) {
     EXPECT_EQ(css.ruleCount(), 0u);
   }
 }
+
+TEST_F(CssArenaBackingTest, LowHeapDemotionKeepsHydratedCssStylesExact) {
+  fakeheap::reset(false);
+  createCache();
+  CssParser css("book");
+  fakeheap::internal.free = 128 * 1024;
+  fakeheap::internal.largest = 128 * 1024;
+  ASSERT_TRUE(css.loadFromCache());
+  ASSERT_EQ(fakeheap::live.size(), 1u);
+  const size_t hydratedArenaBytes = fakeheap::live.begin()->second.bytes;
+  checkStyle(css);
+
+  // Model the text-layout guard crossing after the CSS arena was materialized.
+  fakeheap::internal.free = 43 * 1024;
+  fakeheap::internal.largest = 32 * 1024;
+  const size_t freeBeforeDemotion = fakeheap::internal.free;
+  ASSERT_TRUE(css.demoteHydratedRulesForLowMemory());
+  EXPECT_EQ(fakeheap::internal.free, freeBeforeDemotion + hydratedArenaBytes);
+  EXPECT_GE(ESP.getFreeHeap(), 44U * 1024U);
+  EXPECT_TRUE(fakeheap::live.empty());
+  EXPECT_FALSE(css.hasCacheLookupFailure());
+  checkStyle(css);
+}
+
+TEST_F(CssArenaBackingTest, FailedDemotionReadKeepsHydratedCssAndCanRetry) {
+  fakeheap::reset(false);
+  createCache();
+  CssParser css("book");
+  fakeheap::internal.free = 128 * 1024;
+  fakeheap::internal.largest = 128 * 1024;
+  ASSERT_TRUE(css.loadFromCache());
+  ASSERT_FALSE(fakeheap::live.empty());
+  const size_t allocationsBeforeDemotion = fakeheap::live.size();
+
+  fakeheap::internal.free = 43 * 1024;
+  fakeheap::internal.largest = 32 * 1024;
+  Storage.data("book/css_rules.cache").readFailAt = 8;  // Fail the bulk selector-index read.
+  EXPECT_FALSE(css.demoteHydratedRulesForLowMemory());
+  EXPECT_EQ(fakeheap::live.size(), allocationsBeforeDemotion);
+  EXPECT_FALSE(css.hasCacheLookupFailure());
+  checkStyle(css);
+
+  Storage.data("book/css_rules.cache").readFailAt = std::numeric_limits<size_t>::max();
+  ASSERT_TRUE(css.demoteHydratedRulesForLowMemory());
+  EXPECT_FALSE(css.hasCacheLookupFailure());
+  checkStyle(css);
+}
+
+TEST_F(CssArenaBackingTest, CorruptIndexPresentAtHydrationCannotDemoteStyles) {
+  fakeheap::reset(false);
+  createCache();
+  // Keep the cache header and rule count intact, but change one serialized
+  // selector offset. Hydration reads the rule records themselves, so only the
+  // record-derived CRC can catch this before switching to disk lookup.
+  Storage.data("book/css_rules.cache").bytes[8 + sizeof(uint32_t)] ^= 1;
+
+  CssParser css("book");
+  fakeheap::internal.free = 128 * 1024;
+  fakeheap::internal.largest = 128 * 1024;
+  ASSERT_TRUE(css.loadFromCache());
+  ASSERT_EQ(fakeheap::live.size(), 1u);
+  fakeheap::internal.free = 43 * 1024;
+  fakeheap::internal.largest = 32 * 1024;
+
+  EXPECT_FALSE(css.demoteHydratedRulesForLowMemory());
+  ASSERT_EQ(fakeheap::live.size(), 1u);
+  EXPECT_FALSE(css.hasCacheLookupFailure());
+  checkStyle(css);
+  css.clear();
+}
+
+TEST_F(CssArenaBackingTest, ValidEmptyStylesheetCacheLoadsAsNoCss) {
+  CssParser writer("empty-book");
+  ASSERT_TRUE(writer.saveToCache());
+  CssParser css("empty-book");
+  ASSERT_TRUE(css.loadFromCache());
+  EXPECT_TRUE(css.empty());
+  EXPECT_EQ(css.ruleCount(), 0u);
+  EXPECT_EQ(css.inspectCache(), CssParser::CacheStatus::Complete);
+}
+
+TEST_F(CssArenaBackingTest, FailedHydrationClearsPartialRulesAndKeepsCacheForRetry) {
+  const std::string text = ".good { display: none; }";
+  Storage.put("input.css", {text.begin(), text.end()});
+  FsFile source;
+  ASSERT_TRUE(Storage.openFileForRead("test", "input.css", source));
+  CssParser writer("book");
+  ASSERT_TRUE(writer.loadFromStream(source));
+  source.close();
+  ASSERT_TRUE(writer.saveToCache());
+  writer.clear();
+
+  const auto original = Storage.data("book/css_rules.cache").bytes;
+  // The simple-rule payload starts after the 8-byte header and one 8-byte
+  // selector-index entry. Stop partway through its selector text to exercise
+  // rollback after cache hydration has begun.
+  Storage.data("book/css_rules.cache").readFailAt = 8 + sizeof(uint32_t) * 2 + 3;
+  CssParser css("book");
+  EXPECT_FALSE(css.loadFromCache());
+  EXPECT_TRUE(css.empty());
+  EXPECT_EQ(css.ruleCount(), 0u);
+  EXPECT_EQ(Storage.data("book/css_rules.cache").bytes, original);
+  EXPECT_TRUE(fakeheap::live.empty());
+
+  Storage.data("book/css_rules.cache").readFailAt = std::numeric_limits<size_t>::max();
+  ASSERT_TRUE(css.loadFromCache());
+  EXPECT_EQ(css.resolveStyle("div", "good").display, CssDisplay::None);
+}
+
+TEST_F(CssArenaBackingTest, DiskRuleReadFailureIsReportedAndCanBeRetried) {
+  fakeheap::reset(false);
+  createCache();
+  const auto originalCache = Storage.data("book/css_rules.cache").bytes;
+  fakeheap::internal.free = 40 * 1024;  // Force the bounded SD-index fallback on a C3-like heap.
+
+  CssParser css("book");
+  ASSERT_TRUE(css.loadFromCache());
+  EXPECT_FALSE(css.hasCacheLookupFailure());
+
+  Storage.data("book/css_rules.cache").readFailAt = 0;
+  const auto failedStyle = css.resolveStyle("ol", "plain");
+  EXPECT_FALSE(failedStyle.hasListStyleType());
+  EXPECT_TRUE(css.hasCacheLookupFailure());
+
+  Storage.data("book/css_rules.cache").readFailAt = std::numeric_limits<size_t>::max();
+  css.clear();
+  ASSERT_TRUE(css.loadFromCache());
+  EXPECT_FALSE(css.hasCacheLookupFailure());
+  const auto recoveredStyle = css.resolveStyle("ol", "plain");
+  EXPECT_TRUE(recoveredStyle.hasListStyleType());
+  EXPECT_EQ(recoveredStyle.listStyleType, CssListStyleType::None);
+
+  css.clear();
+  ASSERT_TRUE(css.loadFromCache());  // Start with an empty disk memo for the open-failure case.
+  ASSERT_TRUE(Storage.remove("book/css_rules.cache"));
+  EXPECT_FALSE(css.resolveStyle("ol", "plain").hasListStyleType());
+  EXPECT_TRUE(css.hasCacheLookupFailure());
+
+  Storage.put("book/css_rules.cache", originalCache);
+  css.clear();
+  ASSERT_TRUE(css.loadFromCache());
+  EXPECT_EQ(css.resolveStyle("ol", "plain").listStyleType, CssListStyleType::None);
+}
+
+TEST_F(CssArenaBackingTest, CachedDescendantSpecificityAndSourceOrderStayStable) {
+  const std::string text = "section p { margin-top: 10px; } section.chapter p { margin-top: 20px; }";
+  Storage.put("input.css", {text.begin(), text.end()});
+  FsFile source;
+  ASSERT_TRUE(Storage.openFileForRead("test", "input.css", source));
+  CssParser css("book");
+  ASSERT_TRUE(css.loadFromStream(source));
+  source.close();
+  const auto ancestors = std::vector<CssAncestorEntry>{{0, "section", "chapter"}};
+  auto style = css.resolveStyle("p", "", ancestors);
+  ASSERT_TRUE(style.hasMarginTop());
+  EXPECT_EQ(style.marginTop.value(), 20);
+  ASSERT_TRUE(css.saveToCache());
+
+  css.clear();
+  ASSERT_TRUE(css.loadFromCache());
+  style = css.resolveStyle("p", "", ancestors);
+  ASSERT_TRUE(style.hasMarginTop());
+  EXPECT_EQ(style.marginTop.value(), 20);
+}
 TEST_F(CssArenaBackingTest, ExternalHydrationPreservesInternalAndExternalReserves) {
   createCache();
   for (bool internalPressure : {false, true}) {
@@ -117,6 +283,25 @@ TEST_F(CssArenaBackingTest, PreviousCacheVersionIsInvalidated) {
   bytes[4] = CssParser::CSS_CACHE_VERSION - 1;
   Storage.put("book/css_rules.cache", bytes);
   EXPECT_EQ(css.inspectCache(), CssParser::CacheStatus::Invalid);
+}
+
+TEST_F(CssArenaBackingTest, TransientCacheInspectionFailuresAreNotClassifiedAsInvalid) {
+  createCache();
+  const auto original = Storage.data("book/css_rules.cache").bytes;
+  auto& cachedFile = Storage.data("book/css_rules.cache");
+
+  cachedFile.openFail = true;
+  CssParser css("book");
+  EXPECT_EQ(css.inspectCache(), CssParser::CacheStatus::ReadError);
+  EXPECT_EQ(cachedFile.bytes, original);
+
+  cachedFile.openFail = false;
+  cachedFile.readFailAt = 0;
+  EXPECT_EQ(css.inspectCache(), CssParser::CacheStatus::ReadError);
+  EXPECT_EQ(cachedFile.bytes, original);
+
+  cachedFile.readFailAt = std::numeric_limits<size_t>::max();
+  EXPECT_EQ(css.inspectCache(), CssParser::CacheStatus::Complete);
 }
 
 TEST_F(CssArenaBackingTest, PsramParsingMergesSelectorsAndReleasesAllSlabs) {
@@ -476,7 +661,10 @@ TEST_F(CssArenaBackingTest, DiskMemoDoesNotCacheReadFailuresOrCrossBooks) {
   ASSERT_TRUE(css.loadFromCache());
   Storage.data("book/css_rules.cache").readFailAt = 0;
   EXPECT_FALSE(css.resolveStyle("p", "").hasFontSize());
+  EXPECT_TRUE(css.hasCacheLookupFailure());
   Storage.data("book/css_rules.cache").readFailAt = std::numeric_limits<size_t>::max();
+  css.clear();
+  ASSERT_TRUE(css.loadFromCache());
   EXPECT_EQ(css.resolveStyle("p", "").fontSize.value(), 150);
   CssParser other("other");
   EXPECT_FALSE(other.loadFromCache());
@@ -567,4 +755,49 @@ TEST_F(CssArenaBackingTest, TerminalFlagWithoutPartialIsMalformed) {
   CssParser css("book");
   EXPECT_EQ(css.inspectCache(), CssParser::CacheStatus::Invalid);
   EXPECT_FALSE(css.loadFromCache());
+}
+
+TEST_F(CssArenaBackingTest, SubjectPrefilterPreservesComplexCascadeAfterCacheLoad) {
+  const std::string text =
+      "div p.note#start { font-weight: light; } "
+      "div.chapter p.note#start { font-weight: bold; } "
+      "section.chapter p.note#start { font-weight: normal; } "
+      "*#start { font-style: italic; } "
+      "div.chapter > p.note.secondary#start { text-align: center; } "
+      "p#other.note { margin-top: 1px; } "
+      "p.note#missing { margin-bottom: 2px; } "
+      "p.note.secondary { text-decoration: underline; } "
+      "p.note::first-letter { initial-letter: 2; }";
+  Storage.put("subject-prefilter.css", {text.begin(), text.end()});
+  FsFile source;
+  ASSERT_TRUE(Storage.openFileForRead("test", "subject-prefilter.css", source));
+  CssParser writer("subject-prefilter-book");
+  ASSERT_TRUE(writer.loadFromStream(source));
+  source.close();
+  const std::vector<CssAncestorEntry> ancestors{{0, "section", "chapter", ""}, {1, "div", "chapter", ""}};
+  const auto parsed = writer.resolveStyle("P", "NOTE secondary", ancestors, "START");
+  EXPECT_EQ(parsed.fontWeight, CssFontWeight::Normal);
+  EXPECT_EQ(parsed.textAlign, CssTextAlign::Center);
+  EXPECT_FALSE(parsed.defined.initialLetter);
+  ASSERT_TRUE(writer.saveToCache());
+
+  CssParser loaded("subject-prefilter-book");
+  ASSERT_TRUE(loaded.loadFromCache());
+  const auto style = loaded.resolveStyle("P", "NOTE secondary", ancestors, "START");
+  EXPECT_EQ(style.fontWeight, CssFontWeight::Normal);  // Equal specificity keeps later source order.
+  EXPECT_EQ(style.fontStyle, CssFontStyle::Italic);    // Wildcard tag with an exact ID still reaches full match.
+  EXPECT_EQ(style.textAlign, CssTextAlign::Center);
+  EXPECT_EQ(style.textDecoration, CssTextDecoration::Underline);
+  EXPECT_FALSE(style.hasMarginTop());
+  EXPECT_FALSE(style.hasMarginBottom());
+  EXPECT_FALSE(style.defined.initialLetter);  // First-letter rules stay isolated from the element.
+
+  const auto firstLetter = loaded.resolveStyle("P", "NOTE secondary", ancestors, "START", true);
+  EXPECT_EQ(firstLetter.initialLetter, 2);
+
+  const std::vector<CssAncestorEntry> unrelatedAncestors{{0, "article", "chapter", ""}};
+  const auto unrelated = loaded.resolveStyle("P", "NOTE secondary", unrelatedAncestors, "START");
+  EXPECT_FALSE(unrelated.hasFontWeight());
+  EXPECT_TRUE(unrelated.hasFontStyle());  // The ancestor-free wildcard ID rule still applies.
+  EXPECT_TRUE(unrelated.hasTextDecoration());
 }

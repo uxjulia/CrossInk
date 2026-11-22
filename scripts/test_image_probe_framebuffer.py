@@ -28,6 +28,7 @@ FIXTURES = r'''
 #include <variant>
 #include <vector>
 #include <string>
+#include <utility>
 #include <algorithm>
 #include <new>
 #include "BuildScratch.h"
@@ -97,20 +98,36 @@ struct Section {
 struct Epub { std::string getCachePath() const { return "/cache"; } };
 struct ReaderViewportLayout { int marginLeft = 0, marginTop = 0, marginBottom = 0; };
 ReaderViewportLayout computeReaderViewportLayout(GfxRenderer&, bool) { return {}; }
-struct BookReaderSettingsData { std::string dictionarySdFontFamilyName; int dictionaryFontPointSize = 0; };
-BookReaderSettingsData loadBookReaderSettingsFile(const std::string&) { return {}; }
+struct CrossPointSettings { static constexpr uint8_t WORD_HOLD_USE_GLOBAL = 3; };
+struct Settings { uint8_t wordHoldAction = 0; } SETTINGS;
+struct BookReaderSettingsData {
+  std::string dictionarySdFontFamilyName;
+  int dictionaryFontPointSize = 0;
+  uint8_t wordHoldAction = CrossPointSettings::WORD_HOLD_USE_GLOBAL;
+} readerSettingsFixture;
+BookReaderSettingsData loadBookReaderSettingsFile(const std::string&) { return readerSettingsFixture; }
 struct DictionaryClippingRequest {};
 struct ActivityResult { std::variant<std::monostate, DictionaryClippingRequest> data; };
 namespace MemoryBudget { void logHeapShape(const char*) {} }
 void releaseReaderSdFontCachesForLowMemory(GfxRenderer&, const char*, const char*) {}
 void drawToast(GfxRenderer&, int) {}
 void delay(int) {}
+template <typename T>
+uint8_t lastActionArgument(T&& value) {
+  return static_cast<uint8_t>(value);
+}
+template <typename T, typename... Rest>
+uint8_t lastActionArgument(T&&, Rest&&... rest) {
+  return lastActionArgument(std::forward<Rest>(rest)...);
+}
 struct DictionaryWordSelectActivity {
   bool reuse;
+  uint8_t wordHoldAction;
   template<typename... Args>
   DictionaryWordSelectActivity(GfxRenderer&, int, std::unique_ptr<Page>, int, int, std::string,
-                               std::string, bool, bool framebufferContainsPage, Args&&...)
-      : reuse(framebufferContainsPage) {}
+                               std::string, bool, bool framebufferContainsPage, Args&&... args)
+      : reuse(framebufferContainsPage),
+        wordHoldAction(lastActionArgument(std::forward<Args>(args)...)) {}
 };
 template<typename T, typename... Args>
 std::unique_ptr<T> makeUniqueNoThrow(Args&&... args) {
@@ -124,6 +141,7 @@ struct EpubReaderActivity : Activity {
   std::atomic<bool> pageBufferStale{false};
   bool pendingRenderModeToast = false, pendingSafeModeToast = false, pendingFontDamagedToast = false;
   unsigned updates = 0, syncRenders = 0, handoffs = 0;
+  uint8_t dictionaryWordHoldAction = 0;
   bool syncRenderCompletes = true, syncRenderRejected = false;
   bool restoreSucceeds = false, dictionaryReusesPage = true, automaticPageTurnActive = false;
   Section sectionStorage;
@@ -154,7 +172,7 @@ struct EpubReaderActivity : Activity {
   static std::unique_ptr<Page> reloadDictionaryLookupPageCallback(void*, int) { return {}; }
   template<typename Callback>
   void startActivityForResult(std::unique_ptr<DictionaryWordSelectActivity> child, Callback) {
-    ++handoffs; dictionaryReusesPage = child->reuse;
+    ++handoffs; dictionaryReusesPage = child->reuse; dictionaryWordHoldAction = child->wordHoldAction;
   }
   SNAPSHOT_METHOD
   void openWordSelect(bool, int, int, bool);
@@ -196,16 +214,21 @@ int main() {
   assert(reader.updates == 1 && reader.pageBufferStale);
   assert(reader.canSnapshotForSleepOverlay());  // Preserve global screenshot dispatch to the reader.
   assert(reader.renderer.frameBuffer[0] == 0x99);  // Error frame, never a white base.
+  SETTINGS.wordHoldAction = 2;
+  readerSettingsFixture.wordHoldAction = CrossPointSettings::WORD_HOLD_USE_GLOBAL;
   reader.openWordSelect(true, 0, 0, false);
   assert(reader.handoffs == 1 && !reader.dictionaryReusesPage);
+  assert(reader.dictionaryWordHoldAction == SETTINGS.wordHoldAction);
   activityManager.active = false;
   reader.onInputLockChanged(true);
   assert(reader.syncRenders == 0 && reader.pageBufferStale);
   activityManager.active = true;
   reader.onInputLockChanged(true);
   assert(reader.syncRenders == 1 && !reader.pageBufferStale);
+  readerSettingsFixture.wordHoldAction = 1;
   reader.openWordSelect(true, 0, 0, false);
   assert(reader.handoffs == 2 && reader.dictionaryReusesPage);
+  assert(reader.dictionaryWordHoldAction == readerSettingsFixture.wordHoldAction);
   for (bool rejected : {false, true}) {
     reader.pageBufferStale = true;
     reader.syncRenderCompletes = false;

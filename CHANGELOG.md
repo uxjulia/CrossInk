@@ -17,6 +17,9 @@
 
 - Stay in the selected chapter when following EPUB Contents links, including links to positions within a chapter.
 - Indent EPUB blockquotes that rely on default margins (#956).
+- Keep the last readable EPUB chapter when an SD read or write interrupts full or incremental indexing.
+- Fix slow EPUB indexing and page turns caused by repeated glyph scans, stylesheet checks, and small chapter-index writes.
+- On X3 and X4, look up publisher styles on the SD card before retrying a chapter in Safe Mode when memory runs low.
 
 ## [v2.0.0] - 2026-11-19
 

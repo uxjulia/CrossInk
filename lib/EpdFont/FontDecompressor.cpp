@@ -5,8 +5,28 @@
 #include <Memory.h>
 #include <Utf8.h>
 
+#include <algorithm>
 #include <cstdlib>
 #include <cstring>
+#include <utility>
+
+namespace {
+
+enum class InsertResult : uint8_t { Added, AlreadyPresent, Full };
+
+template <typename T, typename Count>
+InsertResult insertSorted(T* values, Count& count, const Count capacity, const T value) {
+  T* const end = values + count;
+  T* const position = std::lower_bound(values, end, value);
+  if (position != end && *position == value) return InsertResult::AlreadyPresent;
+  if (count >= capacity) return InsertResult::Full;
+  memmove(position + 1, position, static_cast<size_t>(end - position) * sizeof(*position));
+  *position = value;
+  ++count;
+  return InsertResult::Added;
+}
+
+}  // namespace
 
 FontDecompressor::~FontDecompressor() { deinit(); }
 
@@ -28,7 +48,7 @@ void FontDecompressor::clearCache() {
 void FontDecompressor::freePageBuffer() {
   for (uint8_t i = 0; i < pageSlotCount; i++) {
     free(pageSlots[i].buffer);
-    free(pageSlots[i].glyphs);
+    delete[] pageSlots[i].glyphs;
     pageSlots[i] = {};
   }
   pageSlotCount = 0;
@@ -43,6 +63,11 @@ void FontDecompressor::freeHotGroup() {
   free(hotGlyphBuf);
   hotGlyphBuf = nullptr;
   hotGlyphBufCapacity = 0;
+  resetHotOffsetCache();
+}
+
+void FontDecompressor::resetHotOffsetCache() {
+  for (auto& entry : hotOffsetCache_) entry.glyphIndex = UINT32_MAX;
 }
 
 bool FontDecompressor::ensureCapacity(uint8_t*& buf, uint32_t& capacity, uint32_t needed) {
@@ -191,6 +216,7 @@ const uint8_t* FontDecompressor::getBitmap(const EpdFontData* fontData, const Ep
     // ensureCapacity may free the buffer, so the cached-group identity dies with it either way.
     hotGroupFont = nullptr;
     hotGroupIndex = UINT16_MAX;
+    resetHotOffsetCache();
     if (!ensureCapacity(hotGroup, hotGroupCapacity, group.uncompressedSize)) {
       LOG_ERR("FDC", "Failed to allocate %u bytes for hot group %u", group.uncompressedSize, groupIndex);
       stats.getBitmapTimeUs += micros() - tStart;
@@ -216,7 +242,16 @@ const uint8_t* FontDecompressor::getBitmap(const EpdFontData* fontData, const Ep
     return nullptr;
   }
 
-  uint32_t alignedOff = getAlignedOffset(fontData, groupIndex, glyphIndex);
+  const uint32_t cacheHash = glyphIndex * 2654435761U;
+  HotOffsetEntry& offsetEntry = hotOffsetCache_[cacheHash >> (32 - 4)];
+  uint32_t alignedOff;
+  if (offsetEntry.glyphIndex == glyphIndex) {
+    alignedOff = offsetEntry.alignedOffset;
+    ++stats.hotOffsetCacheHits;
+  } else {
+    alignedOff = getAlignedOffset(fontData, groupIndex, glyphIndex);
+    offsetEntry = {glyphIndex, alignedOff};
+  }
   compactSingleGlyph(&hotGroup[alignedOff], hotGlyphBuf, glyph->width, glyph->height);
   stats.getBitmapTimeUs += micros() - tStart;
   return hotGlyphBuf;
@@ -275,25 +310,60 @@ int FontDecompressor::prewarmCache(const EpdFontData* fontData, const char* utf8
     }
     if (glyphIdx < 0) continue;
 
-    // Deduplicate
-    bool found = false;
-    for (uint16_t i = 0; i < glyphCount; i++) {
-      if (neededGlyphs[i] == static_cast<uint32_t>(glyphIdx)) {
-        found = true;
-        break;
-      }
-    }
-    if (!found) {
-      if (glyphCount < MAX_PAGE_GLYPHS) {
-        neededGlyphs[glyphCount++] = static_cast<uint32_t>(glyphIdx);
-      } else if (!glyphCapWarned) {
-        LOG_DBG("FDC", "Glyph cap (%u) reached during prewarm; excess glyphs will use hot-group fallback",
-                MAX_PAGE_GLYPHS);
-        glyphCapWarned = true;
-      }
+    const auto result = insertSorted(neededGlyphs, glyphCount, MAX_PAGE_GLYPHS, static_cast<uint32_t>(glyphIdx));
+    if (result == InsertResult::Full && !glyphCapWarned) {
+      LOG_DBG("FDC", "Glyph cap (%u) reached during prewarm; excess glyphs will use hot-group fallback",
+              MAX_PAGE_GLYPHS);
+      glyphCapWarned = true;
     }
   }
 
+  addLigatureGlyphs(fontData, neededGlyphs, glyphCount, glyphCapWarned);
+  return prewarmGlyphs(fontData, neededGlyphs, glyphCount);
+}
+
+int FontDecompressor::prewarmCodepoints(const EpdFontData* fontData, uint32_t* codepoints, const uint16_t count) {
+  if (!fontData || !fontData->groups || (count > 0 && !codepoints)) return 0;
+  if (count == 0) return 0;
+  if (count > MAX_PAGE_GLYPHS) {
+    LOG_ERR("FDC", "Codepoint span exceeds prewarm cap (%u > %u)", count, MAX_PAGE_GLYPHS);
+    return count;
+  }
+  if (pageSlotCount >= MAX_PAGE_SLOTS) {
+    ++stats.prewarmSlotRefusals;
+    LOG_DBG("FDC", "Prewarm slot cap (%u) reached; using hot-group fallback", MAX_PAGE_SLOTS);
+    return -1;
+  }
+
+  uint16_t glyphCount = 0;
+  for (uint16_t i = 0; i < count; ++i) {
+    const uint32_t cp = codepoints[i];
+    if (utf8IsVariationSelector(cp)) continue;
+    int32_t glyphIdx = findGlyphIndex(fontData, cp);
+    if (glyphIdx < 0 && !syntheticGlyph::isSpaceFallback(cp)) {
+      glyphIdx = findGlyphIndex(fontData, REPLACEMENT_GLYPH);
+    }
+    if (glyphIdx < 0) continue;
+    codepoints[glyphCount++] = static_cast<uint32_t>(glyphIdx);
+  }
+  std::sort(codepoints, codepoints + glyphCount);
+  glyphCount = static_cast<uint16_t>(std::unique(codepoints, codepoints + glyphCount) - codepoints);
+  if (glyphCount == 0) return 0;
+
+  const uint16_t ligatureCount = countLigatureOutputs(fontData, codepoints, glyphCount);
+  const uint16_t glyphCapacity = static_cast<uint16_t>(glyphCount + ligatureCount);
+  auto glyphs = makeUniqueNoThrow<PageGlyphEntry[]>(glyphCapacity);
+  if (!glyphs) {
+    LOG_ERR("FDC", "Failed to allocate page glyph table (%u entries)", glyphCapacity);
+    return glyphCount;
+  }
+  for (uint16_t i = 0; i < glyphCount; ++i) glyphs[i] = {codepoints[i], UINT32_MAX, 0};
+  addLigatureGlyphEntries(fontData, glyphs.get(), glyphCount, glyphCapacity);
+  return prewarmGlyphTable(fontData, std::move(glyphs), glyphCount);
+}
+
+void FontDecompressor::addLigatureGlyphs(const EpdFontData* fontData, uint32_t* neededGlyphs, uint16_t& glyphCount,
+                                         bool& glyphCapWarned) {
   // Add ligature output glyphs: if both input codepoints of a ligature pair are
   // in the needed set, the output glyph will be queried during rendering.
   if (fontData->ligaturePairs && fontData->ligaturePairCount > 0) {
@@ -305,32 +375,104 @@ int FontDecompressor::prewarmCache(const EpdFontData* fontData, const char* utf8
       int32_t rightIdx = findGlyphIndex(fontData, rightCp);
       if (leftIdx < 0 || rightIdx < 0) continue;
 
-      // Check if both inputs are in neededGlyphs
-      bool hasLeft = false, hasRight = false;
-      for (uint16_t i = 0; i < glyphCount; i++) {
-        if (neededGlyphs[i] == static_cast<uint32_t>(leftIdx)) hasLeft = true;
-        if (neededGlyphs[i] == static_cast<uint32_t>(rightIdx)) hasRight = true;
-        if (hasLeft && hasRight) break;
-      }
-      if (!hasLeft || !hasRight) continue;
+      if (!std::binary_search(neededGlyphs, neededGlyphs + glyphCount, static_cast<uint32_t>(leftIdx)) ||
+          !std::binary_search(neededGlyphs, neededGlyphs + glyphCount, static_cast<uint32_t>(rightIdx)))
+        continue;
 
       int32_t outIdx = findGlyphIndex(fontData, fontData->ligaturePairs[li].ligatureCp);
       if (outIdx < 0) continue;
 
-      // Deduplicate
-      bool found = false;
-      for (uint16_t i = 0; i < glyphCount; i++) {
-        if (neededGlyphs[i] == static_cast<uint32_t>(outIdx)) {
-          found = true;
-          break;
-        }
-      }
-      if (!found) {
-        neededGlyphs[glyphCount++] = static_cast<uint32_t>(outIdx);
+      const auto result = insertSorted(neededGlyphs, glyphCount, MAX_PAGE_GLYPHS, static_cast<uint32_t>(outIdx));
+      if (result == InsertResult::Full && !glyphCapWarned) {
+        LOG_DBG("FDC", "Glyph cap (%u) reached during prewarm; excess glyphs will use hot-group fallback",
+                MAX_PAGE_GLYPHS);
+        glyphCapWarned = true;
       }
     }
   }
+}
 
+uint16_t FontDecompressor::countLigatureOutputs(const EpdFontData* fontData, const uint32_t* glyphIndices,
+                                                const uint16_t glyphCount) {
+  if (!fontData->ligaturePairs || glyphCount >= MAX_PAGE_GLYPHS) return 0;
+  if (fontData->ligaturePairCount > UINT8_MAX + 1U) {
+    return static_cast<uint16_t>(std::min<uint32_t>(fontData->ligaturePairCount, MAX_PAGE_GLYPHS - glyphCount));
+  }
+  uint8_t activePairs[(UINT8_MAX + 1) / 8] = {};
+  auto hasActiveOutput = [&](const uint32_t glyphIndex, const uint32_t pairLimit) {
+    if (std::binary_search(glyphIndices, glyphIndices + glyphCount, glyphIndex)) return true;
+    for (uint32_t previous = 0; previous < pairLimit; ++previous) {
+      if (!(activePairs[previous / 8] & (uint8_t(1) << (previous % 8)))) continue;
+      if (findGlyphIndex(fontData, fontData->ligaturePairs[previous].ligatureCp) == static_cast<int32_t>(glyphIndex))
+        return true;
+    }
+    return false;
+  };
+
+  uint16_t extra = 0;
+  for (uint32_t li = 0; li < fontData->ligaturePairCount && glyphCount + extra < MAX_PAGE_GLYPHS; ++li) {
+    const uint32_t leftCp = fontData->ligaturePairs[li].pair >> 16;
+    const uint32_t rightCp = fontData->ligaturePairs[li].pair & 0xFFFF;
+    const int32_t leftIdx = findGlyphIndex(fontData, leftCp);
+    const int32_t rightIdx = findGlyphIndex(fontData, rightCp);
+    if (leftIdx < 0 || rightIdx < 0 || !hasActiveOutput(static_cast<uint32_t>(leftIdx), li) ||
+        !hasActiveOutput(static_cast<uint32_t>(rightIdx), li))
+      continue;
+
+    const int32_t outIdx = findGlyphIndex(fontData, fontData->ligaturePairs[li].ligatureCp);
+    if (outIdx < 0) continue;
+    const bool alreadyAvailable = hasActiveOutput(static_cast<uint32_t>(outIdx), li);
+    activePairs[li / 8] |= uint8_t(1) << (li % 8);
+    if (!alreadyAvailable) ++extra;
+  }
+  return extra;
+}
+
+void FontDecompressor::addLigatureGlyphEntries(const EpdFontData* fontData, PageGlyphEntry* glyphs,
+                                               uint16_t& glyphCount, const uint16_t glyphCapacity) {
+  if (!fontData->ligaturePairs) return;
+  for (uint32_t li = 0; li < fontData->ligaturePairCount && glyphCount < glyphCapacity; ++li) {
+    const uint32_t leftCp = fontData->ligaturePairs[li].pair >> 16;
+    const uint32_t rightCp = fontData->ligaturePairs[li].pair & 0xFFFF;
+    const int32_t leftIdx = findGlyphIndex(fontData, leftCp);
+    const int32_t rightIdx = findGlyphIndex(fontData, rightCp);
+    if (leftIdx < 0 || rightIdx < 0) continue;
+
+    auto hasGlyph = [&](const uint32_t index) {
+      PageGlyphEntry* const end = glyphs + glyphCount;
+      PageGlyphEntry* const entry = std::lower_bound(
+          glyphs, end, index,
+          [](const PageGlyphEntry& candidate, const uint32_t value) { return candidate.glyphIndex < value; });
+      return entry != end && entry->glyphIndex == index;
+    };
+    if (!hasGlyph(static_cast<uint32_t>(leftIdx)) || !hasGlyph(static_cast<uint32_t>(rightIdx))) continue;
+
+    const int32_t outIdx = findGlyphIndex(fontData, fontData->ligaturePairs[li].ligatureCp);
+    if (outIdx < 0 || hasGlyph(static_cast<uint32_t>(outIdx))) continue;
+    PageGlyphEntry* const end = glyphs + glyphCount;
+    PageGlyphEntry* const position = std::lower_bound(
+        glyphs, end, static_cast<uint32_t>(outIdx),
+        [](const PageGlyphEntry& candidate, const uint32_t value) { return candidate.glyphIndex < value; });
+    memmove(position + 1, position, static_cast<size_t>(end - position) * sizeof(*position));
+    *position = {static_cast<uint32_t>(outIdx), UINT32_MAX, 0};
+    ++glyphCount;
+  }
+}
+
+int FontDecompressor::prewarmGlyphs(const EpdFontData* fontData, uint32_t* neededGlyphs, const uint16_t glyphCount) {
+  if (glyphCount == 0) return 0;
+
+  auto glyphs = makeUniqueNoThrow<PageGlyphEntry[]>(glyphCount);
+  if (!glyphs) {
+    LOG_ERR("FDC", "Failed to allocate page glyph table (%u entries)", glyphCount);
+    return glyphCount;
+  }
+  for (uint16_t i = 0; i < glyphCount; ++i) glyphs[i] = {neededGlyphs[i], UINT32_MAX, 0};
+  return prewarmGlyphTable(fontData, std::move(glyphs), glyphCount);
+}
+
+int FontDecompressor::prewarmGlyphTable(const EpdFontData* fontData, std::unique_ptr<PageGlyphEntry[]> glyphs,
+                                        const uint16_t glyphCount) {
   if (glyphCount == 0) return 0;
 
   // Step 2: Compute total buffer size and collect unique groups
@@ -340,22 +482,12 @@ int FontDecompressor::prewarmCache(const EpdFontData* fontData, const char* utf8
   bool groupCapWarned = false;
 
   for (uint16_t i = 0; i < glyphCount; i++) {
-    totalBytes += fontData->glyph[neededGlyphs[i]].dataLength;
-    uint16_t gi = getGroupIndex(fontData, neededGlyphs[i]);
-    bool found = false;
-    for (uint8_t j = 0; j < groupCount; j++) {
-      if (neededGroups[j] == gi) {
-        found = true;
-        break;
-      }
-    }
-    if (!found) {
-      if (groupCount < 128) {
-        neededGroups[groupCount++] = gi;
-      } else if (!groupCapWarned) {
-        LOG_DBG("FDC", "Group cap (128) reached during prewarm; some groups will use hot-group fallback");
-        groupCapWarned = true;
-      }
+    totalBytes += fontData->glyph[glyphs[i].glyphIndex].dataLength;
+    uint16_t gi = getGroupIndex(fontData, glyphs[i].glyphIndex);
+    const auto result = insertSorted(neededGroups, groupCount, static_cast<uint8_t>(128), gi);
+    if (result == InsertResult::Full && !groupCapWarned) {
+      LOG_DBG("FDC", "Group cap (128) reached during prewarm; some groups will use hot-group fallback");
+      groupCapWarned = true;
     }
   }
 
@@ -364,36 +496,21 @@ int FontDecompressor::prewarmCache(const EpdFontData* fontData, const char* utf8
   // Step 3: Allocate page buffer and lookup table
   PageSlot& slot = pageSlots[pageSlotCount];
   slot.buffer = static_cast<uint8_t*>(malloc(totalBytes));
-  slot.glyphs = static_cast<PageGlyphEntry*>(malloc(glyphCount * sizeof(PageGlyphEntry)));
-  if (!slot.buffer || !slot.glyphs) {
+  if (!slot.buffer) {
     LOG_ERR("FDC", "Failed to allocate page buffer (%u bytes, %u glyphs)", totalBytes, glyphCount);
     free(slot.buffer);
-    free(slot.glyphs);
     slot = {};
     return glyphCount;
   }
   stats.pageBufferBytes += totalBytes;
   stats.pageGlyphsBytes += glyphCount * sizeof(PageGlyphEntry);
 
+  slot.glyphs = glyphs.release();
   slot.fontData = fontData;
   slot.glyphCount = glyphCount;
   pageSlotCount++;
 
-  // Initialize lookup entries (bufferOffset = UINT32_MAX means not yet extracted)
-  for (uint16_t i = 0; i < glyphCount; i++) {
-    slot.glyphs[i] = {neededGlyphs[i], UINT32_MAX, 0};
-  }
-
-  // Sort by glyphIndex for binary search in getBitmap()
-  for (uint16_t i = 1; i < glyphCount; i++) {
-    PageGlyphEntry key = slot.glyphs[i];
-    int j = i - 1;
-    while (j >= 0 && slot.glyphs[j].glyphIndex > key.glyphIndex) {
-      slot.glyphs[j + 1] = slot.glyphs[j];
-      j--;
-    }
-    slot.glyphs[j + 1] = key;
-  }
+  // `glyphs` is already sorted by glyphIndex for binary search in getBitmap().
 
   // Step 3b: Pre-scan to compute each needed glyph's byte-aligned offset within its group.
   // This avoids recomputing aligned offsets per group during extraction in step 4.
@@ -406,14 +523,9 @@ int FontDecompressor::prewarmCache(const EpdFontData* fontData, const char* utf8
 
     for (uint32_t i = 0; i < totalGlyphs; i++) {
       const uint16_t gi = fontData->glyphToGroup[i];
-      // Find this glyph's group position in neededGroups
-      uint8_t gpPos = groupCount;
-      for (uint8_t j = 0; j < groupCount; j++) {
-        if (neededGroups[j] == gi) {
-          gpPos = j;
-          break;
-        }
-      }
+      uint16_t* const gpEnd = neededGroups + groupCount;
+      uint16_t* const gp = std::lower_bound(neededGroups, gpEnd, gi);
+      const uint8_t gpPos = gp != gpEnd && *gp == gi ? static_cast<uint8_t>(gp - neededGroups) : groupCount;
       if (gpPos == groupCount) continue;  // not a needed group
 
       const EpdGlyph& glyph = fontData->glyph[i];
@@ -530,6 +642,8 @@ void FontDecompressor::logStats(const char* label) {
   if (stats.getBitmapCalls > 0) {
     LOG_DBG("FDC", "[%s] getBitmap: %lu calls, %luus total, %luus/call avg", label, stats.getBitmapCalls,
             stats.getBitmapTimeUs, stats.getBitmapTimeUs / stats.getBitmapCalls);
+    if (stats.hotOffsetCacheHits > 0)
+      LOG_DBG("FDC", "[%s] hot-group aligned-offset cache hits=%lu", label, stats.hotOffsetCacheHits);
   }
   resetStats();
 }

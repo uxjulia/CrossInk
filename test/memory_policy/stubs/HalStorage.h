@@ -21,6 +21,7 @@ struct HostFileData {
   std::vector<uint8_t> bytes;
   size_t readCalls = 0, readBytes = 0;
   uint32_t modified = 1;
+  bool openFail = false;
   size_t readFailAt = std::numeric_limits<size_t>::max();
   size_t failAt = std::numeric_limits<size_t>::max();
 };
@@ -111,7 +112,7 @@ class HalStorage {
 
   HalFile open(const char* path, oflag_t) {
     const auto found = files_.find(path);
-    return found == files_.end() ? HalFile{} : HalFile(found->second);
+    return found == files_.end() || found->second->openFail ? HalFile{} : HalFile(found->second);
   }
   bool openFileForRead(const char*, const std::string& path, HalFile& file) {
     file = open(path.c_str(), O_RDONLY);

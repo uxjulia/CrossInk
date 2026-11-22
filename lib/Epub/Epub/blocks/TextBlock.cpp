@@ -1,14 +1,17 @@
 #include "TextBlock.h"
 
 #include <BidiUtils.h>
+#include <Epub/PageDeserializationBudget.h>
 #include <GfxRenderer.h>
 #include <Logging.h>
 #include <Memory.h>
+#include <MemoryBudget.h>
 #include <PrintSerialization.h>
 #include <Serialization.h>
 
 #include <algorithm>
 #include <cstring>
+#include <limits>
 
 #include "../../../ScalableFont/ScalableFontSizing.h"
 
@@ -16,6 +19,40 @@ namespace {
 static_assert(ScalableContentMaxPointSize < TextBlock::BACKGROUND_SPACE);
 
 constexpr uint16_t MAX_WORDS_PER_TEXT_BLOCK = 512;
+constexpr size_t MIN_SERIALIZED_BLOCK_STYLE_BYTES = sizeof(CssTextAlign) + sizeof(bool) + 9 * sizeof(int16_t) +
+                                                    3 * sizeof(bool) + sizeof(uint8_t) + 2 * sizeof(uint16_t);
+
+bool tryReadRubyString(FsFile& file, std::string& ruby, PageDeserializationBudget::HeapBudget& heapBudget) {
+  uint32_t length = 0;
+  if (!serialization::tryReadPod(file, length) || length > ruby.max_size() ||
+      length > static_cast<uint32_t>(std::numeric_limits<int>::max())) {
+    return false;
+  }
+
+  const int remaining = file.available();
+  if (remaining < 0 || length > static_cast<uint32_t>(remaining)) {
+    LOG_ERR("TXB", "Truncated cached ruby annotation (%u bytes, %d available)", length, remaining);
+    return false;
+  }
+
+  if (length > ruby.capacity()) {
+    const size_t allocationBytes = static_cast<size_t>(length) + 1;
+    if (heapBudget.needsRefresh(allocationBytes, sizeof(char))) {
+      const auto heap = MemoryBudget::snapshot();
+      heapBudget.refresh(heap.freeHeap, heap.maxAllocHeap);
+    }
+    if (!heapBudget.canReserve(allocationBytes, sizeof(char))) {
+      LOG_ERR("TXB", "Low heap for cached ruby annotation (%u bytes, free=%u max=%u)", length,
+              static_cast<unsigned>(heapBudget.availableAfterReserves()),
+              static_cast<unsigned>(heapBudget.largestFreeBlock()));
+      return false;
+    }
+    heapBudget.recordReserve(allocationBytes, sizeof(char));
+  }
+
+  ruby.resize(length);
+  return length == 0 || file.read(&ruby[0], static_cast<int>(length)) == static_cast<int>(length);
+}
 
 uint16_t measureBackgroundWidth(const GfxRenderer& renderer, const int fontId, const char* word,
                                 const EpdFontFamily::Style style, const int8_t characterSpacing, const char* display) {
@@ -727,15 +764,41 @@ std::unique_ptr<TextBlock> TextBlock::deserialize(HalFile& file) {
     LOG_ERR("TXB", "Deserialization failed: invalid ruby count %u", rubyCount);
     return nullptr;
   }
-  if (rubyCount > 0) block->rubyTexts.resize(wc);
-  for (uint16_t i = 0; i < rubyCount; ++i) {
-    uint16_t wordIndex = 0;
-    std::string ruby;
-    if (!serialization::tryReadPod(file, wordIndex) || wordIndex >= wc || !serialization::tryReadString(file, ruby)) {
-      LOG_ERR("TXB", "Deserialization failed: invalid ruby annotation");
+  if (rubyCount > 0) {
+    PageDeserializationBudget::HeapBudget heapBudget;
+    constexpr size_t MIN_RUBY_RECORD_BYTES = sizeof(uint16_t) + sizeof(uint32_t);
+    const int availableResult = file.available();
+    const size_t available = availableResult > 0 ? static_cast<size_t>(availableResult) : 0;
+    if (!PageDeserializationBudget::hasMinimumSerializedBytes(available, rubyCount, MIN_RUBY_RECORD_BYTES,
+                                                              MIN_SERIALIZED_BLOCK_STYLE_BYTES)) {
+      LOG_ERR("TXB", "Deserialization failed: truncated cached ruby annotations");
       return nullptr;
     }
-    block->rubyTexts[wordIndex] = std::move(ruby);
+    const size_t slotBytes = static_cast<size_t>(wc) * sizeof(std::string);
+    if (heapBudget.needsRefresh(slotBytes, 1)) {
+      const auto heap = MemoryBudget::snapshot();
+      heapBudget.refresh(heap.freeHeap, heap.maxAllocHeap);
+    }
+    if (!heapBudget.canReserve(wc, sizeof(std::string))) {
+      LOG_ERR("TXB", "Low heap for cached ruby slots (words=%u bytes=%u free=%u max=%u)", wc,
+              static_cast<unsigned>(slotBytes), static_cast<unsigned>(heapBudget.availableAfterReserves()),
+              static_cast<unsigned>(heapBudget.largestFreeBlock()));
+      return nullptr;
+    }
+    heapBudget.recordReserve(wc, sizeof(std::string));
+    block->rubyTexts.resize(wc);
+    for (uint16_t i = 0; i < rubyCount; ++i) {
+      uint16_t wordIndex = 0;
+      std::string ruby;
+      if (!serialization::tryReadPod(file, wordIndex) || wordIndex >= wc ||
+          !tryReadRubyString(file, ruby, heapBudget)) {
+        LOG_ERR("TXB", "Deserialization failed: invalid ruby annotation");
+        return nullptr;
+      }
+      block->rubyTexts[wordIndex] = std::move(ruby);
+    }
+  } else {
+    // No annotation data follows the count, so the style read below starts here.
   }
 
   BlockStyle& blockStyle = block->blockStyle;

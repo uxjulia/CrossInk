@@ -365,6 +365,11 @@ void incrementalChecks(const std::string& path) {
       assert(glyph->advanceX == advance(cp == 0xFFFD ? 4 : cp - 'A', 0));
     }
     assert(font.prewarm("DCBA", 1) == 0 && readCalls == reads);
+    const uint32_t sortedPage[] = {'A', 'B', 'C', 0xFFFD};
+    arrayCalls = 0;
+    assert(font.prewarmCodepoints(sortedPage, 4, 1) == 0);
+    assert(font.prewarmCodepoints(nullptr, 0, 1, false, false) == 0);
+    assert(arrayCalls == 0);  // covered mini + loaded ligatures/kern need no scratch allocation
     std::puts("Incremental cpfont: ABC -> ABCD reads only D (2 reads); repeated ABCD needs 0 reads");
   }
   // Fail every array allocation and file read in an extension. The published

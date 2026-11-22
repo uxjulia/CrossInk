@@ -4,15 +4,67 @@
 #include <GfxRenderer.h>
 #include <Logging.h>
 #include <Memory.h>
+#include <MemoryBudget.h>
 #include <PrintSerialization.h>
 #include <Serialization.h>
 #include <ShapingTokens.h>
 #include <Utf8.h>
 
+#include "PageDeserializationBudget.h"
 #include "tables/TableColumnLayout.h"
 #include "tables/TableTextLineOrder.h"
 
 namespace {
+
+constexpr size_t MIN_SERIALIZED_TEXT_BLOCK_BYTES =
+    sizeof(uint16_t) + 6 * sizeof(uint8_t) + sizeof(int8_t) + sizeof(uint8_t) + sizeof(uint16_t) + sizeof(uint8_t) +
+    sizeof(uint16_t) + sizeof(CssTextAlign) + sizeof(bool) + 9 * sizeof(int16_t) + 3 * sizeof(bool) + sizeof(uint8_t) +
+    2 * sizeof(uint16_t);
+
+template <typename T>
+bool reserveForDeserialize(std::vector<T>& values, const size_t count, FsFile& file, const size_t minBytesPerItem,
+                           const size_t trailingBytes, const char* tag, const char* label,
+                           PageDeserializationBudget::HeapBudget& heapBudget) {
+  if (count <= values.capacity()) return true;
+
+  const int availableResult = file.available();
+  const size_t available = availableResult > 0 ? static_cast<size_t>(availableResult) : 0;
+  if (!PageDeserializationBudget::hasMinimumSerializedBytes(available, count, minBytesPerItem, trailingBytes)) {
+    LOG_ERR(tag, "Deserialization failed: truncated %s before allocation (count=%u available=%u)", label,
+            static_cast<unsigned>(count), static_cast<unsigned>(available));
+    return false;
+  }
+
+  const size_t bytes = count * sizeof(T);
+  if (heapBudget.needsRefresh(count, sizeof(T))) {
+    const auto heap = MemoryBudget::snapshot();
+    heapBudget.refresh(heap.freeHeap, heap.maxAllocHeap);
+  }
+  if (!heapBudget.canReserve(count, sizeof(T))) {
+    LOG_ERR(tag, "Deserialization stopped: low heap for %s (count=%u bytes=%u free=%u max=%u)", label,
+            static_cast<unsigned>(count), static_cast<unsigned>(bytes),
+            static_cast<unsigned>(heapBudget.availableAfterReserves()),
+            static_cast<unsigned>(heapBudget.largestFreeBlock()));
+    return false;
+  }
+
+  heapBudget.recordReserve(count, sizeof(T));
+  values.reserve(count);
+  return true;
+}
+
+template <typename T>
+bool resizeForDeserialize(std::vector<T>& values, const size_t count, FsFile& file, const size_t minBytesPerItem,
+                          const size_t trailingBytes, const char* tag, const char* label,
+                          PageDeserializationBudget::HeapBudget& heapBudget) {
+  if (count <= values.capacity()) {
+    values.resize(count);
+    return true;
+  }
+  if (!reserveForDeserialize(values, count, file, minBytesPerItem, trailingBytes, tag, label, heapBudget)) return false;
+  values.resize(count);
+  return true;
+}
 
 constexpr uint16_t MAX_PAGE_ELEMENTS = 1024;
 constexpr uint8_t MAX_TABLE_ROWS_PER_FRAGMENT = 64;
@@ -423,7 +475,8 @@ bool TableFragmentCell::serialize(Print& file) const {
   return true;
 }
 
-bool TableFragmentCell::deserialize(FsFile& file, TableFragmentCell& outCell) {
+bool TableFragmentCell::deserialize(FsFile& file, TableFragmentCell& outCell,
+                                    PageDeserializationBudget::HeapBudget* budget) {
   uint8_t lineCount = 0;
   uint16_t geometry = 0;
   if (!serialization::tryReadPod(file, geometry) || !serialization::tryReadPod(file, lineCount)) {
@@ -440,7 +493,12 @@ bool TableFragmentCell::deserialize(FsFile& file, TableFragmentCell& outCell) {
   }
 
   outCell.lines.clear();
-  outCell.lines.reserve(lineCount);
+  PageDeserializationBudget::HeapBudget localBudget;
+  if (!budget) budget = &localBudget;
+  if (!reserveForDeserialize(outCell.lines, lineCount, file, MIN_SERIALIZED_TEXT_BLOCK_BYTES, 0, "PTB",
+                             "table cell lines", *budget)) {
+    return false;
+  }
   for (uint8_t i = 0; i < lineCount; i++) {
     auto line = TextBlock::deserialize(file);
     if (!line) {
@@ -479,7 +537,8 @@ bool TableFragmentRow::serialize(Print& file) const {
   return true;
 }
 
-bool TableFragmentRow::deserialize(FsFile& file, TableFragmentRow& outRow) {
+bool TableFragmentRow::deserialize(FsFile& file, TableFragmentRow& outRow,
+                                   PageDeserializationBudget::HeapBudget* budget) {
   uint8_t cellCount = 0;
   if (!serialization::tryReadPod(file, outRow.height) || !serialization::tryReadPod(file, outRow.headerSeparator) ||
       !serialization::tryReadPod(file, cellCount)) {
@@ -492,11 +551,16 @@ bool TableFragmentRow::deserialize(FsFile& file, TableFragmentRow& outRow) {
   }
 
   outRow.cells.clear();
-  outRow.cells.reserve(cellCount);
+  PageDeserializationBudget::HeapBudget localBudget;
+  if (!budget) budget = &localBudget;
+  if (!reserveForDeserialize(outRow.cells, cellCount, file, sizeof(uint16_t) + sizeof(uint8_t), 0, "PTB",
+                             "table row cells", *budget)) {
+    return false;
+  }
   uint8_t logicalColumns = 0;
   for (uint8_t i = 0; i < cellCount; i++) {
     TableFragmentCell cell;
-    if (!TableFragmentCell::deserialize(file, cell)) {
+    if (!TableFragmentCell::deserialize(file, cell, budget)) {
       return false;
     }
     if (static_cast<uint8_t>(logicalColumns + cell.colSpan) > MAX_TABLE_CELLS_PER_ROW) {
@@ -721,7 +785,8 @@ bool PageTableFragment::serialize(Print& file) {
   return true;
 }
 
-std::unique_ptr<PageTableFragment> PageTableFragment::deserialize(FsFile& file) {
+std::unique_ptr<PageTableFragment> PageTableFragment::deserialize(FsFile& file,
+                                                                  PageDeserializationBudget::HeapBudget* budget) {
   int16_t xPos = 0;
   int16_t yPos = 0;
   uint16_t width = 0;
@@ -745,10 +810,15 @@ std::unique_ptr<PageTableFragment> PageTableFragment::deserialize(FsFile& file) 
   }
 
   std::vector<TableFragmentRow> rows;
-  rows.reserve(rowCount);
+  PageDeserializationBudget::HeapBudget localBudget;
+  if (!budget) budget = &localBudget;
+  if (!reserveForDeserialize(rows, rowCount, file, sizeof(uint16_t) + sizeof(bool) + sizeof(uint8_t), 0, "PTB",
+                             "table fragment rows", *budget)) {
+    return nullptr;
+  }
   for (uint8_t i = 0; i < rowCount; i++) {
     TableFragmentRow row;
-    if (!TableFragmentRow::deserialize(file, row)) {
+    if (!TableFragmentRow::deserialize(file, row, budget)) {
       return nullptr;
     }
     if (!row.cells.empty() && row.cells.front().rightEdge != 0) {
@@ -942,6 +1012,7 @@ std::unique_ptr<Page> Page::deserialize(FsFile& file) {
     return nullptr;
   }
   auto page = std::unique_ptr<Page>(rawPage);
+  PageDeserializationBudget::HeapBudget heapBudget;
 
   uint16_t count;
   if (!serialization::tryReadPod(file, count)) {
@@ -952,7 +1023,11 @@ std::unique_ptr<Page> Page::deserialize(FsFile& file) {
     LOG_ERR("PGE", "Deserialization failed: element count %u exceeds maximum", count);
     return nullptr;
   }
-  page->elements.reserve(count);
+  constexpr size_t MIN_PAGE_ELEMENT_BYTES = sizeof(uint8_t) + 2 * sizeof(int16_t) + sizeof(uint16_t) + sizeof(uint8_t);
+  if (!reserveForDeserialize(page->elements, count, file, MIN_PAGE_ELEMENT_BYTES, sizeof(uint16_t) + sizeof(uint8_t),
+                             "PGE", "page elements", heapBudget)) {
+    return nullptr;
+  }
 
   for (uint16_t i = 0; i < count; i++) {
     uint8_t tag;
@@ -974,7 +1049,7 @@ std::unique_ptr<Page> Page::deserialize(FsFile& file) {
       }
       page->elements.push_back(std::move(pi));
     } else if (tag == TAG_PageTableFragment) {
-      auto fragment = PageTableFragment::deserialize(file);
+      auto fragment = PageTableFragment::deserialize(file, &heapBudget);
       if (!fragment) {
         return nullptr;
       }
@@ -1009,7 +1084,12 @@ std::unique_ptr<Page> Page::deserialize(FsFile& file) {
     LOG_ERR("PGE", "Invalid footnote count %u", fnCount);
     return nullptr;
   }
-  page->footnotes.resize(fnCount);
+  constexpr size_t FOOTNOTE_BYTES =
+      sizeof(((FootnoteEntry*)nullptr)->number) + sizeof(((FootnoteEntry*)nullptr)->href) + sizeof(uint8_t);
+  if (!resizeForDeserialize(page->footnotes, fnCount, file, FOOTNOTE_BYTES, sizeof(uint8_t), "PGE", "footnotes",
+                            heapBudget)) {
+    return nullptr;
+  }
   for (uint16_t i = 0; i < fnCount; i++) {
     auto& entry = page->footnotes[i];
     if (file.read(entry.number, sizeof(entry.number)) != sizeof(entry.number) ||
@@ -1031,7 +1111,11 @@ std::unique_ptr<Page> Page::deserialize(FsFile& file) {
     LOG_ERR("PGE", "Invalid publisher page marker count %u", markerCount);
     return nullptr;
   }
-  page->publisherPageMarkers.reserve(markerCount);
+  constexpr size_t MARKER_BYTES = sizeof(int16_t) + sizeof(((Page::PublisherPageMarker*)nullptr)->label);
+  if (!reserveForDeserialize(page->publisherPageMarkers, markerCount, file, MARKER_BYTES, 0, "PGE",
+                             "publisher page markers", heapBudget)) {
+    return nullptr;
+  }
   for (uint8_t i = 0; i < markerCount; i++) {
     Page::PublisherPageMarker marker;
     if (!serialization::tryReadPod(file, marker.yPos) ||

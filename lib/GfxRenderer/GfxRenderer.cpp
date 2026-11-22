@@ -28,6 +28,28 @@
 
 namespace {
 
+#ifdef CROSSINK_MEMORY_TEST
+GfxRenderer::BwBufferAllocateForTest bwBufferAllocateForTest = nullptr;
+GfxRenderer::BwBufferFreeForTest bwBufferFreeForTest = nullptr;
+#endif
+
+uint8_t* allocateBwSnapshotChunk(const size_t bytes) {
+#ifdef CROSSINK_MEMORY_TEST
+  if (bwBufferAllocateForTest) return bwBufferAllocateForTest(bytes);
+#endif
+  return static_cast<uint8_t*>(malloc(bytes));
+}
+
+void freeBwSnapshotChunk(void* buffer) {
+#ifdef CROSSINK_MEMORY_TEST
+  if (bwBufferFreeForTest) {
+    bwBufferFreeForTest(buffer);
+    return;
+  }
+#endif
+  free(buffer);
+}
+
 /**
  * Resolves the requested style to the best available style in the given SD card font.
  * Falls back gracefully when the font lacks the requested variant.
@@ -143,6 +165,14 @@ void appendShapedRtlTokens(const char* text, std::string& shapedOut) {
   forEachShapedRtlToken(text, token, visual, [&shapedOut](const char* shaped) { shapedOut += shaped; });
 }
 }  // namespace
+
+#ifdef CROSSINK_MEMORY_TEST
+void GfxRenderer::setBwBufferAllocatorForTest(const BwBufferAllocateForTest allocate,
+                                              const BwBufferFreeForTest release) {
+  bwBufferAllocateForTest = allocate;
+  bwBufferFreeForTest = release;
+}
+#endif
 
 const uint8_t* GfxRenderer::getGlyphBitmap(const EpdFontData* fontData, const EpdGlyph* glyph) const {
 #if CROSSINK_SCALABLE_FONTS
@@ -286,6 +316,7 @@ void GfxRenderer::begin() {
   panelHeight = display.getDisplayHeight();
   panelWidthBytes = display.getDisplayWidthBytes();
   frameBufferSize = display.getBufferSize();
+  freeBwBufferChunks();
   bwBufferChunks.assign((frameBufferSize + BW_BUFFER_CHUNK_SIZE - 1) / BW_BUFFER_CHUNK_SIZE, nullptr);
 }
 
@@ -3579,7 +3610,7 @@ bool GfxRenderer::supportsStripGrayscale() const { return display.supportsStripG
 void GfxRenderer::freeBwBufferChunks() {
   for (auto& bwBufferChunk : bwBufferChunks) {
     if (bwBufferChunk) {
-      free(bwBufferChunk);
+      freeBwSnapshotChunk(bwBufferChunk);
       bwBufferChunk = nullptr;
     }
   }
@@ -3592,21 +3623,49 @@ void GfxRenderer::freeBwBufferChunks() {
  * Returns true if buffer was stored successfully, false if allocation failed.
  */
 bool GfxRenderer::storeBwBuffer() {
+#ifdef CROSSINK_GFX_BUFFER_DIAGNOSTICS
+  const uint32_t startMicros = micros();
+  ++bwBufferSnapshotStats_.storeAttempts;
+#endif
+  if (!frameBuffer || frameBufferSize == 0 || bwBufferChunks.empty()) {
+#ifdef CROSSINK_GFX_BUFFER_DIAGNOSTICS
+    ++bwBufferSnapshotStats_.storeFailures;
+    bwBufferSnapshotStats_.lastStoreMicros = micros() - startMicros;
+    bwBufferSnapshotStats_.lastStoredBytes = 0;
+#endif
+    LOG_ERR("GFX", "BW snapshot unavailable: framebuffer=%p bytes=%u chunks=%u", frameBuffer,
+            static_cast<unsigned>(frameBufferSize), static_cast<unsigned>(bwBufferChunks.size()));
+    return false;
+  }
+
   // Allocate and copy each chunk
   for (size_t i = 0; i < bwBufferChunks.size(); i++) {
     // Check if any chunks are already allocated
     if (bwBufferChunks[i]) {
-      LOG_ERR("GFX", "!! BW buffer chunk %zu already stored - this is likely a bug, freeing chunk", i);
-      free(bwBufferChunks[i]);
+      LOG_ERR("GFX", "BW snapshot chunk %u was still allocated; freeing it before reuse", static_cast<unsigned>(i));
+      freeBwSnapshotChunk(bwBufferChunks[i]);
       bwBufferChunks[i] = nullptr;
     }
 
     const size_t offset = i * BW_BUFFER_CHUNK_SIZE;
     const size_t chunkSize = std::min(BW_BUFFER_CHUNK_SIZE, static_cast<size_t>(frameBufferSize - offset));
-    bwBufferChunks[i] = static_cast<uint8_t*>(malloc(chunkSize));
+    bwBufferChunks[i] = allocateBwSnapshotChunk(chunkSize);
 
     if (!bwBufferChunks[i]) {
-      LOG_ERR("GFX", "!! Failed to allocate BW buffer chunk %zu (%zu bytes)", i, chunkSize);
+#ifdef CROSSINK_GFX_BUFFER_DIAGNOSTICS
+      ++bwBufferSnapshotStats_.storeFailures;
+      bwBufferSnapshotStats_.lastStoreMicros = micros() - startMicros;
+      bwBufferSnapshotStats_.lastStoredBytes = static_cast<uint32_t>(offset);
+      LOG_ERR("GFX", "BW snapshot allocation failed: chunk=%u/%u bytes=%u copied=%u free=%u max=%u attempt=%u",
+              static_cast<unsigned>(i + 1), static_cast<unsigned>(bwBufferChunks.size()),
+              static_cast<unsigned>(chunkSize), static_cast<unsigned>(offset), ESP.getFreeHeap(), ESP.getMaxAllocHeap(),
+              bwBufferSnapshotStats_.storeAttempts);
+#else
+      LOG_ERR("GFX", "BW snapshot allocation failed: chunk=%u/%u bytes=%u copied=%u free=%u max=%u",
+              static_cast<unsigned>(i + 1), static_cast<unsigned>(bwBufferChunks.size()),
+              static_cast<unsigned>(chunkSize), static_cast<unsigned>(offset), ESP.getFreeHeap(),
+              ESP.getMaxAllocHeap());
+#endif
       // Free previously allocated chunks
       freeBwBufferChunks();
       return false;
@@ -3615,7 +3674,14 @@ bool GfxRenderer::storeBwBuffer() {
     memcpy(bwBufferChunks[i], frameBuffer + offset, chunkSize);
   }
 
-  LOG_DBG("GFX", "Stored BW buffer in %zu chunks (%zu bytes each)", bwBufferChunks.size(), BW_BUFFER_CHUNK_SIZE);
+#ifdef CROSSINK_GFX_BUFFER_DIAGNOSTICS
+  bwBufferSnapshotStats_.lastStoreMicros = micros() - startMicros;
+  bwBufferSnapshotStats_.lastStoredBytes = frameBufferSize;
+  LOG_DBG("GFX", "BW snapshot stored: bytes=%u chunks=%u attempt=%u failures=%u elapsed=%uus free=%u max=%u",
+          static_cast<unsigned>(frameBufferSize), static_cast<unsigned>(bwBufferChunks.size()),
+          bwBufferSnapshotStats_.storeAttempts, bwBufferSnapshotStats_.storeFailures,
+          bwBufferSnapshotStats_.lastStoreMicros, ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+#endif
   return true;
 }
 
@@ -3625,8 +3691,12 @@ bool GfxRenderer::storeBwBuffer() {
  * Uses chunked restoration to match chunked storage.
  */
 void GfxRenderer::restoreBwBuffer() {
+#ifdef CROSSINK_GFX_BUFFER_DIAGNOSTICS
+  const uint32_t startMicros = micros();
+  ++bwBufferSnapshotStats_.restoreAttempts;
+#endif
   // Check if all chunks are allocated
-  bool missingChunks = false;
+  bool missingChunks = !frameBuffer || frameBufferSize == 0 || bwBufferChunks.empty();
   for (const auto& bwBufferChunk : bwBufferChunks) {
     if (!bwBufferChunk) {
       missingChunks = true;
@@ -3635,6 +3705,15 @@ void GfxRenderer::restoreBwBuffer() {
   }
 
   if (missingChunks) {
+#ifdef CROSSINK_GFX_BUFFER_DIAGNOSTICS
+    ++bwBufferSnapshotStats_.restoreFailures;
+    bwBufferSnapshotStats_.lastRestoreMicros = micros() - startMicros;
+    bwBufferSnapshotStats_.lastRestoredBytes = 0;
+    LOG_ERR("GFX", "BW snapshot restore skipped: stored chunks are incomplete (attempt=%u failures=%u)",
+            bwBufferSnapshotStats_.restoreAttempts, bwBufferSnapshotStats_.restoreFailures);
+#else
+    LOG_ERR("GFX", "BW snapshot restore skipped: stored chunks are incomplete");
+#endif
     freeBwBufferChunks();
     return;
   }
@@ -3648,7 +3727,14 @@ void GfxRenderer::restoreBwBuffer() {
   display.cleanupGrayscaleBuffers(frameBuffer);
 
   freeBwBufferChunks();
-  LOG_DBG("GFX", "Restored and freed BW buffer chunks");
+#ifdef CROSSINK_GFX_BUFFER_DIAGNOSTICS
+  bwBufferSnapshotStats_.lastRestoreMicros = micros() - startMicros;
+  bwBufferSnapshotStats_.lastRestoredBytes = frameBufferSize;
+  LOG_DBG("GFX", "BW snapshot restored: bytes=%u chunks=%u attempt=%u failures=%u elapsed=%uus",
+          static_cast<unsigned>(frameBufferSize), static_cast<unsigned>(bwBufferChunks.size()),
+          bwBufferSnapshotStats_.restoreAttempts, bwBufferSnapshotStats_.restoreFailures,
+          bwBufferSnapshotStats_.lastRestoreMicros);
+#endif
 }
 
 /**

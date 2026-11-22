@@ -1,8 +1,10 @@
 #include <gtest/gtest.h>
 
 #include <cstdlib>
+#include <initializer_list>
 #include <map>
 #include <new>
+#include <string>
 
 #include "FontCacheManager.h"
 #include "FontDecompressor.h"
@@ -18,6 +20,12 @@ const SdCardFont::PrewarmCall* findCall(const SdCardFont& font, const uint8_t st
     if (font.prewarmCalls[i].styleMask == styleMask) return &font.prewarmCalls[i];
   }
   return nullptr;
+}
+
+void expectCodepoints(const uint32_t* actual, const uint16_t count, std::initializer_list<uint32_t> expected) {
+  ASSERT_EQ(expected.size(), count);
+  size_t index = 0;
+  for (const uint32_t codepoint : expected) EXPECT_EQ(codepoint, actual[index++]);
 }
 
 }  // namespace
@@ -48,13 +56,13 @@ TEST(FontCacheManagerTest, PrewarmScopeBatchesEachFontAndResolvedStyleSeparately
   ASSERT_EQ(2, readerFont.prewarmCallCount);
   const auto* regularCall = findCall(readerFont, 0x01);
   ASSERT_NE(nullptr, regularCall);
-  EXPECT_STREQ("A", regularCall->text);
+  expectCodepoints(regularCall->codepoints, regularCall->count, {'A'});
   const auto* boldCall = findCall(readerFont, 0x02);
   ASSERT_NE(nullptr, boldCall);
-  EXPECT_STREQ("B", boldCall->text);
+  expectCodepoints(boldCall->codepoints, boldCall->count, {'B'});
 
   ASSERT_EQ(1, fallbackFont.prewarmCallCount);
-  EXPECT_STREQ("C", fallbackFont.prewarmCalls[0].text);
+  expectCodepoints(fallbackFont.prewarmCalls[0].codepoints, fallbackFont.prewarmCalls[0].count, {'C'});
   EXPECT_EQ(0x01, fallbackFont.prewarmCalls[0].styleMask);
 }
 
@@ -89,7 +97,7 @@ TEST(FontCacheManagerTest, PrewarmScopeMergesStylesThatResolveToTheSameSdFontDat
   scope.endScanAndPrewarm();
 
   ASSERT_EQ(1, font.prewarmCallCount);
-  EXPECT_STREQ("AB", font.prewarmCalls[0].text);
+  expectCodepoints(font.prewarmCalls[0].codepoints, font.prewarmCalls[0].count, {'A', 'B'});
   EXPECT_EQ(0x01, font.prewarmCalls[0].styleMask);
 }
 
@@ -114,8 +122,8 @@ TEST(FontCacheManagerTest, PrewarmScopeMergesBuiltInStylesThatShareFontData) {
   const auto& second = decompressor.prewarmCalls[1];
   const auto* regularCall = first.fontData == &regularData ? &first : &second;
   const auto* boldCall = first.fontData == &boldData ? &first : &second;
-  EXPECT_STREQ("AC", regularCall->text);
-  EXPECT_STREQ("B", boldCall->text);
+  expectCodepoints(regularCall->codepoints, regularCall->count, {'A', 'C'});
+  expectCodepoints(boldCall->codepoints, boldCall->count, {'B'});
 }
 
 TEST(FontCacheManagerTest, PrewarmScopePreservesUniqueMultibyteCodepoints) {
@@ -129,7 +137,7 @@ TEST(FontCacheManagerTest, PrewarmScopePreservesUniqueMultibyteCodepoints) {
   scope.endScanAndPrewarm();
 
   ASSERT_EQ(1, font.prewarmCallCount);
-  EXPECT_STREQ("\xC3\xA9\xE4\xB8\xAD\xF0\x9F\x98\x80", font.prewarmCalls[0].text);
+  expectCodepoints(font.prewarmCalls[0].codepoints, font.prewarmCalls[0].count, {0x00E9, 0x4E2D, 0x1F600});
 }
 
 TEST(FontCacheManagerTest, PrewarmScopePreservesSmallCapsConversion) {
@@ -143,7 +151,23 @@ TEST(FontCacheManagerTest, PrewarmScopePreservesSmallCapsConversion) {
   scope.endScanAndPrewarm();
 
   ASSERT_EQ(1, font.prewarmCallCount);
-  EXPECT_STREQ(" ACLMPS", font.prewarmCalls[0].text);
+  expectCodepoints(font.prewarmCalls[0].codepoints, font.prewarmCalls[0].count, {' ', 'A', 'C', 'L', 'M', 'P', 'S'});
+}
+
+TEST(FontCacheManagerTest, RepeatedMixedScriptTextKeepsOneSortedCodepointSpan) {
+  SdCardFont font;
+  const std::map<int, EpdFontFamily> noBuiltinFonts;
+  const std::map<int, SdCardFont*> sdFonts{{7, &font}};
+  FontCacheManager manager(noBuiltinFonts, sdFonts);
+  std::string repeated;
+  for (int i = 0; i < 500; ++i) repeated += "z\xE4\xB8\xad\xC3\xA9";
+
+  auto scope = manager.createPrewarmScope();
+  manager.recordText(repeated.c_str(), 7, EpdFontFamily::REGULAR);
+  scope.endScanAndPrewarm();
+
+  ASSERT_EQ(1, font.prewarmCallCount);
+  expectCodepoints(font.prewarmCalls[0].codepoints, font.prewarmCalls[0].count, {'z', 0x00E9, 0x4E2D});
 }
 
 TEST(FontCacheManagerTest, PrewarmScanDoesNotAllocateHeapMemory) {

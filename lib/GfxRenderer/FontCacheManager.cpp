@@ -14,6 +14,7 @@
 
 namespace {
 
+#if CROSSINK_SCALABLE_FONTS
 char* appendUtf8Codepoint(char* output, const uint32_t codepoint) {
   if (codepoint < 0x80) {
     *output++ = static_cast<char>(codepoint);
@@ -32,6 +33,7 @@ char* appendUtf8Codepoint(char* output, const uint32_t codepoint) {
   }
   return output;
 }
+#endif
 
 }  // namespace
 
@@ -186,14 +188,12 @@ void FontCacheManager::recordText(const char* text, int fontId, EpdFontFamily::S
 
     const uint32_t packed = (static_cast<uint32_t>(fontSlot) << SCAN_FONT_SHIFT) |
                             (static_cast<uint32_t>(resolvedStyle) << SCAN_STYLE_SHIFT) | codepoint;
-    bool found = false;
-    for (uint16_t i = 0; i < scanCodepointCount_; i++) {
-      if (scanCodepoints_[i] == packed) {
-        found = true;
-        break;
-      }
-    }
-    if (found) continue;
+    // Keep the bounded set sorted as it grows. Duplicate-heavy pages then
+    // cost O(log n) lookups instead of rescanning every earlier glyph.
+    uint32_t* const begin = scanCodepoints_;
+    uint32_t* const end = begin + scanCodepointCount_;
+    uint32_t* const position = std::lower_bound(begin, end, packed);
+    if (position != end && *position == packed) continue;
 
     if (scanCodepointCount_ >= MAX_SCAN_CODEPOINTS) {
       if (!scanOverflowWarned_) {
@@ -204,7 +204,10 @@ void FontCacheManager::recordText(const char* text, int fontId, EpdFontFamily::S
       continue;
     }
 
-    scanCodepoints_[scanCodepointCount_++] = packed;
+    const size_t index = static_cast<size_t>(position - begin);
+    memmove(position + 1, position, static_cast<size_t>(end - position) * sizeof(*position));
+    scanCodepoints_[index] = packed;
+    ++scanCodepointCount_;
     scanGroupCounts_[group]++;
   }
 }
@@ -263,13 +266,13 @@ bool FontCacheManager::PrewarmScope::endScanAndPrewarm() {
       if (compressedMask & (uint16_t(1) << group)) groupOrder[group] = compressed[next++];
       rank[groupOrder[group]] = group;
     }
+    // Insertions maintain packed-codepoint order, so only the rare case where
+    // compressed groups compete needs a reorder by cache-slot priority.
     std::sort(manager_->scanCodepoints_, manager_->scanCodepoints_ + manager_->scanCodepointCount_,
               [&](uint32_t a, uint32_t b) {
                 const uint8_t ga = a >> SCAN_STYLE_SHIFT, gb = b >> SCAN_STYLE_SHIFT;
                 return ga == gb ? a < b : rank[ga] < rank[gb];
               });
-  } else {
-    std::sort(manager_->scanCodepoints_, manager_->scanCodepoints_ + manager_->scanCodepointCount_);
   }
 
   uint16_t groupStarts[SCAN_GROUP_COUNT] = {};
@@ -279,8 +282,8 @@ bool FontCacheManager::PrewarmScope::endScanAndPrewarm() {
     offset += manager_->scanGroupCounts_[group];
   }
 
-  // Each packed entry provides four bytes, enough for one UTF-8 codepoint.
-  // Encoding backwards only overwrites an already consumed group's first byte.
+  // Group entries are consumed in place. Bitmap-font backends can accept this
+  // already-sorted codepoint span directly, avoiding a UTF-8 encode/decode pass.
   bool ok = true;
   for (int position = SCAN_GROUP_COUNT - 1; position >= 0; --position) {
     const uint8_t group = groupOrder[position];
@@ -288,17 +291,46 @@ bool FontCacheManager::PrewarmScope::endScanAndPrewarm() {
     if (groupCount == 0) continue;
 
     const uint16_t groupStart = groupStarts[group];
-    char* const utf8Text = reinterpret_cast<char*>(manager_->scanCodepoints_ + groupStart);
-    char* output = utf8Text;
+    uint32_t* const codepoints = manager_->scanCodepoints_ + groupStart;
     for (uint16_t i = 0; i < groupCount; i++) {
-      const uint32_t codepoint = manager_->scanCodepoints_[groupStart + i] & SCAN_CODEPOINT_MASK;
-      output = appendUtf8Codepoint(output, codepoint);
+      codepoints[i] &= SCAN_CODEPOINT_MASK;
     }
-    *output = '\0';
 
     const uint8_t fontSlot = static_cast<uint8_t>(group) / 4;
     const uint8_t style = static_cast<uint8_t>(group) & 0x03;
-    if (!manager_->prewarmCache(manager_->scanFontIds_[fontSlot], utf8Text, 1 << style, policy_)) {
+    const int fontId = manager_->scanFontIds_[fontSlot];
+    auto sdFont = manager_->sdCardFonts_.find(fontId);
+    if (sdFont != manager_->sdCardFonts_.end()) {
+      const int missed =
+          sdFont->second->prewarmCodepoints(codepoints, groupCount, 1 << style,
+                                            /*metadataOnly=*/false, policy_ != PreparationPolicy::DictionaryLean);
+      if (missed < 0 || sdFont->second->lastPrewarmFailed()) ok = false;
+      continue;
+    }
+
+    const auto font = manager_->fontMap_.find(fontId);
+    const auto* data =
+        font == manager_->fontMap_.end() ? nullptr : font->second.getData(static_cast<EpdFontFamily::Style>(style));
+#if CROSSINK_SCALABLE_FONTS
+    if (data && data->bitmapHandler) {
+      // Scalable shaping still depends on adjacent input characters. Preserve
+      // the existing path for it; only compressed bitmap fonts take the span.
+      char* const utf8Text = reinterpret_cast<char*>(codepoints);
+      char* output = utf8Text;
+      for (uint16_t i = 0; i < groupCount; i++) output = appendUtf8Codepoint(output, codepoints[i]);
+      *output = '\0';
+      if (!manager_->prewarmCache(fontId, utf8Text, 1 << style, policy_)) ok = false;
+      continue;
+    }
+#endif
+    if (data && data->groups && manager_->fontDecompressor_) {
+      const int missed = manager_->fontDecompressor_->prewarmCodepoints(data, codepoints, groupCount);
+      if (missed < 0) {
+        LOG_DBG("FCM", "Compressed prewarm declined (font=%d style=%d); using hot-group fallback", fontId, style);
+      } else if (missed > 0) {
+        LOG_DBG("FCM", "prewarmCache: %d glyph(s) not cached for style %d", missed, style);
+      }
+    } else if (data && data->groups && !manager_->fontDecompressor_) {
       ok = false;
     }
   }

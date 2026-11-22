@@ -1,7 +1,6 @@
 #include <Epub/Page.h>
 #include <Epub/converters/ImageDimsProbe.h>
 #include <GfxRenderer.h>
-#include <UniqueCodepointSet.h>
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -9,6 +8,7 @@
 #include <deque>
 #include <memory>
 #include <string>
+#include <utility>
 
 #define class struct
 #define private public
@@ -17,6 +17,7 @@
 #undef class
 
 #include <Epub.h>
+#include <Epub/image/OptimizerFormat.h>
 #include <MemoryBudget.h>
 
 namespace {
@@ -43,6 +44,7 @@ class ChapterHtmlSlimParserTest : public ::testing::TestWithParam<const char*> {
 
   void SetUp() override {
     Storage.files.clear();
+    Storage.failNextSeekOnReadOpen = false;
     GfxRenderer::loanActive = false;
     GfxRenderer::fileProbeHadLoan = false;
     MemoryBudget::imageAllowed = true;
@@ -2791,6 +2793,28 @@ TEST_F(ChapterHtmlSlimParserTest, DisabledFamilySpanPreservesFocusWordBoundary) 
   EXPECT_TRUE(parser.currentTextBlock->wordFontFamilies.empty());
 }
 
+TEST(ParsedTextFocusTest, ReservesForSegmentsAndTracksTheirSourceOffsets) {
+  ParsedText text(false, false, false, true, false, 0, BlockStyle(), true);
+  std::string word(1024, 'a');
+  word += '!';
+  word += std::string(1024, 'b');
+
+  text.addWord(word, EpdFontFamily::REGULAR, false, false, false, 0, 10, 50);
+
+  ASSERT_EQ(text.words.size(), 3u);
+  EXPECT_EQ(text.words[0].size(), 1024u);
+  EXPECT_EQ(text.words[1], "!");
+  EXPECT_EQ(text.words[2].size(), 1024u);
+  EXPECT_LE(text.wordStyles.capacity(), 16u);
+  EXPECT_EQ(text.visibleOffsetAt(0), 10u);
+  EXPECT_EQ(text.visibleOffsetAt(1), 1034u);
+  EXPECT_EQ(text.visibleOffsetAt(2), 1035u);
+  ASSERT_EQ(text.wordReferenceOffsets.size(), 3u);
+  EXPECT_EQ(text.wordReferenceOffsets[0], 50u);
+  EXPECT_EQ(text.wordReferenceOffsets[1], 1074u);
+  EXPECT_EQ(text.wordReferenceOffsets[2], 1075u);
+}
+
 TEST_F(ChapterHtmlSlimParserTest, ChunkedAnchorsRetainOrderPagesAndReferencesAcrossGrowth) {
   for (int i = 0; i < 1100; ++i) {
     parser.pendingAnchorId = "anchor-" + std::to_string(i);
@@ -2849,6 +2873,138 @@ TEST_F(ChapterHtmlSlimParserTest, DeferredPrewarmDoesNotDelayBeginAndRestoresPar
   EXPECT_EQ(std::count(renderer.prewarmed.begin(), renderer.prewarmed.end(), 0x5B57), 1);
   parser.abortParse();
   EXPECT_FALSE(parser.prewarmSectionAdvanceStep());
+}
+
+TEST_F(ChapterHtmlSlimParserTest, FailedInputReadAbortsInsteadOfAcceptingTruncatedMarkup) {
+  Storage.files[filepath] = "<html><body><p>Valid XHTML content.</p></body></html>";
+  ASSERT_TRUE(parser.beginParse());
+  parser.parseFile_.failNextRead();
+
+  EXPECT_EQ(parser.parseStep(), ChapterHtmlSlimParser::ParseStatus::Error);
+  EXPECT_TRUE(parser.inputReadError);
+  EXPECT_FALSE(parser.malformedMarkupTruncated);
+  EXPECT_FALSE(parser.lowMemoryAbort);
+  parser.abortParse();
+}
+
+TEST_F(ChapterHtmlSlimParserTest, EagerPrefixAndDeferredPrewarmKeepTheLowestCodepoints) {
+  const auto appendUtf8 = [](std::string& output, const uint32_t codepoint) {
+    if (codepoint <= 0xFFFF) {
+      output.push_back(static_cast<char>(0xE0 | (codepoint >> 12)));
+      output.push_back(static_cast<char>(0x80 | ((codepoint >> 6) & 0x3F)));
+      output.push_back(static_cast<char>(0x80 | (codepoint & 0x3F)));
+    } else {
+      output.push_back(static_cast<char>(0xF0 | (codepoint >> 18)));
+      output.push_back(static_cast<char>(0x80 | ((codepoint >> 12) & 0x3F)));
+      output.push_back(static_cast<char>(0x80 | ((codepoint >> 6) & 0x3F)));
+      output.push_back(static_cast<char>(0x80 | (codepoint & 0x3F)));
+    }
+  };
+  std::string html;
+  for (uint32_t i = 17000; i > 0; --i) appendUtf8(html, 0x10000 + i - 1);
+  html += 'a';  // This common glyph follows more than 4,096 unique glyphs and 64 KiB of input.
+  Storage.files[filepath] = html;
+  renderer.sdFont = true;
+
+  for (const bool deferred : {false, true}) {
+    renderer.prewarmCalls = 0;
+    renderer.prewarmed.clear();
+    parser.setDeferAdvancePrewarm(deferred);
+    ASSERT_TRUE(parser.beginParse());
+    if (deferred) {
+      int slices = 0;
+      while (parser.prewarmSectionAdvanceStep()) ASSERT_LT(++slices, 1000);
+    }
+
+    ASSERT_EQ(renderer.prewarmed.size(), ChapterHtmlSlimParser::SECTION_ADVANCE_PREWARM_FEED_LIMIT);
+    EXPECT_TRUE(std::is_sorted(renderer.prewarmed.begin(), renderer.prewarmed.end()));
+    if (deferred) {
+      EXPECT_EQ(renderer.prewarmed.front(), 'a');
+      for (size_t i = 1; i < renderer.prewarmed.size(); ++i) {
+        EXPECT_EQ(renderer.prewarmed[i], 0x10000 + i - 1);
+      }
+    } else {
+      const uint32_t prefixLowest =
+          0x10000 + 17000 - ChapterHtmlSlimParser::SECTION_ADVANCE_PREWARM_EAGER_SCAN_BYTES / 4;
+      for (size_t i = 0; i < renderer.prewarmed.size(); ++i) {
+        EXPECT_EQ(renderer.prewarmed[i], prefixLowest + i);
+      }
+    }
+    parser.abortParse();
+  }
+}
+
+TEST_F(ChapterHtmlSlimParserTest, PrewarmIgnoresSplitAttributeUtf8AndKeepsSplitTextUtf8) {
+  const auto appendUtf8 = [](std::string& output, const uint32_t codepoint) {
+    output.push_back(static_cast<char>(0xE0 | (codepoint >> 12)));
+    output.push_back(static_cast<char>(0x80 | ((codepoint >> 6) & 0x3F)));
+    output.push_back(static_cast<char>(0x80 | (codepoint & 0x3F)));
+  };
+  std::string html = "<span data-note=\"";
+  html.append(511 - html.size(), 'q');
+  appendUtf8(html, 0x00E9);  // The first byte lands at the end of the 512-byte read.
+  html += "\"><p>";
+  const size_t padding = (511 + 512 - (html.size() % 512)) % 512;
+  html.append(padding, 'x');
+  appendUtf8(html, 0x5B57);  // This text codepoint also spans two prewarm reads.
+  html += "</p></span>";
+  Storage.files[filepath] = html;
+  renderer.sdFont = true;
+
+  for (const bool deferred : {false, true}) {
+    renderer.prewarmed.clear();
+    parser.setDeferAdvancePrewarm(deferred);
+    ASSERT_TRUE(parser.beginParse());
+    if (deferred) {
+      int slices = 0;
+      while (parser.prewarmSectionAdvanceStep()) ASSERT_LT(++slices, 100);
+    }
+    EXPECT_EQ(std::count(renderer.prewarmed.begin(), renderer.prewarmed.end(), 0x00E9), 0);
+    EXPECT_EQ(std::count(renderer.prewarmed.begin(), renderer.prewarmed.end(), 'q'), 0);
+    EXPECT_EQ(std::count(renderer.prewarmed.begin(), renderer.prewarmed.end(), 0x5B57), 1);
+    parser.abortParse();
+  }
+}
+
+TEST_F(ChapterHtmlSlimParserTest, FullPrewarmReopensInputWhenItsRewindSeekFails) {
+  Storage.files[filepath] = "<html><body><!--valid--></body></html>";
+  renderer.sdFont = true;
+  Storage.failNextSeekOnReadOpen = true;
+
+  ASSERT_TRUE(parser.beginParse());
+  ASSERT_TRUE(parser.parseFile_);
+  EXPECT_FALSE(parser.inputReadError);
+  EXPECT_EQ(parser.parseFile_.position(), 0U);
+  EXPECT_EQ(parser.parseStep(), ChapterHtmlSlimParser::ParseStatus::Done);
+  EXPECT_EQ(parser.parseBytesConsumed(), Storage.files[filepath].size());
+  parser.abortParse();
+}
+
+TEST_F(ChapterHtmlSlimParserTest, OneParseStepBoundsWorkBeforeTheFirstPage) {
+  Storage.files[filepath] = "<html><body><!--" + std::string(128 * 1024, 'x') + "--><p>after</p></body></html>";
+  ASSERT_TRUE(parser.beginParse());
+
+  EXPECT_EQ(parser.parseStep(), ChapterHtmlSlimParser::ParseStatus::More);
+  EXPECT_EQ(parser.parseBytesConsumed(), 1024U);
+  parser.abortParse();
+}
+
+TEST_F(ChapterHtmlSlimParserTest, MalformedInputCrcCoversEarlierChunkAndFailingChunk) {
+  std::string html = "<html><body>";
+  html.append(1024 - html.size(), 'x');
+  html += "</wrong></body></html>";
+  Storage.files[filepath] = html;
+  parser.setTrackMalformedInputCrc(true);
+  ASSERT_TRUE(parser.beginParse());
+
+  EXPECT_EQ(parser.parseStep(), ChapterHtmlSlimParser::ParseStatus::More);
+  EXPECT_EQ(parser.malformedInputCrcLength_, 0U);  // Only expose the digest after actual salvage.
+  EXPECT_EQ(parser.parseStep(), ChapterHtmlSlimParser::ParseStatus::Done);
+  ASSERT_TRUE(parser.wasMalformedMarkupTruncated());
+  EXPECT_EQ(parser.malformedInputCrcLength(), html.size());
+  EXPECT_EQ(parser.malformedInputCrc(),
+            OptimizerFormat::crc(0, reinterpret_cast<const uint8_t*>(html.data()), html.size()));
+  parser.abortParse();
 }
 
 TEST_F(ChapterHtmlSlimParserTest, SourceOffsetsIncludeHiddenBodyTextAndRestartAtBody) {

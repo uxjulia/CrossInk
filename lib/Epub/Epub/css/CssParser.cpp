@@ -12,6 +12,9 @@
 #include <cmath>
 #include <cstring>
 #include <string_view>
+#if defined(ARDUINO_ARCH_ESP32) && !defined(SIMULATOR) && !defined(CROSSINK_MEMORY_TEST)
+#include <esp_rom_crc.h>
+#endif
 
 namespace {
 
@@ -61,6 +64,19 @@ constexpr size_t MIN_LARGEST_BLOCK_FOR_RULE_GROWTH = 8 * 1024;
 constexpr size_t MIN_FREE_HEAP_FOR_CSS_RULE_ARENA = 96 * 1024;
 constexpr size_t CSS_RULE_ARENA_MIN_FREE_AFTER_ALLOC = 80 * 1024;
 constexpr size_t CSS_RULE_ARENA_EXTRA_BYTES = 1024;
+
+uint32_t updateRuleIndexCrc(const uint32_t previous, const uint8_t* bytes, const size_t length) {
+#if defined(ARDUINO_ARCH_ESP32) && !defined(SIMULATOR) && !defined(CROSSINK_MEMORY_TEST)
+  return esp_rom_crc32_le(previous, bytes, static_cast<uint32_t>(length));
+#else
+  uint32_t crc = ~previous;
+  for (size_t i = 0; i < length; ++i) {
+    crc ^= bytes[i];
+    for (uint8_t bit = 0; bit < 8; ++bit) crc = (crc >> 1) ^ (0xEDB88320U & (0U - (crc & 1U)));
+  }
+  return ~crc;
+#endif
+}
 
 // Maximum length for a single selector string
 // Prevents parsing of extremely long or malformed selectors
@@ -906,6 +922,45 @@ bool compoundMatches(std::string_view selector, std::string_view tag, std::strin
   return true;
 }
 
+uint32_t selectorTokenBit(const char kind, const std::string_view token) {
+  uint32_t hash = 2166136261U;
+  hash = (hash ^ static_cast<uint8_t>(kind)) * 16777619U;
+  for (const char c : token) hash = (hash ^ static_cast<uint8_t>(asciiToLower(c))) * 16777619U;
+  return uint32_t{1} << (hash & 31U);
+}
+
+uint32_t selectorSubjectTokenMask(std::string_view subject, const bool firstLetter) {
+  if (firstLetter) {
+    const size_t pseudoStart = subject.find(':');
+    if (pseudoStart != std::string_view::npos) subject = subject.substr(0, pseudoStart);
+  }
+
+  uint32_t mask = 0;
+  size_t pos = subject.find_first_of(".#");
+  const auto tag = subject.substr(0, pos);
+  if (!tag.empty() && tag != "*") mask |= selectorTokenBit('t', tag);
+  if (pos == std::string_view::npos) return mask;
+
+  while (pos < subject.size()) {
+    const char marker = subject[pos++];
+    const size_t end = subject.find_first_of(".#", pos);
+    const auto token = subject.substr(pos, end == std::string_view::npos ? end : end - pos);
+    mask |= selectorTokenBit(marker == '#' ? 'i' : 'c', token);
+    if (end == std::string_view::npos) break;
+    pos = end;
+  }
+  return mask;
+}
+
+uint32_t elementSubjectTokenMask(const std::string_view tag, const std::string_view classes,
+                                 const std::string_view id) {
+  uint32_t mask = selectorTokenBit('t', tag);
+  if (!id.empty()) mask |= selectorTokenBit('i', id);
+  forEachDelimitedToken(classes, isCssWhitespace,
+                        [&](const std::string_view className) { mask |= selectorTokenBit('c', className); });
+  return mask;
+}
+
 uint32_t selectorSpecificity(std::string_view selector) {
   uint32_t score = 0;
   bool beginsElement = true;
@@ -1075,6 +1130,11 @@ bool CssParser::processRuleBlockWithStyle(std::string_view selectorGroup, const 
               return;
             }
             descendantRules_.push_back({std::string(prefix), std::string(storedSubject), style});
+            auto& added = descendantRules_.back();
+            added.firstLetter = firstLetter;
+            added.specificity = selectorSpecificity(added.subjectSelector) +
+                                (added.ancestorSelector == "@" ? 0 : selectorSpecificity(added.ancestorSelector));
+            added.subjectTokenMask = selectorSubjectTokenMask(added.subjectSelector, added.firstLetter);
           }
           return;
         }
@@ -1298,31 +1358,33 @@ CssStyle CssParser::resolveStyle(std::string_view tagName, std::string_view clas
   // Matching already-loaded rules must not change with transient heap pressure.
   // Parsing and cache hydration retain their separate allocation admission gates.
   CssStyle result;
+  if (cacheLookupFailed_) return result;
 
+  constexpr size_t MIN_RULES_FOR_SUBJECT_PREFILTER = 8;
+  const bool useSubjectPrefilter = descendantRules_.size() >= MIN_RULES_FOR_SUBJECT_PREFILTER;
+  const uint32_t elementTokenMask = useSubjectPrefilter ? elementSubjectTokenMask(tagName, classAttr, idAttr) : 0;
   std::array<uint8_t, MAX_DESCENDANT_RULES> matches{};
   size_t matchCount = 0;
   for (size_t i = 0; i < descendantRules_.size(); ++i) {
     const auto& rule = descendantRules_[i];
+    if (rule.firstLetter != firstLetter) continue;
+    // The bloom mask may admit false positives but cannot reject a selector
+    // whose tag, id, and class tokens are all present. Full matching below
+    // remains the source of truth for wildcard and ancestor semantics.
+    if (useSubjectPrefilter && (rule.subjectTokenMask & elementTokenMask) != rule.subjectTokenMask) continue;
     std::string_view subject = rule.subjectSelector;
-    const auto pseudo = subject.find(':');
-    if ((pseudo != std::string_view::npos) != firstLetter) continue;
-    if (pseudo != std::string_view::npos) subject = subject.substr(0, pseudo);
+    if (rule.firstLetter) subject = subject.substr(0, subject.find(':'));
     if (!compoundMatches(subject, tagName, classAttr, idAttr)) continue;
     if (rule.ancestorSelector != "@" && !contextMatches(rule.ancestorSelector, ancestors)) continue;
     matches[matchCount++] = static_cast<uint8_t>(i);
   }
-  const auto specificity = [&](uint8_t index) {
-    const auto& rule = descendantRules_[index];
-    return selectorSpecificity(rule.subjectSelector) +
-           (rule.ancestorSelector == "@" ? 0 : selectorSpecificity(rule.ancestorSelector));
-  };
   std::sort(matches.begin(), matches.begin() + matchCount, [&](uint8_t a, uint8_t b) {
-    const auto sa = specificity(a), sb = specificity(b);
+    const auto sa = descendantRules_[a].specificity, sb = descendantRules_[b].specificity;
     return sa == sb ? a < b : sa < sb;
   });
   size_t applied = 0;
   const auto applyThrough = [&](uint32_t limit) {
-    while (applied < matchCount && specificity(matches[applied]) <= limit)
+    while (applied < matchCount && descendantRules_[matches[applied]].specificity <= limit)
       result.applyOver(descendantRules_[matches[applied++]].style);
   };
   CssStyle matchedStyle;
@@ -1330,7 +1392,7 @@ CssStyle CssParser::resolveStyle(std::string_view tagName, std::string_view clas
   applyThrough(255);
   if (firstLetter) {
     applyThrough(UINT32_MAX);
-    return result;
+    return cacheLookupFailed_ ? CssStyle{} : result;
   }
 
   // TODO: Support combinations of classes (e.g. style on .class1.class2)
@@ -1361,7 +1423,7 @@ CssStyle CssParser::resolveStyle(std::string_view tagName, std::string_view clas
   });
 
   applyThrough(UINT32_MAX);
-  return result;
+  return cacheLookupFailed_ ? CssStyle{} : result;
 }
 
 // Inline style parsing (static - doesn't need rule database)
@@ -1582,17 +1644,40 @@ bool CssParser::readRuleFromDiskAtOffset(const uint32_t ruleOffset, std::string_
                                          CssStyle& outStyle) const {
   FsFile file;
   if (!Storage.openFileForRead("CSS", cachePath + rulesCache, file)) {
+    cacheLookupFailed_ = true;
     return false;
   }
 
   char selectorBuf[MAX_SELECTOR_LENGTH];
   uint16_t selectorLen = 0;
-  bool ok = file.seek(ruleOffset) && file.read(&selectorLen, sizeof(selectorLen)) == sizeof(selectorLen) &&
-            selectorLen == selector.size() && selectorLen <= MAX_SELECTOR_LENGTH &&
-            file.read(selectorBuf, selectorLen) == selectorLen &&
-            SvEqual{}(std::string_view(selectorBuf, selectorLen), selector) && readCssStylePayload(file, outStyle);
-  file.close();
-  return ok;
+  if (!file.seek(ruleOffset) || file.read(&selectorLen, sizeof(selectorLen)) != sizeof(selectorLen)) {
+    cacheLookupFailed_ = true;
+    file.close();
+    return false;
+  }
+  if (selectorLen != selector.size() || selectorLen > MAX_SELECTOR_LENGTH) {
+    if (!file.close()) cacheLookupFailed_ = true;
+    return false;
+  }
+  if (file.read(selectorBuf, selectorLen) != selectorLen) {
+    cacheLookupFailed_ = true;
+    file.close();
+    return false;
+  }
+  if (!SvEqual{}(std::string_view(selectorBuf, selectorLen), selector)) {
+    if (!file.close()) cacheLookupFailed_ = true;
+    return false;
+  }
+  if (!readCssStylePayload(file, outStyle)) {
+    cacheLookupFailed_ = true;
+    file.close();
+    return false;
+  }
+  if (!file.close()) {
+    cacheLookupFailed_ = true;
+    return false;
+  }
+  return true;
 }
 
 bool CssParser::lookupArenaRule(std::string_view selector, CssStyle& outStyle) const {
@@ -1628,6 +1713,9 @@ void CssParser::clearDiskRuleMemo() const {
 }
 
 bool CssParser::lookupRule(std::string_view selector, CssStyle& outStyle) const {
+  if (cacheLookupFailed_) {
+    return false;
+  }
   if (const auto* rule = findPsramParsedRule(selector)) {
     outStyle = rule->style;
     return true;
@@ -1646,6 +1734,9 @@ bool CssParser::lookupRule(std::string_view selector, CssStyle& outStyle) const 
   if (cachedRuleTableCount_ == cachedRuleCount_) {
     return false;
   }
+  if (!cacheRuleOffsets_) {
+    return false;
+  }
 
   if (diskRuleMemo_) {
     for (size_t i = 0; i < DISK_RULE_MEMO_COUNT; ++i) {
@@ -1660,9 +1751,11 @@ bool CssParser::lookupRule(std::string_view selector, CssStyle& outStyle) const 
     }
   }
   const uint32_t h = selectorHash(selector);
-  auto it = std::lower_bound(cacheRuleOffsets_.begin(), cacheRuleOffsets_.end(), h,
+  auto* const offsetsBegin = cacheRuleOffsets_.get();
+  auto* const offsetsEnd = offsetsBegin + cachedRuleCount_;
+  auto it = std::lower_bound(offsetsBegin, offsetsEnd, h,
                              [](const SelectorEntry& e, const uint32_t key) { return e.hash < key; });
-  for (; it != cacheRuleOffsets_.end() && it->hash == h; ++it) {
+  for (; it != offsetsEnd && it->hash == h; ++it) {
 #ifdef CROSSINK_CSS_PROFILE
     ++diskRuleReads_;
 #endif
@@ -1689,7 +1782,7 @@ CssParser::CacheStatus CssParser::inspectCache() const {
 
   FsFile file;
   if (!Storage.openFileForRead("CSS", cachePath + rulesCache, file)) {
-    return CacheStatus::Invalid;
+    return CacheStatus::ReadError;
   }
   struct FileGuard {
     FsFile& file;
@@ -1698,56 +1791,96 @@ CssParser::CacheStatus CssParser::inspectCache() const {
     }
   } fileGuard{file};
 
-  const auto readExact = [&file](void* out, const size_t size) { return file.read(out, size) == size; };
-  const auto skipBytes = [&file](const size_t size) {
-    if (static_cast<size_t>(file.available()) < size) return false;
-    return file.seek(file.position() + size);
+  bool readFailure = false;
+  const auto failureStatus = [&readFailure]() { return readFailure ? CacheStatus::ReadError : CacheStatus::Invalid; };
+  const auto readExact = [&file, &readFailure](void* out, const size_t size) {
+    const int available = file.available();
+    if (available < 0) {
+      readFailure = true;
+      return false;
+    }
+    if (static_cast<size_t>(available) < size) return false;
+    if (file.read(out, size) != static_cast<int>(size)) {
+      readFailure = true;
+      return false;
+    }
+    return true;
+  };
+  const auto skipBytes = [&file, &readFailure](const size_t size) {
+    const int available = file.available();
+    if (available < 0) {
+      readFailure = true;
+      return false;
+    }
+    if (static_cast<size_t>(available) < size) return false;
+    if (!file.seek(file.position() + size)) {
+      readFailure = true;
+      return false;
+    }
+    return true;
   };
 
   uint32_t magic = 0;
   uint8_t version = 0;
   uint8_t flags = 0;
   uint16_t ruleCount = 0;
-  if (!readExact(&magic, sizeof(magic)) || magic != CSS_CACHE_MAGIC || !readExact(&version, sizeof(version)) ||
-      version != CSS_CACHE_VERSION || !readExact(&flags, sizeof(flags)) ||
-      ((flags & ~CSS_CACHE_FLAGS) != 0 || flags == CSS_CACHE_FLAG_RULE_LIMIT) ||
-      !readExact(&ruleCount, sizeof(ruleCount)) || ruleCount > MAX_RULES) {
-    return CacheStatus::Invalid;
-  }
+  if (!readExact(&magic, sizeof(magic))) return failureStatus();
+  if (magic != CSS_CACHE_MAGIC) return CacheStatus::Invalid;
+  if (!readExact(&version, sizeof(version))) return failureStatus();
+  if (version != CSS_CACHE_VERSION) return CacheStatus::Invalid;
+  if (!readExact(&flags, sizeof(flags))) return failureStatus();
+  if (((flags & ~CSS_CACHE_FLAGS) != 0 || flags == CSS_CACHE_FLAG_RULE_LIMIT)) return CacheStatus::Invalid;
+  if (!readExact(&ruleCount, sizeof(ruleCount))) return failureStatus();
+  if (ruleCount > MAX_RULES) return CacheStatus::Invalid;
 
   if ((flags & CSS_CACHE_FLAG_RULE_LIMIT) && (!(flags & CSS_CACHE_FLAG_PARTIAL) || ruleCount != MAX_RULES)) {
     return CacheStatus::Invalid;
   }
 
   if (!skipBytes(static_cast<size_t>(ruleCount) * sizeof(SelectorEntry))) {
-    return CacheStatus::Invalid;
+    return failureStatus();
   }
   for (uint16_t i = 0; i < ruleCount; ++i) {
     uint16_t selectorLen = 0;
-    if (!readExact(&selectorLen, sizeof(selectorLen)) || selectorLen == 0 || selectorLen > MAX_SELECTOR_LENGTH ||
-        !skipBytes(static_cast<size_t>(selectorLen) + CSS_FIXED_STYLE_BYTES)) {
-      return CacheStatus::Invalid;
-    }
+    if (!readExact(&selectorLen, sizeof(selectorLen))) return failureStatus();
+    if (selectorLen == 0 || selectorLen > MAX_SELECTOR_LENGTH) return CacheStatus::Invalid;
+    if (!skipBytes(static_cast<size_t>(selectorLen) + CSS_FIXED_STYLE_BYTES)) return failureStatus();
   }
 
   uint16_t descendantCount = 0;
-  if (!readExact(&descendantCount, sizeof(descendantCount)) || descendantCount > MAX_DESCENDANT_RULES) {
-    return CacheStatus::Invalid;
-  }
+  if (!readExact(&descendantCount, sizeof(descendantCount))) return failureStatus();
+  if (descendantCount > MAX_DESCENDANT_RULES) return CacheStatus::Invalid;
   for (uint16_t i = 0; i < descendantCount; ++i) {
     for (uint8_t selectorIndex = 0; selectorIndex < 2; ++selectorIndex) {
       uint16_t selectorLen = 0;
-      if (!readExact(&selectorLen, sizeof(selectorLen)) || selectorLen == 0 || selectorLen > MAX_SELECTOR_LENGTH ||
-          !skipBytes(selectorLen)) {
-        return CacheStatus::Invalid;
-      }
+      if (!readExact(&selectorLen, sizeof(selectorLen))) return failureStatus();
+      if (selectorLen == 0 || selectorLen > MAX_SELECTOR_LENGTH) return CacheStatus::Invalid;
+      if (!skipBytes(selectorLen)) return failureStatus();
     }
-    if (!skipBytes(CSS_FIXED_STYLE_BYTES)) {
-      return CacheStatus::Invalid;
-    }
+    if (!skipBytes(CSS_FIXED_STYLE_BYTES)) return failureStatus();
   }
 
-  if (!readFontFaces(file)) return CacheStatus::Invalid;
+  const uint32_t fontFaceStart = file.position();
+  uint8_t fontFaceCount = 0;
+  if (!readExact(&fontFaceCount, sizeof(fontFaceCount))) return failureStatus();
+  if (fontFaceCount > MAX_FONT_FACES) return CacheStatus::Invalid;
+  for (uint8_t i = 0; i < fontFaceCount; ++i) {
+    uint32_t family = 0;
+    uint8_t fontFlags = 0, hrefLength = 0;
+    if (!readExact(&family, sizeof(family))) return failureStatus();
+    if (!family) return CacheStatus::Invalid;
+    if (!readExact(&fontFlags, sizeof(fontFlags))) return failureStatus();
+    if (fontFlags > 3) return CacheStatus::Invalid;
+    if (!readExact(&hrefLength, sizeof(hrefLength))) return failureStatus();
+    if (!hrefLength) return CacheStatus::Invalid;
+    if (!skipBytes(hrefLength)) return failureStatus();
+  }
+  uint32_t fontFaceOffset = 0;
+  if (!readExact(&fontFaceOffset, sizeof(fontFaceOffset))) return failureStatus();
+  if (fontFaceOffset != fontFaceStart) return CacheStatus::Invalid;
+  const int trailingBytes = file.available();
+  if (trailingBytes < 0) return CacheStatus::ReadError;
+  if (trailingBytes != 0) return CacheStatus::Invalid;
   if (flags & CSS_CACHE_FLAG_RULE_LIMIT) return CacheStatus::RuleLimited;
   return (flags & CSS_CACHE_FLAG_PARTIAL) != 0 ? CacheStatus::Partial : CacheStatus::Complete;
 }
@@ -2015,6 +2148,7 @@ bool CssParser::saveToCache(const bool complete, const bool terminal) const {
 }
 
 bool CssParser::loadFromCache() {
+  clear();
   if (cachePath.empty()) {
     return false;
   }
@@ -2032,54 +2166,54 @@ bool CssParser::loadFromCache() {
     }
   } fileGuard(file);
 
-  // Clear existing rules
-  clear();
-  cachePartial_ = false;
+  const auto failLoad = [this]() {
+    clear();
+    return false;
+  };
 
   // Read and verify header
   uint32_t magic = 0;
-  if (file.read(&magic, sizeof(magic)) != sizeof(magic) || magic != CssParser::CSS_CACHE_MAGIC) {
-    LOG_DBG("CSS", "Cache magic mismatch, removing stale cache for rebuild");
-    file.close();
-    Storage.remove((cachePath + rulesCache).c_str());
-    return false;
+  if (file.read(&magic, sizeof(magic)) != sizeof(magic)) {
+    LOG_DBG("CSS", "Could not read CSS cache magic");
+    return failLoad();
+  }
+  if (magic != CssParser::CSS_CACHE_MAGIC) {
+    LOG_DBG("CSS", "Cache magic mismatch; refusing to load CSS cache");
+    return failLoad();
   }
 
   uint8_t version = 0;
-  if (file.read(&version, 1) != 1 || version != CssParser::CSS_CACHE_VERSION) {
-    LOG_DBG("CSS", "Cache version mismatch (got %u, expected %u), removing stale cache for rebuild", version,
+  if (file.read(&version, 1) != 1) {
+    LOG_DBG("CSS", "Could not read CSS cache version");
+    return failLoad();
+  }
+  if (version != CssParser::CSS_CACHE_VERSION) {
+    LOG_DBG("CSS", "Cache version mismatch (got %u, expected %u); refusing to load CSS cache", version,
             CssParser::CSS_CACHE_VERSION);
-    // Explicitly close() file before calling Storage.remove()
-    file.close();
-    Storage.remove((cachePath + rulesCache).c_str());
-    return false;
+    return failLoad();
   }
 
   uint8_t flags = 0;
   if (file.read(&flags, 1) != 1) {
-    LOG_DBG("CSS", "Cache flags missing, removing stale cache for rebuild");
-    file.close();
-    Storage.remove((cachePath + rulesCache).c_str());
-    return false;
+    LOG_DBG("CSS", "Could not read CSS cache flags");
+    return failLoad();
   }
   if (((flags & ~CSS_CACHE_FLAGS) != 0 || flags == CSS_CACHE_FLAG_RULE_LIMIT)) {
-    LOG_DBG("CSS", "Unsupported CSS cache flags 0x%02X, removing stale cache for rebuild", flags);
-    file.close();
-    Storage.remove((cachePath + rulesCache).c_str());
-    return false;
+    LOG_DBG("CSS", "Unsupported CSS cache flags 0x%02X; refusing to load CSS cache", flags);
+    return failLoad();
   }
   cachePartial_ = (flags & CSS_CACHE_FLAG_PARTIAL) != 0;
 
   // Read rule count
   uint16_t ruleCount = 0;
   if (file.read(&ruleCount, sizeof(ruleCount)) != sizeof(ruleCount)) {
-    return false;
+    LOG_DBG("CSS", "Could not read CSS cache rule count");
+    return failLoad();
   }
 
   if (ruleCount > MAX_RULES) {
     LOG_DBG("CSS", "Invalid cache rule count (%u > %zu)", ruleCount, MAX_RULES);
-    rulesBySelector_.clear();
-    return false;
+    return failLoad();
   }
 
   // Cached rules use the offset index or arena below, not the parsed-rule map.
@@ -2088,21 +2222,11 @@ bool CssParser::loadFromCache() {
     return static_cast<size_t>(file.available()) >= neededBytes;
   };
 
-  cacheRuleOffsets_.reserve(ruleCount);
-  for (uint16_t i = 0; i < ruleCount; ++i) {
-    SelectorEntry entry{};
-    if (file.read(&entry, sizeof(entry)) != sizeof(entry)) {
-      LOG_DBG("CSS", "Truncated CSS cache while reading selector index");
-      cacheRuleOffsets_.clear();
-      return false;
-    }
-    cacheRuleOffsets_.push_back(entry);
-  }
-  cacheIndexLoaded_ = true;
-  cachedRuleCount_ = cacheRuleOffsets_.size();
+  const size_t selectorIndexStart = file.position();
 
   bool hydrateSimpleRules = false;
   size_t hydratedRuleCount = 0;
+  uint32_t hydratedIndexCrc = 0;
   const size_t freeHeapBeforeHydrate = ESP.getFreeHeap();
   const size_t arenaBytes = (static_cast<size_t>(ruleCount) * sizeof(CachedRule)) + CSS_RULE_ARENA_EXTRA_BYTES;
   const bool external = psramHeapAvailable();
@@ -2128,6 +2252,32 @@ bool CssParser::loadFromCache() {
             unsigned(MemoryBudget::EPUB_PSRAM_RESERVE), hydrateSimpleRules ? "hydrated" : "disk index");
   }
 
+  // C3 may need the disk index as its only lookup path, so size it with a
+  // fallible allocation. A hydrated table can skip the 8-byte-per-rule array;
+  // if a fingerprint collision is found below, it will allocate and reload
+  // this fallback index after releasing the arena.
+  if (ruleCount > 0 && !hydrateSimpleRules) {
+    cacheRuleOffsets_ = makeUniqueNoThrow<SelectorEntry[]>(ruleCount);
+    if (!cacheRuleOffsets_) {
+      LOG_ERR("CSS", "Could not allocate %u-byte selector fallback index",
+              static_cast<unsigned>(static_cast<size_t>(ruleCount) * sizeof(SelectorEntry)));
+      return failLoad();
+    }
+  }
+  if (cacheRuleOffsets_) {
+    for (uint16_t i = 0; i < ruleCount; ++i) {
+      if (file.read(&cacheRuleOffsets_[i], sizeof(SelectorEntry)) != sizeof(SelectorEntry)) {
+        LOG_DBG("CSS", "Truncated CSS cache while reading selector index");
+        return failLoad();
+      }
+    }
+  } else if (!file.seek(selectorIndexStart + static_cast<size_t>(ruleCount) * sizeof(SelectorEntry))) {
+    LOG_DBG("CSS", "Could not skip CSS selector index");
+    return failLoad();
+  }
+  cacheIndexLoaded_ = true;
+  cachedRuleCount_ = ruleCount;
+
   // Read each simple rule payload. When heap allows, hydrate into an arena-backed
   // table so resolveStyle() can stay in RAM instead of seeking the SD cache for
   // every selector lookup during page building. Selector text is only needed
@@ -2138,14 +2288,12 @@ bool CssParser::loadFromCache() {
     uint16_t selectorLen = 0;
     if (!hasRemainingBytes(sizeof(selectorLen)) ||
         file.read(&selectorLen, sizeof(selectorLen)) != sizeof(selectorLen)) {
-      cacheRuleOffsets_.clear();
-      return false;
+      return failLoad();
     }
     if (selectorLen == 0 || selectorLen > MAX_SELECTOR_LENGTH ||
         !hasRemainingBytes(static_cast<size_t>(selectorLen) + CSS_FIXED_STYLE_BYTES)) {
       LOG_DBG("CSS", "Invalid selector length in cache: %u", selectorLen);
-      cacheRuleOffsets_.clear();
-      return false;
+      return failLoad();
     }
     const uint32_t nextRecord = recordStart + sizeof(selectorLen) + selectorLen + CSS_FIXED_STYLE_BYTES;
 
@@ -2153,22 +2301,24 @@ bool CssParser::loadFromCache() {
       CssStyle style;
       if (file.read(selectorBuf, selectorLen) != selectorLen || !readCssStylePayload(file, style)) {
         LOG_DBG("CSS", "Truncated CSS cache while hydrating selector rule");
-        cacheRuleOffsets_.clear();
-        cachedRuleArena_.release();
-        cachedRules_ = nullptr;
-        cachedRuleTableCount_ = 0;
-        return false;
+        return failLoad();
       }
       const std::string_view selectorView(selectorBuf, selectorLen);
-      cachedRules_[hydratedRuleCount++] = {selectorHash(selectorView), selectorSecondaryHash(selectorView), selectorLen,
-                                           style};
+      const uint32_t hash = selectorHash(selectorView);
+      const uint32_t secondaryHash = selectorSecondaryHash(selectorView);
+      if (!external) {
+        const SelectorEntry entry{hash, recordStart};
+        hydratedIndexCrc =
+            updateRuleIndexCrc(hydratedIndexCrc, reinterpret_cast<const uint8_t*>(&entry), sizeof(entry));
+      }
+      cachedRules_[hydratedRuleCount++] = {hash, secondaryHash, selectorLen, style};
     } else {
       if (!file.seek(nextRecord)) {
-        cacheRuleOffsets_.clear();
-        return false;
+        return failLoad();
       }
     }
   }
+  const uint32_t simpleRulesEnd = file.position();
   if (hydrateSimpleRules) {
     cachedRuleTableCount_ = hydratedRuleCount;
     std::sort(cachedRules_, cachedRules_ + cachedRuleTableCount_, [](const CachedRule& a, const CachedRule& b) {
@@ -2182,11 +2332,36 @@ bool CssParser::loadFromCache() {
       if (prev.hash == current.hash && prev.secondaryHash == current.secondaryHash &&
           prev.selectorLen == current.selectorLen) {
         LOG_DBG("CSS", "CSS rule fingerprint collision; using disk-backed selector lookup");
+        if (!cacheRuleOffsets_) {
+          // Releasing the hydrated table first makes room for the 12 KiB max
+          // fallback index on C3 while keeping collision handling exact.
+          cachedRuleArena_.release();
+          cachedRules_ = nullptr;
+          cachedRuleTableCount_ = 0;
+          auto offsets = makeUniqueNoThrow<SelectorEntry[]>(ruleCount);
+          if (!offsets) {
+            LOG_ERR("CSS", "Could not allocate %u-byte selector index after fingerprint collision",
+                    static_cast<unsigned>(static_cast<size_t>(ruleCount) * sizeof(SelectorEntry)));
+            return failLoad();
+          }
+          if (!file.seek(selectorIndexStart)) return failLoad();
+          for (uint16_t index = 0; index < ruleCount; ++index) {
+            if (file.read(&offsets[index], sizeof(SelectorEntry)) != sizeof(SelectorEntry)) return failLoad();
+          }
+          if (!file.seek(simpleRulesEnd)) return failLoad();
+          cacheRuleOffsets_ = std::move(offsets);
+          break;
+        }
         cachedRuleArena_.release();
         cachedRules_ = nullptr;
         cachedRuleTableCount_ = 0;
         break;
       }
+    }
+    if (cachedRuleTableCount_ == cachedRuleCount_) {
+      // The table is collision-free and owns every rule, so no SD offsets are
+      // needed for the lifetime of this loaded stylesheet.
+      cacheRuleOffsets_.reset();
     }
   }
 
@@ -2195,13 +2370,11 @@ bool CssParser::loadFromCache() {
   if (file.available() > 0) {
     if (file.read(&descendantCount, sizeof(descendantCount)) != sizeof(descendantCount)) {
       LOG_DBG("CSS", "Truncated CSS cache reading descendant count");
-      rulesBySelector_.clear();
-      return false;
+      return failLoad();
     }
     if (descendantCount > MAX_DESCENDANT_RULES) {
       LOG_DBG("CSS", "Invalid descendant rule count (%u > %zu)", descendantCount, MAX_DESCENDANT_RULES);
-      rulesBySelector_.clear();
-      return false;
+      return failLoad();
     }
     descendantRules_.reserve(descendantCount);
     for (uint16_t i = 0; i < descendantCount; ++i) {
@@ -2215,21 +2388,28 @@ bool CssParser::loadFromCache() {
       DescendantRule rule;
       if (!readStr(rule.ancestorSelector) || !readStr(rule.subjectSelector)) {
         LOG_DBG("CSS", "Truncated CSS cache reading descendant rule selectors");
-        rulesBySelector_.clear();
-        descendantRules_.clear();
-        return false;
+        return failLoad();
       }
       if (!hasRemainingBytes(CSS_FIXED_STYLE_BYTES) || !readCssStylePayload(file, rule.style)) {
         LOG_DBG("CSS", "Truncated CSS cache reading descendant rule style");
-        rulesBySelector_.clear();
-        descendantRules_.clear();
-        return false;
+        return failLoad();
       }
+      rule.firstLetter = rule.subjectSelector.find(':') != std::string::npos;
+      rule.specificity = selectorSpecificity(rule.subjectSelector) +
+                         (rule.ancestorSelector == "@" ? 0 : selectorSpecificity(rule.ancestorSelector));
+      rule.subjectTokenMask = selectorSubjectTokenMask(rule.subjectSelector, rule.firstLetter);
       descendantRules_.push_back(std::move(rule));
     }
   }
 
-  if (!readFontFaces(file)) return false;
+  if (!readFontFaces(file)) {
+    LOG_DBG("CSS", "Truncated or invalid CSS font-face cache section");
+    return failLoad();
+  }
+  if (!external && hydrateSimpleRules && cachedRuleTableCount_ == cachedRuleCount_) {
+    hydratedRuleIndexCrc_ = hydratedIndexCrc;
+    hydratedRuleIndexCrcValid_ = true;
+  }
   if (ruleCount > 0 && cachedRuleTableCount_ != cachedRuleCount_ &&
       ESP.getFreeHeap() >= 16 * 1024 + sizeof(DiskRuleMemoEntry) * DISK_RULE_MEMO_COUNT &&
       ESP.getMaxAllocHeap() >= sizeof(DiskRuleMemoEntry) * DISK_RULE_MEMO_COUNT) {
@@ -2242,6 +2422,78 @@ bool CssParser::loadFromCache() {
 
   LOG_DBG("CSS", "Loaded %u indexed rules + %u descendant rules from %s cache", static_cast<unsigned>(cachedRuleCount_),
           descendantCount, cachePartial_ ? "partial" : "complete");
+  return true;
+}
+
+bool CssParser::demoteHydratedRulesForLowMemory() {
+  // Releasing S3's PSRAM arena does not help the internal heap and would make
+  // its much faster resident lookup fall back to SD without a memory benefit.
+  if (psramHeapAvailable() || !cacheIndexLoaded_ || !hydratedRuleIndexCrcValid_ || cacheLookupFailed_ ||
+      !cachedRules_ || cachedRuleCount_ == 0 || cachedRuleTableCount_ != cachedRuleCount_ || cacheRuleOffsets_) {
+    return false;
+  }
+
+  const size_t ruleCount = cachedRuleCount_;
+  const size_t indexBytes = ruleCount * sizeof(SelectorEntry);
+  auto offsets = makeUniqueNoThrow<SelectorEntry[]>(ruleCount);
+  if (!offsets) {
+    LOG_DBG("CSS", "Could not allocate disk index to release hydrated CSS rules");
+    return false;
+  }
+
+  FsFile file;
+  if (!Storage.openFileForRead("CSS", cachePath + rulesCache, file)) {
+    LOG_DBG("CSS", "Could not open CSS cache to release hydrated rules");
+    return false;
+  }
+  const auto failRead = [&file](const char* reason) {
+    LOG_DBG("CSS", "Keeping hydrated CSS rules; %s", reason);
+    (void)reason;
+    file.close();
+    return false;
+  };
+
+  uint32_t magic = 0;
+  uint8_t version = 0;
+  uint8_t flags = 0;
+  uint16_t cachedCount = 0;
+  if (file.read(&magic, sizeof(magic)) != sizeof(magic) || magic != CSS_CACHE_MAGIC ||
+      file.read(&version, sizeof(version)) != sizeof(version) || version != CSS_CACHE_VERSION ||
+      file.read(&flags, sizeof(flags)) != sizeof(flags) || (flags & ~CSS_CACHE_FLAGS) != 0 ||
+      flags == CSS_CACHE_FLAG_RULE_LIMIT || file.read(&cachedCount, sizeof(cachedCount)) != sizeof(cachedCount) ||
+      cachedCount != ruleCount) {
+    return failRead("cache header changed or could not be read");
+  }
+
+  if (file.available() < 0 || static_cast<size_t>(file.available()) < indexBytes ||
+      file.read(offsets.get(), indexBytes) != static_cast<int>(indexBytes)) {
+    return failRead("selector index bulk read failed");
+  }
+
+  // Hydration derived this expected fingerprint from each validated selector
+  // and its record offset. Reordering the one bulk-read index by record offset
+  // lets us verify every mapping, including corruption already present when
+  // hydration skipped the index, without re-reading hundreds of selectors.
+  std::sort(offsets.get(), offsets.get() + ruleCount,
+            [](const SelectorEntry& left, const SelectorEntry& right) { return left.offset < right.offset; });
+  const uint32_t observedIndexCrc = updateRuleIndexCrc(0, reinterpret_cast<const uint8_t*>(offsets.get()), indexBytes);
+  if (observedIndexCrc != hydratedRuleIndexCrc_) {
+    return failRead("selector index fingerprint changed since hydration");
+  }
+
+  std::sort(offsets.get(), offsets.get() + ruleCount,
+            [](const SelectorEntry& left, const SelectorEntry& right) { return left.hash < right.hash; });
+  if (!file.close()) {
+    LOG_DBG("CSS", "Keeping hydrated CSS rules; cache close failed during demotion");
+    return false;
+  }
+
+  cacheRuleOffsets_ = std::move(offsets);
+  cachedRuleArena_.release();
+  cachedRules_ = nullptr;
+  cachedRuleTableCount_ = 0;
+  LOG_INF("CSS", "Released %u-byte hydrated CSS rules for low heap; preserving %u rules through SD lookup",
+          static_cast<unsigned>(ruleCount * sizeof(CachedRule)), static_cast<unsigned>(ruleCount));
   return true;
 }
 

@@ -5,6 +5,7 @@
 #include <Print.h>
 #include <ZipDirectoryCache.h>
 
+#include <array>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -47,6 +48,7 @@ class Epub {
   std::unique_ptr<BookMetadataCache> bookMetadataCache;
   // CSS parser for styling
   std::unique_ptr<CssParser> cssParser;
+  bool cssCacheReady = false;
   // CSS files
   std::vector<std::string> cssFiles;
   struct LocationSpineEntry {
@@ -113,6 +115,7 @@ class Epub {
   enum class CssParseStatus : uint8_t {
     Failed,
     Partial,
+    RuleLimited,
     Complete,
   };
 
@@ -122,7 +125,7 @@ class Epub {
                        SyncMetadata* syncMetadata = nullptr);
   bool parseTocNcxFile() const;
   bool parseTocNavFile() const;
-  CssParseStatus parseCssFiles(bool forceRebuild = false) const;
+  CssParseStatus parseCssFiles(bool forceRebuild = false, bool preserveExistingPartialOnFailure = false) const;
   void discoverCssFilesFromZip();
   void releaseCssFileList();
 
@@ -209,6 +212,18 @@ class Epub {
   // Transient image source, PSRAM only; an empty result uses the SD fallback.
   HeapByteBuffer readItemToPsram(const std::string& itemHref, size_t& size) const;
   bool getItemSize(const std::string& itemHref, size_t* size) const;
+  struct ItemIdentity {
+    uint32_t crc32 = 0;
+    uint32_t compressedSize = 0;
+    uint32_t uncompressedSize = 0;
+    bool encrypted = false;
+    bool adobeObfuscated = false;
+    std::array<uint8_t, 16> adobeKey{};
+  };
+  // ZIP identity lets callers reuse extracted, unencrypted resources across
+  // reader sessions. Protected resources must include their decryption key in
+  // cache identity, so callers should treat them as session-only.
+  bool getItemIdentity(const std::string& itemHref, ItemIdentity& identity) const;
   bool getOptimizerImageDimensions(const std::string& itemHref, uint16_t& width, uint16_t& height) const;
   // Seeds the normal local cache from an exact optimizer sidecar, or streams a
   // bounded nearest-neighbour resize into that cache when the device differs.
@@ -249,6 +264,9 @@ class Epub {
                                  uint16_t sourceSiblingIndex, int& currentSpineIndex,
                                  uint16_t& currentSiblingIndex) const;
   CssParser* getCssParser() const { return cssParser.get(); }
+  // Load or build the CSS rule cache on demand when the reader enables
+  // publisher styles after opening a book with CSS loading skipped.
+  bool ensureCssCache();
   int resolveHrefToSpineIndex(const std::string& href) const;
 
  private:

@@ -13,6 +13,10 @@
 #include "blocks/ImageBlock.h"
 #include "blocks/TextBlock.h"
 
+namespace PageDeserializationBudget {
+class HeapBudget;
+}
+
 enum PageElementTag : uint8_t {
   TAG_PageLine = 1,
   TAG_PageImage = 2,  // New tag
@@ -134,7 +138,8 @@ struct TableFragmentCell {
   std::vector<std::shared_ptr<TextBlock>> lines;
 
   bool serialize(Print& file) const;
-  static bool deserialize(FsFile& file, TableFragmentCell& outCell);
+  static bool deserialize(FsFile& file, TableFragmentCell& outCell,
+                          PageDeserializationBudget::HeapBudget* heapBudget = nullptr);
 };
 
 struct TableFragmentRow {
@@ -144,7 +149,8 @@ struct TableFragmentRow {
   std::vector<TableFragmentCell> cells;
 
   bool serialize(Print& file) const;
-  static bool deserialize(FsFile& file, TableFragmentRow& outRow);
+  static bool deserialize(FsFile& file, TableFragmentRow& outRow,
+                          PageDeserializationBudget::HeapBudget* heapBudget = nullptr);
 };
 
 struct PageTextLine {
@@ -191,7 +197,8 @@ class PageTableFragment final : public PageElement {
   void render(GfxRenderer& renderer, int fontId, int xOffset, int yOffset, bool foregroundBlack = true) override;
   bool serialize(Print& file) override;
   PageElementTag getTag() const override { return TAG_PageTableFragment; }
-  static std::unique_ptr<PageTableFragment> deserialize(FsFile& file);
+  static std::unique_ptr<PageTableFragment> deserialize(FsFile& file,
+                                                        PageDeserializationBudget::HeapBudget* heapBudget = nullptr);
   uint16_t getHeight() const;
 };
 

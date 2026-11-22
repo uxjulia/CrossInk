@@ -82,6 +82,12 @@ class SdCardFont {
   // Returns number of glyphs that couldn't be loaded (0 on full success).
   int prewarm(const char* utf8Text, uint8_t styleMask = 0x0F, bool metadataOnly = false, bool includeKerning = true);
 
+  // Prewarm a sorted, unique codepoint span. Reader scans already collect this
+  // form, so bitmap rendering can skip a UTF-8 encode/decode and a second pass
+  // over duplicate characters.
+  int prewarmCodepoints(const uint32_t* codepoints, uint32_t cpCount, uint8_t styleMask = 0x0F,
+                        bool metadataOnly = false, bool includeKerning = true);
+
   // Build a compact advance-only table for layout measurement.
   // Extracts ALL unique codepoints from words (no MAX_PAGE_GLYPHS cap),
   // batch-reads advanceX from SD, stores in a sorted per-style table.
@@ -399,6 +405,8 @@ class SdCardFont {
   bool glyphEntryValid(const PerStyle& s, const EpdGlyph& glyph, uint32_t codepoint) const;
   int fetchAdvancesForCodepoints(uint32_t* codepoints, uint32_t cpCount, uint8_t styleMask);
   int failPrewarm(int missed);
+  int prewarmCodepointSet(uint32_t* codepoints, uint32_t cpCount, uint8_t styleMask, bool metadataOnly,
+                          bool includeKerning, unsigned long startMs);
   template <typename Iter>
   int buildAdvanceTableRange(Iter begin, Iter end, bool includeSpace, bool includeHyphen, uint8_t styleMask,
                              const char* extraText = nullptr);

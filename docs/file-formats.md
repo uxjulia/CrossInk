@@ -164,6 +164,34 @@ the stem-darkening toggle. Missing families use automatic hinting, grayscale
 output, the default interpreter, and no outline adjustments. The file currently
 keeps at most 24 modified family profiles to bound RAM use while settings are open.
 
+## Publisher font extraction cache
+
+Each book cache keeps at most two extracted unprotected publisher-font files per
+face: `publisher-font-<face>.a` and `.b`, each paired with a `.meta` marker.
+The marker is 52 bytes: `BKF1` magic, little-endian flags, source ZIP CRC-32,
+compressed size, uncompressed size, extracted file size, the scalable-font
+content fingerprint, a sequence number, the exact 16-byte Adobe obfuscation
+key (zeroed when unused), and an FNV-1a checksum of bytes 0–47. Only flag bit 0
+(Adobe-obfuscated) is defined; unknown flags invalidate the marker. The face is
+reusable only when the source identity, extracted size, and Adobe key match and
+the font parser returns the recorded fingerprint. Missing, truncated, corrupt,
+or mismatched markers cause extraction to be rebuilt. Hidden `.tmp` files are
+staging files and are not cache entries.
+
+New output is written and parsed in a staging file before it replaces the older
+of the two slots. That keeps the newest complete extraction available if an SD
+write, close, or font parse fails. The next successful replacement removes the
+older slot, so repeated EPUB updates do not grow the cache directory. Protected
+AES/LCP-protected font resources are extracted to a session file and removed
+when the reader closes because their content key is not exposed to the cache.
+Adobe-obfuscated fonts can be reused because their public package-UUID-derived
+16-byte transform key is recorded exactly; a changed identifier invalidates the
+cached bytes even when the encrypted ZIP member is unchanged. These files are
+disposable and rebuild automatically; no section-cache reset is needed.
+Section pages retain the CSS family and point size per word. Cache replay checks
+the saved face signature, then registers only the exact sizes requested when
+those words are rendered.
+
 ## `/.crosspoint/sleep_<hash>.bmp`
 
 Custom sleep images are converted to native 1-bit or 2-bit BMPs using the selected

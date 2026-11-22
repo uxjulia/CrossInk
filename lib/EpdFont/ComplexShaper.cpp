@@ -275,17 +275,38 @@ uint8_t* gMemoArena = nullptr;
 uint32_t gMemoBytes = 0;
 uint32_t gMemoArenaCapacity = 0;
 uint16_t gMemoDepth = 0;
+#if defined(ENABLE_SERIAL_LOG) && LOG_LEVEL >= 2
+uint32_t gMemoLookups = 0;
+uint32_t gMemoHits = 0;
+uint32_t gMemoEntriesScanned = 0;
+uint32_t gMemoMaxScan = 0;
+#endif
 
 // A shaped run, or with `failed` a text recorded as failing to shape.
 const CacheSlot* memoFind(const ComplexShaper* owner, const uint32_t scale, const uint32_t hash, const char* run,
                           const size_t length, const bool failed = false) {
+#if defined(ENABLE_SERIAL_LOG) && LOG_LEVEL >= 2
+  ++gMemoLookups;
+  uint32_t scanned = 0;
+#endif
   for (uint32_t i = 0; i < gMemoCount; i++) {
     const CacheSlot& e = gMemo[i];
+#if defined(ENABLE_SERIAL_LOG) && LOG_LEVEL >= 2
+    ++scanned;
+    ++gMemoEntriesScanned;
+#endif
     if ((e.outLength == 0) == failed && e.hash == hash && e.owner == owner && e.scale == scale &&
         e.inLength == length && memcmp(gMemoArena + e.offset, run, length) == 0) {
+#if defined(ENABLE_SERIAL_LOG) && LOG_LEVEL >= 2
+      ++gMemoHits;
+      gMemoMaxScan = std::max(gMemoMaxScan, scanned);
+#endif
       return &e;
     }
   }
+#if defined(ENABLE_SERIAL_LOG) && LOG_LEVEL >= 2
+  gMemoMaxScan = std::max(gMemoMaxScan, scanned);
+#endif
   return nullptr;
 }
 
@@ -295,7 +316,7 @@ void memoStore(const ComplexShaper* owner, const uint32_t scale, const uint32_t 
   if (gMemoDepth == 0 || length > UINT16_MAX || shapedLength > UINT16_MAX) return;
   if (gMemoCount == kMemoMaxEntries || gMemoBytes + need > kMemoMaxBytes) return;
   if (gMemoCount == gMemoCapacity) {
-    const uint32_t capacity = gMemoCapacity ? gMemoCapacity * 2 : 64;
+    const uint32_t capacity = std::min<uint32_t>(gMemoCapacity ? gMemoCapacity * 2 : 64, kMemoMaxEntries);
     auto* grown = static_cast<CacheSlot*>(budgetedRealloc(gMemo, sizeof(CacheSlot) * capacity));
     if (grown == nullptr) return;
     gMemo = grown;
@@ -329,6 +350,13 @@ void forgetAllRuns() {
 }
 
 void memoFree() {
+#if defined(ENABLE_SERIAL_LOG) && LOG_LEVEL >= 2
+  if (gMemoLookups != 0) {
+    LOG_DBG("SHAPE", "Layout memo: entries=%u slots=%u bytes=%u lookups=%u hits=%u scans=%u maxScan=%u", gMemoCount,
+            gMemoCapacity, gMemoBytes, gMemoLookups, gMemoHits, gMemoEntriesScanned, gMemoMaxScan);
+  }
+  gMemoLookups = gMemoHits = gMemoEntriesScanned = gMemoMaxScan = 0;
+#endif
   budgetedFree(gMemo);
   budgetedFree(gMemoArena);
   gMemo = nullptr;

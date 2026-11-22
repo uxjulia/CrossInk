@@ -105,6 +105,45 @@ int main(int argc, char** argv) {
         std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - warmStart).count();
     std::printf("TTF collision regression: 60 warm bitmap lookups, 0 replacements, %lld us\n", (long long)warmUs);
   }
+  // Cross the 512 KiB arena budget with unique foreground glyphs, keeping a
+  // small sample from the recent region. Those bitmaps should still be cache
+  // hits after the next region turns over; the former flush-all policy lost
+  // every one of them at the same total byte budget.
+  {
+    struct Anchor {
+      const EpdFontData* data;
+      EpdGlyph glyph;
+      const uint8_t* pixels;
+    };
+    std::vector<Anchor> anchors;
+    size_t generatedBytes = 0;
+    bool filled = false;
+    for (uint8_t points = ScalableContentMinPointSize; points <= ScalableContentMaxPointSize && !filled; ++points) {
+      const auto* data = builtin[0].atSize(points)->data;
+      for (uint32_t cp = 33; cp < 127; ++cp) {
+        const auto* measured = data->dynamicGlyphHandler(data->glyphMissCtx, cp);
+        assert(measured);
+        if (!measured->width || !measured->height) continue;
+        const EpdGlyph glyph = *measured;
+        const auto* pixels = data->bitmapHandler(data->glyphMissCtx, &glyph);
+        assert(pixels);
+        const size_t bytes = (size_t(glyph.width) * glyph.height + 3) / 4;
+        generatedBytes += bytes;
+        if (generatedBytes >= 500 * 1024 && generatedBytes <= 510 * 1024) anchors.push_back({data, glyph, pixels});
+        if (generatedBytes >= 520 * 1024) {
+          filled = true;
+          break;
+        }
+      }
+    }
+    assert(filled && generatedBytes < 768 * 1024 && !anchors.empty());
+    size_t retained = 0;
+    for (const auto& anchor : anchors)
+      if (anchor.data->bitmapHandler(anchor.data->glyphMissCtx, &anchor.glyph) == anchor.pixels) ++retained;
+    assert(retained > 0);
+    std::printf("BITMAP turnover: generated=%zu bytes candidates=%zu retained=%zu old-full-flush-retained=0\n",
+                generatedBytes, anchors.size(), retained);
+  }
   // Speculative lookahead must leave a foreground glyph resident even when
   // later pages collide with its slot or fill the shared pixel arena.
   {

@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[2]
 source = (ROOT / 'lib/Epub/Epub/BookMetadataCache.cpp').read_text()
 start = source.index('  if (spineCount >= LARGE_SPINE_THRESHOLD) {', source.index('bool BookMetadataCache::buildBookBin'))
 end = source.index('  if (tryExactSizeBatch) {', start)
-constant = re.search(r'constexpr size_t MAX_SIZE_LOOKUP_TARGETS = \d+;', source).group()
+constant = '\n'.join(re.findall(r'constexpr size_t (?:MAX|MIN)_SIZE_LOOKUP_TARGETS = \d+;', source))
 with tempfile.TemporaryDirectory(prefix='crossink-size-batches-') as tmp:
     root = Path(tmp)
     (root / 'SizeLookup.inc').write_text(constant + '\n' + source[start:end])
@@ -21,11 +21,13 @@ with tempfile.TemporaryDirectory(prefix='crossink-size-batches-') as tmp:
 class Arena {
  public:
   unsigned failAllocation = 0;
+  unsigned failFromAllocation = 0;
   std::vector<size_t> allocations;
   std::vector<void*> buffers;
   void* alloc(size_t bytes, size_t) {
     allocations.push_back(bytes);
-    if (allocations.size() == failAllocation) return nullptr;
+    if (allocations.size() == failAllocation ||
+        (failFromAllocation != 0 && allocations.size() >= failFromAllocation)) return nullptr;
     void* buffer = std::malloc(bytes);
     buffers.push_back(buffer);
     return buffer;

@@ -24,19 +24,29 @@ HeapByteBuffer allocateScratch(const int widthBytes, const int height, size_t& s
     // planes. Too large for the task stack; never request this from internal RAM.
     constexpr size_t PSRAM_RESERVE = 128 * 1024;
     const auto psram = byteHeapSnapshot(MemoryPool::Psram);
-    if (psram.free >= planeBytes + PSRAM_RESERVE && psram.largest >= planeBytes) {
+    const bool fullPlaneFits =
+        psram.free >= planeBytes && psram.free - planeBytes >= PSRAM_RESERVE && psram.largest >= planeBytes;
+    if (fullPlaneFits) {
       auto buffer = makePsramByteBufferNoThrow(planeBytes);
       if (buffer) {
         size = planeBytes;
         inPsram = true;
+        LOG_DBG("EPS", "Grayscale scratch: retained PSRAM plane bytes=%u free=%u max=%u",
+                static_cast<unsigned>(planeBytes), static_cast<unsigned>(psram.free),
+                static_cast<unsigned>(psram.largest));
         return buffer;
       }
       LOG_ERR("EPS", "OOM: PSRAM grayscale plane (%u bytes); trying strip", static_cast<unsigned>(planeBytes));
+    } else {
+      LOG_DBG("EPS", "Grayscale scratch: using strip; PSRAM plane need=%u reserve=%u free=%u max=%u",
+              static_cast<unsigned>(planeBytes), static_cast<unsigned>(PSRAM_RESERVE),
+              static_cast<unsigned>(psram.free), static_cast<unsigned>(psram.largest));
     }
     auto buffer = makePsramByteBufferNoThrow(stripBytes);
     if (buffer) {
       size = stripBytes;
       inPsram = true;
+      LOG_DBG("EPS", "Grayscale scratch: allocated PSRAM strip bytes=%u", static_cast<unsigned>(stripBytes));
       return buffer;
     }
     LOG_ERR("EPS", "OOM: PSRAM grayscale strip (%u bytes); trying default heap", static_cast<unsigned>(stripBytes));
@@ -44,8 +54,15 @@ HeapByteBuffer allocateScratch(const int widthBytes, const int height, size_t& s
   auto buffer = makeHeapByteBufferNoThrow(stripBytes);
   if (buffer) {
     size = stripBytes;
+#if defined(ENABLE_SERIAL_LOG) && defined(LOG_LEVEL) && LOG_LEVEL >= 2
+    const auto internal = MemoryBudget::snapshot();
+    LOG_DBG("EPS", "Grayscale scratch: allocated default-heap strip bytes=%u free=%u max=%u",
+            static_cast<unsigned>(stripBytes), internal.freeHeap, internal.maxAllocHeap);
+#endif
   } else {
-    LOG_ERR("EPS", "OOM: grayscale strip (%u bytes); falling back to BW snapshot", static_cast<unsigned>(stripBytes));
+    const auto internal = MemoryBudget::snapshot();
+    LOG_ERR("EPS", "OOM: grayscale strip (%u bytes, free=%u max=%u); falling back to BW snapshot",
+            static_cast<unsigned>(stripBytes), internal.freeHeap, internal.maxAllocHeap);
   }
   return buffer;
 }
@@ -142,6 +159,12 @@ bool runTiledGrayscalePass(GfxRenderer& renderer, const Page& page, const int fo
     if (usePsramPlanes) {
       LOG_INF("EPS", "Using PSRAM grayscale planes: bytes=%u count=%u", static_cast<unsigned>(planeBytes),
               msbPlaneBuf ? 2U : 1U);
+    } else {
+#if defined(ENABLE_SERIAL_LOG) && defined(LOG_LEVEL) && LOG_LEVEL >= 2
+      const auto heap = MemoryBudget::snapshot();
+      LOG_DBG("EPS", "Using internal grayscale planes: bytes=%u count=%u free=%u max=%u",
+              static_cast<unsigned>(planeBytes), msbPlaneBuf ? 2U : 1U, heap.freeHeap, heap.maxAllocHeap);
+#endif
     }
     if (!renderPlaneToBuffer(GfxRenderer::GRAYSCALE_LSB, lsbPlaneBuf.get())) return failedImageReplay();
     if (msbPlaneBuf && !renderPlaneToBuffer(GfxRenderer::GRAYSCALE_MSB, msbPlaneBuf.get())) return failedImageReplay();
@@ -165,6 +188,13 @@ bool runTiledGrayscalePass(GfxRenderer& renderer, const Page& page, const int fo
     // Controller writes and the BW snapshot fallback both need the refresh to
     // be complete when the whole-plane allocation cannot be satisfied.
     renderer.waitRefreshComplete();
+#if defined(ENABLE_SERIAL_LOG) && defined(LOG_LEVEL) && LOG_LEVEL >= 2
+    const auto internal = MemoryBudget::snapshot();
+    const auto psram = MemoryBudget::psramSnapshot();
+    LOG_DBG("EPS", "Grayscale plane staging unavailable; using strip scratch (plane=%u internal=%u/%u psram=%u/%u)",
+            static_cast<unsigned>(planeBytes), internal.freeHeap, internal.maxAllocHeap, psram.freeHeap,
+            psram.maxAllocHeap);
+#endif
   }
 
   const size_t requiredScratchSize =

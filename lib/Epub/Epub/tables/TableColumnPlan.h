@@ -12,9 +12,13 @@ namespace TableColumnLayout {
 // simple table path. Richer/longer markup keeps the existing row layout.
 constexpr unsigned PROBE_COLUMNS = 4;
 struct Measures {
+  enum class ProbeStatus : uint8_t { Unsupported, Accepted, ScanLimit, WordLimit, ReadFailure };
   std::array<uint16_t, PROBE_COLUMNS> minimum{};
   std::array<uint16_t, PROBE_COLUMNS> preferred{};
   uint8_t count = 0;
+  uint16_t bytesScanned = 0;
+  uint16_t wordsScanned = 0;
+  ProbeStatus status = ProbeStatus::Unsupported;
 };
 struct Plan {
   std::array<uint16_t, PROBE_COLUMNS> ends{};
@@ -62,11 +66,23 @@ Measures measureSimpleTable(Read read, Width width, const uint16_t widthLimit, c
   constexpr unsigned MAX_SCAN_BYTES = 32 * 1024;
   constexpr unsigned MAX_MEASURED_WORDS = 384;
   Measures whole, row;
-  char buffer[96], tag[48], word[40];
+  // A 256-byte read batch cuts SD read calls by about 2.7x at the same 32 KiB
+  // lookahead cap. The additional 160 bytes are bounded stack scratch on the
+  // parser task; tag and word state remain separately bounded across batches.
+  char buffer[256], tag[48], word[40];
   unsigned tagLen = 0, wordLen = 0, line = 0, measuredWords = 0;
+  unsigned consumed = 0;
   bool inTag = false, inTable = false, inRow = false, inCell = false, inEntity = false;
   bool bold = false, spanning = false, skipCell = false;
   char quote = 0;
+
+  const auto reject = [&](const Measures::ProbeStatus status = Measures::ProbeStatus::Unsupported) {
+    Measures result;
+    result.bytesScanned = static_cast<uint16_t>(consumed);
+    result.wordsScanned = static_cast<uint16_t>(measuredWords);
+    result.status = status;
+    return result;
+  };
 
   const auto whitespace = [](const char c) { return c == ' ' || c == '\n' || c == '\r' || c == '\t'; };
   const auto finishWord = [&] {
@@ -88,9 +104,11 @@ Measures measureSimpleTable(Read read, Width width, const uint16_t widthLimit, c
     inEntity = false;
   };
 
-  for (unsigned consumed = 0; consumed < MAX_SCAN_BYTES;) {
-    const int count = read(buffer, std::min<unsigned>(sizeof(buffer), MAX_SCAN_BYTES - consumed));
-    if (count <= 0) return {};
+  for (; consumed < MAX_SCAN_BYTES;) {
+    const unsigned requested = std::min<unsigned>(sizeof(buffer), MAX_SCAN_BYTES - consumed);
+    const int count = read(buffer, requested);
+    if (count < 0 || count > static_cast<int>(requested)) return reject(Measures::ProbeStatus::ReadFailure);
+    if (count == 0) return reject();
     consumed += count;
     for (int i = 0; i < count; ++i) {
       const char c = buffer[i];
@@ -103,9 +121,9 @@ Measures measureSimpleTable(Read read, Width width, const uint16_t widthLimit, c
             inEntity = c != ';';
           } else if (whitespace(c)) {
             finishWord();
-            if (measuredWords > MAX_MEASURED_WORDS) return {};
+            if (measuredWords > MAX_MEASURED_WORDS) return reject(Measures::ProbeStatus::WordLimit);
           } else {
-            if (wordLen + 1 >= sizeof(word)) return {};  // do not split a UTF-8 word during the probe
+            if (wordLen + 1 >= sizeof(word)) return reject();  // do not split a UTF-8 word during the probe
             inEntity = c == '&';
             word[wordLen++] = inEntity ? 'n' : c;  // approximate the width of an entity, as upstream does
           }
@@ -122,17 +140,23 @@ Measures measureSimpleTable(Read read, Width width, const uint16_t widthLimit, c
         const bool close = text.starts_with('/');
         const auto name = text.substr(close ? 1 : 0, text.find_first_of(" \r\n\t/", close ? 1 : 0) - (close ? 1 : 0));
         if (name == "table") {
-          if (close) return inTable && !inRow && !inCell && whole.count >= 2 ? whole : Measures{};
-          if (inTable) return {};  // let the real parser handle a nested table
+          if (close) {
+            if (!inTable || inRow || inCell || whole.count < 2) return reject();
+            whole.status = Measures::ProbeStatus::Accepted;
+            whole.bytesScanned = static_cast<uint16_t>(consumed);
+            whole.wordsScanned = static_cast<uint16_t>(measuredWords);
+            return whole;
+          }
+          if (inTable) return reject();  // let the real parser handle a nested table
           inTable = true;
         } else if (name == "tr") {
-          if (!inTable || inCell || (close != inRow)) return {};
+          if (!inTable || inCell || (close != inRow)) return reject();
           inRow = !close;
           if (!close) {
             row = {};
             spanning = false;
           } else if (!spanning) {
-            if (row.count < 2 || (whole.count != 0 && row.count != whole.count)) return {};
+            if (row.count < 2 || (whole.count != 0 && row.count != whole.count)) return reject();
             whole.count = row.count;
             for (unsigned k = 0; k < row.count; ++k) {
               whole.minimum[k] = std::max(whole.minimum[k], row.minimum[k]);
@@ -140,11 +164,11 @@ Measures measureSimpleTable(Read read, Width width, const uint16_t widthLimit, c
             }
           }
         } else if (name == "td" || name == "th") {
-          if (!inRow || (close != inCell)) return {};
+          if (!inRow || (close != inCell)) return reject();
           if (close) finishLine();
           inCell = !close;
           if (!close) {
-            if (row.count == PROBE_COLUMNS) return {};
+            if (row.count == PROBE_COLUMNS) return reject();
             ++row.count;
             skipCell = text.find("colspan") != text.npos || text.find("rowspan") != text.npos;
             spanning |= skipCell;
@@ -155,15 +179,15 @@ Measures measureSimpleTable(Read read, Width width, const uint16_t widthLimit, c
         } else if (name == "p" || name == "div" || name == "li") {
           finishWord();
         } else if (name.starts_with("!") || name.starts_with("?")) {
-          return {};  // comments/CDATA are not scanned approximately
+          return reject();  // comments/CDATA are not scanned approximately
         }
-        if (measuredWords > MAX_MEASURED_WORDS) return {};
+        if (measuredWords > MAX_MEASURED_WORDS) return reject(Measures::ProbeStatus::WordLimit);
         continue;
       }
-      if (tagLen == sizeof(tag)) return {};
+      if (tagLen == sizeof(tag)) return reject();
       tag[tagLen++] = c;
     }
   }
-  return {};
+  return reject(Measures::ProbeStatus::ScanLimit);
 }
 }  // namespace TableColumnLayout

@@ -59,6 +59,7 @@ class CssParser {
   enum class CacheStatus : uint8_t {
     Missing,
     Invalid,
+    ReadError,
     Complete,
     Partial,
     RuleLimited,
@@ -117,7 +118,7 @@ class CssParser {
    * Check if any rules have been loaded
    */
   [[nodiscard]] bool empty() const {
-    return parsedRuleCount() == 0 && cacheRuleOffsets_.empty() && descendantRules_.empty();
+    return parsedRuleCount() == 0 && cachedRuleCount_ == 0 && descendantRules_.empty();
   }
 
   /**
@@ -139,13 +140,16 @@ class CssParser {
     parsedRuleHead_ = nullptr;
     psramParsedRuleCount_ = 0;
     decltype(descendantRules_){}.swap(descendantRules_);
-    decltype(cacheRuleOffsets_){}.swap(cacheRuleOffsets_);
+    cacheRuleOffsets_.reset();
     cachedRuleArena_.release();
     cachedRules_ = nullptr;
     cachedRuleTableCount_ = 0;
+    hydratedRuleIndexCrc_ = 0;
+    hydratedRuleIndexCrcValid_ = false;
     cacheIndexLoaded_ = false;
     cachedRuleCount_ = 0;
     cachePartial_ = false;
+    cacheLookupFailed_ = false;
     clearDiskRuleMemo();
     ruleLimitReached_ = false;
   }
@@ -154,6 +158,11 @@ class CssParser {
    * Check if CSS rules cache file exists
    */
   bool hasCache() const;
+
+  // On constrained devices, release only the hydrated simple-rule table when
+  // text layout runs low on heap. The exact CSS cache index remains available
+  // for disk-backed lookups; descendant rules and their cascade data stay live.
+  bool demoteHydratedRulesForLowMemory();
 
   /**
    * Validate the cache structure without hydrating any rule containers.
@@ -189,6 +198,7 @@ class CssParser {
    * True when the last loaded/saved cache is a usable but incomplete CSS parse.
    */
   [[nodiscard]] bool isCachePartial() const { return cachePartial_; }
+  [[nodiscard]] bool hasCacheLookupFailure() const { return cacheLookupFailed_; }
 
  private:
   std::vector<CssFontFace> fontFaces_;
@@ -201,6 +211,9 @@ class CssParser {
     std::string ancestorSelector;  // e.g. "div", ".chapter", "section.body"
     std::string subjectSelector;   // e.g. "p", ".indent", "p.indent"
     CssStyle style;
+    uint32_t specificity = 0;
+    uint32_t subjectTokenMask = 0;  // Bloom filter; exact compound matching remains authoritative.
+    bool firstLetter = false;
   };
 
   // Lookup key for a multi-piece selector. The pieces are hashed and compared
@@ -277,7 +290,15 @@ class CssParser {
   size_t cachedRuleTableCount_ = 0;
   mutable bool cacheIndexLoaded_ = false;
   mutable size_t cachedRuleCount_ = 0;
-  mutable std::vector<SelectorEntry> cacheRuleOffsets_;
+  // Runtime-sized fallback index: max 1500 * 8 bytes = 12 KiB. Keep it off
+  // stack/static storage, allocate fallibly only for disk lookup, and release
+  // it after successful collision-free hydration.
+  mutable std::unique_ptr<SelectorEntry[]> cacheRuleOffsets_;
+  mutable bool cacheLookupFailed_ = false;
+  // C3-only proof that the on-disk selector index still matches the selectors
+  // and offsets validated while hydrating the resident table.
+  uint32_t hydratedRuleIndexCrc_ = 0;
+  bool hydratedRuleIndexCrcValid_ = false;
 
   // Optional disk-fallback working set. Exact selectors avoid hash collisions;
   // longer selectors remain correct through the ordinary disk path.

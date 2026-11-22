@@ -169,8 +169,9 @@ TEST(Serialization, CheckedStringReadRejectsUnrepresentableLength) {
 TEST(Serialization, CheckedStringReadRejectsTruncatedPayload) {
   HalFile file;
   file.bytes = {3, 0, 0, 0, 'a', 'b'};
-  std::string value;
+  std::string value = "existing";
   EXPECT_FALSE(serialization::tryReadString(file, value));
+  EXPECT_EQ(value, "existing");
 }
 
 TEST(Serialization, CheckedStringWriteStopsAfterShortLengthWrite) {

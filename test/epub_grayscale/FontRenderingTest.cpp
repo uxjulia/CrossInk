@@ -107,6 +107,31 @@ TEST(FontGroupAdmission, DominantBodyKeepsFourSlotsAcrossBwAndAaWithExplicitFall
   }
 }
 
+TEST(FontGroupAdmission, CodepointSpanPrewarmsLigatureOutputWithoutTaskStackGlyphArray) {
+  GroupFont font(true);
+  const EpdLigaturePair ligature{(uint32_t('A') << 16) | uint32_t('B'), 'C'};
+  font.data.ligaturePairs = &ligature;
+  font.data.ligaturePairCount = 1;
+  FontDecompressor decoder;
+  uint32_t codepoints[] = {'A', 'B'};
+
+  ASSERT_EQ(decoder.prewarmCodepoints(&font.data, codepoints, 2), 0);
+  EXPECT_EQ(decoder.getStats().pageGlyphsBytes, 36u);  // Three 12-byte lookup entries include the ligature output.
+  const auto* bitmap = decoder.getBitmap(&font.data, &font.glyphs[2], 2);
+  ASSERT_NE(bitmap, nullptr);
+  EXPECT_EQ(bitmap[0], GroupFont::pattern(2));
+  EXPECT_EQ(decoder.getStats().cacheMisses, 0u);  // C came from the prewarmed ligature entry.
+}
+
+TEST(FontGroupAdmission, EmptyCodepointSpanDoesNotTouchTheGroupTable) {
+  GroupFont font(false);
+  FontDecompressor decoder;
+
+  EXPECT_EQ(decoder.prewarmCodepoints(&font.data, nullptr, 0), 0);
+  EXPECT_EQ(decoder.getStats().pageGlyphsBytes, 0u);
+  EXPECT_EQ(decoder.getStats().pageBufferBytes, 0u);
+}
+
 TEST(FontScratch, ReusesOneAllocationAndReleasesItBeforeReturning) {
   for (bool frequency : {false, true}) {
     fakeheap::reset(false);
@@ -120,6 +145,19 @@ TEST(FontScratch, ReusesOneAllocationAndReleasesItBeforeReturning) {
     EXPECT_EQ(decoder.getStats().cacheHits, 3u);
     EXPECT_EQ(decoder.getStats().cacheMisses, 0u);
   }
+}
+
+TEST(FontScratch, RepeatedHotGlyphReusesItsAlignedOffset) {
+  fakeheap::reset(false);
+  GroupFont font(true);
+  FontDecompressor decoder;
+
+  for (int repeat = 0; repeat < 3; ++repeat) {
+    const auto* bitmap = decoder.getBitmap(&font.data, &font.glyphs[2], 2);
+    ASSERT_NE(bitmap, nullptr);
+    EXPECT_EQ(bitmap[0], GroupFont::pattern(2));
+  }
+  EXPECT_EQ(decoder.getStats().hotOffsetCacheHits, 2u);
 }
 
 TEST(FontScratch, GrowthNeverNeedsTwoScratchBuffers) {

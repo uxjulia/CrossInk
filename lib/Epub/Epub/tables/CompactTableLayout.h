@@ -61,6 +61,7 @@ class CompactTableLayout final {
 
   // Resolves the row to a grid or a streamed paragraph fallback. After
   // Flatten/FlattenRow, drain through visitCapturedParagraphs before beginRow.
+  RowResult finishRow(TableFragmentRow& gridRow, uint32_t& visibleTextOffset);
   RowResult finishRow(TableFragmentRow& gridRow, std::vector<FootnoteEntry>& footnotes, uint32_t& visibleTextOffset);
 
  private:
@@ -162,6 +163,5 @@ class CompactTableLayout final {
   bool emitLine(std::array<LineToken, MAX_ROW_TOKENS>& line, uint16_t lineCount, uint16_t lineWidth, uint16_t maxWidth,
                 const BlockStyle& style, const LineOutput& output);
   bool wrapCell(const Cell& cell, uint16_t maxWidth, const LineOutput& output);
-  RowResult finishRowInternal(bool forceFlatten, TableFragmentRow& gridRow, std::vector<FootnoteEntry>& footnotes,
-                              uint32_t& visibleTextOffset);
+  RowResult finishRowInternal(bool forceFlatten, TableFragmentRow& gridRow, uint32_t& visibleTextOffset);
 };

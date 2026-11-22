@@ -32,6 +32,8 @@ class BookFontSystem {
     uint8_t style = 0;
     bool attempted = false;
     bool registered = false;
+    bool temporaryExtraction = false;
+    uint64_t registeredSizes = 0;
     std::string href;
     std::unique_ptr<HalScalableFont> font;
   };
@@ -40,10 +42,13 @@ class BookFontSystem {
   size_t faceCount_ = 0;
   uint32_t signature_ = 0;
   Epub* book_ = nullptr;
+  std::string cachePath_;
   size_t remainingBytes_ = 4U * 1024U * 1024U;
   uint32_t requestedFaces_ = 0;
+  std::string publisherFontPath(size_t index, const char* suffix) const;
   void loadFace(size_t index);
-  void registerFamily(uint32_t family);
+  bool registerFamily(uint32_t family, uint8_t points);
+  bool registerPointSize(uint32_t family, size_t regular, uint8_t points);
   void loadFamily(uint32_t family);
   static int fontId(uint32_t family, uint8_t points);
 };

@@ -437,17 +437,11 @@ bool CompactTableLayout::visitCapturedParagraphs(const ParagraphVisitor visitor,
 }
 
 CompactTableLayout::RowResult CompactTableLayout::finishRowInternal(const bool forceFlatten, TableFragmentRow& gridRow,
-                                                                    std::vector<FootnoteEntry>& footnotes,
                                                                     uint32_t& visibleTextOffset) {
   if (fatal_ || !rowActive_ || cellActive_) return RowResult::Abort;
   if (cellCount_ == 0 || effectiveColumnCount_ == 0) forceFlatten ? flattened_ = true : unsupported_ = true;
   const bool flatten = forceFlatten || unsupported_ || flattened_;
   visibleTextOffset = cellCount_ > 0 ? cells_[0].visibleTextOffset : visibleTextOffset;
-  footnotes.clear();
-  for (uint8_t i = 0; i < rowFootnoteCount_; ++i) {
-    footnotes.push_back(rowFootnotes_[i]);
-  }
-
   if (flatten) {
     flattened_ = true;
   } else {
@@ -458,7 +452,7 @@ CompactTableLayout::RowResult CompactTableLayout::finishRowInternal(const bool f
     bool validGrid = fullWidth || effectiveColumnCount_ == columnCount_;
     if (!validGrid || columnCount_ == 0 || columnCount_ > MAX_COLUMNS) {
       unsupported_ = true;
-      return finishRowInternal(true, gridRow, footnotes, visibleTextOffset);
+      return finishRowInternal(true, gridRow, visibleTextOffset);
     }
 
     const bool planned = !fullWidth && columnCount_ == columnPlan_.count;
@@ -469,9 +463,9 @@ CompactTableLayout::RowResult CompactTableLayout::finishRowInternal(const bool f
         // No planned row is visible yet, so keep the old widths for the
         // entire table rather than taking a new and premature fallback.
         columnPlan_ = {};
-        return finishRowInternal(false, gridRow, footnotes, visibleTextOffset);
+        return finishRowInternal(false, gridRow, visibleTextOffset);
       }
-      const auto result = finishRowInternal(true, gridRow, footnotes, visibleTextOffset);
+      const auto result = finishRowInternal(true, gridRow, visibleTextOffset);
       if (result == RowResult::Flatten) {
         // This row alone could not fit. The established column geometry is
         // still usable by subsequent rows, including in the equal grid.
@@ -529,7 +523,17 @@ CompactTableLayout::RowResult CompactTableLayout::finishRowInternal(const bool f
 CompactTableLayout::RowResult CompactTableLayout::finishRow(TableFragmentRow& gridRow,
                                                             std::vector<FootnoteEntry>& footnotes,
                                                             uint32_t& visibleTextOffset) {
-  const RowResult result = finishRowInternal(unsupported_ || flattened_, gridRow, footnotes, visibleTextOffset);
+  const RowResult result = finishRow(gridRow, visibleTextOffset);
+  footnotes.clear();
+  footnotes.reserve(rowFootnoteCount_);
+  for (uint8_t i = 0; i < rowFootnoteCount_; ++i) {
+    footnotes.push_back(rowFootnotes_[i]);
+  }
+  return result;
+}
+
+CompactTableLayout::RowResult CompactTableLayout::finishRow(TableFragmentRow& gridRow, uint32_t& visibleTextOffset) {
+  const RowResult result = finishRowInternal(unsupported_ || flattened_, gridRow, visibleTextOffset);
   if (result == RowResult::Abort) {
     fatal_ = true;
     LOG_ERR("EHP", "Compact table row layout failed");

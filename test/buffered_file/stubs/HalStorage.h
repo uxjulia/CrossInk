@@ -19,6 +19,7 @@ class HalFile {
   size_t writes = 0;
   size_t seeks = 0;
 
+  int available() const { return static_cast<int>(bytes.size() - std::min(cursor, bytes.size())); }
   size_t position() const { return cursor; }
   int read(void* output, size_t length) {
     ++reads;

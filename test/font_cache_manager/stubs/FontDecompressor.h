@@ -1,7 +1,7 @@
 #pragma once
 
+#include <algorithm>
 #include <cstdint>
-#include <cstdio>
 
 #include "EpdFontFamily.h"
 
@@ -10,14 +10,20 @@ class FontDecompressor {
   static constexpr uint8_t MAX_PAGE_SLOTS = 4;
   struct PrewarmCall {
     const EpdFontData* fontData = nullptr;
-    char text[32] = {};
+    uint32_t codepoints[64] = {};
+    uint16_t count = 0;
   };
 
   void clearCache() { clearCacheCallCount++; }
   int prewarmCache(const EpdFontData* fontData, const char* text) {
+    (void)text;
+    return prewarmCodepoints(fontData, nullptr, 0);
+  }
+  int prewarmCodepoints(const EpdFontData* fontData, const uint32_t* codepoints, uint16_t count) {
     auto& call = prewarmCalls[prewarmCallCount++];
     call.fontData = fontData;
-    std::snprintf(call.text, sizeof(call.text), "%s", text);
+    call.count = count < 64 ? count : 64;
+    if (codepoints && call.count) std::copy_n(codepoints, call.count, call.codepoints);
     return 0;
   }
   void logStats(const char*) {}

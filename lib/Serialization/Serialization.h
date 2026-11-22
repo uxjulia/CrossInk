@@ -74,6 +74,8 @@ static bool tryReadString(FsFile& file, std::string& s) {
   if (static_cast<size_t>(len) > s.max_size() || len > static_cast<uint32_t>(std::numeric_limits<int>::max())) {
     return false;
   }
+  const int remaining = file.available();
+  if (remaining < 0 || static_cast<uint64_t>(len) > static_cast<uint64_t>(remaining)) return false;
   s.resize(len);
   const int readLen = static_cast<int>(len);
   return len == 0 || file.read(&s[0], readLen) == readLen;

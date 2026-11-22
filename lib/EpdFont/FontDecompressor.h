@@ -2,6 +2,8 @@
 
 #include <InflateReader.h>
 
+#include <memory>
+
 #include "EpdFontData.h"
 
 class FontDecompressor {
@@ -27,18 +29,24 @@ class FontDecompressor {
   // Returns the number of glyphs that couldn't be loaded (0 on full success).
   int prewarmCache(const EpdFontData* fontData, const char* utf8Text);
 
+  // Prewarm a sorted, unique codepoint span collected by the reader's scan pass.
+  // Returns the number of glyphs that could not be cached, or -1 if no page
+  // slot is available and rendering should use the hot-group path.
+  int prewarmCodepoints(const EpdFontData* fontData, uint32_t* codepoints, uint16_t count);
+
   struct Stats {
     uint32_t prewarmSlotRefusals = 0;  // Explicit fallback, not a successful page-slot admission.
     uint32_t cacheHits = 0;
     uint32_t cacheMisses = 0;
     uint32_t decompressTimeMs = 0;
     uint16_t uniqueGroupsAccessed = 0;
-    uint32_t pageBufferBytes = 0;  // page slot buffer allocations
-    uint32_t pageGlyphsBytes = 0;  // page slot lookup table allocations
-    uint32_t hotGroupBytes = 0;    // current hot group allocation
-    uint32_t peakTempBytes = 0;    // largest temp buffer in prewarm
-    uint32_t getBitmapTimeUs = 0;  // cumulative getBitmap time (micros)
-    uint32_t getBitmapCalls = 0;   // number of getBitmap calls
+    uint32_t pageBufferBytes = 0;     // page slot buffer allocations
+    uint32_t pageGlyphsBytes = 0;     // page slot lookup table allocations
+    uint32_t hotGroupBytes = 0;       // current hot group allocation
+    uint32_t peakTempBytes = 0;       // largest temp buffer in prewarm
+    uint32_t getBitmapTimeUs = 0;     // cumulative getBitmap time (micros)
+    uint32_t getBitmapCalls = 0;      // number of getBitmap calls
+    uint32_t hotOffsetCacheHits = 0;  // repeated glyphs avoid rescanning earlier group members
   };
   void logStats(const char* label = "FDC");
   void resetStats();
@@ -79,14 +87,29 @@ class FontDecompressor {
   uint8_t* hotGlyphBuf = nullptr;
   uint32_t hotGlyphBufCapacity = 0;
 
+  static constexpr uint8_t HOT_OFFSET_CACHE_SIZE = 16;
+  struct HotOffsetEntry {
+    uint32_t glyphIndex = UINT32_MAX;
+    uint32_t alignedOffset = 0;
+  };
+  HotOffsetEntry hotOffsetCache_[HOT_OFFSET_CACHE_SIZE] = {};
+
   // Grow (never shrink) an owned buffer to at least `needed` bytes; false on OOM, buffer freed.
   static bool ensureCapacity(uint8_t*& buf, uint32_t& capacity, uint32_t needed);
 
   void freePageBuffer();
   void freeHotGroup();
+  void resetHotOffsetCache();
   uint16_t getGroupIndex(const EpdFontData* fontData, uint32_t glyphIndex);
   uint32_t getAlignedOffset(const EpdFontData* fontData, uint16_t groupIndex, uint32_t glyphIndex);
   bool decompressGroup(const EpdFontData* fontData, uint16_t groupIndex, uint8_t* outBuf, uint32_t outSize);
   static void compactSingleGlyph(const uint8_t* alignedSrc, uint8_t* packedDst, uint8_t width, uint8_t height);
   static int32_t findGlyphIndex(const EpdFontData* fontData, uint32_t codepoint);
+  void addLigatureGlyphs(const EpdFontData* fontData, uint32_t* neededGlyphs, uint16_t& glyphCount,
+                         bool& glyphCapWarned);
+  uint16_t countLigatureOutputs(const EpdFontData* fontData, const uint32_t* glyphIndices, uint16_t glyphCount);
+  void addLigatureGlyphEntries(const EpdFontData* fontData, PageGlyphEntry* glyphs, uint16_t& glyphCount,
+                               uint16_t glyphCapacity);
+  int prewarmGlyphs(const EpdFontData* fontData, uint32_t* neededGlyphs, uint16_t glyphCount);
+  int prewarmGlyphTable(const EpdFontData* fontData, std::unique_ptr<PageGlyphEntry[]> glyphs, uint16_t glyphCount);
 };

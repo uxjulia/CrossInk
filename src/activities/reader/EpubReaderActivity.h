@@ -34,6 +34,7 @@
 #include "ReaderProgressSaveDebouncer.h"
 #include "ReadingSessionJournal.h"
 #include "ReadingSessionStats.h"
+#include "SectionCacheRepairState.h"
 #include "StableReadingPace.h"
 #include "activities/Activity.h"
 #include "activities/reader/TouchReaderPreviewModel.h"
@@ -300,6 +301,7 @@ class EpubReaderActivity final : public Activity {
   ReaderButtonShortcuts readerButtonShortcuts;
   bool touchDictionaryLookupHandled = false;
   int pageLoadRetryCount = 0;
+  SectionCacheRepairState sectionCacheRepair;
   enum class BookmarkFeedbackType : uint8_t {
     Added,
     Removed,
@@ -461,6 +463,7 @@ class EpubReaderActivity final : public Activity {
   // Remap the cached reading position once the saved paragraph and prior readable watermark are rebuilt
   // (used after a settings change re-paginates a chapter). Returns true if currentPage moved.
   bool isRelayoutCatchUpComplete() const;
+  bool isRelayoutCatchUpComplete(const Section& candidate) const;
   bool applyDeferredReposition();
   // Saves are suppressed while a footnote preview is on screen so the preview's own
   // position cannot overwrite the reader's. Set allowDuringFootnotePreview for the
@@ -621,7 +624,7 @@ class EpubReaderActivity final : public Activity {
              (!hasIndexingPsram || section->currentPage + PARTIAL_REBUILD_START_MARGIN >= section->pageCount)));
   }
   void advanceBackgroundSectionBuild();
-  void runBackgroundSectionBuildStep(bool idleSlice);
+  void runBackgroundSectionBuildStep();
   bool backgroundSectionBuildHasHeap();
   void idlePrewarmNextPage();
   bool skipLoopDelay() override {

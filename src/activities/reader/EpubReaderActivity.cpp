@@ -376,7 +376,10 @@ ReaderRenderSpec readerRenderSpecForProfile(const int fontId, const uint16_t vie
   return spec;
 }
 
-void ensureReaderSdFontLoaded(GfxRenderer& renderer, const Epub* epub) {
+void ensureReaderSdFontLoaded(GfxRenderer& renderer, Epub* epub) {
+  if (epub && SETTINGS.embeddedStyle && !epub->ensureCssCache()) {
+    LOG_ERR("READER", "Could not prepare requested embedded styles");
+  }
   const auto* css = epub ? epub->getCssParser() : nullptr;
   const bool useCssSizes =
       SETTINGS.embeddedStyle && normalizeRenderMode(SETTINGS.epubRenderMode) != EpubRenderMode::Light;
@@ -2533,6 +2536,7 @@ void EpubReaderActivity::onEnter() {
   hasIndexingPsram = psramHeapAvailable();
   ComplexShaper::setDocumentLanguage(epub->getLanguage().c_str());
   pageLoadRetryCount = 0;
+  sectionCacheRepair.reset();
   touchReaderDrawerState = initialReaderDrawerState(mappedInput.hasTouchHardware());
 
   MemoryBudget::logEpubHeapPools("reader enter");
@@ -3077,7 +3081,7 @@ void EpubReaderActivity::advanceBackgroundSectionBuild() {
       (buildViewportWidth == 0 || partialRebuildStartFailed || partialRebuildAbortedForLowMemory))
     return;
   const unsigned long started = millis();
-  runBackgroundSectionBuildStep(idleSlice);
+  runBackgroundSectionBuildStep();
   if (idleSlice) {
     lastIdleIndexMs = millis();
     activityManager.recordIdleWork(lastIdleIndexMs - started);
@@ -3085,7 +3089,7 @@ void EpubReaderActivity::advanceBackgroundSectionBuild() {
 }
 
 // Called with RenderLock held. Return to polling after each parser or font step.
-void EpubReaderActivity::runBackgroundSectionBuildStep(const bool idleSlice) {
+void EpubReaderActivity::runBackgroundSectionBuildStep() {
   releaseGrayscaleStripScratch();
   if (!backgroundSectionBuildHasHeap()) return;
   const uint32_t loansBefore = renderer.frameBufferLoanCount();
@@ -3097,23 +3101,30 @@ void EpubReaderActivity::runBackgroundSectionBuildStep(const bool idleSlice) {
     partialRebuildStartFailed = !section->startBuild(
         readerRenderSpecForProfile(fontId, buildViewportWidth, buildViewportHeight, profile), options);
     invalidatePageBufferAfterBuild(loansBefore);
-    if (partialRebuildStartFailed) LOG_ERR("ERS", "Failed to start deferred partial extension build");
+    if (partialRebuildStartFailed) {
+      LOG_ERR("ERS", "Failed to start deferred partial extension build");
+      sectionCacheRepair.markFailed(currentSpineIndex);
+    }
     return;
   }
 
   const bool prewarmed = section->activeBuildHasCaughtReadablePages() &&
                          static_cast<int>(section->pageCount) > section->currentPage + 2 && section->prewarmSomeMore();
-  const bool built = prewarmed || section->buildSomeMore(BACKGROUND_BUILD_PAGES_PER_TICK, idleSlice);
+  // A page quota alone can still hold RenderLock across a huge hidden prefix or table.
+  // Advance one parser buffer per loop so input and foreground rendering can run between steps.
+  const bool built = prewarmed || section->buildSomeMore(BACKGROUND_BUILD_PAGES_PER_TICK, /*singleParseStep=*/true);
   invalidatePageBufferAfterBuild(loansBefore);
   if (!built) {
     LOG_ERR("ERS", "Background section build failed");
     if (section->lastBuildLayoutAbortedForLowMemory() && section->pageCount > 0) {
       partialRebuildAbortedForLowMemory = true;
     } else {
+      sectionCacheRepair.markFailed(currentSpineIndex);
       section.reset();
       requestUpdate();
     }
   } else if (section->isBuildComplete()) {
+    sectionCacheRepair.markCommitted(currentSpineIndex);
     LOG_DBG("ERS", "Background chapter complete: spine=%d pages=%u", currentSpineIndex, section->pageCount);
     if (applyDeferredReposition() || progressSaveRequiredAfterRelayout) {
       requestUpdate();
@@ -6671,6 +6682,18 @@ void EpubReaderActivity::render(RenderLock&& lock) {
     automaticPageTurnActive = false;
   };
 
+  const auto showPageLoadError = [this, &showPendingSyncSaveError]() {
+    renderer.clearScreen(ReaderUtils::readerBackgroundColor());
+    openingFeedback.finish();
+    renderer.drawCenteredText(UI_12_FONT_ID, ReaderUtils::messageCenterY(renderer), tr(STR_PAGE_LOAD_ERROR),
+                              ReaderUtils::readerForegroundBlack(), EpdFontFamily::BOLD);
+    renderStatusBar();
+    renderer.displayBuffer();
+    pageBufferStale.store(false, std::memory_order_relaxed);
+    automaticPageTurnActive = false;
+    showPendingSyncSaveError();
+  };
+
   const auto showIndexingPopup = [this]() {
     // drawPopup() already refreshes the panel with a FAST waveform. A second
     // refresh of the identical frame cost ~0.55-0.7 s before every index build.
@@ -6685,6 +6708,7 @@ void EpubReaderActivity::render(RenderLock&& lock) {
     }
     if (section && section->isBuilding()) {
       section->suspendBuild();
+      if (section->isPartial()) sectionCacheRepair.markCommitted(currentSpineIndex);
     }
     buildCancelledForBack = true;
     automaticPageTurnActive = false;
@@ -6724,6 +6748,11 @@ void EpubReaderActivity::render(RenderLock&& lock) {
   // based bounds of book, show end of book screen
   if (currentSpineIndex > epub->getSpineItemsCount()) {
     currentSpineIndex = epub->getSpineItemsCount();
+  }
+  sectionCacheRepair.resetForSpine(currentSpineIndex);
+  if (sectionCacheRepair.hasFailed(currentSpineIndex)) {
+    showPageLoadError();
+    return;
   }
 
   // Show end of book screen
@@ -6769,11 +6798,20 @@ void EpubReaderActivity::render(RenderLock&& lock) {
     const bool fullSectionIndexing = SETTINGS.indexingMethod == CrossPointSettings::INDEXING_FULL_SECTION;
     EpubRenderMode usedRenderMode = selectedRenderMode;
     const bool buildingFootnotePreview = !pendingFootnotePreviewAnchor.empty();
+    const bool forceCacheRepair = sectionCacheRepair.shouldBypassCache(currentSpineIndex);
     bool loadedSection = false;
     bool safeModeBuildSucceeded = false;
     partialRebuildStartFailed = false;
     partialRebuildAbortedForLowMemory = false;
     auto loadSectionWithFont = [&](const int fontId, const EpubRenderMode renderMode) {
+      if (forceCacheRepair) {
+        // The section header can be valid while a page payload is permanently
+        // damaged. Skip it and rebuild from the retained XHTML source.
+        LOG_INF("ERS", "Rebuilding damaged section cache from XHTML (spine=%d)", currentSpineIndex);
+        activeSectionFontId = fontId;
+        usedRenderMode = renderMode;
+        return false;
+      }
       const std::string cacheSuffix = buildingFootnotePreview
                                           ? footnotePreviewCacheSuffix(renderMode, pendingFootnotePreviewAnchor)
                                           : std::string(sectionCacheSuffixForRenderMode(renderMode));
@@ -7063,10 +7101,14 @@ void EpubReaderActivity::render(RenderLock&& lock) {
         return;
       }
 
+      const bool relayoutPositionAvailable =
+          pendingRelayoutReposition && readablePartialFallback && isRelayoutCatchUpComplete(*readablePartialFallback);
       if (!fallbackBuildSucceeded && readablePartialFallback && !buildingFootnotePreview && !pendingPercentJump &&
-          pendingClippingIndex == UINT16_MAX && pendingParagraphIndex == UINT16_MAX && !pendingRelayoutReposition) {
+          pendingClippingIndex == UINT16_MAX && pendingParagraphIndex == UINT16_MAX &&
+          (!pendingRelayoutReposition || relayoutPositionAvailable)) {
         const int target = pendingPageJump.has_value() ? *pendingPageJump : std::max(0, nextPageNumber);
         bool targetAvailable = target < static_cast<int>(readablePartialFallback->pageCount);
+        if (pendingRelayoutReposition && !pendingPageJump) targetAvailable = relayoutPositionAvailable;
         if (!pendingAnchor.empty()) {
           const auto anchorPage = readablePartialFallback->findAnchor(pendingAnchor);
           targetAvailable = anchorPage.has_value() && *anchorPage < readablePartialFallback->pageCount;
@@ -7097,6 +7139,7 @@ void EpubReaderActivity::render(RenderLock&& lock) {
       }
 
       if (!fallbackBuildSucceeded) {
+        if (forceCacheRepair) sectionCacheRepair.markFailed(currentSpineIndex);
         if (layoutAbortedForLowMemory) {
           LOG_ERR("ERS", "EPUB section layout aborted for low heap; chapter exceeds safe layout memory");
         }
@@ -7352,6 +7395,7 @@ void EpubReaderActivity::render(RenderLock&& lock) {
       LOG_ERR("ERS", "Blocking build stopped for low heap; retaining %u readable partial pages", section->pageCount);
       queueLowMemoryLayoutAlert(false);
     } else {
+      sectionCacheRepair.markFailed(currentSpineIndex);
       section.reset();
       showBuildError();
       return;
@@ -7407,11 +7451,19 @@ void EpubReaderActivity::render(RenderLock&& lock) {
     // otherwise the on-disk file (finalized section, or a partial from a previous session).
     auto p = section->loadPage(section->currentPage);
     if (!p) {
+      if (sectionCacheRepair.isStaging(currentSpineIndex)) {
+        LOG_ERR("ERS", "Page read still failed after rebuilding section cache (spine=%d, page=%d)", currentSpineIndex,
+                section->currentPage);
+        sectionCacheRepair.markFailed(currentSpineIndex);
+        pageLoadRetryCount = 0;
+        showPageLoadError();
+        return;
+      }
       pageLoadRetryCount++;
       if (pageLoadRetryCount <= MAX_PAGE_LOAD_RETRIES) {
-        LOG_ERR("ERS", "Failed to load page from SD (retry %d) - clearing section cache", pageLoadRetryCount);
+        LOG_ERR("ERS", "Failed to load page from SD (retry %d); keeping committed section cache", pageLoadRetryCount);
+        nextPageNumber = section->currentPage;
         section->abandonBuild();
-        section->clearCache();
         section.reset();
         requestUpdate();
         automaticPageTurnActive = false;
@@ -7419,20 +7471,21 @@ void EpubReaderActivity::render(RenderLock&& lock) {
         return;
       }
 
-      LOG_ERR("ERS", "Failed to load page from SD after %d retries", pageLoadRetryCount);
+      LOG_ERR("ERS", "Page read failed after %d retries; rebuilding from XHTML", pageLoadRetryCount);
+      sectionCacheRepair.begin(currentSpineIndex);
       pageLoadRetryCount = 0;
-      renderer.clearScreen(ReaderUtils::readerBackgroundColor());
-      openingFeedback.finish();
-      renderer.drawCenteredText(UI_12_FONT_ID, ReaderUtils::messageCenterY(renderer), tr(STR_PAGE_LOAD_ERROR),
-                                ReaderUtils::readerForegroundBlack(), EpdFontFamily::BOLD);
-      renderStatusBar();
-      renderer.displayBuffer();
-      pageBufferStale.store(false, std::memory_order_relaxed);
+      nextPageNumber = section->currentPage;
+      section->abandonBuild();
+      section.reset();
+      requestUpdate();
       automaticPageTurnActive = false;
       showPendingSyncSaveError();
       return;
     }
     pageLoadRetryCount = 0;
+    if (sectionCacheRepair.isStaging(currentSpineIndex) && !section->isBuilding()) {
+      sectionCacheRepair.markCommitted(currentSpineIndex);
+    }
     if (showOpeningFeedback()) renderer.clearScreen(ReaderUtils::readerBackgroundColor());
 
     // Preview pages are transient note windows, not full chapter pages with reusable footnote metadata.
@@ -7704,16 +7757,20 @@ bool EpubReaderActivity::restoreCurrentPageBufferAfterSilentIndex() {
 }
 
 bool EpubReaderActivity::isRelayoutCatchUpComplete() const {
-  if (!pendingRelayoutReposition || !section) {
-    return !pendingRelayoutReposition;
-  }
+  if (!pendingRelayoutReposition) return true;
+  return section && isRelayoutCatchUpComplete(*section);
+}
 
-  bool positionResolved = static_cast<int>(section->pageCount) > cachedChapterPageNumber;
+bool EpubReaderActivity::isRelayoutCatchUpComplete(const Section& candidate) const {
+  if (!pendingRelayoutReposition) return true;
+
+  bool positionResolved = static_cast<int>(candidate.pageCount) > cachedChapterPageNumber;
   if (cachedVisibleTextOffset) {
-    positionResolved = section->getPageForVisibleTextOffset(*cachedVisibleTextOffset).has_value();
+    positionResolved = candidate.getPageForVisibleTextOffset(*cachedVisibleTextOffset).has_value();
   } else if (cachedPageParagraphIndex != UINT16_MAX) {
-    positionResolved = section->isBuilding() ? section->findParagraphDuringBuild(cachedPageParagraphIndex).has_value()
-                                             : section->getPageForParagraphIndex(cachedPageParagraphIndex).has_value();
+    positionResolved = candidate.isBuilding()
+                           ? candidate.findParagraphDuringBuild(cachedPageParagraphIndex).has_value()
+                           : candidate.getPageForParagraphIndex(cachedPageParagraphIndex).has_value();
   }
   // A previous finalized cache may cover the entire chapter. Wait only until
   // the current reading position is available; incremental indexing then keeps

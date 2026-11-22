@@ -22,6 +22,16 @@ struct HostFileData {
   size_t reads = 0;
   size_t seeks = 0;
   size_t failAt = std::numeric_limits<size_t>::max();
+  size_t failReadAt = std::numeric_limits<size_t>::max();
+  size_t failReadCount = 0;
+  size_t corruptReadAt = std::numeric_limits<size_t>::max();
+  size_t corruptReadLength = 0;
+  size_t corruptReadCount = 0;
+  uint8_t corruptReadValue = 0;
+  size_t failSeekAt = std::numeric_limits<size_t>::max();
+  size_t failSeekCount = 0;
+  bool failSync = false;
+  bool failClose = false;
 };
 
 class HalFile : public Print {
@@ -32,20 +42,44 @@ class HalFile : public Print {
   void flush() {}
   size_t size() const { return data_ ? data_->bytes.size() : 0; }
   size_t fileSize() const { return size(); }
-  int available() const { return data_ && cursor_ < data_->bytes.size(); }
+  int available() const {
+    if (!data_ || cursor_ >= data_->bytes.size()) return 0;
+    return static_cast<int>(
+        std::min(data_->bytes.size() - cursor_, static_cast<size_t>(std::numeric_limits<int>::max())));
+  }
   size_t position() const { return cursor_; }
 
   int read(void* output, const size_t length) {
     if (!data_) return 0;
     ++data_->reads;
+    if (data_->failReadCount > 0 && cursor_ >= data_->failReadAt) {
+      --data_->failReadCount;
+      return -1;
+    }
     const size_t readable = std::min(length, data_->bytes.size() - std::min(cursor_, data_->bytes.size()));
+    const size_t readStart = cursor_;
     if (readable > 0) std::copy_n(data_->bytes.data() + cursor_, readable, static_cast<uint8_t*>(output));
     cursor_ += readable;
+    if (data_->corruptReadCount > 0 && readable > 0) {
+      const size_t readEnd = readStart + readable;
+      const size_t corruptEnd = data_->corruptReadAt + data_->corruptReadLength;
+      const size_t overlapStart = std::max(readStart, data_->corruptReadAt);
+      const size_t overlapEnd = std::min(readEnd, corruptEnd);
+      if (overlapStart < overlapEnd) {
+        auto* bytes = static_cast<uint8_t*>(output);
+        std::fill(bytes + (overlapStart - readStart), bytes + (overlapEnd - readStart), data_->corruptReadValue);
+        --data_->corruptReadCount;
+      }
+    }
     return static_cast<int>(readable);
   }
 
   bool seek(const size_t position) {
     if (!data_ || position > data_->bytes.size()) return false;
+    if (data_->failSeekCount > 0 && position == data_->failSeekAt) {
+      --data_->failSeekCount;
+      return false;
+    }
     ++data_->seeks;
     cursor_ = position;
     return true;
@@ -63,11 +97,12 @@ class HalFile : public Print {
   }
   size_t write(const void* input, const size_t length) { return write(static_cast<const uint8_t*>(input), length); }
 
-  bool sync() const { return static_cast<bool>(data_); }
+  bool sync() const { return data_ && !data_->failSync; }
   bool close() {
+    const bool success = data_ && !data_->failClose;
     data_.reset();
     cursor_ = 0;
-    return true;
+    return success;
   }
   bool isOpen() const { return static_cast<bool>(data_); }
   explicit operator bool() const { return isOpen(); }
@@ -91,12 +126,16 @@ class HalStorage {
     writeOpens = removes = renames = 0;
     failWrite = false;
     failRenameFrom.clear();
+    failSyncPath.clear();
+    failClosePath.clear();
   }
   size_t writeOpens = 0;
   size_t removes = 0;
   size_t renames = 0;
   bool failWrite = false;
   std::string failRenameFrom;
+  std::string failSyncPath;
+  std::string failClosePath;
   size_t reads(const std::string& path) const { return files_.at(path)->reads; }
   size_t seeks(const std::string& path) const { return files_.at(path)->seeks; }
   bool mkdir(const char*, bool = true) { return true; }
@@ -139,13 +178,34 @@ class HalStorage {
       data->failAt = 0;
       failWrite = false;
     }
+    data->failSync = path == failSyncPath;
+    data->failClose = path == failClosePath;
     files_[path] = data;
     file = HalFile(std::move(data));
     return true;
   }
 
   void failWritesAt(const std::string& path, size_t offset) { files_.at(path)->failAt = offset; }
+  void failReadsAt(const std::string& path, size_t offset) {
+    files_.at(path)->failReadAt = offset;
+    files_.at(path)->failReadCount = 1;
+  }
+  void corruptReadsAt(const std::string& path, size_t offset, size_t length, uint8_t value) {
+    files_.at(path)->corruptReadAt = offset;
+    files_.at(path)->corruptReadLength = length;
+    files_.at(path)->corruptReadValue = value;
+    files_.at(path)->corruptReadCount = 1;
+  }
+  void failSeeksAt(const std::string& path, size_t offset) {
+    files_.at(path)->failSeekAt = offset;
+    files_.at(path)->failSeekCount = 1;
+  }
+  void failSyncAt(const std::string& path) { files_.at(path)->failSync = true; }
+  void failCloseAt(const std::string& path) { files_.at(path)->failClose = true; }
   const std::vector<uint8_t>& bytes(const std::string& path) const { return files_.at(path)->bytes; }
+  void corruptByteAt(const std::string& path, const size_t offset, const uint8_t value) {
+    files_.at(path)->bytes.at(offset) = value;
+  }
   void put(const std::string& path, std::vector<uint8_t> bytes) {
     auto data = std::make_shared<HostFileData>();
     data->bytes = std::move(bytes);

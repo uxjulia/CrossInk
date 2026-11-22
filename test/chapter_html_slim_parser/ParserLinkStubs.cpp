@@ -95,7 +95,8 @@ PreviewBlockLocator::~PreviewBlockLocator() = default;
 bool PreviewBlockLocator::feed(const char*, int, bool) { return false; }
 
 CompactTableLayout::CompactTableLayout(GfxRenderer& renderer, int, uint16_t, uint16_t, uint16_t, uint8_t,
-                                       BlockStyle tableStyle, int8_t characterSpacing, TableColumnLayout::Plan columnPlan)
+                                       BlockStyle tableStyle, int8_t characterSpacing,
+                                       TableColumnLayout::Plan columnPlan)
     : renderer_(renderer), characterSpacing_(characterSpacing), tableStyle_(tableStyle), columnPlan_(columnPlan) {}
 bool CompactTableLayout::beginRow() { return true; }
 bool CompactTableLayout::beginCell(bool, uint8_t, uint32_t, const BlockStyle&) { return true; }
@@ -104,10 +105,10 @@ bool CompactTableLayout::appendWord(std::string_view, EpdFontFamily::Style, bool
 }
 bool CompactTableLayout::endCell(const std::vector<std::pair<int, FootnoteEntry>>&) { return true; }
 bool CompactTableLayout::visitCapturedParagraphs(ParagraphVisitor, void*) { return true; }
-CompactTableLayout::RowResult CompactTableLayout::finishRow(TableFragmentRow&, std::vector<FootnoteEntry>&,
-                                                            uint32_t&) {
+CompactTableLayout::RowResult CompactTableLayout::finishRow(TableFragmentRow&, std::vector<FootnoteEntry>&, uint32_t&) {
   return RowResult::Ok;
 }
+CompactTableLayout::RowResult CompactTableLayout::finishRow(TableFragmentRow&, uint32_t&) { return RowResult::Ok; }
 
 void PageLine::render(GfxRenderer&, int, int, int, bool) {}
 bool PageLine::serialize(Print&) { return false; }

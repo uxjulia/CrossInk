@@ -3,6 +3,10 @@
 #include <cstdint>
 #include <cstring>
 
+#if defined(ARDUINO_ARCH_ESP32) && !defined(SIMULATOR)
+#include <esp_rom_crc.h>
+#endif
+
 namespace OptimizerFormat {
 constexpr uint32_t MAX_RAW = 128 * 1024;
 constexpr uint16_t BLOCK_SIZE = 2048;
@@ -17,12 +21,16 @@ inline void put32(uint8_t* p, uint32_t v) {
   put16(p + 2, v >> 16);
 }
 inline uint32_t crc(uint32_t value, const uint8_t* p, size_t n) {
+#if defined(ARDUINO_ARCH_ESP32) && !defined(SIMULATOR)
+  return esp_rom_crc32_le(value, p, n);
+#else
   value = ~value;
   while (n--) {
     value ^= *p++;
     for (int i = 0; i < 8; ++i) value = (value >> 1) ^ (0xedb88320U & (0U - (value & 1)));
   }
   return ~value;
+#endif
 }
 inline bool dimensions(uint16_t w, uint16_t h) {
   return w && h && w <= 1024 && h <= 1024 && uint32_t((w + 3) / 4) * h <= MAX_RAW;

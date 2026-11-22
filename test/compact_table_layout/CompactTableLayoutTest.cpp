@@ -1,5 +1,7 @@
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <cstring>
 #include <fstream>
 #include <string>
 #include <vector>
@@ -125,6 +127,7 @@ TEST(CompactTableLayoutTest, RawProbeIgnoresSpanningNotesAndStopsAtTheFirstTable
       "<tr><td colspan='3'>An unrelated long note won't change the column widths</td></tr></tbody></table>"
       "<table><tr><td>Other</td><td>Table</td></tr></table>");
   EXPECT_EQ(measure.count, 3);
+  EXPECT_EQ(measure.status, TableColumnLayout::Measures::ProbeStatus::Accepted);
   EXPECT_GT(measure.preferred[0], measure.preferred[1]);
   EXPECT_EQ(measure.preferred[2], 30);
   EXPECT_EQ(probe("<table><tr><td>a</td><td>b</td></tr><tr><td>c</td></tr></table>").count, 0);
@@ -133,7 +136,60 @@ TEST(CompactTableLayoutTest, RawProbeIgnoresSpanningNotesAndStopsAtTheFirstTable
   EXPECT_EQ(probe("<table><caption>" + std::string(32768, 'x') + "</caption></table>").count, 0);
   std::string manyWords;
   for (unsigned i = 0; i < 400; ++i) manyWords += "x ";
-  EXPECT_EQ(probe("<table><tr><td>" + manyWords + "</td><td>b</td></tr></table>").count, 0);
+  const auto tooManyWords = probe("<table><tr><td>" + manyWords + "</td><td>b</td></tr></table>");
+  EXPECT_EQ(tooManyWords.count, 0);
+  EXPECT_EQ(tooManyWords.status, TableColumnLayout::Measures::ProbeStatus::WordLimit);
+}
+
+TEST(CompactTableLayoutTest, LookaheadUsesLargerBoundedReadBatches) {
+  std::string input = "<table><caption>" + std::string(32768, 'x') + "</caption></table>";
+  size_t offset = 0;
+  unsigned reads = 0;
+  unsigned largestRequest = 0;
+  const auto measure = TableColumnLayout::measureSimpleTable(
+      [&](char* buffer, const unsigned count) {
+        ++reads;
+        largestRequest = std::max(largestRequest, count);
+        const auto n = std::min(input.size() - offset, static_cast<size_t>(count));
+        if (n == 0) return 0;
+        std::copy_n(input.data() + offset, n, buffer);
+        offset += n;
+        return static_cast<int>(n);
+      },
+      [](const char*, const bool) { return 0; }, 480, 4);
+  EXPECT_EQ(measure.count, 0);
+  EXPECT_EQ(measure.status, TableColumnLayout::Measures::ProbeStatus::ScanLimit);
+  EXPECT_EQ(measure.bytesScanned, 32768u);
+  EXPECT_EQ(largestRequest, 256u);
+  EXPECT_EQ(reads, 128u);
+}
+
+TEST(CompactTableLayoutTest, ProbeReportsStorageReadFailureSeparately) {
+  const auto measure = TableColumnLayout::measureSimpleTable([](char*, const unsigned) { return -1; },
+                                                             [](const char*, const bool) { return 0; }, 480, 4);
+  EXPECT_EQ(measure.status, TableColumnLayout::Measures::ProbeStatus::ReadFailure);
+  EXPECT_EQ(measure.bytesScanned, 0u);
+}
+
+TEST(CompactTableLayoutTest, FinishesRowsFromFixedFootnoteStorage) {
+  GfxRenderer renderer;
+  CompactTableLayout layout(renderer, 0, 120, 240, 16, 4, leftStyle());
+  ASSERT_TRUE(layout.beginRow());
+  ASSERT_TRUE(layout.beginCell(false, 1, 41, leftStyle()));
+  ASSERT_TRUE(layout.appendWord("linked", EpdFontFamily::REGULAR, false, false, 1));
+  FootnoteEntry note;
+  std::strcpy(note.number, "7");
+  std::strcpy(note.href, "#note-7");
+  note.linkId = 1;
+  ASSERT_TRUE(layout.endCell({{0, note}}));
+
+  TableFragmentRow row;
+  uint32_t visibleOffset = 0;
+  ASSERT_EQ(layout.finishRow(row, visibleOffset), CompactTableLayout::RowResult::Ok);
+  ASSERT_EQ(layout.capturedFootnoteCount(), 1);
+  EXPECT_STREQ(layout.capturedFootnote(0).number, "7");
+  EXPECT_STREQ(layout.capturedFootnote(0).href, "#note-7");
+  EXPECT_EQ(layout.capturedFootnote(0).linkId, 1);
 }
 
 TEST(CompactTableLayoutTest, PlannedGeometryCarriesThroughSpanningAndUnspannedRows) {

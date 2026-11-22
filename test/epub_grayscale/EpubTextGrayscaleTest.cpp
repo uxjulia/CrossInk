@@ -1,3 +1,5 @@
+#include <Epub/Page.h>
+#include <Epub/PageDeserializationBudget.h>
 #include <Epub/blocks/TextBlock.h>
 #include <FontCacheManager.h>
 #include <GfxRenderer.h>
@@ -7,6 +9,7 @@
 #include <gtest/gtest.h>
 
 #include <array>
+#include <cstdlib>
 
 #include "Epub/converters/DirectPixelWriter.h"
 #include "lib/Epub/Epub/blocks/ImageBlock.cpp"
@@ -1111,4 +1114,123 @@ TEST(EpubTextGrayscaleTest, CullingIncludesFallbackSyntheticInkAndDecorations) {
       EXPECT_EQ(render(true), expected) << orientation << ' ' << black;
     }
   }
+}
+
+namespace {
+size_t bwSnapshotAllocationCalls = 0;
+size_t bwSnapshotFailOnCall = 0;
+std::vector<void*> bwSnapshotAllocations;
+
+uint8_t* allocateTestBwSnapshotChunk(const size_t bytes) {
+  ++bwSnapshotAllocationCalls;
+  if (bwSnapshotFailOnCall != 0 && bwSnapshotAllocationCalls == bwSnapshotFailOnCall) return nullptr;
+  auto* allocation = static_cast<uint8_t*>(std::malloc(bytes));
+  if (allocation) bwSnapshotAllocations.push_back(allocation);
+  return allocation;
+}
+
+void freeTestBwSnapshotChunk(void* buffer) {
+  const auto it = std::find(bwSnapshotAllocations.begin(), bwSnapshotAllocations.end(), buffer);
+  if (it != bwSnapshotAllocations.end()) bwSnapshotAllocations.erase(it);
+  std::free(buffer);
+}
+
+struct BwSnapshotAllocatorReset {
+  ~BwSnapshotAllocatorReset() { GfxRenderer::setBwBufferAllocatorForTest(nullptr, nullptr); }
+};
+}  // namespace
+
+TEST(EpubTextGrayscaleTest, BwSnapshotAllocationFailureReleasesChunksAndPreservesFramebuffer) {
+  BwSnapshotAllocatorReset resetAllocator;
+  bwSnapshotAllocationCalls = 0;
+  bwSnapshotFailOnCall = 2;
+  bwSnapshotAllocations.clear();
+  GfxRenderer::setBwBufferAllocatorForTest(allocateTestBwSnapshotChunk, freeTestBwSnapshotChunk);
+
+  HalDisplay display(800, 480);
+  GfxRenderer renderer(display);
+  renderer.begin();
+  const auto original = display.bw;
+  EXPECT_FALSE(renderer.storeBwBuffer());
+  EXPECT_EQ(display.bw, original);
+  EXPECT_TRUE(bwSnapshotAllocations.empty());
+  EXPECT_EQ(renderer.getBwBufferSnapshotStats().storeAttempts, 1u);
+  EXPECT_EQ(renderer.getBwBufferSnapshotStats().storeFailures, 1u);
+  EXPECT_EQ(renderer.getBwBufferSnapshotStats().lastStoredBytes, 8000u);
+
+  bwSnapshotFailOnCall = 0;
+  ASSERT_TRUE(renderer.storeBwBuffer());
+  ASSERT_EQ(bwSnapshotAllocations.size(), 6u);
+  std::fill(display.bw.begin(), display.bw.end(), 0x00);
+  renderer.restoreBwBuffer();
+
+  EXPECT_EQ(display.bw, original);
+  EXPECT_TRUE(bwSnapshotAllocations.empty());
+  const auto& stats = renderer.getBwBufferSnapshotStats();
+  EXPECT_EQ(stats.storeAttempts, 2u);
+  EXPECT_EQ(stats.storeFailures, 1u);
+  EXPECT_EQ(stats.restoreAttempts, 1u);
+  EXPECT_EQ(stats.restoreFailures, 0u);
+  EXPECT_EQ(stats.lastStoredBytes, 48000u);
+  EXPECT_EQ(stats.lastRestoredBytes, 48000u);
+}
+
+TEST(EpubTextGrayscaleTest, DensePageDeserializationRejectsLowContiguousHeapAndCanReopen) {
+  fakeheap::reset(false);
+  Page densePage;
+  constexpr size_t ELEMENT_COUNT = 1024;
+  densePage.elements.reserve(ELEMENT_COUNT);
+  for (size_t i = 0; i < ELEMENT_COUNT; ++i) {
+    densePage.elements.push_back(std::make_unique<PageHorizontalRule>(1, 1, 0, static_cast<int16_t>(i)));
+  }
+
+  auto data = std::make_shared<HostFileData>();
+  HalFile file(data);
+  ASSERT_TRUE(densePage.serialize(file));
+  const size_t reservedBytes = ELEMENT_COUNT * sizeof(std::unique_ptr<PageElement>);
+  ASSERT_TRUE(file.seek(0));
+
+  fakeheap::internal.free = reservedBytes + PageDeserializationBudget::MIN_FREE_AFTER_RESERVE + 1024;
+  fakeheap::internal.largest = reservedBytes - 1;
+  EXPECT_FALSE(Page::deserialize(file));
+  EXPECT_EQ(file.position(), sizeof(uint16_t));  // Failure is before reserve or page payload reads.
+
+  fakeheap::internal.free = 1024 * 1024;
+  fakeheap::internal.largest = 1024 * 1024;
+  ASSERT_TRUE(file.seek(0));
+  auto loaded = Page::deserialize(file);
+  ASSERT_TRUE(loaded);
+  EXPECT_EQ(loaded->elements.size(), ELEMENT_COUNT);
+  EXPECT_EQ(loaded->elements.front()->getTag(), TAG_PageHorizontalRule);
+  EXPECT_EQ(loaded->elements.back()->getTag(), TAG_PageHorizontalRule);
+}
+
+TEST(EpubTextGrayscaleTest, RubyCacheSlotsRejectLowContiguousHeapAndCanReopen) {
+  fakeheap::reset(false);
+  constexpr size_t WORD_COUNT = 512;
+  const std::vector<std::string> words(WORD_COUNT, "word");
+  const std::vector<int16_t> positions(WORD_COUNT, 0);
+  const std::vector<EpdFontFamily::Style> styles(WORD_COUNT, EpdFontFamily::REGULAR);
+  const std::vector<std::string> rubyTexts(WORD_COUNT, "annotation");
+  TextBlock source(words, positions, styles, {}, {}, {}, {}, {}, BlockStyle{}, rubyTexts);
+  ASSERT_TRUE(source.valid());
+
+  auto data = std::make_shared<HostFileData>();
+  HalFile file(data);
+  ASSERT_TRUE(source.serialize(file));
+  const size_t slotBytes = WORD_COUNT * sizeof(std::string);
+  ASSERT_TRUE(file.seek(0));
+
+  fakeheap::internal.free = slotBytes + PageDeserializationBudget::MIN_FREE_AFTER_RESERVE + 1024;
+  fakeheap::internal.largest = slotBytes - 1;
+  EXPECT_FALSE(TextBlock::deserialize(file));
+
+  fakeheap::internal.free = 1024 * 1024;
+  fakeheap::internal.largest = 1024 * 1024;
+  ASSERT_TRUE(file.seek(0));
+  auto loaded = TextBlock::deserialize(file);
+  ASSERT_TRUE(loaded);
+  ASSERT_EQ(loaded->getRubyTexts().size(), WORD_COUNT);
+  EXPECT_EQ(loaded->getRubyTexts().front(), "annotation");
+  EXPECT_EQ(loaded->getRubyTexts().back(), "annotation");
 }

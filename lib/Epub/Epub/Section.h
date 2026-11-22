@@ -63,10 +63,24 @@ class Section {
     std::string tmpSectionPath;
     bool reusedHtml = false;
     bool pageCompletionFailed = false;
+    bool previousCacheCompatible = false;
+    bool previousCacheCandidate = false;
+    bool previousBuildComplete = false;
+    uint16_t previousPageCount = 0;
+    uint16_t previousBuiltPageCount = 0;
+    uint32_t previousProtectedImageUnits = 0;
+    uint32_t previousBaseLayoutSignature = 0;
+    bool previousPublisherFontsEnabled = false;
+    uint32_t previousPublisherFontFaces = 0;
+    uint32_t previousPublisherFaceSignature = 0;
+    uint32_t previousPublisherLoadedFaces = 0;
     CssParser* cssParser = nullptr;
     // HTML byte progress, for estimating the section's total page count while it's still building.
     uint32_t bytesConsumed = 0;
     uint32_t totalBytes = 0;
+    // A resumed build replays the old partial from byte zero; retain its prior watermark for telemetry.
+    uint32_t replayWatermarkBytes = 0;
+    uint16_t replayWatermarkPages = 0;
     shaping_recovery::Failures shapingFailures;
     shaping_recovery::Readiness shapingReadiness;
     // Exponentially-smoothed page-count estimate (0 = not yet seeded) and the bytesConsumed at its
@@ -110,6 +124,9 @@ class Section {
   uint32_t publisherFaceSignature_ = 0;
   uint32_t publisherLoadedFaces_ = 0;
   bool writePublisherFontState();
+  bool hasCommittedCacheOnDisk() const;
+  void resetLoadedCacheState();
+  void restoreFailedBuildState(const BuildContext& context);
   bool writeSectionFileHeader(const ReaderRenderSpec& spec);
   uint32_t onPageComplete(std::unique_ptr<Page> page);
   bool ensureBuildFileOpen();

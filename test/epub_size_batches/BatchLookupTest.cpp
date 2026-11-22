@@ -56,9 +56,10 @@ struct ZipFile {
   void close() { closed = true; }
 };
 
-bool runBatch(uint16_t spineCount, unsigned failAllocation = 0) {
+bool runBatch(uint16_t spineCount, unsigned failAllocation = 0, unsigned failFromAllocation = 0) {
   Arena metadataArena;
   metadataArena.failAllocation = failAllocation;
+  metadataArena.failFromAllocation = failFromAllocation;
   ArenaVector<uint32_t> spineSizes(metadataArena);
   bool lowMemoryFailure = false, filesClosed = false, useBatchSizes = false;
   auto closeBuildFiles = [&] { filesClosed = true; };
@@ -70,19 +71,31 @@ bool runBatch(uint16_t spineCount, unsigned failAllocation = 0) {
     return true;
   };
   const bool success = run();
-  if (failAllocation && spineCount >= LARGE_SPINE_THRESHOLD) {
-    assert(!success && lowMemoryFailure && filesClosed && zip.closed);
-    return false;
-  }
   assert(success && !lowMemoryFailure && !filesClosed && !zip.closed);
   if (spineCount < LARGE_SPINE_THRESHOLD) {
     assert(!useBatchSizes && zip.batchSizes.empty());
     return true;
   }
+  if (failAllocation == 1) {
+    // If the full result vector cannot be allocated, retain the per-entry ZIP
+    // fallback rather than making a large book fail to open.
+    assert(!useBatchSizes && zip.batchSizes.empty());
+    return true;
+  }
+  if (failFromAllocation != 0) {
+    // The result array survived, but even the minimum target batch could not
+    // fit. The caller can still use the established per-entry ZIP lookup.
+    assert(!useBatchSizes && zip.batchSizes.empty());
+    assert(metadataArena.allocations.size() == 7);  // result array plus six attempted batch capacities
+    return true;
+  }
   assert(useBatchSizes && spineSizes.size() == spineCount);
-  assert(zip.batchSizes.size() == (spineCount + 2047u) / 2048u);
-  assert(metadataArena.allocations.size() == 2);  // one reusable target buffer, one results buffer
-  assert(metadataArena.allocations[0] <= sizeof(ZipFile::SizeTarget) * 2048);
+  const size_t targetCapacity = failAllocation == 2 ? 1024 : 2048;
+  assert(zip.batchSizes.size() == (spineCount + targetCapacity - 1) / targetCapacity);
+  assert(metadataArena.allocations.size() == (failAllocation == 2 ? 3U : 2U));
+  assert(metadataArena.allocations[0] == sizeof(uint32_t) * spineCount);  // full results vector
+  assert(metadataArena.allocations[1] <= sizeof(ZipFile::SizeTarget) * 2048);
+  if (failAllocation == 2) assert(metadataArena.allocations[2] == sizeof(ZipFile::SizeTarget) * targetCapacity);
   for (size_t i = 0; i < spineCount; ++i) {
     const auto hash = 101 - i % 101;
     assert(zip.visited[i]);
@@ -93,7 +106,8 @@ bool runBatch(uint16_t spineCount, unsigned failAllocation = 0) {
 
 int main() {
   for (uint16_t count : {299, 300, 2048, 2049, 4096, 5000, 65535}) assert(runBatch(count));
-  assert(!runBatch(5000, 1));
-  assert(!runBatch(5000, 2));
-  assert(errors == 2);
+  assert(runBatch(5000, 1));
+  assert(runBatch(5000, 2));
+  assert(runBatch(5000, 0, 2));
+  assert(errors == 0);
 }

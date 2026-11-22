@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <limits>
 #include <string>
 #include <unordered_map>
 
@@ -11,6 +12,10 @@ class HalFile {
  public:
   explicit HalFile(String content = {}) : content(std::move(content)) {}
   explicit HalFile(std::string* output) : output(output) {}
+  int available() const {
+    const size_t remaining = content.size() - std::min(position, content.size());
+    return static_cast<int>(std::min(remaining, static_cast<size_t>(std::numeric_limits<int>::max())));
+  }
   int read(void* output, size_t length) {
     const size_t count = std::min(length, content.size() - position);
     memcpy(output, content.data() + position, count);

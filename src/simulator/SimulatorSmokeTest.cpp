@@ -19,6 +19,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdlib>
+#include <cstring>
 #include <exception>
 #include <filesystem>
 
@@ -6491,6 +6492,136 @@ class SimulatorSmokeTest {
     LOG_INF("SMOKE", "Block font sizes: layout, cache, rendering and selection passed");
   }
 
+  void verifyCssPartialRetry() {
+    RenderLock lock;
+    struct Fingerprint {
+      size_t size;
+      uint64_t hash;
+    };
+    const auto fingerprint = [&](const std::string& path) {
+      FsFile file;
+      if (!Storage.openFileForRead("SMOKE", path, file)) fail("Could not open CSS retry cache: %s", path.c_str());
+      Fingerprint result{file.size(), 14695981039346656037ull};
+      uint8_t bytes[256];
+      int count = 0;
+      while ((count = file.read(bytes, sizeof(bytes))) > 0) result.hash = hashBytes(bytes, count, result.hash);
+      const bool readOk = count == 0 && file.close();
+      if (!readOk) fail("Could not read CSS retry cache: %s", path.c_str());
+      return result;
+    };
+    const char* bookPath = std::getenv("CROSSINK_SIMULATOR_SMOKE_BOOK");
+    if (!bookPath) fail("CSS retry smoke needs a book path");
+    const std::string cacheRoot = "/.crosspoint/css-retry-smoke";
+    std::string cachePath;
+    std::string cssCachePath;
+    std::string layoutPath;
+    Fingerprint partialCss{};
+    Fingerprint matchedLayout{};
+    {
+      Epub initial(bookPath, cacheRoot);
+      if (!initial.load(true, true, Epub::XLocationLoadMode::Skip))
+        fail("Could not prepare metadata for partial CSS retry smoke");
+      cachePath = initial.getCachePath();
+      cssCachePath = cachePath + "/css_rules.cache";
+      layoutPath = cachePath + "/layout/0/0-css-retry.bin";
+      const bool parsed = initial.ensureCssCache();
+      auto* css = initial.getCssParser();
+      if (!parsed || !css || css->inspectCache() != CssParser::CacheStatus::Partial)
+        fail("Missing stylesheet did not produce a usable partial cache");
+      if (!css->loadFromCache() || css->ruleCount() == 0)
+        fail("The partial stylesheet cache did not retain parsed rules");
+      css->clear();
+
+      auto spec = SETTINGS.readerRenderSpec(renderer.getScreenWidth() - 40, renderer.getScreenHeight() - 40);
+      spec.embeddedStyle = true;
+      Section section(initial, 0, renderer, "-css-retry");
+      if (!section.createSectionFile(spec) || !section.loadSectionFile(spec) || !section.pageCount)
+        fail("Could not build the layout matched to the partial stylesheet");
+      partialCss = fingerprint(cssCachePath);
+      matchedLayout = fingerprint(layoutPath);
+    }
+
+    {
+      Epub retry(bookPath, cacheRoot);
+      const bool opened = retry.load(false, false, Epub::XLocationLoadMode::Skip);
+      auto* css = retry.getCssParser();
+      if (!opened || !css || css->inspectCache() != CssParser::CacheStatus::Partial)
+        fail("Warm CSS completion retry did not leave its usable partial cache");
+      const auto cssAfterRetry = fingerprint(cssCachePath);
+      if (cssAfterRetry.size != partialCss.size || cssAfterRetry.hash != partialCss.hash)
+        fail("Failed CSS completion retry replaced the last good cache bytes");
+      const auto layoutAfterRetry = fingerprint(layoutPath);
+      if (layoutAfterRetry.size != matchedLayout.size || layoutAfterRetry.hash != matchedLayout.hash)
+        fail("Failed CSS completion retry replaced the layout matched to its cache");
+    }
+
+    const char* repairedBookPath = std::getenv("CROSSINK_SIMULATOR_SMOKE_CSS_RETRY_REPAIRED_BOOK");
+    if (!repairedBookPath) fail("CSS retry smoke needs its repaired EPUB fixture");
+    const std::string failedBookBackup = std::string(bookPath) + ".css-retry-backup";
+    if (!Storage.rename(bookPath, failedBookBackup.c_str())) fail("Could not stage the failed CSS EPUB source");
+    if (!Storage.rename(repairedBookPath, bookPath)) {
+      Storage.rename(failedBookBackup.c_str(), bookPath);
+      fail("Could not install the repaired CSS EPUB source");
+    }
+
+    {
+      Epub recovered(bookPath, cacheRoot);
+      if (!recovered.load(false, false, Epub::XLocationLoadMode::Skip))
+        fail("Repaired CSS completion retry failed to reopen the book");
+      auto* css = recovered.getCssParser();
+      if (!css || css->inspectCache() != CssParser::CacheStatus::Complete)
+        fail("Repaired CSS completion retry did not upgrade the cache");
+      const auto completeCss = fingerprint(cssCachePath);
+      if (completeCss.size == partialCss.size && completeCss.hash == partialCss.hash)
+        fail("Successful CSS completion retry did not replace the partial cache");
+      if (Storage.exists(layoutPath.c_str()))
+        fail("Successful CSS completion retry kept a layout matched to old rules");
+      auto spec = SETTINGS.readerRenderSpec(renderer.getScreenWidth() - 40, renderer.getScreenHeight() - 40);
+      spec.embeddedStyle = true;
+      Section section(recovered, 0, renderer, "-css-retry");
+      if (!section.createSectionFile(spec) || !section.loadSectionFile(spec) || !section.pageCount)
+        fail("Could not rebuild the section after CSS completion");
+    }
+    if (!Storage.remove(failedBookBackup.c_str())) fail("Could not clean up the failed CSS EPUB source");
+    LOG_INF("SMOKE", "Partial CSS retry preserved cache/layout bytes, then completed and rebuilt cleanly");
+  }
+
+  void verifyCssToggle() {
+    RenderLock lock;
+    Epub book(std::getenv("CROSSINK_SIMULATOR_SMOKE_BOOK"), "/.crosspoint/css-toggle-smoke");
+    if (!book.load(true, true, Epub::XLocationLoadMode::Skip))
+      fail("Could not open CSS-toggle fixture with styles skipped");
+    auto* css = book.getCssParser();
+    if (!css || css->hasCache()) fail("CSS-toggle fixture unexpectedly had a CSS cache after skip-loading");
+    const auto spineCount = book.getSpineItemsCount();
+    const auto firstSpineHref = spineCount ? book.getSpineItem(0).href : std::string{};
+    const auto metadataPath = book.getCachePath() + "/book.bin";
+    const auto metadataBackupPath = book.getCachePath() + "/book.bin.css-toggle-backup";
+    if (spineCount <= 0 || firstSpineHref.empty() || !Storage.rename(metadataPath.c_str(), metadataBackupPath.c_str()))
+      fail("Could not stage CSS-toggle metadata-cache preservation probe");
+    const bool cssBuilt = book.ensureCssCache();
+    const bool metadataRestored = Storage.rename(metadataBackupPath.c_str(), metadataPath.c_str());
+    if (!metadataRestored) fail("Could not restore CSS-toggle metadata cache after on-demand CSS creation");
+    if (!cssBuilt || !css->hasCache() || !css->loadFromCache()) fail("On-demand CSS cache creation or reload failed");
+    if (book.getSpineItemsCount() != spineCount || book.getSpineItem(0).href != firstSpineHref)
+      fail("On-demand CSS creation discarded the active in-memory spine metadata");
+
+    auto spec = SETTINGS.readerRenderSpec(renderer.getScreenWidth() - 40, renderer.getScreenHeight() - 40);
+    spec.embeddedStyle = true;
+    Section full(book, 0, renderer, "-css-toggle-full");
+    if (!full.createSectionFile(spec) || !full.loadSectionFile(spec) || !full.pageCount)
+      fail("Full section indexing failed after on-demand CSS creation");
+
+    Section incremental(book, 0, renderer, "-css-toggle-incremental");
+    if (!incremental.startBuild(spec) || !incremental.buildSomeMore(1))
+      fail("Incremental section indexing failed after on-demand CSS creation");
+    while (incremental.isBuilding())
+      if (!incremental.buildSomeMore(1)) fail("Incremental CSS-toggle build did not resume");
+    if (!incremental.loadSectionFile(spec) || incremental.pageCount != full.pageCount)
+      fail("Incremental CSS-toggle section did not match the full build");
+    LOG_INF("SMOKE", "CSS toggle loaded styles on demand and built full/incremental sections");
+  }
+
 #if CROSSINK_SCALABLE_FONTS
   void verifyPublisherFonts() {
     RenderLock lock;
@@ -6499,6 +6630,64 @@ class SimulatorSmokeTest {
       fail("Fresh settings did not default to Ignore Body Font");
     Epub book(std::getenv("CROSSINK_SIMULATOR_SMOKE_BOOK"), "/.crosspoint");
     if (!book.load()) fail("Cannot open publisher-font fixture");
+    const auto publisherFontCachePath = book.getCachePath();
+    const auto cleanupPublisherFontCache = [&]() {
+      for (const auto& entry : Storage.listFiles(publisherFontCachePath.c_str(), 200)) {
+        const std::string name(entry.c_str());
+        if (name.rfind("publisher-font-", 0) == 0 || name.rfind(".publisher-font-", 0) == 0)
+          Storage.remove((publisherFontCachePath + "/" + name).c_str());
+      }
+    };
+    const auto publisherFontSlotExists = [&](const unsigned faceIndex) {
+      char name[48];
+      std::snprintf(name, sizeof(name), "/publisher-font-%u.", faceIndex);
+      const std::string prefix = name + 1;
+      for (const auto& entry : Storage.listFiles(publisherFontCachePath.c_str(), 200))
+        if (std::string(entry.c_str()).rfind(prefix, 0) == 0) return true;
+      return false;
+    };
+    const auto readPublisherMarker = [&](const std::string& path, std::array<uint8_t, 52>& bytes) {
+      HalFile marker;
+      if (!Storage.openFileForRead("SMOKE", path, marker)) return false;
+      const bool ok = marker.fileSize() == bytes.size() && marker.read(bytes.data(), bytes.size()) == bytes.size();
+      const bool closed = marker.close();
+      return ok && closed;
+    };
+    const auto hashPublisherSlot = [&](const std::string& path) {
+      HalFile font;
+      if (!Storage.openFileForRead("SMOKE", path, font)) return uint32_t{0};
+      uint8_t buffer[256];
+      uint32_t hash = 2166136261U;
+      bool readOk = true;
+      while (true) {
+        const int read = font.read(buffer, sizeof(buffer));
+        if (read < 0) {
+          readOk = false;
+          break;
+        }
+        if (read == 0) break;
+        for (int i = 0; i < read; ++i) hash = (hash ^ buffer[i]) * 16777619U;
+      }
+      const bool closed = font.close();
+      return readOk && closed ? hash : 0U;
+    };
+    const auto markerU32 = [](const uint8_t* bytes) {
+      return uint32_t(bytes[0]) | uint32_t(bytes[1]) << 8 | uint32_t(bytes[2]) << 16 | uint32_t(bytes[3]) << 24;
+    };
+    const auto damagePublisherMarker = [&](const std::string& path, std::array<uint8_t, 52>& bytes,
+                                           const size_t offset) {
+      bytes[offset] ^= 1;
+      uint32_t checksum = 2166136261U;
+      for (size_t i = 0; i < 48; ++i) checksum = (checksum ^ bytes[i]) * 16777619U;
+      for (size_t i = 0; i < 4; ++i) bytes[48 + i] = uint8_t(checksum >> (i * 8));
+      auto marker = Storage.open(path.c_str(), O_WRONLY | O_TRUNC);
+      if (!marker) return false;
+      const bool written = marker.write(bytes.data(), bytes.size()) == bytes.size();
+      const bool synced = marker.sync();
+      const bool closed = marker.close();
+      return written && synced && closed;
+    };
+    cleanupPublisherFontCache();
     const auto settingsPath = book.getCachePath() + "/reader_settings.bin";
     uint8_t record[160]{};
     record[0] = 13;
@@ -6552,15 +6741,24 @@ class SimulatorSmokeTest {
     Storage.remove(probePath.c_str());
     bodyCss->clear();
     const int readerFont = sdFontSystem.ensureBuiltInReaderFont(renderer);
+    bool publisherCacheIntegrityTested = false;
     for (const auto orientation : {GfxRenderer::Portrait, GfxRenderer::LandscapeClockwise}) {
       renderer.setOrientation(orientation);
       for (uint8_t mode = 0; mode < 3; ++mode) {
         SETTINGS.publisherFonts = mode;
         bookFontSystem.close();
-        for (unsigned i = 0; i < 32; ++i)
-          Storage.remove((book.getCachePath() + "/publisher-font-" + std::to_string(i)).c_str());
         bookFontSystem.ensure(book, renderer, mode != 0);
         if (bookFontSystem.requestedFaces()) fail("Opening book eagerly requested fonts");
+        if (mode == 2) {
+          const auto bodyFamily = CssParser::hashFontFamily("Publisher Body");
+          const size_t before = renderer.getFontMap().size();
+          const int firstSize = bookFontSystem.resolve(bodyFamily, 18);
+          if (!firstSize || renderer.getFontMap().size() != before + 1 ||
+              bookFontSystem.resolve(bodyFamily, 18) != firstSize || renderer.getFontMap().size() != before + 1 ||
+              !bookFontSystem.resolve(bodyFamily, 22) || renderer.getFontMap().size() != before + 2)
+            fail("Publisher fonts registered unused sizes eagerly or duplicated a size");
+          LOG_INF("SMOKE", "Publisher live size registrations: 2 requested sizes -> 2 renderer entries");
+        }
         auto spec = SETTINGS.readerRenderSpec(renderer.getScreenWidth() - 40, renderer.getScreenHeight() - 40);
         spec.publisherFontSignature = mode ? bookFontSystem.signature() : 0;
         Section section(book, 0, renderer, "-publisher-smoke");
@@ -6595,7 +6793,7 @@ class SimulatorSmokeTest {
         if (mode == 0 && (publisherWord || !readerWord)) fail("Off changed the reader font");
         if (mode == 1 && (!publisherWord || !readerWord)) fail("Ignore Body Font did not retain the reader body font");
         if (mode == 2 && (!publisherWord || readerWord)) fail("All Text did not use publisher fonts");
-        if (mode == 1 && Storage.exists((book.getCachePath() + "/publisher-font-0").c_str()))
+        if (mode == 1 && bookFontSystem.hasLoadedFamily(CssParser::hashFontFamily("Publisher Body")))
           fail("Ignore Body Font extracted the ignored body face");
         if (mode == 2) {
           Section incremental(book, 0, renderer, "-publisher-body-incremental");
@@ -6609,11 +6807,149 @@ class SimulatorSmokeTest {
             fail("Body font probe changed incremental pages");
         }
         const uint32_t requested = bookFontSystem.requestedFaces();
+        std::array<std::array<uint8_t, 52>, 2> bodyMarkerBefore{};
+        std::array<bool, 2> hasBodyMarkerBefore{};
+        if (mode == 2) {
+          for (size_t slotIndex = 0; slotIndex < 2; ++slotIndex) {
+            const char slot = slotIndex == 0 ? 'a' : 'b';
+            const auto markerPath = book.getCachePath() + "/publisher-font-0." + slot + ".meta";
+            hasBodyMarkerBefore[slotIndex] = readPublisherMarker(markerPath, bodyMarkerBefore[slotIndex]);
+          }
+          if (!hasBodyMarkerBefore[0] && !hasBodyMarkerBefore[1])
+            fail("Publisher font extraction did not publish a verified cache marker");
+        }
         bookFontSystem.close();
         bookFontSystem.ensure(book, renderer, mode != 0);
+        const size_t rendererFontsBeforeRestore = renderer.getFontMap().size();
         if (bookFontSystem.requestedFaces() || !section.loadSectionFile(spec) ||
             bookFontSystem.requestedFaces() != requested)
           fail("Publisher cache did not restore its demanded families");
+        if (mode == 2) {
+          if (renderer.getFontMap().size() != rendererFontsBeforeRestore)
+            fail("Publisher section replay eagerly registered sizes before page rendering");
+          LOG_INF("SMOKE", "Publisher section-cache replay restored families with 0 eager size entries");
+
+          // Cache replay marks the historical family representative but must
+          // not claim a point-size ID occupied by an unrelated font.
+          const auto bodyFamily = CssParser::hashFontFamily("Publisher Body");
+          const auto rendererReaderFont = renderer.getFontMap().find(readerFont);
+          if (rendererReaderFont == renderer.getFontMap().end()) fail("Reader font missing for collision probe");
+          uint8_t collisionPoints = 0;
+          int collisionId = 0;
+          for (uint8_t points = ScalableContentMinPointSize; points <= ScalableContentMaxPointSize; ++points) {
+            collisionId = static_cast<int>((bodyFamily * 16777619U ^ points ^ 0x424b4600U) | 0x80000000U);
+            if (!renderer.getFontMap().count(collisionId)) {
+              collisionPoints = points;
+              break;
+            }
+          }
+          if (!collisionPoints) fail("Could not reserve an ID for the publisher font collision probe");
+          renderer.insertFont(collisionId, rendererReaderFont->second);
+          if (bookFontSystem.resolve(bodyFamily, collisionPoints) != 0)
+            fail("Publisher font ID collision returned the other font instead of falling back");
+          renderer.removeFont(collisionId);
+
+          bool restoredBody = false, restoredAccent = false, restoredHeadingStyle = false;
+          const auto accentFamily = CssParser::hashFontFamily("Publisher Accent");
+          section.currentPage = 0;
+          const auto cachedPage = section.loadPageFromSectionFile();
+          if (!cachedPage) fail("Could not reopen a publisher page after cache replay");
+          for (const auto& element : cachedPage->elements) {
+            if (element->getTag() != TAG_PageLine) continue;
+            const auto& text = *static_cast<const PageLine&>(*element).getBlock();
+            for (uint16_t word = 0; word < text.wordCount(); ++word) {
+              const char* content = text.wordText(word);
+              if (std::strcmp(content, "stays") == 0 || std::strcmp(content, "phrase") == 0 ||
+                  std::strcmp(content, "Publisher") == 0) {
+                const int id = text.wordFontId(renderer, readerFont, word);
+                uint8_t points = text.wordFontSize(word);
+                if (!points) points = renderer.getFontPointSize(text.resolvedFontId(renderer, readerFont));
+                const uint8_t resolvedPoints = renderer.getFontPointSize(id);
+                if (!points || resolvedPoints != points) {
+                  LOG_ERR("SMOKE", "Cached publisher word '%s': stored=%u reader=%u resolved=%u id=%d", content,
+                          unsigned(text.wordFontSize(word)),
+                          unsigned(renderer.getFontPointSize(text.resolvedFontId(renderer, readerFont))),
+                          unsigned(resolvedPoints), id);
+                  fail("Publisher cache replay lost a word's requested point size");
+                }
+                if (std::strcmp(content, "stays") == 0)
+                  restoredBody = id == bookFontSystem.resolve(bodyFamily, points);
+                else {
+                  restoredAccent = id == bookFontSystem.resolve(accentFamily, points);
+                  restoredHeadingStyle |=
+                      std::strcmp(content, "Publisher") == 0 && (text.wordStyle(word) & EpdFontFamily::BOLD);
+                }
+              }
+            }
+          }
+          if (!restoredBody || !restoredAccent || !restoredHeadingStyle)
+            fail("Publisher cache replay did not preserve body/accent families or heading style");
+          const size_t replaySizes = renderer.getFontMap().size() - rendererFontsBeforeRestore;
+          constexpr size_t AllPublisherSizes = (ScalableContentMaxPointSize - ScalableContentMinPointSize + 1) * 2;
+          if (!replaySizes || replaySizes >= AllPublisherSizes)
+            fail("Publisher page replay did not register only the sizes it used");
+          LOG_INF("SMOKE", "Publisher page replay registered %u on-demand size entries for body/accent text",
+                  unsigned(replaySizes));
+          bool unchanged = false;
+          for (size_t slotIndex = 0; slotIndex < 2; ++slotIndex) {
+            if (!hasBodyMarkerBefore[slotIndex]) continue;
+            const char slot = slotIndex == 0 ? 'a' : 'b';
+            const auto markerPath = book.getCachePath() + "/publisher-font-0." + slot + ".meta";
+            std::array<uint8_t, 52> after{};
+            if (readPublisherMarker(markerPath, after) && after == bodyMarkerBefore[slotIndex])
+              unchanged = true;
+            else
+              fail("Warm publisher-font restore changed its cache marker");
+          }
+          if (!unchanged) fail("Warm publisher-font restore repeated extraction instead of reusing its cache");
+          if (!publisherCacheIntegrityTested) {
+            size_t damagedSlot = 0;
+            if (!hasBodyMarkerBefore[0] || (hasBodyMarkerBefore[1] && markerU32(bodyMarkerBefore[1].data() + 28) >
+                                                                          markerU32(bodyMarkerBefore[0].data() + 28)))
+              damagedSlot = 1;
+            const char damagedName = damagedSlot == 0 ? 'a' : 'b';
+            auto damaged = bodyMarkerBefore[damagedSlot];
+            const uint32_t originalCrc = markerU32(damaged.data() + 8);
+            const uint32_t originalSequence = markerU32(damaged.data() + 28);
+            const auto damagedPath = book.getCachePath() + "/publisher-font-0." + damagedName + ".meta";
+            if (!damagePublisherMarker(damagedPath, damaged, 20)) fail("Could not damage publisher font marker");
+
+            bookFontSystem.close();
+            bookFontSystem.ensure(book, renderer, true);
+            const auto bodyFamily = CssParser::hashFontFamily("Publisher Body");
+            if (!bookFontSystem.resolve(bodyFamily, 18)) fail("Damaged publisher font cache was not rebuilt");
+            const size_t rebuiltSlot = 1 - damagedSlot;
+            const char rebuiltName = rebuiltSlot == 0 ? 'a' : 'b';
+            const auto rebuiltPath = book.getCachePath() + "/publisher-font-0." + rebuiltName + ".meta";
+            std::array<uint8_t, 52> rebuilt{};
+            if (!readPublisherMarker(rebuiltPath, rebuilt) || markerU32(rebuilt.data() + 8) != originalCrc ||
+                markerU32(rebuilt.data() + 28) <= originalSequence)
+              fail("Damaged publisher font cache did not rebuild into the spare slot");
+
+            // Damage both cached identities while leaving the font files
+            // intact. Neither marker may be trusted, so rebuild into the older
+            // slot only after parsing and fingerprinting a fresh extraction.
+            auto changedIdentity = rebuilt;
+            const uint32_t rebuiltSequence = markerU32(rebuilt.data() + 28);
+            if (!damagePublisherMarker(rebuiltPath, changedIdentity, 8))
+              fail("Could not change publisher font cache identity");
+            std::array<uint8_t, 52> fallbackIdentity{};
+            if (!readPublisherMarker(damagedPath, fallbackIdentity) ||
+                !damagePublisherMarker(damagedPath, fallbackIdentity, 8))
+              fail("Could not change publisher font fallback identity");
+            bookFontSystem.close();
+            bookFontSystem.ensure(book, renderer, true);
+            if (!bookFontSystem.resolve(bodyFamily, 18)) fail("Changed publisher font cache was not rejected");
+            const char replacedName = damagedName;
+            const auto replacedPath = book.getCachePath() + "/publisher-font-0." + replacedName + ".meta";
+            std::array<uint8_t, 52> repairedIdentity{};
+            if (!readPublisherMarker(replacedPath, repairedIdentity) ||
+                markerU32(repairedIdentity.data() + 8) != originalCrc ||
+                markerU32(repairedIdentity.data() + 28) <= rebuiltSequence)
+              fail("Changed publisher font identity did not rebuild its cache");
+            publisherCacheIntegrityTested = true;
+          }
+        }
         auto changed = spec;
         changed.publisherFontSignature ^= 1;
         if (section.loadSectionFile(changed)) fail("Publisher font identity did not invalidate section cache");
@@ -6621,19 +6957,119 @@ class SimulatorSmokeTest {
     }
     bookFontSystem.close();
     SETTINGS.publisherFonts = 1;
-    for (unsigned i = 0; i < 32; ++i)
-      Storage.remove((book.getCachePath() + "/publisher-font-" + std::to_string(i)).c_str());
     if (!EpubReaderActivity::drawCurrentPageToBuffer(book.getPath(), renderer))
       fail("Publisher sleep-page reconstruction failed");
     bool extracted = false;
-    for (unsigned i = 1; i < 32; ++i)
-      extracted |= Storage.exists((book.getCachePath() + "/publisher-font-" + std::to_string(i)).c_str());
+    for (unsigned i = 1; i < 32; ++i) extracted |= publisherFontSlotExists(i);
     if (!extracted || bookFontSystem.signature() || bookFontSystem.requestedFaces())
       fail("Sleep reconstruction did not load and release publisher fonts");
     const auto sleepPageHash = hashBytes(renderer.getFrameBuffer(), renderer.getBufferSize());
     if (!EpubReaderActivity::drawCurrentPageToBuffer(book.getPath(), renderer) ||
         sleepPageHash != hashBytes(renderer.getFrameBuffer(), renderer.getBufferSize()))
       fail("Publisher sleep page changed when reopening its cache");
+    if (const char* keyChangeBook = std::getenv("CROSSINK_SIMULATOR_SMOKE_ADOBE_KEY_CHANGE_BOOK")) {
+      // The host runner verifies these archives contain identical body-font
+      // ZIP bytes and sizes but a different package UUID. Replace the same
+      // mounted path so its existing cache directory is reused.
+      std::array<bool, 2> priorSlotPresent{};
+      std::array<std::array<uint8_t, 52>, 2> priorMarkers{};
+      std::array<uint32_t, 2> priorFontHashes{};
+      for (size_t slot = 0; slot < 2; ++slot) {
+        const char suffix = slot == 0 ? 'a' : 'b';
+        const auto slotBase = book.getCachePath() + "/publisher-font-0." + suffix;
+        priorSlotPresent[slot] = readPublisherMarker(slotBase + ".meta", priorMarkers[slot]);
+        if (priorSlotPresent[slot]) priorFontHashes[slot] = hashPublisherSlot(slotBase);
+        if (priorSlotPresent[slot] && !priorFontHashes[slot])
+          fail("Could not snapshot the valid publisher-font cache before the Adobe-key change");
+      }
+      if (!priorSlotPresent[0] && !priorSlotPresent[1]) fail("No valid publisher-font cache before Adobe-key change");
+      bookFontSystem.close();
+      const std::string mountedBookPath = "fs_" + book.getPath();
+      std::error_code copyError;
+      std::filesystem::copy_file(keyChangeBook, mountedBookPath, std::filesystem::copy_options::overwrite_existing,
+                                 copyError);
+      if (copyError) fail("Could not install Adobe key-change fixture");
+      Epub changedBook(book.getPath(), "/.crosspoint");
+      if (!changedBook.load()) fail("Could not load Adobe key-change fixture at the existing path");
+      bookFontSystem.ensure(changedBook, renderer, true);
+      const auto bodyFamily = CssParser::hashFontFamily("Publisher Body");
+      if (bookFontSystem.resolve(bodyFamily, 18) || bookFontSystem.hasLoadedFamily(bodyFamily))
+        fail("Publisher font cache ignored a changed Adobe key for an identical ZIP member");
+      for (size_t slot = 0; slot < 2; ++slot) {
+        if (!priorSlotPresent[slot]) continue;
+        const char suffix = slot == 0 ? 'a' : 'b';
+        const auto slotBase = changedBook.getCachePath() + "/publisher-font-0." + suffix;
+        std::array<uint8_t, 52> markerAfter{};
+        if (!readPublisherMarker(slotBase + ".meta", markerAfter) || markerAfter != priorMarkers[slot] ||
+            hashPublisherSlot(slotBase) != priorFontHashes[slot])
+          fail("Failed extraction after Adobe-key change damaged the last valid publisher-font cache");
+      }
+      LOG_INF("SMOKE", "Adobe key change rejected cached font for unchanged ZIP member");
+      bookFontSystem.close();
+    }
+    const char* recoveryInitialBook = std::getenv("CROSSINK_SIMULATOR_SMOKE_PUBLISHER_RECOVERY_INITIAL_BOOK");
+    const char* recoveryBook = std::getenv("CROSSINK_SIMULATOR_SMOKE_PUBLISHER_RECOVERY_BOOK");
+    if (bool(recoveryInitialBook) != bool(recoveryBook)) fail("Publisher recovery fixtures were incomplete");
+    if (recoveryInitialBook) {
+      constexpr const char* RecoveryBookPath = "/books/publisher-font-recovery.epub";
+      const std::string mountedRecoveryBook = "fs_" + std::string(RecoveryBookPath);
+      const auto installRecoveryBook = [&](const char* source) {
+        std::error_code copyError;
+        std::filesystem::copy_file(source, mountedRecoveryBook, std::filesystem::copy_options::overwrite_existing,
+                                   copyError);
+        return !copyError;
+      };
+      if (!installRecoveryBook(recoveryInitialBook)) fail("Could not install bold-only publisher recovery book");
+      SETTINGS.publisherFonts = static_cast<uint8_t>(PublisherFonts::All);
+      {
+        Epub initialBook(RecoveryBookPath, "/.crosspoint");
+        if (!initialBook.load()) fail("Could not open bold-only publisher recovery book");
+        bookFontSystem.close();
+        bookFontSystem.ensure(initialBook, renderer, true);
+        const auto bodyFamily = CssParser::hashFontFamily("Publisher Body");
+        auto recoverySpec = SETTINGS.readerRenderSpec(renderer.getScreenWidth() - 40, renderer.getScreenHeight() - 40);
+        recoverySpec.publisherFontSignature = bookFontSystem.signature();
+        Section initialSection(initialBook, 0, renderer, "-publisher-recovery");
+        if (!initialSection.createSectionFile(recoverySpec) || !initialSection.loadSectionFile(recoverySpec))
+          fail("Could not build initial bold-only publisher section");
+        const uint32_t initiallyLoaded = bookFontSystem.loadedFaces();
+        if ((initiallyLoaded & 1U) || !(initiallyLoaded & 2U) || !bookFontSystem.resolve(bodyFamily, 18))
+          fail("Initial publisher recovery did not use the available bold face");
+        bookFontSystem.close();
+      }
+
+      if (!installRecoveryBook(recoveryBook)) fail("Could not install repaired publisher recovery book");
+      {
+        Epub repairedBook(RecoveryBookPath, "/.crosspoint");
+        if (!repairedBook.load()) fail("Could not open repaired publisher recovery book");
+        bookFontSystem.close();
+        bookFontSystem.ensure(repairedBook, renderer, true);
+        const auto bodyFamily = CssParser::hashFontFamily("Publisher Body");
+        auto recoverySpec = SETTINGS.readerRenderSpec(renderer.getScreenWidth() - 40, renderer.getScreenHeight() - 40);
+        recoverySpec.publisherFontSignature = bookFontSystem.signature();
+        Section repairedSection(repairedBook, 0, renderer, "-publisher-recovery");
+        if (repairedSection.loadSectionFile(recoverySpec))
+          fail("Changed regular face unexpectedly reused the bold-only section signature");
+        if (!repairedSection.createSectionFile(recoverySpec) || !repairedSection.loadSectionFile(recoverySpec))
+          fail("Could not rebuild the section after regular publisher face recovery");
+        const uint32_t repairedLoaded = bookFontSystem.loadedFaces();
+        if (!(repairedLoaded & 1U) || !(repairedLoaded & 2U) || !bookFontSystem.resolve(bodyFamily, 18))
+          fail("Rebuilt publisher section did not admit both recovered body styles");
+
+        bookFontSystem.close();
+        bookFontSystem.ensure(repairedBook, renderer, true);
+        const size_t fontsBeforeReplay = renderer.getFontMap().size();
+        Section warmSection(repairedBook, 0, renderer, "-publisher-recovery");
+        if (!warmSection.loadSectionFile(recoverySpec))
+          fail("Repaired publisher section signature was not reusable on the next open");
+        if (renderer.getFontMap().size() != fontsBeforeReplay)
+          fail("Repaired publisher cache replay eagerly registered point sizes");
+        LOG_INF("SMOKE", "Publisher recovery rebuilt once from bold-only to regular; next cache replay passed");
+        bookFontSystem.close();
+      }
+      SETTINGS.publisherFonts = static_cast<uint8_t>(PublisherFonts::Accents);
+    }
+    cleanupPublisherFontCache();
     const auto globalRows = buildReaderSettingsParentList(getSettingsList());
     if (std::any_of(globalRows.begin(), globalRows.end(),
                     [](const auto& row) { return row.valuePtr == &CrossPointSettings::publisherFonts; }))
@@ -9741,6 +10177,12 @@ class SimulatorSmokeTest {
                   [&](const std::string& name) { captureStatusBarScreen(name.c_str()); }))
             fail("Text darkness persistence, menu or glyph comparison failed");
           LOG_INF("SMOKE", "Simulator smoke test passed: text darkness");
+          std::_Exit(0);
+        }
+        if (std::getenv("CROSSINK_SIMULATOR_SMOKE_CSS_TOGGLE")) {
+          verifyCssToggle();
+          verifyCssPartialRetry();
+          LOG_INF("SMOKE", "Simulator smoke test passed: CSS toggle");
           std::_Exit(0);
         }
         if (std::getenv("CROSSINK_SIMULATOR_SMOKE_PUBLISHER_FONTS")) {
