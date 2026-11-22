@@ -14,6 +14,7 @@ inline bool failBookmarkSync = false;
 inline bool failBookmarkClose = false;
 inline int maxBookmarkWriteBytes = -1;
 inline std::string failBookmarkRenameFrom;
+inline std::string failBookmarkRemove;
 
 constexpr int O_WRONLY = 1, O_CREAT = 2, O_TRUNC = 4, O_APPEND = 8;
 class FsFile {
@@ -87,7 +88,7 @@ class HalStorage {
   }
   bool ensureDirectoryExists(const char*) { return true; }
   bool mkdir(const char*, bool = true) { return true; }
-  bool remove(const char* path) { return files.erase(path) != 0; }
+  bool remove(const char* path) { return failBookmarkRemove != path && files.erase(path) != 0; }
   bool rename(const char* from, const char* to) {
     if (failBookmarkRenameFrom == from) return false;
     if (!files.contains(from) || files.contains(to)) return false;

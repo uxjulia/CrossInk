@@ -5,6 +5,7 @@
 - Support ten new Indic scripts when you using a compatible font. (CrossPoint #3787).
 - Show a Delete button when viewing a clipping (#936).
 - Add an optional Dutch hyphenation pack for EPUBs (#970).
+- Add optional Sync on Sleep for EPUB progress, plus bookmarks, clippings, and reading sessions on compatible servers (CrossPoint #4531).
 
 ### Changed
 

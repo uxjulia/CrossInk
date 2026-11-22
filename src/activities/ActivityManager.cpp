@@ -1165,7 +1165,7 @@ void ActivityManager::goToReaderAndRunMenuAction(std::string path, const uint8_t
   goToReader(std::move(path));
 }
 
-bool ActivityManager::goToSleep(bool fromTimeout) {
+bool ActivityManager::goToSleep(bool fromTimeout, SleepSyncBook* syncBook) {
   // Hold the visible page steady from the first sleep indication through reader saves.
   RenderLock lock;
   const bool readerPage = canSnapshotForSleepOverlay();
@@ -1184,11 +1184,21 @@ bool ActivityManager::goToSleep(bool fromTimeout) {
     sleepActivity->showSleepPopup();
   }
 
-  const bool deliverAfterScreen = prepareSleepPlugins(quickResume, fromReaderOrHome);
+  bool pluginJoinAttempted = false;
+  const bool deliverAfterScreen = prepareSleepPlugins(quickResume, fromReaderOrHome, pluginJoinAttempted);
   // Artwork can change during delivery. Check the cover cache only after plugins have run.
   const bool renderBeforeExit = sleepActivity && fromReaderOrHome && sleepActivity->rendersBeforeExit();
   if (renderBeforeExit) sleepActivity->onEnter();
 
+  // Only the EPUB activity actually showing at sleep may supply a sync target.
+  // In particular, an EPUB underneath a menu or a network activity does not
+  // make that foreground activity eligible.
+  if (syncBook) {
+    *syncBook = {};
+    if (currentActivity && currentActivity->isEpubReaderActivity()) {
+      static_cast<EpubReaderActivity&>(*currentActivity).captureSyncBookOnExit(*syncBook);
+    }
+  }
   TouchRegistry::getInstance().clear();
   exitActivity(lock);
   while (!stackActivities.empty()) {
@@ -1204,7 +1214,8 @@ bool ActivityManager::goToSleep(bool fromTimeout) {
   auto* sleepScreen = sleepActivity.get();
   currentActivity = std::move(sleepActivity);
   if (sleepScreen && !earlyMoon && !renderBeforeExit) sleepScreen->onEnter();
-  if (deliverAfterScreen) pluginevents::deliverSleepEvents();
+  if (deliverAfterScreen) pluginJoinAttempted = pluginevents::deliverSleepEvents();
+  if (syncBook) syncBook->pluginJoinAttempted = pluginJoinAttempted;
   return sleepScreen && sleepScreen->hasMonochromeFrame();
 }
 
@@ -1575,7 +1586,7 @@ bool RenderLock::heldByCurrentTask() {
   return xSemaphoreGetMutexHolder(activityManager.renderingMutex) == xTaskGetCurrentTaskHandle();
 }
 
-bool ActivityManager::prepareSleepPlugins(bool quickResume, bool fromReaderOrHome) {
+bool ActivityManager::prepareSleepPlugins(bool quickResume, bool fromReaderOrHome, bool& attemptedJoin) {
   if (!SETTINGS.pluginsEnabled) return false;
   for (auto& activity : stackActivities) activity->prepareForSleep();
   if (currentActivity) currentActivity->prepareForSleep();
@@ -1590,6 +1601,6 @@ bool ActivityManager::prepareSleepPlugins(bool quickResume, bool fromReaderOrHom
                              mode == CrossPointSettings::DARK || mode == CrossPointSettings::LIGHT ||
                              mode == CrossPointSettings::BLANK;
   if (builtInScreen && fromReaderOrHome) return true;
-  pluginevents::deliverSleepEvents();
+  attemptedJoin = pluginevents::deliverSleepEvents();
   return false;
 }

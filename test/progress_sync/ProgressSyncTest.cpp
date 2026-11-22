@@ -168,6 +168,41 @@ TEST_F(ProgressSync, SingleProgressUsesSameStagedAndCompleteResponseRules) {
   testHttp.replies = {{"{\"percentage\":0.5}", 200, false}};
   EXPECT_EQ(Client::getProgress(DOCUMENT, progress), Client::NETWORK_ERROR);
 }
+TEST_F(ProgressSync, UnattendedGetDistinguishesMissingFromUnknownOrMalformedRemote) {
+  KOReaderProgress progress{};
+  const auto notCancelled = [](void*) { return false; };
+  for (const auto* json : {R"({"progress":"/body/p[1]"})", R"({"wrong":true})", R"({"percentage":1.3})",
+                           R"({"percentage":"0.4"})", "[]", "{} trailing data"}) {
+    testHttp = {};
+    testHttp.replies = {{json}};
+    EXPECT_EQ(Client::getProgress(DOCUMENT, progress, notCancelled), Client::JSON_ERROR) << json;
+  }
+  testHttp = {};
+  testHttp.replies = {{" { } "}};
+  EXPECT_EQ(Client::getProgress(DOCUMENT, progress, notCancelled), Client::NOT_FOUND);
+  testHttp = {};
+  testHttp.replies = {{R"({"percentage":1})"}};
+  EXPECT_EQ(Client::getProgress(DOCUMENT, progress, notCancelled), Client::OK);
+  EXPECT_EQ(progress.percentage, 1.0f);
+  EXPECT_EQ(testHttp.timeout, 4000U);
+}
+
+TEST_F(ProgressSync, UnattendedGetAndPutAbortDuringTransport) {
+  KOReaderProgress progress{};
+  progress.document = DOCUMENT;
+  const auto abortDuringTransport = [](void* calls) { return ++*static_cast<unsigned*>(calls) >= 3; };
+  unsigned calls = 0;
+  testHttp.replies = {{std::string(8000, 'x')}};
+  EXPECT_EQ(Client::getProgress(DOCUMENT, progress, abortDuringTransport, &calls), Client::NETWORK_ERROR);
+  EXPECT_LT(testHttp.streamedBytes, 128U);
+  testHttp = {};
+  testHttp.replies = {{std::string(8000, 'x')}};
+  calls = 0;
+  EXPECT_EQ(Client::updateProgress(progress, abortDuringTransport, &calls), Client::NETWORK_ERROR);
+  EXPECT_EQ(testHttp.timeout, 4000U);
+  EXPECT_LT(testHttp.streamedBytes, 128U);
+}
+
 TEST_F(ProgressSync, BoundsIgnoredPutReplyAndRejectsIncompleteAcknowledgement) {
   KOReaderProgress progress{};
   progress.document = DOCUMENT;

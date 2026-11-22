@@ -250,6 +250,7 @@ if(NODE_EXECUTABLE)
     COMMAND ${NODE_EXECUTABLE} ${REPO_ROOT}/test/scripts/test_transfer_websocket.cjs)
 endif()
 add_subdirectory(progress_sync)
+add_subdirectory(sleep_progress_policy)
 add_test(NAME WebDavCredentialsRegression
   COMMAND ${Python3_EXECUTABLE} ${REPO_ROOT}/test/scripts/test_webdav_credentials.py)
 add_test(NAME TlsFragmentConfigRegression

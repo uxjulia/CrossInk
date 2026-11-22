@@ -527,11 +527,13 @@ void queueSleep(const char* book, int progress) {
   emit(Event::SleepEnter, vars, book[0] ? 2 : 0);
 }
 
-void deliverSleepEvents() {
-  if (!SETTINGS.pluginsEnabled) return;
+bool deliverSleepEvents() {
+  if (!SETTINGS.pluginsEnabled) return false;
+  bool attemptedJoin = false;
   if (WiFi.status() != WL_CONNECTED && wantsConnectAny()) {
     const auto credential = WIFI_STORE.findCredential(WIFI_STORE.getLastConnectedSsid());
     if (credential) {
+      attemptedJoin = true;
       WiFi.mode(WIFI_STA);
       WiFi.begin(credential->ssid.c_str(), credential->password.c_str());
       const uint32_t start = millis();
@@ -543,6 +545,7 @@ void deliverSleepEvents() {
     drainQueued(nullptr, MAX_EVENT_PLUGINS, DrainMode::Sleep, deadline);
     drainQueued(nullptr, MAX_EVENT_PLUGINS, DrainMode::Connect, deadline);
   }
+  return attemptedJoin;
 }
 
 }  // namespace pluginevents

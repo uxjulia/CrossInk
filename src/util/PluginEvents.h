@@ -67,7 +67,8 @@ void refreshSubscriptions();
 void pollOnline();
 // Capture reader context before exit. Delivery may wait for a saved Wi-Fi network.
 void queueSleep(const char* book, int percent);
-void deliverSleepEvents();
+// Returns true if this call attempted to join saved Wi-Fi.
+bool deliverSleepEvents();
 
 // True when at least one plugin subscribes to `e` (a few string compares).
 bool anySubscriber(Event e);

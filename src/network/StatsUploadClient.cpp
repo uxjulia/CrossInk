@@ -34,15 +34,33 @@ void recordMissingApi(const int status) {
   if (status == 404 || status == 405) KOREADER_STORE.setServerSupport(SyncServerSupport::UNSUPPORTED);
 }
 
-template <typename HttpClient, typename Receive>
-int sendFileBody(HttpClient& http, FsFile& source, const Receive& receive, bool& lowMemory) {
+template <typename HttpClient, typename Receive, typename Abort>
+int sendBytes(HttpClient& http, const uint8_t* payload, size_t length, const Receive& receive, const Abort& abort) {
+  if constexpr (requires { http.sendRequest("PUT", payload, length, receive, abort); })
+    return http.sendRequest("PUT", payload, length, receive, abort);
+  else
+    return http.sendRequest("PUT", payload, length, receive);
+}
+
+template <typename HttpClient, typename Receive, typename Abort>
+int getBytes(HttpClient& http, const Receive& receive, const Abort& abort) {
+  if constexpr (requires { http.GET(receive, abort); })
+    return http.GET(receive, abort);
+  else
+    return http.GET(receive);
+}
+
+template <typename HttpClient, typename Receive, typename Abort>
+int sendFileBody(HttpClient& http, FsFile& source, const Receive& receive, bool& lowMemory, const Abort& abort) {
   const auto read = [](void* context, size_t offset, uint8_t* data, size_t length) -> size_t {
     auto& file = *static_cast<FsFile*>(context);
     if (!file.seekSet(offset)) return 0;
     const int count = file.read(data, length);
     return count < 0 ? 0 : static_cast<size_t>(count);
   };
-  if constexpr (requires { http.sendRequestStream("PUT", source.size(), read, &source, receive); }) {
+  if constexpr (requires { http.sendRequestStream("PUT", source.size(), read, &source, receive, abort); }) {
+    return http.sendRequestStream("PUT", source.size(), read, &source, receive, abort);
+  } else if constexpr (requires { http.sendRequestStream("PUT", source.size(), read, &source, receive); }) {
     return http.sendRequestStream("PUT", source.size(), read, &source, receive);
   } else {
     // Upstream SDK accepts only a contiguous request body. This upload-scoped
@@ -69,7 +87,7 @@ int sendFileBody(HttpClient& http, FsFile& source, const Receive& receive, bool&
       LOG_ERR("StatsSync", "Cannot read complete upload body");
       return -1;
     }
-    return http.sendRequest("PUT", payload.get(), length, receive);
+    return sendBytes(http, payload.get(), length, receive, abort);
   }
 }
 }  // namespace
@@ -80,7 +98,12 @@ struct StatsUploadClient::Impl {
 };
 
 // Keep the client and bounded reply buffer off the small main-task stack.
-StatsUploadClient::StatsUploadClient(Relay* relay) : relay(relay), impl(relay ? nullptr : makeUniqueNoThrow<Impl>()) {}
+StatsUploadClient::StatsUploadClient(Relay* relay, Cancel cancel, void* context, const uint32_t timeoutMs)
+    : relay(relay),
+      cancel(cancel),
+      cancelContext(context),
+      timeoutMs(timeoutMs),
+      impl(relay ? nullptr : makeUniqueNoThrow<Impl>()) {}
 StatsUploadClient::~StatsUploadClient() = default;
 void StatsUploadClient::close() {
   if (impl) impl->http.end();
@@ -114,6 +137,7 @@ class StatsRequest final : public SyncLog::Request {
                              : result == Result::Unsupported ? "unsupported"
                              : result == Result::LowMemory   ? "low-memory"
                              : result == Result::Skipped     ? "skipped"
+                             : result == Result::Cancelled   ? "cancelled"
                              : result == Result::Server      ? "server-error"
                                                              : "invalid-response");
     return result;
@@ -124,6 +148,7 @@ class StatsRequest final : public SyncLog::Request {
 StatsUploadClient::Result StatsUploadClient::putBody(const char* endpoint, const char* payload, unsigned bookCount,
                                                      bool daily, const char* sessionId, const char* filePath) {
   StatsRequest request("PUT", endpoint, lastHttpCode);
+  if (cancelled()) return request.finish(Result::Cancelled);
 
   if (relay) {
     const int status = relay->request(relay->context, "PUT", endpoint, payload, filePath, relay->response,
@@ -145,7 +170,7 @@ StatsUploadClient::Result StatsUploadClient::putBody(const char* endpoint, const
   // Do not follow redirects or send Basic credentials: this API only needs
   // the x-auth headers. Reuse the existing KOReader TLS policy.
   http.setInsecure();
-  http.setTimeout(15000);
+  http.setTimeout(timeoutMs);
   if (!http.begin(KOREADER_STORE.getBaseUrl() + endpoint)) {
     LOG_ERR("StatsSync", "Invalid server URL");
     http.end();
@@ -188,9 +213,9 @@ StatsUploadClient::Result StatsUploadClient::putBody(const char* endpoint, const
     size += length;
     return true;
   };
-  const int status = filePath
-                         ? sendFileBody(http, source, receive, uploadLowMemory)
-                         : http.sendRequest("PUT", reinterpret_cast<const uint8_t*>(payload), strlen(payload), receive);
+  const int status = filePath ? sendFileBody(http, source, receive, uploadLowMemory, [this] { return cancelled(); })
+                              : sendBytes(http, reinterpret_cast<const uint8_t*>(payload), strlen(payload), receive,
+                                          [this] { return cancelled(); });
   complete = http.responseComplete();
 #endif
   // File-backed uploads release TLS and the SD reader before parsing acknowledgment.
@@ -198,6 +223,10 @@ StatsUploadClient::Result StatsUploadClient::putBody(const char* endpoint, const
   if (filePath) {
     http.end();
     complete = complete && closed;
+  }
+  if (!complete && cancelled()) {
+    http.end();
+    return request.finish(Result::Cancelled);
   }
   if (uploadLowMemory) {
     http.end();
@@ -217,7 +246,8 @@ StatsUploadClient::Result StatsUploadClient::acceptUpload(const char* endpoint, 
   // A missing sessions endpoint on an older Sync server does not invalidate
   // support for the existing stats endpoints. Keep the outbox for an upgrade.
   const bool counterIds = strncmp(endpoint, "/api/v1/stats/counters/", 23) == 0;
-  if (!relay && !sessionId && !counterIds) recordMissingApi(status);
+  const bool bookmarks = strncmp(endpoint, "/api/v1/bookmarks/", 18) == 0;
+  if (!relay && !sessionId && !counterIds && !bookmarks) recordMissingApi(status);
   if (status <= 0) return Result::Network;
   if (status == 401 || status == 403) return Result::Auth;
   if (status == 404 || status == 405) {
@@ -239,13 +269,14 @@ StatsUploadClient::Result StatsUploadClient::acceptUpload(const char* endpoint, 
     return Result::InvalidResponse;
   }
   // Only a valid extension reply proves support; a catch-all 200 page does not.
-  if (!relay) KOREADER_STORE.setServerSupport(SyncServerSupport::SUPPORTED);
+  if (!relay && !bookmarks) KOREADER_STORE.setServerSupport(SyncServerSupport::SUPPORTED);
   return Result::Ok;
 }
 
 StatsUploadClient::Result StatsUploadClient::get(const char* endpoint, const char* responsePath,
                                                  const size_t maxBytes) {
   StatsRequest request("GET", endpoint, lastHttpCode);
+  if (cancelled()) return request.finish(Result::Cancelled);
 
   if (relay) {
     const int status =
@@ -267,7 +298,7 @@ StatsUploadClient::Result StatsUploadClient::get(const char* endpoint, const cha
     return request.finish(Result::LowMemory);
   }
   http.setInsecure();
-  http.setTimeout(15000);
+  http.setTimeout(timeoutMs);
   if (!http.begin(KOREADER_STORE.getBaseUrl() + endpoint)) return request.finish(Result::Network);
   http.addHeader("Accept", "application/json");
   applyCustomHttpHeaders(http, KOREADER_STORE.getCustomHeaders());
@@ -297,12 +328,13 @@ StatsUploadClient::Result StatsUploadClient::get(const char* endpoint, const cha
   const auto& body = http.getString();
   complete = store(reinterpret_cast<const uint8_t*>(body.c_str()), body.length());
 #else
-  const int status = http.GET(store);
+  const int status = getBytes(http, store, [this] { return cancelled(); });
   complete = http.responseComplete();
 #endif
   http.end();
   lastHttpCode = status;
   LOG_INF("StatsSync", "Download response: HTTP %d", status);
+  if (!complete && cancelled()) return request.finish(Result::Cancelled);
   if (status <= 0) return request.finish(Result::Network);
   if (status == 401 || status == 403) return request.finish(Result::Auth);
   if (status == 404 || status == 405) return request.finish(Result::Unsupported);

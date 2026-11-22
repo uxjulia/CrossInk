@@ -102,6 +102,9 @@ class BookmarkStore {
 
   struct RenameMigration {
     std::string sourceCurrentPath;
+    std::string sourceSyncPath;
+    std::string destinationSyncPath;
+    bool syncGuardStaged = false;
     std::string sourceLegacyPath;
     std::string destinationCurrentPath;
     std::string destinationLegacyPath;
@@ -126,6 +129,13 @@ class BookmarkStore {
   bool removeBookmarkAt(size_t index);
   bool hasBookmarkForPage(uint16_t spineIndex, float pageProgress, int pageCount);
   const BookmarkRecords& getBookmarks() const { return bookmarks; }
+
+  // Foreground sync uses a separate instance, outside the reader lifetime.
+  bool applySyncedBookmark(const Bookmark& bookmark);
+  bool flushSyncChanges();
+  bool hasDurableSyncSnapshot() const;
+  static std::string syncStatePath(const std::string& filePath);
+  static bool syncBlockedByMove(const std::string& filePath);
 
   // Flush to disk if dirty. Called automatically by add/remove; also call from reader onExit().
   void saveToFile();

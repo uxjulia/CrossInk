@@ -36,6 +36,8 @@ void KOReaderCredentialStore::toJson(JsonDocument& doc) const {
   doc["sendMetadata"] = sendMetadata;
   doc["syncStats"] = syncStats;
   doc["syncClippings"] = syncClippings;
+  doc["syncBookmarks"] = syncBookmarks;
+  doc["syncOnSleep"] = syncOnSleep;
   if (serverSupport != SyncServerSupport::UNKNOWN && !serverSupportUrl.empty()) {
     doc["serverSupport"] = static_cast<uint8_t>(serverSupport);
     doc["serverSupportUrl"] = serverSupportUrl;
@@ -103,6 +105,8 @@ bool KOReaderCredentialStore::fromJson(JsonVariantConst doc) {
   setSendMetadata(doc["sendMetadata"] | usesCrossPointSyncServer());
   setSyncStats(doc["syncStats"] | false);
   setSyncClippings(doc["syncClippings"] | false);
+  setSyncBookmarks(doc["syncBookmarks"] | false);
+  setSyncOnSleep(doc["syncOnSleep"] | false);
   const uint8_t support = doc["serverSupport"] | (uint8_t)0;
   serverSupportUrl = doc["serverSupportUrl"] | "";
   serverSupport = support <= static_cast<uint8_t>(SyncServerSupport::UNSUPPORTED)
@@ -131,6 +135,7 @@ bool KOReaderCredentialStore::fromJson(JsonVariantConst doc) {
 
 void KOReaderCredentialStore::setCredentials(const std::string& user, const std::string& pass) {
   ensureLoaded();
+  if (username != user) syncOnSleep = syncBookmarks = false;
   username = user;
   password = pass;
 }
@@ -157,6 +162,7 @@ bool KOReaderCredentialStore::hasCredentials() const {
 
 void KOReaderCredentialStore::setServerUrl(const std::string& url) {
   ensureLoaded();
+  if (serverUrl != url) syncOnSleep = syncBookmarks = false;
   serverUrl = url;
 }
 
@@ -222,6 +228,16 @@ void KOReaderCredentialStore::setSyncStats(const bool enabled) {
 void KOReaderCredentialStore::setSyncClippings(const bool enabled) {
   ensureLoaded();
   syncClippings = enabled;
+}
+
+void KOReaderCredentialStore::setSyncBookmarks(const bool enabled) {
+  ensureLoaded();
+  syncBookmarks = enabled;
+}
+
+void KOReaderCredentialStore::setSyncOnSleep(const bool enabled) {
+  ensureLoaded();
+  syncOnSleep = enabled;
 }
 
 void KOReaderCredentialStore::setMatchMethod(DocumentMatchMethod method) {

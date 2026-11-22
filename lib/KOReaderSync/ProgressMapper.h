@@ -71,12 +71,13 @@ class ProgressMapper {
    * @param koPos KOReader position
    * @param currentSpineIndex Index of the currently open spine item (for density estimation)
    * @param totalPagesInCurrentSpine Total pages in the current spine item (for density estimation)
+   * @param fixedSpineResolution Optional virtual page count for a normalized intra-spine result, independent of cache
    * @return CrossPoint position
    */
   static CrossPointPosition toCrossPoint(
       const std::shared_ptr<Epub>& epub, const KOReaderPosition& koPos, int currentSpineIndex = -1,
       int totalPagesInCurrentSpine = 0,
-      PositionCoordinateSpace coordinateSpace = PositionCoordinateSpace::CurrentDocument);
+      PositionCoordinateSpace coordinateSpace = PositionCoordinateSpace::CurrentDocument, int fixedSpineResolution = 0);
 
   /**
    * Convert a rich CrossPoint position (downloaded from a crosspoint-sync

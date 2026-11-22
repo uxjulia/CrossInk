@@ -78,6 +78,8 @@ class HalPowerManager {
 
   // Get battery percentage (range 0-100)
   uint16_t getBatteryPercentage() const;
+  // A failed reading is distinct from a true 0%; does not change the UI estimate.
+  bool readBatteryPercentage(uint16_t& percent) const;
 
 #if CROSSINK_BATTERY_DIAG_LOG
   // Raw battery telemetry for the diagnostic log, kept behind the flag so

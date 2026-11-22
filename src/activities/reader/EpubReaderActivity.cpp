@@ -1662,9 +1662,11 @@ bool isInReadFolder(const std::string& path) {
 
 // Relocate a finished book into /Read/, then migrate path-keyed state such as
 // cache files, bookmarks, recents, and resume path.
-void moveFinishedBookToReadFolder(const std::string& srcPath, const std::string& dstPath,
-                                  const std::string& oldCachePath, const std::string& title,
-                                  const std::string& author) {
+enum class FinishedBookMove { NotMoved, Moved, StateMigrationFailed };
+
+FinishedBookMove moveFinishedBookToReadFolder(const std::string& srcPath, const std::string& dstPath,
+                                              const std::string& oldCachePath, const std::string& title,
+                                              const std::string& author) {
   LOG_INF("ERS", "Moving finished epub: %s -> %s", srcPath.c_str(), dstPath.c_str());
   if (!bookkey::moveFile(srcPath, dstPath)) {
     LOG_ERR("ERS", "Failed to move finished book to '/Read' folder");
@@ -1673,11 +1675,13 @@ void moveFinishedBookToReadFolder(const std::string& srcPath, const std::string&
              title.c_str());
     APP_STATE.pendingAlertGoHomeOnBack.store(false, std::memory_order_relaxed);
     APP_STATE.hasPendingAlert.store(true, std::memory_order_release);
-    return;
+    return FinishedBookMove::NotMoved;
   }
 
-  BookMoveUtils::migrateMovedEpubState(srcPath, dstPath, oldCachePath, title, author,
-                                       !SETTINGS.removeReadBooksFromRecents);
+  return BookMoveUtils::migrateMovedEpubState(srcPath, dstPath, oldCachePath, title, author,
+                                              !SETTINGS.removeReadBooksFromRecents)
+             ? FinishedBookMove::Moved
+             : FinishedBookMove::StateMigrationFailed;
 }
 
 }  // namespace
@@ -2738,8 +2742,13 @@ void EpubReaderActivity::onExit() {
   // Deactivate reader-specific front button mapping.
   mappedInput.setReaderMode(false);
 
-  if (!saveReadingProgress()) {
+  const bool progressSaved = saveReadingProgress();
+  if (!progressSaved) {
     LOG_ERR("ERS", "Failed to flush debounced reader progress on exit");
+  }
+  if (sleepSyncBook && epub) {
+    sleepSyncBook->path = epub->getPath();
+    sleepSyncBook->progressSafe = progressSaved;
   }
   pluginEvents.exit(getCurrentBookPath(), getScreenshotInfo().progressPercent);
 
@@ -2771,7 +2780,16 @@ void EpubReaderActivity::onExit() {
     const std::string author = epub->getAuthor();
     const std::string dstPath = BookMoveUtils::buildReadFolderDestination(srcPath);
     epub.reset();  // release the Epub (and any open handles) before renaming on the SD card
-    moveFinishedBookToReadFolder(srcPath, dstPath, oldCachePath, title, author);
+    const auto moved = moveFinishedBookToReadFolder(srcPath, dstPath, oldCachePath, title, author);
+    if (sleepSyncBook) {
+      if (moved == FinishedBookMove::Moved) {
+        sleepSyncBook->path = dstPath;
+      } else if (moved == FinishedBookMove::StateMigrationFailed) {
+        // The book moved but its synced state may still belong to the old
+        // path. Do not send an incomplete snapshot from either path.
+        *sleepSyncBook = {};
+      }
+    }
   } else {
     epub.reset();
   }

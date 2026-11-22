@@ -39,6 +39,33 @@ saving for that session, preserving both source files until a successful
 reload. This also fails closed on corrupt canonical files rather than replacing
 them with a potentially incomplete legacy subset.
 
+### Bookmark sync ledger
+
+For EPUBs with bookmark sync, `/.crosspoint/bookmark-sync/<path-crc32>`
+is a separate atomic sync file. The checksum-protected version 2 record
+contains the server/account and remote document fingerprints, a revision cursor,
+a separate tombstone-scan cursor used at capacity, and up to 128
+ID-to-local-position mappings. Each mapping keeps the opaque server ID and its
+settled or pending exchange state. Upload and deletion intents are journaled
+before the request; deletions also record the last observed server revision.
+The receive cursor advances only after local changes are durable. A server
+restart that rewinds revisions is not inferred from an empty response. Neither old-account IDs nor old-document deletions are sent to a
+new scope. A different account is rejected rather than exporting the previous
+account's imported bookmarks.
+
+A bookmark move guards the destination with a durable
+`<path-crc32>.moving` file before writing bookmarks there, and guards the
+source before moving its ledger. These markers block network exchange but
+not local reading. The destination guard is cleared only once the ledger
+arrives or the copy is rolled back. The source guard remains until the old
+snapshots and backups are removed. A failed move leaves any ambiguous path
+guarded rather than treating previously synced bookmarks as fresh local data.
+
+Intentional removal of the last bookmark retains a valid zero-record bookmark
+file while a ledger exists. A missing or unreadable bookmark file is not treated
+as a request to delete server bookmarks. Local deletion of the whole EPUB
+clears its local ledger without sending remote bookmark tombstones.
+
 ## Settings: menu navigation
 
 `menuNavigation` in `/.crosspoint/crossink-settings.json` selects Directional

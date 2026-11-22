@@ -47,9 +47,29 @@ EPUB books can share progress, stats, and clippings. XTC books share stats only.
 TXT and Markdown books are skipped. Turning tracking off keeps saved history
 but stops new stats from being recorded.
 
-These actions run when you start them. They do not turn on automatic syncing
-when you close a book or put the reader to sleep. A separately installed plugin
-may have its own background behavior; see [Plugins](./sd-plugins.md).
+These actions run when you start them. Closing a book does not turn on
+automatic syncing. A separately installed plugin may have its own background
+behavior; see [Plugins](./sd-plugins.md).
+
+### Sync on Sleep
+
+With an account configured, turn on **Settings > System > Sync Server >
+Sync on Sleep** to try syncing when the reader goes to sleep with an EPUB open.
+It is off by default and turns off if you change the server URL or username.
+On sleep, the reader can send its saved position if it is further through the
+book. It leaves positions that are the same or further ahead on the server
+alone. Use **Sync Book** to review or apply a remote position.
+
+If the reader needs to join Wi-Fi, it tries a saved network without prompting.
+Below 20% battery, it skips a new connection; an existing connection can
+still be used. If the network is unavailable, your place and pending data
+remain on the reader.
+
+On compatible servers, **Bookmarks** under **What to Sync** lets sleep sync
+exchange bookmarks. It is off by default. **Clippings** and **Reading Stats**
+keep their separate opt-ins; when enabled, sleep sync can exchange the book's
+clippings and upload a small batch of pending reading sessions. Larger uploads
+can continue next time.
 
 ## Sync Books
 

@@ -121,6 +121,11 @@ inline esp_sleep_wakeup_cause_t esp_sleep_get_wakeup_cause() { return ESP_SLEEP_
 #include "components/icons/tablerFilledIcons.h"
 #include "fontIds.h"
 #include "network/UsbSerialFileTransfer.h"
+#ifndef SIMULATOR
+#include "WifiCredentialStore.h"
+#include "network/SleepBookSync.h"
+#include "network/WifiUtils.h"
+#endif
 #include "platform/UsbSerialJtagHandoff.h"
 #include "util/PluginBundle.h"
 #ifdef SIMULATOR
@@ -1231,6 +1236,72 @@ static bool holdSleepWhileUsbPowered(bool monochrome = false) {
 }
 #endif
 
+#ifndef SIMULATOR
+namespace {
+bool canJoinForSleepSync() {
+  uint16_t battery = 0;
+  if (powerManager.readBatteryPercentage(battery) && battery < 20) {
+    LOG_INF("SLP", "Sleep sync Wi-Fi join skipped: battery %u%% is below 20%%", battery);
+    return false;
+  }
+  if (WIFI_STORE.getCredentialCount() == 0) {
+    LOG_INF("SLP", "Sleep sync Wi-Fi join skipped: no saved network");
+    return false;
+  }
+  return true;
+}
+
+bool connectForSleepSync() {
+  if (hasActiveStationWifiConnection()) return true;
+  if (!canJoinForSleepSync()) return false;
+
+  // Try one saved network, preferring the last-used credentials. No foreground
+  // Wi-Fi screen, new credentials or SDK-managed network selection at bedtime.
+  auto credential = WIFI_STORE.findCredential(WIFI_STORE.getLastConnectedSsid());
+  if (!credential) credential = WIFI_STORE.getCredentialAt(0);
+  if (!credential) {
+    LOG_INF("SLP", "Sleep sync Wi-Fi join skipped: no saved network");
+    return false;
+  }
+
+  WiFi.persistent(false);
+  if (!WiFi.mode(WIFI_STA)) {
+    LOG_ERR("SLP", "Could not enable Wi-Fi for sleep sync");
+    return false;
+  }
+  WiFi.begin(credential->ssid.c_str(), credential->password.c_str());
+  constexpr uint32_t JOIN_TIMEOUT_MS = 10000;
+  const uint32_t started = millis();
+  while (!hasActiveStationWifiConnection() && millis() - started < JOIN_TIMEOUT_MS) delay(50);
+  if (!hasActiveStationWifiConnection()) {
+    LOG_INF("SLP", "Sleep sync Wi-Fi join failed");
+    return false;
+  }
+  return true;
+}
+
+void runSleepSync(const SleepSyncBook& book) {
+  if (book.path.empty()) return;
+#if FREEINK_DEVICE_PICCO
+  // Preserve the existing USB-powered sleep behavior: the retained frame is
+  // used for charge-status repaints, and should not wait on a network join.
+  if (gpio.isUsbConnected()) return;
+#endif
+  const bool wasConnected = hasActiveStationWifiConnection();
+  // Reuse a successful plugin connection, but do not repeat a failed join or
+  // map EPUB progress when we already know there's no eligible connection.
+  if (!wasConnected && (book.pluginJoinAttempted || !canJoinForSleepSync())) return;
+  SleepBookSync::run(book.path, book.progressSafe, wasConnected ? hasActiveStationWifiConnection : connectForSleepSync);
+  if (!wasConnected && WiFi.getMode() == WIFI_STA) {
+    // Do not hold a connection we brought up through SD shutdown, including
+    // when storage shutdown fails and the application has to remain awake.
+    WiFi.disconnect(true);
+    WiFi.mode(WIFI_OFF);
+  }
+}
+}  // namespace
+#endif
+
 void enterDeepSleep(bool fromTimeout) {
 #ifndef SIMULATOR
   gpio.stopButtonCapture();
@@ -1246,7 +1317,15 @@ void enterDeepSleep(bool fromTimeout) {
   // Commit to sleeping before goToSleep() runs the outgoing activity's onExit():
   // a WiFi activity would otherwise silentRestart() here and reboot instead.
   deepSleepInProgress = true;
+#ifndef SIMULATOR
+  SleepSyncBook syncBook;
+  const bool captureSleepSync =
+      APP_STATE.lastSleepFromReader && KOREADER_STORE.getSyncOnSleep() && KOREADER_STORE.hasCredentials();
+  [[maybe_unused]] const bool monochromeSleepFrame =
+      activityManager.goToSleep(fromTimeout, captureSleepSync ? &syncBook : nullptr);
+#else
   [[maybe_unused]] const bool monochromeSleepFrame = activityManager.goToSleep(fromTimeout);
+#endif
   trustedtime::note();
   // Reader exit may already have saved this state. Save after the sleep screen
   // appears, skipping an unchanged snapshot while still retrying failed saves.
@@ -1269,6 +1348,12 @@ void enterDeepSleep(bool fromTimeout) {
       LOG_ERR("MAIN", "Automatic reading-stats backup failed before deep sleep");
     }
   }
+
+#ifndef SIMULATOR
+  // Reader teardown and all sleep rendering are done. Sync does not touch the
+  // framebuffer or hold RenderLock, and still has access to mounted storage.
+  runSleepSync(syncBook);
+#endif
 
   // Last chance to sample: startDeepSleep() cuts the SD rail on X3, so nothing
   // can be written again until the next wake.

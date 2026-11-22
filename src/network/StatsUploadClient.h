@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 
 // App-facing transport for the CrossPoint stats snapshot API.
@@ -17,7 +18,12 @@ class StatsUploadClient {
                    char* response, size_t capacity, const char* outputPath);
     char response[256]{};
   };
-  explicit StatsUploadClient(Relay* relay = nullptr);
+  using Cancel = bool (*)(void*);
+  static constexpr uint32_t FOREGROUND_TIMEOUT_MS = 15000;
+  static constexpr uint32_t SLEEP_TIMEOUT_MS = 4000;
+  explicit StatsUploadClient(Relay* relay = nullptr, Cancel cancel = nullptr, void* context = nullptr,
+                             uint32_t timeoutMs = FOREGROUND_TIMEOUT_MS);
+
   ~StatsUploadClient();
   void close();
   // Zero for non-book requests; otherwise require acknowledgment of every book.
@@ -57,6 +63,10 @@ class StatsUploadClient {
                       bool complete, const char* response);
   Result acceptStreak(int status, bool complete, const char* response);
   Relay* relay;
+  Cancel cancel;
+  void* cancelContext;
+  uint32_t timeoutMs;
+  bool cancelled() const { return cancel && cancel(cancelContext); }
   struct Impl;
   std::unique_ptr<Impl> impl;
 };

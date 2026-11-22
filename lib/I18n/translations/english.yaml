@@ -857,6 +857,7 @@ STR_SYNC_SERVER_SETUP_FIRST: "Set up an account in Settings > System > Sync Serv
 STR_SYNC_ALL_CONFIRM: "Sync every book on your SD card using your sync settings?"
 STR_SYNC: "Sync"
 STR_WHAT_TO_SYNC: "What to Sync"
+STR_SYNC_ON_SLEEP: "Sync on Sleep"
 STR_SYNC_OPTIONS: "Sync Options"
 STR_REQUIRES_CROSSPOINT_SYNC: "Requires CrossPoint Sync"
 STR_SERVER_EXTRAS_AVAILABLE: "Stats and clippings can sync too"

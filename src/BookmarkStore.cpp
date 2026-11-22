@@ -51,6 +51,47 @@ bool recoverBookmarkFile(const std::string& path) {
   return false;
 }
 
+bool conflictingSyncLedgers(const std::string& source, const std::string& destination) {
+  if (!hasBookmarkFile(source) || !hasBookmarkFile(destination)) return false;
+  LOG_ERR("BKS", "Refusing to merge independent bookmark sync ledgers");
+  return true;
+}
+
+std::string syncMoveGuard(const std::string& ledger) { return ledger + ".moving"; }
+
+bool stageSyncMoveGuard(const std::string& ledger) {
+  const auto guard = syncMoveGuard(ledger);
+  if (Storage.exists(guard.c_str())) return false;
+  FsFile file;
+  if (!Storage.openFileForWrite("BKS", guard, file)) return false;
+  const uint8_t pending = 1;
+  const bool saved = file.write(&pending, sizeof(pending)) == sizeof(pending) && file.sync();
+  const bool closed = file.close();
+  return saved && closed && Storage.exists(guard.c_str());
+}
+
+// A different account/match method will reject the old ledger at read time.
+// Never remove the guard until both durable ledger copies have transferred.
+bool moveBookmarkSyncState(const std::string& source, const std::string& destination) {
+  if (source.empty() || destination.empty() || source == destination || !hasBookmarkFile(source) ||
+      hasBookmarkFile(destination))
+    return false;
+  char sourceBackup[BOOKMARK_STORE_PATH_BYTES], destinationBackup[BOOKMARK_STORE_PATH_BYTES];
+  if (!bookmarkSiblingPath(source, ".bak", sourceBackup) ||
+      !bookmarkSiblingPath(destination, ".bak", destinationBackup))
+    return false;
+  const bool hasBackup = Storage.exists(sourceBackup);
+  const bool hasMain = Storage.exists(source.c_str());
+  if (hasBackup && !Storage.rename(sourceBackup, destinationBackup)) return false;
+  if (hasMain && !Storage.rename(source.c_str(), destination.c_str())) {
+    if (hasBackup && !Storage.rename(destinationBackup, sourceBackup))
+      LOG_ERR("BKS", "Bookmark sync backup remains at guarded destination");
+    LOG_ERR("BKS", "Cannot move bookmark sync state; source retained");
+    return false;
+  }
+  return (!hasMain || Storage.exists(destination.c_str())) && (!hasBackup || Storage.exists(destinationBackup));
+}
+
 std::string bookmarkScanPath(const char* name) {
   std::string path = std::string(BOOKMARKS_DIR) + "/" + name;
   if (path.ends_with(".bin.bak")) path.resize(path.size() - 4);
@@ -146,6 +187,19 @@ bool deleteBookmarkStorePath(const std::string& path, const std::string& reasonT
     return false;
   }
   return true;
+}
+
+// A path no longer protected by its ledger must have no surviving bookmark
+// snapshot, including backups that an ordinary load could restore.
+bool removeMovedBookmarkSource(const std::string& path) {
+  bool removed = true;
+  for (const char* suffix : {"", ".bak", ".tmp", ".rename.bak"}) {
+    char target[BOOKMARK_STORE_PATH_BYTES];
+    removed = (bookmarkSiblingPath(path, suffix, target) && deleteBookmarkStorePath(target, "moved source") &&
+               !Storage.exists(target)) &&
+              removed;
+  }
+  return removed;
 }
 
 std::string fileNameFromPath(const std::string& path) {
@@ -462,6 +516,34 @@ bool BookmarkStore::hasBookmarkForPage(uint16_t spineIndex, float pageProgress, 
   });
 }
 
+bool BookmarkStore::applySyncedBookmark(const Bookmark& bookmark) {
+  if (!writable || bookmarks.size() >= MAX_BOOKMARKS) return false;
+  if (bookmarks.size() == bookmarks.capacity() &&
+      !bookmarks.reserve(std::min<size_t>(MAX_BOOKMARKS, std::max<size_t>(8, bookmarks.capacity() * 2))))
+    return false;
+  if (!bookmarks.push_back(bookmark)) return false;
+  dirty = true;
+  return true;
+}
+
+bool BookmarkStore::flushSyncChanges() {
+  saveToFile();
+  return writable && !dirty;
+}
+
+std::string BookmarkStore::syncStatePath(const std::string& filePath) {
+  const auto crc = uzlib_crc32(filePath.data(), static_cast<unsigned int>(filePath.size()), 0);
+  return "/.crosspoint/bookmark-sync/" + std::to_string(crc);
+}
+
+bool BookmarkStore::syncBlockedByMove(const std::string& filePath) {
+  return Storage.exists(syncMoveGuard(syncStatePath(filePath)).c_str());
+}
+
+bool BookmarkStore::hasDurableSyncSnapshot() const {
+  return writable && !storeFilePath.empty() && hasBookmarkFile(storeFilePath);
+}
+
 void BookmarkStore::saveToFile() {
   if (!writable || !dirty || storeFilePath.empty()) return;
   if (bookmarks.empty()) {
@@ -474,6 +556,14 @@ void BookmarkStore::saveToFile() {
 void BookmarkStore::clearAll() {
   if (!writable) {
     LOG_ERR("BKS", "Cannot clear bookmarks after an unsuccessful load");
+    return;
+  }
+  // Keep a valid, empty bookmark file when an existing sync ledger can refer
+  // to deleted entries. A suddenly missing or unreadable file is not delete-all.
+  if (!storeFilePath.empty() && storeFilePath.find("/epub_") != std::string::npos &&
+      hasBookmarkFile(syncStatePath(bookFilePath))) {
+    bookmarks.clear();
+    dirty = !writeToFile();
     return;
   }
   if (!storeFilePath.empty()) {
@@ -605,10 +695,19 @@ bool BookmarkStore::writeToFile() const {
 void BookmarkStore::deleteForFilePath(const std::string& filePath, const std::string& bookType) {
   const std::string currentPath = currentStoreFilePathForBook(filePath, bookType);
   const std::string legacyPath = legacyStoreFilePathForBook(filePath, bookType);
+  bool removed = true;
   for (const auto& path : {currentPath, legacyPath}) {
     for (const char* suffix : {"", ".bak", ".tmp"}) {
       char target[BOOKMARK_STORE_PATH_BYTES];
-      if (bookmarkSiblingPath(path, suffix, target)) deleteBookmarkStorePath(target, "deleted");
+      removed = (bookmarkSiblingPath(path, suffix, target) && deleteBookmarkStorePath(target, "deleted")) && removed;
+    }
+  }
+  // Never drop scope protection while any old local records remain.
+  if (removed && bookType == "epub") {
+    const auto ledger = syncStatePath(filePath);
+    for (const char* suffix : {"", ".bak", ".tmp", ".moving"}) {
+      char target[BOOKMARK_STORE_PATH_BYTES];
+      if (bookmarkSiblingPath(ledger, suffix, target)) deleteBookmarkStorePath(target, "sync ledger");
     }
   }
 }
@@ -623,6 +722,10 @@ bool BookmarkStore::migrateForFilePath(const std::string& oldFilePath, const std
   if (oldFilePath.empty() || newFilePath.empty() || oldFilePath == newFilePath) {
     return true;
   }
+
+  if (bookType == "epub" && (syncBlockedByMove(oldFilePath) || syncBlockedByMove(newFilePath) ||
+                             conflictingSyncLedgers(syncStatePath(oldFilePath), syncStatePath(newFilePath))))
+    return false;
 
   const std::string srcCurrentPath = currentStoreFilePathForBook(oldFilePath, bookType);
   const std::string srcLegacyPath = legacyStoreFilePathForBook(oldFilePath, bookType);
@@ -703,7 +806,9 @@ bool BookmarkStore::migrateForFilePath(const std::string& oldFilePath, const std
   writer.storeFilePath = dstCurrentPath;
   writer.bookmarks = std::move(migratedBookmarks);
 
-  if (!writer.bookmarks.empty()) {
+  const bool syncSnapshot = bookType == "epub" && hasBookmarkFile(syncStatePath(oldFilePath));
+  if (syncSnapshot && !stageSyncMoveGuard(syncStatePath(newFilePath))) return false;
+  if (!writer.bookmarks.empty() || syncSnapshot) {
     if (!writer.writeToFile()) {
       LOG_ERR("BKS", "Failed to write migrated bookmark file: %s", dstCurrentPath.c_str());
       return false;
@@ -712,11 +817,18 @@ bool BookmarkStore::migrateForFilePath(const std::string& oldFilePath, const std
     return false;
   }
 
-  if (!deleteBookmarkStorePath(srcCurrentPath, "source")) {
-    return false;
-  }
-  if (srcLegacyPath != srcCurrentPath && !deleteBookmarkStorePath(srcLegacyPath, "source legacy")) {
-    return false;
+  if (syncSnapshot) {
+    const auto sourceSync = syncStatePath(oldFilePath);
+    const auto destinationSync = syncStatePath(newFilePath);
+    if (!stageSyncMoveGuard(sourceSync) || !moveBookmarkSyncState(sourceSync, destinationSync) ||
+        !Storage.remove(syncMoveGuard(destinationSync).c_str()))
+      return false;
+    const bool currentRemoved = removeMovedBookmarkSource(srcCurrentPath);
+    const bool legacyRemoved = srcLegacyPath == srcCurrentPath || removeMovedBookmarkSource(srcLegacyPath);
+    if (!currentRemoved || !legacyRemoved || !Storage.remove(syncMoveGuard(sourceSync).c_str())) return false;
+  } else {
+    if (!deleteBookmarkStorePath(srcCurrentPath, "source")) return false;
+    if (srcLegacyPath != srcCurrentPath && !deleteBookmarkStorePath(srcLegacyPath, "source legacy")) return false;
   }
   if (dstLegacyPath != dstCurrentPath && !deleteBookmarkStorePath(dstLegacyPath, "destination legacy")) {
     return false;
@@ -767,6 +879,13 @@ bool BookmarkStore::beginRenameMigration(const std::string& oldFilePath, const s
     return false;
   }
 
+  if (bookType == "epub" && (syncBlockedByMove(oldFilePath) || syncBlockedByMove(newFilePath) ||
+                             conflictingSyncLedgers(syncStatePath(oldFilePath), syncStatePath(newFilePath))))
+    return false;
+  if (bookType == "epub" && hasBookmarkFile(syncStatePath(oldFilePath))) {
+    migration.sourceSyncPath = syncStatePath(oldFilePath);
+    migration.destinationSyncPath = syncStatePath(newFilePath);
+  }
   const bool hasSrcCurrent = hasBookmarkFile(migration.sourceCurrentPath);
   const bool hasSrcLegacy =
       migration.sourceLegacyPath != migration.sourceCurrentPath && hasBookmarkFile(migration.sourceLegacyPath);
@@ -849,13 +968,21 @@ bool BookmarkStore::beginRenameMigration(const std::string& oldFilePath, const s
     return false;
   }
 
+  if (!migration.sourceSyncPath.empty()) {
+    if (!stageSyncMoveGuard(migration.destinationSyncPath)) {
+      rollbackRenameMigration(migration);  // Do not clear a guard we could not durably create.
+      return false;
+    }
+    migration.syncGuardStaged = true;
+  }
+
   BookmarkStore writer;
   writer.bookFilePath = newFilePath;
   writer.bookTitle = title;
   writer.bookAuthor = author;
   writer.storeFilePath = migration.destinationCurrentPath;
   writer.bookmarks = std::move(migratedBookmarks);
-  if (!writer.bookmarks.empty() && !writer.writeToFile()) {
+  if ((!writer.bookmarks.empty() || !migration.sourceSyncPath.empty()) && !writer.writeToFile()) {
     LOG_ERR("BKS", "Failed to write transactional bookmark rename: %s", migration.destinationCurrentPath.c_str());
     rollbackRenameMigration(migration);
     return false;
@@ -865,9 +992,24 @@ bool BookmarkStore::beginRenameMigration(const std::string& oldFilePath, const s
 
 bool BookmarkStore::commitRenameMigration(RenameMigration& migration) {
   if (!migration.active) return true;
-  bool ok = deleteBookmarkStorePath(migration.sourceCurrentPath, "renamed source");
-  if (migration.sourceLegacyPath != migration.sourceCurrentPath) {
-    ok = deleteBookmarkStorePath(migration.sourceLegacyPath, "renamed legacy source") && ok;
+  bool ok = true;
+  if (migration.syncGuardStaged) {
+    if (!stageSyncMoveGuard(migration.sourceSyncPath) ||
+        !moveBookmarkSyncState(migration.sourceSyncPath, migration.destinationSyncPath) ||
+        !Storage.remove(syncMoveGuard(migration.destinationSyncPath).c_str())) {
+      // The EPUB may already have moved. No automatic rollback can safely
+      // decide which ledger is intact, so retain any guards and local data.
+      migration.active = false;
+      return false;
+    }
+    const bool currentRemoved = removeMovedBookmarkSource(migration.sourceCurrentPath);
+    const bool legacyRemoved = migration.sourceLegacyPath == migration.sourceCurrentPath ||
+                               removeMovedBookmarkSource(migration.sourceLegacyPath);
+    ok = currentRemoved && legacyRemoved && Storage.remove(syncMoveGuard(migration.sourceSyncPath).c_str());
+  } else {
+    ok = deleteBookmarkStorePath(migration.sourceCurrentPath, "renamed source");
+    if (migration.sourceLegacyPath != migration.sourceCurrentPath)
+      ok = deleteBookmarkStorePath(migration.sourceLegacyPath, "renamed legacy source") && ok;
   }
   if (migration.destinationCurrentBackedUp) {
     ok = deleteBookmarkStorePath(migration.destinationCurrentBackupPath, "rename backup") && ok;
@@ -896,6 +1038,7 @@ bool BookmarkStore::rollbackRenameMigration(RenameMigration& migration) {
   ok = restoreDestination(migration.destinationLegacyBackupPath, migration.destinationLegacyPath,
                           migration.destinationLegacyBackedUp) &&
        ok;
+  if (ok && migration.syncGuardStaged) ok = Storage.remove(syncMoveGuard(migration.destinationSyncPath).c_str());
   if (ok) migration.active = false;
   return ok;
 }

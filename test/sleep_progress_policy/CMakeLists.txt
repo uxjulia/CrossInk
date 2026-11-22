@@ -1,0 +1,4 @@
+add_executable(SleepProgressPolicyTest SleepProgressPolicyTest.cpp)
+target_include_directories(SleepProgressPolicyTest PRIVATE ${REPO_ROOT}/src/network)
+target_link_libraries(SleepProgressPolicyTest PRIVATE GTest::gtest_main)
+gtest_discover_tests(SleepProgressPolicyTest)

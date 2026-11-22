@@ -94,6 +94,16 @@ TEST_F(KOReaderLongChapter, RejectsUnreadableRemoteChapterInsteadOfGuessingPerce
   EXPECT_FALSE(mapped.valid);
 }
 
+TEST_F(KOReaderLongChapter, ResolvesBookmarkWithoutResidentPagination) {
+  const KOReaderPosition remote{"/body/DocFragment[1]/body/section[1]/p[472]/text()[1].1", 0.4f};
+  const auto mapped = ProgressMapper::toCrossPoint(epub, remote, -1, 0, PositionCoordinateSpace::CurrentDocument, 1000);
+  EXPECT_TRUE(mapped.valid);
+  EXPECT_EQ(mapped.spineIndex, 0);
+  EXPECT_EQ(mapped.totalPages, 1000);
+  EXPECT_GT(mapped.pageNumber, 950);
+  EXPECT_TRUE(mapped.hasParagraphIndex);
+  EXPECT_EQ(mapped.paragraphIndex, 472u);
+}
 TEST_F(KOReaderLongChapter, PreservesPercentageFallbackForMissingAnchorInReadableChapter) {
   const auto mapped =
       ProgressMapper::toCrossPoint(epub, {"/body/DocFragment[1]/body/section[1]/p[999]/text()[1].1", 0.5f}, 0, 480);

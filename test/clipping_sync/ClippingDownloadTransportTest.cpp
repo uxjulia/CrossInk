@@ -180,6 +180,41 @@ TEST_F(ClippingDownloadTransport, RejectsInvalidServerUrl) {
   EXPECT_EQ(client.get("/clippings", PATH, LIMIT), Result::Network);
   EXPECT_EQ(testHttp.streamedRequests, 0U);
 }
+TEST_F(ClippingDownloadTransport, BookmarkAcknowledgmentIsIndependentOfStatsCapability) {
+  StatsUploadClient client;
+  constexpr const char* endpoint = "/api/v1/bookmarks/document";
+  testHttp.body = R"({"until":1,"accepted":1})";
+  EXPECT_EQ(client.put(endpoint, "{}", 1), Result::Ok);
+  EXPECT_EQ(testCredentials.support, SyncServerSupport::UNSUPPORTED);
+  testCredentials.support = SyncServerSupport::SUPPORTED;
+  testHttp.status = 404;
+  EXPECT_EQ(client.put(endpoint, "{}", 1), Result::Unsupported);
+  EXPECT_EQ(testCredentials.support, SyncServerSupport::SUPPORTED);
+  testHttp.status = 200;
+  testHttp.body = R"({"until":1,"accepted":2})";
+  EXPECT_EQ(client.put(endpoint, "{}", 1), Result::InvalidResponse);
+}
+
+TEST_F(ClippingDownloadTransport, ForegroundCancellationDoesNotShortenTheNetworkTimeout) {
+  StatsUploadClient client(nullptr, [](void*) { return false; }, nullptr);
+  testHttp.body = "{}";
+  EXPECT_EQ(client.get("/api/v1/clippings/document", PATH, LIMIT), Result::Ok);
+  EXPECT_EQ(testHttp.timeout, 15000U);
+}
+
+TEST_F(ClippingDownloadTransport, SleepDeadlineAbortsActiveGetAndPut) {
+  unsigned polls = 0;
+  auto deadline = [](void* counter) { return ++*static_cast<unsigned*>(counter) >= 3; };
+  StatsUploadClient client(nullptr, deadline, &polls, StatsUploadClient::SLEEP_TIMEOUT_MS);
+  testHttp.body.assign(600, 'x');
+  EXPECT_EQ(client.get("/api/v1/bookmarks/document", PATH, LIMIT), Result::Cancelled);
+  EXPECT_LT(Storage.files[PATH].size(), testHttp.body.size());
+  EXPECT_EQ(testHttp.timeout, 4000U);
+  EXPECT_FALSE(testHttp.connected);
+  polls = 0;
+  EXPECT_EQ(client.put("/api/v1/bookmarks/document", "{}", 1), Result::Cancelled);
+  EXPECT_FALSE(testHttp.connected);
+}
 }  // namespace
 
 TEST_F(ClippingDownloadTransport, KeepsHttpCodesAndReportsInvalidSuccessAcknowledgments) {

@@ -302,6 +302,14 @@ uint16_t HalPowerManager::getPiccoBatteryPercentage() const {
 }
 #endif
 
+bool HalPowerManager::readBatteryPercentage(uint16_t& percent) const {
+#if FREEINK_DEVICE_PICCO
+  const BatterySampleLock lock(modeMutex);
+#endif
+  static const BatteryMonitor battery;
+  return battery.readPercentageChecked(percent);
+}
+
 uint16_t HalPowerManager::getBatteryPercentage() const {
 #if FREEINK_DEVICE_PICCO
   return getPiccoBatteryPercentage();

@@ -46,6 +46,8 @@ class KOReaderCredentialStore : public PersistableStore<KOReaderCredentialStore>
   // Off by default: syncing stats and clippings is always an explicit opt-in.
   bool syncStats = false;
   bool syncClippings = false;
+  bool syncBookmarks = false;
+  bool syncOnSleep = false;
   SyncServerSupport serverSupport = SyncServerSupport::UNKNOWN;
   std::string serverSupportUrl;  // Base URL serverSupport was learned for.
   bool sendMetadata = true;      // Send document metadata with progress sync
@@ -125,6 +127,16 @@ class KOReaderCredentialStore : public PersistableStore<KOReaderCredentialStore>
   bool getSyncStats() const;
   void setSyncClippings(bool enabled);
   bool getSyncClippings() const;
+  void setSyncBookmarks(bool enabled);
+  bool getSyncBookmarks() const {
+    ensureLoaded();
+    return syncBookmarks;
+  }
+  void setSyncOnSleep(bool enabled);
+  bool getSyncOnSleep() const {
+    ensureLoaded();
+    return syncOnSleep;
+  }
 
   // Server capability for the current base URL. The default server is always
   // CrossPoint Sync; other servers stay UNKNOWN until probed or an upload answers.

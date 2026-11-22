@@ -17,7 +17,8 @@ struct Saved;
 namespace ReadingSyncUpload {
 // Only saved, mappable EPUB positions qualify. Never invent progress for an unread book.
 // localUnavailable distinguishes missing/stale pagination from mapping or I/O failure.
-bool prepareProgress(const std::string& path, KOReaderProgress& progress, bool* localUnavailable = nullptr);
+bool prepareProgress(const std::string& path, KOReaderProgress& progress, bool* localUnavailable = nullptr,
+                     bool cachedOnly = false);
 bool stageProgress(const std::string& path);
 bool loadPreparedProgress(const std::string& path, KOReaderProgress& progress,
                           PreparedProgress::Saved* saved = nullptr);
@@ -34,6 +35,8 @@ StatsUploadClient::Result globalStats(GlobalStatsStep* failedStep = nullptr, Sta
 // Reuse the explicit stats activity's existing buffer/client rather than allocating a second pair.
 StatsUploadClient::Result globalStats(StatsUploadClient& client, char* payload, size_t capacity, const char* deviceId,
                                       GlobalStatsStep* failedStep = nullptr);
+// Bounded session-outbox pass, preserving the original IDs and exact acknowledgment.
+StatsUploadClient::Result sessions(size_t maxRecords, bool (*cancel)(void*) = nullptr, void* context = nullptr);
 StatsUploadClient::Result stats(const std::string& path, const std::string& document,
                                 StatsUploadClient::Relay* relay = nullptr);
 // A book's saved stats when there are any to send (stats tracking on for it).

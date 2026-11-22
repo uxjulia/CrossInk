@@ -95,7 +95,8 @@ bool writeCursor(const std::string& path, const char* scope, const uint64_t curs
 }  // namespace
 
 StatsUploadClient::Result ClippingsUpload::upload(const std::string& path, const std::string& document, Cancel cancel,
-                                                  void* context, StatsUploadClient::Relay* relay) {
+                                                  void* context, StatsUploadClient::Relay* relay,
+                                                  const uint32_t timeoutMs) {
   StatsUploadClient::lastHttpCode = 0;
   using Result = StatsUploadClient::Result;
   if (document.size() != 32 || document.find_first_not_of("0123456789abcdefABCDEF") != std::string::npos)
@@ -104,7 +105,7 @@ StatsUploadClient::Result ClippingsUpload::upload(const std::string& path, const
   if (!clippingScope(document, scope, relay) || !ClippingStore::prepareUploads(path, scope))
     return Result::InvalidResponse;
   const auto endpoint = "/api/v1/clippings/" + document;
-  StatsUploadClient client(relay);
+  StatsUploadClient client(relay, cancel, context, timeoutMs);
   std::string text;
   // One clipping at a time; never hold the up-to-256-record index across TLS.
   constexpr const char* UPLOAD_PATH = "/.crosspoint/clipping-sync/upload.tmp";
@@ -199,7 +200,8 @@ StatsUploadClient::Result ClippingsUpload::upload(const std::string& path, const
 }
 
 StatsUploadClient::Result ClippingsUpload::download(const std::string& path, const std::string& document, Cancel cancel,
-                                                    void* context, StatsUploadClient::Relay* relay) {
+                                                    void* context, StatsUploadClient::Relay* relay,
+                                                    const uint32_t timeoutMs) {
   StatsUploadClient::lastHttpCode = 0;
   using Result = StatsUploadClient::Result;
   if (document.size() != 32 || document.find_first_not_of("0123456789abcdefABCDEF") != std::string::npos)
@@ -214,7 +216,7 @@ StatsUploadClient::Result ClippingsUpload::download(const std::string& path, con
     return Result::InvalidResponse;
   }
   ScopedCleanup cleanup{[&] { Storage.remove(RESPONSE_PATH); }};
-  StatsUploadClient client(relay);
+  StatsUploadClient client(relay, cancel, context, timeoutMs);
   const std::string statePath = ClippingStore::syncStatePath(path);
   char scope[17];
   if (!clippingScope(document, scope, relay)) return Result::InvalidResponse;
@@ -329,13 +331,14 @@ StatsUploadClient::Result ClippingsUpload::download(const std::string& path, con
 }
 
 StatsUploadClient::Result ClippingsUpload::sync(const std::string& path, const std::string& document, Cancel cancel,
-                                                void* context, StatsUploadClient::Relay* relay) {
+                                                void* context, StatsUploadClient::Relay* relay,
+                                                const uint32_t timeoutMs) {
   StatsUploadClient::lastHttpCode = 0;
   using Result = StatsUploadClient::Result;
   const auto perform = [&]() {
-    const auto sent = upload(path, document, cancel, context, relay);
+    const auto sent = upload(path, document, cancel, context, relay, timeoutMs);
     if (!StatsUploadClient::settled(sent)) return sent;
-    const auto received = download(path, document, cancel, context, relay);
+    const auto received = download(path, document, cancel, context, relay, timeoutMs);
     // Older servers remain upload-compatible; a version-2 download is required
     // before any remote data is applied locally.
     if (received == Result::Unsupported) return sent;

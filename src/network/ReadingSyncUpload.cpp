@@ -24,7 +24,8 @@
 #include "sync/BookSyncFile.h"
 #include "sync/PreparedProgress.h"
 
-bool ReadingSyncUpload::prepareProgress(const std::string& path, KOReaderProgress& progress, bool* localUnavailable) {
+bool ReadingSyncUpload::prepareProgress(const std::string& path, KOReaderProgress& progress, bool* localUnavailable,
+                                        const bool cachedOnly) {
   if (localUnavailable) *localUnavailable = false;
   if (!FsHelpers::hasEpubExtension(path)) return false;
   // ProgressMapper requires shared ownership. Release the whole EPUB before TLS.
@@ -35,7 +36,7 @@ bool ReadingSyncUpload::prepareProgress(const std::string& path, KOReaderProgres
   }
   EpubReaderUtils::Progress saved;
   const bool loaded = EpubReaderUtils::loadProgress(*epub, saved);
-  if (loaded && !epub->load(true, true, Epub::XLocationLoadMode::Immediate, true)) return false;
+  if (loaded && !epub->load(!cachedOnly, true, Epub::XLocationLoadMode::Immediate, true)) return false;
   if (!loaded || saved.spineIndex < 0 || saved.spineIndex >= epub->getSpineItemsCount() || !saved.hasPageCount ||
       saved.pageCount < 1 || saved.pageNumber < 0 || saved.pageNumber >= saved.pageCount) {
     if (localUnavailable) *localUnavailable = true;
@@ -148,6 +149,56 @@ StatsUploadClient::Result globalOutcome(const StatsUploadClient::Result result,
   if (incomplete) LOG_ERR("ReadingSync", "All-time stats stopped: %s (result %d)", globalStepLabel(step), int(result));
   return result;
 }
+StatsUploadClient::Result uploadSessions(StatsUploadClient& client, char* payload, size_t capacity,
+                                         const char* deviceId, size_t limit, bool (*cancel)(void*),
+                                         void* cancelContext) {
+  using Result = StatsUploadClient::Result;
+  struct Context {
+    StatsUploadClient& client;
+    char* payload;
+    size_t capacity;
+    const char* deviceId;
+    size_t remaining;
+    bool (*cancel)(void*);
+    void* cancelContext;
+    bool paused = false;
+    bool sent = false;
+    Result result = Result::Ok;
+  } ctx{client, payload, capacity, deviceId, limit, cancel, cancelContext};
+  const bool complete = ReadingSessionJournal::uploadPending(
+      [](void* opaque, const ReadingSessionJournal::Record& record) {
+        auto& c = *static_cast<Context*>(opaque);
+        if (c.cancel && c.cancel(c.cancelContext)) {
+          c.result = Result::Cancelled;
+          return false;
+        }
+        if (!c.remaining) {
+          c.paused = true;
+          return false;
+        }
+        const int n =
+            snprintf(c.payload, c.capacity,
+                     "{\"device_id\":\"%s\",\"items\":[{\"session_id\":\"%s\",\"document\":\"%s\","
+                     "\"started_at\":%llu,\"ended_at\":%llu,\"seconds\":%lu,\"utc_offset_minutes\":%d}]}",
+                     c.deviceId, record.id, record.document, static_cast<unsigned long long>(record.startedAt),
+                     static_cast<unsigned long long>(record.endedAt), static_cast<unsigned long>(record.seconds),
+                     int(record.utcOffsetMinutes));
+        if (n < 0 || size_t(n) >= c.capacity) {
+          StatsUploadClient::lastHttpCode = 0;
+          c.result = Result::InvalidResponse;
+          return false;
+        }
+        c.result = c.client.put("/api/v1/stats/sessions", c.payload, 0, false, record.id);
+        if (c.result != Result::Ok) return false;
+        --c.remaining;
+        c.sent = true;
+        return true;
+      },
+      &ctx);
+  if (ctx.result != Result::Ok) return ctx.result;
+  if (!complete && !ctx.paused) return Result::InvalidResponse;
+  return ctx.sent ? Result::Ok : Result::Skipped;
+}
 }  // namespace
 
 StatsUploadClient::Result ReadingSyncUpload::globalStats(GlobalStatsStep* failedStep, StatsUploadClient::Relay* relay) {
@@ -214,30 +265,8 @@ StatsUploadClient::Result ReadingSyncUpload::globalStats(StatsUploadClient& clie
       LOG_ERR("ReadingSync", "Synced monthly history cleanup deferred");
   }
   if (result != Result::Ok) return globalOutcome(result, GlobalStatsStep::Daily, failedStep);
-  const bool sessionsComplete = ReadingSessionJournal::uploadPending(
-      [](void* opaque, const ReadingSessionJournal::Record& record) {
-        auto& ctx = *static_cast<UploadContext*>(opaque);
-        const int n =
-            snprintf(ctx.payload, ctx.capacity,
-                     "{\"device_id\":\"%s\",\"items\":[{\"session_id\":\"%s\",\"document\":\"%s\","
-                     "\"started_at\":%llu,\"ended_at\":%llu,\"seconds\":%lu,\"utc_offset_minutes\":%d}]}",
-                     ctx.deviceId, record.id, record.document, static_cast<unsigned long long>(record.startedAt),
-                     static_cast<unsigned long long>(record.endedAt), static_cast<unsigned long>(record.seconds),
-                     int(record.utcOffsetMinutes));
-        if (n < 0 || size_t(n) >= ctx.capacity) {
-          StatsUploadClient::lastHttpCode = 0;
-          ctx.result = Result::InvalidResponse;
-          return false;
-        }
-        ctx.result = ctx.client.put("/api/v1/stats/sessions", ctx.payload, 0, false, record.id);
-        return ctx.result == Result::Ok;
-      },
-      &context);
-  if (!sessionsComplete && context.result == Result::Ok) {
-    StatsUploadClient::lastHttpCode = 0;
-    context.result = Result::InvalidResponse;
-  }
-  if (context.result != Result::Ok) return globalOutcome(context.result, GlobalStatsStep::Sessions, failedStep);
+  result = uploadSessions(client, payload, capacity, deviceId, SIZE_MAX, nullptr, nullptr);
+  if (!StatsUploadClient::settled(result)) return globalOutcome(result, GlobalStatsStep::Sessions, failedStep);
   const auto downloaded = client.downloadStreak();
   if (StatsUploadClient::failed(downloaded)) return globalOutcome(downloaded, GlobalStatsStep::Streak, failedStep);
   return Result::Ok;
@@ -259,6 +288,18 @@ bool ReadingSyncUpload::canSyncReadingStats() {
 bool ReadingSyncUpload::canSyncClippings() {
   return KOREADER_STORE.hasCredentials() && KOREADER_STORE.getServerSupport() == SyncServerSupport::SUPPORTED &&
          KOREADER_STORE.getSyncClippings();
+}
+
+StatsUploadClient::Result ReadingSyncUpload::sessions(size_t maxRecords, bool (*cancel)(void*), void* context) {
+  StatsUploadClient::lastHttpCode = 0;
+  using Result = StatsUploadClient::Result;
+  if (!maxRecords || !canSyncReadingStats()) return Result::Skipped;
+  if (cancel && cancel(context)) return Result::Cancelled;
+  auto payload = makeUniqueNoThrow<char[]>(StatsUploadPayload::CAPACITY);
+  char deviceId[32];
+  if (!payload || !StatsUploadClient::deviceId(deviceId, sizeof(deviceId))) return Result::LowMemory;
+  StatsUploadClient client(nullptr, cancel, context, 4000);
+  return uploadSessions(client, payload.get(), StatsUploadPayload::CAPACITY, deviceId, maxRecords, cancel, context);
 }
 
 StatsUploadClient::Result ReadingSyncUpload::stats(const std::string& path, const std::string& document,

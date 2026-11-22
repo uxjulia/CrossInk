@@ -336,6 +336,67 @@ void migrationFailuresPreserveBothBooks() {
     }
   }
 }
+void syncedLastDeletionKeepsAnExplicitEmptyFile() {
+  reset();
+  assert(load() && !BOOKMARKS.hasDurableSyncSnapshot());
+  assert(BOOKMARKS.addBookmark(3, 0.4f, 8, "Local") == BookmarkStore::AddResult::Added);
+  assert(BOOKMARKS.hasDurableSyncSnapshot());
+  Storage.files[BookmarkStore::syncStatePath(BOOK)] = "ledger";
+  assert(BOOKMARKS.removeBookmarkAt(0) && BOOKMARKS.flushSyncChanges());
+  BOOKMARKS.unload();
+  assert(load() && BOOKMARKS.getBookmarks().empty() && BOOKMARKS.hasDurableSyncSnapshot());
+  Storage.files.erase(storePath(BOOK));
+  BOOKMARKS.unload();
+  assert(load() && BOOKMARKS.getBookmarks().empty() && !BOOKMARKS.hasDurableSyncSnapshot());
+}
+void renamePreservesEmptySyncSnapshotAndLedger() {
+  reset();
+  assert(load());
+  assert(BOOKMARKS.addBookmark(3, 0.4f, 8, "Local") == BookmarkStore::AddResult::Added);
+  const auto source = BookmarkStore::syncStatePath(BOOK);
+  const auto target = BookmarkStore::syncStatePath(MOVED);
+  Storage.files[source] = "ledger";
+  assert(BOOKMARKS.removeBookmarkAt(0));
+  BOOKMARKS.unload();
+  BookmarkStore::RenameMigration migration;
+  assert(BookmarkStore::beginRenameMigration(BOOK, MOVED, "Title", "Author", "epub", migration));
+  assert(Storage.files.contains(source) && !Storage.files.contains(target));
+  assert(BookmarkStore::rollbackRenameMigration(migration));
+  assert(Storage.files.contains(source) && !Storage.files.contains(target));
+  assert(BookmarkStore::beginRenameMigration(BOOK, MOVED, "Title", "Author", "epub", migration));
+  assert(BookmarkStore::commitRenameMigration(migration));
+  assert(!Storage.files.contains(source) && Storage.files[target] == "ledger");
+  assert(BOOKMARKS.loadForBook(MOVED, "Title", "Author", "epub"));
+  assert(BOOKMARKS.getBookmarks().empty() && BOOKMARKS.hasDurableSyncSnapshot());
+}
+void neverMergesIndependentSyncLedgers() {
+  reset();
+  assert(load());
+  assert(BOOKMARKS.addBookmark(3, 0.4f, 8, "Local") == BookmarkStore::AddResult::Added);
+  BOOKMARKS.unload();
+  const auto source = BookmarkStore::syncStatePath(BOOK);
+  const auto target = BookmarkStore::syncStatePath(MOVED);
+  Storage.files[source] = "account-1";
+  Storage.files[target] = "account-2";
+  const auto before = Storage.files;
+  BookmarkStore::RenameMigration migration;
+  assert(!BookmarkStore::beginRenameMigration(BOOK, MOVED, "Title", "Author", "epub", migration));
+  assert(!migration.active && Storage.files == before);
+  assert(!BookmarkStore::migrateForFilePath(BOOK, MOVED, "Title", "Author", "epub"));
+  assert(Storage.files == before);
+}
+
+void removesSyncLedgerOnlyAfterExplicitBookDelete() {
+  reset();
+  assert(load());
+  assert(BOOKMARKS.addBookmark(3, 0.4f, 8, "Local") == BookmarkStore::AddResult::Added);
+  BOOKMARKS.unload();
+  const auto source = BookmarkStore::syncStatePath(BOOK);
+  Storage.files[source] = "ledger";
+  Storage.files[source + ".bak"] = "previous";
+  BookmarkStore::deleteForFilePath(BOOK, "epub");
+  assert(!Storage.files.contains(source) && !Storage.files.contains(source + ".bak"));
+}
 }  // namespace
 int main() {
   largeLoadFailureAndRetry();
@@ -346,6 +407,10 @@ int main() {
   addFailurePreservesLoadedRecords();
   migrationFailuresPreserveBothBooks();
   recordBufferAndMigrationSuccess();
+  syncedLastDeletionKeepsAnExplicitEmptyFile();
+  renamePreservesEmptySyncSnapshotAndLedger();
+  neverMergesIndependentSyncLedgers();
+  removesSyncLedgerOnlyAfterExplicitBookDelete();
   reset();
   std::puts(
       "PASS: bookmark loading, legacy versions/merges, short reads, retry and migration survive allocation failure "

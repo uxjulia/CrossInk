@@ -142,14 +142,19 @@ class KOReaderSyncClient {
    * @param outProgress Output: the progress data
    * @return OK on success, NOT_FOUND if no progress exists, error code on failure
    */
-  static Error getProgress(const std::string& documentHash, KOReaderProgress& outProgress);
+  using ShouldAbort = bool (*)(void*);
+  // Background comparison treats a malformed/missing remote percentage as an error,
+  // never as a zero position that would permit an unintended overwrite.
+  static Error getProgress(const std::string& documentHash, KOReaderProgress& outProgress,
+                           ShouldAbort shouldAbort = nullptr, void* context = nullptr);
 
   /**
    * Update reading progress for a document.
    * @param progress The progress data to upload
    * @return OK on success, error code on failure
    */
-  static Error updateProgress(const KOReaderProgress& progress);
+  static Error updateProgress(const KOReaderProgress& progress, ShouldAbort shouldAbort = nullptr,
+                              void* context = nullptr);
 
   /**
    * PUT /api/v1/progress/batch (CrossPoint Sync): up to MAX_PROGRESS_BATCH

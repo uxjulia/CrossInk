@@ -879,7 +879,8 @@ std::optional<CrossPointPosition> ProgressMapper::fromRichPosition(const std::sh
 
 CrossPointPosition ProgressMapper::toCrossPoint(const std::shared_ptr<Epub>& epub, const KOReaderPosition& koPos,
                                                 int currentSpineIndex, int totalPagesInCurrentSpine,
-                                                const PositionCoordinateSpace coordinateSpace) {
+                                                const PositionCoordinateSpace coordinateSpace,
+                                                const int fixedSpineResolution) {
   CrossPointPosition result{};
   KOReaderPosition mappedKoPos = koPos;
   // Percentage-only records have no source locator to translate. They use the
@@ -925,7 +926,9 @@ CrossPointPosition ProgressMapper::toCrossPoint(const std::shared_ptr<Epub>& epu
   const size_t prevCum = (result.spineIndex > 0) ? epub->getCumulativeSpineItemSize(result.spineIndex - 1) : 0;
   const size_t spineSize = epub->getCumulativeSpineItemSize(result.spineIndex) - prevCum;
 
-  if (result.spineIndex == currentSpineIndex && totalPagesInCurrentSpine > 0) {
+  if (fixedSpineResolution > 1) {
+    result.totalPages = fixedSpineResolution;
+  } else if (result.spineIndex == currentSpineIndex && totalPagesInCurrentSpine > 0) {
     result.totalPages = totalPagesInCurrentSpine;
   } else if (currentSpineIndex >= 0 && currentSpineIndex < spineCount && totalPagesInCurrentSpine > 0) {
     const size_t pc = (currentSpineIndex > 0) ? epub->getCumulativeSpineItemSize(currentSpineIndex - 1) : 0;

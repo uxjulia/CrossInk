@@ -181,8 +181,13 @@ bool insufficientHeap() {
 constexpr size_t MAX_PROGRESS_RESPONSE_BYTES = 16 * 1024;
 constexpr const char* RESPONSE_PATH = "/.crosspoint/progress-sync.tmp";
 
-KOReaderSyncClient::Error readProgressResponse(const std::string& url, JsonDocument& doc, const JsonDocument& filter) {
+constexpr uint16_t BACKGROUND_IO_TIMEOUT_MS = 4000;
+
+KOReaderSyncClient::Error readProgressResponse(const std::string& url, JsonDocument& doc, const JsonDocument& filter,
+                                               KOReaderSyncClient::ShouldAbort shouldAbort = nullptr,
+                                               void* context = nullptr) {
   using Client = KOReaderSyncClient;
+  if (shouldAbort && shouldAbort(context)) return Client::NETWORK_ERROR;
   if (filter.overflowed() || insufficientHeap()) return Client::LOW_MEMORY;
   if (!Storage.exists("/.crosspoint") && !Storage.mkdir("/.crosspoint")) {
     LOG_ERR("KOSync", "Cannot create response directory");
@@ -227,6 +232,7 @@ KOReaderSyncClient::Error readProgressResponse(const std::string& url, JsonDocum
       http.begin(plainClient, url.c_str());
     }
     addAuthHeaders(http);
+    if (shouldAbort) http.setTimeout(BACKGROUND_IO_TIMEOUT_MS);
     const int status = http.GET();
     const auto body = http.getString();
     complete = store(reinterpret_cast<const uint8_t*>(body.c_str()), body.length());
@@ -238,7 +244,12 @@ KOReaderSyncClient::Error readProgressResponse(const std::string& url, JsonDocum
       return Client::NETWORK_ERROR;
     }
     applyAuthHeaders(http);
-    const int status = http.GET(store);
+    freeink::SecureHttpClient::AbortCallback abort;
+    if (shouldAbort) {
+      http.setTimeout(BACKGROUND_IO_TIMEOUT_MS);
+      abort = [shouldAbort, context] { return shouldAbort(context); };
+    }
+    const int status = http.GET(store, abort);
     complete = http.responseComplete();
 #endif
     Client::lastHttpCode = status;
@@ -268,11 +279,26 @@ KOReaderSyncClient::Error readProgressResponse(const std::string& url, JsonDocum
   }
   serialization::JsonFileReader reader(file);
   const auto error = deserializeJson(doc, reader, DeserializationOption::Filter(filter));
+  bool emptyObject = true;
+  if (!error && shouldAbort && doc.is<JsonObject>() && doc.size() == 0) {
+    // A filtered object with only unknown fields looks empty too. Verify the
+    // wire response was actually {} before allowing a first unattended write.
+    emptyObject = file.seekSet(0);
+    const auto nextToken = [&file] {
+      unsigned char value;
+      do {
+        if (file.read(&value, 1) != 1) return -1;
+      } while (value == ' ' || value == '\t' || value == '\r' || value == '\n');
+      return static_cast<int>(value);
+    };
+    emptyObject = emptyObject && nextToken() == '{' && nextToken() == '}' && nextToken() < 0;
+  }
   const bool closed = file.close();
   if (reader.failed() || !closed) {
     LOG_ERR("KOSync", "Cannot read complete progress response");
     return Client::STORAGE_ERROR;
   }
+  if (!emptyObject) return Client::JSON_ERROR;
   if (error) {
     LOG_ERR("KOSync", "Progress JSON error: %s", error.c_str());
     return error == DeserializationError::NoMemory ? Client::LOW_MEMORY : Client::JSON_ERROR;
@@ -468,7 +494,8 @@ KOReaderSyncClient::Error KOReaderSyncClient::createUser() {
 }
 
 KOReaderSyncClient::Error KOReaderSyncClient::getProgress(const std::string& documentHash,
-                                                          KOReaderProgress& outProgress) {
+                                                          KOReaderProgress& outProgress, ShouldAbort shouldAbort,
+                                                          void* context) {
   ProgressRequest request("GET", "/syncs/progress/:document", lastHttpCode);
 
   lastHttpCode = 0;
@@ -488,8 +515,20 @@ KOReaderSyncClient::Error KOReaderSyncClient::getProgress(const std::string& doc
   for (const char* key : {"pctQ", "spine", "page", "pages", "para", "xpath"}) filter["position"][key] = true;
   SyncJsonAllocator allocator;
   JsonDocument doc(&allocator);
-  const auto result = readProgressResponse(url, doc, filter);
+  const auto result = readProgressResponse(url, doc, filter, shouldAbort, context);
   if (result != OK) return request.finish(result);
+  if (shouldAbort) {
+    // The standard KOSync server can return an empty JSON object for no result.
+    // But an occupied response without a comparable percentage is not empty.
+    if (!doc.is<JsonObject>()) return request.finish(JSON_ERROR);
+    if (doc.size() == 0) return request.finish(NOT_FOUND);
+    const auto percentage = doc["percentage"];
+    if (!percentage.is<float>() || !std::isfinite(percentage.as<float>()) || percentage.as<float>() < 0 ||
+        percentage.as<float>() > 1) {
+      LOG_ERR("KOSync", "Remote position has no valid percentage; background upload skipped");
+      return request.finish(JSON_ERROR);
+    }
+  }
   if (doc["progress"].isNull() && !(doc["percentage"].is<float>() && std::isfinite(doc["percentage"].as<float>()) &&
                                     doc["percentage"].as<float>() >= 0 && doc["percentage"].as<float>() <= 1)) {
     LOG_DBG("KOSync", "No stored progress in successful response");
@@ -571,7 +610,9 @@ void fillProgressJson(JsonObject item, const KOReaderProgress& progress) {
 }
 
 // PUT `body` as JSON with the account headers; returns the HTTP code (<= 0 on transport errors).
-int putJson(const std::string& url, const std::string& body) {
+int putJson(const std::string& url, const std::string& body, KOReaderSyncClient::ShouldAbort shouldAbort = nullptr,
+            void* context = nullptr) {
+  if (shouldAbort && shouldAbort(context)) return -1;
 #ifdef SIMULATOR
   HTTPClient http;
   std::unique_ptr<WiFiClientSecure> secureClient;
@@ -587,6 +628,7 @@ int putJson(const std::string& url, const std::string& body) {
   addAuthHeaders(http);
   http.addHeader("Content-Type", "application/json");
 
+  if (shouldAbort) http.setTimeout(BACKGROUND_IO_TIMEOUT_MS);
   const int httpCode = http.PUT(body.c_str());
   http.end();
 #else
@@ -600,13 +642,20 @@ int putJson(const std::string& url, const std::string& body) {
   }
   applyAuthHeaders(http);
   http.addHeader("Content-Type", "application/json");
+  freeink::SecureHttpClient::AbortCallback abort;
+  if (shouldAbort) {
+    http.setTimeout(BACKGROUND_IO_TIMEOUT_MS);
+    abort = [shouldAbort, context] { return shouldAbort(context); };
+  }
   size_t received = 0;
-  const int status = http.sendRequest("PUT", reinterpret_cast<const uint8_t*>(body.data()), body.size(),
-                                      [&](const uint8_t*, size_t length) {
-                                        if (length > MAX_AUTH_RESPONSE_BYTES - received) return false;
-                                        received += length;
-                                        return true;
-                                      });
+  const int status = http.sendRequest(
+      "PUT", reinterpret_cast<const uint8_t*>(body.data()), body.size(),
+      [&](const uint8_t*, size_t length) {
+        if (length > MAX_AUTH_RESPONSE_BYTES - received) return false;
+        received += length;
+        return true;
+      },
+      abort);
   // HTTP 204 has no body even without Content-Length. The transport may
   // otherwise wait for connection close and report an incomplete empty body.
   const bool complete = http.responseComplete() || (status == 204 && received == 0);
@@ -635,7 +684,8 @@ KOReaderSyncClient::Error putResult(const int httpCode) {
 }
 }  // namespace
 
-KOReaderSyncClient::Error KOReaderSyncClient::updateProgress(const KOReaderProgress& progress) {
+KOReaderSyncClient::Error KOReaderSyncClient::updateProgress(const KOReaderProgress& progress, ShouldAbort shouldAbort,
+                                                             void* context) {
   ProgressRequest request("PUT", "/syncs/progress", lastHttpCode);
 
   lastHttpCode = 0;
@@ -655,7 +705,7 @@ KOReaderSyncClient::Error KOReaderSyncClient::updateProgress(const KOReaderProgr
     fillProgressJson(doc.to<JsonObject>(), progress);
     serializeJson(doc, body);
   }
-  const int httpCode = putJson(url, body);
+  const int httpCode = putJson(url, body, shouldAbort, context);
   LOG_DBG("KOSync", "Update progress response: %d", httpCode);
   return request.finish(putResult(httpCode));
 }
