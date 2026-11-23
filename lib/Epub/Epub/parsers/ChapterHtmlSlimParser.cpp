@@ -1039,6 +1039,9 @@ void ChapterHtmlSlimParser::addPendingPublisherPageMarker(const char* label, con
 
   if (hasLabel && partWordBufferIndex > 0) {
     flushPartWordBuffer();
+    // Keep the marker at this token boundary without introducing a space.
+    // Source whitespace will clear the continuation before the next word.
+    nextWordContinues = true;
   }
 
   PendingPublisherPageMarker marker;

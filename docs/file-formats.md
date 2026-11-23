@@ -1190,7 +1190,13 @@ and at their exact dimensions; mismatches fall back to the source EPUB image.
 
 ## `section.bin`
 
-### Version 124 (current development)
+### Version 125 (current development)
+
+Inline publisher page markers no longer introduce a space inside a word.
+Complete sections use version 125 and suspended sections use `0xEE` so
+previously laid-out pages rebuild automatically. The binary payload is unchanged.
+
+### Version 124
 
 Simple EPUB tables can measure widths for up to eight logical columns before
 layout when they contain enough numeric values. Numeric cells after a spanning

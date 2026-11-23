@@ -2763,6 +2763,62 @@ TEST_F(ChapterHtmlSlimParserTest, CssHiddenIdsDoNotBecomeAnchorsOrPageMarkers) {
   ChapterHtmlSlimParser::endElement(&parser, "p");
 }
 
+TEST_F(ChapterHtmlSlimParserTest, InlinePageBreakKeepsHyphenatedWordTogetherWithoutRemovingRealSpace) {
+  renderer.textAdvancePerChar = 4;
+  renderer.spaceAdvance = 4;
+  ChapterHtmlSlimParser::startElement(&parser, "p", nullptr);
+  ChapterHtmlSlimParser::characterData(&parser, "twenty-", 7);
+  const XML_Char* marker[] = {"id", "page_3", "epub:type", "pagebreak", "role", "doc-pagebreak", "title", "3", nullptr};
+  ChapterHtmlSlimParser::startElement(&parser, "span", marker);
+  ChapterHtmlSlimParser::endElement(&parser, "span");
+  ChapterHtmlSlimParser::characterData(&parser, "eight", 5);
+  const XML_Char* nextMarker[] = {"id", "page_4", "role", "doc-pagebreak", "title", "4", nullptr};
+  ChapterHtmlSlimParser::startElement(&parser, "span", nextMarker);
+  ChapterHtmlSlimParser::endElement(&parser, "span");
+  ChapterHtmlSlimParser::characterData(&parser, " years", 6);
+  ChapterHtmlSlimParser::endElement(&parser, "p");
+  parser.makePages();
+
+  ASSERT_TRUE(parser.currentPage);
+  ASSERT_EQ(parser.currentPage->elements.size(), 1u);
+  ASSERT_EQ(parser.currentPage->elements[0]->getTag(), TAG_PageLine);
+  const auto& line = *static_cast<PageLine&>(*parser.currentPage->elements[0]).getBlock();
+  ASSERT_EQ(line.wordCount(), 3u);
+  EXPECT_EQ(line.wordXpos(1) - line.wordXpos(0), 28);
+  EXPECT_EQ(line.wordXpos(2) - line.wordXpos(1), 24);
+  ASSERT_EQ(parser.currentPage->publisherPageMarkers.size(), 2u);
+  EXPECT_STREQ(parser.currentPage->publisherPageMarkers[0].label, "3");
+  EXPECT_STREQ(parser.currentPage->publisherPageMarkers[1].label, "4");
+  EXPECT_EQ(parser.getAnchors(), (std::deque<std::pair<std::string, uint16_t>>{{"page_3", 0}, {"page_4", 0}}));
+}
+
+TEST_F(ChapterHtmlSlimParserTest, InlinePageBreakAtWrappedHyphenFollowsTheSuffix) {
+  renderer.textAdvancePerChar = 4;
+  renderer.spaceAdvance = 4;
+  parser.viewportWidth = 28;
+  parser.viewportHeight = renderer.getLineHeight(0);
+  parser.completePageFn = [](std::unique_ptr<Page> page, uint16_t, uint16_t, uint32_t, uint32_t) {
+    EXPECT_TRUE(page->publisherPageMarkers.empty());
+  };
+  ChapterHtmlSlimParser::startElement(&parser, "p", nullptr);
+  ChapterHtmlSlimParser::characterData(&parser, "twenty-", 7);
+  const XML_Char* marker[] = {"id", "page_3", "role", "doc-pagebreak", "title", "3", nullptr};
+  ChapterHtmlSlimParser::startElement(&parser, "span", marker);
+  ChapterHtmlSlimParser::endElement(&parser, "span");
+  ChapterHtmlSlimParser::characterData(&parser, "eight", 5);
+  ChapterHtmlSlimParser::endElement(&parser, "p");
+  parser.makePages();
+
+  ASSERT_TRUE(parser.currentPage);
+  ASSERT_EQ(parser.currentPage->elements.size(), 1u);
+  ASSERT_EQ(parser.currentPage->elements[0]->getTag(), TAG_PageLine);
+  const auto& line = *static_cast<PageLine&>(*parser.currentPage->elements[0]).getBlock();
+  ASSERT_EQ(line.wordCount(), 1u);
+  ASSERT_EQ(parser.currentPage->publisherPageMarkers.size(), 1u);
+  EXPECT_STREQ(parser.currentPage->publisherPageMarkers[0].label, "3");
+  EXPECT_EQ(parser.getAnchors(), (std::deque<std::pair<std::string, uint16_t>>{{"page_3", 1}}));
+}
+
 TEST_F(ChapterHtmlSlimParserTest, InlinePageBreakAnchorsResolveWithPublisherLabelsHidden) {
   parser.renderMode = EpubRenderMode::Light;
   renderer.textAdvancePerChar = 4;

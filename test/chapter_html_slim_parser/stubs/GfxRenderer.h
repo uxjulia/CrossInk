@@ -44,6 +44,7 @@ class GfxRenderer {
     bool active_;
   };
   int textAdvancePerChar = 0;
+  int spaceAdvance = 0;
   uint8_t scalableBaseSize = 0;
   uint8_t getFontPointSize(int id) const { return scalableBaseSize ? (id ? id : scalableBaseSize) : 0; }
   int getFontIdForSize(int id, uint8_t size) const { return scalableBaseSize && size ? size : id; }
@@ -73,9 +74,9 @@ class GfxRenderer {
     return static_cast<int>(std::strlen(text)) * textAdvancePerChar * (scalableBaseSize ? getFontPointSize(id) : 1) /
            (scalableBaseSize ? scalableBaseSize : 1);
   }
-  int getSpaceWidth(int, EpdFontFamily::Style) const { return 0; }
+  int getSpaceWidth(int, EpdFontFamily::Style) const { return spaceAdvance; }
   int getKerning(int, uint32_t, uint32_t, EpdFontFamily::Style, int8_t = 0) const { return 0; }
-  int getSpaceAdvance(int, uint32_t, uint32_t, EpdFontFamily::Style) const { return 0; }
+  int getSpaceAdvance(int, uint32_t, uint32_t, EpdFontFamily::Style) const { return spaceAdvance; }
   bool sdFont = false;
   mutable size_t prewarmCalls = 0;
   mutable std::vector<uint32_t> prewarmed;
