@@ -189,6 +189,8 @@ void XtcReaderActivity::onExit() {
 void XtcReaderActivity::openReaderMenu() {
   bool hasChapters = false;
   std::string title;
+  int bookPercent = 0;
+  ReaderTimeLeftLabels timeLeft;
   {
     RenderLock lock(*this);
     if (!xtc) {
@@ -196,21 +198,26 @@ void XtcReaderActivity::openReaderMenu() {
     }
     hasChapters = xtc->hasChapters() && xtc->getChapterCount() > 0;
     title = xtc->getTitle();
+    if (xtc->getPageCount() > 0) {
+      const uint32_t page = std::min(currentPage, xtc->getPageCount() - 1);
+      bookPercent = xtc->calculateProgress(page);
+      timeLeft = getSummaryTimeLeft(page);
+    }
   }
 
   pauseReadingStatsTimer("reader_menu");
-  startActivityForResult(
-      std::make_unique<XtcReaderMenuActivity>(renderer, mappedInput, std::move(title), hasChapters, stats.isCompleted,
-                                              SETTINGS.shouldTrackReadingStats(), bookStatsEnabled),
-      [this](const ActivityResult& result) {
-        const auto* menu = std::get_if<MenuResult>(&result.data);
-        if (result.isCancelled || menu == nullptr) {
-          resumeReadingStatsTimer("reader_menu_return");
-          requestUpdate();
-          return;
-        }
-        onReaderMenuConfirm(menu->action);
-      });
+  startActivityForResult(std::make_unique<XtcReaderMenuActivity>(renderer, mappedInput, std::move(title), hasChapters,
+                                                                 stats.isCompleted, SETTINGS.shouldTrackReadingStats(),
+                                                                 bookStatsEnabled, bookPercent, timeLeft),
+                         [this](const ActivityResult& result) {
+                           const auto* menu = std::get_if<MenuResult>(&result.data);
+                           if (result.isCancelled || menu == nullptr) {
+                             resumeReadingStatsTimer("reader_menu_return");
+                             requestUpdate();
+                             return;
+                           }
+                           onReaderMenuConfirm(menu->action);
+                         });
 }
 
 void XtcReaderActivity::loop() {
@@ -749,6 +756,29 @@ void XtcReaderActivity::recordForwardPageTurn(const uint32_t seconds, const bool
   }
 }
 
+ReaderTimeLeftLabels XtcReaderActivity::getSummaryTimeLeft(const uint32_t page) const {
+  ReaderTimeLeftLabels labels;
+  const auto top = SETTINGS.readerStatusBar(ReaderStatusBarPosition::Top);
+  const auto bottom = SETTINGS.readerStatusBar(ReaderStatusBarPosition::Bottom);
+  const auto mode = SETTINGS.xtcStatusBarMode;
+  const bool topEnabled =
+      mode == CrossPointSettings::XTC_STATUS_BAR_TOP || mode == CrossPointSettings::XTC_STATUS_BAR_BOTH;
+  const bool bottomEnabled =
+      mode == CrossPointSettings::XTC_STATUS_BAR_BOTTOM || mode == CrossPointSettings::XTC_STATUS_BAR_BOTH;
+  const auto topConfig =
+      xtcStatusBarConfigForDisplay(ReaderStatusBarPosition::Top, SETTINGS.legacyXtcTopUsesBottom, top, bottom);
+  const auto uses = [&](const ReaderStatusBarItem item) {
+    return (topEnabled && topConfig.contains(item)) || (bottomEnabled && bottom.contains(item));
+  };
+  if (uses(ReaderStatusBarItem::TimeLeftBook)) formatTimeLeftLabel(labels.book, sizeof(labels.book), page, true);
+  xtc::ChapterInfo chapter{};
+  if (uses(ReaderStatusBarItem::TimeLeftChapter) && xtc->getChapterForPage(page, chapter) &&
+      chapter.endPage >= chapter.startPage) {
+    formatTimeLeftLabel(labels.chapter, sizeof(labels.chapter), page, false);
+  }
+  return labels;
+}
+
 bool XtcReaderActivity::formatTimeLeftLabel(char* buf, const size_t len, const uint32_t pageToRender,
                                             const bool bookEstimate) const {
   if (!buf || len == 0 || !xtc) {
@@ -862,6 +892,7 @@ bool XtcReaderActivity::getFrontlightPanelBookDetails(FrontlightPanelBookDetails
   xtc::ChapterInfo chapter{};
   if (xtc->getChapterForPage(page, chapter)) details.chapter = chapter.name;
   details.progressPercent = xtc->calculateProgress(page);
+  details.timeLeft = getSummaryTimeLeft(page);
   return true;
 }
 

@@ -51,6 +51,7 @@ class FrontlightPanelActivity final : public Activity {
   int16_t panelSpaceLg = 0;
   freeink::ui::Rect drawerHandleRect{};
   std::vector<std::string> readerTitleLines;
+  std::vector<std::string> readerProgressLines;
   // Cleared by computePanelBottom() when the chapter line cannot fit beside
   // the controls (e.g. landscape at Large scale).
   bool showChapterLine = false;

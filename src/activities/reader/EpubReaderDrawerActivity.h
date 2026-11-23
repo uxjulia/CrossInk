@@ -62,6 +62,7 @@ class EpubReaderDrawerActivity final : public Activity {
   }
 
   // Button menu only: shown under the book title. Set before the activity starts.
+  void setTimeLeft(const ReaderTimeLeftLabels& labels) { timeLeft = labels; }
   void setChapterTitle(std::string title) { chapterTitle = std::move(title); }
 #if CROSSINK_SCALABLE_FONTS
   using PublisherBodyFontProbe = uint32_t (*)(void* context);
@@ -141,6 +142,7 @@ class EpubReaderDrawerActivity final : public Activity {
   const bool chapterPageCountEstimated = false;
   const uint32_t stablePageSeed = 0;
   std::string chapterTitle;
+  ReaderTimeLeftLabels timeLeft;
 #if CROSSINK_SCALABLE_FONTS
   uint32_t publisherBodyFontFamily = 0;
   PublisherBodyFontProbe publisherBodyFontProbe = nullptr;

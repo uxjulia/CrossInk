@@ -1,5 +1,7 @@
 #pragma once
 
+#include "util/ReaderBookProgress.h"
+
 class GfxRenderer;
 struct Rect;
 
@@ -8,7 +10,9 @@ struct Rect;
 // menu and the frontlight drawer so both stay the same height and style.
 namespace ReaderBookSummary {
 // Pass nullptr or "" to omit the chapter line.
-int height(const GfxRenderer& renderer, const char* chapter);
+int height(const GfxRenderer& renderer, const char* chapter, const char* progress, const ReaderTimeLeftLabels& timeLeft,
+           int width);
 // Draws at rect's top-left; rect.height is ignored in favor of height().
-void draw(const GfxRenderer& renderer, const Rect& rect, const char* chapter, const char* progress);
+void draw(const GfxRenderer& renderer, const Rect& rect, const char* chapter, const char* progress,
+          const ReaderTimeLeftLabels& timeLeft);
 }  // namespace ReaderBookSummary

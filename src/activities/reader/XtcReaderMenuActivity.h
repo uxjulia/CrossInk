@@ -26,7 +26,8 @@ class XtcReaderMenuActivity final : public Activity {
   };
 
   XtcReaderMenuActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::string title, bool hasChapters,
-                        bool isBookCompleted, bool globalStatsEnabled, bool bookStatsEnabled);
+                        bool isBookCompleted, bool globalStatsEnabled, bool bookStatsEnabled, int bookPercent,
+                        const ReaderTimeLeftLabels& timeLeft);
 
   void onEnter() override;
   void onExit() override;
@@ -52,6 +53,8 @@ class XtcReaderMenuActivity final : public Activity {
 
   ButtonNavigator buttonNavigator;
   std::string title;
+  int bookPercent;
+  ReaderTimeLeftLabels timeLeft;
   std::vector<MenuItem> items;
   bool bookStatsEnabled = true;
   std::array<freeink::ui::ListItem, kMaxMenuItems> listItems{};

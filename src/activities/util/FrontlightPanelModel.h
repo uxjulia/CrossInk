@@ -4,6 +4,8 @@
 #include <memory>
 #include <string>
 
+#include "util/ReaderBookProgress.h"
+
 class Activity;
 
 enum class FrontlightPanelAction : uint8_t {
@@ -44,6 +46,7 @@ struct FrontlightPanelBookDetails {
   uint32_t chapterPageCount = 0;
   bool chapterPageCountEstimated = false;
   int progressPercent = 0;
+  ReaderTimeLeftLabels timeLeft;
 };
 
 struct FrontlightDrawerState {

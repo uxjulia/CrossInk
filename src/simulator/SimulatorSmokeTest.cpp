@@ -7956,8 +7956,9 @@ class SimulatorSmokeTest {
       case 17: {
         RenderLock lock;
         captureStatusBarScreen("metadata-clipping-detail");
-        activityManager.replaceActivity(std::make_unique<XtcReaderMenuActivity>(
-            renderer, mappedInputManager, "Latin book title 一 Հայերեն", true, false, true, true));
+        activityManager.replaceActivity(
+            std::make_unique<XtcReaderMenuActivity>(renderer, mappedInputManager, "Latin book title 一 Հայերեն", true,
+                                                    false, true, true, 0, ReaderTimeLeftLabels{}));
         queueStep("Metadata book menu", SmokeStep::Start, 6);
         break;
       }

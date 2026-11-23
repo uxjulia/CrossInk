@@ -103,6 +103,7 @@ class XtcReaderActivity final : public Activity {
   void flushDeferredReadingStats(bool allowCheckpoint = true);
   void checkpointReadingStatsWhenIdle();
   void recordForwardPageTurn(uint32_t seconds, bool recordPace);
+  ReaderTimeLeftLabels getSummaryTimeLeft(uint32_t page) const;
   bool formatTimeLeftLabel(char* buf, size_t len, uint32_t pageToRender, bool bookEstimate) const;
   void commitReadingStats();
   void finalizeReadingStatsOnExit();

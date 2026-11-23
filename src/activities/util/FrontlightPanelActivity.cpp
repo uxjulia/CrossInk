@@ -383,7 +383,7 @@ int FrontlightPanelActivity::computePanelBottom() {
     if (!context.bookDetails.chapter.empty() || !context.bookDetails.author.empty()) {
       y += lh + tokens.spaceLg;
     }
-    y += lh;
+    y += lh * std::max(1, static_cast<int>(readerProgressLines.size()));
     y += tokens.spaceLg * 3 + ACTION_BAR_HEIGHT;
     const auto sheet = frontlightSheetProps();
     return y + DrawerHandle::bandHeight(sheet);
@@ -396,8 +396,9 @@ int FrontlightPanelActivity::computePanelBottom() {
   const auto sheet = frontlightSheetProps();
   const auto safe = uiTarget.deviceContext().safeArea;
   const int maxBottom = renderer.getScreenHeight() - safe.bottom;
+  int summaryHeight = bookSummaryHeight();
   const auto bottom = [&] {
-    return y + bookSummaryHeight() + rowCount * panelRowHeight + warmthRows * lh + largeGapCount * panelSpaceLg +
+    return y + summaryHeight + rowCount * panelRowHeight + warmthRows * lh + largeGapCount * panelSpaceLg +
            smallGapCount * panelSpaceSm + ACTION_BAR_HEIGHT + DrawerHandle::bandHeight(sheet);
   };
   const int minRowHeight = std::max<int>(tokens.minTouchSize, lh);
@@ -417,6 +418,7 @@ int FrontlightPanelActivity::computePanelBottom() {
   // handle would be pushed off screen.
   if (bottom() > maxBottom && showChapterLine) {
     showChapterLine = false;
+    summaryHeight = bookSummaryHeight();
     fit();
   }
   return std::min(bottom(), maxBottom);
@@ -424,12 +426,21 @@ int FrontlightPanelActivity::computePanelBottom() {
 
 void FrontlightPanelActivity::prepareReaderDetailsLayout() {
   readerTitleLines.clear();
+  readerProgressLines.clear();
   if (!context.showReaderDetails || context.bookDetails.title.empty()) return;
   const auto tokens = uiThemeTokens(uiTarget);
   const int16_t sideInset = static_cast<int16_t>(tokens.spaceLg * 2);
   const int width = std::max<int>(1, renderer.getScreenWidth() - sideInset * 2);
   readerTitleLines = renderer.wrappedText(renderer.filenameFontId(uiScaleSpec().titleFontId),
                                           context.bookDetails.title.c_str(), width, 2, EpdFontFamily::BOLD);
+  if (!context.bookDetails.timeLeft.empty()) {
+    char progress[192];
+    formatReaderBookProgress(progress, sizeof(progress), 0, 0, false, context.bookDetails.progressPercent,
+                             context.bookDetails.timeLeft);
+    const auto safe = uiTarget.deviceContext().safeArea;
+    const int progressWidth = std::max(1, width - safe.left - safe.right);
+    readerProgressLines = renderer.wrappedText(uiScaleSpec().bodyFontId, progress, progressWidth, 2);
+  }
 }
 
 void FrontlightPanelActivity::drawReaderDetails(fui::Screen<20>& screen) {
@@ -458,9 +469,15 @@ void FrontlightPanelActivity::drawReaderDetails(fui::Screen<20>& screen) {
     screen.target().text(screen.takeTop(bodyLh, theme.spaceLg).inset(sideInset), visible.c_str(), body);
   }
 
-  char progress[48];
-  std::snprintf(progress, sizeof(progress), "%d%% %s", context.bookDetails.progressPercent, tr(STR_COMPLETE));
-  screen.target().text(screen.takeTop(bodyLh).inset(sideInset), progress, body);
+  if (readerProgressLines.empty()) {
+    char progress[48];
+    std::snprintf(progress, sizeof(progress), "%d%% %s", context.bookDetails.progressPercent, tr(STR_COMPLETE));
+    screen.target().text(screen.takeTop(bodyLh).inset(sideInset), progress, body);
+  } else {
+    for (const auto& line : readerProgressLines) {
+      screen.target().text(screen.takeTop(bodyLh).inset(sideInset), line.c_str(), body);
+    }
+  }
   screen.spacer(static_cast<int16_t>(theme.spaceLg * 3));
 }
 
@@ -617,7 +634,13 @@ const char* FrontlightPanelActivity::bookSummaryChapter() const {
 }
 
 int FrontlightPanelActivity::bookSummaryHeight() const {
-  return showsBookProgress() ? ReaderBookSummary::height(renderer, bookSummaryChapter()) : 0;
+  if (!showsBookProgress()) return 0;
+  char progress[96];
+  formatReaderBookProgress(progress, sizeof(progress), context.bookDetails.chapterPage,
+                           context.bookDetails.chapterPageCount, context.bookDetails.chapterPageCountEstimated,
+                           context.bookDetails.progressPercent);
+  const auto safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
+  return ReaderBookSummary::height(renderer, bookSummaryChapter(), progress, context.bookDetails.timeLeft, safe.width);
 }
 
 void FrontlightPanelActivity::drawBookProgress() {
@@ -628,7 +651,8 @@ void FrontlightPanelActivity::drawBookProgress() {
                            context.bookDetails.chapterPageCount, context.bookDetails.chapterPageCountEstimated,
                            context.bookDetails.progressPercent);
   const auto safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
-  ReaderBookSummary::draw(renderer, Rect{safe.x, y, safe.width, 0}, bookSummaryChapter(), progress);
+  ReaderBookSummary::draw(renderer, Rect{safe.x, y, safe.width, 0}, bookSummaryChapter(), progress,
+                          context.bookDetails.timeLeft);
 }
 
 void FrontlightPanelActivity::addStepSlider(UiApp::ScreenType& screen, const fui::Rect& row, const uint8_t value,

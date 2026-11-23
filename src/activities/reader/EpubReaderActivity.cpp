@@ -2124,6 +2124,18 @@ bool EpubReaderActivity::formatTimeLeftLabel(char* buf, const size_t len, const 
   return true;
 }
 
+ReaderTimeLeftLabels EpubReaderActivity::getSummaryTimeLeft() const {
+  ReaderTimeLeftLabels labels;
+  if (activeFootnotePreview) return labels;
+  const auto uses = [](const ReaderStatusBarItem item) {
+    return SETTINGS.readerStatusBar(ReaderStatusBarPosition::Top).contains(item) ||
+           SETTINGS.readerStatusBar(ReaderStatusBarPosition::Bottom).contains(item);
+  };
+  if (uses(ReaderStatusBarItem::TimeLeftBook)) formatTimeLeftLabel(labels.book, sizeof(labels.book), true);
+  if (uses(ReaderStatusBarItem::TimeLeftChapter)) formatTimeLeftLabel(labels.chapter, sizeof(labels.chapter), false);
+  return labels;
+}
+
 void EpubReaderActivity::refreshCachedTimeLeftEstimate() {
   uint32_t seconds = 0;
   stats.estimatedTimeLeftSeconds = (!stats.isCompleted && estimateTimeLeftSeconds(true, seconds)) ? seconds : 0;
@@ -2814,6 +2826,7 @@ void EpubReaderActivity::openReaderMenu() {
   // Only the button menu has a book header to show it in.
   const bool showChapterTitle = !mappedInput.hasTouchHardware();
   std::string chapterTitle;
+  ReaderTimeLeftLabels timeLeft;
   {
     // Serialize EPUB metadata/file access with the render task.
     RenderLock lock(*this);
@@ -2840,6 +2853,7 @@ void EpubReaderActivity::openReaderMenu() {
     isBookCompleted = stats.isCompleted;
     bookProgress = getCurrentBookProgressPercent();
     if (showChapterTitle && !previewActive) chapterTitle = currentChapterTitle();
+    timeLeft = getSummaryTimeLeft();
   }
   pauseReadingPaceTimer("reader_menu");
   const BookReaderSettingsData bookSettings = loadBookReaderSettingsFile(epub->getCachePath());
@@ -2890,6 +2904,7 @@ void EpubReaderActivity::openReaderMenu() {
     return saveBookReaderSettingsFile(cachePath, data);
   });
   menuActivity->setChapterTitle(std::move(chapterTitle));
+  menuActivity->setTimeLeft(timeLeft);
 #if CROSSINK_SCALABLE_FONTS
   menuActivity->setPublisherBodyFontProbe(
       [](void* context) -> uint32_t {
@@ -4986,6 +5001,7 @@ bool EpubReaderActivity::getFrontlightPanelBookDetails(FrontlightPanelBookDetail
   details.chapterPage = static_cast<uint32_t>(chapterPage);
   details.chapterPageCount = static_cast<uint32_t>(chapterPageCount);
   details.chapterPageCountEstimated = chapterPageCountEstimated;
+  details.timeLeft = getSummaryTimeLeft();
   return true;
 }
 

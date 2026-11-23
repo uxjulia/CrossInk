@@ -10,6 +10,7 @@
 #include "CrossPointSettings.h"
 #include "FilenameFontSystem.h"
 #include "MappedInputManager.h"
+#include "components/ReaderBookSummary.h"
 #include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
 #include "components/UIThemeTokens.h"
@@ -28,9 +29,12 @@ constexpr fui::ActionId kActionRow = 1;
 
 XtcReaderMenuActivity::XtcReaderMenuActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::string title,
                                              const bool hasChapters, const bool isBookCompleted,
-                                             const bool globalStatsEnabled, const bool bookStatsEnabled)
+                                             const bool globalStatsEnabled, const bool bookStatsEnabled,
+                                             const int bookPercent, const ReaderTimeLeftLabels& timeLeft)
     : Activity("XtcReaderMenu", renderer, mappedInput),
       title(std::move(title)),
+      bookPercent(bookPercent),
+      timeLeft(timeLeft),
       items(buildMenuItems(hasChapters, isBookCompleted, mappedInput.hasTouchHardware(), globalStatsEnabled,
                            bookStatsEnabled)),
       bookStatsEnabled(bookStatsEnabled),
@@ -246,6 +250,14 @@ void XtcReaderMenuActivity::render(RenderLock&&) {
   for (int i = 0; i < static_cast<int>(titleLines.size()); ++i) {
     renderer.drawText(titleFontId, titleX, titleY + i * (titleLineHeight + kTitleLineGap), titleLines[i].c_str(), true,
                       EpdFontFamily::BOLD);
+  }
+
+  if (!timeLeft.empty()) {
+    char progress[96];
+    formatReaderBookProgress(progress, sizeof(progress), 0, 0, false, bookPercent);
+    listHeaderHeight += ReaderBookSummary::height(renderer, nullptr, progress, timeLeft, header.width);
+    ReaderBookSummary::draw(renderer, Rect{header.x, header.y + header.height, header.width, 0}, nullptr, progress,
+                            timeLeft);
   }
 
   ui.render();

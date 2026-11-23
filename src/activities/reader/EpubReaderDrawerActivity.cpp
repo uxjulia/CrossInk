@@ -980,7 +980,10 @@ void EpubReaderDrawerActivity::buildDrawer(UiApp::ScreenType& screen) {
   if (buttonDevice) {
     const Rect safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
     const auto header = TouchHeaderBackButton::headerRect(renderer, mappedInput, safe);
-    const int summaryHeight = ReaderBookSummary::height(renderer, chapterTitle.c_str());
+    char progress[96];
+    formatReaderBookProgress(progress, sizeof(progress), chapterPage, chapterPageCount, chapterPageCountEstimated,
+                             percentSeed / 100);
+    const int summaryHeight = ReaderBookSummary::height(renderer, chapterTitle.c_str(), progress, timeLeft, safe.width);
     buttonHeaderHeight =
         static_cast<int16_t>(std::max(0, header.y + header.height + summaryHeight - screen.contentRect().y));
     screen.takeTop(buttonHeaderHeight);
@@ -1079,7 +1082,7 @@ void EpubReaderDrawerActivity::drawButtonBookHeader() {
   formatReaderBookProgress(progress, sizeof(progress), chapterPage, chapterPageCount, chapterPageCountEstimated,
                            percentSeed / 100);
   ReaderBookSummary::draw(renderer, Rect{safe.x, header.y + header.height, safe.width, 0}, chapterTitle.c_str(),
-                          progress);
+                          progress, timeLeft);
 }
 
 void EpubReaderDrawerActivity::buildTabBar(UiApp::ScreenType& screen, const fui::Rect rect, const bool drawBottomRule) {
