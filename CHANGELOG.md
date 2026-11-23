@@ -13,6 +13,7 @@
 
 ### Fixed
 
+- Clear the DNS cache safely when Wi-Fi addresses change to prevent a possible crash.
 - Preserve the original line breaks and indentation in EPUB preformatted text, such as shaped poems.
 
 - Stay in the selected chapter when following EPUB Contents links, including links to positions within a chapter.
