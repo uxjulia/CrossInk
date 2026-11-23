@@ -36,6 +36,9 @@ class ChapterHtmlSlimParser {
  private:
   static constexpr uint8_t MAX_SIMPLE_TABLE_COLUMNS = 8;
   static constexpr uint16_t MAX_SIMPLE_TABLE_CELL_WORDS = 160;
+  // Dense SD-font table rows retain many TextBlocks on C3. Bound their combined
+  // line count per physical page so incremental indexing can keep making progress.
+  static constexpr uint16_t MAX_COMPACT_TABLE_TEXT_LINES_PER_PAGE = 48;
   static constexpr uint8_t TABLE_CELL_PADDING = 6;
   static constexpr size_t MAX_INLINE_STYLE_DEPTH = 64;
   static constexpr size_t MAX_PENDING_INLINE_IMAGES = 16;
@@ -255,6 +258,7 @@ class ChapterHtmlSlimParser {
 
   struct BufferedTable {
     BlockStyle blockStyle;
+    TableColumnLayout::Plan columnPlan;
     std::vector<BufferedTableRow> rows;
     uint16_t maxCols = 0;
     uint16_t totalCells = 0;
@@ -293,6 +297,8 @@ class ChapterHtmlSlimParser {
   bool compactTableUnsupported = false;
   bool compactTableTopSpacingApplied = false;
   bool compactTableParagraphFallback = false;
+  bool compactTablePageLineLimitEnabled = false;
+  uint16_t compactTablePageLineCount = 0;
   int compactTableFallbackBottomSpacing = 0;
   uint8_t compactFragmentColumnCount = 0;
   uint16_t compactFragmentHeight = 1;

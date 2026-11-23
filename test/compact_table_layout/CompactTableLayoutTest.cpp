@@ -55,6 +55,9 @@ TEST(CompactTableLayoutTest, C3AlwaysUsesCompactButOtherTargetsKeepBothHeapGates
   EXPECT_FALSE(TableLayoutPolicy::useCompact(false, 96 * KiB, 56 * KiB));
   EXPECT_TRUE(TableLayoutPolicy::useCompact(false, 96 * KiB - 1, 56 * KiB));
   EXPECT_TRUE(TableLayoutPolicy::useCompact(false, 96 * KiB, 56 * KiB - 1));
+  EXPECT_TRUE(TableLayoutPolicy::shouldLimitCompactTablePageLines(true, true));
+  EXPECT_FALSE(TableLayoutPolicy::shouldLimitCompactTablePageLines(false, true));
+  EXPECT_FALSE(TableLayoutPolicy::shouldLimitCompactTablePageLines(true, false));
 }
 
 TEST(CompactTableLayoutTest, SourceFixtureModelsLargeAndUnsupportedTables) {
@@ -105,7 +108,8 @@ TEST(CompactTableLayoutTest, IntrinsicPlanKeepsNumericalColumnsCompactAndHonorsV
   EXPECT_EQ(TableColumnLayout::proportionalPlan(measure, 83, 4).count, 0);
 }
 
-TableColumnLayout::Measures probe(std::string_view input) {
+template <typename Width>
+TableColumnLayout::Measures probeWithWidth(std::string_view input, Width width) {
   return TableColumnLayout::measureSimpleTable(
       [&](char* buffer, const unsigned count) {
         const auto n = std::min<size_t>({input.size(), count, 7});
@@ -114,10 +118,13 @@ TableColumnLayout::Measures probe(std::string_view input) {
         input.remove_prefix(n);
         return static_cast<int>(n);
       },
-      [](const char* token, const bool bold) {
-        return static_cast<int>(std::string_view(token).size()) * (bold ? 7 : 6);
-      },
-      480, 4);
+      width, 480, 4);
+}
+
+TableColumnLayout::Measures probe(std::string_view input) {
+  return probeWithWidth(input, [](const char* token, const bool bold) {
+    return static_cast<int>(std::string_view(token).size()) * (bold ? 7 : 6);
+  });
 }
 
 TEST(CompactTableLayoutTest, RawProbeIgnoresSpanningNotesAndStopsAtTheFirstTable) {
@@ -139,6 +146,113 @@ TEST(CompactTableLayoutTest, RawProbeIgnoresSpanningNotesAndStopsAtTheFirstTable
   const auto tooManyWords = probe("<table><tr><td>" + manyWords + "</td><td>b</td></tr></table>");
   EXPECT_EQ(tooManyWords.count, 0);
   EXPECT_EQ(tooManyWords.status, TableColumnLayout::Measures::ProbeStatus::WordLimit);
+}
+
+TEST(CompactTableLayoutTest, MeasuresNumericCellsAcrossEightColumnsAndTwoColumnLabels) {
+  const auto digitAwareWidth = [](const char* token, const bool bold) {
+    const std::string_view text(token);
+    if (text == "100") return 42;
+    if (text == "56½") return 48;
+    if (text == "10½") return 47;
+    if (text == "71¾") return 42;
+    if (text == "5½") return 34;
+    int width = 0;
+    for (size_t i = 0; i < text.size(); ++i) {
+      const auto byte = static_cast<uint8_t>(text[i]);
+      if (byte == 0xC2 && i + 1 < text.size() &&
+          (static_cast<uint8_t>(text[i + 1]) == 0xBD || static_cast<uint8_t>(text[i + 1]) == 0xBE)) {
+        width += 12;  // ½ or ¾ occupies one glyph.
+        ++i;
+      } else {
+        const char c = text[i];
+        width += c >= '0' && c <= '9' ? 10 : (c == '.' ? 5 : (bold ? 8 : 7));
+      }
+    }
+    return width;
+  };
+
+  const auto ration = probeWithWidth(
+      "<table><tr><th>Daily ration</th><th>Sun.</th><th>Mon.</th><th>Tue.</th><th>Wed.</th>"
+      "<th>Thur.</th><th>Fri.</th><th>Sat.</th></tr><tr><th scope='row'>Bread</th>"
+      "<td>100</td><td>100</td><td>100</td><td>100</td><td>100</td><td>100</td><td>100</td></tr>"
+      "<tr><th scope='row'>Dehydrated potatoes</th><td>11</td><td>11</td><td>11</td><td>11</td>"
+      "<td>11</td><td>11</td><td>...</td></tr><tr><th scope='row'>Fractions</th>"
+      "<td>56½</td><td>10½</td><td>5½</td><td>...</td><td>...</td><td>71¾</td><td>...</td></tr></table>",
+      digitAwareWidth);
+  ASSERT_EQ(ration.status, TableColumnLayout::Measures::ProbeStatus::Accepted);
+  ASSERT_EQ(ration.count, 8u);
+  EXPECT_GE(ration.numericWordCount, 8u);
+  EXPECT_TRUE(TableColumnLayout::shouldUseMeasuredPlan(ration));
+  EXPECT_EQ(ration.numericMinimum[1], 48u);
+  EXPECT_EQ(ration.numericMinimum[2], 47u);
+  EXPECT_EQ(ration.numericMinimum[3], 42u);
+  const auto rationPlan = TableColumnLayout::proportionalPlan(ration, 464, 2);
+  ASSERT_EQ(rationPlan.count, 8u);
+  EXPECT_EQ(rationPlan.cellPadding, 2u);
+  for (uint8_t column = 1; column < ration.count; ++column) {
+    EXPECT_GE(TableColumnLayout::innerWidth(464, ration.count, column, 1, 2, rationPlan),
+              ration.numericMinimum[column]);
+  }
+
+  const auto actualBeverageWidth = [](const char* token, const bool bold) {
+    const std::string_view text(token);
+    if (text == "7.90") return 50;
+    if (text == "0.06") return 55;
+    if (text == "0.41") return 48;
+    if (text == "0.01") return 51;
+    if (text == "464.00") return 81;
+    if (text == "300.00") return 85;
+    if (text == "270.67") return 77;
+    if (text == "238.83") return 75;
+    if (text == "180.00") return 81;
+    if (text == "1,000") return bold ? 63 : 61;
+    return static_cast<int>(text.size()) * 6;
+  };
+  const auto beverage = probeWithWidth(
+      "<table><tr><th colspan='2'>In 1,000 Parts of</th><th>Green Tea</th><th>Black Tea</th>"
+      "<th>Coffee</th><th>Mate</th></tr><tr><th colspan='2' scope='row'>Natural oil</th>"
+      "<td>7.90</td><td>0.06</td><td>0.41</td><td>0.01</td></tr>"
+      "<tr><th colspan='2' scope='row'>Extractive Substances</th><td>464.00</td><td>300.00</td>"
+      "<td>270.67</td><td>238.83</td></tr><tr><th colspan='2' scope='row'>More values</th>"
+      "<td>464.00</td><td>300.00</td><td>270.67</td><td>180.00</td></tr><tr><th scope='row'>Alkaloids</th>"
+      "<th scope='row'>Mateina<br/>Coffeina</th><td>4.50</td><td>4.30</td><td>2.66</td><td>2.50</td>"
+      "</tr></table>",
+      actualBeverageWidth);
+  ASSERT_EQ(beverage.status, TableColumnLayout::Measures::ProbeStatus::Accepted);
+  ASSERT_EQ(beverage.count, 6u);
+  EXPECT_GE(beverage.numericWordCount, 8u);
+  EXPECT_TRUE(TableColumnLayout::shouldUseMeasuredPlan(beverage));
+  EXPECT_EQ(beverage.numericMinimum[2], 81u);
+  EXPECT_EQ(beverage.numericMinimum[3], 85u);
+  EXPECT_EQ(beverage.numericMinimum[4], 77u);
+  EXPECT_EQ(beverage.numericMinimum[5], 81u);
+  const auto beveragePlan = TableColumnLayout::proportionalPlan(beverage, 464, 2);
+  ASSERT_EQ(beveragePlan.count, 6u);
+  EXPECT_EQ(beveragePlan.cellPadding, 2u);
+  for (uint8_t column = 2; column < beverage.count; ++column) {
+    EXPECT_GE(TableColumnLayout::innerWidth(464, beverage.count, column, 1, 2, beveragePlan),
+              beverage.numericMinimum[column]);
+  }
+  EXPECT_GE(TableColumnLayout::innerWidth(464, beverage.count, 0, 2, 2, beveragePlan), 63u);
+
+  const auto plainWideTable = probe(
+      "<table><tr><td>alpha</td><td>bravo</td><td>charlie</td><td>delta</td><td>echo</td><td>foxtrot</td></tr>"
+      "</table>");
+  ASSERT_EQ(plainWideTable.status, TableColumnLayout::Measures::ProbeStatus::Accepted);
+  EXPECT_EQ(plainWideTable.count, 6u);
+  EXPECT_FALSE(TableColumnLayout::shouldUseMeasuredPlan(plainWideTable));
+
+  TableColumnLayout::Measures legacyFourColumnTable;
+  legacyFourColumnTable.status = TableColumnLayout::Measures::ProbeStatus::Accepted;
+  legacyFourColumnTable.count = 4;
+  legacyFourColumnTable.numericWordCount = 12;
+  EXPECT_TRUE(TableColumnLayout::shouldUseMeasuredPlan(legacyFourColumnTable));
+  EXPECT_FALSE(TableColumnLayout::hasDenseNumericColumns(legacyFourColumnTable));
+  EXPECT_EQ(TableColumnLayout::proportionalPlan(legacyFourColumnTable, 480, 6).cellPadding, 6u);
+
+  const auto rowSpan = probe("<table><tr><td rowspan='2'>label</td><td>1</td></tr></table>");
+  EXPECT_EQ(rowSpan.count, 0u);
+  EXPECT_EQ(rowSpan.status, TableColumnLayout::Measures::ProbeStatus::Unsupported);
 }
 
 TEST(CompactTableLayoutTest, LookaheadUsesLargerBoundedReadBatches) {
@@ -425,6 +539,53 @@ TEST(CompactTableLayoutTest, BreaksUtf8AndOversizedCodepointsWithoutAbort) {
   ASSERT_EQ(row.cells.size(), 1u);
   ASSERT_EQ(row.cells.front().lines.size(), 1u);
   EXPECT_EQ(row.cells.front().lines.front()->words.size(), 1u);
+}
+
+TEST(CompactTableLayoutTest, SmallTableStatePromotesOnlyForLargeRowsAndKeepsAllContent) {
+  EXPECT_LT(sizeof(CompactTableLayout), 4096u);
+
+  GfxRenderer renderer;
+  CompactTableLayout layout(renderer, 0, 3000, 200, 10, 2, leftStyle());
+  ASSERT_TRUE(layout.valid());
+  ASSERT_TRUE(layout.beginRow());
+  ASSERT_TRUE(layout.beginCell(false, 1, 0, leftStyle()));
+
+  for (unsigned i = 0; i < 40; ++i) {
+    const std::string word = "word" + std::to_string(i);
+    ASSERT_TRUE(layout.appendWord(word, EpdFontFamily::REGULAR, i > 0, false, 0));
+  }
+
+  std::vector<std::pair<int, FootnoteEntry>> rowFootnotes;
+  for (const char* number : {"A", "B", "C"}) {
+    FootnoteEntry entry;
+    std::strcpy(entry.number, number);
+    rowFootnotes.emplace_back(0, entry);
+  }
+  ASSERT_TRUE(layout.endCell(rowFootnotes));
+
+  TableFragmentRow row;
+  std::vector<std::shared_ptr<TextBlock>> flatLines;
+  std::vector<FootnoteEntry> footnotes;
+  uint32_t offset = 0;
+  ASSERT_EQ(finishAndDrain(layout, row, flatLines, footnotes, offset), CompactTableLayout::RowResult::Ok);
+  ASSERT_EQ(row.cells.size(), 1u);
+  size_t wordCount = 0;
+  for (const auto& line : row.cells.front().lines) wordCount += line->words.size();
+  EXPECT_EQ(wordCount, 40u);
+  ASSERT_EQ(footnotes.size(), 3u);
+  EXPECT_STREQ(footnotes[2].number, "C");
+
+  ASSERT_TRUE(layout.beginRow());
+  for (unsigned i = 0; i < 9; ++i) {
+    ASSERT_TRUE(layout.beginCell(false, 1, 0, leftStyle()));
+    ASSERT_TRUE(layout.appendWord("cell", EpdFontFamily::REGULAR, false, false, 0));
+    ASSERT_TRUE(layout.endCell({}));
+  }
+  row = {};
+  flatLines.clear();
+  footnotes.clear();
+  ASSERT_EQ(finishAndDrain(layout, row, flatLines, footnotes, offset), CompactTableLayout::RowResult::Flatten);
+  EXPECT_EQ(flatLines.size(), 9u);
 }
 
 TEST(CompactTableLayoutTest, UnsupportedRowsFlattenDeterministically) {

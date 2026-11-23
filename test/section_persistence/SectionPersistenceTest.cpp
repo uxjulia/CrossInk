@@ -70,7 +70,7 @@ std::optional<size_t> findSerializedPageMarker(const std::vector<uint8_t>& bytes
 }  // namespace
 
 namespace {
-constexpr uint8_t kFullVersion = 122;
+constexpr uint8_t kFullVersion = 124;
 constexpr uint8_t kPreRoundingFullVersion = 100;
 constexpr uint8_t kPreRoundingPartialVersion = 0xD5;
 constexpr uint8_t kStablePageFullVersion = 99;
@@ -82,7 +82,7 @@ constexpr uint8_t kPreImageAlignmentPartialVersion = 0xCF;
 constexpr uint8_t kPreFieldsetFullVersion = 93;
 constexpr uint8_t kPreFieldsetPartialVersion = 0xCE;
 constexpr uint8_t kS3BitmapFullVersion = 90;
-constexpr uint8_t kPartialVersion = 0xEB;
+constexpr uint8_t kPartialVersion = 0xED;
 constexpr uint8_t kS3BitmapPartialVersion = 0xCB;
 constexpr uint8_t kC3BitmapFullVersion = 89;
 constexpr uint8_t kC3BitmapPartialVersion = 0xCA;
@@ -904,7 +904,11 @@ TEST_F(SectionPersistenceTest, FailedAppendCursorRestoreAbandonsTempAndKeepsLast
 }
 
 TEST_F(SectionPersistenceTest, RejectsCachesFromPreviousLayoutRevisions) {
-  for (const uint8_t staleVersion : {uint8_t{121},
+  for (const uint8_t staleVersion : {uint8_t{123},
+                                     uint8_t{0xEC},
+                                     uint8_t{122},
+                                     uint8_t{0xEB},
+                                     uint8_t{121},
                                      uint8_t{0xEA},
                                      uint8_t{115},
                                      uint8_t{0xE4},

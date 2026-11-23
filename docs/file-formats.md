@@ -1190,7 +1190,26 @@ and at their exact dimensions; mismatches fall back to the source EPUB image.
 
 ## `section.bin`
 
-### Version 122 (current development)
+### Version 124 (current development)
+
+Simple EPUB tables can measure widths for up to eight logical columns before
+layout when they contain enough numeric values. Numeric cells after a spanning
+row label receive enough width for their measured text when the viewport allows
+it. Complex and nonnumeric wide tables keep the existing fallback layout.
+Complete sections use version 124 and suspended sections use `0xED`; existing
+pages rebuild automatically.
+
+### Version 123
+
+CrossInk Default preserves merged cells in EPUB tables during full and
+incremental indexing. On C3 devices with an SD-card font, a dense table may
+start a new page between rows to limit the number of text lines held in RAM.
+Both indexing modes use the same page breaks. Previously indexed chapters
+rebuild on open using the book's selected rendering mode. Complete sections
+use version 123 and suspended sections use `0xEC`. Both use the existing
+table-cell payload.
+
+### Version 122
 
 C3 uses compact-first table pagination. Complete sections use version 122 and
 partials use `0xEB` so existing pages rebuild using the new layout policy. The

@@ -1,8 +1,10 @@
 #pragma once
 
 #include <EpdFontFamily.h>
+#include <Memory.h>
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <string_view>
@@ -22,7 +24,7 @@ class CompactTableLayout final {
  public:
   static constexpr uint8_t MAX_COLUMNS = 8;
   static constexpr uint8_t MAX_STYLE_RUNS = 64;
-  static constexpr uint16_t INITIAL_ROW_TEXT_BYTES = 2048;
+  static constexpr uint16_t INITIAL_ROW_TEXT_BYTES = 512;
   static constexpr uint16_t MAX_ROW_TEXT_BYTES = 4096;
 
   using ParagraphVisitor = bool (*)(void*, std::shared_ptr<TextBlock>, uint32_t);
@@ -58,6 +60,7 @@ class CompactTableLayout final {
   bool hasActiveRow() const { return rowActive_; }
   uint8_t fragmentColumnCount() const { return fragmentColumnCount_; }
   const BlockStyle& tableStyle() const { return tableStyle_; }
+  uint8_t cellPadding() const { return cellPadding_; }
 
   // Resolves the row to a grid or a streamed paragraph fallback. After
   // Flatten/FlattenRow, drain through visitCapturedParagraphs before beginRow.
@@ -100,10 +103,13 @@ class CompactTableLayout final {
   };
   static_assert(MAX_ROW_TEXT_BYTES <= 0x1FFF && sizeof(LineToken) == 8);
 
+  static constexpr uint16_t INLINE_ROW_TOKENS = 32;
   static constexpr uint16_t MAX_ROW_TOKENS = 256;
   // Keep enough metadata to flatten a malformed/wide row without retaining a
   // second rich model; valid grids still enforce MAX_COLUMNS above.
   static constexpr uint8_t MAX_CELLS_PER_ROW = 32;
+  static constexpr uint8_t INLINE_CELLS_PER_ROW = MAX_COLUMNS;
+  static constexpr uint8_t INLINE_ROW_FOOTNOTES = 1;
   static constexpr uint8_t MAX_LINES_PER_CELL = TableFragmentCell::MAX_SERIALIZED_LINES;
 
   GfxRenderer& renderer_;
@@ -119,13 +125,39 @@ class CompactTableLayout final {
   std::unique_ptr<char[]> buffer_;
   uint16_t bufferCapacity_ = 0;
   uint16_t bufferUsed_ = 0;
-  std::array<Token, MAX_ROW_TOKENS> tokens_{};
-  // Reused line scratch; keeping this on the compact layout object avoids a
-  // multi-kilobyte stack frame while wrapping a pathological cell.
-  std::array<LineToken, MAX_ROW_TOKENS> lineScratch_{};
+
+  template <typename T, size_t InlineCapacity, size_t MaxCapacity>
+  class InlineSpillArray {
+   public:
+    bool ensureCapacity(const size_t required) {
+      if (required > MaxCapacity) return false;
+      if (required <= InlineCapacity || spill_) return true;
+      spill_ = makeUniqueNoThrow<T[]>(MaxCapacity - InlineCapacity);
+      return static_cast<bool>(spill_);
+    }
+
+    T& operator[](const size_t index) {
+      return index < InlineCapacity ? inline_[index] : spill_[index - InlineCapacity];
+    }
+    const T& operator[](const size_t index) const {
+      return index < InlineCapacity ? inline_[index] : spill_[index - InlineCapacity];
+    }
+
+   private:
+    std::array<T, InlineCapacity> inline_{};
+    std::unique_ptr<T[]> spill_;
+  };
+
+  using TokenStorage = InlineSpillArray<Token, INLINE_ROW_TOKENS, MAX_ROW_TOKENS>;
+  using LineStorage = InlineSpillArray<LineToken, INLINE_ROW_TOKENS, MAX_ROW_TOKENS>;
+  using CellStorage = InlineSpillArray<Cell, INLINE_CELLS_PER_ROW, MAX_CELLS_PER_ROW>;
+  using FootnoteStorage = InlineSpillArray<FootnoteEntry, INLINE_ROW_FOOTNOTES, Page::MAX_FOOTNOTES_PER_PAGE>;
+
+  TokenStorage tokens_;
+  LineStorage lineScratch_;
+  CellStorage cells_;
+  FootnoteStorage rowFootnotes_;
   uint16_t tokenCount_ = 0;
-  std::array<Cell, MAX_CELLS_PER_ROW> cells_{};
-  std::array<FootnoteEntry, Page::MAX_FOOTNOTES_PER_PAGE> rowFootnotes_{};
   uint8_t rowFootnoteCount_ = 0;
   uint8_t cellCount_ = 0;
   uint16_t effectiveColumnCount_ = 0;
@@ -142,6 +174,10 @@ class CompactTableLayout final {
   bool rowActive_ = false;
   bool cellActive_ = false;
   uint8_t fragmentColumnCount_ = 0;
+  bool lineScratchLimited_ = false;
+  bool ensureTokenCapacity(size_t required);
+  bool ensureCellCapacity(size_t required);
+  bool ensureFootnoteCapacity(size_t required);
 
   struct LineOutput {
     TableFragmentCell* grid = nullptr;
@@ -156,11 +192,10 @@ class CompactTableLayout final {
   uint16_t innerWidthForSpan(uint8_t columns, uint8_t startColumn, uint8_t span) const;
   int gapBefore(const LineToken& previous, uint16_t offset, EpdFontFamily::Style style, bool attached) const;
   uint16_t measure(uint16_t offset, uint16_t length, EpdFontFamily::Style style);
-  bool appendLineToken(std::array<LineToken, MAX_ROW_TOKENS>& line, uint16_t& lineCount, uint16_t& lineWidth,
-                       uint16_t maxWidth, uint16_t offset, uint16_t length, EpdFontFamily::Style style, uint8_t flags,
-                       bool attachToPrevious, uint8_t paint, bool& emittedAny, const BlockStyle& cellStyle,
-                       const LineOutput& output);
-  bool emitLine(std::array<LineToken, MAX_ROW_TOKENS>& line, uint16_t lineCount, uint16_t lineWidth, uint16_t maxWidth,
+  bool appendLineToken(uint16_t& lineCount, uint16_t& lineWidth, uint16_t maxWidth, uint16_t offset, uint16_t length,
+                       EpdFontFamily::Style style, uint8_t flags, bool attachToPrevious, uint8_t paint,
+                       bool& emittedAny, const BlockStyle& cellStyle, const LineOutput& output);
+  bool emitLine(const LineStorage& line, uint16_t lineCount, uint16_t lineWidth, uint16_t maxWidth,
                 const BlockStyle& style, const LineOutput& output);
   bool wrapCell(const Cell& cell, uint16_t maxWidth, const LineOutput& output);
   RowResult finishRowInternal(bool forceFlatten, TableFragmentRow& gridRow, uint32_t& visibleTextOffset);

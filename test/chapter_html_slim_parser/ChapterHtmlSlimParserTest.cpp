@@ -1,17 +1,26 @@
-#include <Epub/Page.h>
+#include <Epub/FootnoteEntry.h>
+#include <Epub/PageCountEstimator.h>
+#include <Epub/blocks/ImageBlock.h>
+#include <Epub/blocks/TextBlock.h>
 #include <Epub/converters/ImageDimsProbe.h>
 #include <GfxRenderer.h>
+#include <HalStorage.h>
 #include <gtest/gtest.h>
 
 #include <algorithm>
 #include <array>
+#include <cstring>
 #include <deque>
+#include <iterator>
 #include <memory>
 #include <string>
 #include <utility>
+#include <vector>
 
 #define class struct
 #define private public
+#include <Epub/Page.h>
+
 #include "Epub/parsers/ChapterHtmlSlimParser.h"
 #undef private
 #undef class
@@ -52,6 +61,61 @@ class ChapterHtmlSlimParserTest : public ::testing::TestWithParam<const char*> {
     parser.inlineStyleBuf_ = inlineStyles.data();
     parser.blockStyleBuf_ = blockStyles.data();
     parser.blockStyleCount_ = 1;
+  }
+
+  struct TableCellInput {
+    const char* text;
+    const char* colSpan;
+    bool header;
+  };
+
+  void appendTableCell(const TableCellInput& cell) {
+    const char* attributes[] = {"colspan", cell.colSpan, nullptr};
+    const char* tag = cell.header ? "th" : "td";
+    ChapterHtmlSlimParser::startElement(&parser, tag, cell.colSpan ? attributes : nullptr);
+    ChapterHtmlSlimParser::characterData(&parser, cell.text, std::strlen(cell.text));
+    ChapterHtmlSlimParser::endElement(&parser, tag);
+  }
+
+  void parseMixedColspanTable(const bool streaming, const bool addRaggedRow = false) {
+    static constexpr const char* longText = "abcdefghij klmnopqrst uvwxyzabcd efghijklmn";
+    static constexpr TableCellInput firstRow[] = {{longText, "2", true},
+                                                  {"v1", nullptr, false},
+                                                  {"v2", nullptr, false},
+                                                  {"v3", nullptr, false},
+                                                  {"v4", nullptr, false}};
+    static constexpr TableCellInput secondRow[] = {{longText, nullptr, true}, {"v1", nullptr, true},
+                                                   {"v2", nullptr, false},    {"v3", nullptr, false},
+                                                   {"v4", nullptr, false},    {"v5", nullptr, false}};
+    static constexpr TableCellInput raggedRow[] = {
+        {"r1", nullptr, false}, {"r2", nullptr, false}, {"r3", nullptr, false}};
+
+    renderer.textAdvancePerChar = 4;
+    ChapterHtmlSlimParser::startElement(&parser, "table", nullptr);
+    ASSERT_NE(parser.currentTableBuffer, nullptr);
+    parser.currentTableBuffer->streaming = streaming;
+    parser.currentTableBuffer->columnPlan.count = 6;
+    parser.currentTableBuffer->columnPlan.ends = {50, 100, 180, 260, 360, 480, 0, 0};
+    auto appendRow = [&](const TableCellInput* cells, const size_t count) {
+      ChapterHtmlSlimParser::startElement(&parser, "tr", nullptr);
+      for (size_t i = 0; i < count; ++i) appendTableCell(cells[i]);
+      ChapterHtmlSlimParser::endElement(&parser, "tr");
+    };
+    appendRow(firstRow, std::size(firstRow));
+    appendRow(secondRow, std::size(secondRow));
+    if (addRaggedRow) appendRow(raggedRow, std::size(raggedRow));
+    ChapterHtmlSlimParser::endElement(&parser, "table");
+  }
+
+  std::vector<const PageTableFragment*> tableFragments() const {
+    std::vector<const PageTableFragment*> fragments;
+    if (!parser.currentPage) return fragments;
+    for (const auto& element : parser.currentPage->elements) {
+      if (element->getTag() == TAG_PageTableFragment) {
+        fragments.push_back(static_cast<const PageTableFragment*>(element.get()));
+      }
+    }
+    return fragments;
   }
 
   void expectWordAcrossLayoutThreshold(const std::string& first, const std::string& second) {
@@ -466,6 +530,167 @@ TEST_F(ChapterHtmlSlimParserTest, TableCellBlocksInheritOverrideAndRestoreFontSt
   EXPECT_EQ(parser.inlineStyleCount_, 0u);
   ChapterHtmlSlimParser::endElement(&parser, "tr");
   ChapterHtmlSlimParser::endElement(&parser, "table");
+}
+
+TEST_F(ChapterHtmlSlimParserTest, StreamingRichTableUsesLogicalColumnsForMixedColspans) {
+  parseMixedColspanTable(true);
+
+  const auto fragments = tableFragments();
+  ASSERT_EQ(fragments.size(), 1u);
+  ASSERT_EQ(fragments[0]->columnCount, 6u);
+  ASSERT_EQ(fragments[0]->rows.size(), 2u);
+
+  const auto& mergedHeading = fragments[0]->rows[0].cells;
+  ASSERT_EQ(mergedHeading.size(), 5u);
+  EXPECT_EQ(mergedHeading[0].colSpan, 2u);
+  EXPECT_EQ(mergedHeading[0].rightEdge, 100u);
+  EXPECT_EQ(mergedHeading[1].colSpan, 1u);
+  EXPECT_EQ(mergedHeading[1].rightEdge, 180u);
+
+  const auto& singleColumnHeading = fragments[0]->rows[1].cells;
+  ASSERT_EQ(singleColumnHeading.size(), 6u);
+  EXPECT_EQ(singleColumnHeading[0].colSpan, 1u);
+  EXPECT_EQ(singleColumnHeading[0].rightEdge, 50u);
+  EXPECT_EQ(singleColumnHeading[5].rightEdge, 480u);
+  EXPECT_LT(mergedHeading[0].lines.size(), singleColumnHeading[0].lines.size());
+}
+
+TEST_F(ChapterHtmlSlimParserTest, BufferedRichTableUsesLogicalSpansAndPadsOrdinaryShortRows) {
+  parseMixedColspanTable(false, true);
+
+  const auto fragments = tableFragments();
+  ASSERT_EQ(fragments.size(), 1u);
+  ASSERT_EQ(fragments[0]->columnCount, 6u);
+  ASSERT_EQ(fragments[0]->rows.size(), 3u);
+
+  const auto& mergedHeading = fragments[0]->rows[0].cells;
+  ASSERT_EQ(mergedHeading.size(), 5u);
+  EXPECT_EQ(mergedHeading[0].colSpan, 2u);
+  EXPECT_EQ(mergedHeading[0].rightEdge, 100u);
+  const auto& singleColumnHeading = fragments[0]->rows[1].cells;
+  ASSERT_EQ(singleColumnHeading.size(), 6u);
+  EXPECT_EQ(singleColumnHeading[0].colSpan, 1u);
+  EXPECT_EQ(singleColumnHeading[0].rightEdge, 50u);
+  EXPECT_EQ(singleColumnHeading[5].rightEdge, 480u);
+  EXPECT_LT(mergedHeading[0].lines.size(), singleColumnHeading[0].lines.size());
+
+  const auto& paddedRaggedRow = fragments[0]->rows[2].cells;
+  ASSERT_EQ(paddedRaggedRow.size(), 6u);
+  EXPECT_EQ(paddedRaggedRow[5].colSpan, 1u);
+  EXPECT_TRUE(paddedRaggedRow[5].lines.empty());
+  EXPECT_EQ(paddedRaggedRow[2].rightEdge, 180u);
+  EXPECT_EQ(paddedRaggedRow[3].rightEdge, 260u);
+  EXPECT_EQ(paddedRaggedRow[4].rightEdge, 360u);
+  EXPECT_EQ(paddedRaggedRow[5].rightEdge, 480u);
+}
+
+TEST_F(ChapterHtmlSlimParserTest, CompactSdFontTableBoundsLinesAcrossColspanFragmentsAndKeepsRowsAtomic) {
+  std::vector<std::unique_ptr<Page>> pages;
+  std::vector<uint32_t> visibleOffsets;
+  parser.completePageFn = [&](std::unique_ptr<Page> page, uint16_t, uint16_t, uint32_t visibleOffset, uint32_t) {
+    pages.push_back(std::move(page));
+    visibleOffsets.push_back(visibleOffset);
+  };
+  parser.currentCompactTable = std::make_unique<CompactTableLayout>(renderer, 0, 480, 800, 16, 6, BlockStyle{});
+  ASSERT_TRUE(parser.currentCompactTable->valid());
+  parser.compactTablePageLineLimitEnabled = true;
+  parser.compactTableTopSpacingApplied = true;
+  parser.currentPage = std::make_unique<Page>();
+
+  auto makeRow = [](const size_t cellCount, const size_t linesPerCell, const uint16_t height) {
+    TableFragmentRow row;
+    row.height = height;
+    row.cells.resize(cellCount);
+    for (auto& cell : row.cells) cell.lines.resize(linesPerCell);
+    return row;
+  };
+
+  auto colspanHeading = makeRow(1, 1, 28);
+  colspanHeading.cells[0].isHeader = true;
+  colspanHeading.cells[0].colSpan = 8;
+  ASSERT_TRUE(parser.emitCompactTableRow(colspanHeading, 10, 1, false));
+
+  auto denseDataRow = makeRow(8, 6, 108);  // 48 line blocks across eight cells.
+  ASSERT_TRUE(parser.emitCompactTableRow(denseDataRow, 20, 8, false));
+  auto followingRow = makeRow(8, 1, 28);
+  ASSERT_TRUE(parser.emitCompactTableRow(followingRow, 30, 8, false));
+
+  // A row may exceed the normal page budget when it fits by itself. The next
+  // row must then start a fresh page, keeping that oversized source row atomic.
+  auto oversizedRow = makeRow(8, 7, 124);
+  ASSERT_TRUE(parser.emitCompactTableRow(oversizedRow, 40, 8, false));
+  auto rowAfterOversized = makeRow(8, 1, 28);
+  ASSERT_TRUE(parser.emitCompactTableRow(rowAfterOversized, 50, 8, false));
+
+  ASSERT_TRUE(parser.flushCompactTableFragment());
+  parser.completeCurrentPage();
+  ASSERT_EQ(pages.size(), 5u);
+  EXPECT_EQ(visibleOffsets, (std::vector<uint32_t>{0, 20, 30, 40, 50}));
+
+  auto fragmentForPage = [](const Page& page) -> const PageTableFragment& {
+    EXPECT_EQ(page.elements.size(), 1u);
+    EXPECT_EQ(page.elements[0]->getTag(), TAG_PageTableFragment);
+    return *static_cast<const PageTableFragment*>(page.elements[0].get());
+  };
+  const auto& headingPage = fragmentForPage(*pages[0]);
+  ASSERT_EQ(headingPage.rows.size(), 1u);
+  ASSERT_EQ(headingPage.rows[0].cells.size(), 1u);
+  EXPECT_EQ(headingPage.rows[0].cells[0].colSpan, 8u);
+  EXPECT_EQ(headingPage.rows[0].cells[0].lines.size(), 1u);
+
+  const auto& densePage = fragmentForPage(*pages[1]);
+  ASSERT_EQ(densePage.rows.size(), 1u);
+  ASSERT_EQ(densePage.rows[0].cells.size(), 8u);
+  for (const auto& cell : densePage.rows[0].cells) EXPECT_EQ(cell.lines.size(), 6u);
+
+  const auto& followingPage = fragmentForPage(*pages[2]);
+  ASSERT_EQ(followingPage.rows.size(), 1u);
+  ASSERT_EQ(followingPage.rows[0].cells.size(), 8u);
+  const auto& oversizedPage = fragmentForPage(*pages[3]);
+  ASSERT_EQ(oversizedPage.rows.size(), 1u);
+  ASSERT_EQ(oversizedPage.rows[0].cells.size(), 8u);
+  for (const auto& cell : oversizedPage.rows[0].cells) EXPECT_EQ(cell.lines.size(), 7u);
+  const auto& lastPage = fragmentForPage(*pages[4]);
+  ASSERT_EQ(lastPage.rows.size(), 1u);
+  ASSERT_EQ(lastPage.rows[0].cells.size(), 8u);
+}
+
+TEST_F(ChapterHtmlSlimParserTest, BuiltInFontCompactTableKeepsExistingPageGeometry) {
+  std::vector<std::unique_ptr<Page>> pages;
+  parser.completePageFn = [&](std::unique_ptr<Page> page, uint16_t, uint16_t, uint32_t, uint32_t) {
+    pages.push_back(std::move(page));
+  };
+  parser.currentCompactTable = std::make_unique<CompactTableLayout>(renderer, 0, 480, 800, 16, 6, BlockStyle{});
+  ASSERT_TRUE(parser.currentCompactTable->valid());
+  parser.compactTablePageLineLimitEnabled = false;
+  parser.compactTableTopSpacingApplied = true;
+  parser.currentPage = std::make_unique<Page>();
+
+  auto makeRow = [](const size_t cellCount, const size_t linesPerCell, const uint16_t height) {
+    TableFragmentRow row;
+    row.height = height;
+    row.cells.resize(cellCount);
+    for (auto& cell : row.cells) cell.lines.resize(linesPerCell);
+    return row;
+  };
+  auto colspanHeading = makeRow(1, 1, 28);
+  colspanHeading.cells[0].colSpan = 8;
+  ASSERT_TRUE(parser.emitCompactTableRow(colspanHeading, 10, 1, false));
+  auto denseDataRow = makeRow(8, 6, 108);
+  ASSERT_TRUE(parser.emitCompactTableRow(denseDataRow, 20, 8, false));
+  auto followingRow = makeRow(8, 1, 28);
+  ASSERT_TRUE(parser.emitCompactTableRow(followingRow, 30, 8, false));
+
+  ASSERT_TRUE(parser.flushCompactTableFragment());
+  parser.completeCurrentPage();
+  ASSERT_EQ(pages.size(), 1u);
+  ASSERT_EQ(pages[0]->elements.size(), 2u);
+  const auto* heading = static_cast<const PageTableFragment*>(pages[0]->elements[0].get());
+  const auto* grid = static_cast<const PageTableFragment*>(pages[0]->elements[1].get());
+  ASSERT_EQ(heading->rows.size(), 1u);
+  EXPECT_EQ(heading->rows[0].cells[0].colSpan, 8u);
+  ASSERT_EQ(grid->rows.size(), 2u);
+  EXPECT_EQ(parser.compactTablePageLineCount, 0u);
 }
 
 TEST_F(ChapterHtmlSlimParserTest, InheritsBodyTextIndentAndPreservesExplicitParagraphZero) {

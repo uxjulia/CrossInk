@@ -8,40 +8,89 @@
 
 namespace TableColumnLayout {
 
-// The optional intrinsic-width probe is intentionally as bounded as CrossPoint's
-// simple table path. Richer/longer markup keeps the existing row layout.
-constexpr unsigned PROBE_COLUMNS = 4;
+// The optional intrinsic-width probe is intentionally bounded to the table
+// renderer's maximum column count. Unsupported structures keep the default grid.
+constexpr unsigned PROBE_COLUMNS = 8;
 struct Measures {
   enum class ProbeStatus : uint8_t { Unsupported, Accepted, ScanLimit, WordLimit, ReadFailure };
   std::array<uint16_t, PROBE_COLUMNS> minimum{};
+  std::array<uint16_t, PROBE_COLUMNS> numericMinimum{};
   std::array<uint16_t, PROBE_COLUMNS> preferred{};
   uint8_t count = 0;
   uint16_t bytesScanned = 0;
   uint16_t wordsScanned = 0;
+  uint16_t numericWordCount = 0;
   ProbeStatus status = ProbeStatus::Unsupported;
 };
 struct Plan {
   std::array<uint16_t, PROBE_COLUMNS> ends{};
   uint8_t count = 0;
+  uint8_t cellPadding = 6;
 };
+
+inline bool shouldUseMeasuredPlan(const Measures& measure) {
+  return measure.status == Measures::ProbeStatus::Accepted && (measure.count <= 4 || measure.numericWordCount >= 8);
+}
+
+inline bool hasDenseNumericColumns(const Measures& measure) {
+  return measure.count > 4 && measure.numericWordCount >= 8;
+}
+
+inline bool isNumericToken(const char* text, const unsigned length) {
+  bool hasDigit = false;
+  bool hasFraction = false;
+  for (unsigned i = 0; i < length; ++i) {
+    const unsigned char c = static_cast<unsigned char>(text[i]);
+    if (c >= '0' && c <= '9') {
+      hasDigit = true;
+    } else if (c == '.' || c == ',' || c == '/' || c == ':' || c == '+' || c == '-' || c == '%') {
+      continue;
+    } else if (c == 0xC2 && i + 1 < length &&
+               (static_cast<unsigned char>(text[i + 1]) == 0xBC || static_cast<unsigned char>(text[i + 1]) == 0xBD ||
+                static_cast<unsigned char>(text[i + 1]) == 0xBE)) {
+      hasFraction = true;
+      ++i;
+    } else {
+      return false;
+    }
+  }
+  return hasDigit || hasFraction;
+}
 
 inline Plan proportionalPlan(const Measures& measure, const uint16_t tableWidth, const uint8_t padding) {
   const unsigned columns = measure.count;
   const unsigned floor = 2u * padding + 20;
   if (columns < 2 || columns > PROBE_COLUMNS || tableWidth < floor * columns || tableWidth > 2047) return {};
+  const bool prioritizeNumericColumns = hasDenseNumericColumns(measure);
   std::array<unsigned, PROBE_COLUMNS> minimum{}, preferred{};
   unsigned minTotal = 0, prefTotal = 0;
   for (unsigned i = 0; i < columns; ++i) {
-    minimum[i] = std::max<unsigned>(floor, measure.minimum[i] + 2u * padding);
+    const unsigned measuredFloor =
+        prioritizeNumericColumns && measure.numericMinimum[i] == 0
+            ? floor
+            : (prioritizeNumericColumns ? measure.numericMinimum[i] : measure.minimum[i]) + 2u * padding;
+    minimum[i] = std::max<unsigned>(floor, measuredFloor);
     preferred[i] = std::max<unsigned>(minimum[i], measure.preferred[i] + 2u * padding);
     minTotal += minimum[i];
     prefTotal += preferred[i];
+  }
+
+  if (prioritizeNumericColumns && minTotal > tableWidth) {
+    // Text labels can wrap. Preserve measured numeric widths first, then use
+    // any remaining space for labels without changing their source order.
+    minTotal = 0;
+    for (unsigned i = 0; i < columns; ++i) {
+      if (measure.numericMinimum[i] == 0) minimum[i] = floor;
+      minTotal += minimum[i];
+    }
+    if (minTotal > tableWidth) return {};
   }
 
   // Floors are reserved before sharing any extra width so a squeeze cannot
   // produce a clipped cell or push the final edge outside the viewport.
   Plan plan;
   plan.count = measure.count;
+  plan.cellPadding = padding;
   unsigned assigned = 0;
   for (unsigned i = 0; i < columns; ++i) {
     unsigned width;
@@ -73,7 +122,8 @@ Measures measureSimpleTable(Read read, Width width, const uint16_t widthLimit, c
   unsigned tagLen = 0, wordLen = 0, line = 0, measuredWords = 0;
   unsigned consumed = 0;
   bool inTag = false, inTable = false, inRow = false, inCell = false, inEntity = false;
-  bool bold = false, spanning = false, skipCell = false;
+  bool bold = false, skipCell = false;
+  unsigned cellColumn = 0;
   char quote = 0;
 
   const auto reject = [&](const Measures::ProbeStatus status = Measures::ProbeStatus::Unsupported) {
@@ -85,19 +135,65 @@ Measures measureSimpleTable(Read read, Width width, const uint16_t widthLimit, c
   };
 
   const auto whitespace = [](const char c) { return c == ' ' || c == '\n' || c == '\r' || c == '\t'; };
+  struct AttributeValue {
+    bool found = false;
+    bool valid = true;
+    std::string_view value;
+  };
+  const auto readAttribute = [&](const std::string_view tag, const std::string_view wanted) {
+    AttributeValue result;
+    size_t cursor = tag.find_first_of(" \n\r\t");
+    if (cursor == std::string_view::npos) return result;
+    while (cursor < tag.size()) {
+      while (cursor < tag.size() && whitespace(tag[cursor])) ++cursor;
+      if (cursor >= tag.size() || tag[cursor] == '/') break;
+      const size_t keyStart = cursor;
+      while (cursor < tag.size() && !whitespace(tag[cursor]) && tag[cursor] != '=' && tag[cursor] != '/') ++cursor;
+      const auto key = tag.substr(keyStart, cursor - keyStart);
+      while (cursor < tag.size() && whitespace(tag[cursor])) ++cursor;
+      if (cursor >= tag.size() || tag[cursor] != '=') {
+        if (key == wanted) return AttributeValue{true, false, {}};
+        continue;
+      }
+      ++cursor;
+      while (cursor < tag.size() && whitespace(tag[cursor])) ++cursor;
+      std::string_view value;
+      if (cursor < tag.size() && (tag[cursor] == '\'' || tag[cursor] == '"')) {
+        const char delimiter = tag[cursor++];
+        const size_t valueStart = cursor;
+        const size_t valueEnd = tag.find(delimiter, cursor);
+        if (valueEnd == std::string_view::npos) {
+          if (key == wanted) return AttributeValue{true, false, {}};
+          break;
+        }
+        value = tag.substr(valueStart, valueEnd - valueStart);
+        cursor = valueEnd + 1;
+      } else {
+        const size_t valueStart = cursor;
+        while (cursor < tag.size() && !whitespace(tag[cursor]) && tag[cursor] != '/') ++cursor;
+        value = tag.substr(valueStart, cursor - valueStart);
+      }
+      if (key == wanted) return AttributeValue{true, !value.empty(), value};
+    }
+    return result;
+  };
   const auto finishWord = [&] {
     if (wordLen == 0 || !inCell || skipCell || row.count == 0) return;
     if (++measuredWords > MAX_MEASURED_WORDS) return;
     word[wordLen] = '\0';
     const auto w = static_cast<unsigned>(std::clamp(width(word, bold), 0, static_cast<int>(widthLimit)));
-    row.minimum[row.count - 1] = static_cast<uint16_t>(std::max<unsigned>(row.minimum[row.count - 1], w));
+    row.minimum[cellColumn] = static_cast<uint16_t>(std::max<unsigned>(row.minimum[cellColumn], w));
+    if (isNumericToken(word, wordLen)) {
+      ++row.numericWordCount;
+      row.numericMinimum[cellColumn] = static_cast<uint16_t>(std::max<unsigned>(row.numericMinimum[cellColumn], w));
+    }
     line = std::min<unsigned>(widthLimit, line + (line > 0 ? space : 0) + w);
     wordLen = 0;
   };
   const auto finishLine = [&] {
     finishWord();
     if (inCell && !skipCell && row.count > 0) {
-      row.preferred[row.count - 1] = static_cast<uint16_t>(std::max<unsigned>(row.preferred[row.count - 1], line));
+      row.preferred[cellColumn] = static_cast<uint16_t>(std::max<unsigned>(row.preferred[cellColumn], line));
     }
     line = 0;
     wordLen = 0;
@@ -154,12 +250,13 @@ Measures measureSimpleTable(Read read, Width width, const uint16_t widthLimit, c
           inRow = !close;
           if (!close) {
             row = {};
-            spanning = false;
-          } else if (!spanning) {
+          } else {
             if (row.count < 2 || (whole.count != 0 && row.count != whole.count)) return reject();
             whole.count = row.count;
+            whole.numericWordCount = static_cast<uint16_t>(whole.numericWordCount + row.numericWordCount);
             for (unsigned k = 0; k < row.count; ++k) {
               whole.minimum[k] = std::max(whole.minimum[k], row.minimum[k]);
+              whole.numericMinimum[k] = std::max(whole.numericMinimum[k], row.numericMinimum[k]);
               whole.preferred[k] = std::max(whole.preferred[k], row.preferred[k]);
             }
           }
@@ -168,10 +265,23 @@ Measures measureSimpleTable(Read read, Width width, const uint16_t widthLimit, c
           if (close) finishLine();
           inCell = !close;
           if (!close) {
-            if (row.count == PROBE_COLUMNS) return reject();
-            ++row.count;
-            skipCell = text.find("colspan") != text.npos || text.find("rowspan") != text.npos;
-            spanning |= skipCell;
+            if (readAttribute(text, "rowspan").found) return reject();
+            const auto colspan = readAttribute(text, "colspan");
+            unsigned span = 1;
+            if (colspan.found) {
+              if (!colspan.valid) return reject();
+              span = 0;
+              for (const char digit : colspan.value) {
+                if (digit < '0' || digit > '9') return reject();
+                span = span * 10 + static_cast<unsigned>(digit - '0');
+                if (span > PROBE_COLUMNS) return reject();
+              }
+              if (span == 0) return reject();
+            }
+            if (span > PROBE_COLUMNS - row.count) return reject();
+            cellColumn = row.count;
+            row.count = static_cast<uint8_t>(row.count + span);
+            skipCell = span > 1;
             bold = name == "th";
           }
         } else if (name == "br") {

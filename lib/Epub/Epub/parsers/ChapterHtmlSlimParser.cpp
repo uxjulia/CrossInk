@@ -634,6 +634,7 @@ bool ChapterHtmlSlimParser::startNewPage(const char* reason) {
     return false;
   }
 
+  compactTablePageLineCount = 0;
   const auto heap = MemoryBudget::snapshot();
   if (heap.freeHeap >= MemoryBudget::EPUB_TEXT_LAYOUT_MIN_FREE &&
       heap.maxAllocHeap >= PAGE_ELEMENT_RESERVE_MIN_MAX_ALLOC) {
@@ -892,6 +893,7 @@ void ChapterHtmlSlimParser::completeCurrentPage() {
   }
   completePageFn(std::move(currentPage), currentPageParagraphIndex, currentPageListItemIndex, currentPageVisibleOffset,
                  currentPageReferenceOffset);
+  compactTablePageLineCount = 0;
 }
 
 void ChapterHtmlSlimParser::setCurrentPageVisibleOffset(const uint32_t offset, const uint32_t referenceOffset) {
@@ -1607,9 +1609,10 @@ bool ChapterHtmlSlimParser::flushStreamingTableFragment(BufferedTable& table) {
       (horizontalInset < viewportWidth) ? static_cast<uint16_t>(viewportWidth - horizontalInset) : viewportWidth;
   const uint16_t lineHeight = renderer.getLineHeight(fontId) * lineCompression;
   const uint16_t fragmentHeight = table.streamingFragmentHeight;
-  auto fragment = makeUniqueNoThrow<PageTableFragment>(
-      tableWidth, table.streamingFragmentColumnCount, TABLE_CELL_PADDING, lineHeight,
-      std::move(table.streamingFragmentRows), table.blockStyle.leftInset(), currentPageNextY);
+  const uint8_t cellPadding = TableColumnLayout::plannedCellPadding(table.columnPlan, TABLE_CELL_PADDING);
+  auto fragment = makeUniqueNoThrow<PageTableFragment>(tableWidth, table.streamingFragmentColumnCount, cellPadding,
+                                                       lineHeight, std::move(table.streamingFragmentRows),
+                                                       table.blockStyle.leftInset(), currentPageNextY);
   if (!fragment) {
     LOG_ERR("EHP", "Failed to create streaming PageTableFragment");
     lowMemoryAbort = true;
@@ -1685,41 +1688,45 @@ bool ChapterHtmlSlimParser::streamCurrentTableRow() {
     table.streamingColumnCount = static_cast<uint8_t>(row.effectiveColumnCount);
   }
   const bool isFullWidthSingleCellRow = row.cells.size() == 1 && row.cells[0].colSpan == table.streamingColumnCount;
-  const bool rowHasMergedCells =
-      std::any_of(row.cells.begin(), row.cells.end(), [](const BufferedTableCell& cell) { return cell.colSpan != 1; });
+  const uint8_t columnCount = isFullWidthSingleCellRow ? 1 : table.streamingColumnCount;
   if (table.streamingColumnCount == 0 || table.streamingColumnCount > MAX_SIMPLE_TABLE_COLUMNS ||
-      (row.effectiveColumnCount != table.streamingColumnCount && !isFullWidthSingleCellRow) ||
-      (rowHasMergedCells && !isFullWidthSingleCellRow)) {
+      (row.effectiveColumnCount != table.streamingColumnCount && !isFullWidthSingleCellRow)) {
     fallbackStreamingTableToParagraphs("inconsistent column structure");
     return !lowMemoryAbort;
   }
 
-  const uint8_t columnCount = isFullWidthSingleCellRow ? 1 : table.streamingColumnCount;
   const int horizontalInset = table.blockStyle.totalHorizontalInset();
   const uint16_t tableWidth =
       (horizontalInset < viewportWidth) ? static_cast<uint16_t>(viewportWidth - horizontalInset) : viewportWidth;
+  const uint8_t cellPadding = TableColumnLayout::plannedCellPadding(table.columnPlan, TABLE_CELL_PADDING);
   for (uint8_t column = 0; column < columnCount; ++column) {
-    if (TableColumnLayout::innerWidth(tableWidth, columnCount, column, 1, TABLE_CELL_PADDING) < 20) {
+    if (TableColumnLayout::innerWidth(tableWidth, columnCount, column, 1, cellPadding, table.columnPlan) < 20) {
       fallbackStreamingTableToParagraphs("column width too small");
       return !lowMemoryAbort;
     }
   }
 
   TableFragmentRow fragmentRow;
-  fragmentRow.cells.resize(columnCount);
+  fragmentRow.cells.resize(row.cells.size());
   fragmentRow.headerSeparator = row.hasHeaderCell && !row.hasDataCell;
   const uint16_t lineHeight = renderer.getLineHeight(fontId) * lineCompression;
-  uint32_t rowHeight = static_cast<uint32_t>(lineHeight) + TABLE_CELL_PADDING * 2;
+  uint32_t rowHeight = static_cast<uint32_t>(lineHeight) + cellPadding * 2;
   std::vector<FootnoteEntry> rowFootnotes;
+  uint8_t logicalColumn = 0;
   for (size_t cellIndex = 0; cellIndex < row.cells.size(); ++cellIndex) {
     const auto& sourceCell = row.cells[cellIndex];
     auto& destCell = fragmentRow.cells[cellIndex];
+    const uint8_t cellSpan = isFullWidthSingleCellRow ? 1 : sourceCell.colSpan;
+    const uint16_t cellWidth =
+        TableColumnLayout::innerWidth(tableWidth, columnCount, logicalColumn, cellSpan, cellPadding, table.columnPlan);
     destCell.isHeader = sourceCell.isHeader;
+    destCell.colSpan = cellSpan;
+    if (table.columnPlan.count == columnCount && logicalColumn + cellSpan <= columnCount) {
+      destCell.rightEdge = table.columnPlan.ends[logicalColumn + cellSpan - 1];
+    }
     if (sourceCell.text &&
         !sourceCell.text->layoutAndExtractLinesPreservingSource(
-            renderer, fontId,
-            TableColumnLayout::innerWidth(tableWidth, columnCount, static_cast<uint8_t>(cellIndex), 1,
-                                          TABLE_CELL_PADDING),
+            renderer, fontId, cellWidth,
             [&destCell](const std::shared_ptr<TextBlock>& textBlock) { destCell.lines.push_back(textBlock); }, true)) {
       fallbackStreamingTableToParagraphs("cell layout failed");
       return !lowMemoryAbort;
@@ -1732,12 +1739,13 @@ bool ChapterHtmlSlimParser::streamCurrentTableRow() {
       fallbackStreamingTableToParagraphs("cell has too many lines");
       return !lowMemoryAbort;
     }
-    const uint32_t cellHeight = std::max<size_t>(1, destCell.lines.size()) * lineHeight + TABLE_CELL_PADDING * 2;
+    const uint32_t cellHeight = std::max<size_t>(1, destCell.lines.size()) * lineHeight + cellPadding * 2;
     if (cellHeight > viewportHeight) {
       fallbackStreamingTableToParagraphs("row exceeds viewport");
       return !lowMemoryAbort;
     }
     rowHeight = std::max(rowHeight, cellHeight);
+    logicalColumn = static_cast<uint8_t>(logicalColumn + cellSpan);
   }
   fragmentRow.height = static_cast<uint16_t>(rowHeight);
 
@@ -1797,8 +1805,9 @@ bool ChapterHtmlSlimParser::flushCompactTableFragment() {
   const uint16_t width =
       horizontalInset < viewportWidth ? static_cast<uint16_t>(viewportWidth - horizontalInset) : viewportWidth;
   const uint16_t lineHeight = renderer.getLineHeight(fontId) * lineCompression;
+  const uint8_t cellPadding = currentCompactTable->cellPadding();
   auto fragment =
-      makeUniqueNoThrow<PageTableFragment>(width, compactFragmentColumnCount, TABLE_CELL_PADDING, lineHeight,
+      makeUniqueNoThrow<PageTableFragment>(width, compactFragmentColumnCount, cellPadding, lineHeight,
                                            std::move(compactFragmentRows), style.leftInset(), currentPageNextY);
   if (!fragment) {
     LOG_ERR("EHP", "Failed to create compact PageTableFragment");
@@ -1840,20 +1849,34 @@ bool ChapterHtmlSlimParser::emitCompactTableRow(TableFragmentRow& row, const uin
   if (row.cells.empty() || row.cells.size() > TableFragmentRow::MAX_SERIALIZED_CELLS) {
     return false;
   }
+  uint16_t rowTextLineCount = 0;
+  if (compactTablePageLineLimitEnabled) {
+    for (const auto& cell : row.cells) {
+      rowTextLineCount = static_cast<uint16_t>(rowTextLineCount + cell.lines.size());
+    }
+  }
+  const bool exceedsPageLineLimit =
+      compactTablePageLineLimitEnabled && rowTextLineCount > 0 &&
+      static_cast<uint32_t>(compactTablePageLineCount) + rowTextLineCount > MAX_COMPACT_TABLE_TEXT_LINES_PER_PAGE;
+
   const uint8_t columnCount = fragmentColumnCount;
   const bool startsNewFragment =
-      !compactFragmentRows.empty() && (compactFragmentColumnCount != columnCount ||
-                                       compactFragmentRows.size() >= PageTableFragment::MAX_SERIALIZED_ROWS ||
-                                       currentPageNextY + compactFragmentHeight + row.height > viewportHeight);
+      !compactFragmentRows.empty() &&
+      (compactFragmentColumnCount != columnCount ||
+       compactFragmentRows.size() >= PageTableFragment::MAX_SERIALIZED_ROWS || exceedsPageLineLimit ||
+       currentPageNextY + compactFragmentHeight + row.height > viewportHeight);
   if (startsNewFragment && !flushCompactTableFragment()) return false;
 
-  if (compactFragmentRows.empty() && currentPageNextY + 1 + row.height > viewportHeight &&
+  // Finish the previous fragment/page before an over-limit row. A row that is
+  // itself larger than the cap has no preceding lines on an empty page, so it
+  // remains atomic there and is allowed through on its own.
+  if (compactFragmentRows.empty() && (exceedsPageLineLimit || currentPageNextY + 1 + row.height > viewportHeight) &&
       !currentPage->elements.empty()) {
     completeCurrentPage();
     completedPageCount++;
     stopPreviewIfPageLimitReached();
     if (previewStopRequested) return true;
-    if (!startNewPage("compact table page break")) return false;
+    if (!startNewPage(exceedsPageLineLimit ? "compact table line limit" : "compact table page break")) return false;
   }
 
   if (compactFragmentRows.empty()) {
@@ -1869,6 +1892,9 @@ bool ChapterHtmlSlimParser::emitCompactTableRow(TableFragmentRow& row, const uin
     compactFragmentFootnotes.push_back(currentCompactTable->capturedFootnote(static_cast<uint8_t>(i)));
   }
   compactFragmentRows.push_back(std::move(row));
+  if (compactTablePageLineLimitEnabled) {
+    compactTablePageLineCount = static_cast<uint16_t>(compactTablePageLineCount + rowTextLineCount);
+  }
   return true;
 }
 
@@ -1981,6 +2007,7 @@ void ChapterHtmlSlimParser::emitBufferedTableAsFragments(BufferedTable& table) {
   const uint16_t tableWidth =
       (horizontalInset < viewportWidth) ? static_cast<uint16_t>(viewportWidth - horizontalInset) : viewportWidth;
   const uint16_t lineHeight = renderer.getLineHeight(fontId) * lineCompression;
+  const uint8_t cellPadding = TableColumnLayout::plannedCellPadding(table.columnPlan, TABLE_CELL_PADDING);
   std::vector<PreparedSegment> preparedSegments;
   preparedSegments.reserve(table.rows.size());
 
@@ -1995,13 +2022,14 @@ void ChapterHtmlSlimParser::emitBufferedTableAsFragments(BufferedTable& table) {
     std::vector<PreparedSegment>().swap(preparedSegments);
   };
 
-  auto prepareRow = [&](const BufferedTableRow& row, const uint8_t columnCount, PreparedSegment& segment) -> bool {
+  auto prepareRow = [&](const BufferedTableRow& row, const uint8_t columnCount, const bool isFullWidthSingleCellRow,
+                        const bool rowHasMergedCells, PreparedSegment& segment) -> bool {
     if (columnCount == 0) {
       LOG_DBG("EHP", "Table layout fallback: width %u too small for %u columns", tableWidth, columnCount);
       return false;
     }
     for (uint8_t column = 0; column < columnCount; ++column) {
-      if (TableColumnLayout::innerWidth(tableWidth, columnCount, column, 1, TABLE_CELL_PADDING) < 20) {
+      if (TableColumnLayout::innerWidth(tableWidth, columnCount, column, 1, cellPadding, table.columnPlan) < 20) {
         LOG_DBG("EHP", "Table layout fallback: width %u too small for %u columns", tableWidth, columnCount);
         return false;
       }
@@ -2009,25 +2037,31 @@ void ChapterHtmlSlimParser::emitBufferedTableAsFragments(BufferedTable& table) {
 
     PreparedRow prepared;
     prepared.visibleTextOffset = row.cells.empty() ? visibleTextOffset : row.cells.front().visibleTextOffset;
-    prepared.fragmentRow.cells.resize(columnCount);
+    prepared.fragmentRow.cells.resize(rowHasMergedCells ? row.cells.size() : columnCount);
     prepared.fragmentRow.headerSeparator = row.hasHeaderCell && !row.hasDataCell;
 
-    uint32_t rowHeight = static_cast<uint32_t>(lineHeight) + TABLE_CELL_PADDING * 2;
+    uint32_t rowHeight = static_cast<uint32_t>(lineHeight) + cellPadding * 2;
     if (rowHeight > viewportHeight) {
       LOG_DBG("EHP", "Table layout fallback: row height %lu exceeds viewport %u", static_cast<unsigned long>(rowHeight),
               viewportHeight);
       return false;
     }
+    uint8_t logicalColumn = 0;
     for (size_t colIndex = 0; colIndex < row.cells.size(); colIndex++) {
       const auto& sourceCell = row.cells[colIndex];
       auto& destCell = prepared.fragmentRow.cells[colIndex];
       destCell.isHeader = sourceCell.isHeader;
+      const uint8_t cellSpan = isFullWidthSingleCellRow ? 1 : sourceCell.colSpan;
+      const uint16_t cellWidth = TableColumnLayout::innerWidth(tableWidth, columnCount, logicalColumn, cellSpan,
+                                                               cellPadding, table.columnPlan);
+      destCell.colSpan = cellSpan;
+      if (table.columnPlan.count == columnCount && logicalColumn + cellSpan <= columnCount) {
+        destCell.rightEdge = table.columnPlan.ends[logicalColumn + cellSpan - 1];
+      }
 
       if (sourceCell.text) {
         if (!sourceCell.text->layoutAndExtractLinesPreservingSource(
-                renderer, fontId,
-                TableColumnLayout::innerWidth(tableWidth, columnCount, static_cast<uint8_t>(colIndex), 1,
-                                              TABLE_CELL_PADDING),
+                renderer, fontId, cellWidth,
                 [&destCell](const std::shared_ptr<TextBlock>& textBlock) { destCell.lines.push_back(textBlock); },
                 true)) {
           LOG_DBG("EHP", "Table layout fallback: cell text layout failed");
@@ -2047,7 +2081,7 @@ void ChapterHtmlSlimParser::emitBufferedTableAsFragments(BufferedTable& table) {
       }
 
       const uint32_t cellLineCount = std::max<size_t>(1, destCell.lines.size());
-      const uint32_t cellHeight = cellLineCount * lineHeight + TABLE_CELL_PADDING * 2;
+      const uint32_t cellHeight = cellLineCount * lineHeight + cellPadding * 2;
       if (cellHeight > viewportHeight) {
         LOG_DBG("EHP", "Table layout fallback: row height %lu exceeds viewport %u",
                 static_cast<unsigned long>(cellHeight), viewportHeight);
@@ -2055,8 +2089,13 @@ void ChapterHtmlSlimParser::emitBufferedTableAsFragments(BufferedTable& table) {
       }
 
       rowHeight = std::max<uint32_t>(rowHeight, cellHeight);
+      logicalColumn = static_cast<uint8_t>(logicalColumn + cellSpan);
     }
-
+    if (!rowHasMergedCells && table.columnPlan.count == columnCount) {
+      for (; logicalColumn < columnCount; ++logicalColumn) {
+        prepared.fragmentRow.cells[logicalColumn].rightEdge = table.columnPlan.ends[logicalColumn];
+      }
+    }
     prepared.fragmentRow.height = static_cast<uint16_t>(rowHeight);
     segment.rows.push_back(std::move(prepared));
     return true;
@@ -2067,9 +2106,8 @@ void ChapterHtmlSlimParser::emitBufferedTableAsFragments(BufferedTable& table) {
                                                [](const BufferedTableCell& cell) { return cell.colSpan != 1; });
     const bool isFullWidthSingleCellRow =
         row.cells.size() == 1 && table.maxCols > 0 && row.cells[0].colSpan == table.maxCols;
-
-    if (rowHasMergedCells && !isFullWidthSingleCellRow) {
-      LOG_DBG("EHP", "Table layout fallback: unsupported colspan structure");
+    if (rowHasMergedCells && !isFullWidthSingleCellRow && row.effectiveColumnCount != table.maxCols) {
+      LOG_DBG("EHP", "Table layout fallback: inconsistent logical column coverage");
       releasePreparedSegments();
       emitBufferedTableAsParagraphs(table);
       return;
@@ -2082,7 +2120,7 @@ void ChapterHtmlSlimParser::emitBufferedTableAsFragments(BufferedTable& table) {
       preparedSegments.back().rows.reserve(table.rows.size());
     }
 
-    if (!prepareRow(row, segmentColumnCount, preparedSegments.back())) {
+    if (!prepareRow(row, segmentColumnCount, isFullWidthSingleCellRow, rowHasMergedCells, preparedSegments.back())) {
       releasePreparedSegments();
       emitBufferedTableAsParagraphs(table);
       return;
@@ -2145,7 +2183,7 @@ void ChapterHtmlSlimParser::emitBufferedTableAsFragments(BufferedTable& table) {
       }
 
       auto fragment =
-          makeUniqueNoThrow<PageTableFragment>(tableWidth, segment.columnCount, TABLE_CELL_PADDING, lineHeight,
+          makeUniqueNoThrow<PageTableFragment>(tableWidth, segment.columnCount, cellPadding, lineHeight,
                                                std::move(fragmentRows), table.blockStyle.leftInset(), currentPageNextY);
       if (!fragment) {
         LOG_ERR("EHP", "Failed to create PageTableFragment");
@@ -2652,6 +2690,8 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
     auto tableBlockStyle = BlockStyle::fromCssStyle(cssStyle, emSize, CssTextAlign::Left, self->viewportWidth);
 
     const auto heap = MemoryBudget::snapshot();
+    self->compactTablePageLineLimitEnabled = TableLayoutPolicy::shouldLimitCompactTablePageLines(
+        TableLayoutPolicy::compactFirstTarget, self->renderer.isSdCardFont(self->fontId));
     const bool useCompact =
         TableLayoutPolicy::useCompact(TableLayoutPolicy::compactFirstTarget, heap.freeHeap, heap.maxAllocHeap);
     if (useCompact) {
@@ -2665,79 +2705,85 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
         }
       }
       self->currentTextBlock.reset();
+    }
+
+    TableColumnLayout::Plan columnPlan;
+    if (self->activeParser && self->parseFile_) {
+      const XML_Index opening = XML_GetCurrentByteIndex(self->activeParser);
+      const size_t resume = self->parseFile_.position();
+      if (opening >= 0 && self->parseFile_.seek(static_cast<size_t>(opening))) {
+        const int inset = tableBlockStyle.totalHorizontalInset();
+        const uint16_t width = inset < self->viewportWidth ? self->viewportWidth - inset : self->viewportWidth;
+#if defined(ENABLE_SERIAL_LOG) && LOG_LEVEL >= 2
+        const uint32_t lookaheadStartMs = millis();
+#endif
+        const auto measure = TableColumnLayout::measureSimpleTable(
+            [&](char* buffer, const unsigned count) {
+              const int readCount = self->parseFile_.read(buffer, count);
+              if (readCount < 0 || readCount > static_cast<int>(count)) {
+                self->inputReadError = true;
+                return -1;
+              }
+              const int available = self->parseFile_.available();
+              if (available < 0 || (readCount == 0 && available > 0)) {
+                self->inputReadError = true;
+                return -1;
+              }
+              return readCount;
+            },
+            [&](const char* word, const bool bold) {
+              return self->renderer.getTextAdvanceX(self->fontId, word,
+                                                    bold ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR, 0,
+                                                    self->characterSpacing, word);
+            },
+            width, std::max(0, self->renderer.getSpaceWidth(self->fontId, EpdFontFamily::REGULAR)));
+#if defined(ENABLE_SERIAL_LOG) && LOG_LEVEL >= 2
+        LOG_DBG("EHP", "Table column probe: status=%u bytes=%u words=%u elapsed=%lu ms",
+                static_cast<unsigned>(measure.status), measure.bytesScanned, measure.wordsScanned,
+                static_cast<unsigned long>(millis() - lookaheadStartMs));
+#endif
+        if (measure.status == TableColumnLayout::Measures::ProbeStatus::ReadFailure) {
+          self->inputReadError = true;
+        } else if (TableColumnLayout::shouldUseMeasuredPlan(measure)) {
+          const uint8_t cellPadding = TableColumnLayout::hasDenseNumericColumns(measure) ? 2 : TABLE_CELL_PADDING;
+          columnPlan = TableColumnLayout::proportionalPlan(measure, width, cellPadding);
+        }
+        if (self->inputReadError) {
+          LOG_ERR("EHP", "Table lookahead read failed after %u bytes", measure.bytesScanned);
+        } else if (measure.status == TableColumnLayout::Measures::ProbeStatus::Accepted) {
+          LOG_DBG("EHP", "Table column probe accepted: bytes=%u words=%u numeric=%u plan=%u padding=%u",
+                  measure.bytesScanned, measure.wordsScanned, measure.numericWordCount, columnPlan.count,
+                  columnPlan.cellPadding);
+          if (columnPlan.count) {
+            LOG_DBG("EHP", "Table intrinsic columns: count=%u first=%u width=%u", columnPlan.count, columnPlan.ends[0],
+                    width);
+          }
+        } else {
+          LOG_DBG("EHP", "Table column probe rejected: status=%u bytes=%u words=%u",
+                  static_cast<unsigned>(measure.status), measure.bytesScanned, measure.wordsScanned);
+        }
+      } else if (opening >= 0) {
+        self->inputReadError = true;
+        LOG_ERR("EHP", "Table lookahead could not seek to source offset %lld", static_cast<long long>(opening));
+      }
+      // Expat owns its input buffer. Restore only the stream cursor so the
+      // next iteration resumes after it, even when lookahead was rejected.
+      if (!self->parseFile_.seek(resume)) {
+        self->parseFile_.close();
+        self->parseFileOffset_ = resume;
+      }
+    }
+    if (self->inputReadError) {
+      if (self->activeParser) XML_StopParser(self->activeParser, XML_FALSE);
+      return;
+    }
+
+    if (useCompact) {
       const uint16_t lineHeight =
           static_cast<uint16_t>(self->renderer.getLineHeight(self->fontId) * self->lineCompression);
-      TableColumnLayout::Plan columnPlan;
-      if (self->activeParser && self->parseFile_) {
-        const XML_Index opening = XML_GetCurrentByteIndex(self->activeParser);
-        const size_t resume = self->parseFile_.position();
-        if (opening >= 0 && self->parseFile_.seek(static_cast<size_t>(opening))) {
-          const int inset = tableBlockStyle.totalHorizontalInset();
-          const uint16_t width = inset < self->viewportWidth ? self->viewportWidth - inset : self->viewportWidth;
-#if defined(ENABLE_SERIAL_LOG) && LOG_LEVEL >= 2
-          const uint32_t lookaheadStartMs = millis();
-#endif
-          const auto measure = TableColumnLayout::measureSimpleTable(
-              [&](char* buffer, const unsigned count) {
-                const int readCount = self->parseFile_.read(buffer, count);
-                if (readCount < 0 || readCount > static_cast<int>(count)) {
-                  self->inputReadError = true;
-                  return -1;
-                }
-                const int available = self->parseFile_.available();
-                if (available < 0 || (readCount == 0 && available > 0)) {
-                  self->inputReadError = true;
-                  return -1;
-                }
-                return readCount;
-              },
-              [&](const char* word, const bool bold) {
-                return self->renderer.getTextAdvanceX(self->fontId, word,
-                                                      bold ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR, 0,
-                                                      self->characterSpacing, word);
-              },
-              width, std::max(0, self->renderer.getSpaceWidth(self->fontId, EpdFontFamily::REGULAR)));
-#if defined(ENABLE_SERIAL_LOG) && LOG_LEVEL >= 2
-          LOG_DBG("EHP", "Compact table probe: status=%u bytes=%u words=%u elapsed=%lu ms",
-                  static_cast<unsigned>(measure.status), measure.bytesScanned, measure.wordsScanned,
-                  static_cast<unsigned long>(millis() - lookaheadStartMs));
-#endif
-          if (measure.status == TableColumnLayout::Measures::ProbeStatus::ReadFailure) {
-            self->inputReadError = true;
-          } else {
-            columnPlan = TableColumnLayout::proportionalPlan(measure, width, TABLE_CELL_PADDING);
-          }
-          if (self->inputReadError) {
-            LOG_ERR("EHP", "Compact table lookahead read failed after %u bytes", measure.bytesScanned);
-          } else if (measure.status == TableColumnLayout::Measures::ProbeStatus::Accepted) {
-            LOG_DBG("EHP", "Compact table probe accepted: bytes=%u words=%u plan=%u", measure.bytesScanned,
-                    measure.wordsScanned, columnPlan.count);
-            if (columnPlan.count) {
-              LOG_DBG("EHP", "Compact table intrinsic columns: count=%u first=%u width=%u", columnPlan.count,
-                      columnPlan.ends[0], width);
-            }
-          } else {
-            LOG_DBG("EHP", "Compact table probe rejected: status=%u bytes=%u words=%u",
-                    static_cast<unsigned>(measure.status), measure.bytesScanned, measure.wordsScanned);
-          }
-        } else if (opening >= 0) {
-          self->inputReadError = true;
-          LOG_ERR("EHP", "Compact table lookahead could not seek to source offset %lld",
-                  static_cast<long long>(opening));
-        }
-        // Expat owns its input buffer. Restore only the stream cursor so the
-        // next iteration resumes after it, even when lookahead was rejected.
-        if (!self->parseFile_.seek(resume)) {
-          self->parseFile_.close();
-          self->parseFileOffset_ = resume;
-        }
-      }
-      if (self->inputReadError) {
-        if (self->activeParser) XML_StopParser(self->activeParser, XML_FALSE);
-        return;
-      }
+      const uint8_t cellPadding = TableColumnLayout::plannedCellPadding(columnPlan, TABLE_CELL_PADDING);
       self->currentCompactTable = makeUniqueNoThrow<CompactTableLayout>(
-          self->renderer, self->fontId, self->viewportWidth, self->viewportHeight, lineHeight, TABLE_CELL_PADDING,
+          self->renderer, self->fontId, self->viewportWidth, self->viewportHeight, lineHeight, cellPadding,
           tableBlockStyle, self->characterSpacing, columnPlan);
       if (!self->currentCompactTable || !self->currentCompactTable->valid()) {
         LOG_ERR("EHP", "Failed to allocate compact table layout (free=%u, maxAlloc=%u)", heap.freeHeap,
@@ -2764,6 +2810,7 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
         return;
       }
       self->currentTableBuffer->blockStyle = tableBlockStyle;
+      self->currentTableBuffer->columnPlan = columnPlan;
       self->currentTableBuffer->streaming = true;
       LOG_DBG("EHP", "Rich table layout selected (free=%u, maxAlloc=%u)", heap.freeHeap, heap.maxAllocHeap);
     }

@@ -38,4 +38,24 @@ inline uint16_t innerWidth(const uint16_t tableWidth, const uint8_t columnCount,
   return width > cellPadding * 2 ? static_cast<uint16_t>(width - cellPadding * 2) : 0;
 }
 
+template <typename Plan>
+inline uint8_t plannedCellPadding(const Plan& plan, const uint8_t fallback) {
+  return plan.count ? plan.cellPadding : fallback;
+}
+
+template <typename Plan>
+inline uint16_t innerWidth(const uint16_t tableWidth, const uint8_t columnCount, const uint8_t startColumn,
+                           const uint8_t span, const uint8_t cellPadding, const Plan& plan) {
+  if (plan.count != columnCount || span == 0 || startColumn >= columnCount ||
+      static_cast<unsigned>(startColumn) + span > columnCount) {
+    return innerWidth(tableWidth, columnCount, startColumn, span, cellPadding);
+  }
+  const uint16_t left = startColumn == 0 ? 0 : plan.ends[startColumn - 1];
+  const uint16_t right = plan.ends[startColumn + span - 1];
+  const uint16_t width = right > left ? static_cast<uint16_t>(right - left) : 0;
+  const uint8_t plannedPadding = plan.cellPadding;
+  (void)cellPadding;
+  return width > plannedPadding * 2 ? static_cast<uint16_t>(width - plannedPadding * 2) : 0;
+}
+
 }  // namespace TableColumnLayout

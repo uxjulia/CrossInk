@@ -19,4 +19,8 @@ inline constexpr bool compactFirstTarget =
 constexpr bool useCompact(const bool compactFirst, const uint32_t freeBytes, const uint32_t largestBlockBytes) {
   return compactFirst || freeBytes < 96U * 1024U || largestBlockBytes < 56U * 1024U;
 }
+
+constexpr bool shouldLimitCompactTablePageLines(const bool compactFirst, const bool isSdCardFont) {
+  return compactFirst && isSdCardFont;
+}
 }  // namespace TableLayoutPolicy

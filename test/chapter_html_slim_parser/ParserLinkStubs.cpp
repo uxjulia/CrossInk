@@ -97,7 +97,14 @@ bool PreviewBlockLocator::feed(const char*, int, bool) { return false; }
 CompactTableLayout::CompactTableLayout(GfxRenderer& renderer, int, uint16_t, uint16_t, uint16_t, uint8_t,
                                        BlockStyle tableStyle, int8_t characterSpacing,
                                        TableColumnLayout::Plan columnPlan)
-    : renderer_(renderer), characterSpacing_(characterSpacing), tableStyle_(tableStyle), columnPlan_(columnPlan) {}
+    : renderer_(renderer), characterSpacing_(characterSpacing), tableStyle_(tableStyle), columnPlan_(columnPlan) {
+  buffer_ = makeUniqueNoThrow<char[]>(INITIAL_ROW_TEXT_BYTES);
+  if (buffer_) {
+    bufferCapacity_ = INITIAL_ROW_TEXT_BYTES;
+  } else {
+    fatal_ = true;
+  }
+}
 bool CompactTableLayout::beginRow() { return true; }
 bool CompactTableLayout::beginCell(bool, uint8_t, uint32_t, const BlockStyle&) { return true; }
 bool CompactTableLayout::appendWord(std::string_view, EpdFontFamily::Style, bool, bool, uint8_t, uint32_t, bool, bool) {

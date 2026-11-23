@@ -20,6 +20,7 @@
 - Keep the last readable EPUB chapter when an SD read or write interrupts full or incremental indexing.
 - Fix slow EPUB indexing and page turns caused by repeated glyph scans, stylesheet checks, and small chapter-index writes.
 - On X3 and X4, look up publisher styles on the SD card before retrying a chapter in Safe Mode when memory runs low.
+- Keep wide EPUB tables in a grid on X3 and X4 when an SD-card font leaves less memory for indexing.
 
 ## [v2.0.0] - 2026-11-19
 
