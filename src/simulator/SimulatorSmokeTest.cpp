@@ -266,7 +266,27 @@ struct EpubReaderCompletionSmokeTest {
     const int spineCount = reader->epub->getSpineItemsCount();
     if (spineCount <= 0) return false;
 
+    const auto captureEstimate = [&](const char* name) {
+      RenderLock lock;
+      const auto originalBar = SETTINGS.bottomReaderStatusBar;
+      const int originalHeight = UITheme::getStatusBarHeight(renderer);
+      SETTINGS.bottomReaderStatusBar.hidden = false;
+      SETTINGS.bottomReaderStatusBar.slots = {};
+      SETTINGS.bottomReaderStatusBar.slots[ReaderStatusBarConfig::CENTER] = ReaderStatusBarItem::TimeLeftBook;
+      const int height = std::max(originalHeight, UITheme::getStatusBarHeight(renderer));
+      int top, right, bottom, left;
+      renderer.getOrientedViewableTRBL(&top, &right, &bottom, &left);
+      renderer.fillRect(left, renderer.getScreenHeight() - bottom - height, renderer.getScreenWidth() - left - right,
+                        height, ReaderUtils::readerDarkModeEnabled());
+      reader->renderStatusBar();
+      capture(name);
+      SETTINGS.bottomReaderStatusBar = originalBar;
+    };
+
     if (reader->epub->hasStablePageNumbers()) {
+      const auto previousImageRendering = SETTINGS.imageRendering;
+      SETTINGS.imageRendering = CrossPointSettings::IMAGES_SUPPRESS;
+      reader->syncPageReadingPaceLayout(160, 200);
       reader->section = std::make_unique<Section>(reader->epub, 0, renderer, "_eta_smoke");
       const auto spec = SETTINGS.readerRenderSpec(160, 200, EpubRenderMode::CrossInkDefault);
       if (!reader->section->startBuild(spec)) return false;
@@ -291,22 +311,6 @@ struct EpubReaderCompletionSmokeTest {
         return false;
       reader->refreshCachedTimeLeftEstimate();
       if (reader->stats.estimatedTimeLeftSeconds != 1800) return false;
-      const auto captureEstimate = [&](const char* name) {
-        RenderLock lock;
-        const auto originalBar = SETTINGS.bottomReaderStatusBar;
-        const int originalHeight = UITheme::getStatusBarHeight(renderer);
-        SETTINGS.bottomReaderStatusBar.hidden = false;
-        SETTINGS.bottomReaderStatusBar.slots = {};
-        SETTINGS.bottomReaderStatusBar.slots[ReaderStatusBarConfig::CENTER] = ReaderStatusBarItem::TimeLeftBook;
-        const int height = std::max(originalHeight, UITheme::getStatusBarHeight(renderer));
-        int top, right, bottom, left;
-        renderer.getOrientedViewableTRBL(&top, &right, &bottom, &left);
-        renderer.fillRect(left, renderer.getScreenHeight() - bottom - height, renderer.getScreenWidth() - left - right,
-                          height, ReaderUtils::readerDarkModeEnabled());
-        reader->renderStatusBar();
-        capture(name);
-        SETTINGS.bottomReaderStatusBar = originalBar;
-      };
       captureEstimate("book-time-left-warmup");
       const double start = reader->stableTextPosition;
       reader->paceSampleWarmupPending = false;
@@ -335,8 +339,34 @@ struct EpubReaderCompletionSmokeTest {
       reader->refreshCachedTimeLeftEstimate();
       if (reader->stats.estimatedTimeLeftSeconds != actual) return false;
       if (reader->estimateTimeLeftSeconds(false, retained)) return false;  // Never use book ETA as chapter ETA.
+
+      SETTINGS.imageRendering = CrossPointSettings::IMAGES_PLACEHOLDER;
+      reader->syncPageReadingPaceLayout(160, 200);
+      reader->section = std::make_unique<Section>(reader->epub, 0, renderer, "_eta_placeholder_smoke");
+      const auto placeholderSpec = SETTINGS.readerRenderSpec(160, 200, EpubRenderMode::CrossInkDefault);
+      if (!reader->section->createSectionFile(placeholderSpec) || reader->section->pageCount < 5) return false;
+      reader->section->currentPage = 3;
+      reader->refreshStableTextProgress();
+      reader->refreshBookPageEstimate();
+      if (reader->hasStableTextPosition || reader->stableReadingPace.estimate(1000, retained) ||
+          !reader->estimateTimeLeftSeconds(true, retained) || retained != actual)
+        return false;
+      captureEstimate("book-time-left-placeholder-retained");
+      // The first turn warms up the timer. Three fresh turns establish the new page pace.
+      for (int turn = 0; turn < 4; ++turn) reader->recordForwardPagePaceSample(24, "placeholder_eta_smoke");
+      float remainingPages = 0;
+      if (!reader->estimateRemainingTimeLeftPages(true, remainingPages) ||
+          !reader->estimateTimeLeftSeconds(true, retained) ||
+          retained != static_cast<uint32_t>(remainingPages * 24 + 0.5f) || retained == actual)
+        return false;
+      captureEstimate("book-time-left-placeholder-learned");
+      LOG_INF("SMOKE", "Suppress to Placeholder: retained ETA replaced using fresh page pace");
+
+      reader->section.reset();
+      SETTINGS.imageRendering = previousImageRendering;
+      reader->syncPageReadingPaceLayout(160, 200);
       reader->resetReadingPaceData();
-      if (reader->estimateTimeLeftSeconds(true, retained)) return false;
+      if (reader->formatTimeLeftLabel(retainedLabel, sizeof(retainedLabel), true) || retainedLabel[0]) return false;
       reader->stableReadingPace = {};
       reader->statsTrackingActive = true;
       if (!readingPace(*reader)) return false;
@@ -404,12 +434,70 @@ struct EpubReaderCompletionSmokeTest {
       reader->section->currentPage = 2;
       uint32_t finalSeconds = 0;
       if (!reader->estimateTimeLeftSeconds(true, finalSeconds) || finalSeconds != 30) return false;
-      reader->statsTrackingActive = true;
-      reader->stats.totalReadingSeconds = 0;
+      // Reflow invalidates the old screen-based pace even with history tracking off.
+      reader->bookStatsEnabled = false;
+      reader->paceDirty = false;
+      reader->refreshCachedTimeLeftEstimate();
       reader->currentSpineIndex = 0;
+      reader->section->pageCount = 20;
+      uint32_t previousChapterSeconds = 0;
+      if (!reader->estimateTimeLeftSeconds(false, previousChapterSeconds)) return false;
       reader->prepareCurrentSectionForRelayout();
-      if (reader->bookPageEstimate.pagesPerByte() != 0) return false;
+      if (reader->bookPageEstimate.pagesPerByte() != 0 || reader->stats.averageForwardPageMillis() != 0 ||
+          reader->stats.paceSampleCount != 0 || reader->stats.estimatedTimeLeftSeconds != finalSeconds ||
+          !reader->paceDirty || reader->stats.totalReadingSeconds != 100000)
+        return false;
+      if (!reader->stableReadingPace.estimate(1000, revisedSeconds) || revisedSeconds != 30) return false;
+      reader->finalizeReadingStatsOnExit();
+      const auto saved = BookReadingStats::load(reader->epub->getCachePath());
+      if (saved.averageForwardPageMillis() != 0 || saved.paceSampleCount != 0 ||
+          saved.estimatedTimeLeftSeconds != finalSeconds || saved.totalReadingSeconds != 100000)
+        return false;
+
+      reader->section->pageCount = 25;
+      reader->refreshBookPageEstimate();
+      captureEstimate("book-time-left-relearning");
+      reader->currentSpineIndex = 1;
+      if (reader->estimateTimeLeftSeconds(false, revisedSeconds)) return false;
+      reader->currentSpineIndex = 0;
+      // Skip the first turn after reflow, then require three fresh samples.
+      for (int turn = 0; turn < 3; ++turn) {
+        reader->recordForwardPagePaceSample(24, "pace_smoke_reflow");
+        if (!reader->estimateTimeLeftSeconds(true, revisedSeconds) || revisedSeconds != finalSeconds ||
+            !reader->estimateTimeLeftSeconds(false, revisedSeconds) || revisedSeconds != previousChapterSeconds)
+          return false;
+      }
+      reader->recordForwardPagePaceSample(24, "pace_smoke_reflow");
+      if (!reader->estimateTimeLeftSeconds(true, revisedSeconds) || revisedSeconds == finalSeconds ||
+          !reader->estimateTimeLeftSeconds(false, revisedSeconds) || revisedSeconds == previousChapterSeconds ||
+          reader->stats.averageForwardPageMillis() != 24000)
+        return false;
+      captureEstimate("book-time-left-recalculated");
+
+      // Closing and reopening with inherited global settings must validate saved pace
+      // even when no live section is available to signal that it needs to reflow.
       reader->section.reset();
+      const auto previousImageRendering = SETTINGS.imageRendering;
+      SETTINGS.imageRendering = CrossPointSettings::IMAGES_DISPLAY;
+      reader->syncPageReadingPaceLayout(160, 200);
+      reader->stats.setAverageForwardPageMillis(24000);
+      reader->stats.paceSampleCount = 10;
+      reader->stats.estimatedTimeLeftSeconds = 1200;
+      const bool savedForReopen = reader->stats.save(reader->epub->getCachePath());
+      if (savedForReopen) reader->stats = BookReadingStats::load(reader->epub->getCachePath());
+      reader->lastBookTimeLeftSeconds = reader->stats.estimatedTimeLeftSeconds;
+      reader->syncPageReadingPaceLayout(160, 200);
+      const bool sameLayout = reader->stats.averageForwardPageMillis() == 24000 && reader->stats.paceSampleCount == 10;
+      SETTINGS.imageRendering = CrossPointSettings::IMAGES_SUPPRESS;
+      reader->syncPageReadingPaceLayout(160, 200);
+      SETTINGS.imageRendering = previousImageRendering;
+      if (!savedForReopen || !sameLayout || reader->stats.averageForwardPageMillis() != 0 ||
+          reader->stats.paceSampleCount != 0 || reader->stats.estimatedTimeLeftSeconds != 1200 ||
+          reader->stats.totalReadingSeconds != 100000)
+        return false;
+
+      reader->statsTrackingActive = true;
+      reader->bookStatsEnabled = true;
       // Deleting book stats must clear both display fallback and text pace.
       if (!BookReadingStats::remove(reader->epub->getCachePath())) return false;
       reader->resetCurrentBookStatsAfterDelete();
@@ -417,9 +505,25 @@ struct EpubReaderCompletionSmokeTest {
       if (reader->estimateTimeLeftSeconds(true, deletedSeconds) ||
           reader->stableReadingPace.estimate(1000, deletedSeconds))
         return false;
+      if (reader->formatTimeLeftLabel(label, sizeof(label), true) || label[0]) return false;
+
+      // With pages to read and no saved pace, both slots should show the first-estimate placeholder.
+      reader->section = std::make_unique<Section>(reader->epub, 0, renderer);
+      reader->section->pageCount = 4;
+      reader->section->currentPage = 0;
+      const char* calculating = tr(STR_TIME_LEFT_CALCULATING);
+      for (const bool bookEstimate : {true, false}) {
+        if (!reader->formatTimeLeftLabel(label, sizeof(label), bookEstimate) || std::strcmp(label, calculating) != 0)
+          return false;
+      }
+      captureEstimate("book-time-left-calculating");
+      reader->section->currentPage = reader->section->pageCount - 1;
+      if (reader->formatTimeLeftLabel(label, sizeof(label), false) || label[0]) return false;
+      reader->section.reset();
       reader->pendingRelayoutReposition = false;
       reader->nextPageNumber = 0;
-      LOG_INF("SMOKE", "Book time-left: chapter opening, revised count, stable pace, final page and relayout passed");
+      LOG_INF("SMOKE",
+              "Book time-left: chapter opening, stable pace, final page, relearning and first estimate passed");
     }
 
     // Both shortcut entry points must tolerate a chapter that has not loaded yet.
@@ -943,11 +1047,18 @@ struct ReaderDrawerLayoutSmokeTest {
                                       false, false, false, false, true, true, 0, 0, 5, false);
       drawer.onEnter();
       drawer.state.tab = ReaderDrawerTab::Layout;
-      for (int mode = 0; mode < ImageDisplayMode::Count; ++mode) {
+      drawer.showEnumOptions(ReaderDrawerCatalogItem::Images);
+      drawer.selectEnumOption(ImageDisplayMode::Grayscale);
+      for (const auto mode : {ImageDisplayMode::Grayscale, ImageDisplayMode::BlackAndWhite,
+                              ImageDisplayMode::Placeholder, ImageDisplayMode::Hidden, ImageDisplayMode::Placeholder}) {
+        const auto previousRendering = drawer.draft.imageRendering;
+        drawer.changeMask = ReaderSettingsChangeMask::None;
         drawer.showEnumOptions(ReaderDrawerCatalogItem::Images);
         valid &= drawer.enumOptionValues.size() == ImageDisplayMode::Count;
         drawer.selectEnumOption(mode);
         valid &= ImageDisplayMode::selected(drawer.draft.imageRendering, drawer.draft.imageGrayscale) == mode;
+        valid &= hasReaderSettingsChange(drawer.changeMask, ReaderSettingsChangeMask::Relayout) ==
+                 (drawer.draft.imageRendering != previousRendering);
       }
       drawer.showEnumOptions(ReaderDrawerCatalogItem::Images);
       drawer.selectEnumOption(ImageDisplayMode::BlackAndWhite);

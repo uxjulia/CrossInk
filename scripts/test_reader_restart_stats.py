@@ -94,6 +94,7 @@ struct Reader {
   void requestUpdate(){++updates;}
 };
 struct EpubReaderActivity:Reader {
+ bool paceDirty=false;
  bool checkpointReadingStatsBeforeRestart();bool saveProgressBeforeRestart();
  bool retryLayout(int targetPage,int savedPage,int pageCount,const char* stage);
  void network0();void network1();void network2();
@@ -153,6 +154,15 @@ template<class T> void checkpoints(){
 }
 int main(){
  checkpoints<EpubReaderActivity>();checkpoints<XtcReaderActivity>();
+ reset();EpubReaderActivity recalibrating;
+ recalibrating.statsTrackingActive=false;recalibrating.paceDirty=true;
+ recalibrating.stats.totalReadingSeconds=50;savedBook.avgSecondsPerForwardPage=30;savedBook.paceSampleCount=10;
+ bookFails=true;
+ assert(!recalibrating.saveProgressBeforeRestart());assert(savedBook.paceSampleCount==10);
+ bookFails=false;
+ assert(recalibrating.saveProgressBeforeRestart());
+ assert(savedBook.avgSecondsPerForwardPage==0 && savedBook.paceSampleCount==0);
+ assert(savedBook.totalReadingSeconds==50 && globalWrites==0);
  reset();restartFails=true;EpubReaderActivity cancelled;
  {RenderLock held(cancelled);assert(!cancelled.retryLayout(1,0,20,"flush failed"));}
  assert(restarts==0 && savedGlobal.totalReadingSeconds==65);

@@ -9,7 +9,8 @@
 
 namespace {
 constexpr char CACHE_PATH[] = "/cache/book";
-const std::string statsPath = std::string(CACHE_PATH) + "/stats_v7.bin";
+constexpr size_t STATS_PAYLOAD_BYTES = 95;
+const std::string statsPath = std::string(CACHE_PATH) + "/stats_v8.bin";
 const std::string previousStatsPath = std::string(CACHE_PATH) + "/stats_v5.bin";
 
 BookReadingStats statsWithSeconds(const uint32_t seconds) {
@@ -46,7 +47,7 @@ TEST_F(BookReadingStatsAtomicTest, TornSavePreservesNewestCompleteSlot) {
 
 TEST_F(BookReadingStatsAtomicTest, FirstUpgradePreservesSoleLegacyCopy) {
   ASSERT_TRUE(statsWithSeconds(123).save(CACHE_PATH));
-  Storage.data(statsPath).bytes.resize(91);  // complete payload without a slot trailer
+  Storage.data(statsPath).bytes.resize(STATS_PAYLOAD_BYTES);  // complete payload without a slot trailer
   auto backup = Storage.open((statsPath + ".bak").c_str(), O_RDWR | O_CREAT);
   backup.close();
   Storage.data(statsPath + ".bak").writeLimit = 20;
@@ -54,7 +55,7 @@ TEST_F(BookReadingStatsAtomicTest, FirstUpgradePreservesSoleLegacyCopy) {
   EXPECT_EQ(BookReadingStats::load(CACHE_PATH).totalReadingSeconds, 123U);
   Storage.data(statsPath + ".bak").writeLimit = SIZE_MAX;
   ASSERT_TRUE(statsWithSeconds(456).save(CACHE_PATH));
-  EXPECT_EQ(Storage.data(statsPath).bytes.size(), 91u);
+  EXPECT_EQ(Storage.data(statsPath).bytes.size(), STATS_PAYLOAD_BYTES);
   EXPECT_EQ(BookReadingStats::load(CACHE_PATH).totalReadingSeconds, 456U);
 }
 
@@ -71,7 +72,7 @@ TEST_F(BookReadingStatsAtomicTest, CrcFailureFallsBackAndCompletionPeekUsesNewes
 
 TEST_F(BookReadingStatsAtomicTest, LegacyCompleteTempStillRecoversBeforeBackup) {
   ASSERT_TRUE(statsWithSeconds(123).save(CACHE_PATH));
-  Storage.data(statsPath).bytes.resize(91);
+  Storage.data(statsPath).bytes.resize(STATS_PAYLOAD_BYTES);
   ASSERT_TRUE(Storage.rename(statsPath.c_str(), (statsPath + ".bak").c_str()));
   auto temp = Storage.open((statsPath + ".tmp").c_str(), O_RDWR | O_CREAT);
   auto bytes = Storage.data(statsPath + ".bak").bytes;
@@ -96,14 +97,14 @@ TEST_F(BookReadingStatsAtomicTest, IdenticalSaveSkipsWrite) {
   // An unchanged payload must leave even an invalid inactive slot untouched.
   FsFile marker;
   ASSERT_TRUE(Storage.openFileForWrite("TEST", statsPath + ".bak", marker));
-  ASSERT_EQ(marker.write(static_cast<uint8_t>(7)), 1U);
+  ASSERT_EQ(marker.write(static_cast<uint8_t>(8)), 1U);
   ASSERT_TRUE(marker.close());
 
   statsWithSeconds(123).save(CACHE_PATH);
-  EXPECT_EQ(Storage.data(statsPath + ".bak").bytes, std::vector<uint8_t>{7});
+  EXPECT_EQ(Storage.data(statsPath + ".bak").bytes, std::vector<uint8_t>{8});
 
   statsWithSeconds(124).save(CACHE_PATH);
-  EXPECT_EQ(Storage.data(statsPath + ".bak").bytes.size(), 99u);
+  EXPECT_EQ(Storage.data(statsPath + ".bak").bytes.size(), STATS_PAYLOAD_BYTES + two_slot::TRAILER_BYTES);
   EXPECT_EQ(BookReadingStats::load(CACHE_PATH).totalReadingSeconds, 124U);
 }
 
@@ -160,8 +161,8 @@ TEST_F(BookReadingStatsAtomicTest, UploadRejectsMissingTruncatedAndNewerSnapshot
   // Oversized future payload must not be accepted merely because its first
   // 75 bytes look like the current format.
   ASSERT_TRUE(Storage.openFileForWrite("TEST", statsPath, file));
-  uint8_t oversized[92]{};
-  oversized[0] = 7;
+  uint8_t oversized[STATS_PAYLOAD_BYTES + 1]{};
+  oversized[0] = 8;
   file.write(oversized, sizeof(oversized));
   file.close();
   EXPECT_FALSE(BookReadingStats::loadForUpload(CACHE_PATH, snapshot));
@@ -178,11 +179,13 @@ TEST_F(BookReadingStatsAtomicTest, FractionSurvivesSaveAndReopen) {
   BookReadingStats stats;
   stats.recordForwardPageRead(29);
   stats.recordForwardPageRead(30);
+  stats.paceLayoutSignature = 0x12345678;
   EXPECT_EQ(stats.averageForwardPageMillis(), 29500U);
   ASSERT_TRUE(stats.save(CACHE_PATH));
   const auto loaded = BookReadingStats::load(CACHE_PATH);
   EXPECT_EQ(loaded.averageForwardPageMillis(), 29500U);
   EXPECT_EQ(loaded.paceSampleCount, 2U);
+  EXPECT_EQ(loaded.paceLayoutSignature, 0x12345678U);
 }
 
 TEST_F(BookReadingStatsAtomicTest, AlternatingSamplesDoNotRoundDownEachUpdate) {
@@ -221,7 +224,7 @@ TEST_F(BookReadingStatsAtomicTest, SaturatedCountAndMaximumSampleDoNotOverflow) 
 
 namespace {
 void writeOldStats(const std::string& path, const uint8_t version, const size_t size) {
-  uint8_t data[75]{};
+  uint8_t data[91]{};
   data[0] = version;
   data[1] = 7;    // sessions
   data[3] = 123;  // reading seconds
@@ -240,6 +243,7 @@ void writeOldStats(const std::string& path, const uint8_t version, const size_t 
     data[41] = 66;
   }
   if (size >= 73) data[69] = 42;
+  if (size >= 91) data[75] = 0x42;  // Nonzero counter identity.
   FsFile file;
   ASSERT_TRUE(Storage.openFileForWrite("TEST", path, file));
   ASSERT_EQ(file.write(data, size), size);
@@ -248,8 +252,8 @@ void writeOldStats(const std::string& path, const uint8_t version, const size_t 
 }  // namespace
 
 TEST_F(BookReadingStatsAtomicTest, MigratesEveryOlderPayloadWithoutLosingHistory) {
-  const size_t sizes[] = {11, 12, 16, 69, 73, 75};
-  for (uint8_t version = 1; version <= 6; ++version) {
+  const size_t sizes[] = {11, 12, 16, 69, 73, 75, 91};
+  for (uint8_t version = 1; version <= 7; ++version) {
     Storage.reset();
     const std::string path = version >= 4 ? std::string(CACHE_PATH) + "/stats_v" + std::to_string(version) + ".bin"
                                           : std::string(CACHE_PATH) + "/stats.bin";
@@ -266,11 +270,38 @@ TEST_F(BookReadingStatsAtomicTest, MigratesEveryOlderPayloadWithoutLosingHistory
       EXPECT_EQ(stats.dayOfWeekSeconds[0], 66U);
     }
     if (version >= 5) EXPECT_EQ(stats.estimatedTimeLeftSeconds, 42U);
+    EXPECT_EQ(stats.paceLayoutSignature, 0U);
+    EXPECT_EQ(stats.counterId.bytes[0], version == 7 ? 0x42 : 0);
     ASSERT_TRUE(stats.save(CACHE_PATH));
     EXPECT_TRUE(Storage.exists(path.c_str()));
-    EXPECT_EQ(BookReadingStats::load(CACHE_PATH).totalReadingSeconds, 123U);
+    const auto upgraded = BookReadingStats::load(CACHE_PATH);
+    EXPECT_EQ(upgraded.totalReadingSeconds, 123U);
+    EXPECT_EQ(upgraded.counterId.bytes, stats.counterId.bytes);
     EXPECT_EQ(BookReadingStats::peekCompleted(CACHE_PATH), version >= 2);
   }
+}
+
+TEST_F(BookReadingStatsAtomicTest, InterruptedVersionEightSaveCanStillLoadVersionSeven) {
+  const auto oldPath = std::string(CACHE_PATH) + "/stats_v7.bin";
+  writeOldStats(oldPath, 7, 91);
+  auto stats = BookReadingStats::load(CACHE_PATH);
+  ASSERT_EQ(stats.totalReadingSeconds, 123U);
+
+  auto file = Storage.open(statsPath.c_str(), O_RDWR | O_CREAT);
+  ASSERT_TRUE(file.close());
+  Storage.data(statsPath).writeLimit = 20;
+  stats.paceLayoutSignature = 0x12345678;
+  EXPECT_FALSE(stats.save(CACHE_PATH));
+
+  const auto recovered = BookReadingStats::load(CACHE_PATH);
+  EXPECT_EQ(recovered.totalReadingSeconds, 123U);
+  EXPECT_EQ(recovered.counterId.bytes, stats.counterId.bytes);
+  EXPECT_EQ(recovered.paceLayoutSignature, 0U);
+  EXPECT_TRUE(BookReadingStats::peekCompleted(CACHE_PATH));
+
+  Storage.data(statsPath).writeLimit = SIZE_MAX;
+  ASSERT_TRUE(stats.save(CACHE_PATH));
+  EXPECT_EQ(BookReadingStats::load(CACHE_PATH).paceLayoutSignature, 0x12345678U);
 }
 
 TEST_F(BookReadingStatsAtomicTest, RecoversVersionFiveTransactionsDuringUpgrade) {

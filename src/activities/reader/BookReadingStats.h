@@ -6,7 +6,7 @@
 #include "ReadingStatsUtils.h"
 #include "StatsCounterId.h"
 
-// Per-book reading statistics, persisted to cachePath/stats_v7_<reader>.bin.
+// Per-book reading statistics, persisted to cachePath/stats_v8_<reader>.bin.
 struct BookReadingStats {
   uint16_t sessionCount = 0;              // Total times this book was opened
   uint32_t totalReadingSeconds = 0;       // Accumulated reading time in seconds
@@ -16,6 +16,7 @@ struct BookReadingStats {
   uint16_t paceFractionMillis = 0;        // Millisecond remainder beyond avgSecondsPerForwardPage (0..999)
   uint16_t paceSampleCount = 0;           // Number of forward-page pace samples included in the average
   uint32_t estimatedTimeLeftSeconds = 0;  // Last live reader book time-left estimate; 0 means unavailable
+  uint32_t paceLayoutSignature = 0;       // EPUB layout used to learn the page pace; 0 means unknown
   bool startDateManual = false;           // Permanent user override for the reading start date
   bool finishedDateManual = false;        // Permanent user override for the finished date
   ReadingStatsDate startDate;             // First qualifying reading date (or manual override)
@@ -24,7 +25,7 @@ struct BookReadingStats {
   std::array<uint32_t, READING_DAY_OF_WEEK_COUNT> dayOfWeekSeconds{};
   StatsCounterId counterId;
 
-  // Loads stats from cachePath/stats_v7_<reader>.bin, with fallback reads from the
+  // Loads stats from cachePath/stats_v8_<reader>.bin, with fallback reads from the
   // supported older versioned filenames and legacy cachePath/stats.bin. Returns
   // default-constructed stats if no compatible file exists.
   static BookReadingStats load(const std::string& cachePath);
@@ -37,7 +38,7 @@ struct BookReadingStats {
   // Checked export: false for missing, malformed, or unsupported snapshots.
   static bool loadForUpload(const std::string& cachePath, BookReadingStats& stats);
 
-  // Alternates checksum-checked device-qualified stats_v7 files and .bak snapshots in place.
+  // Alternates checksum-checked device-qualified stats files and .bak snapshots in place.
   // Returns false if the new snapshot could not be saved.
   bool save(const std::string& cachePath) const;
 

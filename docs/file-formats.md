@@ -1016,7 +1016,7 @@ identity used by stats uploads: `crossink-` followed by the twelve lowercase hex
 MAC digits. Only the current reader's paths are read, updated, reset, or uploaded:
 
 - `/.crosspoint/global_stats_<reader>.bin` (and `.bak`/`.tmp`).
-- Per-book `stats_v7_<reader>.bin`, older versioned variants, and
+- Per-book `stats_v8_<reader>.bin`, older versioned variants, and
   `stats_<reader>.bin` inside the book cache directory.
 - `/.crosspoint/daily_reading_<reader>/` for daily counters.
 - `/.crosspoint/reading_sessions_<reader>/` for the session outbox.
@@ -1050,10 +1050,10 @@ require an updated Sync server.
 
 ## Reading-stat save slots
 
-Local `global_stats.bin` (version 4) and per-book `stats_v7.bin` use the same alternating
-primary/`.bak` policy. Their payloads are 175 and 91 bytes,
+Local `global_stats.bin` (version 4) and per-book `stats_v8.bin` use the same alternating
+primary/`.bak` policy. Their payloads are 175 and 95 bytes,
 respectively; each slot appends a 4-byte sequence and a 4-byte IEEE CRC-32 of
-the payload plus sequence. Thus stored records are 183 and 99 bytes. Readers
+the payload plus sequence. Thus stored records are 183 and 103 bytes. Readers
 validate the entire record before choosing its sequence. The first migration
 preserves the legacy primary. Previous per-book versions and recoverable
 legacy `.tmp` files are still accepted by the migration loader.
@@ -1099,6 +1099,16 @@ in total. Upload buffers remain fixed at 1536 bytes, with a 33-byte stack buffer
 for hex serialization and no new device heap allocation for identities.
 The optional nearby-sharing activity also grows by 144 bytes (eight queued
 snapshots and its local export); its existing activity allocation gate is unchanged.
+
+## `stats_v8.bin`
+
+Version 8 appends a 4-byte EPUB pace layout signature (`uint32_t` LE) at offsets
+91–94, for a 95-byte payload. It uses the same render settings signature as EPUB
+layout. A zero signature identifies older snapshots or formats without EPUB
+layout data. An EPUB with a missing or changed signature learns its page pace
+again and keeps its recorded reading history. The signature travels with the
+pace through the local save slots. Stats uploads and EPUB layout caches use
+their existing formats.
 
 ## `stats_v7.bin`
 

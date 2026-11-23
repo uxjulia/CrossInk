@@ -22,6 +22,7 @@
 - On X3 and X4, look up publisher styles on the SD card before retrying a chapter in Safe Mode when memory runs low.
 - Keep wide EPUB tables in a grid on X3 and X4 when an SD-card font leaves less memory for indexing.
 - Remove stray spaces inside EPUB words split by publisher page numbers.
+- Keep the EPUB’s Time Left estimate visible while relearning after a layout change, and show “Calculating...” while preparing the first estimate.
 
 ## [v2.0.0] - 2026-11-19
 

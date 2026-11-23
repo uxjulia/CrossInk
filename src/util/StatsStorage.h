@@ -15,7 +15,7 @@ std::string bookReadPath(const std::string& legacyPath, bool& splitRecovery);
 // A bit can refer to another reader: always resolve ownership before reading.
 struct BookFiles {
   enum Slot : uint8_t { Primary = 1, Backup = 2, Temp = 4, All = Primary | Backup | Temp };
-  uint8_t slots[8]{};
+  uint8_t slots[9]{};
 };
 BookFiles bookFiles(const std::string& directory);
 // Immutable ID for an independent directory of daily counters. Existing data

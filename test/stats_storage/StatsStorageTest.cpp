@@ -662,7 +662,7 @@ TEST_F(StatsStorageTest, InterruptedMigrationStillRecoversTheNewerLegacyBackup) 
   book.totalReadingSeconds = 200;
   book.isCompleted = true;
   ASSERT_TRUE(book.save(CACHE));
-  const std::string generic = std::string(CACHE) + "/stats_v7.bin";
+  const std::string generic = std::string(CACHE) + "/stats_v8.bin";
   const auto local = StatsStorage::localPath(generic);
   ASSERT_TRUE(Storage.rename(local.c_str(), generic.c_str()));
   ASSERT_TRUE(Storage.rename((local + ".bak").c_str(), (generic + ".bak").c_str()));
@@ -684,9 +684,9 @@ TEST_F(StatsStorageTest, ResetCannotRevivePreservedLegacyStatsOrEraseAnotherRead
   BookReadingStats book;
   book.totalReadingSeconds = 565;
   ASSERT_TRUE(book.save(CACHE));
-  const auto generic = std::string(CACHE) + "/stats_v7.bin";
-  auto recreated = std::vector<uint8_t>(91);
-  recreated[0] = 7;
+  const auto generic = std::string(CACHE) + "/stats_v8.bin";
+  auto recreated = std::vector<uint8_t>(95);
+  recreated[0] = 8;
   recreated[3] = 95;
   writeBytes(generic, recreated);
   switchReader(6);

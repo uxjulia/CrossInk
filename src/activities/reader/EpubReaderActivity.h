@@ -233,6 +233,8 @@ class EpubReaderActivity final : public Activity {
   StableReadingPace stableReadingPace;
   // A display fallback while fresh text pace or chapter density is unavailable.
   mutable uint32_t lastBookTimeLeftSeconds = 0;
+  mutable uint32_t lastChapterTimeLeftSeconds = 0;
+  mutable int lastChapterTimeLeftSpine = -1;
   double stableTextPosition = 0;
   double stableTextTotal = 0;
   double pendingStableReadStart = 0;
@@ -240,6 +242,7 @@ class EpubReaderActivity final : public Activity {
   int pendingStableReadSpine = -1;
   int pendingStableReadPage = -1;
   bool hasStableTextPosition = false;
+  uint8_t paceImageRendering = UINT8_MAX;
   int stableTextSpine = -1;
   int stableTextPage = -1;
   void refreshStableTextProgress();
@@ -501,6 +504,8 @@ class EpubReaderActivity final : public Activity {
   void startClipSelection(const DictionaryClippingRequest* dictionaryRequest = nullptr,
                           bool ignoreInitialBackRelease = false);
   void resetReadingPaceData();
+  void resetPageReadingPace();
+  void syncPageReadingPaceLayout(uint16_t viewportWidth, uint16_t viewportHeight);
   void captureGlobalReaderSettings();
   void restoreGlobalReaderSettings();
   void loadBookReaderSettings();

@@ -2232,10 +2232,13 @@ void EpubReaderDrawerActivity::selectEnumOption(const int index) {
       draft.publisherFonts = value;
       markSettingChanged(ReaderSettingsChangeMask::Relayout);
       break;
-    case RowId::Images:
+    case RowId::Images: {
+      const auto previousRendering = draft.imageRendering;
       ImageDisplayMode::apply(value, draft.imageRendering, draft.imageGrayscale);
-      markSettingChanged(ReaderSettingsChangeMask::NonLayout);
+      markSettingChanged(draft.imageRendering == previousRendering ? ReaderSettingsChangeMask::NonLayout
+                                                                   : ReaderSettingsChangeMask::Relayout);
       break;
+    }
     case RowId::RenderMode:
       draft.epubRenderMode = value;
       markSettingChanged(ReaderSettingsChangeMask::Relayout);
