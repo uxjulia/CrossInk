@@ -539,6 +539,7 @@ int SdCardFontSystem::restoreReaderFont(GfxRenderer& renderer) {
     const uint8_t bodySize = selectedPointSize;
     if (bodySize >= 8 && bodySize <= 44) {
       for (const uint8_t target : manager_.contentSizeTargetsForBody(bodySize)) {
+        if (!target) continue;
         if (findInstalledFontFile(familyName, target, FontFileSelection::Closest, path, sizeof(path), selectedPointSize,
                                   target > bodySize))
           contentFamily.files.push_back({path, selectedPointSize, 0});

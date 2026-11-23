@@ -7352,7 +7352,13 @@ class SimulatorSmokeTest {
     const int body = SETTINGS.getReaderFontId();
     if (renderer.getFontPointSize(body) != 10 || renderer.getFontPointSize(renderer.getFontIdForSize(body, 13)) != 13 ||
         renderer.getFontPointSize(renderer.getFontIdForSize(body, 12)) != 12)
-      fail("Publisher heading sizes did not replace the fixed 2x target");
+      fail("Publisher heading sizes did not match the stylesheet");
+#if !CROSSINK_SCALABLE_FONTS
+    // The fixture has larger sizes available on SD. The heading IDs must
+    // resolve for measurement and drawing without registering those files.
+    if (renderer.getSdCardFonts().size() != 1 || !renderer.isSdCardFont(renderer.getFontIdForSize(body, 13)))
+      fail("Publisher heading did not reuse the loaded SD font");
+#endif
     const std::string htmlPath = "/cpfont-headings.xhtml";
     if (!Storage.writeFile(htmlPath.c_str(),
                            "<html><body><h1>Chapter Length</h1>"

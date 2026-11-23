@@ -1189,6 +1189,10 @@ through cache cleanup, so measurement and drawing use the same glyph substitutio
 The new identity rebuilds existing full and partial layouts for these families;
 body-only and built-in font identities stay unchanged. No binary payload changes.
 
+On X3 and X4, larger EPUB text uses the loaded bitmap. A larger SD font no
+longer participates in the reader font identity, so cached layouts that used
+one rebuild automatically.
+
 ## Inline EPUB image pixel cache (`.pxc`)
 
 Inline images use separate target-sized Gray (`_gray_v4.pxc`) and monochrome
