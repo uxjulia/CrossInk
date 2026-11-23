@@ -3096,9 +3096,18 @@ bool EpubReaderActivity::backgroundSectionBuildHasHeap() {
 
 void EpubReaderActivity::advanceBackgroundSectionBuild() {
   RenderLock lock(*this, RenderLock::Mode::Try);
-  if (!lock.ownsLock() || !section || (!section->isBuilding() && !section->isPartial()) ||
-      !backgroundBuildCanUsePageBuffer())
+  if (!lock.ownsLock() || !section || !backgroundBuildCanUsePageBuffer()) return;
+  if (chapterCountRefreshPending) {
+    // The index has reached the end. Leave a gap for queued input or a page
+    // render before the optional e-ink status update.
+    if (!pendingManualPageTurns.hasPending() && !mappedInput.hasPendingActivity() &&
+        millis() - lastIdleIndexMs >= IDLE_CHAPTER_SLICE_GAP_MS) {
+      chapterCountRefreshPending = false;
+      refreshChapterCountStatusBars();
+    }
     return;
+  }
+  if (!section->isBuilding() && !section->isPartial()) return;
 
   const bool nearPartialEnd = section->currentPage + PARTIAL_REBUILD_START_MARGIN >= section->pageCount;
   const bool needsPages = section->isBuilding() ? sectionBuildNeedsFastTick() : nearPartialEnd;
@@ -3165,10 +3174,12 @@ void EpubReaderActivity::runBackgroundSectionBuildStep() {
     LOG_DBG("ERS", "Background chapter complete: spine=%d pages=%u", currentSpineIndex, section->pageCount);
     if (applyDeferredReposition() || progressSaveRequiredAfterRelayout) {
       requestUpdate();
-    } else if (section->currentPage >= 0 && section->currentPage < section->pageCount &&
-               !queueProgressSave(currentSpineIndex, section->currentPage, section->pageCount)) {
-      // The final page count became available without repainting the visible page.
-      pendingSyncSaveError = true;
+    } else if (section->currentPage >= 0 && section->currentPage < section->pageCount) {
+      if (!queueProgressSave(currentSpineIndex, section->currentPage, section->pageCount)) {
+        pendingSyncSaveError = true;
+      }
+      chapterCountRefreshPending = true;
+      lastIdleIndexMs = millis();
     }
   }
 }
@@ -6680,6 +6691,8 @@ void EpubReaderActivity::pageTurn(bool isForwardTurn, const char* source) {
 
 // TODO: Failure handling
 void EpubReaderActivity::render(RenderLock&& lock) {
+  lastPresentedPage = -1;
+  chapterCountRefreshPending = false;
 #if CROSSINK_SCALABLE_FONTS
   idleTtfReady.store(false, std::memory_order_relaxed);
   idleTtfJob.reset();
@@ -6721,6 +6734,7 @@ void EpubReaderActivity::render(RenderLock&& lock) {
   const auto showPendingSyncSaveError = [this]() {
     if (!pendingSyncSaveError) return;
     pendingSyncSaveError = false;
+    lastPresentedPage = -1;
     GUI.drawPopup(renderer, tr(STR_SAVE_PROGRESS_FAILED));
   };
 
@@ -7062,7 +7076,11 @@ void EpubReaderActivity::render(RenderLock&& lock) {
               showIndexingPopup();
             }
             buildPopupPending = !showPopup;
-            buildOptions.deferAdvancePrewarm = !anchorJump && !pendingRelayoutReposition &&
+            // Nearby landings can use on-demand font widths for the first page.
+            // Deep restores still benefit from an eager scan before reflowing the prefix.
+            const bool nearbyTarget =
+                !pendingRelayoutReposition || cachedChapterPageNumber <= BUILD_POPUP_PAGE_THRESHOLD;
+            buildOptions.deferAdvancePrewarm = !anchorJump && nearbyTarget &&
                                                target != std::numeric_limits<uint16_t>::max() &&
                                                !buildOptions.isPreview();
             const unsigned long buildStartMs = millis();
@@ -7580,6 +7598,8 @@ void EpubReaderActivity::render(RenderLock&& lock) {
     }
     pageBufferStale.store(false, std::memory_order_relaxed);
     lastRenderCompleteMs = millis();
+    lastPresentedSpine = currentSpineIndex;
+    lastPresentedPage = section->currentPage;
 #if CROSSINK_SCALABLE_FONTS
     idleTtfSection = section.get();
     idleTtfSpine = currentSpineIndex;
@@ -8313,6 +8333,7 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
   if (!updatePanel) {
     return true;
   }
+  presentedPageUsesGrayscale = false;
   const auto displayMonochromePage = [&]() {
     renderer.setRenderMode(GfxRenderer::BW);
     // An optimizer Gray hit may never have extracted the original. Let ZIP
@@ -8361,6 +8382,7 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
               &renderImageOverlays, needsTextGrayscale, foregroundBlack)) {
         cleanImageBasePending = false;
         pagesUntilFullRefresh = 1;
+        presentedPageUsesGrayscale = true;
         return true;
       }
       return displayMonochromePage();
@@ -8372,8 +8394,10 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
       ReaderUtils::displayDeferredGrayscale(renderer, pagesUntilFullRefresh, deferredGrayscalePlanes, [&]() {
         composeGrayscaleBuffer();
         return true;
-      }))
+      })) {
+    presentedPageUsesGrayscale = true;
     return true;
+  }
   const bool tiledGrayscale = needsAnyGrayscale && renderer.supportsStripGrayscale();
   const bool overlapRefresh =
       tiledGrayscale && !pageHasImages && pagesUntilFullRefresh > 1 && renderer.supportsAsyncGrayscaleBase();
@@ -8452,6 +8476,7 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
                                            foregroundBlack, needsTextGrayscale, needsImageGrayscale,
                                            grayscaleStripScratch.get(), grayscaleStripScratchSize, overlapRefresh,
                                            &imageReplayFailed)) {
+    presentedPageUsesGrayscale = true;
     return true;
   }
   if (imageReplayFailed) return displayMonochromePage();
@@ -8492,6 +8517,7 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
 
     // display grayscale part
     renderer.displayGrayBuffer();
+    presentedPageUsesGrayscale = true;
     renderer.setRenderMode(GfxRenderer::BW);
     // restore the bw data
     renderer.restoreBwBuffer();
@@ -8694,7 +8720,58 @@ void EpubReaderActivity::drawClippingHighlights(const Page& page, const int font
   });
 }
 
-void EpubReaderActivity::renderStatusBar() const {
+void EpubReaderActivity::refreshChapterCountStatusBars() {
+  if (!statusBarVisible || activeFootnotePreview || lastPresentedSpine != currentSpineIndex ||
+      lastPresentedPage != section->currentPage || pendingManualPageTurns.hasPending() ||
+      mappedInput.hasPendingActivity() || !backgroundBuildCanUsePageBuffer() ||
+      !activityManager.canUpdateBackdropInPlace()) {
+    return;
+  }
+
+  const int width = renderer.getScreenWidth();
+  const auto strip = [&](const ReaderStatusBarPosition position) -> Rect {
+    const auto config = SETTINGS.readerStatusBar(position);
+    if (config.hidden || !config.contains(ReaderStatusBarItem::ChapterPageCount)) return Rect();
+    const int height = UITheme::getReaderStatusBarHeight(position, renderer, &config);
+    int top, right, bottom, left;
+    renderer.getOrientedViewableTRBL(&top, &right, &bottom, &left);
+    const int y = position == ReaderStatusBarPosition::Top ? UITheme::getTopStatusBarY(renderer)
+                                                           : renderer.getScreenHeight() - bottom - height;
+    return Rect(0, y, width, height);
+  };
+  const Rect strips[] = {strip(ReaderStatusBarPosition::Top), strip(ReaderStatusBarPosition::Bottom)};
+  if (strips[0].height == 0 && strips[1].height == 0) return;
+  // Some image and legacy AA waveforms cannot retain gray outside a strip.
+  // The next ordinary paint will show the final count on those panels.
+  if (presentedPageUsesGrayscale && !renderer.canUpdateGrayscaleWindow()) return;
+
+  HalPowerManager::Lock powerLock;
+  std::optional<FontCacheManager::PrewarmScope> prewarm;
+  if (auto* fontCache = renderer.getFontCacheManager()) {
+    prewarm.emplace(*fontCache, FontCacheManager::PreparationPolicy::Normal);
+    renderStatusBar(/*onlyChapterCountBars=*/true);
+    if (!prewarm->endScanAndPrewarm()) {
+      requestUpdate();
+      return;
+    }
+  }
+  for (const auto& rect : strips) {
+    if (rect.height > 0)
+      renderer.fillRect(rect.x, rect.y, rect.width, rect.height, ReaderUtils::readerDarkModeEnabled());
+  }
+  renderStatusBar(/*onlyChapterCountBars=*/true);
+  for (const auto& rect : strips) {
+    if (rect.height > 0 &&
+        !renderer.displayWindow(rect.x, rect.y, rect.width, rect.height, presentedPageUsesGrayscale)) {
+      LOG_ERR("ERS", "Chapter count strip refresh failed; requesting a recovery render");
+      requestUpdate();
+      return;
+    }
+  }
+  LOG_DBG("ERS", "Refreshed chapter page count: spine=%d page=%d", currentSpineIndex, section->currentPage);
+}
+
+void EpubReaderActivity::renderStatusBar(const bool onlyChapterCountBars) const {
   if (!statusBarVisible) {
     return;
   }
@@ -8714,7 +8791,14 @@ void EpubReaderActivity::renderStatusBar() const {
 
   const auto topBar = SETTINGS.readerStatusBar(ReaderStatusBarPosition::Top);
   const auto bottomBar = SETTINGS.readerStatusBar(ReaderStatusBarPosition::Bottom);
-  const auto uses = [&](const ReaderStatusBarItem item) { return topBar.contains(item) || bottomBar.contains(item); };
+  const auto shouldDraw = [onlyChapterCountBars](const ReaderStatusBarConfig& bar) {
+    return !bar.hidden && (!onlyChapterCountBars || bar.contains(ReaderStatusBarItem::ChapterPageCount));
+  };
+  const bool drawTop = shouldDraw(topBar);
+  const bool drawBottom = shouldDraw(bottomBar);
+  const auto uses = [&](const ReaderStatusBarItem item) {
+    return (drawTop && topBar.contains(item)) || (drawBottom && bottomBar.contains(item));
+  };
 
   uint32_t referencePage = 0;
   uint32_t referencePageCount = 0;
@@ -8796,14 +8880,14 @@ void EpubReaderActivity::renderStatusBar() const {
   content.showProgress = !activeFootnotePreview;
   content.pageCountEstimated = pageCountEstimated;
   content.darkMode = ReaderUtils::readerDarkModeEnabled();
-  GUI.drawReaderStatusBar(renderer, ReaderStatusBarPosition::Top, content);
+  if (drawTop) GUI.drawReaderStatusBar(renderer, ReaderStatusBarPosition::Top, content, &topBar);
   if (automaticPageTurnActive) {
     // Replace titles only after the configured top bar has been drawn.
     content.bookTitle = autoTurnLabel;
     content.chapterTitle = autoTurnLabel;
     content.autoTurnLabel = autoTurnLabel;
   }
-  GUI.drawReaderStatusBar(renderer, ReaderStatusBarPosition::Bottom, content);
+  if (drawBottom) GUI.drawReaderStatusBar(renderer, ReaderStatusBarPosition::Bottom, content, &bottomBar);
 }
 
 void EpubReaderActivity::refreshChapterGroupEstimate(const uint16_t viewportWidth, const uint16_t viewportHeight) {

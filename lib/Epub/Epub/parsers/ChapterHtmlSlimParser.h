@@ -478,6 +478,9 @@ class ChapterHtmlSlimParser {
 
   ~ChapterHtmlSlimParser();
   uint32_t getVisibleTextLength() const { return visibleTextOffset; }
+  bool unfinishedPageStartsAfter(uint32_t offset) const {
+    return currentPage && currentPageVisibleOffsetSet && currentPageVisibleOffset > offset;
+  }
   uint32_t getReferenceTextLength() const { return referenceTextOffset; }
   bool parseAndBuildPages();
   static uint32_t publisherBodyFontFamily(const std::string& path, const CssParser& css);

@@ -128,6 +128,18 @@ void HalDisplay::displayBuffer(HalDisplay::RefreshMode mode, bool turnOffScreen)
   einkDisplay.displayBuffer(convertRefreshMode(mode), turnOffScreen);
 }
 
+void HalDisplay::displayWindow(uint16_t x, uint16_t y, uint16_t width, uint16_t height, bool turnOffScreen) {
+  HalSpiBus::Lock spiLock;
+  einkDisplay.displayWindow(x, y, width, height, turnOffScreen);
+}
+
+bool HalDisplay::canUpdateGrayscaleWindow() const { return einkDisplay.canUpdateGrayscaleWindow(); }
+
+bool HalDisplay::displayGrayscaleWindow(uint16_t x, uint16_t y, uint16_t width, uint16_t height) {
+  HalSpiBus::Lock spiLock;
+  return einkDisplay.displayGrayscaleWindow(x, y, width, height);
+}
+
 void HalDisplay::setInverted(bool inverted) {
   HalSpiBus::Lock spiLock;
   einkDisplay.setInverted(inverted);

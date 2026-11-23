@@ -56,6 +56,9 @@ class HalDisplay {
                             bool fromProgmem = false) const;
 
   void displayBuffer(RefreshMode mode = RefreshMode::FAST_REFRESH, bool turnOffScreen = false);
+  void displayWindow(uint16_t x, uint16_t y, uint16_t width, uint16_t height, bool turnOffScreen);
+  bool canUpdateGrayscaleWindow() const;
+  bool displayGrayscaleWindow(uint16_t x, uint16_t y, uint16_t width, uint16_t height);
   // Persistently invert panel output while leaving framebuffer drawing in its
   // normal logical colors.
   void setInverted(bool inverted);

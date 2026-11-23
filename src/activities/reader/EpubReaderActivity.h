@@ -431,7 +431,12 @@ class EpubReaderActivity final : public Activity {
   bool ensureGrayscaleStripScratch();
   void releaseGrayscaleStripScratch(bool force = false);
   void drawClippingHighlights(const Page& page, int fontId, int orientedMarginTop, int orientedMarginLeft) const;
-  void renderStatusBar() const;
+  void renderStatusBar(bool onlyChapterCountBars = false) const;
+  void refreshChapterCountStatusBars();
+  int lastPresentedSpine = -1;
+  int lastPresentedPage = -1;
+  bool presentedPageUsesGrayscale = false;
+  bool chapterCountRefreshPending = false;
   void refreshChapterGroupEstimate(uint16_t viewportWidth, uint16_t viewportHeight);
   bool resolveChapterGroupPageProgress(int& currentPage, int& pageCount, float& chapterProgress,
                                        bool& pageCountEstimated) const;
@@ -447,8 +452,10 @@ class EpubReaderActivity final : public Activity {
   // main loop a chance to observe input between pages.
   static constexpr int INTERACTIVE_BUILD_PAGES_PER_CHUNK = 1;
   static constexpr int BACKGROUND_BUILD_PAGES_PER_TICK = 1;
-  // Fill this window promptly. Only PSRAM readers continue beyond it, at idle priority.
-  static constexpr int BUILD_WINDOW_AHEAD = 5;
+  // PSRAM readers fill a small window promptly, then continue at idle priority.
+  // C3 readers without idle completion keep a larger on-demand buffer.
+  static constexpr int PSRAM_BUILD_WINDOW = 3;
+  static constexpr int C3_BUILD_WINDOW = 5;
   // Begin replaying saved pages before the reader reaches the end of a partial cache.
   static constexpr int PARTIAL_REBUILD_START_MARGIN = 15;
   // Show the indexing popup when an initial build must lay out more than this many pages up front
@@ -628,7 +635,8 @@ class EpubReaderActivity final : public Activity {
   // Caller holds RenderLock. Distant partial-cache replay on PSRAM is optional idle work.
   bool sectionBuildNeedsFastTick() const {
     return section && section->isBuilding() &&
-           (static_cast<int>(section->pageCount) < section->currentPage + BUILD_WINDOW_AHEAD ||
+           (static_cast<int>(section->pageCount) <
+                section->currentPage + (hasIndexingPsram ? PSRAM_BUILD_WINDOW : C3_BUILD_WINDOW) ||
             (!section->activeBuildHasCaughtReadablePages() &&
              (!hasIndexingPsram || section->currentPage + PARTIAL_REBUILD_START_MARGIN >= section->pageCount)));
   }

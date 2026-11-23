@@ -284,8 +284,9 @@ class GfxRenderer {
   bool supportsDeferredGrayscaleBase() const;
   bool displayGrayscaleBaseAsync(HalDisplay::RefreshMode fallback) const;
   void copyGrayscalePlanes(const uint8_t* lsb, const uint8_t* msb) const;
-  // EXPERIMENTAL: Windowed update - display only a rectangular region
-  // void displayWindow(int x, int y, int width, int height) const;
+  // Repaint a logical rectangle. Grayscale pages require a driver that can preserve the rest of the image.
+  bool canUpdateGrayscaleWindow() const;
+  bool displayWindow(int x, int y, int width, int height, bool preserveGrayscale) const;
   void invertScreen() const;
   void invertRect(int x, int y, int width, int height) const;
   void clearScreen(uint8_t color = 0xFF) const;

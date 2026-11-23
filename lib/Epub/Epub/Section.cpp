@@ -2432,7 +2432,9 @@ std::optional<uint16_t> Section::getPageForVisibleTextOffset(const uint32_t offs
       if (preferFirstAtOffset && start == offset) break;
     }
     const uint32_t last = build_->pageIndex[build_->pageIndex.size() - 1].visibleTextOffset;
-    if (offset <= last) return result;
+    // The start of the next page already bounds the last readable page.
+    // Waiting for that next page to finish delays incremental relayout by a page.
+    if (offset <= last || build_->parser->unfinishedPageStartsAfter(offset)) return result;
     // An extension build starts from page zero while its previously committed
     // partial remains readable.  Its shorter live prefix must not hide a page
     // that the committed cache already knows how to resolve.

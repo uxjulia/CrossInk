@@ -13,6 +13,7 @@
 
 - With Incremental indexing, devices with PSRAM finish laying out the current EPUB chapter while you read instead of stopping after a set number of pages.
 - Focus Reading bolds the first letter of short words and half of longer words, rounded up to a maximum of nine letters.
+- Return to the reading position sooner after EPUB font and layout changes in Incremental mode. Update Chapter Page Count when background indexing finishes if the display can refresh the status bar on its own.
 
 ### Fixed
 

@@ -231,6 +231,7 @@ class ActivityManager {
 #endif
   bool isCurrentActivity(const Activity* activity) const { return currentActivity.get() == activity; }
   bool canSnapshotForSleepOverlay() const;
+  bool canUpdateBackdropInPlace() const { return !restoredActivityNeedsRender && !requestedUpdate; }
   bool requestManualReaderRefresh();
   bool handleShortcutAction(CrossPointSettings::SHORT_PWRBTN action);
   bool handleQuickLockUnlock(QuickLockTrigger trigger);
