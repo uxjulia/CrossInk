@@ -499,6 +499,14 @@ void ActivityManager::renderTaskLoop() {
     // Acquire the lock before reading currentActivity to avoid a TOCTOU race
     // where the main task deletes the activity between the null-check and render().
     RenderLock lock;
+    const uint8_t work = queuedRenderWork.exchange(0);
+    if (!(work & FullRender)) {
+      if ((work & IdleRender) && currentActivity && !enteringActivity && canUpdateBackdropInPlace()) {
+        HalPowerManager::Lock powerLock;
+        currentActivity->renderIdle();
+      }
+      continue;
+    }
     if (enteringActivity && !entryRenderRequested) {
       requestedUpdate = true;
       continue;
@@ -541,15 +549,12 @@ void ActivityManager::renderTaskLoop() {
 }
 
 void ActivityManager::loop() {
-  idleWorkMs = 0;
   if (currentActivity && currentActivity->requiresExclusiveStorageLoop()) {
     currentActivity->loop();
     // USB Drive normally restarts the device rather than replacing itself. The
     // pending-action fallthrough keeps the simulator's stub lifecycle usable.
     if (pendingAction == PendingAction::None) {
-      if (requestedUpdate.exchange(false) && renderTaskHandle) {
-        xTaskNotify(renderTaskHandle, 1, eIncrement);
-      }
+      if (requestedUpdate.exchange(false)) notifyRenderTask(FullRender);
       return;
     }
   }
@@ -824,13 +829,7 @@ void ActivityManager::processPendingActivities() {
     RenderLock lock;
     mappedInput.setMenuMode(currentActivity->usesMenuButtonOrientation());
   }
-  if (requestedUpdate.exchange(false)) {
-    // Using direct notification to signal the render task to update
-    // Increment counter so multiple rapid calls won't be lost
-    if (renderTaskHandle) {
-      xTaskNotify(renderTaskHandle, 1, eIncrement);
-    }
-  }
+  if (requestedUpdate.exchange(false)) notifyRenderTask(FullRender);
 }
 
 bool ActivityManager::restoreBackdropBehindCurrentOverlay() {
@@ -1495,11 +1494,15 @@ ScreenshotInfo ActivityManager::getScreenshotInfo() const {
   return {};
 }
 
+void ActivityManager::notifyRenderTask(const RenderWork work) {
+  if (!renderTaskHandle) return;
+  queuedRenderWork.fetch_or(work);
+  xTaskNotify(renderTaskHandle, 1, eIncrement);
+}
+
 void ActivityManager::requestUpdate(bool immediate) {
   if (immediate) {
-    if (renderTaskHandle) {
-      xTaskNotify(renderTaskHandle, 1, eIncrement);
-    }
+    notifyRenderTask(FullRender);
   } else {
     // Deferring the update until current loop is finished
     // This is to avoid multiple updates being requested in the same loop
@@ -1544,7 +1547,7 @@ RequestUpdateResult ActivityManager::requestUpdateAndWait() {
     // onEnter explicitly promises that its state is ready for this one render.
     entryRenderRequested = enteringActivity;
   }
-  xTaskNotify(renderTaskHandle, 1, eIncrement);
+  notifyRenderTask(FullRender);
   ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
   return RequestUpdateResult::Rendered;
 }

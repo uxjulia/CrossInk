@@ -43,6 +43,9 @@ class Activity {
   virtual void loop() {}
 
   virtual void render(RenderLock&&) {}
+  // Optional work on the render task with the render lock held. The current
+  // frame and touch targets stay in place.
+  virtual void renderIdle() {}
 
   // Let activities that need more than a framebuffer refresh prepare a full redraw.
   virtual bool prepareManualRefresh() { return false; }

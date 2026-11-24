@@ -200,7 +200,7 @@ class EpubReaderActivity final : public Activity {
   static constexpr uint8_t HEAP_SHAPE_REDRAW_CLIP = 1U << 0;
   static constexpr uint8_t HEAP_SHAPE_REDRAW_DICT = 1U << 1;
   unsigned long lastPageTurnTime = 0UL;
-  unsigned long pageTurnDuration = 0UL;
+  std::atomic<unsigned long> pageTurnDuration{0};
   ManualPageTurnQueue pendingManualPageTurns;
   QueuedTurnRenderingState queuedTurnRendering;
   bool hyphenationPackChecked = false;
@@ -296,10 +296,10 @@ class EpubReaderActivity final : public Activity {
   uint16_t pendingClippingIndex = UINT16_MAX;
   bool pendingScreenshot = false;
   bool pendingSyncSaveError = false;
-  bool automaticPageTurnActive = false;
+  std::atomic<bool> automaticPageTurnActive{false};
   // Session-only display toggle. Layout continues to reserve the same status
   // lane, so switching it never changes the EPUB's page breaks.
-  bool statusBarVisible = true;
+  std::atomic<bool> statusBarVisible{true};
   bool longPressMenuHandled = false;
   bool longPressBackHandled = false;
   bool longPowerButtonHandled = false;
@@ -357,7 +357,16 @@ class EpubReaderActivity final : public Activity {
   std::vector<FootnoteEntry> currentPageFootnotes;
 #if CROSSINK_APP_CAP_TOUCH
   ReaderPinchGesture pinchFontGesture;
+  std::atomic<int> topStatusBarTapHeight{0};
+  std::atomic<int> bottomStatusBarTapHeight{0};
   FootnoteLinkTargets currentPageFootnoteTouchTargets{};
+  uint16_t footnoteTouchFrame = 0;
+  struct DeferredFootnoteTap {
+    int x;
+    int y;
+    uint16_t frame;
+  };
+  std::optional<DeferredFootnoteTap> deferredFootnoteTap;
 #endif
   using SavedPosition = EpubLinkReturnState::Position;
   static constexpr int MAX_FOOTNOTE_DEPTH = EpubLinkReturnState::MAX_DEPTH;
@@ -386,7 +395,10 @@ class EpubReaderActivity final : public Activity {
   std::unique_ptr<Section> nextChapterBuild;
   bool nextChapterBuildAttempted = false;
   bool nextChapterBuildReplacesLayout = false;
-  unsigned long lastIdleIndexMs = 0;
+  std::atomic<unsigned long> lastIdleIndexMs{0};
+  enum class IdleChapterWork : uint8_t { None, BuildAhead, ContinueIndexing, PrepareNextChapter, RefreshCount };
+  std::atomic<IdleChapterWork> idleChapterWork{IdleChapterWork::None};
+  void requestIdleChapterWork(IdleChapterWork work);
   bool backgroundBuildPausedForLowMemory = false;
   BackgroundBuildMemoryGuard backgroundBuildMemoryGuard;
   // Input should win the next RenderLock race. Keep the incremental parser alive,
@@ -443,6 +455,7 @@ class EpubReaderActivity final : public Activity {
   int lastPresentedPage = -1;
   bool presentedPageUsesGrayscale = false;
   bool chapterCountRefreshPending = false;
+  void renderIdle() override;
   void refreshChapterGroupEstimate(uint16_t viewportWidth, uint16_t viewportHeight);
   bool resolveChapterGroupPageProgress(int& currentPage, int& pageCount, float& chapterProgress,
                                        bool& pageCountEstimated) const;
@@ -556,6 +569,8 @@ class EpubReaderActivity final : public Activity {
   void resetPinchFontGesture();
   void buildFootnoteTouchTargets(const Page& page, int fontId, int orientedMarginTop, int orientedMarginLeft);
   bool handleTouchFootnoteLink(int touchX, int touchY);
+  bool replayDeferredFootnoteTap();
+  bool openFootnoteAt(int touchX, int touchY);
 #endif
   void suppressPowerShortcutRelease();
   bool consumeLongPowerButtonRelease();
@@ -580,7 +595,7 @@ class EpubReaderActivity final : public Activity {
   void finishManualPageTurnBrakeIfReady();
   void cancelSilentNextChapterPrefetchForForwardTurn();
   bool isAtBookStart() const;
-  void pageTurn(bool isForwardTurn, const char* source = "unknown");
+  void pageTurn(RenderLock& lock, bool isForwardTurn, const char* source);
   float getCurrentBookProgressPercent() const;
   // Caller holds RenderLock. Matches the status bar's chapter-group title.
   std::string currentChapterTitle() const;

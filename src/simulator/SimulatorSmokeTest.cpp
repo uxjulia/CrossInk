@@ -130,6 +130,7 @@
 #include "components/CoverGridHomeUi.h"
 #include "components/HeaderDate.h"
 #include "components/TouchHeaderBackButton.h"
+#include "components/TouchRegistry.h"
 #include "components/UITheme.h"
 #include "components/themes/dashboard/DashboardTheme.h"
 #include "components/themes/minimal/MinimalTheme.h"
@@ -205,8 +206,7 @@ struct EpubReaderCompletionSmokeTest {
 
     reader.section->currentPage = reader.section->pageCount - 1;
     turned = true;
-    lock.unlock();
-    reader.pageTurn(true, "prefetch smoke");
+    reader.pageTurn(lock, true, "prefetch smoke");
     return std::nullopt;
   }
 
@@ -276,6 +276,78 @@ struct EpubReaderCompletionSmokeTest {
         page + 1 < reader.section->pageCount ? reader.section->getVisibleTextOffsetForPage(page + 1) : std::nullopt;
     return !statusAnchor || (start && *start <= *statusAnchor && (!next || *next > *statusAnchor));
   }
+
+  static bool turnDuringRelayout(EpubReaderActivity& reader, const bool touch) {
+    {
+      RenderLock lock;
+      if (!reader.section || reader.section->pageCount == 0) return false;
+      reader.section->currentPage = 0;
+      reader.prepareCurrentSectionForRelayout();
+      reader.section.reset();
+      reader.lastPageTurnTime = millis() - 250;
+    }
+    using Button = MappedInputManager::Button;
+    if (touch) {
+#if CROSSINK_APP_CAP_TOUCH
+      const int x = renderer.getScreenWidth() * 3 / 4;
+      const int y = renderer.getScreenHeight() / 2;
+      mappedInputManager.simulatorInjectTouchDown(x, y);
+      mappedInputManager.simulatorInjectTouchRelease(x, y);
+#else
+      return false;
+#endif
+    } else {
+      mappedInputManager.simulatorInjectPress(Button::Down);
+    }
+    reader.loop();
+    mappedInputManager.simulatorClearInputFrame();
+    if (!touch) {
+      mappedInputManager.simulatorInjectRelease(Button::Down);
+      reader.loop();
+      mappedInputManager.simulatorClearInputFrame();
+    }
+    if (reader.pendingManualPageTurns.size() != 1) return false;
+    int restoredSpine = -1;
+    bool chapterEnd = false;
+    {
+      RenderLock lock;
+      reader.render(std::move(lock));
+      if (!reader.section || reader.section->currentPage != 0) return false;
+      restoredSpine = reader.currentSpineIndex;
+      chapterEnd = reader.section->pageCount == 1 && !reader.section->isBuilding() && !reader.section->isPartial();
+    }
+    reader.loop();
+    RenderLock lock;
+    if (reader.pendingManualPageTurns.hasPending()) return false;
+    if (!chapterEnd) return reader.section && reader.section->currentPage == 1;
+    if (reader.section || reader.currentSpineIndex != restoredSpine + 1) return false;
+    reader.currentSpineIndex = restoredSpine;
+    reader.render(std::move(lock));
+    return reader.section && reader.section->currentPage == 0;
+  }
+
+#if CROSSINK_APP_CAP_TOUCH
+  static bool deferFootnoteWhileBusy(EpubReaderActivity& reader) {
+    const int x = renderer.getScreenWidth() / 2;
+    const int y = renderer.getScreenHeight() / 2;
+    {
+      RenderLock lock;
+      auto& registry = TouchRegistry::getInstance();
+      registry.beginFrame();
+      registry.add(Rect(x - 8, y - 8, 16, 16), reader.footnoteTouchFrame, TouchRegistry::Kind::Footnote);
+      registry.publish();
+      mappedInputManager.simulatorInjectTouchDown(x, y);
+      mappedInputManager.simulatorInjectTouchRelease(x, y);
+      reader.loop();
+      mappedInputManager.simulatorClearInputFrame();
+      if (!reader.deferredFootnoteTap || reader.pendingManualPageTurns.hasPending()) return false;
+
+      // A new page invalidates a link from the old published frame.
+      ++reader.footnoteTouchFrame;
+    }
+    return !reader.replayDeferredFootnoteTap() && !reader.deferredFootnoteTap;
+  }
+#endif
   static bool readingPace(EpubReaderActivity& reader) {
     for (const uint32_t sample : {20U, 40U}) {
       reader.stats.setAverageForwardPageMillis(30000);
@@ -374,8 +446,9 @@ struct EpubReaderCompletionSmokeTest {
       const double start = reader->stableTextPosition;
       reader->paceSampleWarmupPending = false;
       for (int page = 1; page <= 3; ++page) {
+        RenderLock lock;
         reader->pageShownAtMs = millis() - 10000UL;
-        reader->pageTurn(true, "stable_eta_smoke");
+        reader->pageTurn(lock, true, "stable_eta_smoke");
         if (reader->pendingStableReadSeconds != 10 || reader->section->currentPage != page) return false;
         reader->refreshStableTextProgress();
         if (page < 3 && (!reader->estimateTimeLeftSeconds(true, retained) || retained != 1800)) return false;
@@ -592,9 +665,6 @@ struct EpubReaderCompletionSmokeTest {
       reader->handleShortcutAction(static_cast<uint8_t>(action));
       if (reader->section || reader->currentSpineIndex != 0) return false;
     }
-    reader->pageTurn(true, "auto");
-    reader->pageTurn(false, "test");
-
     // Previous-page shortcuts on the plain end screen return to the final page.
     for (const bool homeButton : {false, true}) {
       reader->currentSpineIndex = spineCount;
@@ -11722,6 +11792,17 @@ class SimulatorSmokeTest {
           if (!EpubReaderCompletionSmokeTest::openStatusSettings(reader)) fail("Repeated reader status edit failed");
           queueStep("Repeated reader status settings", SmokeStep::StatusBarReaderSettings, 4);
         } else {
+          if (!EpubReaderCompletionSmokeTest::turnDuringRelayout(reader, false) ||
+              (mappedInputManager.hasTouchHardware() &&
+               !EpubReaderCompletionSmokeTest::turnDuringRelayout(reader, true))) {
+            fail("EPUB lost the first page turn during relayout");
+          }
+#if CROSSINK_APP_CAP_TOUCH
+          if (mappedInputManager.hasTouchHardware() && !EpubReaderCompletionSmokeTest::deferFootnoteWhileBusy(reader)) {
+            fail("EPUB treated a footnote tap during rendering as a page turn");
+          }
+#endif
+          LOG_INF("SMOKE", "EPUB page turns queued during relayout passed");
           LOG_INF("SMOKE", "EPUB repeated hide/show, actual Settings return and text-anchor reflow passed");
           buildReaderInputScript();
           step = SmokeStep::ReaderInput;

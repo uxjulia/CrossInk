@@ -92,6 +92,7 @@
 #include "clippings/ClippingMatchTracker.h"
 #include "clippings/ClippingTextMatcher.h"
 #include "clippings/ClippingsManager.h"
+#include "components/TouchRegistry.h"
 #include "components/UITheme.h"
 #if CROSSINK_APP_CAP_TOUCH
 #include "components/TouchHeaderBackButton.h"
@@ -1849,6 +1850,7 @@ void EpubReaderActivity::onInputLockChanged(const bool locked) {
 }
 
 void EpubReaderActivity::onUserInput() {
+  idleChapterWork.store(IdleChapterWork::None, std::memory_order_relaxed);
   cancelSilentPrefetchForInput();
   if (hasIndexingPsram) {
     RenderLock lock(*this, RenderLock::Mode::Try);
@@ -2590,7 +2592,12 @@ bool EpubReaderActivity::usesMenuButtonOrientation() const {
 
 void EpubReaderActivity::onEnter() {
   Activity::onEnter();
+#ifdef SIMULATOR
+  // Exercise the indexing schedule when the simulator is given a PSRAM pool.
+  hasIndexingPsram = ESP.getPsramSize() > 0;
+#else
   hasIndexingPsram = psramHeapAvailable();
+#endif
   ComplexShaper::setDocumentLanguage(epub->getLanguage().c_str());
   pageLoadRetryCount = 0;
   sectionCacheRepair.reset();
@@ -3132,6 +3139,11 @@ bool EpubReaderActivity::backgroundSectionBuildHasHeap() {
   return false;
 }
 
+void EpubReaderActivity::requestIdleChapterWork(const IdleChapterWork work) {
+  idleChapterWork.store(work, std::memory_order_relaxed);
+  activityManager.requestIdleRender();
+}
+
 void EpubReaderActivity::advanceBackgroundSectionBuild() {
   RenderLock lock(*this, RenderLock::Mode::Try);
   if (!lock.ownsLock() || !section || !backgroundBuildCanUsePageBuffer()) return;
@@ -3139,23 +3151,29 @@ void EpubReaderActivity::advanceBackgroundSectionBuild() {
     // The index has reached the end. Leave a gap for queued input or a page
     // render before the optional e-ink status update.
     if (!pendingManualPageTurns.hasPending() && !mappedInput.hasPendingActivity() &&
-        millis() - lastIdleIndexMs >= IDLE_CHAPTER_SLICE_GAP_MS) {
-      chapterCountRefreshPending = false;
-      refreshChapterCountStatusBars();
+        activityManager.canUpdateBackdropInPlace() && millis() - lastIdleIndexMs >= IDLE_CHAPTER_SLICE_GAP_MS) {
+      requestIdleChapterWork(IdleChapterWork::RefreshCount);
     }
     return;
   }
+  if (mappedInput.hasPendingActivity()) return;
+
   const bool currentChapterComplete = !section->isBuilding() && !section->isPartial();
   const bool nearPartialEnd = section->currentPage + PARTIAL_REBUILD_START_MARGIN >= section->pageCount;
   const bool needsPages = section->isBuilding() ? sectionBuildNeedsFastTick() : section->isPartial() && nearPartialEnd;
   const bool yieldForInput = backgroundBuildYieldForInput.load(std::memory_order_relaxed);
-  const bool idleSlice = !needsPages || yieldForInput;
+  const bool backgroundIndexing =
+      hasIndexingPsram && SETTINGS.indexingMethod == CrossPointSettings::INDEXING_INCREMENTAL;
+  // If a relayout still needs more pages to restore the reading position,
+  // advance it even with a turn waiting for that position.
+  const bool turnQueued = pendingManualPageTurns.hasPending();
+  const bool restoringPosition = turnQueued && section->isBuilding() && pendingRelayoutReposition;
+  if (turnQueued && !restoringPosition) return;
+  const bool idleSlice = !restoringPosition && (!needsPages || yieldForInput);
   if (idleSlice) {
     const unsigned long now = millis();
-    if (!hasIndexingPsram || SETTINGS.indexingMethod != CrossPointSettings::INDEXING_INCREMENTAL ||
-        activeFootnotePreview || lastRenderCompleteMs == 0 || now - lastRenderCompleteMs < IDLE_CHAPTER_START_MS ||
-        now - lastIdleIndexMs < IDLE_CHAPTER_SLICE_GAP_MS || pendingManualPageTurns.hasPending() ||
-        mappedInput.hasPendingActivity())
+    if (!backgroundIndexing || activeFootnotePreview || lastRenderCompleteMs == 0 ||
+        now - lastRenderCompleteMs < IDLE_CHAPTER_START_MS || now - lastIdleIndexMs < IDLE_CHAPTER_SLICE_GAP_MS)
       return;
     // An ignored input edge may never request a render. After the quiet period it
     // is safe to resume paced work; urgent work still yields to a requested render.
@@ -3163,21 +3181,23 @@ void EpubReaderActivity::advanceBackgroundSectionBuild() {
   if (!currentChapterComplete && !section->isBuilding() &&
       (buildViewportWidth == 0 || partialRebuildStartFailed || partialRebuildAbortedForLowMemory))
     return;
-  const unsigned long started = millis();
-  if (currentChapterComplete) {
-    if (!epub || section->pageCount == 0 || automaticPageTurnActive || completionPromptQueued ||
-        readerInputWakePending() || lastPresentedSpine != currentSpineIndex ||
-        lastPresentedPage != section->currentPage || currentSpineIndex + 1 >= epub->getSpineItemsCount() ||
-        (nextChapterBuildAttempted && !nextChapterBuild))
-      return;
-    advanceNextChapterBuild();
-  } else {
+  if (!backgroundIndexing) {
     runBackgroundSectionBuildStep();
+    return;
   }
-  if (idleSlice) {
-    lastIdleIndexMs = millis();
-    activityManager.recordIdleWork(lastIdleIndexMs - started);
+  if (!activityManager.canUpdateBackdropInPlace()) return;
+
+  if (!currentChapterComplete) {
+    // Keep the parser and its final SD writes off the input loop.
+    requestIdleChapterWork(idleSlice ? IdleChapterWork::ContinueIndexing : IdleChapterWork::BuildAhead);
+    return;
   }
+  if (!epub || section->pageCount == 0 || automaticPageTurnActive || completionPromptQueued ||
+      readerInputWakePending() || lastPresentedSpine != currentSpineIndex ||
+      lastPresentedPage != section->currentPage || currentSpineIndex + 1 >= epub->getSpineItemsCount() ||
+      (nextChapterBuildAttempted && !nextChapterBuild))
+    return;
+  requestIdleChapterWork(IdleChapterWork::PrepareNextChapter);
 }
 
 void EpubReaderActivity::advanceNextChapterBuild() {
@@ -3241,7 +3261,7 @@ void EpubReaderActivity::suspendNextChapterBuild() {
   nextChapterBuildAttempted = false;
 }
 
-// Called with RenderLock held. Return to polling after each parser or font step.
+// Called with RenderLock held. Yield to foreground rendering between steps.
 void EpubReaderActivity::runBackgroundSectionBuildStep() {
   releaseGrayscaleStripScratch();
   if (!backgroundSectionBuildHasHeap()) return;
@@ -3620,20 +3640,15 @@ void EpubReaderActivity::loop() {
 
   const auto touch = ReaderUtils::detectTouchPageTurn(renderer, mappedInput,
                                                       epub && ReaderUtils::isRtlBookLanguage(epub->getLanguage()));
-  const int bottomTapHeight =
-      SETTINGS.readerStatusBar(ReaderStatusBarPosition::Bottom).hidden ? 0
-      : automaticPageTurnActive
-          ? std::max(UITheme::getStatusBarHeight(renderer),
-                     UITheme::getProgressBarHeight() + UITheme::getReaderStatusBarTextHeight(renderer))
-          : UITheme::getStatusBarHeight(renderer);
+#if CROSSINK_APP_CAP_TOUCH
   if (SETTINGS.tapToHideStatusBar && touch.tapped &&
-      (ReaderUtils::isBottomStatusBarTap(renderer, touch.y, bottomTapHeight) ||
-       ReaderUtils::isTopStatusBarTap(renderer, touch.y,
-                                      UITheme::getReaderStatusBarHeight(ReaderStatusBarPosition::Top, renderer)))) {
+      (ReaderUtils::isBottomStatusBarTap(renderer, touch.y, bottomStatusBarTapHeight.load(std::memory_order_relaxed)) ||
+       ReaderUtils::isTopStatusBarTap(renderer, touch.y, topStatusBarTapHeight.load(std::memory_order_relaxed)))) {
     statusBarVisible = !statusBarVisible;
     requestUpdate();
     return;
   }
+#endif
   // A popup selection suppresses the Confirm release that follows its press.
   // Read it once: wasReleased() consumes that suppression, and a second read
   // in this loop would otherwise turn the same release into a reader-menu open.
@@ -3649,6 +3664,7 @@ void EpubReaderActivity::loop() {
   const bool userInputPending = rawReaderInput || touch.tapped || touch.prev || touch.next;
   if (userInputPending) {
     lastIdleIndexMs = millis();
+    idleChapterWork.store(IdleChapterWork::None, std::memory_order_relaxed);
     // Do not tear down the parser: suspending here would write a partial cache and
     // make the next build replay from page 0. Yield until the requested render starts.
     backgroundBuildYieldForInput.store(true, std::memory_order_relaxed);
@@ -3835,6 +3851,10 @@ void EpubReaderActivity::loop() {
     }
   }
 
+#if CROSSINK_APP_CAP_TOUCH
+  if (!atEndOfBook && replayDeferredFootnoteTap()) return;
+#endif
+
   if (automaticPageTurnActive && !endOfBookMenuOpen) {
     if (confirmReleased || (!touch.prev && !touch.next && wasBackReleased()) ||
         ReaderUtils::isTouchMenuGesture(mappedInput)) {
@@ -3844,20 +3864,22 @@ void EpubReaderActivity::loop() {
       return;
     }
 
-    if (!section) {
-      requestUpdate();
-      return;
-    }
-
-    // Skips page turn if renderingMutex is busy
-    if (RenderLock::peek()) {
-      lastPageTurnTime = millis();
-      return;
-    }
-
-    if ((millis() - lastPageTurnTime) >= pageTurnDuration) {
-      pageTurn(true, "auto");
-      return;
+    if (!userInputPending && !pendingManualPageTurns.hasPending()) {
+      RenderLock lock(*this, RenderLock::Mode::Try);
+      if (lock.ownsLock()) {
+        if (!section) {
+          requestUpdate();
+          return;
+        }
+        // Give each painted page its full dwell time. An indexing slice or a
+        // count-only refresh should not restart the automatic turn timer.
+        const unsigned long now = millis();
+        const unsigned long interval = pageTurnDuration;
+        if (now - lastPageTurnTime >= interval && now - lastRenderCompleteMs >= interval) {
+          pageTurn(lock, true, "auto");
+          return;
+        }
+      }
     }
   }
 
@@ -4061,13 +4083,6 @@ void EpubReaderActivity::loop() {
   if (handleEndOfBookPageTurn(nextTriggered)) return;
 
   const bool fromTouch = touch.prev || touch.next;
-
-  // No current section, attempt to rerender the book
-  if (!section) {
-    clearPendingManualPageTurns();
-    requestUpdate();
-    return;
-  }
 
   const char* pageTurnSource = fromTouch ? "touch" : (fromTilt ? "tilt" : (fromSideBtn ? "side" : "front"));
   if (shortPowerTurn || shortPowerPrevious || releasedLongPowerTurn || releasedLongPowerPrevious || heldLongPowerTurn) {
@@ -6650,20 +6665,36 @@ void EpubReaderActivity::requestManualPageTurn(const bool isForwardTurn, const c
     return;
   }
 
-  if (RenderLock::peek() || (millis() - lastPageTurnTime) < MIN_MANUAL_PAGE_TURN_GAP_MS) {
+  RenderLock lock(*this, RenderLock::Mode::Try);
+  if (!lock.ownsLock()) {
     enqueueManualTurn();
     return;
   }
+  if (!section || (section->isBuilding() && pendingRelayoutReposition) ||
+      (millis() - lastPageTurnTime) < MIN_MANUAL_PAGE_TURN_GAP_MS) {
+    enqueueManualTurn();
+    if (!section && activityManager.canUpdateBackdropInPlace()) requestUpdate();
+    return;
+  }
 
-  pageTurn(isForwardTurn, source);
+  pageTurn(lock, isForwardTurn, source);
 }
 
 bool EpubReaderActivity::drainPendingManualPageTurn() {
   finishManualPageTurnBrakeIfReady();
-  if (!pendingManualPageTurns.hasPending() || RenderLock::peek() ||
-      (millis() - lastPageTurnTime) < MIN_MANUAL_PAGE_TURN_GAP_MS) {
+  if (!pendingManualPageTurns.hasPending() || (millis() - lastPageTurnTime) < MIN_MANUAL_PAGE_TURN_GAP_MS) {
     return false;
   }
+
+  RenderLock lock(*this, RenderLock::Mode::Try);
+  if (!lock.ownsLock()) return false;
+  if (!section) {
+    // Keep the turn across a scheduled render, including SD retries. If the
+    // last render ended with an error and no retry, discard the stale turn.
+    if (activityManager.canUpdateBackdropInPlace()) clearPendingManualPageTurns(/*requestRecoveryRedraw=*/false);
+    return false;
+  }
+  if (section->isBuilding() && pendingRelayoutReposition) return false;
 
   ManualPageTurnRequest request;
   if (!pendingManualPageTurns.takeNext(request)) return false;
@@ -6672,12 +6703,15 @@ bool EpubReaderActivity::drainPendingManualPageTurn() {
   // quality pass no longer needs recovery.
   queuedTurnRendering.clear();
   pendingManualPageTurns.markDispatched(request);
-  pageTurn(request.isForward, request.source);
+  pageTurn(lock, request.isForward, request.source);
   return true;
 }
 
 void EpubReaderActivity::clearPendingManualPageTurns(const bool requestRecoveryRedraw) {
   pendingManualPageTurns.clear();
+#if CROSSINK_APP_CAP_TOUCH
+  deferredFootnoteTap.reset();
+#endif
   if (queuedTurnRendering.cancelDeferred() && requestRecoveryRedraw) {
     requestUpdate();
   }
@@ -6704,15 +6738,8 @@ bool EpubReaderActivity::isAtBookStart() const {
   return !activeFootnotePreview && section && currentSpineIndex == 0 && section->currentPage == 0;
 }
 
-void EpubReaderActivity::pageTurn(bool isForwardTurn, const char* source) {
-  // Keep the chapter alive while the render task can replace it during loading.
-  RenderLock lock(*this);
+void EpubReaderActivity::pageTurn(RenderLock& lock, bool isForwardTurn, const char* source) {
   if (!activeFootnotePreview) statusBarRelayoutOffset.reset();
-  if (!section) {
-    clearPendingManualPageTurns();
-    requestUpdate();
-    return;
-  }
   if (!isForwardTurn && isAtBookStart()) {
     clearPendingManualPageTurns();
     return;
@@ -6810,6 +6837,10 @@ void EpubReaderActivity::pageTurn(bool isForwardTurn, const char* source) {
 void EpubReaderActivity::render(RenderLock&& lock) {
   suspendNextChapterBuild();
   lastPresentedPage = -1;
+#if CROSSINK_APP_CAP_TOUCH
+  ++footnoteTouchFrame;
+#endif
+  idleChapterWork.store(IdleChapterWork::None, std::memory_order_relaxed);
   chapterCountRefreshPending = false;
 #if CROSSINK_SCALABLE_FONTS
   idleTtfReady.store(false, std::memory_order_relaxed);
@@ -8292,7 +8323,19 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
   timing.fontsDone = millis();
 #endif
 #if CROSSINK_APP_CAP_TOUCH
-  buildFootnoteTouchTargets(*page, fontId, orientedMarginTop, orientedMarginLeft);
+  if (updatePanel) {
+    // Font metrics use RenderLock. Cache the touch geometry while already
+    // rendering so the input loop never waits for e-ink to finish.
+    int bottomTapHeight = UITheme::getStatusBarHeight(renderer);
+    if (!SETTINGS.readerStatusBar(ReaderStatusBarPosition::Bottom).hidden && automaticPageTurnActive) {
+      bottomTapHeight =
+          std::max(bottomTapHeight, UITheme::getProgressBarHeight() + UITheme::getReaderStatusBarTextHeight(renderer));
+    }
+    bottomStatusBarTapHeight.store(bottomTapHeight, std::memory_order_relaxed);
+    topStatusBarTapHeight.store(UITheme::getReaderStatusBarHeight(ReaderStatusBarPosition::Top, renderer),
+                                std::memory_order_relaxed);
+    buildFootnoteTouchTargets(*page, fontId, orientedMarginTop, orientedMarginLeft);
+  }
 #endif
 
   const bool pageHasImages = page->hasImages();
@@ -8667,36 +8710,65 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
 }
 
 #if CROSSINK_APP_CAP_TOUCH
+namespace {
+Rect footnoteTapArea(const FootnoteLinkTarget& target, const GfxRenderer& renderer) {
+  const int screenWidth = renderer.getScreenWidth();
+  const int screenHeight = renderer.getScreenHeight();
+  const int expandedWidth = std::min(screenWidth, std::max<int>(target.width, TOUCH_FOOTNOTE_TARGET_SIZE));
+  const int expandedHeight = std::min(screenHeight, std::max<int>(target.height, TOUCH_FOOTNOTE_TARGET_SIZE));
+  const int left = std::clamp(target.x - (expandedWidth - target.width) / 2, 0, screenWidth - expandedWidth);
+  const int top = std::clamp(target.y - (expandedHeight - target.height) / 2, 0, screenHeight - expandedHeight);
+  return Rect(left, top, expandedWidth, expandedHeight);
+}
+}  // namespace
+
 void EpubReaderActivity::buildFootnoteTouchTargets(const Page& page, const int fontId, const int orientedMarginTop,
                                                    const int orientedMarginLeft) {
   currentPageFootnoteTouchTargets.fill({});
   if (activeFootnotePreview || currentPageFootnotes.empty()) return;
   currentPageFootnoteTouchTargets =
       buildFootnoteLinkTargets(page, currentPageFootnotes, renderer, fontId, orientedMarginTop, orientedMarginLeft);
+  for (const auto& target : currentPageFootnoteTouchTargets) {
+    if (target.width > 0 && target.height > 0) {
+      TouchRegistry::getInstance().add(footnoteTapArea(target, renderer), static_cast<int16_t>(footnoteTouchFrame),
+                                       TouchRegistry::Kind::Footnote);
+    }
+  }
 }
 
 bool EpubReaderActivity::handleTouchFootnoteLink(const int touchX, const int touchY) {
-  if (!mappedInput.hasTouch() || RenderLock::peek() || activeFootnotePreview || currentPageFootnotes.empty()) {
-    return false;
+  if (!mappedInput.hasTouch()) return false;
+  if (!RenderLock::peek()) {
+    RenderLock lock(*this, RenderLock::Mode::Try);
+    if (lock.ownsLock()) return openFootnoteAt(touchX, touchY);
   }
+
+  int frame;
+  if (!TouchRegistry::getInstance().hitTest(touchX, touchY, TouchRegistry::Kind::Footnote, frame)) return false;
+  if (!deferredFootnoteTap) deferredFootnoteTap = DeferredFootnoteTap{touchX, touchY, static_cast<uint16_t>(frame)};
+  return true;
+}
+
+bool EpubReaderActivity::replayDeferredFootnoteTap() {
+  if (!deferredFootnoteTap) return false;
+  RenderLock lock(*this, RenderLock::Mode::Try);
+  if (!lock.ownsLock()) return false;
+  const auto tap = *deferredFootnoteTap;
+  deferredFootnoteTap.reset();
+  return tap.frame == footnoteTouchFrame && mappedInput.hasTouch() && openFootnoteAt(tap.x, tap.y);
+}
+
+bool EpubReaderActivity::openFootnoteAt(const int touchX, const int touchY) {
+  if (!section || activeFootnotePreview) return false;
 
   int bestIndex = -1;
   int64_t bestDistance = std::numeric_limits<int64_t>::max();
-  const int screenWidth = renderer.getScreenWidth();
-  const int screenHeight = renderer.getScreenHeight();
   for (size_t i = 0; i < currentPageFootnotes.size() && i < currentPageFootnoteTouchTargets.size(); ++i) {
     const auto& target = currentPageFootnoteTouchTargets[i];
     if (target.width <= 0 || target.height <= 0) continue;
 
-    const int expandedWidth = std::max<int>(target.width, TOUCH_FOOTNOTE_TARGET_SIZE);
-    const int expandedHeight = std::max<int>(target.height, TOUCH_FOOTNOTE_TARGET_SIZE);
-    const int left = std::max(
-        0, std::min(target.x - (expandedWidth - target.width) / 2, screenWidth - std::min(screenWidth, expandedWidth)));
-    const int top = std::max(0, std::min(target.y - (expandedHeight - target.height) / 2,
-                                         screenHeight - std::min(screenHeight, expandedHeight)));
-    const int right = std::min(screenWidth, left + expandedWidth);
-    const int bottom = std::min(screenHeight, top + expandedHeight);
-    if (touchX < left || touchX >= right || touchY < top || touchY >= bottom) continue;
+    const Rect hit = footnoteTapArea(target, renderer);
+    if (touchX < hit.x || touchX >= hit.x + hit.width || touchY < hit.y || touchY >= hit.y + hit.height) continue;
 
     const int centerX = target.x + target.width / 2;
     const int centerY = target.y + target.height / 2;
@@ -8856,10 +8928,29 @@ void EpubReaderActivity::drawClippingHighlights(const Page& page, const int font
   });
 }
 
+void EpubReaderActivity::renderIdle() {
+  const auto work = idleChapterWork.exchange(IdleChapterWork::None, std::memory_order_relaxed);
+  if (work == IdleChapterWork::None || !section || !backgroundBuildCanUsePageBuffer()) return;
+  if (pendingManualPageTurns.hasPending() && (work != IdleChapterWork::BuildAhead || !pendingRelayoutReposition)) {
+    return;
+  }
+  if (work == IdleChapterWork::RefreshCount) {
+    if (!chapterCountRefreshPending) return;
+    chapterCountRefreshPending = false;
+    refreshChapterCountStatusBars();
+  } else if (work == IdleChapterWork::PrepareNextChapter) {
+    if (readerInputWakePending()) return;
+    advanceNextChapterBuild();
+    lastIdleIndexMs = millis();
+  } else {
+    runBackgroundSectionBuildStep();
+    if (work == IdleChapterWork::ContinueIndexing) lastIdleIndexMs = millis();
+  }
+}
+
 void EpubReaderActivity::refreshChapterCountStatusBars() {
   if (!statusBarVisible || activeFootnotePreview || lastPresentedSpine != currentSpineIndex ||
-      lastPresentedPage != section->currentPage || pendingManualPageTurns.hasPending() ||
-      mappedInput.hasPendingActivity() || !backgroundBuildCanUsePageBuffer() ||
+      lastPresentedPage != section->currentPage || !backgroundBuildCanUsePageBuffer() ||
       !activityManager.canUpdateBackdropInPlace()) {
     return;
   }
@@ -8881,7 +8972,6 @@ void EpubReaderActivity::refreshChapterCountStatusBars() {
   // The next ordinary paint will show the final count on those panels.
   if (presentedPageUsesGrayscale && !renderer.canUpdateGrayscaleWindow()) return;
 
-  HalPowerManager::Lock powerLock;
   std::optional<FontCacheManager::PrewarmScope> prewarm;
   if (auto* fontCache = renderer.getFontCacheManager()) {
     prewarm.emplace(*fontCache, FontCacheManager::PreparationPolicy::Normal);
@@ -9248,7 +9338,8 @@ void EpubReaderActivity::navigateToHref(const std::string& hrefStr, const bool s
 
   bool saveReturnPosition = savePosition;
   {
-    RenderLock lock(*this);
+    std::optional<RenderLock> lock;
+    if (!RenderLock::heldByCurrentTask()) lock.emplace(*this);
     if (savePosition) {
       // Contents links can point at a place inside a chapter, including page-list
       // anchors that are absent from the chapter list. Check the source first.

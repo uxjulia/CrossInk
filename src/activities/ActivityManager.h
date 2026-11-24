@@ -90,8 +90,6 @@ class ActivityManager {
   void processPendingActivities();
   bool prepareSleepPlugins(bool quickResume, bool fromReaderOrHome, bool& attemptedJoin);
 
-  unsigned long idleWorkMs = 0;  // Main task only, reset at the start of each dispatch.
-
   // Pending activity to be launched on next loop iteration
   std::unique_ptr<Activity> pendingActivity;
   enum class PendingAction { None, Push, Pop, Replace };
@@ -118,6 +116,9 @@ class ActivityManager {
 
   // Task to render and display the activity
   TaskHandle_t renderTaskHandle = nullptr;
+  enum RenderWork : uint8_t { FullRender = 1, IdleRender = 2 };
+  std::atomic<uint8_t> queuedRenderWork{0};
+  void notifyRenderTask(RenderWork work);
   // Guarded by RenderLock. Entry may explicitly render a ready loading screen
   // with requestUpdateAndWait(), but stale/asynchronous notifications must wait.
   bool enteringActivity = false;
@@ -161,8 +162,6 @@ class ActivityManager {
 
   void begin(uint32_t renderTaskStackBytes = 16384);
   void loop();
-  void recordIdleWork(unsigned long durationMs) { idleWorkMs += durationMs; }
-  unsigned long lastLoopIdleWorkMs() const { return idleWorkMs; }
 
   // Will replace currentActivity and drop all activities on stack
   void replaceActivity(std::unique_ptr<Activity>&& newActivity);
@@ -231,7 +230,9 @@ class ActivityManager {
 #endif
   bool isCurrentActivity(const Activity* activity) const { return currentActivity.get() == activity; }
   bool canSnapshotForSleepOverlay() const;
-  bool canUpdateBackdropInPlace() const { return !restoredActivityNeedsRender && !requestedUpdate; }
+  bool canUpdateBackdropInPlace() const {
+    return !restoredActivityNeedsRender && !requestedUpdate && !(queuedRenderWork.load() & FullRender);
+  }
   bool requestManualReaderRefresh();
   bool handleShortcutAction(CrossPointSettings::SHORT_PWRBTN action);
   bool handleQuickLockUnlock(QuickLockTrigger trigger);
@@ -248,6 +249,7 @@ class ActivityManager {
   // If immediate is true, the update will be triggered immediately.
   // Otherwise, it will be deferred until the end of the current loop iteration.
   void requestUpdate(bool immediate = false);
+  void requestIdleRender() { notifyRenderTask(IdleRender); }
 
   // Main-loop only, without RenderLock: restore the reader pixels covered by
   // a dismissed popup inside a partial-screen overlay.
