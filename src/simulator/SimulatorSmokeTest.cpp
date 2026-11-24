@@ -8156,6 +8156,12 @@ class SimulatorSmokeTest {
         if (!std::strstr(manager->simulatorLabel(2), expected) ||
             std::strstr(manager->simulatorLabel(2), tr(STR_ASSET_USE)))
           fail("Hyphenation row status does not match pack state");
+        const auto communityIndex = getLanguageEntries().size;
+        const auto* communityLabel = manager->simulatorLabel(communityIndex);
+        if (std::strncmp(communityLabel, "zz:", 3) ||
+            !std::strstr(communityLabel, tr(STR_HYPHENATION_INSTALL_ACTION)) ||
+            *manager->simulatorLabel(communityIndex + 1))
+          fail("Hyphenation list did not filter community packs by header identity");
         {
           RenderLock lock;
           captureStatusBarScreen(stage ? "hyphenation-installed" : "hyphenation-sd");

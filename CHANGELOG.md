@@ -3,11 +3,11 @@
 ### Added
 
 - Show the configured book or chapter time remaining beside book progress in the reader drawer and button menu.
-
 - Support ten new Indic scripts when you using a compatible font. (CrossPoint #3787).
 - Show a Delete button when viewing a clipping (#936).
 - Add an optional Dutch hyphenation pack for EPUBs (#970).
 - Add optional Sync on Sleep for EPUB progress, plus bookmarks, clippings, and reading sessions on compatible servers (CrossPoint #4531).
+- Download more EPUB hyphenation packs over Wi-Fi and install compatible community packs from an SD card.
 
 ### Changed
 
@@ -44,6 +44,7 @@
 - Set each OPDS server’s download folder and optionally use its filenames to match reading progress across devices. Downloads fall back to the chosen filename format when the option is off or the server supplies an unsafe or missing name.
 - Enable SD card plugins in `Settings > System` and open Plugins from Home. Plugins support browser interfaces, on-device catalogs, sign-in, and download folders. The optional Plugin Hub discovers, installs, and updates compatible plugins. Hold Confirm or long-press an installed plugin to open its uninstall prompt (CrossPoint #4100).
 - Install and edit interface language packs from SD. Missing strings fall back to English. Browser editors and release downloads use a versioned English template and compatibility catalog.
+- Download Azerbaijani, Bosnian, Bulgarian, Indonesian, Norwegian Bokmål, and Persian for the interface. Only English is built in.
 - Install, update, or remove EPUB hyphenation packs. English is built in, and affected book layouts rebuild after a pack changes.
 - On your first upgrade to v2.0.0, What’s New explains how to install interface languages and hyphenation packs. It also shows where to enable SD card plugins and sync reading stats and clippings with CrossPoint Sync. Reopen the screen from `Settings > System > Release Notes`.
 - On ESP32-S3 readers, install static OpenType fonts from SD or the web uploader, including CFF fonts with .otf or .ttf extensions. EPUBs can also use embedded publisher fonts, including Adobe-obfuscated fonts, through `Off`, `Ignore Body Font`, and `All Text` modes. Variable fonts and collections remain unsupported (CrossPoint #3646, #3717).
@@ -83,6 +84,7 @@
 
 ### Fixed
 
+- Fix an occasional reboot when putting an X3 or X4 to sleep with plugins enabled (#973).
 - Index EPUBs faster when many table-of-contents entries point to the same chapter file or chapter files are stored out of reading order.
 - Credit EPUB and XTC reading to the correct local day across midnight. Preserve live stats if a save fails, retry updates after SD errors, and finish pending saves before sleep, reader restart, or USB Drive handoff.
 - Preserve unreadable stats and offer to restore them from a verified backup. Keep daily, manual, and clockless backups separate and prune numbered backups in the correct order beyond 999.

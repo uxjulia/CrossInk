@@ -23,11 +23,11 @@ spec.loader.exec_module(publisher)
 import export_github_language_assets as github_export
 
 
-def bundle(source='a', keyset='b', revision='c', text=b'French', channel='stable', kind='translation', schema=1):
+def bundle(source='a', keyset='b', revision='c', text=b'French', channel='stable', kind='translation', schema=1, code=None):
     prefix = f'snapshots/{revision * 40}/'
     notice = b'Pattern source and notices'
     ref = {'path': prefix + 'source/notice.txt', 'bytes': len(notice), 'sha256': publisher.sha(notice)}
-    code = 'FR' if kind == 'translation' else 'fr'
+    code = code or ('FR' if kind == 'translation' else 'fr')
     entry = {'code': code, 'bytes': len(text), 'sha256': publisher.sha(text)}
     catalog = {'schema': schema, 'kind': kind, 'channel': channel, 'revision': revision * 40,
                'format': 1, 'requires': 0, 'notices': 'notices.json', 'sources': 'sources.json', 'entries': [entry]}
@@ -53,6 +53,8 @@ class PublicationTest(unittest.TestCase):
         self.current = bundle()
         self.hyphenation = bundle(kind='hyphenation', revision='f')
         self.extended_hyphenation = bundle(kind='hyphenation', revision='e', schema=2)
+        self.supplemental_hyphenation = bundle(kind='hyphenation', revision='8', schema=3, code='fi', text=b'Finnish')
+        self.finnish = bundle(kind='hyphenation', revision='7', code='fi', text=b'Finnish')
         self.fail_key = None
         self.corrupt_key = None
 
@@ -87,12 +89,20 @@ class PublicationTest(unittest.TestCase):
         self.writes.append(key)
         return {}
 
+    def hyphenation_for_channel(self, fixture):
+        catalog, files = copy.deepcopy(fixture)
+        catalog['channel'] = publisher.args.channel
+        return catalog, files
+
     def run_publisher(self, *options, clean=False):
         with patch.object(publisher, 'root', self.root), \
              patch.object(publisher, 'aws', self.aws), \
              patch.object(publisher, 'build_languages', side_effect=lambda *_: copy.deepcopy(self.current)), \
-             patch.object(publisher, 'build_hyphenation', side_effect=lambda extended=False: copy.deepcopy(
+             patch.object(publisher, 'build_hyphenation', side_effect=lambda extended=False: self.hyphenation_for_channel(
                  self.extended_hyphenation if extended else self.hyphenation)), \
+             patch.object(publisher, 'build_supplemental_hyphenation',
+                          side_effect=lambda finnish_only=False: self.hyphenation_for_channel(
+                              self.finnish if finnish_only else self.supplemental_hyphenation)), \
              patch.object(publisher.subprocess, 'check_output', side_effect=lambda command, **_:
                           '' if clean and 'status' in command else '1' * 40), \
              patch.object(publisher.subprocess, 'run', return_value=subprocess.CompletedProcess([], 1, '', '')), \
@@ -184,15 +194,24 @@ class PublicationTest(unittest.TestCase):
         self.assertIn('catalogs/rc/translation.json', self.store)
         legacy = 'catalogs/stable/hyphenation.json'
         modern = 'catalogs/stable/hyphenation-v2.json'
+        finnish = 'catalogs/stable/hyphenation/fi.json'
         self.assertIn(legacy, self.store)
         self.assertIn(modern, self.store)
+        self.assertIn(finnish, self.store)
         self.assertNotIn('catalogs/rc/hyphenation.json', self.store)
         self.assertNotIn('catalogs/rc/hyphenation-v2.json', self.store)
+        self.assertNotIn('catalogs/rc/hyphenation/fi.json', self.store)
+        self.run_publisher('--publish', '--channel', 'rc', '--assets', 'hyphenation')
+        for key, data in stable.items():
+            self.assertEqual(self.store[key], data)
+        rc_finnish = json.loads(self.store['catalogs/rc/hyphenation/fi.json'])
+        self.assertEqual([entry['code'] for entry in rc_finnish['entries']], ['fi'])
         # A later extended snapshot updates its own pointer, never v1.
         self.hyphenation = bundle(kind='hyphenation', revision='c', text=b'Unexpected legacy change')
         self.extended_hyphenation = bundle(kind='hyphenation', revision='9', text=b'New modern content', schema=2)
         self.run_publisher('--publish', '--assets', 'hyphenation')
         self.assertEqual(self.store[legacy], stable[legacy])
+        self.assertEqual(self.store[finnish], stable[finnish])
         self.assertNotEqual(self.store[modern], stable[modern])
         count = len(self.writes)
         self.run_publisher('--publish', '--assets', 'hyphenation')

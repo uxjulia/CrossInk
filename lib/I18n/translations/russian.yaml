@@ -646,6 +646,7 @@ STR_SYNC_ALL_CONFIRM: "Синхронизировать все книги на S
 STR_CLIPPINGS: "Цитаты"
 STR_SYNC: "Синхронизировать"
 STR_WHAT_TO_SYNC: "Что синхронизировать"
+STR_SYNC_ON_SLEEP: "Синхронизация при переходе в сон"
 STR_SYNC_OPTIONS: "Параметры синхронизации"
 STR_REQUIRES_CROSSPOINT_SYNC: "Требуется CrossPoint Sync"
 STR_SERVER_EXTRAS_AVAILABLE: "Статистика и цитаты тоже синхронизируются"

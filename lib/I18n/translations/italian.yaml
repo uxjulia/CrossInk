@@ -638,6 +638,7 @@ STR_SYNC_ALL_CONFIRM: "Sincronizzare tutti i libri della scheda SD secondo le im
 STR_CLIPPINGS: "Ritagli"
 STR_SYNC: "Sincronizza"
 STR_WHAT_TO_SYNC: "Cosa sincronizzare"
+STR_SYNC_ON_SLEEP: "Sincronizza alla sospensione"
 STR_SYNC_OPTIONS: "Opzioni di sincronizzazione"
 STR_REQUIRES_CROSSPOINT_SYNC: "Richiede CrossPoint Sync"
 STR_SERVER_EXTRAS_AVAILABLE: "Anche statistiche e ritagli possono essere sincronizzati"

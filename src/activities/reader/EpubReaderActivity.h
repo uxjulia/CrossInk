@@ -362,7 +362,10 @@ class EpubReaderActivity final : public Activity {
   using SavedPosition = EpubLinkReturnState::Position;
   static constexpr int MAX_FOOTNOTE_DEPTH = EpubLinkReturnState::MAX_DEPTH;
   SavedPosition savedPositions[MAX_FOOTNOTE_DEPTH] = {};
-  int footnoteDepth = 0;
+  // Render can pop a failed preview. Only the depth is read without RenderLock.
+  std::atomic<int> footnoteDepth{0};
+  // Main-loop input only; the saved depth prevents a second pop after render recovery.
+  int deferredFootnoteBackDepth = 0;
 
   // Viewport of the last render(), captured so loop()'s lazy partial-extension start
   // builds with identical layout parameters to the pages already rendered.
@@ -594,7 +597,7 @@ class EpubReaderActivity final : public Activity {
 
   // Footnote navigation
   void navigateToHref(const std::string& href, bool savePosition = false, bool preferFootnotePreview = false);
-  void restoreSavedPosition();
+  bool restoreSavedPosition(int deferredDepth = 0);
 
   BookLoadingFeedback openingFeedback;
   bool showOpeningFeedback() {

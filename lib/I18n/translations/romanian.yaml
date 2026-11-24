@@ -584,6 +584,7 @@ STR_SYNC_ALL_CONFIRM: "Sincronizezi toate cărțile de pe cardul SD conform set�
 STR_CLIPPINGS: "Extrase"
 STR_SYNC: "Sincronizează"
 STR_WHAT_TO_SYNC: "Ce se sincronizează"
+STR_SYNC_ON_SLEEP: "Sincronizează la intrarea în repaus"
 STR_SYNC_OPTIONS: "Opțiuni de sincronizare"
 STR_REQUIRES_CROSSPOINT_SYNC: "Necesită CrossPoint Sync"
 STR_SERVER_EXTRAS_AVAILABLE: "Se pot sincroniza și statisticile și extrasele"

@@ -630,6 +630,7 @@ STR_SYNC_ALL_CONFIRM: "Đồng bộ mọi sách trên thẻ SD theo cài đặt 
 STR_CLIPPINGS: "Trích đoạn"
 STR_SYNC: "Đồng bộ"
 STR_WHAT_TO_SYNC: "Nội dung đồng bộ"
+STR_SYNC_ON_SLEEP: "Đồng bộ khi vào chế độ ngủ"
 STR_SYNC_OPTIONS: "Tùy chọn đồng bộ"
 STR_REQUIRES_CROSSPOINT_SYNC: "Cần CrossPoint Sync"
 STR_SERVER_EXTRAS_AVAILABLE: "Có thể đồng bộ cả thống kê và trích đoạn"

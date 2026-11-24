@@ -165,7 +165,10 @@ Result metadataLine(const char* key, char* value, Metadata& meta, bool& explicit
 Result finishMetadata(Metadata& meta, bool explicitDirection) {
   if (!validCode(meta.code) || !*meta.name) return Result::MetadataMissing;
   if (std::strcmp(meta.code, "EN") == 0) return Result::Invalid;
-  if (!explicitDirection) meta.rtl = std::strcmp(meta.code, "AR") == 0 || std::strcmp(meta.code, "HE") == 0;
+  if (!explicitDirection) {
+    meta.rtl =
+        std::strcmp(meta.code, "AR") == 0 || std::strcmp(meta.code, "HE") == 0 || std::strcmp(meta.code, "FA") == 0;
+  }
   if (!*meta.keyboard) std::strcpy(meta.keyboard, meta.code);
   return Result::Ok;
 }

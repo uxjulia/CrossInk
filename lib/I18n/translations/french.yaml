@@ -584,6 +584,7 @@ STR_SYNC_ALL_CONFIRM: "Synchroniser tous les livres de la carte SD selon vos ré
 STR_CLIPPINGS: "Extraits"
 STR_SYNC: "Synchroniser"
 STR_WHAT_TO_SYNC: "Éléments à synchroniser"
+STR_SYNC_ON_SLEEP: "Synchro à la mise en veille"
 STR_SYNC_OPTIONS: "Options de synchro"
 STR_REQUIRES_CROSSPOINT_SYNC: "Nécessite CrossPoint Sync"
 STR_SERVER_EXTRAS_AVAILABLE: "Les stats et extraits peuvent aussi être synchronisés"

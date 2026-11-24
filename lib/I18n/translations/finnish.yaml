@@ -575,6 +575,7 @@ STR_SYNC_ALL_CONFIRM: "Synkronoidaanko kaikki SD-kortin kirjat synkronointiasetu
 STR_CLIPPINGS: "Leikkeet"
 STR_SYNC: "Synkronoi"
 STR_WHAT_TO_SYNC: "Mitä synkronoidaan"
+STR_SYNC_ON_SLEEP: "Synkronoi lepotilaan siirryttäessä"
 STR_SYNC_OPTIONS: "Synkronointiasetukset"
 STR_REQUIRES_CROSSPOINT_SYNC: "Vaatii CrossPoint Syncin"
 STR_SERVER_EXTRAS_AVAILABLE: "Myös tilastot ja leikkeet voi synkronoida"

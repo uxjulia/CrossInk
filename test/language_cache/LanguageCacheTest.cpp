@@ -242,6 +242,10 @@ void parser() {
   CHECK(inspect(metadata.input(), m) == Result::Ok && std::strcmp(m.code, "ZZ-CUSTOM") == 0 && !m.rtl);
   metadata.bytes = document({}, "AR");
   CHECK(inspect(metadata.input(), m) == Result::Ok && m.rtl && std::strcmp(m.keyboard, "AR") == 0);
+  metadata.bytes = "_language_code: \"fa\"\n_language_name: \"Farsi\"\n";
+  CHECK(inspect(metadata.input(), m) == Result::Ok && m.rtl && std::strcmp(m.code, "FA") == 0);
+  metadata.bytes = "_language_code: \"fa\"\n_language_name: \"Farsi\"\n_direction: \"ltr\"\n";
+  CHECK(inspect(metadata.input(), m) == Result::Ok && !m.rtl);
   metadata.bytes = "_language_code: \"foo\"\n_language_name: \"Foo\"\n_direction: \"rtl\"\n_keyboard: \"HE\"\n";
   CHECK(inspect(metadata.input(), m) == Result::Ok && m.rtl && std::strcmp(m.code, "FOO") == 0 &&
         std::strcmp(m.keyboard, "HE") == 0);

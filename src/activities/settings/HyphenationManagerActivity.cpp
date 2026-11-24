@@ -51,14 +51,9 @@ void HyphenationManagerActivity::showLanguages() {
     if (entry.hyphenator) builtInIndex = static_cast<int>(i);
     if (!std::strcmp(wanted_, entry.primaryTag)) selected_ = static_cast<int>(i);
   }
-  catalog_->localCount = 0;
-  for (size_t i = 0; i < hyphenation_pack::MAX_PACKS; ++i) {
-    char code[3];
-    if (!HyphenationPackStore::installedCodeAt(i, code)) break;
-    if (!findLanguageEntry(code)) {
-      if (!std::strcmp(wanted_, code)) selected_ = static_cast<int>(languages.size + catalog_->localCount);
-      std::memcpy(catalog_->local[catalog_->localCount++], code, sizeof(code));
-    }
+  catalog_->localCount = HyphenationPackStore::listLocalPacks(catalog_->local, LOCAL_CAPACITY);
+  for (size_t i = 0; i < catalog_->localCount; ++i) {
+    if (!std::strcmp(wanted_, catalog_->local[i].code)) selected_ = static_cast<int>(languages.size + i);
   }
   if (selected_ < 0 || size_t(selected_) >= languages.size + catalog_->localCount) selected_ = 0;
   wanted_[0] = '\0';
@@ -82,52 +77,62 @@ const char* HyphenationManagerActivity::codeAt(size_t index) const {
   const auto languages = getLanguageEntries();
   if (index < languages.size) return languages.data[index].primaryTag;
   index -= languages.size;
-  return index < catalog_->localCount ? catalog_->local[index] : nullptr;
+  return index < catalog_->localCount ? catalog_->local[index].code : nullptr;
 }
 const char* HyphenationManagerActivity::nameAt(size_t index) const {
   const char* code = codeAt(index);
   if (!code) return "";
   const auto* entry = findLanguageEntry(code);
-  if (!entry) return code;
-  if (entry->displayName) return entry->displayName;
+  if (entry && entry->displayName) return entry->displayName;
   const char uiCode[] = {static_cast<char>(code[0] - 'a' + 'A'), static_cast<char>(code[1] - 'a' + 'A'), '\0'};
-  return I18N.getLanguageName(I18n::languageFromCode(uiCode));
+  const auto language = I18n::languageFromCode(uiCode);
+  return language == Language::EN && std::strcmp(code, "en") ? code : I18N.getLanguageName(language);
 }
 const char* HyphenationManagerActivity::labelAt(size_t index) const {
   const char* code = codeAt(index);
   if (!code) return "";
   const auto languages = getLanguageEntries();
   const bool builtIn = index < languages.size && languages.data[index].hyphenator;
-  const bool installed = index >= languages.size || catalog_->installed[index];
+  const bool installed =
+      index < languages.size ? catalog_->installed[index] : catalog_->local[index - languages.size].installed;
   const char* status = builtIn     ? tr(STR_HYPHENATION_BUILT_IN)
                        : installed ? tr(STR_INSTALLED)
                                    : tr(STR_HYPHENATION_INSTALL_ACTION);
   // This is a normal borrowed list, not a paired action popup. It measures
   // and draws each label immediately under the activity's render lock.
-  std::snprintf(label_, sizeof(label_), "%s (%s): %s", nameAt(index), code, status);
+  const char* name = nameAt(index);
+  if (std::strcmp(name, code))
+    std::snprintf(label_, sizeof(label_), "%s (%s): %s", name, code, status);
+  else
+    std::snprintf(label_, sizeof(label_), "%s: %s", code, status);
   return label_;
 }
 void HyphenationManagerActivity::select() {
   const char* code = selected_ < 0 ? nullptr : codeAt(size_t(selected_));
   const auto* entry = findLanguageEntry(code);
   if (!code || (entry && entry->hyphenator)) return;
+  const bool localOnly = !entry;
+  const bool hasSource = HyphenationPackStore::hasSource(code);
   if (!HyphenationPackStore::isInstalled(code)) {
     // An SD copy installs offline; otherwise the Wi-Fi screen downloads and installs it.
-    if (HyphenationPackStore::hasSource(code))
+    if (hasSource)
       apply(false);
+    else if (localOnly)
+      showLanguages();
     else
       connect();
     return;
   }
   RenderLock lock(*this);
+  const bool canUpdate = !localOnly || hasSource;
   const char* options[] = {tr(STR_UPDATE), tr(STR_DELETE), tr(STR_CANCEL)};
-  const int firstOption = entry ? 0 : 1;  // Unlisted installed SD packs are removable, not downloadable.
+  const int firstOption = canUpdate ? 0 : 1;
   popup_.show(
       nameAt(size_t(selected_)), options + firstOption, 3 - firstOption, 2 - firstOption,
-      [this, firstOption](int index) {
+      [this, firstOption, localOnly](int index) {
         switch (index + firstOption) {
           case 0:
-            pending_ = Pending::Connect;
+            pending_ = localOnly ? Pending::Install : Pending::Connect;
             break;
           case 1:
             pending_ = Pending::Remove;
@@ -206,6 +211,9 @@ void HyphenationManagerActivity::loop() {
     }
     case Pending::Connect:
       connect();
+      return;
+    case Pending::Install:
+      apply(false);
       return;
     case Pending::Remove:
       apply(true);

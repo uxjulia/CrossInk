@@ -264,8 +264,11 @@ void AssetDownloadActivity::fetch() {
   bool valid = fetchCatalog();
   if (!valid && !cancelled_ && !incompatible &&
       AssetCatalog::canFallbackHyphenationCatalog(parserOptions, diagnostics.status, wanted)) {
-    LOG_INF("ASSET", "Extended hyphenation catalog not found; trying legacy catalog for %s", wanted);
-    parserOptions.hyphenationCatalog = AssetCatalog::HyphenationCatalog::Legacy;
+    LOG_INF("ASSET", "Hyphenation catalog not found; trying compatibility catalog for %s", wanted);
+    parserOptions.hyphenationCatalog =
+        parserOptions.hyphenationCatalog == AssetCatalog::HyphenationCatalog::Supplemental
+            ? AssetCatalog::HyphenationCatalog::Finnish
+            : AssetCatalog::HyphenationCatalog::Legacy;
     valid = fetchCatalog();
   }
   busy_ = false;

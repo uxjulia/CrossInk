@@ -459,6 +459,8 @@ def run_smoke(args: argparse.Namespace) -> int:
             data = pack_bytes("de")
             (packs / "hyph-de.cphyph").write_bytes(data)
             (packs / "hyph-fr.cphyph").write_bytes(data)  # mismatched header identity
+            (packs / "hyph-zz.cphyph").write_bytes(data[:5] + b"zz" + data[7:])
+            (packs / "hyph-zy.cphyph").write_bytes(data)  # mismatched community pack
             env["CROSSINK_SIMULATOR_SMOKE_HYPHENATION"] = "1"
             env["CROSSINK_HYPHENATION_SMOKE_UI"] = code if args.language_file else "EN"
         if args.hyphenation_captures:

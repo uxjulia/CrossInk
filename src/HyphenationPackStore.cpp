@@ -8,6 +8,7 @@
 #include <LanguageCache.h>
 #include <Logging.h>
 
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 
@@ -83,6 +84,11 @@ bool readInput(void* context, size_t offset, void* bytes, size_t size) {
   auto* file = static_cast<FsFile*>(context);
   return file->seek(offset) && file->read(bytes, size) == static_cast<int>(size);
 }
+bool compatibleSource(HalFile& file, const char* code) {
+  hyphenation_pack::Entry entry;
+  return hyphenation_pack::inspect({&file, file.size(), readInput}, localSupported, code, entry) ==
+         hyphenation_pack::Result::Ok;
+}
 }  // namespace
 
 bool begin() {
@@ -102,13 +108,51 @@ bool isInstalled(const char* code) {
 }
 bool hasSource(const char* code) {
   char path[64];
-  return sourcePath(code, path) && Storage.exists(path);
+  if (!sourcePath(code, path)) return false;
+  if (supported(code, 2, 2)) return Storage.exists(path);
+  auto file = Storage.open(path);
+  if (!file) return false;
+  const bool compatible = !file.isDirectory() && compatibleSource(file, code);
+  file.close();
+  return compatible;
 }
-bool installedCodeAt(size_t index, char (&code)[3]) {
-  hyphenation_pack::Entry entry;
-  if (!initialized || !store.entryAt(index, entry)) return false;
-  std::memcpy(code, entry.code, sizeof(code));
-  return true;
+size_t listLocalPacks(LocalPack* out, size_t capacity) {
+  if (!out || !capacity) return 0;
+  size_t count = 0;
+  if (initialized) {
+    for (size_t i = 0; i < store.count() && count < capacity; ++i) {
+      hyphenation_pack::Entry entry;
+      if (store.entryAt(i, entry) && !findLanguageEntry(entry.code))
+        out[count++] = {{entry.code[0], entry.code[1], 0}, true};
+    }
+  }
+  auto dir = Storage.open(DIRECTORY);
+  if (dir && dir.isDirectory()) {
+    // The menu has a fixed-size result. Cap filesystem work as well, even on
+    // cards with large unrelated directories.
+    constexpr size_t MAX_DIRECTORY_ENTRIES = 512;
+    for (size_t seen = 0; seen < MAX_DIRECTORY_ENTRIES && count < capacity; ++seen) {
+      if (seen && !(seen % 32)) delay(1);
+      auto file = dir.openNextFile();
+      if (!file) break;
+      char name[32] = {};
+      // Require the exact canonical filename including case and extension.
+      const bool canonicalName = !file.isDirectory() && file.getName(name, sizeof(name)) == 14 &&
+                                 !std::strncmp(name, "hyph-", 5) && !std::strcmp(name + 7, ".cphyph");
+      const char code[3] = {name[5], name[6], 0};
+      if (canonicalName && localSupported(code, 2, 2) && !findLanguageEntry(code) &&
+          std::none_of(out, out + count, [&](const LocalPack& pack) { return !std::strcmp(pack.code, code); }) &&
+          compatibleSource(file, code)) {
+        out[count++] = {{code[0], code[1], 0}, false};
+      }
+      file.close();
+    }
+  }
+  if (dir) dir.close();
+  std::sort(out, out + count, [](const LocalPack& a, const LocalPack& b) {
+    return a.installed != b.installed ? a.installed : std::strcmp(a.code, b.code) < 0;
+  });
+  return count;
 }
 hyphenation_pack::Result validateSource(const char* path, const char* code, void* context,
                                         bool (*continueWork)(void*)) {

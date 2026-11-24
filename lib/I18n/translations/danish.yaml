@@ -584,6 +584,7 @@ STR_SYNC_ALL_CONFIRM: "Synkroniser alle bøger på SD-kortet med dine synkronise
 STR_CLIPPINGS: "Uddrag"
 STR_SYNC: "Synkroniser"
 STR_WHAT_TO_SYNC: "Hvad synkroniseres"
+STR_SYNC_ON_SLEEP: "Synkroniser ved dvale"
 STR_SYNC_OPTIONS: "Synkroniseringsindstillinger"
 STR_REQUIRES_CROSSPOINT_SYNC: "Kræver CrossPoint Sync"
 STR_SERVER_EXTRAS_AVAILABLE: "Statistik og uddrag kan også synkroniseres"

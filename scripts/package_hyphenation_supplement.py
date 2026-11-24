@@ -4,9 +4,9 @@ import hashlib
 import json
 from pathlib import Path
 import re
-import zlib
 
 import package_hyphenation as legacy
+from package_hyphenation_sd import wrap_trie
 from package_hyphenation_v2 import artifacts as base_artifacts
 
 EXTRA = Path("assets/hyphenation-extra")
@@ -18,8 +18,8 @@ def artifacts(root=legacy.ROOT):
                for path in sorted((root / EXTRA).rglob("*")) if path.is_file()}
     pinned = json.loads(sources["packs.json"])
     entries = {SOURCE_PREFIX + name: data for name, data in sources.items()}
-    entries[SOURCE_PREFIX + "package_hyphenation_supplement.py"] = (root / "scripts/package_hyphenation_supplement.py").read_bytes()
-    entries[SOURCE_PREFIX + "package_hyphenation.py"] = (root / "scripts/package_hyphenation.py").read_bytes()
+    for script in ("package_hyphenation_supplement.py", "package_hyphenation_sd.py", "package_hyphenation.py"):
+        entries[SOURCE_PREFIX + script] = (root / "scripts" / script).read_bytes()
     for code, info in sorted(pinned["packs"].items()):
         if not re.fullmatch(r"[a-z]{2}", code) or code in (*legacy.CODES, "en", "nl"):
             raise ValueError("Unexpected supplemental code: " + code)
@@ -27,13 +27,7 @@ def artifacts(root=legacy.ROOT):
         for name in (trie, info["pattern"]):
             if hashlib.sha256(sources[name]).hexdigest() != info["sha256"][name]:
                 raise ValueError("Source does not match pinned snapshot: " + name)
-        raw = sources[trie]
-        payload = raw[4:]
-        offset = int.from_bytes(raw[:4], "big") - 4
-        if not 0 <= offset < len(payload) or len(payload) + legacy.PACK_HEADER.size > 262144:
-            raise ValueError("Supplemental trie outside bounds: " + code)
-        entries[f".crossink/hyphenation/hyph-{code}.cphyph"] = legacy.PACK_HEADER.pack(
-            b"CPHY", 1, code.encode("ascii"), 2, 2, 0, 0, offset, len(payload), zlib.crc32(payload)) + payload
+        entries[f".crossink/hyphenation/hyph-{code}.cphyph"] = wrap_trie(code, sources[trie])
     return pinned["packs"], entries
 
 

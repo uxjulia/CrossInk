@@ -42,7 +42,15 @@ def catalogs(channel):
     assert publisher.catalog_key(supplement) == f"catalogs/{channel}/hyphenation-supplement.json"
     assert supplement["schema"] == 3 and supplement["format"] == 1
     assert len(supplement["entries"]) == 18 and not set(modern_rows) & {e["code"] for e in supplement["entries"]}
-    return [(legacy, legacy_files), (modern, modern_files), (supplement, supplemental_files)]
+    finnish, finnish_files = publisher.build_supplemental_hyphenation(finnish_only=True)
+    publisher.validate_companions(finnish, finnish_files)
+    assert publisher.catalog_key(finnish) == f"catalogs/{channel}/hyphenation/fi.json"
+    assert finnish["schema"] == finnish["format"] == 1
+    assert finnish["entries"] == [e for e in supplement["entries"] if e["code"] == "fi"]
+    payload = f"hyphenation/{finnish['entries'][0]['sha256']}.cphyph"
+    assert finnish_files[f"snapshots/{finnish['revision']}/{payload}"] == (
+        supplemental_files[f"snapshots/{supplement['revision']}/{payload}"])
+    return [(legacy, legacy_files), (modern, modern_files), (supplement, supplemental_files), (finnish, finnish_files)]
 
 
 for channel in ("rc", "stable"):
@@ -84,7 +92,7 @@ for channel in ("rc", "stable"):
 
         with patch.object(publisher, "root", fake_root), \
              patch.object(publisher, "build_hyphenation", side_effect=bundles[:2]), \
-             patch.object(publisher, "build_supplemental_hyphenation", return_value=bundles[2]), \
+             patch.object(publisher, "build_supplemental_hyphenation", side_effect=bundles[2:]), \
              patch.object(publisher, "remote_get", side_effect=get), \
              patch.object(publisher, "aws", side_effect=put), \
              patch.object(publisher.subprocess, "check_output", return_value="a" * 40 + "\n"), \
@@ -92,6 +100,6 @@ for channel in ("rc", "stable"):
                                         "--channel", channel]):
             publisher.main()
         assert remote[keys[0]] == original
-        assert published[-2:] == keys[1:]
+        assert published[-3:] == keys[1:]
         legacy_prefix = f"snapshots/{bundles[0][0]['revision']}/"
         assert not any(key.startswith(legacy_prefix) for key in published)

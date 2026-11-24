@@ -584,6 +584,7 @@ STR_SYNC_ALL_CONFIRM: "SD karttaki tüm kitaplar eşitleme ayarlarınıza göre 
 STR_CLIPPINGS: "Alıntılar"
 STR_SYNC: "Eşitle"
 STR_WHAT_TO_SYNC: "Neler eşitlensin"
+STR_SYNC_ON_SLEEP: "Uykuya geçerken eşitle"
 STR_SYNC_OPTIONS: "Eşitleme seçenekleri"
 STR_REQUIRES_CROSSPOINT_SYNC: "CrossPoint Sync gerekir"
 STR_SERVER_EXTRAS_AVAILABLE: "İstatistikler ve alıntılar da eşitlenebilir"

@@ -856,6 +856,7 @@ STR_SYNC_SERVER_SETUP_FIRST: "Esmalt seadista konto menüüs Seaded > Süsteem >
 STR_SYNC_ALL_CONFIRM: "Sünkrooni kõik mälukaardi raamatud nende seadetega?"
 STR_SYNC: "Sünkrooni"
 STR_WHAT_TO_SYNC: "Mida sünkroonida"
+STR_SYNC_ON_SLEEP: "Sünkrooni uinumisel"
 STR_SYNC_OPTIONS: "Sünkroonimise valikud"
 STR_REQUIRES_CROSSPOINT_SYNC: "Nõuab CrossPoint Synci"
 STR_SERVER_EXTRAS_AVAILABLE: "Sünkroonida saab ka statistikat ja väljalõikeid"

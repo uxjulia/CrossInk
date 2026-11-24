@@ -584,6 +584,7 @@ STR_SYNC_ALL_CONFIRM: "Sinchronizuoti visas SD kortelės knygas pagal sinchroniz
 STR_CLIPPINGS: "Ištraukos"
 STR_SYNC: "Sinchronizuoti"
 STR_WHAT_TO_SYNC: "Ką sinchronizuoti"
+STR_SYNC_ON_SLEEP: "Sinchronizuoti užmigdant"
 STR_SYNC_OPTIONS: "Sinchr. parinktys"
 STR_REQUIRES_CROSSPOINT_SYNC: "Reikia CrossPoint Sync"
 STR_SERVER_EXTRAS_AVAILABLE: "Galima sinchronizuoti ir statistiką bei ištraukas"

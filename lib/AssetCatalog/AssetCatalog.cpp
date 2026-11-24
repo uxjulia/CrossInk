@@ -40,8 +40,9 @@ bool legacyHyphenationCode(const char* code) {
 }  // namespace
 
 bool canFallbackHyphenationCatalog(const Options& options, const int httpStatus, const char* code) {
-  return options.expectedKind == Kind::Hyphenation && options.hyphenationCatalog == HyphenationCatalog::Extended &&
-         (httpStatus == 404 || httpStatus == 403) && legacyHyphenationCode(code);
+  if (options.expectedKind != Kind::Hyphenation || (httpStatus != 404 && httpStatus != 403) || !code) return false;
+  return (options.hyphenationCatalog == HyphenationCatalog::Extended && legacyHyphenationCode(code)) ||
+         (options.hyphenationCatalog == HyphenationCatalog::Supplemental && std::strcmp(code, "fi") == 0);
 }
 
 bool catalogPath(const Options& options, char* output, size_t capacity) {
@@ -52,10 +53,20 @@ bool catalogPath(const Options& options, char* output, size_t capacity) {
                       !isHex(options.expectedKeyset, 64)))
     return false;
   const char* channel = options.expectedChannel == Channel::Rc ? "rc" : "stable";
-  const char* hyphenationFilename = options.hyphenationCatalog == HyphenationCatalog::Supplemental
-                                        ? "hyphenation-supplement.json"
-                                    : options.hyphenationCatalog == HyphenationCatalog::Extended ? "hyphenation-v2.json"
-                                                                                                 : "hyphenation.json";
+  const char* hyphenationFilename = "hyphenation.json";
+  switch (options.hyphenationCatalog) {
+    case HyphenationCatalog::Legacy:
+      break;
+    case HyphenationCatalog::Extended:
+      hyphenationFilename = "hyphenation-v2.json";
+      break;
+    case HyphenationCatalog::Supplemental:
+      hyphenationFilename = "hyphenation-supplement.json";
+      break;
+    case HyphenationCatalog::Finnish:
+      hyphenationFilename = "hyphenation/fi.json";
+      break;
+  }
   const int size = translation ? std::snprintf(output, capacity, "catalogs/%s/translation/%s/%s.json", channel,
                                                options.expectedSource, options.expectedKeyset)
                                : std::snprintf(output, capacity, "catalogs/%s/%s", channel, hyphenationFilename);
@@ -360,11 +371,21 @@ bool Parser::stringComplete() {
     case Code:
       if (!validCode(token_) || sameCode(token_, "en")) return fail("Invalid or built-in code");
       if (options_.expectedKind == Kind::Hyphenation) {
-        const bool supported =
-            options_.hyphenationCatalog == HyphenationCatalog::Supplemental
-                ? (options_.supportedSupplementalHyphenation && options_.supportedSupplementalHyphenation(token_))
-                : (legacyHyphenationCode(token_) ||
-                   (options_.hyphenationCatalog == HyphenationCatalog::Extended && std::strcmp(token_, "nl") == 0));
+        bool supported = false;
+        switch (options_.hyphenationCatalog) {
+          case HyphenationCatalog::Legacy:
+            supported = legacyHyphenationCode(token_);
+            break;
+          case HyphenationCatalog::Extended:
+            supported = legacyHyphenationCode(token_) || std::strcmp(token_, "nl") == 0;
+            break;
+          case HyphenationCatalog::Supplemental:
+            supported = options_.supportedSupplementalHyphenation && options_.supportedSupplementalHyphenation(token_);
+            break;
+          case HyphenationCatalog::Finnish:
+            supported = std::strcmp(token_, "fi") == 0;
+            break;
+        }
         if (!supported) return fail("Unsupported language code");
       }
       destination = catalog_.entries[catalog_.count].code;
@@ -390,7 +411,9 @@ bool Parser::numberComplete() {
   switch (field_) {
     case Schema:
       if (number_ !=
-          (options_.expectedKind == Kind::Hyphenation ? static_cast<unsigned>(options_.hyphenationCatalog) : 1u))
+          (options_.expectedKind == Kind::Hyphenation && options_.hyphenationCatalog != HyphenationCatalog::Finnish
+               ? static_cast<unsigned>(options_.hyphenationCatalog)
+               : 1u))
         return fail("Unsupported schema or format");
       break;
     case Format:
@@ -421,6 +444,9 @@ bool Parser::beginEntry() {
         break;
       case HyphenationCatalog::Supplemental:
         limit = MAX_SUPPLEMENTAL_HYPHENATION_ENTRIES;
+        break;
+      case HyphenationCatalog::Finnish:
+        limit = 1;
         break;
     }
   }

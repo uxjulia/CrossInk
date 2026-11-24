@@ -2,3 +2,5 @@
 
 # Preserve the original dictionary sources, including upstream whitespace.
 assets/hyphenation/patterns/*.tex -text -whitespace
+assets/hyphenation-extra/patterns/*.tex -text -whitespace
+assets/hyphenation-extra/licenses/*.txt -text -whitespace

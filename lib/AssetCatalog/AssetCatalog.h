@@ -14,7 +14,7 @@ constexpr size_t MAX_SUPPLEMENTAL_HYPHENATION_ENTRIES = 18;
 constexpr uint32_t MAX_ASSET_BYTES = 262144;
 enum class Kind : uint8_t { Hyphenation, Translation };
 enum class Channel : uint8_t { Stable, Rc };
-enum class HyphenationCatalog : uint8_t { Legacy = 1, Extended = 2, Supplemental = 3 };
+enum class HyphenationCatalog : uint8_t { Legacy = 1, Extended = 2, Supplemental = 3, Finnish };
 struct Entry {
   char code[32] = {};
   char name[96] = {};
@@ -51,7 +51,7 @@ struct Options {
 
 // Translation discovery is scoped to the firmware; hyphenation is scoped to its catalog version.
 // A public S3 catalog can return 403 for a missing object without ListBucket.
-// Only these absence responses and legacy pack codes allow fallback.
+// Only absence responses allow fallback to a catalog that carries the selected code.
 bool canFallbackHyphenationCatalog(const Options& options, int httpStatus, const char* code);
 bool catalogPath(const Options& options, char* output, size_t capacity);
 

@@ -7,6 +7,7 @@ separate catalogs on both the stable and RC channels:
 | Catalog path under the language-assets prefix | JSON schema | Codes |
 | --- | --- | --- |
 | `catalogs/{stable,rc}/hyphenation.json` | 1 | de, es, fr, it, pl, pt, ru, sv, uk |
+| `catalogs/{stable,rc}/hyphenation/fi.json` | 1 | fi |
 | `catalogs/{stable,rc}/hyphenation-v2.json` | 2 | Same nine, plus nl |
 | `catalogs/{stable,rc}/hyphenation-supplement.json` | 3 | be, bg, ca, cs, da, fi, gl, hr, is, ku, la, lt, mn, no, sl, sq, sr, tr |
 
@@ -17,21 +18,19 @@ entries, so never add Dutch to the legacy catalog. Leave its existing
 pointer bytes and referenced snapshot intact. Current Inky clients continue
 to discover the legacy GitHub export until they opt into the new catalog.
 
-The firmware requests the supplemental catalog directly only when a
-supplemental language is selected. A missing supplemental catalog does not
-fall back, because those languages are not in either older catalog. The
-existing nine languages and Dutch still request the extended catalog. If that URL returns
-HTTP 404 or 403 (S3 can return 403 for an absent public object), it may
-retry the legacy catalog once for an existing language,
-never for Dutch. A malformed catalog or any other transport failure does
-not trigger fallback. Publish the extended asset snapshot and catalog for
-the exact release channel before making its firmware public. S3 publication
-prepares all three discovery catalogs for firmware. The standalone GitHub
-catalog export for Inky stays unchanged, while the release language ZIP
-includes the existing and supplemental packs for offline installation.
-The release/v2.0.0 Finnish-only catalog, where applicable, is a separate
-compatibility URL and is not rewritten by this publisher. Local staging
-does not publish any assets.
+The firmware requests the supplemental catalog when a supplemental language
+is selected. Finnish can retry its release compatibility URL if the catalog
+returns HTTP 404 or 403. The original nine languages and Dutch request the
+extended catalog. The same absence responses allow the original nine languages
+to retry the legacy catalog. A malformed catalog or other transport failure
+ends the attempt.
+
+Publish the asset snapshots and catalogs for the exact release channel before
+making its firmware public. The publisher creates the two schema-1 pointers
+only if absent and preserves their existing snapshots. The release language ZIP
+includes the existing and supplemental packs for offline installation. Inky
+continues to use the separate GitHub catalog export. Local staging does not
+publish any assets.
 
 For the pattern source and exact trie generation, see
 [the Dutch source notice](../assets/hyphenation-v2/README.md) and

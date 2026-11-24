@@ -9,9 +9,9 @@
 #define BITTER_12_FONT_ID (313087974)
 #define BITTER_14_FONT_ID (-76463891)
 #define BITTER_16_FONT_ID (-864319200)
-#define UI_10_FONT_ID (-1313900173)
-#define UI_12_FONT_ID (1544960787)
-#define SMALL_FONT_ID (1406075677)
+#define UI_10_FONT_ID (219014595)
+#define UI_12_FONT_ID (1073124561)
+#define SMALL_FONT_ID (-995923120)
 
 // Font ID 0 is reserved as the "not found" sentinel.
 // Guard against any hash accidentally producing 0.

@@ -1,9 +1,8 @@
 #pragma once
 
-#include <HyphenationPack.h>
 #include <Memory.h>
 
-#include "Epub/hyphenation/LanguageRegistry.h"
+#include "HyphenationPackStore.h"
 #include "activities/Activity.h"
 #include "components/OptionPopup.h"
 
@@ -26,9 +25,10 @@ class HyphenationManagerActivity final : public Activity {
 #ifdef SIMULATOR
   friend struct AssetDownloadSmokeTest;
 #endif
+  static constexpr size_t LOCAL_CAPACITY = 16;
   struct Catalog {
     bool installed[HYPHENATION_LANGUAGE_COUNT] = {};
-    char local[hyphenation_pack::MAX_PACKS][3] = {};
+    HyphenationPackStore::LocalPack local[LOCAL_CAPACITY] = {};
     size_t localCount = 0;
   };
   std::unique_ptr<Catalog> catalog_;
@@ -36,7 +36,7 @@ class HyphenationManagerActivity final : public Activity {
   mutable char label_[128] = {};
   char wanted_[3] = {};
   int selected_ = 0;
-  enum class Pending { None, List, Select, Remove, Connect, SaveError };
+  enum class Pending { None, List, Select, Install, Remove, Connect, SaveError };
   Pending pending_ = Pending::None;
   void showLanguages();
   const char* labelAt(size_t index) const;

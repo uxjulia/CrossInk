@@ -41,7 +41,7 @@ def starter_artifact(source, identity, entries, version, source_commit, source_h
         valid_text(value)
     if not name or len(name.encode("utf-8")) > LIMITS["nameBytes"] or "\n" in name or "\t" in name:
         raise ValueError(f"{source.name}: invalid language name")
-    direction = data.get("_direction", "rtl" if code in ("AR", "HE") else "ltr")
+    direction = data.get("_direction", "rtl" if code in ("AR", "HE", "FA") else "ltr")
     keyboard = data.get("_keyboard", code).upper()
     if direction not in ("ltr", "rtl") or keyboard not in dict(known_languages()):
         raise ValueError(f"{source.name}: invalid direction or keyboard")

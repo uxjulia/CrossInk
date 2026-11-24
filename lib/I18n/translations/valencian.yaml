@@ -623,6 +623,7 @@ STR_SYNC_ALL_CONFIRM: "Voleu sincronitzar tots els llibres de la targeta SD amb 
 STR_CLIPPINGS: "Retalls"
 STR_SYNC: "Sincronitza"
 STR_WHAT_TO_SYNC: "Què sincronitzar"
+STR_SYNC_ON_SLEEP: "Sincronitza en entrar en repòs"
 STR_SYNC_OPTIONS: "Opcions de sincronització"
 STR_REQUIRES_CROSSPOINT_SYNC: "Requerix CrossPoint Sync"
 STR_SERVER_EXTRAS_AVAILABLE: "També es poden sincronitzar estadístiques i retalls"
