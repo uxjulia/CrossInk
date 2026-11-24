@@ -331,6 +331,83 @@ TEST(HyphenationPacks, DutchRealTrieFollowsBookLanguageAndChangesCacheIdentity) 
   Hyphenator::setPreferredLanguage("en");
 }
 
+TEST(HyphenationPacks, SupplementalTriesMatchRealWordsAndTheirUppercase) {
+  // Expected break candidates (not a requirement to break at every candidate)
+  // for actual words, including letters outside the legacy case-fold ranges.
+  struct Example {
+    const char* language;
+    const char* lower;
+    const char* upper;
+  };
+  constexpr Example examples[] = {
+      {"sqi", "gju=hë=so=re", "GJU=HË=SO=RE"},
+      {"be-BY", "паў=на=ва=р=та=с=ны", "ПАЎ=НА=ВА=Р=ТА=С=НЫ"},
+      {"bul", "учи=ли=ще=то", "УЧИ=ЛИ=ЩЕ=ТО"},
+      {"cat", "llen=guat=ge", "LLEN=GUAT=GE"},
+      {"hrv", "je=zič=nog", "JE=ZIČ=NOG"},
+      {"ces", "pří=le=ži=tost", "PŘÍ=LE=ŽI=TOST"},
+      {"dan", "sæt=nings=de=ling", "SÆT=NINGS=DE=LING"},
+      {"fin", "kir=jal=li=suus", "KIR=JAL=LI=SUUS"},
+      {"glg", "tra=du=ción", "TRA=DU=CIÓN"},
+      {"isl", "bók=mennt=ir", "BÓK=MENNT=IR"},
+      {"kmr-Latn", "kur=man=cî", "KUR=MAN=CÎ"},
+      {"lat", "lit=te=ra=rum", "LIT=TE=RA=RUM"},
+      {"lit", "lie=tu=viš=kas", "LIE=TU=VIŠ=KAS"},
+      {"mn-Cyrl", "тө=лөв=лө=гөө", "ТӨ=ЛӨВ=ЛӨ=ГӨӨ"},
+      {"no-NO", "bok=sta=ver", "BOK=STA=VER"},
+      {"sr-Cyrl", "књи=жев=ност", "КЊИ=ЖЕВ=НОСТ"},
+      {"slv", "slo=ven=šči=na", "SLO=VEN=ŠČI=NA"},
+      {"tr-TR", "ışık=lı", "IŞIK=LI"},
+      {"tur", "is=tan=bul", "İS=TAN=BUL"},
+  };
+  static std::vector<uint8_t> trie;
+  static char currentCode[3];
+  static_assert(std::size(examples) == SUPPLEMENTAL_HYPHENATION_LANGUAGE_COUNT + 1);
+  size_t matchedCases = 0;
+  for (const auto& example : examples) {
+    SCOPED_TRACE(example.language);
+    ASSERT_TRUE(Hyphenator::primaryLanguageTag(example.language, currentCode));
+    ASSERT_TRUE(isSupplementalHyphenationCode(currentCode));
+    std::ifstream input(std::string(SUPPLEMENTAL_TRIES) + "/" + currentCode + ".bin", std::ios::binary);
+    trie.assign(std::istreambuf_iterator<char>(input), {});
+    ASSERT_GT(trie.size(), 4U);
+    const auto check = [](const char* annotated, bool expectPack) {
+      std::string plain;
+      std::vector<size_t> expected, observed;
+      for (const char byte : std::string(annotated)) {
+        if (byte == '=')
+          expected.push_back(plain.size());
+        else
+          plain.push_back(byte);
+      }
+      for (const auto point : Hyphenator::breakOffsets(plain, false)) {
+        EXPECT_TRUE(point.requiresInsertedHyphen);
+        observed.push_back(point.byteOffset);
+      }
+      EXPECT_EQ(observed, expectPack ? expected : std::vector<size_t>{});
+    };
+    setExternalHyphenationLookup(nullptr);
+    Hyphenator::setPreferredLanguage(example.language);
+    EXPECT_EQ(Hyphenator::patternIdentity(example.language), 0U);
+    check(example.lower, false);
+    setExternalHyphenationLookup([](const char* code, ExternalHyphenationPatterns& out) {
+      if (std::strcmp(code, currentCode) || trie.size() <= 4) return false;
+      const uint32_t root = (uint32_t(trie[0]) << 24) | (uint32_t(trie[1]) << 16) | (uint32_t(trie[2]) << 8) | trie[3];
+      out.patterns = {root - 4, trie.data() + 4, static_cast<uint32_t>(trie.size() - 4)};
+      out.identity = 123;
+      return true;
+    });
+    Hyphenator::setPreferredLanguage(example.language);
+    EXPECT_NE(Hyphenator::patternIdentity(example.language), 0U);
+    check(example.lower, true);
+    check(example.upper, true);
+    ++matchedCases;
+  }
+  EXPECT_EQ(matchedCases, std::size(examples));
+  setExternalHyphenationLookup(nullptr);
+  Hyphenator::setPreferredLanguage("en");
+}
+
 TEST(HyphenationPacks, InvalidExternalLevelOffsetsAreRejected) {
   const uint8_t bytes[] = {0x80, 0x00, 0x01};  // levels before the stripped root prefix
   SerializedHyphenationPatterns patterns{0, bytes, sizeof(bytes)};

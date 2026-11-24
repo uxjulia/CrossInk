@@ -101,6 +101,20 @@ TEST(AssetCatalog, DiscoveryPathsKeepContractsAndChannelsSeparate) {
   ASSERT_TRUE(catalogPath(options, path, sizeof(path)));
   EXPECT_STREQ(path, "catalogs/stable/hyphenation.json");
 }
+TEST(AssetCatalog, SupplementalHyphenationHasIndependentDiscoveryAndAllowlist) {
+  Options options;
+  options.hyphenationCatalog = HyphenationCatalog::Supplemental;
+  options.supportedSupplementalHyphenation = [](const char* code) { return std::strcmp(code, "be") == 0; };
+  char path[MAX_CATALOG_PATH];
+  ASSERT_TRUE(catalogPath(options, path, sizeof(path)));
+  EXPECT_STREQ(path, "catalogs/stable/hyphenation-supplement.json");
+  EXPECT_TRUE(parse(replace(catalog(entry("be")), "\"schema\":1", "\"schema\":3"), options));
+  EXPECT_FALSE(parse(replace(catalog(entry("de")), "\"schema\":1", "\"schema\":3"), options));
+  EXPECT_FALSE(parse(replace(catalog(entry("nl")), "\"schema\":1", "\"schema\":3"), options));
+  EXPECT_FALSE(parse(catalog(entry("be")), options));
+  EXPECT_FALSE(canFallbackHyphenationCatalog(options, 404, "de"));
+}
+
 TEST(AssetCatalog, ExtendedHyphenationCatalogPreservesLegacyContract) {
   auto legacy = fixture("hyphenation.json");
   ASSERT_FALSE(legacy.empty());

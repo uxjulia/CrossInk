@@ -41,3 +41,31 @@ with tempfile.TemporaryDirectory() as temp:
 assert ".crossink/hyphenation/hyph-en.cphyph" not in entries
 assert len([name for name in entries if name.endswith(".tex")]) == 10
 print("Ten reproducible real packs, checksums, notices and flash installation passed")
+
+
+import zipfile
+import package_hyphenation_supplement as supplement
+
+packs, extra = supplement.artifacts(root)
+all_entries = supplement.release_artifacts(root)
+manifest = json.loads(all_entries["hyphenation-manifest.json"])
+assert len(packs) == 18 and not set(packs) & set(module.CODES)
+assert set(manifest["languages"]) == set(packs) | set(module.CODES)
+assert all(all_entries[name] == value for name, value in entries.items() if name != "hyphenation-manifest.json")
+for name, digest in manifest["sha256"].items():
+    assert hashlib.sha256(all_entries[name]).hexdigest() == digest
+with tempfile.TemporaryDirectory() as temp:
+    temp = Path(temp)
+    archive = temp / "test-languages.zip"
+    subprocess.run([sys.executable, root / "scripts/package_languages.py", "--version", "2.1.0-test",
+                    "--output", archive], check=True)
+    with zipfile.ZipFile(archive) as bundle:
+        for name, data in all_entries.items():
+            assert bundle.read(name) == data
+    paths = []
+    for code in packs:
+        filename = f"hyph-{code}.cphyph"
+        path = temp / filename
+        path.write_bytes(extra[f".crossink/hyphenation/{filename}"])
+        paths.append(path)
+    subprocess.run([sys.argv[2], "--supplemental", *paths], check=True)

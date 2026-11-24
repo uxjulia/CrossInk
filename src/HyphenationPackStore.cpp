@@ -32,7 +32,13 @@ bool writeFlash(void*, size_t offset, const void* bytes, size_t size) {
 bool eraseFlash(void*, size_t offset, size_t size) { return contains(offset, size) && flash.erase(offset, size); }
 bool supported(const char* code, uint8_t prefix, uint8_t suffix) {
   const auto* language = findLanguageEntry(code);
-  return language && !language->hyphenator && prefix == 2 && suffix == 2;
+  return language && !language->hyphenator && !isSupplementalHyphenationCode(code) && prefix == 2 && suffix == 2;
+}
+bool localSupported(const char* code, uint8_t prefix, uint8_t suffix) {
+  // Read community packs written by release as well, so an unknown pack
+  // cannot make the other entries from that release bank disappear.
+  return code && code[0] >= 'a' && code[0] <= 'z' && code[1] >= 'a' && code[1] <= 'z' && !code[2] &&
+         std::strcmp(code, "en") && prefix == 2 && suffix == 2;
 }
 bool initialize(bool create) {
   // Simulator read-only initialization can represent an erased, unprovisioned
@@ -54,7 +60,7 @@ bool initialize(bool create) {
       hyphenation_pack::tailAvailable(region, capacity() / 2, capacity() / 2, proposedReserve))
     reservedTail = proposedReserve;
 #endif
-  const auto result = store.begin(region, supported, reservedTail);
+  const auto result = store.begin(region, supported, reservedTail, localSupported);
   if (result != hyphenation_pack::Result::Ok && result != hyphenation_pack::Result::Unchanged) {
     LOG_ERR("HYPH", "%s", hyphenation_pack::resultName(result));
     return false;
@@ -69,7 +75,7 @@ bool initialize(bool create) {
   return true;
 }
 bool sourcePath(const char* code, char (&path)[64]) {
-  if (!supported(code, 2, 2)) return false;
+  if (!localSupported(code, 2, 2)) return false;
   std::snprintf(path, sizeof(path), "%s/hyph-%s.cphyph", DIRECTORY, code);
   return true;
 }
@@ -98,10 +104,17 @@ bool hasSource(const char* code) {
   char path[64];
   return sourcePath(code, path) && Storage.exists(path);
 }
+bool installedCodeAt(size_t index, char (&code)[3]) {
+  hyphenation_pack::Entry entry;
+  if (!initialized || !store.entryAt(index, entry)) return false;
+  std::memcpy(code, entry.code, sizeof(code));
+  return true;
+}
 hyphenation_pack::Result validateSource(const char* path, const char* code, void* context,
                                         bool (*continueWork)(void*)) {
   using hyphenation_pack::Result;
-  if (!supported(code, 2, 2)) return Result::Unsupported;
+  const auto* language = findLanguageEntry(code);
+  if (!language || language->hyphenator) return Result::Unsupported;
   if (!initialize(false)) return Result::Unavailable;
   FsFile file;
   if (!Storage.openFileForRead("HYPH", path, file)) return Result::Io;
@@ -111,7 +124,7 @@ hyphenation_pack::Result validateSource(const char* path, const char* code, void
   options.context = context;
   options.continueWork = continueWork;
   hyphenation_pack::Entry entry;
-  const auto result = hyphenation_pack::validate({&file, file.size(), readInput}, supported, entry, options);
+  const auto result = hyphenation_pack::validate({&file, file.size(), readInput}, localSupported, entry, options);
   file.close();
   if (result != Result::Ok) LOG_ERR("HYPH", "Download validation: %s", hyphenation_pack::resultName(result));
   return result;

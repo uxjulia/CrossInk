@@ -214,7 +214,13 @@ void AssetDownloadActivity::fetch() {
   const char* wanted = translation
                            ? (wantedIndex_ < getLanguageCount() ? LANGUAGE_CODES[wantedIndex_] : nullptr)
                            : (wantedIndex_ < languages.size ? languages.data[wantedIndex_].primaryTag : nullptr);
-  if (!translation) parserOptions.hyphenationCatalog = AssetCatalog::HyphenationCatalog::Extended;
+  if (!translation) {
+    static_assert(SUPPLEMENTAL_HYPHENATION_LANGUAGE_COUNT == AssetCatalog::MAX_SUPPLEMENTAL_HYPHENATION_ENTRIES);
+    parserOptions.hyphenationCatalog = isSupplementalHyphenationCode(wanted)
+                                           ? AssetCatalog::HyphenationCatalog::Supplemental
+                                           : AssetCatalog::HyphenationCatalog::Extended;
+    parserOptions.supportedSupplementalHyphenation = isSupplementalHyphenationCode;
+  }
 
   bool incompatible = false;
   bool oom = false;

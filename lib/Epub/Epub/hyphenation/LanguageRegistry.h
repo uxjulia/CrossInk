@@ -5,12 +5,16 @@
 
 #include "LanguageHyphenator.h"
 
-inline constexpr size_t HYPHENATION_LANGUAGE_COUNT = 11;
+inline constexpr size_t BASE_HYPHENATION_LANGUAGE_COUNT = 11;
+inline constexpr size_t SUPPLEMENTAL_HYPHENATION_LANGUAGE_COUNT = 18;
+inline constexpr size_t HYPHENATION_LANGUAGE_COUNT =
+    BASE_HYPHENATION_LANGUAGE_COUNT + SUPPLEMENTAL_HYPHENATION_LANGUAGE_COUNT;
 
 struct LanguageEntry {
   const char* cliName;
   const char* primaryTag;
   const LanguageHyphenator* hyphenator;
+  const char* displayName = nullptr;
 };
 
 struct LanguageEntryView {
@@ -28,6 +32,7 @@ struct ExternalHyphenationPatterns {
 using ExternalHyphenationLookup = bool (*)(const char*, ExternalHyphenationPatterns&);
 void setExternalHyphenationLookup(ExternalHyphenationLookup lookup);
 const LanguageEntry* findLanguageEntry(const char* primaryTag);
+bool isSupplementalHyphenationCode(const char* primaryTag);
 uint32_t getLanguagePatternIdentity(const char* primaryTag);
 
 // Returns the Liang-backed hyphenator for a given primary language tag (e.g., "en", "fr").

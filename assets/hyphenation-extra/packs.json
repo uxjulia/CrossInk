@@ -1,0 +1,131 @@
+{
+  "hypherRevision": "d81cc506416bffef2a75ee2dc969d4b41bc36613",
+  "packs": {
+    "be": {
+      "pattern": "patterns/hyph-be.tex",
+      "sha256": {
+        "patterns/hyph-be.tex": "ce0c69d86e03c40bdd0ab9f4535cee2503fe2894590380e45a99974f029cea6f",
+        "tries/be.bin": "125802ff7668f6a1cbe26867810403cabc11e12a409cf423f1c66c460561c4db"
+      }
+    },
+    "bg": {
+      "pattern": "patterns/hyph-bg.tex",
+      "sha256": {
+        "patterns/hyph-bg.tex": "d37886f8cecea60bf829e4dd9dc1107aea8e8ee3eb92425423534bafac5f59b0",
+        "tries/bg.bin": "329d32fb929a5510e57697f0cdb55babf643539c6e1520445db2aa1581f461fd"
+      }
+    },
+    "ca": {
+      "pattern": "patterns/hyph-ca.tex",
+      "sha256": {
+        "patterns/hyph-ca.tex": "a5611c1761d09e5a85e34851715aba2633eb9d0a195013bac2b69b87e69b3f5e",
+        "tries/ca.bin": "27a70e94fb14d5c2df252a6df211f69e7df9f4d0de9a014e0466a2ca731ddf5a"
+      }
+    },
+    "cs": {
+      "pattern": "patterns/hyph-cs-sojka.tex",
+      "sha256": {
+        "patterns/hyph-cs-sojka.tex": "ed9da95124ba7127cc559ffefa432916dd882d392c3fba9633dcac9ba12b3018",
+        "tries/cs.bin": "1f7cb32555583658b8bc6daa35d213e856f28b69d47f44322eae2e11c2037557"
+      }
+    },
+    "da": {
+      "pattern": "patterns/hyph-da.tex",
+      "sha256": {
+        "patterns/hyph-da.tex": "23e0a50f0c20d632be06f973e700323463961eac737bb14f6c3787675a4f5575",
+        "tries/da.bin": "c69e3d5d43abe2697b2220848a95225a14b292cc4611bf86864a031150084f42"
+      }
+    },
+    "fi": {
+      "pattern": "patterns/hyph-fi-x-school.tex",
+      "sha256": {
+        "patterns/hyph-fi-x-school.tex": "264a2ba2ab5237246f0bd902c7b3f111b03662ddd55c4dab03a9897e47e5491c",
+        "tries/fi.bin": "365d87c66398e2cdae80eee5114d9fcbf589131cea1b5701c63acb7306011f14"
+      }
+    },
+    "gl": {
+      "pattern": "patterns/hyph-gl.tex",
+      "sha256": {
+        "patterns/hyph-gl.tex": "7ea73336d2b2b7394a954b687222501e2407966b0ad2457c5d3c534380a0b190",
+        "tries/gl.bin": "d5d81437dc1d2c91c8999738c6a5836bffc3a7beac4daa65606740e34f842b9d"
+      }
+    },
+    "hr": {
+      "pattern": "patterns/hyph-hr.tex",
+      "sha256": {
+        "patterns/hyph-hr.tex": "69d684289c626c2576678112699c960d5821b52e7addbd473c0e8d0ef0c1694e",
+        "tries/hr.bin": "813c099f16948243b6159e128cd804ae338d3fe1cab48ff3429fbc4efa20a738"
+      }
+    },
+    "is": {
+      "pattern": "patterns/hyph-is.tex",
+      "sha256": {
+        "patterns/hyph-is.tex": "2707969ebe34a9ddfd861aaef40619e75ac78453718a56401aed91c5cbdcfcec",
+        "tries/is.bin": "518be600272fa747b74ea2864644fb88fc95f6690a3816e4bf9420895fc63cca"
+      }
+    },
+    "ku": {
+      "pattern": "patterns/hyph-kmr.tex",
+      "sha256": {
+        "patterns/hyph-kmr.tex": "2299d69ff2e093291338275b20fa85a35c62abc156835647d5d91a9dfad476eb",
+        "tries/ku.bin": "20cb7ef044688ccceda9fce0d1c525a37ea4f971a874369e13125d6d1caf99d7"
+      }
+    },
+    "la": {
+      "pattern": "patterns/hyph-la.tex",
+      "sha256": {
+        "patterns/hyph-la.tex": "84e0be1877beaf6d1d7a83d5639fb65a0e0645cd2447b0dbccfa5e63565abdfd",
+        "tries/la.bin": "2bdf1055591eaf17fbe9ab10eb7124cbbaf0f1077f911f061aeb6774972c2984"
+      }
+    },
+    "lt": {
+      "pattern": "patterns/hyph-lt.tex",
+      "sha256": {
+        "patterns/hyph-lt.tex": "6162b566620367abb827ba1457567e7a79680596919886a7138e48b346e983d1",
+        "tries/lt.bin": "ec9248f34ce15a0c5e8489c883588880150010f4e2029211fccacadd58b7061e"
+      }
+    },
+    "mn": {
+      "pattern": "patterns/hyph-mn.tex",
+      "sha256": {
+        "patterns/hyph-mn.tex": "22903e12e25e5348d7c2285f8d3173215540296e1b47f38515936618993988fa",
+        "tries/mn.bin": "83e3fa15ac3475469c98616b3a50fe5abbe48c1c7e395fdf29b22ced4f04f089"
+      }
+    },
+    "no": {
+      "pattern": "patterns/hyph-no.tex",
+      "sha256": {
+        "patterns/hyph-no.tex": "05a2ac5fbf88bdc78c580e5cb8a158e6aa760d13756604f9523aa99feec3ec65",
+        "tries/no.bin": "5fbd731178eea686a75f4e2febb317bfc91de9a8f100c7696ae7017575f74c18"
+      }
+    },
+    "sl": {
+      "pattern": "patterns/hyph-sl.tex",
+      "sha256": {
+        "patterns/hyph-sl.tex": "27da982d03b881fe84f1c4fb42ba0948f33e01a3a44eaa5ebd07e01d20c72691",
+        "tries/sl.bin": "150615c0734cf7f6366eda2145fee4eaddb8f0a709e4ae70e077e9dde9048b79"
+      }
+    },
+    "sq": {
+      "pattern": "patterns/hyph-sq.tex",
+      "sha256": {
+        "patterns/hyph-sq.tex": "632e3c5c02d0f2260b4195e7b6e9f6e348c2deb57c61d2a0dc832209a332ee9f",
+        "tries/sq.bin": "fbeb999c0bef17c1db1e5df0084ff1a0b8344909148e8d43668b2f0bfa051735"
+      }
+    },
+    "sr": {
+      "pattern": "patterns/hyph-sh-cyrl.tex",
+      "sha256": {
+        "patterns/hyph-sh-cyrl.tex": "9b0f8f489868d3f98d4dec8a5d71f465ad5a70afde6857c6c2d79ec0344618fc",
+        "tries/sr.bin": "a76af6cded4c3a256f1cf1ed8484e9656588b8facd2cb8a7cc3d3b7a548bb9bc"
+      }
+    },
+    "tr": {
+      "pattern": "patterns/hyph-tr.tex",
+      "sha256": {
+        "patterns/hyph-tr.tex": "9243b6fc1426b07dae71c6136bd7d4a907e01a36ab6326f349ee6c310e6bb2b5",
+        "tries/tr.bin": "1661448a091060bdee0d923c5489f6b717dc3dd11f00e2eaed364c8e07889c13"
+      }
+    }
+  }
+}
