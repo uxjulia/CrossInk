@@ -3094,7 +3094,7 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
               ImageDimsProbe headerProbe;
               bool gotDimensions =
                   dimensionsFromOptimizer || (self->epub->readItemContentsToStream(resolvedPath, headerProbe, 1024,
-                                                                                   /*allowEarlyStop=*/true) &&
+                                                                                   Epub::StreamEarlyStop::Probe) &&
                                               headerProbe.getDimensions(dims));
               if (!gotDimensions) {
                 // A deflated header needs a 32 KiB inflate window even when
@@ -3102,7 +3102,7 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
                 GfxRenderer::FrameBufferLoan probeLoan(self->renderer);
                 ImageDimsProbe retryProbe;
                 gotDimensions = self->epub->readItemContentsToStream(resolvedPath, retryProbe, 1024,
-                                                                     /*allowEarlyStop=*/true) &&
+                                                                     Epub::StreamEarlyStop::Probe) &&
                                 retryProbe.getDimensions(dims);
               }
               std::string sourcePath;

@@ -20,8 +20,10 @@ class Epub {
   bool extractSucceeds = false;
   std::vector<uint8_t> probeBytes;
 
+  enum class StreamEarlyStop { Disabled, Probe, Immediate };
   template <typename Output>
-  bool readItemContentsToStream(const std::string&, Output& output, size_t, bool = false) const {
+  bool readItemContentsToStream(const std::string&, Output& output, size_t,
+                                StreamEarlyStop = StreamEarlyStop::Disabled) const {
     ++streamReadCount;
     if (requireLoan && !GfxRenderer::loanActive) return false;
     output.write(probeBytes.data(), probeBytes.size());

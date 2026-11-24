@@ -204,8 +204,11 @@ class Epub {
                                 int readerFontId = 0) const;
   uint8_t* readItemContentsToBytes(const std::string& itemHref, size_t* size = nullptr,
                                    bool trailingNullByte = false) const;
+  // Probes finish validating protected content. A cancelled extraction can stop
+  // immediately because its caller discards the incomplete output.
+  enum class StreamEarlyStop { Disabled, Probe, Immediate };
   bool readItemContentsToStream(const std::string& itemHref, Print& out, size_t chunkSize,
-                                bool allowEarlyStop = false) const;
+                                StreamEarlyStop earlyStop = StreamEarlyStop::Disabled) const;
   // Publisher-font access also reverses declared Adobe font obfuscation.
   bool readFontContentsToStream(const std::string& itemHref, Print& out, size_t chunkSize) const;
   bool extractItemToFile(const std::string& itemHref, const std::string& destPath, size_t chunkSize = 4096) const;

@@ -646,18 +646,15 @@ TEST_F(SectionPersistenceTest, PartialCommitFiltersFutureAnchorsAndFallsBackBeyo
   EXPECT_EQ(reopened.findAnchor("boundary"), 64);
   EXPECT_EQ(reopened.findAnchor("future"), std::nullopt);
 
-  auto replay = makeUniqueNoThrow<Section::BuildContext>();
-  ASSERT_NE(replay, nullptr);
-  for (size_t i = 0; i < 10; ++i) {
-    ASSERT_EQ(replay->pageIndex.prepareAppend(), SectionPageIndex::PrepareResult::Ready);
-    replay->pageIndex.appendPrepared({static_cast<uint32_t>(1000 + i), static_cast<uint16_t>(i * 3U),
-                                      static_cast<uint16_t>(i * 5U), static_cast<uint32_t>(i * 17U),
-                                      static_cast<uint32_t>(i * 13U)});
-  }
-  reopened.build_ = std::move(replay);
-  reopened.builtPageCount_ = 10;
+  storeText("/cache/content/0/0.html", "<html><body>partial replay</body></html>");
+  testParserEmitPage = true;
+  testParserEmitPageCount = 10;
+  testParserStatus = ChapterHtmlSlimParser::ParseStatus::More;
+  ASSERT_TRUE(reopened.startBuild(harness.spec));
+  ASSERT_TRUE(reopened.buildSomeMore(1, true));
+  ASSERT_TRUE(reopened.isBuilding());
 
-  EXPECT_EQ(reopened.getVisibleTextOffsetForPage(9), 153U);
+  EXPECT_EQ(reopened.getVisibleTextOffsetForPage(9), 288U);
   EXPECT_EQ(reopened.getVisibleTextOffsetForPage(64), 1088U);
   EXPECT_EQ(reopened.getPageForVisibleTextOffset(1088), 64);
   EXPECT_EQ(reopened.getParagraphIndexForPage(64), 192);

@@ -51,7 +51,7 @@ int Epub::getTocIndexForSpineIndex(int spine) const {
     if (testTocEntries[i].spineIndex == spine) return i;
   return -1;
 }
-bool Epub::readItemContentsToStream(const std::string&, Print& output, size_t, bool) const {
+bool Epub::readItemContentsToStream(const std::string&, Print& output, size_t, StreamEarlyStop) const {
   if (!testStreamHtml) return false;
   const auto* bytes = reinterpret_cast<const uint8_t*>(testStreamHtmlContents.data());
   return output.write(bytes, testStreamHtmlContents.size()) == testStreamHtmlContents.size();

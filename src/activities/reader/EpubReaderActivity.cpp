@@ -150,6 +150,17 @@ constexpr unsigned long TRANSIENT_FEEDBACK_MS = 1000UL;
 constexpr unsigned long IDLE_SD_FONT_PREWARM_DELAY_MS = 400UL;
 constexpr unsigned long IDLE_CHAPTER_START_MS = 800UL;
 constexpr unsigned long IDLE_CHAPTER_SLICE_GAP_MS = 150UL;
+constexpr uint16_t NEXT_CHAPTER_PREFETCH_PAGES = 3;
+
+bool readerInputWakePending() {
+#ifndef SIMULATOR
+  return InputWake::hasPendingEdge() || InputWake::hasPendingButtons();
+#else
+  // The simulator injects input via MappedInputManager rather than hardware IRQs.
+  return false;
+#endif
+}
+
 constexpr uint32_t IDLE_SD_FONT_PREWARM_MIN_FREE = 64U * 1024U;
 constexpr uint32_t IDLE_SD_FONT_PREWARM_MIN_MAX_ALLOC = 40U * 1024U;
 constexpr unsigned long MIN_READING_STATS_PAGE_MS = 2000UL;
@@ -1837,7 +1848,13 @@ void EpubReaderActivity::onInputLockChanged(const bool locked) {
   }
 }
 
-void EpubReaderActivity::onUserInput() { cancelSilentPrefetchForInput(); }
+void EpubReaderActivity::onUserInput() {
+  cancelSilentPrefetchForInput();
+  if (hasIndexingPsram) {
+    RenderLock lock(*this, RenderLock::Mode::Try);
+    if (lock.ownsLock()) suspendNextChapterBuild();
+  }
+}
 
 bool EpubReaderActivity::handleQuickLockUnlock(const QuickLockTrigger trigger) {
   if (trigger == QuickLockTrigger::LongMenu) {
@@ -2750,6 +2767,7 @@ void EpubReaderActivity::onEnter() {
 }
 
 void EpubReaderActivity::onExit() {
+  nextChapterBuild.reset();
   sdFontSystem.setContentSizeScales({512, 192});
   sdFontSystem.setSettingsPersistenceCallback(nullptr, nullptr);
   // Drop the scalable-family catalog retained during reading. The active font
@@ -3127,10 +3145,9 @@ void EpubReaderActivity::advanceBackgroundSectionBuild() {
     }
     return;
   }
-  if (!section->isBuilding() && !section->isPartial()) return;
-
+  const bool currentChapterComplete = !section->isBuilding() && !section->isPartial();
   const bool nearPartialEnd = section->currentPage + PARTIAL_REBUILD_START_MARGIN >= section->pageCount;
-  const bool needsPages = section->isBuilding() ? sectionBuildNeedsFastTick() : nearPartialEnd;
+  const bool needsPages = section->isBuilding() ? sectionBuildNeedsFastTick() : section->isPartial() && nearPartialEnd;
   const bool yieldForInput = backgroundBuildYieldForInput.load(std::memory_order_relaxed);
   const bool idleSlice = !needsPages || yieldForInput;
   if (idleSlice) {
@@ -3143,15 +3160,85 @@ void EpubReaderActivity::advanceBackgroundSectionBuild() {
     // An ignored input edge may never request a render. After the quiet period it
     // is safe to resume paced work; urgent work still yields to a requested render.
   }
-  if (!section->isBuilding() &&
+  if (!currentChapterComplete && !section->isBuilding() &&
       (buildViewportWidth == 0 || partialRebuildStartFailed || partialRebuildAbortedForLowMemory))
     return;
   const unsigned long started = millis();
-  runBackgroundSectionBuildStep();
+  if (currentChapterComplete) {
+    if (!epub || section->pageCount == 0 || automaticPageTurnActive || completionPromptQueued ||
+        readerInputWakePending() || lastPresentedSpine != currentSpineIndex ||
+        lastPresentedPage != section->currentPage || currentSpineIndex + 1 >= epub->getSpineItemsCount() ||
+        (nextChapterBuildAttempted && !nextChapterBuild))
+      return;
+    advanceNextChapterBuild();
+  } else {
+    runBackgroundSectionBuildStep();
+  }
   if (idleSlice) {
     lastIdleIndexMs = millis();
     activityManager.recordIdleWork(lastIdleIndexMs - started);
   }
+}
+
+void EpubReaderActivity::advanceNextChapterBuild() {
+  const int nextSpine = currentSpineIndex + 1;
+  releaseGrayscaleStripScratch();
+  const uint32_t loansBefore = renderer.frameBufferLoanCount();
+  if (!nextChapterBuild) {
+    if (!MemoryBudget::hasHeap(MemoryBudget::snapshot(), MemoryBudget::OPTIONAL_EPUB_REBUILD_MIN_FREE,
+                               MemoryBudget::OPTIONAL_EPUB_REBUILD_MIN_MAX_ALLOC))
+      return;
+    nextChapterBuildAttempted = true;
+    const auto profile = buildProfileForRenderMode(normalizeRenderMode(SETTINGS.epubRenderMode));
+    auto next =
+        makeUniqueNoThrow<Section>(epub, nextSpine, renderer, sectionCacheSuffixForRenderMode(profile.renderMode));
+    if (!next) {
+      LOG_ERR("ERS", "Failed to allocate incremental next-chapter builder: spine=%d", nextSpine);
+      return;
+    }
+    const auto spec =
+        readerRenderSpecForProfile(SETTINGS.getReaderFontId(), buildViewportWidth, buildViewportHeight, profile);
+    bool layoutMismatch = false;
+    if (next->loadSectionFile(spec, &layoutMismatch)) {
+      if (!next->isPartial() || next->pageCount >= NEXT_CHAPTER_PREFETCH_PAGES) return;
+    } else if (!layoutMismatch && next->hasLayoutCache()) {
+      // Preserve a cache when a read error leaves its compatibility uncertain.
+      return;
+    }
+    SectionBuildOptions options{};
+    options.deferAdvancePrewarm = true;
+    bool cancelled = false;
+    options.shouldCancel = [](void*) { return readerInputWakePending(); };
+    options.cancellationObserved = &cancelled;
+    if (next->startBuild(spec, options)) {
+      nextChapterBuild = std::move(next);
+      nextChapterBuildReplacesLayout = layoutMismatch;
+    } else if (cancelled) {
+      nextChapterBuildAttempted = false;
+    } else {
+      LOG_ERR("ERS", "Failed to start incremental next-chapter build: spine=%d", nextSpine);
+    }
+  } else if (!BackgroundBuildMemoryGuard::hasHeap(MemoryBudget::snapshot())) {
+    LOG_DBG("ERS", "Suspending incremental next-chapter build under memory pressure: spine=%d", nextSpine);
+    nextChapterBuild.reset();
+  } else if (!nextChapterBuild->buildSomeMore(BACKGROUND_BUILD_PAGES_PER_TICK, /*singleParseStep=*/true)) {
+    LOG_ERR("ERS", "Incremental next-chapter build failed: spine=%d", nextSpine);
+    nextChapterBuild.reset();
+  } else if (nextChapterBuild->isBuildComplete() || nextChapterBuild->pageCount >= NEXT_CHAPTER_PREFETCH_PAGES) {
+    nextChapterBuild->suspendBuild(nextChapterBuildReplacesLayout);
+    if (nextChapterBuild->isBuildComplete() || nextChapterBuild->isPartial()) {
+      chapterGroupEstimate.valid = false;
+      LOG_DBG("ERS", "Incremental next chapter ready: spine=%d pages=%u", nextSpine, nextChapterBuild->pageCount);
+    }
+    nextChapterBuild.reset();
+  }
+  invalidatePageBufferAfterBuild(loansBefore);
+}
+
+void EpubReaderActivity::suspendNextChapterBuild() {
+  if (!nextChapterBuild) return;
+  nextChapterBuild.reset();  // Persist readable pages and close the parser's files before foreground work.
+  nextChapterBuildAttempted = false;
 }
 
 // Called with RenderLock held. Return to polling after each parser or font step.
@@ -3206,7 +3293,7 @@ void EpubReaderActivity::runBackgroundSectionBuildStep() {
 
 void EpubReaderActivity::idlePrewarmNextPage() {
   RenderLock lock(*this, RenderLock::Mode::Try);
-  if (!lock.ownsLock()) return;
+  if (!lock.ownsLock() || nextChapterBuild) return;
 
 #if CROSSINK_SCALABLE_FONTS
   const int ttfFontId = activeSectionFontId != 0 ? activeSectionFontId : SETTINGS.getReaderFontId();
@@ -3265,16 +3352,6 @@ void EpubReaderActivity::idlePrewarmNextPage() {
 }
 
 #if CROSSINK_SCALABLE_FONTS
-namespace {
-bool idleFontInputWakePending() {
-#ifndef SIMULATOR
-  return InputWake::hasPendingEdge() || InputWake::hasPendingButtons();
-#else
-  // The simulator injects input via MappedInputManager rather than hardware IRQs.
-  return false;
-#endif
-}
-}  // namespace
 void EpubReaderActivity::idlePrewarmTtf(const int fontId, FontCacheManager& manager) {
   // Called with RenderLock held after foreground input handling. No font/page
   // pointers in the job are borrowed across ticks; every render starts a new job.
@@ -3291,12 +3368,12 @@ void EpubReaderActivity::idlePrewarmTtf(const int fontId, FontCacheManager& mana
   } slice{this, millis()};
   const auto inputPending = [](void* context) {
     const auto* reader = static_cast<Slice*>(context)->reader;
-    return idleFontInputWakePending() || reader->mappedInput.hasPendingActivity() ||
+    return readerInputWakePending() || reader->mappedInput.hasPendingActivity() ||
            !reader->idleTtfReady.load(std::memory_order_relaxed);
   };
   const auto shouldYield = [](void* context) {
     const auto& slice = *static_cast<Slice*>(context);
-    return millis() - slice.started >= 8 || idleFontInputWakePending() ||
+    return millis() - slice.started >= 8 || readerInputWakePending() ||
            slice.reader->mappedInput.hasPendingActivity() ||
            !slice.reader->idleTtfReady.load(std::memory_order_relaxed);
   };
@@ -6731,6 +6808,7 @@ void EpubReaderActivity::pageTurn(bool isForwardTurn, const char* source) {
 
 // TODO: Failure handling
 void EpubReaderActivity::render(RenderLock&& lock) {
+  suspendNextChapterBuild();
   lastPresentedPage = -1;
   chapterCountRefreshPending = false;
 #if CROSSINK_SCALABLE_FONTS
@@ -6909,6 +6987,7 @@ void EpubReaderActivity::render(RenderLock&& lock) {
     if (!activeFootnotePreview && pendingFootnotePreviewAnchor.empty())
       syncPageReadingPaceLayout(viewportWidth, viewportHeight);
     preparedNextSpineIndex = -1;
+    nextChapterBuildAttempted = false;
     // Section loading/indexing can need a large contiguous block. Return the
     // render-only strip before starting that work.
     releaseGrayscaleStripScratch();

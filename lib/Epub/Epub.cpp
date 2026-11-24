@@ -526,7 +526,8 @@ bool Epub::parseContentOpf(BookMetadataCache::BookMetadata& bookMetadata, const 
   // parser has left </metadata>, well before the manifest/spine/guide of a
   // large content.opf; readItemContentsToStream() reports that as a short
   // write rather than a full success, so it is not itself a read failure here.
-  if (!readItemContentsToStream(contentOpfFilePath, opfParser, 1024, metadataOnly)) {
+  if (!readItemContentsToStream(contentOpfFilePath, opfParser, 1024,
+                                metadataOnly ? StreamEarlyStop::Probe : StreamEarlyStop::Disabled)) {
     LOG_ERR("EBP", "Could not read content.opf");
     if (opfParser.failedForLowMemory()) {
       lastLoadFailure = OpenFailure::OutOfMemory;
@@ -1795,7 +1796,7 @@ uint8_t* Epub::readItemContentsToBytes(const std::string& itemHref, size_t* size
 }
 
 bool Epub::readItemContentsToStream(const std::string& itemHref, Print& out, const size_t chunkSize,
-                                    const bool allowEarlyStop) const {
+                                    const StreamEarlyStop earlyStop) const {
   if (itemHref.empty()) {
     LOG_DBG("EBP", "Failed to read item, empty href");
     return false;
@@ -1805,18 +1806,21 @@ bool Epub::readItemContentsToStream(const std::string& itemHref, Print& out, con
   if (decryptor && decryptor->isEncrypted(path)) {
     struct Sink {
       Print& out;
+      bool stopImmediately;
       bool stopped = false;
-    } sink{out};
+    } sink{out, earlyStop == StreamEarlyStop::Immediate};
     auto append = [](void* context, const uint8_t* bytes, size_t length) {
       auto& sink = *static_cast<Sink*>(context);
       if (sink.stopped) return true;
       sink.stopped = sink.out.write(bytes, length) != length;
-      // Finish decryption/decompression even when a parser stops early.
-      return true;
+      return !sink.stopped || !sink.stopImmediately;
     };
-    return decryptor->decryptToSink(path, append, &sink) && (!sink.stopped || allowEarlyStop);
+    const bool read = decryptor->decryptToSink(path, append, &sink);
+    if (sink.stopped && sink.stopImmediately) return true;
+    return read && (!sink.stopped || earlyStop == StreamEarlyStop::Probe);
   }
-  return ZipFile(filepath, &zipDirectoryCache).readFileToStream(path.c_str(), out, chunkSize, allowEarlyStop);
+  return ZipFile(filepath, &zipDirectoryCache)
+      .readFileToStream(path.c_str(), out, chunkSize, earlyStop != StreamEarlyStop::Disabled);
 }
 
 bool Epub::extractItemToFile(const std::string& itemHref, const std::string& destPath, const size_t chunkSize) const {
@@ -2559,7 +2563,7 @@ bool Epub::isNavigationDocumentSpine(const int spineIndex, bool* const scanSucce
   }
 
   ContentsDocumentScanner scanner;
-  if (!readItemContentsToStream(href, scanner, 512, /*allowEarlyStop=*/true)) {
+  if (!readItemContentsToStream(href, scanner, 512, StreamEarlyStop::Probe)) {
     return false;
   }
   if (scanSucceeded) *scanSucceeded = true;

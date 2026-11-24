@@ -97,6 +97,29 @@ constexpr size_t SECTION_HTML_STREAM_CHUNK_SIZE = 8192;
 constexpr size_t PAGE_WRITE_BUFFER_SIZE = 1024;
 constexpr size_t LOW_MEMORY_SECTION_HTML_STREAM_CHUNK_SIZE = 1024;
 
+class CancellableSectionHtmlOutput final : public Print {
+ public:
+  CancellableSectionHtmlOutput(HalFile& file, const SectionBuildOptions& options) : file(file), options(options) {}
+
+  size_t write(uint8_t byte) override { return write(&byte, 1); }
+  size_t write(const uint8_t* bytes, size_t length) override {
+    if (options.isCancellationRequested()) {
+      cancelled = true;
+      return 0;
+    }
+    const size_t written = file.write(bytes, length);
+    writeFailed = written != length;
+    return written;
+  }
+
+  bool cancelled = false;
+  bool writeFailed = false;
+
+ private:
+  HalFile& file;
+  const SectionBuildOptions& options;
+};
+
 void prepareSectionZipInflate(GfxRenderer& renderer, const int fontId) {
   const auto required = InflateStream::requiredInternalStorageSize(true);
   if (ESP.getMaxAllocHeap() >= required || !renderer.isSdCardFont(fontId)) return;
@@ -388,7 +411,8 @@ bool Section::writeSectionFileHeader(const ReaderRenderSpec& spec) {
          serialization::tryWritePod(file, static_cast<uint32_t>(0));    // visible text LUT offset
 }
 
-bool Section::loadSectionFile(const ReaderRenderSpec& spec) {
+bool Section::loadSectionFile(const ReaderRenderSpec& spec, bool* layoutMismatch) {
+  if (layoutMismatch) *layoutMismatch = false;
   if (!Storage.openFileForRead("SCT", filePath, file)) {
     return false;
   }
@@ -474,6 +498,7 @@ bool Section::loadSectionFile(const ReaderRenderSpec& spec) {
         spec.characterSpacing != fileCharacterSpacing || static_cast<uint8_t>(spec.renderMode) != fileRenderMode ||
         spec.publisherFonts != filePublisherFonts || spec.publisherFontSignature != filePublisherFontSignature) {
       file.close();
+      if (layoutMismatch) *layoutMismatch = true;
       LOG_ERR("SCT", "Deserialization failed: Parameters do not match");
       resetLoadedCacheState();
       return false;
@@ -1158,6 +1183,13 @@ bool Section::createSectionFile(const ReaderRenderSpec& spec, const std::functio
 
 bool Section::startBuild(const ReaderRenderSpec& spec, const SectionBuildOptions buildOptions,
                          const std::function<void()>& popupFn) {
+  const auto cancelBuild = [&](bool alreadyCancelled = false) {
+    if (!alreadyCancelled && !buildOptions.isCancellationRequested()) return false;
+    if (buildOptions.cancellationObserved) *buildOptions.cancellationObserved = true;
+    return true;
+  };
+  if (cancelBuild()) return false;
+
   const int fontId = spec.fontId;
   const float lineCompression = spec.lineCompression;
   const bool extraParagraphSpacing = spec.extraParagraphSpacing;
@@ -1267,6 +1299,10 @@ bool Section::startBuild(const ReaderRenderSpec& spec, const SectionBuildOptions
 
     bool streamed = false;
     for (int attempt = 0; attempt < 3 && !streamed; attempt++) {
+      if (cancelBuild()) {
+        cleanupTempHtml();
+        return false;
+      }
       if (attempt > 0) {
         LOG_DBG("SCT", "Retrying stream (attempt %d)...", attempt + 1);
         delay(50);
@@ -1281,7 +1317,19 @@ bool Section::startBuild(const ReaderRenderSpec& spec, const SectionBuildOptions
       }
       const size_t htmlStreamChunkSize = sectionHtmlStreamChunkSize(buildOptions.isPreview());
       prepareSectionZipInflate(renderer, fontId);
-      streamed = epub->readItemContentsToStream(localPath, tmpHtml, htmlStreamChunkSize);
+      if (buildOptions.shouldCancel) {
+        CancellableSectionHtmlOutput out(tmpHtml, buildOptions);
+        streamed =
+            epub->readItemContentsToStream(localPath, out, htmlStreamChunkSize, Epub::StreamEarlyStop::Immediate);
+        if (cancelBuild(out.cancelled)) {
+          tmpHtml.close();
+          cleanupTempHtml();
+          return false;
+        }
+        streamed = streamed && !out.writeFailed;
+      } else {
+        streamed = epub->readItemContentsToStream(localPath, tmpHtml, htmlStreamChunkSize);
+      }
       const bool synced = !streamed || tmpHtml.sync();
       const bool closed = tmpHtml.close();
       streamed = streamed && synced && closed;
@@ -1306,6 +1354,10 @@ bool Section::startBuild(const ReaderRenderSpec& spec, const SectionBuildOptions
     }
   }
 
+  if (cancelBuild()) {
+    cleanupTempHtml();
+    return false;
+  }
   if (!Storage.openFileForWrite("SCT", tmpSectionPath, file)) {
     cleanupTempHtml();
     return false;
@@ -1449,6 +1501,10 @@ bool Section::startBuild(const ReaderRenderSpec& spec, const SectionBuildOptions
     const ComplexShaper::LayoutObservation observe(build_->shapingFailures);
     return build_->parser->beginParse();
   }();
+  if (cancelBuild()) {
+    abandonBuild();
+    return false;
+  }
   if (!parseStarted) {
     LOG_ERR("SCT", "Failed to begin incremental section parse");
     lastLayoutAbortedForLowMemory_ = build_->parser->wasLowMemoryAbortTriggered();
@@ -1508,6 +1564,8 @@ bool Section::hasHtmlCache() const {
       chapterDirectory(*epub, "/content", spineIndex) + "/" + std::to_string(spineIndex) + ".html";
   return Storage.exists(htmlPath.c_str());
 }
+
+bool Section::hasLayoutCache() const { return Storage.exists(filePath.c_str()); }
 
 std::optional<uint16_t> Section::findAnchorDuringBuild(const std::string& anchor) const {
   if (!build_ || !build_->parser) return std::nullopt;
@@ -1825,7 +1883,7 @@ bool Section::finalizeBuild() {
   return true;
 }
 
-void Section::suspendBuild() {
+void Section::suspendBuild(const bool replaceIncompatibleLayout) {
   if (!build_) return;
 
   if (build_->parser->wasMalformedMarkupTruncated()) build_->parser->releaseInputFile();
@@ -1853,8 +1911,10 @@ void Section::suspendBuild() {
 
   // Only worth persisting if this build produced pages a pre-existing partial doesn't
   // already cover; otherwise keep the older (bigger) partial and just drop the tmp.
+  const bool mayReplaceCache =
+      !build_->previousCacheCandidate || (replaceIncompatibleLayout && !build_->previousCacheCompatible);
   const bool worthKeeping = !build_->pageCompletionFailed && builtPageCount_ > 0 &&
-                            (partial_ ? builtPageCount_ > partialPageCount_ : !build_->previousCacheCandidate);
+                            (partial_ ? builtPageCount_ > partialPageCount_ : mayReplaceCache);
 
   bool committed = false;
   if (worthKeeping) {

@@ -151,6 +151,65 @@ extern CrossPointSettings::SHORT_PWRBTN getPowerButtonAction();
 // Use a detached reader so these boundary checks cannot race its render task.
 struct EpubReaderCompletionSmokeTest {
   static std::optional<uint32_t> statusAnchor;
+
+  static std::optional<bool> nextChapterPrefetch(EpubReaderActivity& reader) {
+    static bool interrupted = false;
+    static bool turned = false;
+    RenderLock lock(RenderLock::Mode::Try);
+    if (!lock.ownsLock() || !reader.section || reader.lastPresentedPage < 0) return std::nullopt;
+    if (turned) {
+      if (reader.lastPresentedSpine != 1) return std::nullopt;
+      return reader.lastPresentedPage == 0 && reader.section->isPartial() && reader.section->pageCount >= 3;
+    }
+    if (reader.section->isBuilding() || reader.section->isPartial()) return std::nullopt;
+    if (!reader.hasIndexingPsram) {
+      if (reader.nextChapterBuildAttempted || reader.nextChapterBuild ||
+          SETTINGS.indexingMethod != CrossPointSettings::INDEXING_INCREMENTAL || reader.epub->getSpineItemsCount() < 2)
+        return false;
+
+      // Cancel during cold XHTML extraction and verify that the partial stream is not published.
+      Section next(reader.epub, 1, renderer);
+      auto spec = SETTINGS.readerRenderSpec(reader.buildViewportWidth, reader.buildViewportHeight,
+                                            EpubRenderMode::CrossInkDefault);
+      int checks = 0;
+      bool cancelled = false;
+      SectionBuildOptions options{};
+      options.shouldCancel = [](void* context) { return ++*static_cast<int*>(context) >= 3; };
+      options.cancelContext = &checks;
+      options.cancellationObserved = &cancelled;
+      if (next.hasHtmlCache() || next.startBuild(spec, options) || !cancelled || next.isBuilding() ||
+          next.hasHtmlCache())
+        return false;
+
+      // Seed a different layout and verify that prefetch can prepare a replacement.
+      --spec.viewportWidth;
+      if (!next.createSectionFile(spec)) return false;
+
+      // Exercise the reader's PSRAM policy while keeping the simulator's host allocator.
+      reader.hasIndexingPsram = true;
+    }
+    if (reader.nextChapterBuild && !interrupted) {
+      lock.unlock();
+      reader.onUserInput();
+      RenderLock inputLock;
+      if (reader.nextChapterBuild || reader.nextChapterBuildAttempted) return false;
+      Section next(reader.epub, 1, renderer);
+      const auto oldSpec = SETTINGS.readerRenderSpec(reader.buildViewportWidth - 1, reader.buildViewportHeight,
+                                                     EpubRenderMode::CrossInkDefault);
+      if (!next.loadSectionFile(oldSpec) || next.isPartial() || next.pageCount < 3) return false;
+      interrupted = true;
+      return std::nullopt;
+    }
+    if (!reader.nextChapterBuildAttempted || reader.nextChapterBuild) return std::nullopt;
+    if (!interrupted || reader.currentSpineIndex != 0) return false;
+
+    reader.section->currentPage = reader.section->pageCount - 1;
+    turned = true;
+    lock.unlock();
+    reader.pageTurn(true, "prefetch smoke");
+    return std::nullopt;
+  }
+
   static bool fontBrowserReturn(EpubReaderActivity& reader, const char* family) {
     RenderLock lock;
     const int fontId = sdFontSystem.resolveFontId(family, SETTINGS.readerFontPointSize);
@@ -877,7 +936,8 @@ struct ReaderDrawerLayoutSmokeTest {
               verifyScreen(screen, "saved-items");
             }
             {
-              XtcReaderMenuActivity screen(renderer, mappedInputManager, "Short XTC title", true, false, true, true);
+              XtcReaderMenuActivity screen(renderer, mappedInputManager, "Short XTC title", true, false, true, true, 0,
+                                           {});
               verifyScreen(screen, "xtc-menu");
             }
             {
@@ -885,7 +945,7 @@ struct ReaderDrawerLayoutSmokeTest {
                   renderer, mappedInputManager,
                   "A very long XTC book title that needs to wrap across multiple lines without "
                   "making its Back header taller than Settings or other reader screens",
-                  true, false, true, true);
+                  true, false, true, true, 0, {});
               verifyScreen(screen, "xtc-menu-long-title");
             }
             ++cases;
@@ -11480,12 +11540,23 @@ class SimulatorSmokeTest {
           SETTINGS.orientation = CrossPointSettings::LANDSCAPE_CCW;
           LOG_INF("SMOKE", "Opening smoke reader in landscape");
         }
+        if (std::getenv("CROSSINK_SIMULATOR_SMOKE_NEXT_CHAPTER_PREFETCH"))
+          SETTINGS.indexingMethod = CrossPointSettings::INDEXING_INCREMENTAL;
         activityManager.goToReader(bookPath, true);
         queueStep("Reader", SmokeStep::Reader, 8);
         break;
       }
 
       case SmokeStep::Reader:
+        if (std::getenv("CROSSINK_SIMULATOR_SMOKE_NEXT_CHAPTER_PREFETCH")) {
+          if (!activityManager.isCurrentActivityNamed("EpubReader")) fail("Chapter prefetch test requires EPUB reader");
+          const auto result = EpubReaderCompletionSmokeTest::nextChapterPrefetch(
+              *static_cast<EpubReaderActivity*>(activityManager.simulatorCurrentActivity()));
+          if (!result) break;
+          if (!*result) fail("Next chapter prefetch did not yield to input and reuse a readable partial");
+          LOG_INF("SMOKE", "Simulator smoke test passed: next chapter prefetch");
+          std::_Exit(0);
+        }
         if (std::getenv("CROSSINK_SIMULATOR_SMOKE_READER_TOP_DRAWER")) {
           buildReaderTopDrawerScript();
           step = SmokeStep::ReaderInput;

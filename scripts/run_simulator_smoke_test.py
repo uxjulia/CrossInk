@@ -583,6 +583,8 @@ def run_smoke(args: argparse.Namespace) -> int:
         if args.receive_folder_captures:
             env["CROSSINK_SIMULATOR_SMOKE_STATUS_BAR_CAPTURES"] = str(Path(args.receive_folder_captures).resolve())
         env["CROSSINK_SIMULATOR_SMOKE_BOOK"] = simulator_book_path
+        if args.next_chapter_prefetch:
+            env["CROSSINK_SIMULATOR_SMOKE_NEXT_CHAPTER_PREFETCH"] = "1"
         env["CROSSINK_SIMULATOR_SMOKE_PAGE_TURNS"] = str(args.page_turns)
         if args.context_menu_sync_return:
             env["CROSSINK_SIMULATOR_SMOKE_CONTEXT_MENU_SYNC_RETURN"] = args.context_menu_sync_return
@@ -681,6 +683,10 @@ def run_smoke(args: argparse.Namespace) -> int:
         print("Simulator smoke test did not print its success marker", file=sys.stderr)
         return 2
 
+    if args.next_chapter_prefetch and "Simulator smoke test passed: next chapter prefetch" not in proc.stdout:
+        print("Simulator did not complete next chapter prefetch checks", file=sys.stderr)
+        return 2
+
     if args.text_darkness and "Simulator smoke test passed: text darkness" not in proc.stdout:
         print("Simulator did not complete text darkness checks", file=sys.stderr)
         return 2
@@ -773,6 +779,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--factory-flash", action="store_true",
                         help="Use the reported 80 KiB factory partition; verify it remains unchanged (S3 profiles)")
     parser.add_argument("--book", default=str(DEFAULT_BOOK), help="EPUB fixture to copy into the isolated simulator fs_")
+    parser.add_argument("--next-chapter-prefetch", action="store_true",
+                        help="Verify PSRAM chapter prefetch yields to input and reuses its saved pages on a turn")
     parser.add_argument("--publisher-fonts", action="store_true",
                         help="Run publisher-font cache, registration and extraction checks")
     parser.add_argument("--css-toggle", action="store_true",
@@ -855,6 +863,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--window", dest="headless", action="store_false", help="Show the SDL window instead of using dummy video")
     parser.set_defaults(build=True, headless=True)
     args = parser.parse_args()
+    if args.next_chapter_prefetch and args.book == str(DEFAULT_BOOK):
+        args.book = str(ROOT / "test" / "epubs" / "font-prewarm-benchmark.epub")
     if args.touch_availability and args.env not in ("sticky-simulator", "x4-pro-simulator"):
         parser.error("--touch-availability requires a touch simulator")
     if args.settings_back and args.env not in ("x4-pro-simulator", "sticky-simulator"):

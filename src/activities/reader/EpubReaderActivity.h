@@ -383,6 +383,9 @@ class EpubReaderActivity final : public Activity {
   // restores this guard after boot so the resumed attempt can fall through to those modes.
   bool lowMemoryPartialRestartAttempted = false;
   bool hasIndexingPsram = false;
+  std::unique_ptr<Section> nextChapterBuild;
+  bool nextChapterBuildAttempted = false;
+  bool nextChapterBuildReplacesLayout = false;
   unsigned long lastIdleIndexMs = 0;
   bool backgroundBuildPausedForLowMemory = false;
   BackgroundBuildMemoryGuard backgroundBuildMemoryGuard;
@@ -447,6 +450,8 @@ class EpubReaderActivity final : public Activity {
   std::string footnotePreviewCacheSuffix(EpubRenderMode renderMode, const std::string& anchor) const;
   void clearFootnotePreviewState();
   void silentIndexNextChapterIfNeeded(uint16_t viewportWidth, uint16_t viewportHeight);
+  void advanceNextChapterBuild();
+  void suspendNextChapterBuild();
   void cancelSilentPrefetchForInput();
   bool restoreCurrentPageBufferAfterSilentIndex();
   // Larger batches are reserved for non-interactive work such as sleep-page preparation.
@@ -621,6 +626,7 @@ class EpubReaderActivity final : public Activity {
   void onEnter() override;
   void onExit() override;
   void prepareForSleep() override {
+    suspendNextChapterBuild();
     if (!saveReadingProgress()) LOG_ERR("PEVT", "Reader progress save failed before sleep");
     pluginEvents.poll(getCurrentBookPath());
     pluginEvents.flush(getCurrentBookPath());
