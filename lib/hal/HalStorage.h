@@ -144,6 +144,14 @@ class HalFile : public Print {
   bool seekSet(size_t offset);
   int available() const;
   size_t position() const;
+  // Reopen the same directory at this offset without retracing its FAT chain.
+  struct DirectoryPosition {
+    uint64_t offset = 0;
+    uint32_t cluster = 0;
+    uint32_t firstCluster = 0;
+  };
+  DirectoryPosition directoryPosition() const;
+  bool seekDirectoryPosition(const DirectoryPosition& position);
   int read(void* buf, size_t count);
   int read();  // read a single byte
   size_t write(const void* buf, size_t count);

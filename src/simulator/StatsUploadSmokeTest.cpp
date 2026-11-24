@@ -5,9 +5,11 @@
 #include <HalStorage.h>
 #include <I18n.h>
 #include <KOReaderCredentialStore.h>
+#include <LibraryBuilder.h>
 #include <Logging.h>
 #include <SDL.h>
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -19,6 +21,7 @@
 #include "SilentRestart.h"
 #include "activities/network/StatsUploadActivity.h"
 #include "activities/reader/DailyReadingStats.h"
+#include "activities/reader/EpubReaderUtils.h"
 #include "activities/reader/KOReaderSyncActivity.h"
 #include "activities/reader/ReadingSessionJournal.h"
 #include "activities/reader/StatsBackup.h"
@@ -26,6 +29,8 @@
 #include "activities/settings/BackupStatsActivity.h"
 #include "network/ReadingSyncUpload.h"
 #include "network/StatsUploadClient.h"
+#include "network/UsbProgressSync.h"
+#include "util/BookMoveUtils.h"
 #include "util/StatsStorage.h"
 
 namespace {
@@ -395,6 +400,117 @@ void verifyStatsUploadContract() {
   LOG_INF("SMOKE", "Stats upload serialization and storage smoke passed");
 }
 struct SyncDiagnosticsSmokeTest {
+  static void verifyProgressDiscovery(GfxRenderer& renderer, MappedInputManager& input) {
+    const std::string linked = "/scope/linked.epub";
+    const std::string older = "/scope/older.epub";
+    const std::string oldHash = "/old-hash.epub";
+    const std::string restored = "/restored.epub";
+    const auto fixture = [](const std::string& path) {
+      require(Storage.writeFile(path.c_str(), "fixture"), "create EPUB filename");
+      Epub epub(path, "/.crosspoint");
+      epub.setupCacheDir();
+      require(EpubReaderUtils::saveProgress(epub, 1, 2, 10), "save progress and book path");
+      return epub.getCachePath();
+    };
+    require(Storage.ensureDirectoryExists("/scope"), "create progress test folder");
+    const auto linkedCache = fixture(linked);
+    const auto olderCache = fixture(older);
+    require(Storage.remove((olderCache + "/progress-path.bin").c_str()), "remove path for older cache");
+    const auto currentHashCache = fixture(oldHash);
+    require(Storage.remove((currentHashCache + "/progress-path.bin").c_str()) &&
+                Storage.rename(currentHashCache.c_str(),
+                               ("/.crosspoint/epub_" + std::to_string(Epub::legacyCachePathHash(oldHash))).c_str()),
+            "seed legacy cache directory hash");
+    require(Storage.writeFile("/scope/unread.epub", "fixture"), "unread EPUB");
+    Epub unread("/scope/unread.epub", "/.crosspoint");
+    unread.setupCacheDir();
+    Epub missing("/missing.epub", "/.crosspoint");
+    missing.setupCacheDir();
+    require(EpubReaderUtils::saveProgress(missing, 0, 1, 10), "cache for removed EPUB");
+    for (const auto& path : {std::string("/orphan.epub"), restored}) {
+      const auto cache = fixture(path);
+      require(Storage.remove(path.c_str()) && Storage.remove((cache + "/progress-path.bin").c_str()),
+              "orphan legacy cache");
+    }
+
+    KOREADER_STORE.setSyncStats(false);
+    KOREADER_STORE.setSyncClippings(false);
+    const auto native = [&](const std::string& root) {
+      StatsUploadActivity sync(renderer, input, root);
+      sync.startLegacyWalk();
+      require(sync.progressBooks != nullptr && sync.folderBooks == nullptr, "native progress-only walk uses caches");
+      std::vector<std::string> books;
+      for (unsigned i = 0; i < 16000; ++i) {
+        std::string path;
+        const auto next = sync.nextBook(path);
+        require(next != StatsUploadActivity::NextBook::Error, "native progress discovery succeeds");
+        if (next == StatsUploadActivity::NextBook::Book) books.push_back(std::move(path));
+        if (next == StatsUploadActivity::NextBook::Done) {
+          std::sort(books.begin(), books.end());
+          return books;
+        }
+      }
+      require(false, "native enumeration terminates");
+      return books;
+    };
+    const auto usb = [&] {
+      std::vector<std::string> books;
+      JsonDocument request;
+      request["op"] = "books";
+      for (uint32_t cursor = 0; cursor < 16000; ++cursor) {
+        request["cursor"] = cursor;
+        JsonDocument response;
+        UsbProgressSync::handle(request.as<JsonVariantConst>(), response, renderer);
+        require(response["error"].isNull(), "USB progress discovery succeeds");
+        for (const auto item : response["books"].as<JsonArrayConst>()) books.emplace_back(item.as<const char*>());
+        if (response["done"].as<bool>()) {
+          std::sort(books.begin(), books.end());
+          return books;
+        }
+        require(response["next"].as<uint32_t>() == cursor + 1, "USB listing advances");
+      }
+      require(false, "USB listing terminates");
+      return books;
+    };
+    const auto blocked = olderCache + "/progress-path.bin.tmp";
+    require(
+        Storage.ensureDirectoryExists(blocked.c_str()) && Storage.writeFile((blocked + "/blocker").c_str(), "fixture"),
+        "block a legacy path write");
+    require(native("/scope") == std::vector<std::string>{linked, older},
+            "legacy write failure still returns saved progress");
+    require(!Storage.exists((olderCache + "/progress-path.bin").c_str()), "fixture prevented saving the association");
+    require(native("/scope") == std::vector<std::string>{linked, older},
+            "failed path writes are retried on later scans");
+    require(Storage.removeDir(blocked.c_str()), "let path recovery succeed");
+    require(native("/scope") == std::vector<std::string>{linked, older}, "folder sync includes older progress once");
+    require(Storage.exists((olderCache + "/progress-path.bin").c_str()), "native walk backfills older cache");
+    require(usb() == std::vector<std::string>{oldHash, linked, older}, "USB sync includes both cache formats");
+    require(Storage.exists((currentHashCache + "/progress-path.bin").c_str()), "USB walk backfills old hash cache");
+
+    require(Storage.writeFile(restored.c_str(), "fixture"), "restore an EPUB from an older cache");
+    library::invalidateLibraryIndex();
+    require(usb() == std::vector<std::string>{oldHash, restored, linked, older},
+            "library changes make a previous orphan eligible for legacy lookup again");
+
+    const std::string moved = "/scope/moved.epub";
+    require(
+        BookMoveUtils::renameFilePreservingBookState(linked, moved) == BookMoveUtils::RenameMigrationResult::Success,
+        "rename a book with a path record");
+    require(!Storage.exists(linkedCache.c_str()), "rename moves the old cache");
+    require(native("/") == std::vector<std::string>{oldHash, restored, moved, older},
+            "rename invalidates the previous orphan lookup");
+    // A card walk would hit the iterator's depth limit after migration.
+    std::string deep;
+    for (int i = 0; i < 18; ++i) deep += "/deep";
+    require(Storage.ensureDirectoryExists(deep.c_str()), "create card walk tripwire");
+    require(native("/") == std::vector<std::string>{oldHash, restored, moved, older},
+            "native migrated sync skips card walk despite an orphan");
+    require(usb() == std::vector<std::string>{oldHash, restored, moved, older},
+            "USB migrated sync skips card walk despite an orphan");
+    LOG_INF("SMOKE", "Cache-first progress discovery passed");
+    std::_Exit(0);
+  }
+
   static void run(GfxRenderer& renderer, MappedInputManager& input) {
     const char* directory = std::getenv("CROSSINK_SYNC_DIAGNOSTICS_CAPTURES");
     std::filesystem::create_directories(directory);
@@ -548,6 +664,9 @@ struct SyncDiagnosticsSmokeTest {
   }
 };
 void verifySyncDiagnosticsScreens(GfxRenderer& renderer, MappedInputManager& input) {
+  if (std::getenv("CROSSINK_PROGRESS_DISCOVERY_TEST")) {
+    SyncDiagnosticsSmokeTest::verifyProgressDiscovery(renderer, input);
+  }
   SyncDiagnosticsSmokeTest::run(renderer, input);
 }
 #endif

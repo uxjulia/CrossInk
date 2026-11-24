@@ -981,6 +981,21 @@ override a surviving versioned slot on re-upgrade. Export or back up both slots
 before switching firmware. This change does not invalidate EPUB layout caches.
 TXT and XTC progress formats are unchanged.
 
+### EPUB `progress-path.bin`
+
+This optional file in an EPUB cache lets progress sync find the book without
+walking the SD card. It uses the SyncFiles format with a trailing CRC. The
+payload is a one-byte version (1) and a length-prefixed absolute EPUB path
+(`uint16` length followed by at most 1024 bytes). Progress is still validated
+from the existing save slots. Sync checks that the stored path hashes to the
+cache directory and that the EPUB exists.
+
+CrossInk records the path on progress writes and updates it on in-app moves
+and renames. When a usable older cache lacks a valid path, sync can rediscover
+it by walking the card and repair the association for later runs. Orphan lookups are
+remembered in retained memory until the card is reconciled, files change
+through the reader, or the reader cold-boots after external card edits.
+
 ## Reading-stat device ownership
 
 Reading stats now use device-qualified paths. The qualifier is the same hardware

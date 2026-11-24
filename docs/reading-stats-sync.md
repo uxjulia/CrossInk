@@ -57,9 +57,14 @@ Choose **File Transfer > Sync Server > Sync Books**, confirm, and connect to
 Wi-Fi if asked. CrossInk checks the SD card directly, so you do not need to
 refresh Library first.
 
-The first sync checks every book. Later syncs can be quicker on supported
-CrossPoint Sync servers because only changed books need to be checked or sent.
-Other servers may check each book every time.
+Progress sync starts with EPUB caches that have saved positions. Older caches
+may need a card scan to find their original EPUBs the first time. Inky uses the
+same cache lookup when syncing progress over USB. If Reading Stats or Clippings
+are enabled, those features can still check the full library.
+
+Later syncs can be quicker on supported CrossPoint Sync servers because progress
+sync uses the server's change history. Other servers may check each saved
+position every time.
 
 Press **Back** to stop. Finished transfers stay applied; a later sync continues
 or checks again as needed. Retrying does not add the same reading time twice.

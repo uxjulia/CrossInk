@@ -26,6 +26,10 @@ struct HostFileData {
 
 class HalFile : public Print {
  public:
+  struct DirectoryPosition {
+    size_t offset = 0;
+  };
+
   HalFile() = default;
   explicit HalFile(std::shared_ptr<HostFileData> data) : data_(std::move(data)) {}
 
@@ -51,6 +55,8 @@ class HalFile : public Print {
     return true;
   }
   bool seekSet(const size_t position) { return seek(position); }
+  DirectoryPosition directoryPosition() const { return {cursor_}; }
+  bool seekDirectoryPosition(const DirectoryPosition& position) { return seekSet(position.offset); }
 
   size_t write(const uint8_t value) override { return write(&value, 1); }
   size_t write(const uint8_t* input, const size_t length) override {

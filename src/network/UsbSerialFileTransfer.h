@@ -11,6 +11,7 @@ int relaySyncHttp(void* context, const char* method, const char* endpoint, const
 
 enum class ProcessResult {
   None,
+  SyncActivity,
   ScreenshotRequested,
 };
 

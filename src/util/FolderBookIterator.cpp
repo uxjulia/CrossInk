@@ -2,16 +2,22 @@
 
 #include <FsHelpers.h>
 #include <HalStorage.h>
+#include <LibraryBuilder.h>
 #include <Logging.h>
 
-FolderBookIterator::FolderBookIterator(std::string root) : directory(std::move(root)) {
+FolderBookIterator::FolderBookIterator(std::string root)
+    : directory(std::move(root)), pathRevision(library::libraryPathRevision()) {
   while (directory.size() > 1 && directory.back() == '/') directory.pop_back();
 }
 
 FolderBookIterator::Result FolderBookIterator::next(std::string& bookPath) {
   if (done) return Result::Done;
+  if (pathRevision != library::libraryPathRevision()) {
+    LOG_ERR("ReadingSync", "The library changed during the folder scan");
+    return Result::Error;
+  }
   auto dir = Storage.open(directory.c_str());
-  if (!dir || !dir.isDirectory() || (positions[depth] && !dir.seekSet(positions[depth]))) {
+  if (!dir || !dir.isDirectory() || !seekDirectoryPosition(dir, positions[depth])) {
     if (dir) dir.close();
     LOG_ERR("ReadingSync", "Cannot enumerate folder: %s", directory.c_str());
     return Result::Error;
@@ -30,7 +36,7 @@ FolderBookIterator::Result FolderBookIterator::next(std::string& bookPath) {
     directory.resize(slash == 0 ? 1 : slash);
     return Result::Entry;
   }
-  positions[depth] = dir.position();
+  positions[depth] = directoryPosition(dir);
   name[0] = '\0';
   const size_t nameLength = entry.getName(name, sizeof(name));
   const bool folder = entry.isDirectory();
@@ -48,7 +54,7 @@ FolderBookIterator::Result FolderBookIterator::next(std::string& bookPath) {
   }
   if (folder) {
     directory = path;
-    positions[++depth] = 0;
+    positions[++depth] = {};
     return Result::Entry;
   }
   // XTC books carry reading stats too; callers sync their stats without a position.

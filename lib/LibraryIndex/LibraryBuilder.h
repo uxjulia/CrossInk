@@ -121,6 +121,9 @@ bool buildLibraryIndex(const char* rootPath, BuildStats& stats, bool readMetadat
 // unreadable files or a capped duplicate tracker, do not re-dirty the index.
 void invalidateLibraryIndex();
 bool libraryIndexNeedsRefresh();
+// Changes when known book paths change or Library reconciles the card.
+uint32_t libraryPathRevision();
+void resetLibraryPathRevision();
 // Boot-only: called after validating a clean scan retained across deep sleep.
 void restoreLibraryIndexAfterSleep();
 

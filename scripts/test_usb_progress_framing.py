@@ -10,11 +10,16 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--arduinojson", type=Path, required=True)
 args = parser.parse_args()
 source = (ROOT / "src/network/UsbSerialFileTransfer.cpp").read_text()
-handler = source[source.index("void dispatchProgressSync("):source.index("void handleCommand()")]
+handler = source[source.index("void dispatchProgressSync("):source.index("ProcessResult handleLine()")]
+main = (ROOT / "src/main.cpp").read_text()
+activity_block = main[main.index("  static unsigned long lastActivityTime = millis();"):
+                      main.index("  if (userInputReceived) {", main.index("  static unsigned long lastActivityTime = millis();"))]
 harness = r'''
 #include <ArduinoJson.h>
 #include <SyncJsonAllocator.h>
 #include <algorithm>
+#include <atomic>
+#include "network/UsbSerialFileTransfer.h"
 #include <cassert>
 #include <cstdint>
 #include <cstdio>
@@ -30,8 +35,12 @@ size_t offset=0;bool fileTransferAllowed=true;int calls=0,acks=0;bool large=fals
 std::string usbResumeBook;
 uint32_t usbBookSession=0;
 bool usbSessionAtHome=false;
+using UsbSerialFileTransfer::ProcessResult;
+uint32_t clockMs=0;
+uint32_t millis() { return clockMs; }
 struct Manager {
  bool active=false, checkpointOk=true;
+ bool preventAutoSleep() const { return false; }
  std::string reopened;
  bool canSyncOpenEpubOverUsb() const { return active; }
  bool closeOpenEpubForUsbSync(std::string& path) {
@@ -64,6 +73,13 @@ constexpr size_t MAX_REQUEST=12288,MAX_RESPONSE=12288;
 bool readerId(char* out,size_t capacity) { return snprintf(out,capacity,"reader-1")>0; }
 void handle(JsonVariantConst,JsonDocument& out,GfxRenderer&) { ++calls;if(large)out["value"]=std::string(13000,'x');else out["applied"]=true; }
 }
+bool handleStatus() { return true; }
+void handleList() {}
+void handleMkdir() {}
+void handleWrite() {}
+void handleRemove() {}
+void handleRename() {}
+void handleRead() {}
 void request(const std::string& text,bool goodCrc=true) {
  incoming.clear();outgoing.clear();offset=acks=calls=0;
  incoming.push_back(text.size());incoming.push_back(text.size()>>8);
@@ -74,11 +90,11 @@ void request(const std::string& text,bool goodCrc=true) {
 '''
 tests = r'''
 int main() {
- request(R"({"op":"apply"})");handleProgressSync();assert(calls==1&&acks==1);
+ request(R"({"op":"apply"})");assert(handleProgressSync());assert(calls==1&&acks==1);
  const std::string out(outgoing.begin(),outgoing.end());assert(out.rfind("READY\nSYNC:",0)==0);
  auto start=out.find('\n',6)+1;const size_t n=std::stoul(out.substr(11));
  assert(readLe32(outgoing.data()+start+n)==esp_rom_crc32_le(0,outgoing.data()+start,n));
- request(R"({"op":"apply"})",false);handleProgressSync();assert(calls==0);
+ request(R"({"op":"apply"})",false);assert(!handleProgressSync());assert(calls==0);
  assert(std::string(outgoing.begin(),outgoing.end()).find("ERR:sync_crc")!=std::string::npos);
  request("invalid json");handleProgressSync();assert(calls==0);
  request("[]");handleProgressSync();assert(calls==0);
@@ -102,12 +118,39 @@ int main() {
  assert(activityManager.reopened.empty());
  request(R"({"op":"resume_current","session":1,"device_id":"reader-1"})");handleProgressSync();
  assert(activityManager.reopened=="/Book.epub" && usbResumeBook.empty());
- puts("USB progress framing checks passed");
+ // Keep polling a reader whose one-minute idle timeout would expire mid-run.
+ clockMs=0;
+ assert(!shouldSleep(ProcessResult::None));
+ for (unsigned i=0;i<204;++i) {
+   clockMs+=450;
+   request(R"({"op":"books","cursor":0})");
+   incoming.insert(incoming.begin(),'P');
+   const auto result=handleCommand();
+   assert(result==ProcessResult::SyncActivity && !shouldSleep(result));
+ }
+ assert(clockMs>60000);
+ request(R"({"op":"books","cursor":0})",false);
+ incoming.insert(incoming.begin(),'P');
+ assert(handleCommand()==ProcessResult::None);
+ clockMs+=60000;
+ assert(shouldSleep(ProcessResult::None));
+ incoming={'S'};offset=0;
+ assert(handleCommand()==ProcessResult::SyncActivity);
+ puts("USB progress framing and idle-timeout checks passed");
 }
 '''
 with tempfile.TemporaryDirectory(prefix="crossink-sync-framing-") as tmp:
     tmp = Path(tmp)
-    (tmp / "test.cpp").write_text(harness + handler + tests)
+    idle = """
+struct PowerManager { void setPowerSaving(bool) {} } powerManager;
+std::atomic<bool> storageTransitionAborted{false};
+bool shouldSleep(ProcessResult usbResult) {
+  const bool userInputReceived = false;
+""" + activity_block + """
+  return millis() - lastActivityTime >= 60000;
+}
+"""
+    (tmp / "test.cpp").write_text(harness + handler + idle + tests)
     binary = tmp / "test"
-    subprocess.run(["c++", "-std=c++17", "-Wall", "-Wextra", "-Werror", "-Wno-unused-variable", "-fsanitize=address,undefined", "-I"+str(args.arduinojson), "-I"+str(ROOT / "lib/KOReaderSync"), str(tmp / "test.cpp"), "-o", str(binary)], check=True)
+    subprocess.run(["c++", "-std=c++17", "-Wall", "-Wextra", "-Werror", "-Wno-unused-variable", "-fsanitize=address,undefined", "-I"+str(args.arduinojson), "-I"+str(ROOT / "lib/KOReaderSync"), "-I"+str(ROOT / "src"), str(tmp / "test.cpp"), "-o", str(binary)], check=True)
     subprocess.run([str(binary)], check=True)

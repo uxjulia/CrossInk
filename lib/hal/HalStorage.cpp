@@ -542,6 +542,22 @@ bool HalFile::seekCur(int64_t offset) { HAL_FILE_WRAPPED_CALL(seekCur, offset); 
 bool HalFile::seekSet(size_t offset) { HAL_FILE_WRAPPED_CALL(seekSet, offset); }
 int HalFile::available() const { HAL_FILE_WRAPPED_CALL(available, ); }
 size_t HalFile::position() const { HAL_FILE_WRAPPED_CALL(position, ); }
+HalFile::DirectoryPosition HalFile::directoryPosition() const {
+  HalStorage::StorageLock lock;
+  assert(impl != nullptr && impl->file.isDir());
+  fspos_t position{};
+  impl->file.fgetpos(&position);
+  return {position.position, position.cluster, impl->file.firstCluster()};
+}
+bool HalFile::seekDirectoryPosition(const DirectoryPosition& position) {
+  HalStorage::StorageLock lock;
+  if (!impl || !impl->file.isDir() || impl->file.firstCluster() != position.firstCluster) return false;
+  fspos_t saved{};
+  saved.position = position.offset;
+  saved.cluster = position.cluster;
+  impl->file.fsetpos(&saved);
+  return true;
+}
 int HalFile::read(void* buf, size_t count) { HAL_FILE_WRAPPED_CALL(read, buf, count); }
 int HalFile::read() { HAL_FILE_WRAPPED_CALL(read, ); }
 size_t HalFile::write(const void* buf, size_t count) {
