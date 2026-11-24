@@ -137,6 +137,7 @@ class Epub {
 
   explicit Epub(std::string filepath, const std::string& cacheDir);
   ~Epub() = default;
+  static uint64_t legacyCachePathHash(const std::string& filepath);
   static std::string cachePathForFilePath(const std::string& filepath, const std::string& cacheDir);
   // Resolve the stable cache path and migrate an older hash-named directory if
   // needed, without opening the EPUB or loading its metadata/location indexes.

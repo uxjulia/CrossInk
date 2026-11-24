@@ -462,21 +462,19 @@ bool BookMetadataCache::buildBookBin(const std::string& epubPath, const BookMeta
       int matched = 0;
       inputOk = spineIn.seek(0);
       if (!inputOk) buildIoFailure = true;
-      for (int i = 0; i < spineCount; i++) {
-        if (!inputOk) break;
+      for (int i = 0; inputOk && i < spineCount; ++i) {
         SpineEntry entry;
         if (!readSpineEntryChecked(spineIn, entry, spineInputSize)) {
           inputOk = false;
           buildIoFailure = true;
           break;
         }
-        std::string path = FsHelpers::normalisePath(entry.href);
-
-        ZipFile::SizeTarget t;
-        t.hash = ZipFile::fnvHash64(path.c_str(), path.size());
-        t.len = static_cast<uint16_t>(path.size());
-        t.index = static_cast<uint16_t>(i);
-        targets[targetCount++] = t;
+        const std::string path = FsHelpers::normalisePath(entry.href);
+        ZipFile::SizeTarget target;
+        target.hash = ZipFile::fnvHash64(path.c_str(), path.size());
+        target.len = static_cast<uint16_t>(path.size());
+        target.index = static_cast<uint16_t>(i);
+        targets[targetCount++] = target;
         if (targetCount < batchCapacity && i + 1 < spineCount) continue;
 
         std::sort(targets.begin(), targets.begin() + targetCount,

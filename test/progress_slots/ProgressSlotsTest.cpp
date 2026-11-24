@@ -1,6 +1,8 @@
 #include <gtest/gtest.h>
 
 #include "EpubReaderUtils.h"
+
+void ProgressBookIterator::rememberPath(const std::string&, const std::string&) {}
 #include "TwoSlotFile.h"
 
 class ProgressSlotsTest : public testing::Test {

@@ -60,6 +60,7 @@ void StatsUploadActivity::closeTransfer() {
     preparationOwned = false;
   }
   folderBooks.reset();
+  progressBooks.reset();
   // Unsent positions keep their pending bits for the next sync.
   releaseBatchBuffers();
   pending.end();
@@ -190,22 +191,6 @@ void StatsUploadActivity::setCurrentBook(const std::string& bookPath) {
   currentBook = ReadingSyncUpload::displayName(bookPath);
 }
 
-uint32_t StatsUploadActivity::countFolderBooks(const std::string& root) {
-  // File names only: no book is opened, so this is one pass over the folders.
-  auto books = makeUniqueNoThrow<FolderBookIterator>(root);
-  if (!books) return 0;
-  uint32_t total = 0;
-  std::string bookPath;
-  for (;;) {
-    const auto step = books->next(bookPath);
-    if (step == FolderBookIterator::Result::Book)
-      ++total;
-    else if (step != FolderBookIterator::Result::Entry)
-      break;
-  }
-  return total;
-}
-
 uint32_t StatsUploadActivity::countPendingInScope() const {
   return SyncPending::count([](const std::string& bookPath,
                                void* context) { return static_cast<const SyncScope*>(context)->covers(bookPath); },
@@ -259,8 +244,8 @@ void StatsUploadActivity::start() {
       return;
     }
   } else {
-    folderBooks = makeUniqueNoThrow<FolderBookIterator>(scopePath());
-    if (!folderBooks) {
+    progressBooks = makeUniqueNoThrow<ProgressBookIterator>(scopePath());
+    if (!progressBooks) {
       fail(tr(STR_KOREADER_SYNC_LOW_MEMORY));
       return;
     }
@@ -283,17 +268,18 @@ void StatsUploadActivity::prepareNext() {
     error = step == SyncPending::Cursor::Step::Error;
     if (!done && !error && (!(mask & SyncPending::PROGRESS_BIT) || !SyncScope{scopePath()}.covers(book))) return;
   } else {
-    const auto step = folderBooks->next(book);
+    const auto step = progressBooks->next(book);
     if (step == FolderBookIterator::Result::Entry) return;
     done = step == FolderBookIterator::Result::Done;
     error = step == FolderBookIterator::Result::Error;
+    if (step == FolderBookIterator::Result::Book) ++preparedBookCount;
   }
   if (error) {
     fail(tr(STR_SYNC_FAILED_MSG));
     return;
   }
   if (done) {
-    folderBooks.reset();
+    progressBooks.reset();
     pending.end();
     {
       RenderLock lock(*this);
@@ -302,7 +288,7 @@ void StatsUploadActivity::prepareNext() {
     startTransfer();
     return;
   }
-  if (!FsHelpers::hasEpubExtension(book) || !hasUsableSavedPosition(book)) return;
+  if (preparationPendingOnly && (!FsHelpers::hasEpubExtension(book) || !hasUsableSavedPosition(book))) return;
   setCurrentBook(book);
   if (requestUpdateAndWait() != RequestUpdateResult::Rendered) {
     fail(tr(STR_SYNC_FAILED_MSG));
@@ -474,14 +460,27 @@ std::string StatsUploadActivity::scopePath() const {
   return folder.empty() ? std::string("/") : folder;
 }
 
-void StatsUploadActivity::startLegacyWalk() {
-  // Sync Books walks the card itself, so books never shown in the Library
-  // (File Browser-only users, books copied since the last refresh) are included.
-  flow = Flow::Legacy;
+bool StatsUploadActivity::beginBookWalk() {
+  const auto root = scopePath();
   progressDone = 0;
-  progressTotal = countFolderBooks(scopePath());
-  folderBooks = makeUniqueNoThrow<FolderBookIterator>(scopePath());
-  if (!folderBooks) fail(tr(STR_KOREADER_SYNC_LOW_MEMORY));
+  folderBooks.reset();
+  progressBooks.reset();
+  if (KOREADER_STORE.getSyncStats() || KOREADER_STORE.getSyncClippings()) {
+    // Stats and clippings may exist for a book with no saved EPUB position.
+    progressTotal = 0;
+    folderBooks = makeUniqueNoThrow<FolderBookIterator>(root);
+  } else {
+    progressTotal = preparedBookCount;
+    progressBooks = makeUniqueNoThrow<ProgressBookIterator>(root);
+  }
+  if (folderBooks || progressBooks) return true;
+  fail(tr(STR_KOREADER_SYNC_LOW_MEMORY));
+  return false;
+}
+
+void StatsUploadActivity::startLegacyWalk() {
+  flow = Flow::Legacy;
+  beginBookWalk();
 }
 
 void StatsUploadActivity::planIncremental() {
@@ -539,11 +538,7 @@ void StatsUploadActivity::planIncremental() {
       LOG_INF("StatsSync", "First walk of %s (walk %lu, cursor %lu)", scopeRoot.c_str(),
               static_cast<unsigned long>(syncScope.walkId), static_cast<unsigned long>(syncScope.cursor));
       flow = Flow::FirstWalk;
-      progressDone = 0;
-      progressTotal = countFolderBooks(scopeRoot);
-      folderBooks = makeUniqueNoThrow<FolderBookIterator>(scopeRoot);
-      if (!folderBooks) fail(tr(STR_KOREADER_SYNC_LOW_MEMORY));
-      requestUpdate();
+      if (beginBookWalk()) requestUpdate();
       return;
     }
   }
@@ -553,6 +548,7 @@ void StatsUploadActivity::planIncremental() {
 
 void StatsUploadActivity::advanceFlow() {
   folderBooks.reset();
+  progressBooks.reset();
   catchupStamp = 0;
   progressDone = progressTotal = 0;
   currentBook.clear();
@@ -1078,7 +1074,7 @@ StatsUploadActivity::NextBook StatsUploadActivity::nextBook(std::string& bookPat
     }
     case Scope::Folder:
     case Scope::Library: {
-      const auto next = folderBooks->next(bookPath);
+      const auto next = progressBooks ? progressBooks->next(bookPath) : folderBooks->next(bookPath);
       if (next == FolderBookIterator::Result::Done) return NextBook::Done;
       if (next == FolderBookIterator::Result::Error) return NextBook::Error;
       return next == FolderBookIterator::Result::Book ? NextBook::Book : NextBook::Skip;

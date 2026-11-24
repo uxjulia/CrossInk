@@ -146,11 +146,14 @@ inline bool clearExisting(const std::string&,uint8_t bits) { clearedBits=bits; +
 namespace RecentBookProgress { inline void saveCachedEpubPercent(const Epub&,int,int,int) {} }
 struct Settings { const char* getEffectiveDeviceName() { return "EEGO"; } };
 inline Settings SETTINGS;
+inline int legacyListSteps=0,progressListSteps=0;
+inline uint32_t sdStepMs=0;
 class FolderBookIterator {
  public:
  enum class Result { Entry, Book, Done, Error };
  explicit FolderBookIterator(const std::string& root) { assert(root=="/"); }
  Result next(std::string& path) {
+  ++legacyListSteps;
   if(!cardOk) return Result::Error;
   if(offset==paths.size()) return Result::Done;
   path=paths[offset++];
@@ -160,6 +163,23 @@ class FolderBookIterator {
  private:
  size_t offset=0;
 };
+class ProgressBookIterator {
+ public:
+ using Result=FolderBookIterator::Result;
+ explicit ProgressBookIterator(const std::string& root) { assert(root=="/"); }
+ Result next(std::string& path) {
+  ++progressListSteps;
+  clockMs+=sdStepMs;
+  if(!cardOk) return Result::Error;
+  if(offset==paths.size()) return Result::Done;
+  path=paths[offset++];
+  if(!FsHelpers::hasEpubExtension(path) || path.find("Unread")!=std::string::npos) return Result::Entry;
+  return Result::Book;
+ }
+ private:
+ size_t offset=0;
+};
+
 template<class T,class... A> std::unique_ptr<T> makeUniqueNoThrow(A&&... a) { return std::unique_ptr<T>(new(std::nothrow) T(std::forward<A>(a)...)); }
 '''
 TEST = r'''
@@ -223,6 +243,7 @@ int main() {
  paths.push_back("/New.epub");
  run(R"({"op":"books","cursor":0})");
  assert(reply["books"].size()==2 && reply["books"][1]=="/New.epub");
+ assert(progressListSteps>0 && legacyListSteps==0);
  paths.resize(40,"/Note.txt");
  run(R"({"op":"books","cursor":0})"); assert(reply["done"]==false && reply["next"]==1);
  run(R"({"op":"books","cursor":1})"); assert(reply["done"]==true);
@@ -233,9 +254,28 @@ int main() {
  run(R"({"op":"books","cursor":0})"); assert(reply["done"]==false);
  UsbProgressSync::expireBookList(false);
  run(R"({"op":"books","cursor":1})"); assert(reply["error"]=="invalid_cursor");
- paths.resize(3);
+ paths.assign(6500,"/Note.txt");
+ paths.back()="/Book.epub";
+ sdStepMs=40;
+ uint32_t cursor=0;
+ unsigned found=0,pages=0;
+ do {
+   req.clear();reply.clear();req["op"]="books";req["cursor"]=cursor;
+   const auto started=millis();
+   UsbProgressSync::handle(req.as<JsonVariantConst>(),reply,renderer);
+   assert(reply["error"].isNull());
+   assert(millis()-started<=120); // two or three SD steps, depending on the boundary
+   found+=reply["books"].size();
+   assert(reply["next"]==++cursor);
+   ++pages;
+   clockMs+=200; // existing Inky pauses to drain the port between requests
+   UsbProgressSync::expireBookList(true);
+ } while(!reply["done"].as<bool>());
+ assert(found==1 && pages>2000);
+ sdStepMs=0;
+ paths={"/Book.epub","/Unread.epub","/Note.txt"};
  credentials=false;
- run(R"({"op":"extras_books","cursor":0})");assert(reply["books"].size()==2);
+ run(R"({"op":"extras_books","cursor":0})");assert(reply["books"].size()==2 && legacyListSteps>0);
  run(R"({"op":"extras","kind":"global","server":"https://sync.example.com","username":"usb-user","stats":true,"clippings":true})");
  assert(reply["stats"]["result"]=="ok" && reply["device_id"]=="reader-1" && statsCalls==1);
  run(R"({"op":"extras","kind":"book","path":"/Unread.epub","server":"https://sync.example.com","username":"usb-user","stats":true,"clippings":true})");
@@ -286,7 +326,7 @@ with tempfile.TemporaryDirectory(prefix="crossink-usb-progress-") as tmp:
     fs_helpers = (ROOT / "lib/FsHelpers/FsHelpers.cpp").read_text()
     normalize = fs_helpers[fs_helpers.index("std::string normalisePath("):fs_helpers.index("bool naturalLess(")]
     (tmp / "FsHelpers.cpp").write_text('#include "Common.h"\nnamespace FsHelpers {\n' + normalize + '}\n')
-    for name in ["Epub.h", "FsHelpers.h", "KOReaderCredentialStore.h", "KOReaderDocumentId.h", "KOReaderSyncClient.h", "Logging.h", "Memory.h", "ProgressMapper.h", "Utf8.h", "CrossPointSettings.h", "network/ReadingSyncUpload.h", "network/ClippingsUpload.h", "network/UsbSerialFileTransfer.h", "sync/SyncParked.h", "sync/SyncPending.h", "util/FolderBookIterator.h", "activities/home/RecentBookProgress.h", "activities/reader/EpubReaderUtils.h", "activities/reader/KOReaderSyncActivity.h"]:
+    for name in ["Epub.h", "FsHelpers.h", "KOReaderCredentialStore.h", "KOReaderDocumentId.h", "KOReaderSyncClient.h", "Logging.h", "Memory.h", "ProgressMapper.h", "Utf8.h", "CrossPointSettings.h", "network/ReadingSyncUpload.h", "network/ClippingsUpload.h", "network/UsbSerialFileTransfer.h", "sync/SyncParked.h", "sync/SyncPending.h", "sync/ProgressBookIterator.h", "util/FolderBookIterator.h", "activities/home/RecentBookProgress.h", "activities/reader/EpubReaderUtils.h", "activities/reader/KOReaderSyncActivity.h"]:
         stub = tmp / name
         stub.parent.mkdir(parents=True, exist_ok=True)
         stub.write_text('#include "Common.h"\n')

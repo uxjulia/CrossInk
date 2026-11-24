@@ -522,16 +522,18 @@ struct PluginCatalogSmokeTest {
           require(Storage.readFileToString("TEST", outbox, 8192, after) && after.size() > 512,
                   "long-path session dropped");
           for (int i = 0; i < 5; ++i) pluginevents::emit(pluginevents::Event::ReaderOpen, vars, 2);
-          pluginevents::emit(pluginevents::Event::ReaderExit, vars, 2);
+          for (int i = 0; i < 6; ++i) pluginevents::emit(pluginevents::Event::ReaderExit, vars, 2);
           pluginevents::queueSleep("/Books/Fixture.txt", 25);
           require(
               Storage.readFileToString("TEST", outbox, 8192, after) && after.find("sleep.enter") != std::string::npos,
               "sleep event missing before deferred delivery");
           pluginevents::deliverSleepEvents();
           require(Storage.readFileToString("TEST", outbox, 8192, after) &&
-                      after.find("sleep.enter") == std::string::npos &&
-                      after.find("reader.open") != std::string::npos && after.find("reader.exit") == std::string::npos,
-                  "sleep event was blocked by backlog");
+                      after.find("sleep.enter") == std::string::npos && after.find("reader.open") != std::string::npos,
+                  "sleep delivery removed ordinary events or was blocked by backlog");
+          size_t exitCount = 0;
+          for (size_t pos = 0; (pos = after.find("reader.exit", pos)) != std::string::npos; ++pos) ++exitCount;
+          require(exitCount == 2, "sleep delivery did not retain exactly two of six opt-in events");
           pluginevents::drain(nullptr, 8);
         }
 

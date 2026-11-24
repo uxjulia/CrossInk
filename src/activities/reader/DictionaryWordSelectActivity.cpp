@@ -218,8 +218,7 @@ bool DictionaryWordSelectActivity::buildWorkingSet(const bool consumeInitialConf
     touchDragLookup_ = navigator.beginTouchMultiSelect();
     touchSelectionActive_ = touchDragLookup_;
     applyWordHoldAction_ = touchDragLookup_;
-    touchDragStartX_ = initialTouchX_;
-    touchDragStartY_ = initialTouchY_;
+    resetTouchDragTracking(initialTouchX_, initialTouchY_);
   }
 #else
   navigator.setTouchDragCursorVisible(false);
@@ -875,8 +874,9 @@ bool DictionaryWordSelectActivity::continueTouchSelectionOnNextPage() {
 #if CROSSINK_APP_CAP_TOUCH
     // The finger is still at the old page's bottom. Keep the new first-word
     // endpoint until it moves again, instead of selecting the whole next page.
-    mappedInput.isScreenTouchHeld(touchDragStartX_, touchDragStartY_);
-    touchDragHasMoved_ = false;
+    int x = touchDragX_, y = touchDragY_;
+    mappedInput.isScreenTouchHeld(x, y);
+    resetTouchDragTracking(x, y);
     touchDragOffsetX_ = touchDragOffsetY_ = 0;
 #endif
   }
@@ -1069,8 +1069,82 @@ bool DictionaryWordSelectActivity::isWithinSelectedPageEndDwellSlop(const int x,
          ClipSelectionPaging::isWithinPageEndDwellSlop(bounds, x + touchDragOffsetX_, y + touchDragOffsetY_);
 }
 
+void DictionaryWordSelectActivity::resetTouchDragTracking(const int x, const int y) {
+  touchDragStartX_ = touchDragX_ = x;
+  touchDragStartY_ = touchDragY_ = y;
+  touchDragHasMoved_ = false;
+  touchDragReleased_ = false;
+}
+
+void DictionaryWordSelectActivity::sampleTouchDrag() {
+  // Keep the most recent contact even if the finger lifts before the render lock is free.
+  if (touchDragReleased_) return;
+  if (mappedInput.isScreenTouchHeld(touchDragX_, touchDragY_)) {
+    touchDragHasMoved_ = touchDragHasMoved_ || ClipSelectionPaging::hasDraggedFrom(touchDragStartX_, touchDragStartY_,
+                                                                                   touchDragX_, touchDragY_);
+  } else {
+    touchDragReleased_ = true;
+  }
+}
+
+void DictionaryWordSelectActivity::updateTouchDrag() {
+  RenderLock lock(*this, RenderLock::Mode::Try);
+  if (!lock.ownsLock()) return;
+
+  const int x = touchDragX_, y = touchDragY_;
+  // Once the final-word hold is armed, tolerate contact jitter before
+  // nearest-word selection can move the cursor back and reset its timer.
+  const bool keepPageEnd =
+      touchPageEndIndex_ == navigator.getCurrentFlatIndex() && isWithinSelectedPageEndDwellSlop(x, y);
+  const bool selectionChanged = touchDragHasMoved_ && !keepPageEnd &&
+                                navigator.selectNearestWord(x + touchDragOffsetX_, y + touchDragOffsetY_,
+                                                            renderer.getLineHeight(SETTINGS.getReaderFontId()));
+
+  if (!touchDragReleased_) {
+    if (selectionChanged) requestUpdate();
+    if (touchDragHasMoved_ && (keepPageEnd || isWithinSelectedPageEndDwellSlop(x, y))) {
+      const int current = navigator.getCurrentFlatIndex();
+      const auto now = static_cast<uint32_t>(millis());
+      if (touchPageEndIndex_ != current) {
+        touchPageEndIndex_ = current;
+        touchPageEndHeldSince_ = now;
+      } else if (ClipSelectionPaging::hasHeldPageEndLongEnough(now, touchPageEndHeldSince_)) {
+        touchPageEndIndex_ = -1;
+        lock.unlock();
+        continueTouchSelectionOnNextPage();
+      }
+    } else {
+      touchPageEndIndex_ = -1;
+    }
+    return;
+  }
+
+  touchDragLookup_ = false;
+  touchPageEndIndex_ = -1;
+  const bool applyAction = applyWordHoldAction_ && !touchDragHasMoved_ && !hasCrossPageSelection_;
+  applyWordHoldAction_ = false;
+  hasPendingClippingRequest_ = false;
+  captureClippingRequest();
+  touchLookupEnabled_ = Dictionary::exists(cachePath.c_str());
+  if (applyAction && ((wordHoldAction_ == CrossPointSettings::WORD_HOLD_LOOKUP && touchLookupEnabled_) ||
+                      (wordHoldAction_ == CrossPointSettings::WORD_HOLD_CLIP && hasPendingClippingRequest_))) {
+    lock.unlock();
+    performTouchSelectionAction(wordHoldAction_ == CrossPointSettings::WORD_HOLD_LOOKUP
+                                    ? TextSelectionOverlay::lookupAction
+                                    : TextSelectionOverlay::clipAction);
+    return;
+  }
+  forceFullRepaintOnNextRender();
+  requestUpdate();
+}
+
 bool DictionaryWordSelectActivity::handleTouchSelection() {
-  RenderLock lock(*this);
+  if (touchDragLookup_) {
+    sampleTouchDrag();
+    updateTouchDrag();
+    return true;
+  }
+
   if (ignoreTouchUntilRelease_) {
     // A failed page advance finished the drag while contact was still held.
     // Its release belongs to that drag, not to toolbar taps or Back gestures.
@@ -1078,58 +1152,32 @@ bool DictionaryWordSelectActivity::handleTouchSelection() {
     ignoreTouchUntilRelease_ = mappedInput.isScreenTouchHeld(x, y);
     return true;
   }
-  if (touchDragLookup_) {
-    int x = 0, y = 0;
-    if (mappedInput.isScreenTouchHeld(x, y)) {
-      touchDragHasMoved_ =
-          touchDragHasMoved_ || ClipSelectionPaging::hasDraggedFrom(touchDragStartX_, touchDragStartY_, x, y);
-      // Once the final-word hold is armed, tolerate contact jitter before
-      // nearest-word selection can move the cursor back and reset its timer.
-      const bool keepPageEnd =
-          touchPageEndIndex_ == navigator.getCurrentFlatIndex() && isWithinSelectedPageEndDwellSlop(x, y);
-      if (touchDragHasMoved_ && !keepPageEnd &&
-          navigator.selectNearestWord(x + touchDragOffsetX_, y + touchDragOffsetY_,
-                                      renderer.getLineHeight(SETTINGS.getReaderFontId()))) {
-        requestUpdate();
-      }
-      const int current = navigator.getCurrentFlatIndex();
-      const bool atPageEnd = keepPageEnd || isWithinSelectedPageEndDwellSlop(x, y);
-      if (touchDragHasMoved_ && atPageEnd) {
-        const auto now = static_cast<uint32_t>(millis());
-        if (touchPageEndIndex_ != current) {
-          touchPageEndIndex_ = current;
-          touchPageEndHeldSince_ = now;
-        } else if (ClipSelectionPaging::hasHeldPageEndLongEnough(now, touchPageEndHeldSince_)) {
-          touchPageEndIndex_ = -1;
-          lock.unlock();
-          if (continueTouchSelectionOnNextPage()) return true;
-        }
-      } else {
-        touchPageEndIndex_ = -1;
-      }
-      return true;
+
+  const bool back = touchSelectionActive_ && mappedInput.wasReleased(MappedInputManager::Button::Back);
+  const bool confirm = touchSelectionActive_ && mappedInput.wasReleased(MappedInputManager::Button::Confirm);
+  int x = 0, y = 0, pressedX = 0, pressedY = 0;
+  const bool tapped = mappedInput.wasScreenTapped(x, y);
+  const bool pressed = mappedInput.wasScreenTouchDown(pressedX, pressedY);
+  if (touchSelectionActive_) {
+    // A handle may be grabbed while the toolbar is still refreshing. Keep
+    // sampling that contact while we wait to check what it hit.
+    if (pressed && !touchPressPending_) {
+      resetTouchDragTracking(pressedX, pressedY);
+      touchPressPending_ = true;
+      touchTapPending_ = false;
     }
-    touchDragLookup_ = false;
-    touchPageEndIndex_ = -1;
-    const bool applyAction = applyWordHoldAction_ && !touchDragHasMoved_ && !hasCrossPageSelection_;
-    applyWordHoldAction_ = false;
-    hasPendingClippingRequest_ = false;
-    captureClippingRequest();
-    touchLookupEnabled_ = Dictionary::exists(cachePath.c_str());
-    if (applyAction && ((wordHoldAction_ == CrossPointSettings::WORD_HOLD_LOOKUP && touchLookupEnabled_) ||
-                        (wordHoldAction_ == CrossPointSettings::WORD_HOLD_CLIP && hasPendingClippingRequest_))) {
-      lock.unlock();
-      performTouchSelectionAction(wordHoldAction_ == CrossPointSettings::WORD_HOLD_LOOKUP
-                                      ? TextSelectionOverlay::lookupAction
-                                      : TextSelectionOverlay::clipAction);
-      return true;
+    if (touchPressPending_ && !touchDragReleased_) {
+      sampleTouchDrag();
+      touchTapPending_ = touchDragReleased_ && tapped;
     }
-    forceFullRepaintOnNextRender();
-    requestUpdate();
-    return true;
+    if (!back && !confirm && !tapped && !touchPressPending_) return true;
   }
 
-  if (touchSelectionActive_ && mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+  RenderLock lock(*this, touchPressPending_ && !back && !confirm ? RenderLock::Mode::Try : RenderLock::Mode::Blocking);
+  if (!lock.ownsLock()) return true;
+
+  if (back) {
+    touchPressPending_ = false;
     if (!page) {
       DictUtils::cancelAndFinish(*this);
       return true;
@@ -1142,80 +1190,93 @@ bool DictionaryWordSelectActivity::handleTouchSelection() {
     requestUpdate();
     return true;
   }
-  if (touchSelectionActive_ && mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
+  if (confirm) {
+    touchPressPending_ = false;
     lock.unlock();
-    performTouchSelectionAction(1);
+    performTouchSelectionAction(TextSelectionOverlay::clipAction);
     return true;
   }
 
-  int x = 0, y = 0;
-  const bool tapped = mappedInput.wasScreenTapped(x, y);
-  const bool pressed = mappedInput.wasScreenTouchDown(x, y);
-  if (!tapped && !pressed) return touchSelectionActive_;
+  if (!tapped && !pressed && !touchPressPending_) return touchSelectionActive_;
   const auto layout = touchSelectionLayout();
-  if (touchSelectionActive_ && tapped) {
-    const int action = TextSelectionOverlay::actionAt(layout, x, y);
-    if (action >= 0) {
-      if (action == touchPressedAction_) {
+  if (touchPressPending_) {
+    touchPressPending_ = false;
+    if (beginTouchPress(layout, touchDragStartX_, touchDragStartY_)) {
+      if (touchDragHasMoved_ || touchDragReleased_) {
         lock.unlock();
-        performTouchSelectionAction(action);
+        updateTouchDrag();
       }
-      touchPressedAction_ = -1;
       return true;
     }
-    if (TextSelectionOverlay::handleAt(layout, x, y)) return true;
+    if (!touchTapPending_) return true;
+    x = touchDragStartX_;
+    y = touchDragStartY_;
+  } else if (!touchSelectionActive_ || !tapped) {
+    if (pressed) {
+      resetTouchDragTracking(pressedX, pressedY);
+      beginTouchPress(layout, pressedX, pressedY);
+    }
+    return pressed || touchSelectionActive_;
+  }
+
+  const int action = TextSelectionOverlay::actionAt(layout, x, y);
+  if (action >= 0) {
+    if (action == touchPressedAction_) {
+      lock.unlock();
+      performTouchSelectionAction(action);
+    }
+    touchPressedAction_ = -1;
+    return true;
+  }
+  if (TextSelectionOverlay::handleAt(layout, x, y)) return true;
+  int first = -1, last = -1;
+  navigator.getExpandedSelectionRange(first, last);
+  for (int i = first; i <= last; ++i) {
+    const auto* word = navigator.getWordAt(i);
+    if (word && x >= word->screenX && x <= word->screenX + word->width && y >= word->screenY &&
+        y <= word->screenY + word->heightOr(renderer.getLineHeight(SETTINGS.getReaderFontId())))
+      return true;
+  }
+  DictUtils::cancelAndFinish(*this);
+  return true;
+}
+
+bool DictionaryWordSelectActivity::beginTouchPress(const TextSelectionOverlay::Layout& layout, const int x,
+                                                   const int y) {
+  touchPressedAction_ = touchSelectionActive_ ? TextSelectionOverlay::actionAt(layout, x, y) : -1;
+  if (touchPressedAction_ >= 0) return false;
+
+  touchDragOffsetX_ = touchDragOffsetY_ = 0;
+  if (touchSelectionActive_) {
+    const auto* handle = TextSelectionOverlay::handleAt(layout, x, y);
+    if (!handle) return false;
+    const bool start = handle == &layout.start;
     int first = -1, last = -1;
     navigator.getExpandedSelectionRange(first, last);
-    for (int i = first; i <= last; ++i) {
-      const auto* word = navigator.getWordAt(i);
-      if (word && x >= word->screenX && x <= word->screenX + word->width && y >= word->screenY &&
-          y <= word->screenY + word->heightOr(renderer.getLineHeight(SETTINGS.getReaderFontId())))
-        return true;
+    if (!navigator.setTouchSelection(start ? last : first, start ? first : last)) return false;
+    if (const auto* word = navigator.getSelected()) {
+      // Track the grabbed text edge, even when the starting word is very wide.
+      const bool onLeft = start != word->isRtl;
+      touchDragOffsetX_ = word->screenX + (onLeft ? 0 : std::max(0, word->width - 1)) - x;
+      touchDragOffsetY_ =
+          workingSet_.rows[word->row].yPos + word->heightOr(renderer.getLineHeight(SETTINGS.getReaderFontId())) / 2 - y;
     }
-    DictUtils::cancelAndFinish(*this);
-    return true;
+  } else {
+    resetCrossPageSelection();
+    pendingTouchPhrase_.clear();
+    bool hit = false;
+    navigator.selectWordAtPoint(x, y, renderer.getLineHeight(SETTINGS.getReaderFontId()), &hit);
+    if (!hit || !navigator.beginTouchMultiSelect()) return false;
   }
-  if (pressed) {
-    touchPressedAction_ = touchSelectionActive_ ? TextSelectionOverlay::actionAt(layout, x, y) : -1;
-    if (touchPressedAction_ >= 0) return true;
-    bool startDrag = false;
-    touchDragOffsetX_ = touchDragOffsetY_ = 0;
-    if (touchSelectionActive_) {
-      const auto* handle = TextSelectionOverlay::handleAt(layout, x, y);
-      if (!handle) return true;
-      const bool start = handle == &layout.start;
-      int first = -1, last = -1;
-      navigator.getExpandedSelectionRange(first, last);
-      startDrag = navigator.setTouchSelection(start ? last : first, start ? first : last);
-      if (const auto* word = navigator.getSelected()) {
-        // Track the grabbed text edge, even when the starting word is very wide.
-        const bool onLeft = start != word->isRtl;
-        touchDragOffsetX_ = word->screenX + (onLeft ? 0 : std::max(0, word->width - 1)) - x;
-        touchDragOffsetY_ = workingSet_.rows[word->row].yPos +
-                            word->heightOr(renderer.getLineHeight(SETTINGS.getReaderFontId())) / 2 - y;
-      }
-    } else {
-      resetCrossPageSelection();
-      pendingTouchPhrase_.clear();
-      bool hit = false;
-      navigator.selectWordAtPoint(x, y, renderer.getLineHeight(SETTINGS.getReaderFontId()), &hit);
-      startDrag = hit && navigator.beginTouchMultiSelect();
-    }
-    if (startDrag) {
-      // A failed page advance may have cached the old phrase. A live endpoint
-      // edit must use its new range when the user chooses Look Up.
-      pendingTouchPhrase_.clear();
-      touchSelectionActive_ = touchDragLookup_ = true;
-      touchPageEndIndex_ = -1;
-      touchDragHasMoved_ = false;
-      touchDragStartX_ = x;
-      touchDragStartY_ = y;
-      forceFullRepaintOnNextRender();
-      requestUpdate();
-    }
-    return true;
-  }
-  return touchSelectionActive_;
+
+  // A failed page advance may have cached the old phrase. A live endpoint
+  // edit must use its new range when the user chooses Look Up.
+  pendingTouchPhrase_.clear();
+  touchSelectionActive_ = touchDragLookup_ = true;
+  touchPageEndIndex_ = -1;
+  forceFullRepaintOnNextRender();
+  requestUpdate();
+  return true;
 }
 #endif
 

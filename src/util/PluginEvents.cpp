@@ -415,12 +415,20 @@ bool deliverLine(const DrainManifest& mf, const std::string& lineText, std::stri
 }  // namespace
 
 enum class DrainMode { Ordered, Sleep, Connect };
+constexpr size_t MAX_SLEEP_CONNECT_DELIVERIES = 4;  // Match CrossPoint's default ordered drain.
+
+static int queuedEvent(const std::string& raw, size_t start, size_t end) {
+  JsonDocument event;
+  if (deserializeJson(event, raw.data() + start, end - start) != DeserializationError::Ok) return -1;
+  return eventFromName(event["e"] | "");
+}
 static void drainQueued(GfxRenderer* renderer, size_t maxEvents, DrainMode mode, uint32_t deadline = 0) {
   if (!SETTINGS.pluginsEnabled) return;
   std::lock_guard<std::mutex> guard(outboxMutex);
   size_t budget = maxEvents;
+  const auto expired = [deadline]() { return deadline && static_cast<int32_t>(millis() - deadline) >= 0; };
   for (const auto& sub : subscribers) {
-    if (budget == 0 || (deadline && static_cast<int32_t>(millis() - deadline) >= 0)) break;
+    if (budget == 0 || expired()) break;
     if (sub.name[0] == '\0') continue;
     const std::string path = outboxPath(sub);
     if (!DownloadFileSwap::recover(path) || !Storage.exists(path.c_str())) continue;
@@ -445,24 +453,44 @@ static void drainQueued(GfxRenderer* renderer, size_t maxEvents, DrainMode mode,
     // Pre-build the substitution patterns (see drainSubstituted).
     for (auto& kv : config) kv.first = "{cfg." + kv.first + "}";
 
-    if (mode != DrainMode::Ordered) {
+    if (mode == DrainMode::Connect) {
+      // Replay opt-in events in queue order. A failure stalls only this
+      // subscriber. Keep all skipped, failed, and unattempted lines on disk.
+      bool changed = false;
+      for (size_t start = 0; start < raw.size() && budget > 0 && !expired();) {
+        size_t nl = raw.find('\n', start);
+        if (nl == std::string::npos) nl = raw.size();
+        const size_t end = nl < raw.size() ? nl + 1 : nl;
+        const int e = queuedEvent(raw, start, nl);
+        if (e < 0 || e == static_cast<int>(Event::SleepEnter) || !(sub.connectMask & (1u << e))) {
+          start = end;
+          continue;
+        }
+        if (!deliverLine(mf, raw.substr(start, nl - start), token, config, renderer, deadline)) break;
+        // The suffix slides into this offset; each source line is parsed once.
+        raw.erase(start, end - start);
+        changed = true;
+        --budget;
+      }
+      if (changed) {
+        if (raw.empty())
+          Storage.remove(path.c_str());
+        else
+          writeOutbox(path, raw.data(), raw.size());
+      }
+      continue;
+    }
+
+    if (mode == DrainMode::Sleep) {
       // Prioritize the latest sleep event for this plugin. Preserve all other
       // queued events, including old failed sleep events, for ordinary replay.
       size_t selected = std::string::npos, end = 0;
       for (size_t start = 0; start < raw.size();) {
         size_t next = raw.find('\n', start);
         if (next == std::string::npos) next = raw.size();
-        JsonDocument event;
-        if (deserializeJson(event, raw.data() + start, next - start) == DeserializationError::Ok) {
-          const int e = eventFromName(event["e"] | "");
-          const bool selectedSleep = mode == DrainMode::Sleep && e == static_cast<int>(Event::SleepEnter);
-          const bool selectedConnect = mode == DrainMode::Connect && e >= 0 &&
-                                       e != static_cast<int>(Event::SleepEnter) && (sub.connectMask & (1u << e));
-          if (selectedSleep || selectedConnect) {
-            selected = start;
-            end = next < raw.size() ? next + 1 : next;
-            if (selectedConnect) break;
-          }
+        if (queuedEvent(raw, start, next) == static_cast<int>(Event::SleepEnter)) {
+          selected = start;
+          end = next < raw.size() ? next + 1 : next;
         }
         start = next + 1;
       }
@@ -546,7 +574,7 @@ bool deliverSleepEvents() {
   if (WiFi.status() == WL_CONNECTED) {
     const uint32_t deadline = millis() + 10000;
     drainQueued(nullptr, MAX_EVENT_PLUGINS, DrainMode::Sleep, deadline);
-    drainQueued(nullptr, MAX_EVENT_PLUGINS, DrainMode::Connect, deadline);
+    drainQueued(nullptr, MAX_SLEEP_CONNECT_DELIVERIES, DrainMode::Connect, deadline);
   }
   return attemptedJoin;
 }

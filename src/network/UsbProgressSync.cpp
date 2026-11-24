@@ -20,6 +20,7 @@
 #include "network/ClippingsUpload.h"
 #include "network/ReadingSyncUpload.h"
 #include "network/UsbSerialFileTransfer.h"
+#include "sync/ProgressBookIterator.h"
 #include "sync/SyncParked.h"
 #include "sync/SyncPending.h"
 #include "util/FolderBookIterator.h"
@@ -87,12 +88,14 @@ bool hasUsablePagination(const EpubReaderUtils::Progress& saved) {
 
 // The iterator closes its SD handles between steps.
 std::unique_ptr<FolderBookIterator> cardBooks;
+std::unique_ptr<ProgressBookIterator> progressBooks;
 uint32_t nextPage = 0;
 uint32_t lastPageAt = 0;
 bool listingExtras = false;
 
 void resetBookList() {
   cardBooks.reset();
+  progressBooks.reset();
   nextPage = 0;
 }
 
@@ -102,8 +105,12 @@ void books(JsonVariantConst request, JsonDocument& response, bool extras) {
   if (cursor == 0) {
     resetBookList();
     listingExtras = extras;
-    cardBooks = makeUniqueNoThrow<FolderBookIterator>("/");
-    if (!cardBooks) return fail(response, "low_memory");
+    if (extras) {
+      cardBooks = makeUniqueNoThrow<FolderBookIterator>("/");
+    } else {
+      progressBooks = makeUniqueNoThrow<ProgressBookIterator>("/");
+    }
+    if (!cardBooks && !progressBooks) return fail(response, "low_memory");
   } else if (cursor != nextPage || extras != listingExtras) {
     return fail(response, "invalid_cursor");
   }
@@ -111,21 +118,18 @@ void books(JsonVariantConst request, JsonDocument& response, bool extras) {
   auto entries = response["books"].to<JsonArray>();
   std::string path;
   bool done = false;
+  // Let Inky request the next batch if the card is slow. Always attempt one step.
+  constexpr uint32_t PAGE_BUDGET_MS = 100;
+  const auto pageStarted = millis();
   for (unsigned step = 0; step < 32 && entries.size() < 4 && !done; ++step) {
-    const auto result = cardBooks->next(path);
+    if (step && millis() - pageStarted >= PAGE_BUDGET_MS) break;
+    const auto result = extras ? cardBooks->next(path) : progressBooks->next(path);
     if (result == FolderBookIterator::Result::Error) {
       resetBookList();
       return fail(response, "book_scan_failed");
     }
     done = result == FolderBookIterator::Result::Done;
     if (result != FolderBookIterator::Result::Book || !validPath(path, extras)) continue;
-    if (!extras) {
-      EpubReaderUtils::Progress progress;
-      const auto cache = Epub::resolveCachePathForFilePath(path, "/.crosspoint");
-      if (!EpubReaderUtils::loadProgressPath(cache + "/progress.bin", progress, "USBSync") ||
-          !hasUsablePagination(progress))
-        continue;
-    }
     entries.add(path);
   }
   response["next"] = cursor + 1;

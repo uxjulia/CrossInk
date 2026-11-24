@@ -10,6 +10,7 @@
 #include "activities/Activity.h"
 #include "activities/reader/StatsUploadPayload.h"
 #include "network/ReadingSyncUpload.h"
+#include "sync/ProgressBookIterator.h"
 #include "sync/SyncPending.h"
 #include "sync/SyncState.h"
 #include "util/FolderBookIterator.h"
@@ -173,6 +174,8 @@ class StatsUploadActivity final : public Activity {
   int globalHttpCode = 0;
   StatsUploadClient::Result globalResult = StatsUploadClient::Result::Skipped;
   std::unique_ptr<FolderBookIterator> folderBooks;
+  std::unique_ptr<ProgressBookIterator> progressBooks;
+  uint32_t preparedBookCount = 0;
   bool globalAttempted = false;
   bool clippingPullStarted = false;
   bool clippingPullFinished = false;
@@ -203,6 +206,7 @@ class StatsUploadActivity final : public Activity {
   std::string scopePath() const;
   void planIncremental();
   void startLegacyWalk();
+  bool beginBookWalk();
   void advanceFlow();
   void finishScopeCatchup(bool stats);
   void finishFirstWalk();
@@ -230,7 +234,6 @@ class StatsUploadActivity final : public Activity {
   void failBook(const std::string& bookPath, uint8_t failedParts, std::string reason = {}, std::string title = {});
   void setCurrentBook(const std::string& bookPath);
   void reviewNext();
-  static uint32_t countFolderBooks(const std::string& root);
   uint32_t countPendingInScope() const;
   void finishUpload();
   void closeTransfer();

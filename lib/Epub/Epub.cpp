@@ -249,7 +249,7 @@ std::string getAdaptiveThumbBmpPathForDimensions(const std::string& cachePath, i
 }
 
 std::string legacyCachePathForFilePath(const std::string& filepath, const std::string& cacheDir) {
-  return cacheDir + "/epub_" + std::to_string(std::hash<std::string>{}(filepath));
+  return cacheDir + "/epub_" + std::to_string(Epub::legacyCachePathHash(filepath));
 }
 
 class CoverImageRefScanner final : public Print {
@@ -434,6 +434,8 @@ class ContentsDocumentScanner final : public Print {
 Epub::Epub(std::string filepath, const std::string& cacheDir) : filepath(std::move(filepath)) {
   cachePath = resolveCachePathForFilePath(this->filepath, cacheDir);
 }
+
+uint64_t Epub::legacyCachePathHash(const std::string& filepath) { return std::hash<std::string>{}(filepath); }
 
 std::string Epub::cachePathForFilePath(const std::string& filepath, const std::string& cacheDir) {
   // Keep on-disk EPUB cache keys stable across standard library/toolchain changes.

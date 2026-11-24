@@ -1,5 +1,9 @@
 #include "LibraryBuilder.h"
 
+#if defined(ARDUINO_ARCH_ESP32) && !defined(SIMULATOR)
+#include <esp_attr.h>
+#endif
+
 #include <Arduino.h>
 #include <BufferedFile.h>
 #include <Epub.h>
@@ -1847,11 +1851,24 @@ static bool rebuildLibraryIndex(const char* rootPath, BuildStats& stats, const b
 
 namespace {
 std::atomic<bool> indexDirty{true};
+#if defined(ARDUINO_ARCH_ESP32) && !defined(SIMULATOR)
+RTC_NOINIT_ATTR
+#endif
+uint32_t pathRevision;
+
+void advancePathRevision() { std::atomic_ref(pathRevision).fetch_add(1, std::memory_order_relaxed); }
+}  // namespace
+
+void invalidateLibraryIndex() {
+  advancePathRevision();
+  indexDirty.store(true, std::memory_order_relaxed);
 }
 
-void invalidateLibraryIndex() { indexDirty.store(true, std::memory_order_relaxed); }
-
 bool libraryIndexNeedsRefresh() { return indexDirty.load(std::memory_order_relaxed); }
+
+uint32_t libraryPathRevision() { return std::atomic_ref(pathRevision).load(std::memory_order_relaxed); }
+
+void resetLibraryPathRevision() { std::atomic_ref(pathRevision).store(0, std::memory_order_relaxed); }
 
 void restoreLibraryIndexAfterSleep() { indexDirty.store(false, std::memory_order_relaxed); }
 
@@ -1862,6 +1879,7 @@ bool buildLibraryIndex(const char* rootPath, BuildStats& stats, const bool readM
   // Clear before scanning, not after: a file mutation during the scan must
   // survive as a request for another reconciliation. Builds are foreground-only.
   indexDirty.exchange(false, std::memory_order_relaxed);
+  advancePathRevision();
   buildControl = BuildControl{};
   buildControl.callbacks = callbacks;
   buildControl.lastPollMs = buildControl.lastProgressMs = millis();

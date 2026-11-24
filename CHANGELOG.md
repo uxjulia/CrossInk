@@ -29,8 +29,6 @@
 - Remove stray spaces inside EPUB words split by publisher page numbers.
 - Keep the EPUB’s Time Left estimate visible while relearning after a layout change.
 - Keep larger EPUB headings visible on X3 and X4, including with Ruled Lines on. SD-card fonts reuse the loaded bitmap for larger text to reduce memory use.
-- Preserve existing books, fonts, settings, and reading positions when SD saves or transfers are interrupted. Keep USB Drive mounted while the computer sleeps and finish pending writes before ejecting.
-- Explain SD card startup errors and show how to reconnect the card or check its filesystem.
 
 ## [v2.0.0] - 2026-11-19
 
@@ -124,6 +122,11 @@
 - Make EPUB highlight handles easier to grab and drag across lines on touch readers.
 - Reduce repeated SD card reads when indexing EPUBs with ruled lines and a custom reader font.
 - Dither EPUB illustrations only after resizing, with separate output for Gray and B&W (including Night Mode).
+- Readest and other plugins can send several queued reading sessions on one sleep instead of one per sleep.
+- Keep EPUB text selection following your finger across lines during e-ink refreshes, including when you lift to look up or clip the selection.
+- Preserve existing books, fonts, settings, and reading positions when SD saves or transfers are interrupted. Keep USB Drive mounted while the computer sleeps and finish pending writes before ejecting.
+- Explain SD card startup errors and show how to reconnect the card or check its filesystem.
+- Make reading progress sync more reliable for large libraries, including the first Inky sync over USB on slower SD cards.
 
 ## [v1.6.1] - 2026-10-03
 

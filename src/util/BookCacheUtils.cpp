@@ -23,6 +23,9 @@ struct PreservedCacheFile {
 };
 
 constexpr PreservedCacheFile EPUB_USER_STATE_FILES[] = {
+    {"progress-path.bin", "upload_preserve_progress-path.bin"},
+    {"progress-path.bin.bak", "upload_preserve_progress-path.bin.bak"},
+    {"progress-path.bin.tmp", "upload_preserve_progress-path.bin.tmp"},
     {"progress.bin", "upload_preserve_progress.bin"},
     {"progress.bin.bak", "upload_preserve_progress.bin.bak"},
     {"reader_settings.bin", "upload_preserve_reader_settings.bin"},
@@ -41,6 +44,9 @@ constexpr PreservedCacheFile PAGE_PROGRESS_FILES[] = {
 };
 
 constexpr PreservedCacheFile CACHE_CLEAR_USER_STATE_FILES[] = {
+    {"progress-path.bin", "clear_preserve_progress-path.bin"},
+    {"progress-path.bin.bak", "clear_preserve_progress-path.bin.bak"},
+    {"progress-path.bin.tmp", "clear_preserve_progress-path.bin.tmp"},
     {"dictionary_history.txt", "clear_preserve_dictionary_history.txt"},
     {"dictionary_history.txt.bak", "clear_preserve_dictionary_history.txt.bak"},
     {"reading_stats_off", "clear_preserve_reading_stats_off"},

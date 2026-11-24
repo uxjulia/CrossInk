@@ -31,6 +31,7 @@ struct SleepSyncBook {
 };
 
 enum class StrId : uint16_t;
+
 class Activity;    // forward declaration
 class RenderLock;  // forward declaration
 

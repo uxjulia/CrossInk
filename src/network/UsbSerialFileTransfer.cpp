@@ -340,7 +340,7 @@ bool removeRecursive(const char* path, size_t depth = 0) {
   return Storage.rmdir(path);
 }
 
-void handleStatus() {
+bool handleStatus() {
   char reader[32]{};
   UsbProgressSync::readerId(reader, sizeof(reader));
   char response[224];
@@ -349,7 +349,7 @@ void handleStatus() {
            "firmware=%s,"
            "free=%u,largest=%u\n",
            reader, CROSSINK_FIRMWARE_DEVICE_TYPE, AppVersion::version(), ESP.getFreeHeap(), ESP.getMaxAllocHeap());
-  writeLine(response);
+  return writeLine(response);
 }
 
 void handleList() {
@@ -829,36 +829,36 @@ void dispatchProgressSync(JsonVariantConst request, JsonDocument& response) {
   UsbProgressSync::handle(request, response, renderer);
 }
 
-void handleProgressSync() {
+bool handleProgressSync() {
   uint8_t lengthBytes[2];
   if (!readExact(lengthBytes, sizeof(lengthBytes), SHORT_TIMEOUT_MS)) {
     writeLine("ERR:sync_header\n");
-    return;
+    return false;
   }
   const size_t length = lengthBytes[0] | (lengthBytes[1] << 8);
-  if (!activityManager.canSyncOpenEpubOverUsb() && !ensureFileTransferAllowed()) return;
+  if (!activityManager.canSyncOpenEpubOverUsb() && !ensureFileTransferAllowed()) return false;
   if (!length || length > UsbProgressSync::MAX_REQUEST) {
     writeLine("ERR:sync_size\n");
-    return;
+    return false;
   }
   // Bounded, command-lifetime payloads belong on heap rather than the loop stack.
   auto input = makeUniqueNoThrow<uint8_t[]>(length + 1);
   if (!input) {
     LOG_ERR("USB", "Sync input allocation failed");
     writeLine("ERR:low_memory\n");
-    return;
+    return false;
   }
-  if (!writeLine("READY\n")) return;
+  if (!writeLine("READY\n")) return false;
   for (size_t at = 0; at < length;) {
     const size_t chunk = std::min(SERIAL_CHUNK_SIZE, length - at);
-    if (!readExact(input.get() + at, chunk, CHUNK_TIMEOUT_MS) || !writeAck()) return;
+    if (!readExact(input.get() + at, chunk, CHUNK_TIMEOUT_MS) || !writeAck()) return false;
     at += chunk;
   }
   uint8_t checksum[4];
   if (!readExact(checksum, sizeof(checksum), SHORT_TIMEOUT_MS) ||
       readLe32(checksum) != esp_rom_crc32_le(0, input.get(), length)) {
     writeLine("ERR:sync_crc\n");
-    return;
+    return false;
   }
   input[length] = 0;
   SyncJsonAllocator allocator;
@@ -866,37 +866,38 @@ void handleProgressSync() {
   JsonDocument response(&allocator);
   if (deserializeJson(request, input.get(), length) || !request.is<JsonObject>()) {
     writeLine("ERR:sync_json\n");
-    return;
+    return false;
   }
   dispatchProgressSync(request.as<JsonVariantConst>(), response);
   const size_t size = measureJson(response);
   if (response.overflowed() || !size || size > UsbProgressSync::MAX_RESPONSE) {
     writeLine("ERR:sync_response_size\n");
-    return;
+    return true;
   }
   auto output = makeUniqueNoThrow<uint8_t[]>(size + 1);
   if (!output) {
     LOG_ERR("USB", "Sync output allocation failed");
     writeLine("ERR:low_memory\n");
-    return;
+    return true;
   }
   serializeJson(response, output.get(), size + 1);
   char header[24];
   snprintf(header, sizeof(header), "SYNC:%u\n", static_cast<unsigned>(size));
-  if (!writeLine(header) || !writeRaw(output.get(), size)) return;
+  if (!writeLine(header) || !writeRaw(output.get(), size)) return true;
   writeLe32(esp_rom_crc32_le(0, output.get(), size));
+  return true;
 }
 
-void handleCommand() {
+ProcessResult handleCommand() {
   uint8_t subCommand = 0;
   if (!readExact(&subCommand, 1, SHORT_TIMEOUT_MS)) {
     writeLine("ERR:cmd\n");
-    return;
+    return ProcessResult::None;
   }
 
   if (subCommand == 'S') {
-    if (activityManager.canSyncOpenEpubOverUsb() || ensureFileTransferAllowed()) handleStatus();
-    return;
+    const bool allowed = activityManager.canSyncOpenEpubOverUsb() || ensureFileTransferAllowed();
+    return allowed && handleStatus() ? ProcessResult::SyncActivity : ProcessResult::None;
   }
 
   switch (subCommand) {
@@ -919,12 +920,12 @@ void handleCommand() {
       handleRead();
       break;
     case 'P':
-      handleProgressSync();
-      break;
+      return handleProgressSync() ? ProcessResult::SyncActivity : ProcessResult::None;
     default:
       writeLine("ERR:unknown_cmd\n");
       break;
   }
+  return ProcessResult::None;
 }
 
 ProcessResult handleLine() {
@@ -1062,8 +1063,7 @@ ProcessResult process(bool allowed) {
       if (commandMatchPos == sizeof(CMD_MAGIC)) {
         commandMatchPos = 0;
         lineBufferPos = 0;
-        handleCommand();
-        return ProcessResult::None;
+        return handleCommand();
       }
     } else {
       commandMatchPos = byte == CMD_MAGIC[0] ? 1 : 0;

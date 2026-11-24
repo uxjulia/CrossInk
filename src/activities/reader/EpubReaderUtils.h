@@ -9,6 +9,7 @@
 #include <string>
 
 #include "ProgressRecord.h"
+#include "sync/ProgressBookIterator.h"
 #include "util/InPlaceFileWrite.h"
 
 namespace EpubReaderUtils {
@@ -83,7 +84,9 @@ inline bool saveProgress(Epub& epub, int spineIndex, int pageNumber, int pageCou
   uint8_t record[progress_record::RECORD_BYTES];
   progress_record::encode(fields, progress_record::nextSeq(primary, backup), record);
   const auto& target = progress_record::target(primary, backup) == progress_record::PRIMARY ? path : backupPath;
-  return writeFileInPlace("ERS", target.c_str(), record, sizeof(record));
+  if (!writeFileInPlace("ERS", target.c_str(), record, sizeof(record))) return false;
+  ProgressBookIterator::rememberPath(epub.getPath(), epub.getCachePath());
+  return true;
 }
 
 }  // namespace EpubReaderUtils

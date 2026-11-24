@@ -26,6 +26,7 @@
 
 #include <cstdlib>
 
+#include "sync/ProgressBookIterator.h"
 #include "util/PluginEvents.h"
 #if !defined(SIMULATOR) && !FREEINK_MCU_C3
 #include <XteinkDetect.h>
@@ -1470,6 +1471,10 @@ void setup() {
   BoardConfig::holdPowerRails();
 
   const esp_reset_reason_t rawResetReason = esp_reset_reason();
+  if (rawResetReason != ESP_RST_DEEPSLEEP &&
+      !(rawResetReason == ESP_RST_SW && silentRebootMagic == SILENT_REBOOT_MAGIC)) {
+    ProgressBookIterator::resetLegacyLookups();
+  }
   const esp_sleep_wakeup_cause_t rawWakeupCause = esp_sleep_get_wakeup_cause();
 #if FREEINK_DEVICE_PICCO
   const bool usbSleepWake = piccoUsbWakeToken.consume(rawResetReason == ESP_RST_SW);
@@ -2098,8 +2103,10 @@ void loop() {
     lastMemPrint = millis();
   }
 
-  if (!buttonShortcutController.isQuickLocked() && UsbSerialFileTransfer::process(activityManager.isHomeActivity()) ==
-                                                       UsbSerialFileTransfer::ProcessResult::ScreenshotRequested) {
+  const auto usbResult = buttonShortcutController.isQuickLocked()
+                             ? UsbSerialFileTransfer::ProcessResult::None
+                             : UsbSerialFileTransfer::process(activityManager.isHomeActivity());
+  if (usbResult == UsbSerialFileTransfer::ProcessResult::ScreenshotRequested) {
     RenderLock lock;
     const uint32_t bufferSize = display.getBufferSize();
     logSerial.printf("SCREENSHOT_START:%d\n", bufferSize);
@@ -2124,7 +2131,8 @@ void loop() {
   // Check for any user activity (button press or release) or active background work
   static unsigned long lastActivityTime = millis();
   const bool transitionWasAborted = storageTransitionAborted.exchange(false, std::memory_order_relaxed);
-  if (userInputReceived || activityManager.preventAutoSleep() || transitionWasAborted) {
+  if (userInputReceived || activityManager.preventAutoSleep() || transitionWasAborted ||
+      usbResult == UsbSerialFileTransfer::ProcessResult::SyncActivity) {
     lastActivityTime = millis();         // Reset inactivity timer
     powerManager.setPowerSaving(false);  // Restore normal CPU frequency on user activity
   }

@@ -11,10 +11,13 @@
 #include "Epub/Page.h"
 #include "Epub/hyphenation/Hyphenator.h"
 #include "Epub/parsers/ChapterHtmlSlimParser.h"
+#include "sync/ProgressBookIterator.h"
 
 Epub::Epub(std::string path, const std::string& cacheDir) : filepath(std::move(path)), cachePath(cacheDir) {}
 
 const std::string& Epub::getCachePath() const { return cachePath; }
+const std::string& Epub::getPath() const { return filepath; }
+void ProgressBookIterator::rememberPath(const std::string&, const std::string&) {}
 const std::string& Epub::getLanguage() const {
   static const std::string language = "en";
   return language;

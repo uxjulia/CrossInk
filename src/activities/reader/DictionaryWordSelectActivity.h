@@ -166,15 +166,24 @@ class DictionaryWordSelectActivity final : public Activity {
   void showTouchSelectionActions(std::string phrase, size_t wordCount);
   TextSelectionOverlay::Layout touchSelectionLayout() const;
   bool handleTouchSelection();
+  bool beginTouchPress(const TextSelectionOverlay::Layout& layout, int x, int y);
+  void resetTouchDragTracking(int x, int y);
+  void sampleTouchDrag();
+  void updateTouchDrag();
   bool isWithinSelectedPageEndDwellSlop(int x, int y) const;
   void performTouchSelectionAction(int action);
   void drawTouchSelection() const;
-#endif
   bool applyWordHoldAction_ = false;
   bool touchDragLookup_ = false;
   bool touchDragHasMoved_ = false;
   int touchDragStartX_ = 0;
   int touchDragStartY_ = 0;
+  int touchDragX_ = 0;
+  int touchDragY_ = 0;
+  bool touchDragReleased_ = false;
+  bool touchPressPending_ = false;
+  bool touchTapPending_ = false;
+#endif
   void* readerContext_ = nullptr;
   ReaderPageLoadFn readerPageLoad_ = nullptr;
   int activePageOffset_ = 0;

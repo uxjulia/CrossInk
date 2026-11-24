@@ -10146,7 +10146,7 @@ class SimulatorSmokeTest {
           LOG_INF("SMOKE", "EPUB and XTC live reader counter resets passed");
           std::_Exit(0);
         }
-        if (std::getenv("CROSSINK_SYNC_DIAGNOSTICS_CAPTURES"))
+        if (std::getenv("CROSSINK_SYNC_DIAGNOSTICS_CAPTURES") || std::getenv("CROSSINK_PROGRESS_DISCOVERY_TEST"))
           verifySyncDiagnosticsScreens(renderer, mappedInputManager);
         verifyStatsUploadContract();
         if (prepareReadingUploadSmokeTest()) {
