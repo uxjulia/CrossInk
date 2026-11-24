@@ -1,8 +1,17 @@
 #pragma once
 
 #include <HalGPIO.h>
+#include <Memory.h>
 
 #include "AppCapabilities.h"
+
+inline bool deviceSupportsChargePreparation() {
+#if FREEINK_MCU_C3 || defined(SIMULATOR)
+  return true;
+#else
+  return psramHeapAvailable();
+#endif
+}
 
 // Current button-only images target X3/X4/X4 Classic. Use the image capability
 // so a failed touch probe on another device cannot advertise front buttons.

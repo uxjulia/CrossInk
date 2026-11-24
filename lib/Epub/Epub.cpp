@@ -775,6 +775,7 @@ Epub::CssParseStatus Epub::parseCssFiles(const bool forceRebuild, const bool pre
   }
 
   for (size_t cssFileIndex = 0; cssFileIndex < cssFiles.size(); ++cssFileIndex) {
+    if (cancelled()) return CssParseStatus::Failed;
     const auto& cssPath = cssFiles[cssFileIndex];
     const auto* identity = cssIdentities ? &cssIdentities[cssFileIndex] : nullptr;
     if (identity && identity->found) {
@@ -876,6 +877,7 @@ Epub::CssParseStatus Epub::parseCssFiles(const bool forceRebuild, const bool pre
       !transientFailure && cssParser->ruleLimitReached() && sourceKnown &&
       CssCacheSource::read(filepath, CssParser::CSS_CACHE_VERSION, maxCssFileSize, finalIdentity) &&
       sourceIdentity == finalIdentity;
+  if (cancelled()) return CssParseStatus::Failed;
 
   // A hard rule cap is a stable terminal result, unlike a temporary heap or ZIP
   // read failure. Persist that canonical result and let the caller rebuild the
@@ -1016,20 +1018,12 @@ bool Epub::load(const bool buildIfMissing, const bool skipLoadingCss, const XLoc
           discoverCssFilesFromZip();
         }
         bookMetadataCache.reset();
+        if (cancelled()) return false;
         const CssParseStatus cssStatus =
             cssSourcesReady ? parseCssFiles(forceCssRebuild, retryingPartialCssCache)
                             : (retryingPartialCssCache ? CssParseStatus::Partial : CssParseStatus::Failed);
         releaseCssFileList();
         cssCacheAvailable = cssStatus != CssParseStatus::Failed;
-        bookMetadataCache = makeBookMetadataCacheNoThrow(cachePath, cacheCumulativeSpineSizes);
-        if (!bookMetadataCache) {
-          lastLoadFailure = OpenFailure::OutOfMemory;
-          return false;
-        }
-        if (!bookMetadataCache->load()) {
-          LOG_ERR("EBP", "Failed to reload cache after CSS rebuild");
-          return false;
-        }
         if (cssStatus == CssParseStatus::Complete || cssStatus == CssParseStatus::RuleLimited ||
             (cssStatus == CssParseStatus::Partial && !retryingPartialCssCache)) {
           // Invalidate section caches so they are rebuilt with the new CSS.
@@ -1038,6 +1032,17 @@ bool Epub::load(const bool buildIfMissing, const bool skipLoadingCss, const XLoc
           LOG_ERR("EBP", "CSS cache is still partial after rebuild; preserving existing section caches");
         } else {
           LOG_ERR("EBP", "CSS cache rebuild failed; preserving existing section caches");
+        }
+        // Finish invalidating layouts for any newly published CSS before stopping.
+        if (cancelled()) return false;
+        bookMetadataCache = makeBookMetadataCacheNoThrow(cachePath, cacheCumulativeSpineSizes);
+        if (!bookMetadataCache) {
+          lastLoadFailure = OpenFailure::OutOfMemory;
+          return false;
+        }
+        if (!bookMetadataCache->load()) {
+          LOG_ERR("EBP", "Failed to reload cache after CSS rebuild");
+          return false;
         }
       }
       cssCacheReady = cssCacheAvailable;
@@ -1116,6 +1121,7 @@ bool Epub::load(const bool buildIfMissing, const bool skipLoadingCss, const XLoc
     // Continue anyway - book will work without TOC
   }
 
+  if (cancelled()) return false;
   if (!bookMetadataCache->endTocPass()) {
     LOG_ERR("EBP", "Could not end writing toc pass");
     return false;
@@ -1128,7 +1134,7 @@ bool Epub::load(const bool buildIfMissing, const bool skipLoadingCss, const XLoc
   }
 
   // Build final book.bin
-  if (!bookMetadataCache->buildBookBin(filepath, bookMetadata)) {
+  if (!bookMetadataCache->buildBookBin(filepath, bookMetadata, cancellation)) {
     LOG_ERR("EBP", "Could not update mappings and sizes");
     if (bookMetadataCache->failedForLowMemory()) {
       lastLoadFailure = OpenFailure::OutOfMemory;
@@ -1799,6 +1805,7 @@ uint8_t* Epub::readItemContentsToBytes(const std::string& itemHref, size_t* size
 
 bool Epub::readItemContentsToStream(const std::string& itemHref, Print& out, const size_t chunkSize,
                                     const StreamEarlyStop earlyStop) const {
+  if (cancelled()) return false;
   if (itemHref.empty()) {
     LOG_DBG("EBP", "Failed to read item, empty href");
     return false;
@@ -1808,21 +1815,39 @@ bool Epub::readItemContentsToStream(const std::string& itemHref, Print& out, con
   if (decryptor && decryptor->isEncrypted(path)) {
     struct Sink {
       Print& out;
+      const Epub& book;
       bool stopImmediately;
       bool stopped = false;
-    } sink{out, earlyStop == StreamEarlyStop::Immediate};
+    } sink{out, *this, earlyStop == StreamEarlyStop::Immediate};
     auto append = [](void* context, const uint8_t* bytes, size_t length) {
       auto& sink = *static_cast<Sink*>(context);
+      if (sink.book.cancelled()) return false;
       if (sink.stopped) return true;
       sink.stopped = sink.out.write(bytes, length) != length;
       return !sink.stopped || !sink.stopImmediately;
     };
     const bool read = decryptor->decryptToSink(path, append, &sink);
+    if (cancelled()) return false;
     if (sink.stopped && sink.stopImmediately) return true;
     return read && (!sink.stopped || earlyStop == StreamEarlyStop::Probe);
   }
-  return ZipFile(filepath, &zipDirectoryCache)
-      .readFileToStream(path.c_str(), out, chunkSize, earlyStop != StreamEarlyStop::Disabled);
+  const bool allowEarlyStop = earlyStop != StreamEarlyStop::Disabled;
+  ZipFile zip(filepath, &zipDirectoryCache);
+  if (!cancellation) return zip.readFileToStream(path.c_str(), out, chunkSize, allowEarlyStop);
+
+  class CancellableOutput final : public Print {
+   public:
+    CancellableOutput(Print& target, const EpubCancellation& stop) : target(target), stop(stop) {}
+    size_t write(uint8_t byte) override { return write(&byte, 1); }
+    size_t write(const uint8_t* bytes, size_t size) override {
+      return stop.isCancellationRequested() ? 0 : target.write(bytes, size);
+    }
+
+   private:
+    Print& target;
+    const EpubCancellation& stop;
+  } output(out, *cancellation);
+  return zip.readFileToStream(path.c_str(), output, chunkSize, allowEarlyStop) && !cancelled();
 }
 
 bool Epub::extractItemToFile(const std::string& itemHref, const std::string& destPath, const size_t chunkSize) const {

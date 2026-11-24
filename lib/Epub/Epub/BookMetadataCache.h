@@ -10,6 +10,7 @@
 #include <optional>
 #include <string>
 
+#include "EpubCancellation.h"
 #include "TocSpineMemo.h"
 
 class BookMetadataCache {
@@ -130,7 +131,8 @@ class BookMetadataCache {
   bool cleanupTmpFiles() const;
 
   // Post-processing to update mappings and sizes
-  bool buildBookBin(const std::string& epubPath, const BookMetadata& metadata);
+  bool buildBookBin(const std::string& epubPath, const BookMetadata& metadata,
+                    const EpubCancellation* cancellation = nullptr);
 
   // Cheap check (no parsing) for whether a metadata cache exists at cachePath.
   // Lets callers predict a fast cached open without doing the full load().

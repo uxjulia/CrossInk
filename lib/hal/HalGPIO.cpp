@@ -12,7 +12,7 @@
 
 #include "InputWake.h"
 
-#if FREEINK_MCU_S3
+#if FREEINK_MCU_S3 || FREEINK_DEVICE_X3
 #include <soc/usb_serial_jtag_reg.h>
 #endif
 
@@ -371,7 +371,7 @@ bool HalGPIO::verifyPowerButtonWakeup(const bool shortPressWakes, const uint16_t
   return true;
 }
 
-#if FREEINK_MCU_S3
+#if FREEINK_MCU_S3 || FREEINK_DEVICE_X3
 // USB host presence via the USB-Serial-JTAG peripheral's SOF frame counter: a
 // connected host clocks 1 kHz start-of-frame packets, so the counter advancing
 // between polls means a data-capable host is attached. Held for a short window
@@ -380,27 +380,32 @@ bool HalGPIO::verifyPowerButtonWakeup(const bool shortPressWakes, const uint16_t
 // stays invisible — on boards with no VBUS line (X4 Pro, see
 // xteink-x4pro-support.md) this is the only observable USB signal.
 static bool usbHostSofActive() {
+  constexpr unsigned long HOST_PRESENCE_MS = 1500;
   static uint32_t lastFrame = 0;
   static unsigned long lastAdvanceMs = 0;
+  static unsigned long lastPollMs = 0;
   static bool seeded = false;
-  if (!seeded) {
-    // First probe must not fabricate a connection: getWakeupReason() calls this
-    // at boot, and a false positive turns a power-button wake (POWERON reset)
-    // into AfterUSBPower, which goes straight back to deep sleep — the device
-    // never wakes. Seed the counter and wait one SOF period out; a real host
-    // clocks SOFs at 1 kHz, so 3 ms guarantees advancement when attached.
+  if (!seeded || millis() - lastPollMs >= HOST_PRESENCE_MS) {
+    // At boot and after a polling gap, require fresh traffic. A frame received
+    // before the last unplug cannot distinguish cable power from a button wake.
     seeded = true;
+    lastAdvanceMs = 0;
     lastFrame = REG_READ(USB_SERIAL_JTAG_FRAM_NUM_REG);
     delay(3);
   }
+  lastPollMs = millis();
   const uint32_t frame = REG_READ(USB_SERIAL_JTAG_FRAM_NUM_REG);
   if (frame != lastFrame) {
     lastFrame = frame;
-    lastAdvanceMs = millis();
+    lastAdvanceMs = lastPollMs;
     return true;
   }
-  return lastAdvanceMs != 0 && millis() - lastAdvanceMs < 1500;
+  return lastAdvanceMs != 0 && lastPollMs - lastAdvanceMs < HOST_PRESENCE_MS;
 }
+#endif
+
+#if FREEINK_DEVICE_X3
+bool HalGPIO::isUsbHostConnected() const { return usbHostSofActive(); }
 #endif
 
 bool HalGPIO::isUsbConnected() const {
@@ -418,7 +423,7 @@ bool HalGPIO::isUsbConnected() const {
   if (tud_mounted()) return true;
 #endif
   if (BoardConfig::ACTIVE.usbDetect >= 0) {
-    return digitalRead(BoardConfig::ACTIVE.usbDetect) == HIGH;
+    return digitalRead(BoardConfig::ACTIVE.usbDetect) == (BoardConfig::ACTIVE.usbDetectActiveHigh ? HIGH : LOW);
   }
 #if FREEINK_MCU_S3
 #if !FREEINK_DEVICE_PICCO
@@ -432,14 +437,17 @@ bool HalGPIO::isUsbConnected() const {
   static unsigned long lastSampleMs = 0;
   const unsigned long now = millis();
   if (!sampled || now - lastSampleMs >= 500) {
-#if FREEINK_DEVICE_PICCO
-    // Rate-limit shared-I2C charger reads, including when the battery is full.
+    // Charger and PMIC input-rail measurements also work on a full battery.
+    // Where the board exposes only charge activity, stop when that evidence ends.
     bool known = false;
     powerPresent = battery.isExternalPowerPresent(&known);
-    if (!known) powerPresent = usbHostSofActive() || battery.isCharging();
+    if (!known) {
+#if FREEINK_DEVICE_PICCO
+      powerPresent = usbHostSofActive() || battery.isCharging();
 #else
-    powerPresent = battery.isCharging();
+      powerPresent = battery.isCharging();
 #endif
+    }
     lastSampleMs = now;
     sampled = true;
   }
@@ -471,6 +479,13 @@ HalGPIO::WakeupReason HalGPIO::getWakeupReason() const {
   }
   if (wakeupCause == ESP_SLEEP_WAKEUP_UNDEFINED && resetReason == ESP_RST_POWERON && !usbConnected &&
       coldBootImpliesPowerButton()) {
+#if FREEINK_DEVICE_X3
+    // A cable-only cold boot can happen after charging has stopped. GPIO
+    // deep-sleep wakes and a held power button still take the normal wake route.
+    if (deviceIsX3() && !inputMgr.isPowerButtonPhysicallyPressed() && isUsbHostConnected()) {
+      return WakeupReason::AfterUSBPower;
+    }
+#endif
     return WakeupReason::PowerButton;
   }
   if (wakeupCause == ESP_SLEEP_WAKEUP_UNDEFINED && resetReason == ESP_RST_UNKNOWN && usbConnected) {

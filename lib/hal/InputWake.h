@@ -28,6 +28,7 @@ class InputWake {
   static bool startCapture();
   static void stopCapture();
   static bool capturing();
+  static bool hasQueuedFrames();
   // Non-consuming snapshot for optional work that should yield to button input.
   static bool hasPendingButtons();
   // Non-consuming IRQ latch, including GT911 touch arriving during optional work.

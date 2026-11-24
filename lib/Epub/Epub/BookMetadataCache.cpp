@@ -273,7 +273,8 @@ bool BookMetadataCache::endWrite() {
   return !buildIoFailure;
 }
 
-bool BookMetadataCache::buildBookBin(const std::string& epubPath, const BookMetadata& metadata) {
+bool BookMetadataCache::buildBookBin(const std::string& epubPath, const BookMetadata& metadata,
+                                     const EpubCancellation* cancellation) {
   // Open all three files, writing to meta, reading from spine and toc
   const std::string finalPath = cachePath + bookBinFile;
   const std::string staged = finalPath + ".tmp";
@@ -312,6 +313,12 @@ bool BookMetadataCache::buildBookBin(const std::string& epubPath, const BookMeta
     const bool tocClosed = tocFile.close();
     return flushed && closed && spineClosed && tocClosed;
   };
+  const auto stopIfCancelled = [&] {
+    if (!cancellation || !cancellation->isCancellationRequested()) return false;
+    closeBuildFiles();
+    Storage.remove(staged.c_str());
+    return true;
+  };
   const uint32_t metadataSize = metadata.title.size() + metadata.author.size() + metadata.language.size() +
                                 metadata.coverItemHref.size() + metadata.textReferenceHref.size() +
                                 sizeof(uint32_t) * 5;
@@ -337,6 +344,7 @@ bool BookMetadataCache::buildBookBin(const std::string& epubPath, const BookMeta
   bool inputOk = spineIn.seek(0);
   if (!inputOk) buildIoFailure = true;
   for (int i = 0; i < spineCount; i++) {
+    if (stopIfCancelled()) return false;
     if (!inputOk) break;
     const uint32_t pos = spineIn.position();
     SpineEntry entry;
@@ -361,6 +369,7 @@ bool BookMetadataCache::buildBookBin(const std::string& epubPath, const BookMeta
   inputOk = tocIn.seek(0);
   if (!inputOk) buildIoFailure = true;
   for (int i = 0; i < tocCount; i++) {
+    if (stopIfCancelled()) return false;
     if (!inputOk) break;
     const uint32_t pos = tocIn.position();
     TocEntry entry;
@@ -403,6 +412,7 @@ bool BookMetadataCache::buildBookBin(const std::string& epubPath, const BookMeta
   inputOk = tocIn.seek(0);
   if (!inputOk) buildIoFailure = true;
   for (int j = 0; j < tocCount; j++) {
+    if (stopIfCancelled()) return false;
     if (!inputOk) break;
     TocEntry tocEntry;
     if (!readTocEntryChecked(tocIn, tocEntry, tocInputSize)) {
@@ -463,6 +473,7 @@ bool BookMetadataCache::buildBookBin(const std::string& epubPath, const BookMeta
       inputOk = spineIn.seek(0);
       if (!inputOk) buildIoFailure = true;
       for (int i = 0; inputOk && i < spineCount; ++i) {
+        if (stopIfCancelled()) return false;
         SpineEntry entry;
         if (!readSpineEntryChecked(spineIn, entry, spineInputSize)) {
           inputOk = false;
@@ -540,6 +551,7 @@ bool BookMetadataCache::buildBookBin(const std::string& epubPath, const BookMeta
       inputOk = spineIn.seek(0);
       if (!inputOk) buildIoFailure = true;
       for (size_t i = 0; i < spineCount; ++i) {
+        if (stopIfCancelled()) return false;
         if (!inputOk) break;
         SpineEntry entry;
         if (!readSpineEntryChecked(spineIn, entry, spineInputSize)) {
@@ -569,6 +581,7 @@ bool BookMetadataCache::buildBookBin(const std::string& epubPath, const BookMeta
         pathBytes += path.size() + 1;
       }
       for (; inputOk && !exactBatchSupported && parsedSpineCount < spineCount; ++parsedSpineCount) {
+        if (stopIfCancelled()) return false;
         SpineEntry ignored;
         if (!readSpineEntryChecked(spineIn, ignored, spineInputSize)) inputOk = false;
       }
@@ -590,6 +603,7 @@ bool BookMetadataCache::buildBookBin(const std::string& epubPath, const BookMeta
   if (!inputOk) buildIoFailure = true;
   int lastSpineTocIndex = -1;
   for (int i = 0; i < spineCount; i++) {
+    if (stopIfCancelled()) return false;
     if (!inputOk) break;
     SpineEntry spineEntry;
     if (!readSpineEntryChecked(spineIn, spineEntry, spineInputSize)) {
@@ -652,6 +666,7 @@ bool BookMetadataCache::buildBookBin(const std::string& epubPath, const BookMeta
   inputOk = tocIn.seek(0);
   if (!inputOk) buildIoFailure = true;
   for (int i = 0; i < tocCount; i++) {
+    if (stopIfCancelled()) return false;
     if (!inputOk) break;
     TocEntry tocEntry;
     if (!readTocEntryChecked(tocIn, tocEntry, tocInputSize)) {
@@ -667,6 +682,7 @@ bool BookMetadataCache::buildBookBin(const std::string& epubPath, const BookMeta
     return false;
   }
 
+  if (stopIfCancelled()) return false;
   const bool buildFilesClosed = closeBuildFiles();
   if (buildIoFailure || !buildFilesClosed || !OwnedFileSwap::publish(finalPath, staged)) {
     LOG_ERR("BMC", "Failed to publish book metadata");

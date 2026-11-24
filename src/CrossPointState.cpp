@@ -120,6 +120,7 @@ bool CrossPointState::loadFromFile() {
 void CrossPointState::toJson(JsonDocument& doc) const {
   doc["openEpubPath"] = openEpubPath;
   doc["favoriteSleepImagePath"] = favoriteSleepImagePath;
+  doc["chargePreparationFolder"] = chargePreparationFolder;
   doc["preferredSleepFolderPath"] = preferredSleepFolderPath;
   JsonArray recentArr = doc["recentSleepImages"].to<JsonArray>();
   for (int i = 0; i < SLEEP_RECENT_COUNT; i++) recentArr.add(recentSleepImages[i]);
@@ -158,6 +159,7 @@ void CrossPointState::toJson(JsonDocument& doc) const {
 bool CrossPointState::fromJson(JsonVariantConst doc) {
   openEpubPath = doc["openEpubPath"] | "";
   favoriteSleepImagePath = doc["favoriteSleepImagePath"] | "";
+  chargePreparationFolder = doc["chargePreparationFolder"] | "";
   preferredSleepFolderPath = doc["preferredSleepFolderPath"] | "";
   std::fill_n(recentSleepImages, SLEEP_RECENT_COUNT, static_cast<uint16_t>(0));
   JsonArrayConst recentArr = doc["recentSleepImages"];

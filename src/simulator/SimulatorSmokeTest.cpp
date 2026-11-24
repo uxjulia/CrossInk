@@ -22,6 +22,8 @@
 #include <cstring>
 #include <exception>
 #include <filesystem>
+#include <fstream>
+#include <iterator>
 
 #include "AssetDownloadSmokeTest.h"
 #include "BookFontSystem.h"
@@ -34,13 +36,12 @@
 #include "StatsUploadSmokeTest.h"
 #include "UpstreamFeatureSmokeTest.h"
 #include "util/DictionaryRegistry.h"
+#include "util/FolderBookIterator.h"
 #include "util/ImageDisplayMode.h"
 #include "util/WordSelectNavigator.h"
 #if CROSSINK_SCALABLE_FONTS
 #include <HalScalableFont.h>
 #include <builtinFonts/bitter_12_regular.h>
-
-#include <fstream>
 
 #include "FontInstaller.h"
 #include "TtfRenderProfileStore.h"
@@ -69,6 +70,7 @@
 #include "WifiCredentialStore.h"
 #include "activities/Activity.h"
 #include "activities/ActivityManager.h"
+#include "activities/boot_sleep/ChargingBookPreparation.h"
 #include "activities/boot_sleep/SleepActivity.h"
 #include "activities/boot_sleep/SleepCoverAssets.h"
 #include "activities/home/AlertActivity.h"
@@ -4941,6 +4943,249 @@ class SimulatorSmokeTest {
     SETTINGS.fromJson(original.as<JsonVariantConst>());
     ReaderUtils::applyOrientation(renderer, SETTINGS.orientation);
     LOG_INF("SMOKE", "Simulator smoke test passed: Rotate Page 180 shortcut pickers and EPUB/TXT handlers");
+  }
+
+  static void verifyChargePreparation() {
+    const std::string path = std::getenv("CROSSINK_SIMULATOR_SMOKE_BOOK");
+    const std::string leaf = "/books/Author/Series";
+    const std::string sibling = "/books/Second Author/Other.epub";
+    const std::string hidden = "/books/.hidden/Skip.epub";
+    std::filesystem::create_directories("fs_" + leaf);
+    std::filesystem::create_directories("fs_/books/Second Author");
+    std::filesystem::create_directories("fs_/books/.hidden");
+    std::string deep = "/books";
+    for (int i = 0; i < 16; ++i) deep += "/deep";
+    std::filesystem::create_directories("fs_" + deep);
+    deep += "/Skip.epub";
+    std::filesystem::copy_file("fs_" + path, "fs_" + deep);
+    std::vector<std::string> expectedBooks{path, sibling};
+    for (int i = 1; i <= 4; ++i) {
+      expectedBooks.push_back(leaf + "/Book " + std::to_string(i) + ".EPUB");
+    }
+    for (size_t i = 1; i < expectedBooks.size(); ++i) {
+      std::filesystem::copy_file("fs_" + path, "fs_" + expectedBooks[i]);
+    }
+    std::filesystem::copy_file("fs_" + path, "fs_" + hidden);
+
+    SETTINGS.menuNavigation = CrossPointSettings::MENU_NAV_DIRECTIONAL;
+    APP_STATE.chargePreparationFolder = leaf;
+    activityManager.replaceActivity(std::make_unique<SettingsActivity>(renderer, mappedInputManager));
+    activityManager.loop();
+    const auto tap = [&](MappedInputManager::Button button) {
+      mappedInputManager.simulatorInjectPress(button);
+      activityManager.loop();
+      mappedInputManager.simulatorClearInputFrame();
+      mappedInputManager.simulatorInjectRelease(button);
+      activityManager.loop();
+      mappedInputManager.simulatorClearInputFrame();
+    };
+    const auto capture = [&](const char* name) {
+      RenderLock lock;
+      activityManager.simulatorCurrentActivity()->render(std::move(lock));
+      captureStatusBarScreen(name);
+    };
+    const auto openOptions = [&] {
+      const auto system = buildSystemSettingsParentList(getSettingsList());
+      const auto row = std::find_if(system.begin(), system.end(), [](const SettingInfo& info) {
+        return info.action == SettingAction::PrepareBooksCharging;
+      });
+      if (row == system.end()) fail("Missing charging preparation setting");
+      for (size_t i = 0; i <= static_cast<size_t>(row - system.begin()); ++i)
+        tap(mappedInputManager.menuButton(MappedInputManager::Button::Down));
+      capture("charging-system");
+      tap(MappedInputManager::Button::Confirm);
+      const auto* editor = dynamic_cast<SettingsActivity*>(activityManager.simulatorCurrentActivity());
+      if (!editor || !editor->simulatorOptionPopupActive()) fail("Charging folder options did not open");
+      capture("charging-options");
+      tap(MappedInputManager::Button::Confirm);
+    };
+    for (int i = 0; i < 3; ++i) tap(MappedInputManager::Button::Confirm);
+    openOptions();
+    const auto* picker = dynamic_cast<FileBrowserActivity*>(activityManager.simulatorCurrentActivity());
+    if (!picker || picker->simulatorFolderPath() != leaf) fail("Could not open EPUB-only folder");
+    capture("charging-book-only-folder");
+    tap(MappedInputManager::Button::Right);
+    if (APP_STATE.chargePreparationFolder != leaf || !activityManager.isCurrentActivityNamed("Settings"))
+      fail("Could not select EPUB-only folder");
+    tap(MappedInputManager::Button::Confirm);
+    tap(MappedInputManager::Button::Confirm);
+    tap(MappedInputManager::Button::Back);
+    tap(MappedInputManager::Button::Back);
+    tap(MappedInputManager::Button::Right);
+    if (APP_STATE.chargePreparationFolder != "/books") fail("Could not select parent Books folder");
+    APP_STATE.chargePreparationFolder.clear();
+    if (!APP_STATE.loadFromFile() || APP_STATE.chargePreparationFolder != "/books") fail("Charging folder lost");
+    Epub book(path, "/.crosspoint");
+    const std::string cache = book.getCachePath();
+    SETTINGS.sleepScreen = CrossPointSettings::BLANK;
+    const std::string previousBook = APP_STATE.openEpubPath;
+    const auto chargeWhileAsleep = [](SleepTrigger trigger = SleepTrigger::PowerButton) {
+      ChargingBookPreparation preparation;
+      const bool monochrome = activityManager.goToSleep({.trigger = trigger}, &preparation);
+      return std::pair{monochrome, preparation.pollWake()};
+    };
+    if (std::getenv("CROSSINK_SIMULATOR_SMOKE_CHARGE_PREPARATION_SMALL_STACK")) {
+      const auto [monochrome, woke] = chargeWhileAsleep();
+      if (!monochrome || woke || Storage.exists(cache.c_str()))
+        fail("Small render stack ran charging preparation or failed to sleep normally");
+      LOG_INF("SMOKE", "Simulator smoke test passed: charging skips the small render stack");
+      return;
+    }
+    const auto [cablePainted, cableWoke] = chargeWhileAsleep(SleepTrigger::CableBoot);
+    if (cablePainted || cableWoke) fail("Charging cable boot replaced its retained sleep screen");
+    for (const auto& expected : expectedBooks) {
+      Epub prepared(expected, "/.crosspoint");
+      if (!prepared.load(false, true, Epub::XLocationLoadMode::Skip) || prepared.getSpineItemsCount() < 1)
+        fail("Missing book metadata for %s", expected.c_str());
+      const auto preparedCache = prepared.getCachePath();
+      for (int i = 0; i < prepared.getSpineItemsCount(); ++i) {
+        const auto chapter = preparedCache + "/layout/" + std::to_string(i / 32) + "/" + std::to_string(i) + ".bin";
+        if (!Storage.exists(chapter.c_str())) fail("Charging session missed chapter %d of %s", i, expected.c_str());
+      }
+      if (Storage.exists((preparedCache + "/progress.bin").c_str())) fail("Charging session wrote reading progress");
+    }
+    FolderBookIterator walker("/books", FolderBookIterator::TraversalLimit::Skip);
+    std::string nextBook;
+    size_t visited = 0;
+    for (auto result = walker.next(nextBook); result != FolderBookIterator::Result::Done;
+         result = walker.next(nextBook)) {
+      if (result == FolderBookIterator::Result::Error) fail("Skip traversal rejected the depth limit");
+      if (result == FolderBookIterator::Result::Book) ++visited;
+    }
+    if (visited != expectedBooks.size()) fail("Skip traversal lost valid siblings or visited an excluded book");
+    for (const auto& excluded : {hidden, deep}) {
+      const Epub skipped(excluded, "/.crosspoint");
+      if (Storage.exists(skipped.getCachePath().c_str())) fail("Charging session scanned %s", excluded.c_str());
+    }
+    if (APP_STATE.openEpubPath != previousBook) fail("Charging session changed the current book");
+    const std::string first = cache + "/layout/0/0.bin";
+    const auto stamp = std::filesystem::last_write_time("fs_" + first);
+    const std::string added = leaf + "/Added.epub";
+    std::filesystem::copy_file("fs_" + path, "fs_" + added);
+    chargeWhileAsleep(SleepTrigger::CableBoot);
+    if (std::filesystem::last_write_time("fs_" + first) != stamp) fail("Rewrote a prepared chapter");
+    Epub addedBook(added, "/.crosspoint");
+    if (!Section(addedBook, 0, renderer).getCachedPageCount()) fail("Did not prepare the newly added EPUB");
+
+    const auto originalMargin = SETTINGS.screenMarginHorizontal;
+    SETTINGS.screenMarginHorizontal = originalMargin == 5 ? 10 : 5;
+    const auto readChapter = [&] {
+      std::ifstream input("fs_" + first, std::ios::binary);
+      return std::string(std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>());
+    };
+    const auto previousLayout = readChapter();
+    chargeWhileAsleep(SleepTrigger::CableBoot);
+    if (readChapter() == previousLayout) fail("Skipped a changed charging layout");
+    SETTINGS.screenMarginHorizontal = originalMargin;
+    chargeWhileAsleep(SleepTrigger::CableBoot);
+
+    if (!Storage.remove(first.c_str())) fail("Could not clear charging-test chapter");
+    {
+      RenderLock lock;
+      bool cancelled = false;
+      SectionBuildOptions options{};
+      options.cancellationObserved = &cancelled;
+      // Stop at the first parser checkpoint. A retry should see only completed chapters.
+      static bool stopAtCheckpoint;
+      stopAtCheckpoint = false;
+      options.onBuildCheckpoint = [] { stopAtCheckpoint = true; };
+      options.shouldCancel = [](void*) { return stopAtCheckpoint; };
+      if (EpubReaderActivity::prepareBookWhileCharging(path, renderer, options) || !cancelled ||
+          Storage.exists(first.c_str()) || Storage.exists((first + ".part").c_str()))
+        fail("Cancelled charging build published an incomplete chapter");
+    }
+    chargeWhileAsleep();
+    if (!Storage.exists(first.c_str())) fail("Interrupted chapter was not prepared on retry");
+
+    const std::string longBook = "/charging-partial/book.epub";
+    Epub partialBook(longBook, "/.crosspoint");
+    Section shortChapter(partialBook, 0, renderer);
+    Section longChapter(partialBook, 1, renderer);
+    struct StopDuringChapter {
+      std::string temporaryCache;
+      int checks = 0;
+    };
+    const auto interruptLongChapter = [&] {
+      RenderLock lock;
+      StopDuringChapter stop{partialBook.getCachePath() + "/layout/0/1.bin.part"};
+      bool cancelled = false;
+      SectionBuildOptions options{};
+      options.cancellationObserved = &cancelled;
+      options.cancelContext = &stop;
+      options.shouldCancel = [](void* context) {
+        auto& stop = *static_cast<StopDuringChapter*>(context);
+        // Let the short first chapter finish and the second parse several pages.
+        return Storage.exists(stop.temporaryCache.c_str()) && ++stop.checks > 12;
+      };
+      const bool finished = EpubReaderActivity::prepareBookWhileCharging(longBook, renderer, options);
+      return !finished && cancelled && shortChapter.getCachedPageCount() && !longChapter.getCachedPageCount() &&
+             longChapter.getParagraphIndexForPage(0) && !Storage.exists(stop.temporaryCache.c_str());
+    };
+    if (!interruptLongChapter()) fail("Interrupted charging build did not preserve a readable partial chapter");
+    const auto shortPath = "fs_" + partialBook.getCachePath() + "/layout/0/0.bin";
+    const auto shortStamp = std::filesystem::last_write_time(shortPath);
+    APP_STATE.chargePreparationFolder = "/charging-partial";
+    chargeWhileAsleep();
+    if (!longChapter.getCachedPageCount() || std::filesystem::last_write_time(shortPath) != shortStamp ||
+        Storage.exists((partialBook.getCachePath() + "/progress.bin").c_str())) {
+      fail("Charging retry did not finish the partial chapter safely");
+    }
+    const auto margin = SETTINGS.screenMarginHorizontal;
+    SETTINGS.screenMarginHorizontal = margin == 5 ? 10 : 5;
+    if (!interruptLongChapter()) fail("Interrupted charging build did not save pages after a layout change");
+    SETTINGS.screenMarginHorizontal = margin;
+    SETTINGS.shortPwrBtn = CrossPointSettings::WAKE_ONLY;
+    SDL_Event powerTap{};
+    powerTap.type = SDL_KEYDOWN;
+    powerTap.key.keysym.scancode = SDL_SCANCODE_P;
+    if (SDL_PushEvent(&powerTap) != 1) fail("Could not inject wake request");
+    const auto [paintedOnWake, wakeRequested] = chargeWhileAsleep();
+    if (!wakeRequested || paintedOnWake) fail("Charging sleep did not go directly to the pending wake");
+    verifyChargingImageCancellation();
+    LOG_INF("SMOKE", "Simulator smoke test passed: charging preparation");
+  }
+
+  static void verifyChargingImageCancellation() {
+    const std::string path = "/charging-image.epub";
+    const Epub book(path, "/.crosspoint");
+    const auto cache = book.getCachePath();
+    RenderLock lock;
+
+    const auto staged = cache + "/book.bin.tmp";
+    bool reachedMetadataWrite = false;
+    std::pair metadataState{&staged, &reachedMetadataWrite};
+    SectionBuildOptions metadataOptions{};
+    metadataOptions.cancelContext = &metadataState;
+    metadataOptions.shouldCancel = [](void* context) {
+      const auto& [path, reached] = *static_cast<decltype(metadataState)*>(context);
+      *reached = Storage.exists(path->c_str());
+      return *reached;
+    };
+    if (EpubReaderActivity::prepareBookWhileCharging(path, renderer, metadataOptions) || !reachedMetadataWrite ||
+        Storage.exists(staged.c_str()) || Storage.exists((cache + "/book.bin").c_str()))
+      fail("Cancelling during book metadata creation did not discard the staged metadata");
+
+    // The whole chapter fits in one parser step. Once the checkpoint admits the step,
+    // a subsequent cancellation check inside the image read would drop the image and
+    // finalize that altered page before control returns to charging preparation.
+    static bool parsing;
+    parsing = false;
+    bool admittedStep = false;
+    SectionBuildOptions options{};
+    options.onBuildCheckpoint = [] { parsing = true; };
+    options.cancelContext = &admittedStep;
+    options.shouldCancel = [](void* context) {
+      auto& admitted = *static_cast<bool*>(context);
+      if (!parsing) return false;
+      return std::exchange(admitted, true);
+    };
+    if (!EpubReaderActivity::prepareBookWhileCharging(path, renderer, options) || !admittedStep)
+      fail("An admitted image parse step did not finish while cancellation was pending");
+    std::ifstream chapter("fs_" + cache + "/layout/0/0.bin", std::ios::binary);
+    const std::string bytes{std::istreambuf_iterator<char>(chapter), std::istreambuf_iterator<char>()};
+    if (bytes.find("pixel.gif") == std::string::npos)
+      fail("Charging cancellation committed a chapter without its image");
+    LOG_INF("SMOKE", "Simulator smoke test passed: charging cancellation preserved the image");
   }
 
   static void verifyWifiTransmitPowerSettings() {
@@ -10583,6 +10828,10 @@ class SimulatorSmokeTest {
           activityManager.goToReader(std::getenv("CROSSINK_SIMULATOR_SMOKE_BOOK"), true);
           queueStep("Frontlight layout reader", SmokeStep::FrontlightLayout, 12);
           break;
+        }
+        if (std::getenv("CROSSINK_SIMULATOR_SMOKE_CHARGE_PREPARATION")) {
+          verifyChargePreparation();
+          std::_Exit(0);
         }
         if (std::getenv("CROSSINK_SIMULATOR_SMOKE_WIFI_POWER")) {
           verifyWifiTransmitPowerSettings();

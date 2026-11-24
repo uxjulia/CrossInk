@@ -9,6 +9,7 @@
 - Add optional Sync on Sleep for EPUB progress, plus bookmarks, clippings, and reading sessions on compatible servers (CrossPoint #4531).
 - Download more EPUB hyphenation packs over Wi-Fi and install compatible community packs from an SD card.
 - Record and sync start and end book progress for EPUB and XTC reading sessions (#941).
+- Prepare EPUBs in a selected folder and its subfolders while plugged in and asleep. Unplugging keeps the pages already prepared. Choose **Prepare Books While Charging** in System settings.
 
 ### Changed
 

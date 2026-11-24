@@ -262,6 +262,14 @@ void InputWake::stopCapture() {
 
 bool InputWake::capturing() { return captureEnabled; }
 
+bool InputWake::hasQueuedFrames() {
+  if (!captureEnabled) return false;
+  portENTER_CRITICAL(&bufferMux);
+  const bool pending = buttonBuffer.pending();
+  portEXIT_CRITICAL(&bufferMux);
+  return pending;
+}
+
 bool InputWake::hasPendingEdge() { return wakeSignal && uxSemaphoreGetCount(wakeSignal) != 0; }
 
 bool InputWake::hasPendingButtons() {
@@ -308,6 +316,7 @@ bool InputWake::wait(const uint32_t timeoutMs, InputManager&) {
 bool InputWake::startCapture() { return false; }
 void InputWake::stopCapture() {}
 bool InputWake::capturing() { return false; }
+bool InputWake::hasQueuedFrames() { return false; }
 bool InputWake::hasPendingButtons() { return false; }
 bool InputWake::hasPendingEdge() { return false; }
 ButtonInputBuffer::Frame InputWake::takeFrame() { return {}; }

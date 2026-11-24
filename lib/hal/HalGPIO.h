@@ -159,6 +159,9 @@ class HalGPIO {
   // Return the latest loop-owned sample. Before the first update(), fall back
   // to a direct probe so setup-time callers still report external power.
   bool isUsbConnectedCached() const;
+#if FREEINK_DEVICE_X3
+  bool isUsbHostConnected() const;
+#endif
 
   // Whether a cold boot with no USB detected can be trusted to mean a held
   // power button on the active board's power topology.

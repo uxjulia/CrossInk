@@ -9,6 +9,7 @@
 #endif
 #include <Epub/Page.h>
 #include <Epub/PageCountEstimator.h>
+#include <Epub/PreparedEpubLayout.h>
 #include <Epub/SpineSizeLookup.h>
 #include <Epub/blocks/TextBlock.h>
 #include <Epub/hyphenation/Hyphenator.h>
@@ -7168,9 +7169,11 @@ void EpubReaderActivity::render(RenderLock&& lock) {
 
         bool attemptLayoutAbortedForLowMemory = false;
         uint16_t resolvedReferencePage = 0;
-        SectionBuildOptions buildOptions{
-            buildingFootnotePreview ? pendingFootnotePreviewAnchor.c_str() : nullptr,
-            static_cast<uint16_t>(buildingFootnotePreview ? FOOTNOTE_PREVIEW_MAX_PAGES : 0)};
+        SectionBuildOptions buildOptions{};
+        if (buildingFootnotePreview) {
+          buildOptions.previewAnchor = pendingFootnotePreviewAnchor.c_str();
+          buildOptions.previewMaxPages = FOOTNOTE_PREVIEW_MAX_PAGES;
+        }
 #if FREEINK_DEVICE_EEGO_A4
         buildOptions.onBuildCheckpoint = idleReaderDisplayDuringBuild;
 #endif
@@ -9398,45 +9401,129 @@ bool EpubReaderActivity::restoreSavedPosition(const int deferredDepth) {
   requestUpdate();
   return true;
 }
+
+namespace {
+// Both sleep-page reconstruction and charging preparation must produce exactly
+// the layout that opening this book in the reader will request.
+class SleepBookLayout {
+ public:
+  SleepBookLayout() {
+    sdFontSystem.setSettingsPersistenceCallback([](void*) {}, nullptr);
+  }
+  ~SleepBookLayout() {
+    sdFontSystem.setSettingsPersistenceCallback(nullptr, nullptr);
+#if CROSSINK_SCALABLE_FONTS
+    bookFontSystem.close();
+#endif
+  }
+  bool load(Epub& epub, GfxRenderer& renderer, const SectionBuildOptions& options = {}) {
+    epub.setupCacheDir();
+
+    const auto readerSettings = EpubReaderActivity::readBookReaderSettings(epub);
+    if (readerSettings.hasCustomReaderSettings) {
+      applyReaderSettings(readerSettings.readerSettings);
+    }
+    if (readerSettings.hasSafeModeOverride) {
+      applySafeModeReaderSettings();
+    }
+    SETTINGS.epubRenderMode = readerSettings.hasRenderModeOverride
+                                  ? normalizeRenderModeRaw(readerSettings.renderMode)
+                                  : static_cast<uint8_t>(EpubRenderMode::CrossInkDefault);
+
+    // Load CSS when embeddedStyle is enabled, as createSectionFile may need it to rebuild the cache.
+    {
+      GfxRenderer::FrameBufferLoan loan(renderer);
+      if (!epub.load(true, SETTINGS.embeddedStyle == 0, Epub::XLocationLoadMode::Skip)) {
+        LOG_DBG("SLP", "EPUB: failed to load %s", epub.getPath().c_str());
+        return false;
+      }
+      if (options.isCancellationRequested()) return false;
+      epub.ensureOptimizerImageIndex();
+    }
+    if (options.isCancellationRequested()) return false;
+    ensureReaderSdFontLoaded(renderer, &epub);
+#if CROSSINK_SCALABLE_FONTS
+    bookFontSystem.ensure(
+        epub, renderer,
+        SETTINGS.readerRenderSpec(0, 0, normalizeRenderMode(SETTINGS.epubRenderMode)).publisherFonts !=
+            PublisherFonts::Off);
+#endif
+    return true;
+  }
+
+ private:
+  ScopedReaderSettingsRestore restoreSettings;
+};
+}  // namespace
+
+bool EpubReaderActivity::prepareBookWhileCharging(const std::string& path, GfxRenderer& renderer,
+                                                  const SectionBuildOptions& options) {
+  if (options.isCancellationRequested() || !MemoryBudget::hasHeapForOptionalEpubRebuild("CHG", "open book", 0))
+    return false;
+  auto epub = makeUniqueNoThrow<Epub>(path, "/.crosspoint");
+  if (!epub) {
+    LOG_ERR("CHG", "Cannot allocate book");
+    return false;
+  }
+  epub->setCancellation(&options);
+  SleepBookLayout bookLayout;
+  if (!bookLayout.load(*epub, renderer, options)) return false;
+  // Once layout starts, a cancelled image read looks like a broken image to
+  // the parser. Let each parse step finish so any pages we publish are intact.
+  // startBuild still cancels its XHTML stream using SectionBuildOptions.
+  epub->setCancellation(nullptr);
+  ReaderUtils::applyOrientation(renderer, SETTINGS.orientation);
+  const auto viewport = computeReaderViewportLayout(renderer, false);
+  const auto mode = normalizeRenderMode(SETTINGS.epubRenderMode);
+  const auto spec = readerRenderSpecForProfile(SETTINGS.getReaderFontId(), viewport.viewportWidth,
+                                               viewport.viewportHeight, buildProfileForRenderMode(mode));
+  const int spineCount = epub->getSpineItemsCount();
+  if (prepared_epub_layout::matches(*epub, renderer, spec, spineCount, options)) {
+    LOG_DBG("CHG", "Reused prepared layout for %s", path.c_str());
+    return true;
+  }
+  uint32_t faces = 0;
+  bool canSaveReceipt = true;
+  for (int spine = 0; spine < spineCount; ++spine) {
+    if (options.isCancellationRequested()) return false;
+    auto chapter = makeUniqueNoThrow<Section>(*epub, spine, renderer, sectionCacheSuffixForRenderMode(mode));
+    if (!chapter) {
+      LOG_ERR("CHG", "Cannot allocate section");
+      return false;
+    }
+    bool layoutMismatch = false;
+    if (chapter->loadSectionFile(spec, &layoutMismatch) && !chapter->isPartial()) {
+      canSaveReceipt &= chapter->collectPreparedFaces(faces);
+      continue;
+    }
+    // loadSectionFile closes its handle before returning, including for partials.
+    if (!MemoryBudget::hasHeapForOptionalEpubRebuild("CHG", "prepare chapter", spine)) return false;
+    GfxRenderer::FrameBufferLoan loan(renderer);
+    if (!chapter->startBuild(spec, options)) return false;
+    while (!chapter->isBuildComplete()) {
+      if (options.onBuildCheckpoint) options.onBuildCheckpoint();
+      if (options.isCancellationRequested()) {
+        if (options.cancellationObserved) *options.cancellationObserved = true;
+        chapter->suspendBuild(layoutMismatch);
+        return false;
+      }
+      if (!chapter->buildSomeMore(0, /*singleParseStep=*/true)) return false;
+    }
+    canSaveReceipt &= chapter->collectPreparedFaces(faces);
+    LOG_INF("CHG", "Prepared chapter %d of %s", spine, path.c_str());
+  }
+  if (canSaveReceipt) prepared_epub_layout::save(*epub, renderer, spec, spineCount, faces, options);
+  return true;
+}
+
 bool EpubReaderActivity::drawCurrentPageToBuffer(const std::string& filePath, GfxRenderer& renderer) {
   auto epub = makeUniqueNoThrow<Epub>(filePath, "/.crosspoint");
   if (!epub) {
     LOG_ERR("SLP", "EPUB: failed to allocate book for sleep-page rendering");
     return false;
   }
-  epub->setupCacheDir();
-
-  ScopedReaderSettingsRestore restoreReaderSettings;
-  const auto readerSettings = readBookReaderSettings(*epub);
-  if (readerSettings.hasCustomReaderSettings) {
-    applyReaderSettings(readerSettings.readerSettings);
-  }
-  if (readerSettings.hasSafeModeOverride) {
-    applySafeModeReaderSettings();
-  }
-  SETTINGS.epubRenderMode = readerSettings.hasRenderModeOverride
-                                ? normalizeRenderModeRaw(readerSettings.renderMode)
-                                : static_cast<uint8_t>(EpubRenderMode::CrossInkDefault);
-
-  // Load CSS when embeddedStyle is enabled, as createSectionFile may need it to rebuild the cache.
-  {
-    GfxRenderer::FrameBufferLoan loan(renderer);
-    if (!epub->load(true, SETTINGS.embeddedStyle == 0, Epub::XLocationLoadMode::Skip)) {
-      LOG_DBG("SLP", "EPUB: failed to load %s", filePath.c_str());
-      return false;
-    }
-    epub->ensureOptimizerImageIndex();
-  }
-  ensureReaderSdFontLoaded(renderer, epub.get());
-#if CROSSINK_SCALABLE_FONTS
-  bookFontSystem.ensure(*epub, renderer,
-                        SETTINGS.readerRenderSpec(0, 0, normalizeRenderMode(SETTINGS.epubRenderMode)).publisherFonts !=
-                            PublisherFonts::Off);
-  // Sleep reconstruction owns this temporary provider until its page and section are released.
-  struct ScopedPublisherFonts {
-    ~ScopedPublisherFonts() { bookFontSystem.close(); }
-  } publisherFonts;
-#endif
+  SleepBookLayout bookLayout;
+  if (!bookLayout.load(*epub, renderer)) return false;
 
   // Load saved spine index and page number
   int spineIndex = 0, pageNumber = 0;

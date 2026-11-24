@@ -573,16 +573,22 @@ bool selectRandomSleepImage(SleepImageMode mode, SleepImageSelection& selection,
 
 void SleepActivity::onEnter() {
   Activity::onEnter();
+  paintSleepScreen();
+}
+
+void SleepActivity::paintSleepScreen() {
   monochromeFrame = false;
   const bool renderQuickResume = SETTINGS.usesQuickResumeSleep(fromTimeout);
 
   // Sleep screens draw directly, outside ActivityManager's normal render path.
   // Quick Resume and Page Overlay retain the current screen, including its
   // Night Mode output. Generated sleep screens use their normal polarity.
-  const bool retainPageColors = renderQuickResume || SETTINGS.sleepScreen == CrossPointSettings::OVERLAY;
+  const bool retainPageColors =
+      renderQuickResume ? quickResumeBackgroundAvailable : SETTINGS.sleepScreen == CrossPointSettings::OVERLAY;
   display.setInverted(retainPageColors && SETTINGS.screenInverted != 0);
 
   if (renderQuickResume) {
+    if (!quickResumeBackgroundAvailable) return renderDefaultSleepScreen();
     return renderLastScreenSleepScreen();
   }
 
@@ -739,8 +745,10 @@ bool SleepActivity::renderCustomSleepBmp(const std::string& path) const {
 }
 
 void SleepActivity::renderCustomSleepScreen() const {
+  if (!preparation && !preparationArtwork.empty() && renderCustomSleepBmp(preparationArtwork)) return;
   const auto tryRenderSelection = [&](const SleepImageSelection& image) {
     const bool displayed = renderCustomSleepBmp(image.path);
+    if (preparation && displayed) preparationArtwork = image.path;
     ImageFolderIndex::recordSleepAttempt(image.rotation, displayed);
     return displayed;
   };
@@ -872,7 +880,7 @@ bool SleepActivity::renderBitmapSleepScreen(Bitmap& bitmap) const {
   const auto placement = prepareSleepBitmap(bitmap);
   renderer.clearScreen();
 
-  const bool hasGreyscale = bitmap.hasGreyscale() &&
+  const bool hasGreyscale = !preparation && bitmap.hasGreyscale() &&
                             SETTINGS.sleepScreenCoverFilter == CrossPointSettings::SLEEP_SCREEN_COVER_FILTER::NO_FILTER;
   const bool absolute = renderer.supportsAbsoluteGrayscale();
   const bool direct = absolute && renderer.supportsDirectGrayscale();
@@ -1195,8 +1203,8 @@ void SleepActivity::renderOverlaySleepScreen(Bitmap* cover) const {
       file.close();
       return OverlayDrawResult::Failed;
     }
-    if (cover && cover->hasGreyscale() && SETTINGS.sleepScreenCoverFilter == CrossPointSettings::NO_FILTER &&
-        renderer.supportsAbsoluteGrayscale() &&
+    if (!preparation && cover && cover->hasGreyscale() &&
+        SETTINGS.sleepScreenCoverFilter == CrossPointSettings::NO_FILTER && renderer.supportsAbsoluteGrayscale() &&
         (renderer.supportsDirectGrayscale() ? renderer.displayDirectGrayscaleBase()
                                             : renderer.displayAbsoluteGrayscaleBase())) {
       bool success = true;
@@ -1303,7 +1311,7 @@ void SleepActivity::renderOverlaySleepScreen(Bitmap* cover) const {
     }
 
     const bool absolute = renderer.supportsAbsoluteGrayscale();
-    if (!absolute) return OverlayDrawResult::Drawn;
+    if (!absolute || preparation) return OverlayDrawResult::Drawn;
     if (!(renderer.supportsDirectGrayscale() ? renderer.displayDirectGrayscaleBase()
                                              : renderer.displayAbsoluteGrayscaleBase())) {
       return OverlayDrawResult::Drawn;
@@ -1371,10 +1379,16 @@ void SleepActivity::renderOverlaySleepScreen(Bitmap* cover) const {
     const OverlayDrawResult result = image.isPng ? tryDrawPngOverlay(image.path) : tryDrawOverlay(image.path);
     overlayDrawn = result == OverlayDrawResult::Drawn;
     overlayCandidateFailed = overlayCandidateFailed || result == OverlayDrawResult::Failed;
+    if (preparation && overlayDrawn) preparationArtwork = image.path;
     ImageFolderIndex::recordSleepAttempt(image.rotation, overlayDrawn);
   };
 
-  if (selectPinnedSleepImage(SleepImageMode::Overlay, selection)) {
+  if (!preparation && !preparationArtwork.empty()) {
+    const auto result = isPngSleepImagePath(preparationArtwork) ? tryDrawPngOverlay(preparationArtwork)
+                                                                : tryDrawOverlay(preparationArtwork);
+    overlayDrawn = result == OverlayDrawResult::Drawn;
+  }
+  if (!overlayDrawn && selectPinnedSleepImage(SleepImageMode::Overlay, selection)) {
     trySelectedOverlay(selection);
   }
   if (!overlayDrawn && !pngOverlayFallbackMustUseDefault &&
@@ -1431,7 +1445,8 @@ void SleepActivity::renderOverlaySleepScreen(Bitmap* cover) const {
   // The grayscale re-render has no mask for the overlay image. If an overlay was
   // drawn, keep the composited BW frame intact instead of painting page glyphs
   // over the sleep image.
-  const bool shouldRunGrayscalePass = shouldUseReaderPageBackground && backgroundSupportsGrayscale && !overlayDrawn &&
+  const bool shouldRunGrayscalePass = !preparation && shouldUseReaderPageBackground && backgroundSupportsGrayscale &&
+                                      !overlayDrawn &&
                                       (backgroundWasRebuilt || (overlayBackgroundAvailable && !path.empty()));
   renderer.displayBuffer(HalDisplay::HALF_REFRESH, !shouldRunGrayscalePass && TURN_OFF_SCREEN_AFTER_SLEEP_REFRESH);
 

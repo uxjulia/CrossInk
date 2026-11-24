@@ -572,6 +572,33 @@ def run_smoke(args: argparse.Namespace) -> int:
         if args.font_recovery:
             env["CROSSINK_SIMULATOR_SMOKE_FONT_RECOVERY"] = "1"
         env["CROSSINK_SIMULATOR_SMOKE_TEST"] = "1"
+        if args.charge_preparation or args.charge_preparation_small_stack:
+            env["CROSSINK_SIMULATOR_SMOKE_CHARGE_PREPARATION"] = "1"
+        if args.charge_preparation_small_stack:
+            env["CROSSINK_SIMULATOR_SMOKE_CHARGE_PREPARATION_SMALL_STACK"] = "1"
+        if args.charge_preparation:
+            charging_folder = temp_root / "fs_" / "charging-partial"
+            charging_folder.mkdir()
+            shutil.copy2(ROOT / "test" / "epubs" / "font-prewarm-benchmark.epub", charging_folder / "book.epub")
+            with zipfile.ZipFile(temp_root / "fs_" / "charging-image.epub", "w") as archive:
+                archive.writestr("mimetype", "application/epub+zip")
+                archive.writestr("META-INF/container.xml",
+                                 '<container xmlns="urn:oasis:names:tc:opendocument:xmlns:container" version="1.0">'
+                                 '<rootfiles><rootfile full-path="book.opf" media-type="application/oebps-package+xml"/>'
+                                 '</rootfiles></container>')
+                archive.writestr("book.opf",
+                                 '<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="id">'
+                                 '<metadata xmlns:dc="http://purl.org/dc/elements/1.1/">'
+                                 '<dc:identifier id="id">charging-image</dc:identifier><dc:title>Charging Image</dc:title>'
+                                 '<dc:language>en</dc:language></metadata>'
+                                 '<manifest><item id="chapter" href="chapter.xhtml" media-type="application/xhtml+xml"/>'
+                                 '<item id="image" href="pixel.gif" media-type="image/gif"/></manifest>'
+                                 '<spine><itemref idref="chapter"/></spine></package>')
+                archive.writestr("chapter.xhtml",
+                                 '<html xmlns="http://www.w3.org/1999/xhtml"><head><title>Image</title></head>'
+                                 '<body><p>Before</p><img src="pixel.gif" alt="Unavailable image"/><p>After</p></body></html>')
+                archive.writestr("pixel.gif", bytes.fromhex(
+                    "47494638396101000100800000000000ffffff21f90401000000002c000000000100010000020144003b"))
         if args.wifi_transmit_power:
             env["CROSSINK_SIMULATOR_SMOKE_WIFI_POWER"] = "1"
         if args.image_display:
@@ -652,6 +679,16 @@ def run_smoke(args: argparse.Namespace) -> int:
     if proc.returncode != 0:
         print(f"Simulator smoke test failed with exit code {proc.returncode}", file=sys.stderr)
         return proc.returncode
+
+    if args.charge_preparation_small_stack and "Simulator smoke test passed: charging skips the small render stack" not in proc.stdout:
+        print("Simulator did not exercise charging sleep on the small render stack", file=sys.stderr)
+        return 2
+    if args.charge_preparation and (
+        "Simulator smoke test passed: charging preparation" not in proc.stdout
+        or "Reused prepared layout for " not in proc.stdout
+    ):
+        print("Simulator did not complete charging preparation and reuse checks", file=sys.stderr)
+        return 2
 
     if args.publisher_fonts and "Simulator smoke test passed: publisher fonts" not in proc.stdout:
         print("Simulator did not complete publisher-font checks", file=sys.stderr)
@@ -794,6 +831,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--env", choices=("simulator", "simulator-X3", "x4-classic-simulator", "sticky-simulator", "x4-pro-simulator"), default="simulator",
                         help="PlatformIO simulator environment to build and run")
     parser.add_argument("--status-bar-lifecycle", action="store_true", help="Exercise reader settings return and reflow")
+    charging = parser.add_mutually_exclusive_group()
+    charging.add_argument("--charge-preparation", action="store_true",
+                          help="Check the System picker and charging sleep EPUB caches")
+    charging.add_argument("--charge-preparation-small-stack", action="store_true",
+                          help="Check charging sleep with the C3 network render stack budget")
     parser.add_argument("--wifi-transmit-power", action="store_true", help="Check Wi-Fi power defaults, device picker and persistence")
     parser.add_argument("--image-display", action="store_true", help="Check combined image choices and saved preference compatibility")
     parser.add_argument("--tilt-settings", action="store_true", help="Check tilt preference visibility, device editing and persistence")

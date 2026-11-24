@@ -9,6 +9,14 @@ A cache is a saved copy of work the reader has already done, so it does not have
 
 Everything is kept in a hidden folder called `.crosspoint` on the SD card. It holds the caches and also your personal data: settings, reading progress, bookmarks, clippings, reading stats, and saved Wi-Fi networks. CrossInk does not change the contents of your book files.
 
+## Preparing books while charging
+
+On an Xteink X3/X4 or a PSRAM reader, open **Settings > System > Prepare Books While Charging > Select Folder**. Plug in the reader and put it to sleep. An **Indexing** indicator appears while the reader prepares EPUBs in that folder and its visible subfolders, up to 15 levels below the selected folder. Waking or unplugging stops preparation and saves any finished pages in the chapter being built. In Incremental mode, you can read those cached pages while the indexer catches up. The next charging session still looks for new EPUBs. It checks one completion record per prepared book against the current layout and the chapter directory entries. It opens chapter caches individually when the record is missing or no longer matches. Choose **Off** in the same setting to clear the folder.
+
+Cable insertion leaves the sleep screen in place on X3 and X4 while preparation runs. Picco redraws the sleep screen to show its charging indicator. On X3 and X4, preparation waits for a normal boot if the reader was last restarted into a network screen.
+
+The X4 detects a plugged-in cable even at full charge. The X3 can continue at full charge while a computer keeps its USB data connection active. With a wall charger or a power-only cable, the X3 and other models that rely on active charging stop when charging ends.
+
 ## Clearing Cache Data
 
 Deleting the whole `.crosspoint` folder resets everything in it: caches, settings, saved Wi-Fi and server details, bookmarks, recently opened books, reading progress, and reading stats. Only do this if you want a completely fresh start.

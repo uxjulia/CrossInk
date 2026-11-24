@@ -9,12 +9,14 @@
 class FolderBookIterator {
  public:
   enum class Result { Entry, Book, Done, Error };
-  explicit FolderBookIterator(std::string root);
+  enum class TraversalLimit { Fail, Skip };
+  explicit FolderBookIterator(std::string root, TraversalLimit limit = TraversalLimit::Fail);
   Result next(std::string& bookPath);
 
  private:
   static constexpr unsigned MAX_DEPTH = 16;
   static constexpr size_t MAX_PATH = 1024;
+  const TraversalLimit limit;
   std::string directory;
   const uint32_t pathRevision;
   DirectoryPosition positions[MAX_DEPTH]{};

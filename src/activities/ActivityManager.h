@@ -24,6 +24,16 @@ struct portMUX_TYPE {};
   }
 #endif
 
+enum class SleepTrigger : uint8_t { PowerButton, Timeout, CableBoot };
+
+struct SleepRequest {
+  SleepTrigger trigger = SleepTrigger::PowerButton;
+  bool hasSavedPage = false;
+
+  bool isCableBoot() const { return trigger == SleepTrigger::CableBoot; }
+  bool allowsTimeoutQuickResume() const { return trigger == SleepTrigger::Timeout || hasSavedPage; }
+};
+
 struct SleepSyncBook {
   std::string path;
   bool progressSafe = false;
@@ -34,6 +44,7 @@ enum class StrId : uint16_t;
 
 class Activity;    // forward declaration
 class RenderLock;  // forward declaration
+class ChargingBookPreparation;
 
 #if CROSSINK_APP_CAP_TOUCH
 struct LiveLightSwipeState {
@@ -118,6 +129,7 @@ class ActivityManager {
 
   // Task to render and display the activity
   TaskHandle_t renderTaskHandle = nullptr;
+  bool hasReaderRenderStack = false;
   enum RenderWork : uint8_t { FullRender = 1, IdleRender = 2 };
   std::atomic<uint8_t> queuedRenderWork{0};
   void notifyRenderTask(RenderWork work);
@@ -162,7 +174,9 @@ class ActivityManager {
   }
   ~ActivityManager() { assert(false); /* should never be called */ };
 
-  void begin(uint32_t renderTaskStackBytes = 16384);
+  // Scalable-font rasterization also uses the S3 render task stack.
+  static constexpr uint32_t ReaderRenderStackBytes = FREEINK_MCU_S3 ? 24576 : 16384;
+  void begin(uint32_t renderTaskStackBytes = ReaderRenderStackBytes);
   void loop();
 
   // Will replace currentActivity and drop all activities on stack
@@ -190,7 +204,8 @@ class ActivityManager {
                   bool cleanImageBaseOnEntry = false, bool keepWakeFrame = false);
   void goToReaderAndRunMenuAction(std::string path, uint8_t action);
   // Returns true only when sleep rendered a known complete B/W frame.
-  bool goToSleep(bool fromTimeout = false, SleepSyncBook* syncBook = nullptr);
+  bool goToSleep(SleepRequest request = {}, ChargingBookPreparation* preparation = nullptr,
+                 SleepSyncBook* syncBook = nullptr);
   void goToBoot();
   void goToFullScreenMessage(StrId title, StrId message);
   void goToCrashReport();

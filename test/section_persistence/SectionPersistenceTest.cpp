@@ -660,6 +660,21 @@ TEST_F(SectionPersistenceTest, PartialCommitFiltersFutureAnchorsAndFallsBackBeyo
   EXPECT_EQ(reopened.getParagraphIndexForPage(64), 192);
 }
 
+TEST_F(SectionPersistenceTest, PublishingOrClearingAChapterInvalidatesThePreparedLayout) {
+  SectionHarness harness;
+  const auto receipt = harness.epub.getCachePath() + "/layout/prepared.bin";
+  storeText(receipt, "prepared");
+  harness.begin();
+  harness.appendPages(1);
+  ASSERT_TRUE(harness.commit(kFullVersion));
+  harness.finishSuccessfulCommit();
+  EXPECT_FALSE(Storage.exists(receipt.c_str()));
+
+  storeText(receipt, "prepared");
+  ASSERT_TRUE(harness.section.clearCache());
+  EXPECT_FALSE(Storage.exists(receipt.c_str()));
+}
+
 TEST_F(SectionPersistenceTest, FailedCommitKeepsThePreviousReadableCache) {
   SectionHarness baseline;
   baseline.begin({{"chapter", 0}});

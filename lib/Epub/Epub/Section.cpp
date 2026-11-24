@@ -20,6 +20,7 @@
 #include "Epub/css/CssParser.h"
 #include "Epub/image/OptimizerFormat.h"
 #include "Page.h"
+#include "PreparedEpubLayout.h"
 #include "SectionPageIndexSerialization.h"
 #include "hyphenation/Hyphenator.h"
 #include "parsers/ChapterHtmlSlimParser.h"
@@ -183,7 +184,7 @@ MalformedSourceCheck checkMalformedInputAgainstOriginalSource(const Epub& epub, 
 
 // Each FAT directory holds at most 32 chapter numbers (plus their layout variants).
 std::string chapterDirectory(const Epub& epub, const char* root, int spine) {
-  return epub.getCachePath() + root + "/" + std::to_string(spine / 32);
+  return epub.getCachePath() + root + "/" + std::to_string(spine / Section::ChaptersPerDirectory);
 }
 
 std::string sectionBackupPath(const std::string& filePath) { return filePath + ".bak"; }
@@ -204,7 +205,8 @@ void recoverSectionCacheBackup(const std::string& filePath) {
   }
 }
 
-bool promoteSectionCache(const std::string& tmpPath, const std::string& filePath) {
+bool promoteSectionCache(const Epub& epub, const std::string& tmpPath, const std::string& filePath) {
+  if (!prepared_epub_layout::invalidate(epub.getCachePath())) return false;
   recoverSectionCacheBackup(filePath);
   if (!Storage.exists(filePath.c_str())) {
     return Storage.rename(tmpPath.c_str(), filePath.c_str());
@@ -238,8 +240,8 @@ Section::Section(Epub& epub, const int spineIndex, GfxRenderer& renderer, const 
     : epub(&epub),
       spineIndex(spineIndex),
       renderer(renderer),
-      filePath(chapterDirectory(epub, "/layout", spineIndex) + "/" + std::to_string(spineIndex) +
-               (cacheSuffix ? cacheSuffix : "") + ".bin") {
+      filePath(layoutDirectory(epub, spineIndex) + "/" + std::to_string(spineIndex) + (cacheSuffix ? cacheSuffix : "") +
+               ".bin") {
   recoverSectionCacheBackup(filePath);
 }
 
@@ -692,8 +694,22 @@ bool Section::claimShapingRecovery(const ReaderRenderSpec& spec, int targetPage)
   return true;
 }
 
-// Your updated class method (assuming you are using the 'SD' object, which is a wrapper for a specific filesystem)
+std::string Section::layoutDirectory(const Epub& epub, int spineIndex) {
+  return chapterDirectory(epub, "/layout", spineIndex);
+}
+
+std::array<uint32_t, 3> Section::completedLayoutIdentity(const Epub& epub, const ReaderRenderSpec& spec) {
+  return {SECTION_FILE_VERSION, readerRenderSpecSignature(spec), wordLayoutIdentity(spec, epub.getLanguage())};
+}
+
+bool Section::collectPreparedFaces(uint32_t& faces) const {
+  if (publisherFontFaces_ != publisherLoadedFaces_) return false;
+  faces |= publisherFontFaces_;
+  return true;
+}
+
 bool Section::clearCache() const {
+  if (!prepared_epub_layout::invalidate(epub->getCachePath())) return false;
   const std::string tmpBin = binTmpPath();
   if (Storage.exists(tmpBin.c_str())) {
     Storage.remove(tmpBin.c_str());
@@ -833,6 +849,10 @@ bool Section::createSectionFile(const ReaderRenderSpec& spec, const std::functio
     // Retry logic for SD card timing issues
     bool streamed = false;
     for (int attempt = 0; attempt < 3 && !streamed; attempt++) {
+      if (cancelBuild()) {
+        cleanupTempHtml();
+        return false;
+      }
       if (attempt > 0) {
         LOG_DBG("SCT", "Retrying stream (attempt %d)...", attempt + 1);
         delay(50);  // Brief delay before retry
@@ -1163,7 +1183,7 @@ bool Section::createSectionFile(const ReaderRenderSpec& spec, const std::functio
     if (cssParser) cssParser->clear();
     return false;
   }
-  if (!promoteSectionCache(tmpSectionPath, filePath)) {
+  if (!promoteSectionCache(*epub, tmpSectionPath, filePath)) {
     LOG_ERR("SCT", "Failed to promote temp section cache into place");
     Storage.remove(tmpSectionPath.c_str());
     if (cssParser) {
@@ -1810,7 +1830,7 @@ bool Section::commitBuildFile(const uint8_t version, const uint32_t bytesConsume
 
   // Keep the readable cache as a backup until the completed replacement is in
   // place. A reboot after the backup rename recovers it in the constructor.
-  if (!promoteSectionCache(build_->tmpSectionPath, filePath)) {
+  if (!promoteSectionCache(*epub, build_->tmpSectionPath, filePath)) {
     LOG_ERR("SCT", "Failed to move built section into place");
     Storage.remove(build_->tmpSectionPath.c_str());
     return false;

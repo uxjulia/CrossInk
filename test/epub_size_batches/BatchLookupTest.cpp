@@ -76,6 +76,7 @@ bool runBatch(uint16_t spineCount, unsigned failAllocation = 0, unsigned failFro
   ArenaVector<uint32_t> spineSizes(metadataArena);
   bool lowMemoryFailure = false, filesClosed = false, useBatchSizes = false;
   auto closeBuildFiles = [&] { filesClosed = true; };
+  const auto stopIfCancelled = [] { return false; };
   ZipFile zip;
   constexpr uint16_t LARGE_SPINE_THRESHOLD = 300;
   // Generated directly from BookMetadataCache.cpp, including allocation/cleanup paths.

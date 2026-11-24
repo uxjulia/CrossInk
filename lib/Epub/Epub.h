@@ -14,6 +14,7 @@
 
 #include "../GfxRenderer/ImageToneProfile.h"
 #include "Epub/BookMetadataCache.h"
+#include "Epub/EpubCancellation.h"
 #include "Epub/css/CssParser.h"
 #include "Epub/image/PxcV2.h"
 
@@ -29,6 +30,8 @@ class Epub {
   bool loadSyncMetadata(SyncMetadata& metadata);
 
  private:
+  const EpubCancellation* cancellation = nullptr;
+  bool cancelled() const { return cancellation && cancellation->isCancellationRequested(); }
   mutable std::unique_ptr<freeink::content::ContentDecryptor> decryptor;
   bool openProtection() const;
   mutable std::string protectionError;
@@ -65,6 +68,7 @@ class Epub {
   };
 
  public:
+  void setCancellation(const EpubCancellation* token) { cancellation = token; }
   bool ensureOptimizerImageIndex();
   enum class OpenFailure : uint8_t {
     None,

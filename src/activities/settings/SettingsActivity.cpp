@@ -28,6 +28,7 @@
 #include "FilenameFontSystem.h"
 #include "FontSelectionActivity.h"
 #include "HyphenationManagerActivity.h"
+#include "activities/home/FileBrowserActivity.h"
 #include "util/PluginEvents.h"
 #if CROSSINK_SCALABLE_FONTS
 #include "TtfRenderOptionsActivity.h"
@@ -1574,6 +1575,42 @@ void SettingsActivity::toggleCurrentSetting() {
       case SettingAction::KOReaderSync:
         startActivityForResult(std::make_unique<KOReaderSettingsActivity>(renderer, mappedInput), resultHandler);
         break;
+      case SettingAction::PrepareBooksCharging: {
+        static constexpr StrId choices[] = {StrId::STR_SELECT_FOLDER, StrId::STR_OFF};
+        auto saveFolder = [this](const std::string& folder) {
+          std::optional<RenderLock> lock;
+          if (!RenderLock::heldByCurrentTask()) lock.emplace();
+          const auto previous = APP_STATE.chargePreparationFolder;
+          APP_STATE.chargePreparationFolder = folder;
+          if (!APP_STATE.saveToFile()) {
+            APP_STATE.chargePreparationFolder = previous;
+            LOG_ERR("SET", "Could not save charging folder");
+            GUI.drawPopup(renderer, tr(STR_LANGUAGE_IO_ERROR));
+          }
+          requestUpdate();
+        };
+        optionPopup.show(StrId::STR_PREPARE_BOOKS_EXPLANATION, choices,
+                         APP_STATE.chargePreparationFolder.empty() ? 1 : 2, 0, [this, saveFolder](int index) {
+                           if (index == 1) {
+                             saveFolder("");
+                             return;
+                           }
+                           auto picker = makeUniqueNoThrow<FileBrowserActivity>(
+                               renderer, mappedInput,
+                               APP_STATE.chargePreparationFolder.empty() ? "/" : APP_STATE.chargePreparationFolder,
+                               FileBrowserActivity::Mode::PickDirectory, StrId::STR_SELECT_FOLDER);
+                           if (!picker) {
+                             LOG_ERR("SET", "Could not allocate folder picker");
+                             return;
+                           }
+                           startActivityForResult(std::move(picker), [saveFolder](const ActivityResult& result) {
+                             const auto* path = std::get_if<FilePathResult>(&result.data);
+                             if (!result.isCancelled && path) saveFolder(path->path.empty() ? "/" : path->path);
+                           });
+                         });
+        requestUpdate();
+        return;
+      }
       case SettingAction::Plugins: {
         static constexpr StrId OPTIONS[] = {StrId::STR_ENABLED, StrId::STR_DISABLED, StrId::STR_CANCEL};
         optionPopup.show(StrId::STR_PLUGINS, OPTIONS, 3, SETTINGS.pluginsEnabled ? 0 : 1, [this](const int idx) {
@@ -1811,6 +1848,12 @@ void SettingsActivity::openIdleTimeThresholdPicker() {
 
 std::string SettingsActivity::settingValueText(const SettingInfo& setting) {
   if (isPageGestureSettingDisabled(setting)) return tr(STR_DISABLED);
+  if (setting.action == SettingAction::PrepareBooksCharging) {
+    const auto& folder = APP_STATE.chargePreparationFolder;
+    if (folder.empty()) return tr(STR_OFF);
+    const auto slash = folder.rfind('/');
+    return folder == "/" || slash == std::string::npos ? folder : folder.substr(slash + 1);
+  }
   if (setting.action == SettingAction::Plugins) return SETTINGS.pluginsEnabled ? tr(STR_ENABLED) : tr(STR_DISABLED);
   if (settingShowsNavigationCaret(setting)) return ">";
   if (setting.type == SettingType::TOGGLE && setting.valuePtr != nullptr) {
@@ -2019,6 +2062,15 @@ void SettingsActivity::buildSettingsScreen(UiApp::ScreenType& screen) {
   items.reserve(settings.size());
   for (size_t i = 0; i < settings.size(); i++) {
     values[i] = settingValueText(settings[i]);
+    if (settings[i].action == SettingAction::PrepareBooksCharging) {
+      auto style = screen.theme().bodyText;
+      style.maxLines = 1;
+      const auto width = static_cast<int16_t>(screen.body().width / 3);
+      std::string shortened;
+      fui::layoutText(screen.target(), {0, 0, width, screen.target().lineHeight(style.font)}, values[i].c_str(), style,
+                      [&](const char* line, fui::Rect) { shortened = line; });
+      values[i] = std::move(shortened);
+    }
     const bool isSectionHeader = settings[i].type == SettingType::SECTION_HEADER;
     fui::ListItem item;
     item.enabled = !isPageGestureSettingDisabled(settings[i]);

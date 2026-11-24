@@ -37,8 +37,9 @@
 #include "AppCapabilities.h"
 #if FREEINK_DEVICE_PICCO
 #include "util/SlideSwitchToggle.h"
-#include "util/UsbSleepWakeToken.h"
 #endif
+#include "DeviceCapabilities.h"
+#include "util/UsbSleepWakeToken.h"
 
 #ifdef SIMULATOR
 using esp_reset_reason_t = int;
@@ -107,6 +108,7 @@ inline esp_sleep_wakeup_cause_t esp_sleep_get_wakeup_cause() { return ESP_SLEEP_
 #include "SilentRestart.h"
 #include "activities/Activity.h"
 #include "activities/ActivityManager.h"
+#include "activities/boot_sleep/ChargingBookPreparation.h"
 #include "activities/boot_sleep/ImageFolderIndex.h"
 #include "activities/home/BookActions.h"
 #include "activities/reader/KOReaderSyncActivity.h"
@@ -369,8 +371,8 @@ RTC_NOINIT_ATTR uint32_t silentReaderPageBuildMagic;
 RTC_NOINIT_ATTR uint32_t silentReaderPageBuildBookHash;
 RTC_NOINIT_ATTR uint32_t silentReaderPageBuildPackedTarget;
 RTC_NOINIT_ATTR uint32_t silentReaderPageBuildFlags;
+RTC_NOINIT_ATTR UsbSleepWakeToken usbSleepWakeToken;
 #if FREEINK_DEVICE_PICCO
-RTC_NOINIT_ATTR UsbSleepWakeToken piccoUsbWakeToken;
 static SlideSwitchToggle piccoSlideSwitch;
 #endif
 constexpr uint32_t SILENT_REBOOT_MAGIC = 0xC1EAB007;
@@ -383,10 +385,6 @@ constexpr uint32_t SILENT_REBOOT_READER_CLEAN_IMAGE_BASE = 1U << 0;
 constexpr uint32_t SILENT_READER_PAGE_BUILD_MAGIC = 0xC1EAB017;
 constexpr uint32_t SILENT_READER_PAGE_BUILD_AUTO_TURN = 1U << 0;
 constexpr uint32_t NETWORK_RENDER_TASK_STACK_BYTES = 8192;
-// FreeType's anti-aliased rasterizer reserves a 16 KiB scratch pool on its
-// caller's stack. Scalable fonts are S3-only, so leave C3's constrained reader
-// stack unchanged and give S3 reader renders room for their normal call frames.
-constexpr uint32_t READER_RENDER_TASK_STACK_BYTES = FREEINK_MCU_S3 ? 24576 : 16384;
 
 // How the device is coming back to life, resolved once at boot. Both resume
 // flows suppress the splash and leave the panel holding its pre-boot frame; a
@@ -1059,7 +1057,7 @@ static void saveSleepFrameBuffer() {
   file.close();
 }
 
-static bool loadSleepFrameBuffer() {
+static bool loadSleepFrameBuffer(bool consume = true) {
   HalFile file;
   if (!Storage.openFileForRead("SLP", SLEEP_FRAME_FILE, file)) return false;
   const size_t bufferSize = display.getBufferSize();
@@ -1069,7 +1067,7 @@ static bool loadSleepFrameBuffer() {
     Storage.remove(SLEEP_FRAME_FILE);
     return false;
   }
-  Storage.remove(SLEEP_FRAME_FILE);
+  if (consume) Storage.remove(SLEEP_FRAME_FILE);
   return true;
 }
 
@@ -1304,14 +1302,12 @@ void runSleepSync(const SleepSyncBook& book) {
 }  // namespace
 #endif
 
-void enterDeepSleep(bool fromTimeout) {
-#ifndef SIMULATOR
-  gpio.stopButtonCapture();
-#endif
+static void sleepWithChargingPreparation(SleepRequest request) {
+  const bool cableBoot = request.isCableBoot();
   HalPowerManager::Lock powerLock;  // Ensure we are at normal CPU frequency for sleep preparation
-  APP_STATE.lastSleepFromReader = activityManager.isReaderActivity();
+  if (!cableBoot) APP_STATE.lastSleepFromReader = activityManager.isReaderActivity();
 
-  const bool isQuickResumeSleep = SETTINGS.usesQuickResumeSleep(fromTimeout);
+  const bool isQuickResumeSleep = SETTINGS.usesQuickResumeSleep(request.allowsTimeoutQuickResume());
   // Every sleep mode leaves a complete retained frame on the e-ink panel. Keep
   // it visible until the first useful reader or Home paint replaces it.
   APP_STATE.showBootScreen = false;
@@ -1319,15 +1315,21 @@ void enterDeepSleep(bool fromTimeout) {
   // Commit to sleeping before goToSleep() runs the outgoing activity's onExit():
   // a WiFi activity would otherwise silentRestart() here and reboot instead.
   deepSleepInProgress = true;
+  const bool prepare = deviceSupportsChargePreparation() && !APP_STATE.chargePreparationFolder.empty() &&
+                       Storage.ready() && ChargingBookPreparation::hasExternalPower();
+  SleepSyncBook* sleepSync = nullptr;
 #ifndef SIMULATOR
+  if (prepare && cableBoot) gpio.startButtonCapture();
+  if (!prepare) gpio.stopButtonCapture();
   SleepSyncBook syncBook;
-  const bool captureSleepSync =
-      APP_STATE.lastSleepFromReader && KOREADER_STORE.getSyncOnSleep() && KOREADER_STORE.hasCredentials();
-  [[maybe_unused]] const bool monochromeSleepFrame =
-      activityManager.goToSleep(fromTimeout, captureSleepSync ? &syncBook : nullptr);
-#else
-  [[maybe_unused]] const bool monochromeSleepFrame = activityManager.goToSleep(fromTimeout);
+  if (!cableBoot && APP_STATE.lastSleepFromReader && KOREADER_STORE.getSyncOnSleep() &&
+      KOREADER_STORE.hasCredentials()) {
+    sleepSync = &syncBook;
+  }
 #endif
+  ChargingBookPreparation preparation;
+  [[maybe_unused]] const bool monochromeSleepFrame =
+      activityManager.goToSleep(request, prepare ? &preparation : nullptr, sleepSync);
   trustedtime::note();
   // Reader exit may already have saved this state. Save after the sleep screen
   // appears, skipping an unchanged snapshot while still retrying failed saves.
@@ -1335,9 +1337,9 @@ void enterDeepSleep(bool fromTimeout) {
 
   // Refreshes are synchronous; display.deepSleep() also finishes pending
   // display work and power-off, so an extra settle delay serves no purpose.
-  if (isQuickResumeSleep) {
+  if (!cableBoot && isQuickResumeSleep) {
     saveSleepFrameBuffer();
-  } else {
+  } else if (!cableBoot) {
     if (Storage.exists(SLEEP_FRAME_FILE)) {
       // A stale Quick Resume frame must not replace the selected sleep screen during wake.
       Storage.remove(SLEEP_FRAME_FILE);
@@ -1351,10 +1353,11 @@ void enterDeepSleep(bool fromTimeout) {
     }
   }
 
+  bool usbWakeRequested = prepare && preparation.pollWake();
 #ifndef SIMULATOR
   // Reader teardown and all sleep rendering are done. Sync does not touch the
   // framebuffer or hold RenderLock, and still has access to mounted storage.
-  runSleepSync(syncBook);
+  if (sleepSync && !usbWakeRequested) runSleepSync(*sleepSync);
 #endif
 
   // Last chance to sample: startDeepSleep() cuts the SD rail on X3, so nothing
@@ -1368,8 +1371,7 @@ void enterDeepSleep(bool fromTimeout) {
   // Preserve writes before a potentially hours-long USB hold, then leave the
   // card mounted for a charge-complete row until unplug or button wake.
   const bool storageSynced = !Storage.ready() || !gpio.isUsbConnected() || Storage.syncFilesystem();
-  bool usbWakeRequested = false;
-  if (storageSynced) {
+  if (storageSynced && !usbWakeRequested) {
     Frontlight.setOn(false);
     usbWakeRequested = holdSleepWhileUsbPowered(monochromeSleepFrame);
   }
@@ -1398,26 +1400,37 @@ void enterDeepSleep(bool fromTimeout) {
 #if FREEINK_DEVICE_PICCO && !CROSSINK_BATTERY_DIAG_LOG
   // The I2C light retains its state through sleep. Keep the saved preference.
   Frontlight.setOn(false);
-  const bool usbWakeRequested = holdSleepWhileUsbPowered(monochromeSleepFrame);
+  if (!usbWakeRequested) usbWakeRequested = holdSleepWhileUsbPowered(monochromeSleepFrame);
 #endif
   putTiltSensorToSleepForDeepSleep();
   display.deepSleep();
   mirrorWakeShortPressToNvs();
+  if (prepare) {
+    // Power can arrive after an unplug cancels indexing, while the final
+    // screen or storage is still shutting down. Consume those queued edges
+    // before the normal deep-sleep path waits for the button to be released.
+    if (!usbWakeRequested) usbWakeRequested = preparation.finishWake();
+#ifndef SIMULATOR
+    gpio.stopButtonCapture();
+#endif
+  }
   LOG_DBG("MAIN", "Entering deep sleep");
 
-#if FREEINK_DEVICE_PICCO
   if (usbWakeRequested) {
     // A short press may already be released after display shutdown. Preserve
     // the accepted wake through reset instead of depending on its GPIO level.
-    piccoUsbWakeToken.arm();
+    usbSleepWakeToken.arm();
     ESP.restart();
     return;
   }
-#endif
   powerManager.startDeepSleep(gpio);
 }
 
-void setupDisplayAndFonts(const bool seamless, const bool loadReaderResources, const bool useReaderRenderStack) {
+void enterDeepSleep(bool fromTimeout) {
+  sleepWithChargingPreparation({.trigger = fromTimeout ? SleepTrigger::Timeout : SleepTrigger::PowerButton});
+}
+
+void setupDisplayAndFonts(const bool seamless, const bool loadReaderResources, bool useReaderRenderStack) {
 #ifdef SIMULATOR
   (void)seamless;
   display.begin();
@@ -1432,7 +1445,11 @@ void setupDisplayAndFonts(const bool seamless, const bool loadReaderResources, c
   // parent screen before their deferred Wi-Fi child is promoted, so their
   // caller selects the reader-sized stack. Lightweight network targets use
   // 8 KB; reader rendering retains its 16 KB budget.
-  activityManager.begin(useReaderRenderStack ? READER_RENDER_TASK_STACK_BYTES : NETWORK_RENDER_TASK_STACK_BYTES);
+#ifdef SIMULATOR
+  if (std::getenv("CROSSINK_SIMULATOR_SMOKE_CHARGE_PREPARATION_SMALL_STACK")) useReaderRenderStack = false;
+#endif
+  activityManager.begin(useReaderRenderStack ? ActivityManager::ReaderRenderStackBytes
+                                             : NETWORK_RENDER_TASK_STACK_BYTES);
 
   // Initialize font decompressor for compressed reader fonts
   if (!fontDecompressor.init()) {
@@ -1476,11 +1493,7 @@ void setup() {
     ProgressBookIterator::resetLegacyLookups();
   }
   const esp_sleep_wakeup_cause_t rawWakeupCause = esp_sleep_get_wakeup_cause();
-#if FREEINK_DEVICE_PICCO
-  const bool usbSleepWake = piccoUsbWakeToken.consume(rawResetReason == ESP_RST_SW);
-#else
-  constexpr bool usbSleepWake = false;
-#endif
+  const bool usbSleepWake = usbSleepWakeToken.consume(rawResetReason == ESP_RST_SW);
   if (libraryScanSleepToken.consume(rawResetReason == ESP_RST_DEEPSLEEP)) library::restoreLibraryIndexAfterSleep();
 
 #ifdef ENABLE_SERIAL_LOG
@@ -1608,6 +1621,7 @@ void setup() {
 #endif
 #endif
 
+  bool cablePreparation = false;
   LOG_INF("BOOT", "Wake route: %s", wakeupRouteName(wakeupReason));
   switch (wakeupReason) {
     case HalGPIO::WakeupReason::PowerButton:
@@ -1624,6 +1638,20 @@ void setup() {
       LOG_INF("BOOT", "AfterUSBPower route: continuing EEGO A4 boot");
       break;
 #endif
+      // Some boards power up on cable insertion. Inspect the card before the
+      // early USB sleep route, without opening Home or starting a reader session.
+#ifndef SIMULATOR
+      if (deviceSupportsChargePreparation() && Storage.begin()) {
+        cablePreparation = APP_STATE.loadFromFile() && !APP_STATE.chargePreparationFolder.empty();
+        if (cablePreparation) break;
+#if !(FREEINK_DEVICE_PICCO && CROSSINK_BATTERY_DIAG_LOG)
+        if (!Storage.shutdown()) {
+          LOG_ERR("BOOT", "USB sleep storage shutdown failed");
+          break;
+        }
+#endif
+      }
+#endif
       LOG_INF("BOOT", "AfterUSBPower route: returning to sleep");
 #if FREEINK_DEVICE_PICCO
       // Keep the retained screen and use the normal USB sleep/wake path.
@@ -1631,7 +1659,7 @@ void setup() {
       putTiltSensorToSleepForDeepSleep();
 #if CROSSINK_BATTERY_DIAG_LOG
       // A cable-only boot reaches this sleep path before the normal SD mount.
-      if (!Storage.begin()) LOG_ERR("BATLOG", "SD unavailable during USB sleep");
+      if (!Storage.ready() && !Storage.begin()) LOG_ERR("BATLOG", "SD unavailable during USB sleep");
 #endif
       {
         const bool buttonPressed = holdPiccoUsbSleep();
@@ -1642,7 +1670,7 @@ void setup() {
         }
 #endif
         if (buttonPressed) {
-          piccoUsbWakeToken.arm();
+          usbSleepWakeToken.arm();
           ESP.restart();
           return;
         }
@@ -1662,7 +1690,7 @@ void setup() {
 
   // SD Card Initialization
   // We need 6 open files concurrently when parsing a new chapter
-  if (!Storage.begin()) {
+  if (!cablePreparation && !Storage.begin()) {
     auto description = StrId::STR_SD_START_FAILED;
 #ifndef SIMULATOR
     switch (Storage.startupError()) {
@@ -1745,7 +1773,16 @@ void setup() {
     }
   }
   LOG_DBG("LIGHT", "Frontlight boot state: %s (silent=%d)", restoreLightOn ? "on" : "off", isSilentReboot ? 1 : 0);
-  Frontlight.begin(SETTINGS.frontlightBrightness, SETTINGS.frontlightWarmth, restoreLightOn);
+  Frontlight.begin(SETTINGS.frontlightBrightness, SETTINGS.frontlightWarmth, restoreLightOn && !cablePreparation);
+  if (cablePreparation) {
+    setupDisplayAndFonts(true, true, true);
+    SleepRequest request{.trigger = SleepTrigger::CableBoot};
+#if FREEINK_DEVICE_PICCO
+    request.hasSavedPage = Storage.exists(SLEEP_FRAME_FILE) && loadSleepFrameBuffer(/*consume=*/false);
+#endif
+    sleepWithChargingPreparation(request);
+    return;
+  }
 
   if (recoveryFirmwareMode) {
     LOG_INF("MAIN", "Recovery firmware mode (%s + POWER held at boot)",

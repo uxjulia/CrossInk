@@ -1244,6 +1244,18 @@ pixel-cache names are ignored and can be regenerated without invalidating
 chapter layout or reading progress. Optimizer sidecars are only usable for Gray
 and at their exact dimensions; mismatches fall back to the source EPUB image.
 
+## Prepared EPUB layout
+
+Charging preparation writes `layout/prepared.bin` inside the book cache after all
+chapters are complete. Version 1 is a 48-byte little-endian record with the EPUB
+size and layout directory fingerprint as 64-bit values. The remaining fields are
+32-bit values in this order. EPUB modification time in packed FAT format, receipt
+version, section cache version, render settings signature, word layout identity,
+spine count, publisher font mask, and publisher font signature.
+
+Replacing or deleting a section through the firmware invalidates the record.
+A missing or mismatched record falls back to individual chapter cache checks.
+
 ## `section.bin`
 
 ### Version 125 (current development)

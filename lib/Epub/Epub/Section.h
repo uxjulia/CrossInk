@@ -1,12 +1,14 @@
 #pragma once
 #include <ShapingRecovery.h>
 
+#include <array>
 #include <functional>
 #include <memory>
 #include <optional>
 #include <string>
 
 #include "Epub.h"
+#include "EpubCancellation.h"
 #include "EpubRenderMode.h"
 #include "ReaderRenderSpec.h"
 #include "SectionPageIndex.h"
@@ -16,13 +18,11 @@ class GfxRenderer;
 class ChapterHtmlSlimParser;
 class CssParser;
 
-struct SectionBuildOptions {
+// Full builds can stop between parser chunks. Incremental setup uses the
+// cancellation callback only during startBuild().
+struct SectionBuildOptions : EpubCancellation {
   const char* previewAnchor = nullptr;
   uint16_t previewMaxPages = 0;
-  // Full builds can stop between parser chunks. Incremental setup uses this
-  // only during startBuild(), before control returns to the caller.
-  bool (*shouldCancel)(void* context) = nullptr;
-  void* cancelContext = nullptr;
   bool* cancellationObserved = nullptr;
   // Leave the whole-section font advance prewarm out of the first chunk so the first
   // page lays out sooner; the caller then runs it with prewarmSomeMore().
@@ -41,7 +41,6 @@ struct SectionBuildOptions {
   void (*onBuildCheckpoint)() = nullptr;
 
   bool isPreview() const { return previewAnchor && previewAnchor[0] != '\0' && previewMaxPages > 0; }
-  bool isCancellationRequested() const { return shouldCancel && shouldCancel(cancelContext); }
 };
 
 class Section {
@@ -155,6 +154,11 @@ class Section {
   explicit Section(Epub& epub, int spineIndex, GfxRenderer& renderer, const char* cacheSuffix = "");
   ~Section();
   bool loadSectionFile(const ReaderRenderSpec& spec, bool* layoutMismatch = nullptr);
+  static constexpr int ChaptersPerDirectory = 32;
+  static std::string layoutDirectory(const Epub& epub, int spineIndex);
+  static std::array<uint32_t, 3> completedLayoutIdentity(const Epub& epub, const ReaderRenderSpec& spec);
+  bool collectPreparedFaces(uint32_t& faces) const;
+
   bool clearCache() const;
   // Stamp a bounded retry before rebuilding. If it fails, the original page
   // and position data remain on disk and readable.

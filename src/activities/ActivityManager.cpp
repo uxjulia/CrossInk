@@ -35,6 +35,7 @@
 #include "ReleaseNotes.h"
 #include "SilentRestart.h"
 #include "boot_sleep/BootActivity.h"
+#include "boot_sleep/ChargingBookPreparation.h"
 #include "boot_sleep/SleepActivity.h"
 #include "browser/OpdsBookBrowserActivity.h"
 #include "components/TouchRegistry.h"
@@ -467,6 +468,7 @@ bool applyTwoFingerRotation(Activity& activity, MappedInputManager& mappedInput)
 }  // namespace
 
 void ActivityManager::begin(const uint32_t renderTaskStackBytes) {
+  hasReaderRenderStack = renderTaskStackBytes >= ReaderRenderStackBytes;
 #if CROSSINK_APP_CAP_TOUCH
   touchHardwareAvailable = mappedInput.hasTouchHardware();
 #endif
@@ -1164,29 +1166,44 @@ void ActivityManager::goToReaderAndRunMenuAction(std::string path, const uint8_t
   goToReader(std::move(path));
 }
 
-bool ActivityManager::goToSleep(bool fromTimeout, SleepSyncBook* syncBook) {
+bool ActivityManager::goToSleep(SleepRequest request, ChargingBookPreparation* requestedPreparation,
+                                SleepSyncBook* syncBook) {
+  // A C3 network boot uses a smaller render task stack for the lifetime of the boot.
+  auto* preparation = hasReaderRenderStack ? requestedPreparation : nullptr;
+  // Picco needs a newly drawn frame as the backdrop for its charging status strip.
+#if FREEINK_DEVICE_PICCO
+  constexpr bool preserveSleepFrame = false;
+#else
+  const bool preserveSleepFrame = request.isCableBoot();
+#endif
   // Hold the visible page steady from the first sleep indication through reader saves.
   RenderLock lock;
   const bool readerPage = canSnapshotForSleepOverlay();
-  const bool quickResume = SETTINGS.usesQuickResumeSleep(fromTimeout);
-  auto sleepActivity = makeUniqueNoThrow<SleepActivity>(renderer, mappedInput, readerPage, getCurrentBookPath(),
-                                                        fromTimeout, renderer.getOrientation());
+  const bool allowTimeoutQuickResume = request.allowsTimeoutQuickResume();
+  const bool quickResume = SETTINGS.usesQuickResumeSleep(allowTimeoutQuickResume);
+  auto sleepActivity =
+      makeUniqueNoThrow<SleepActivity>(renderer, mappedInput, readerPage, getCurrentBookPath(), allowTimeoutQuickResume,
+                                       renderer.getOrientation(), preserveSleepFrame);
   // Image viewers can repaint on exit. Only these activities retain an early final frame.
   const bool fromReaderOrHome = readerPage || isHomeActivity();
-  const bool earlyMoon = sleepActivity && quickResume && fromReaderOrHome;
+  const bool earlyMoon = !preserveSleepFrame && !preparation && sleepActivity && quickResume && fromReaderOrHome;
   if (!sleepActivity) {
     LOG_ERR("ACT", "Could not allocate sleep activity; saving outgoing activities before sleep");
-    GUI.drawPopup(renderer, tr(STR_ENTERING_SLEEP));
-  } else if (earlyMoon) {
-    sleepActivity->onEnter();
-  } else {
-    sleepActivity->showSleepPopup();
+    if (!preserveSleepFrame) GUI.drawPopup(renderer, tr(STR_ENTERING_SLEEP));
+  } else if (!preserveSleepFrame) {
+    if (earlyMoon) {
+      sleepActivity->onEnter();
+    } else {
+      sleepActivity->showSleepPopup();
+    }
   }
 
   bool pluginJoinAttempted = false;
-  const bool deliverAfterScreen = prepareSleepPlugins(quickResume, fromReaderOrHome, pluginJoinAttempted);
+  const bool deliverAfterScreen =
+      prepareSleepPlugins(quickResume, fromReaderOrHome && !preparation, pluginJoinAttempted);
   // Artwork can change during delivery. Check the cover cache only after plugins have run.
-  const bool renderBeforeExit = sleepActivity && fromReaderOrHome && sleepActivity->rendersBeforeExit();
+  const bool renderBeforeExit =
+      !preserveSleepFrame && !preparation && sleepActivity && fromReaderOrHome && sleepActivity->rendersBeforeExit();
   if (renderBeforeExit) sleepActivity->onEnter();
 
   // Only the EPUB activity actually showing at sleep may supply a sync target.
@@ -1212,7 +1229,21 @@ bool ActivityManager::goToSleep(bool fromTimeout, SleepSyncBook* syncBook) {
   pendingAction = PendingAction::None;
   auto* sleepScreen = sleepActivity.get();
   currentActivity = std::move(sleepActivity);
-  if (sleepScreen && !earlyMoon && !renderBeforeExit) sleepScreen->onEnter();
+  std::optional<RenderLock> finishLock;
+  if (sleepScreen && preparation && !preparation->pollWake() && ChargingBookPreparation::hasExternalPower()) {
+    Frontlight.setOn(false);
+    sleepScreen->setChargingPreparation(preparation);
+    entryRenderRequested = enteringActivity;
+    lock.unlock();
+    requestUpdate(true);
+    preparation->wait();
+    finishLock.emplace();
+    sleepScreen->setChargingPreparation(nullptr);
+  }
+  if (sleepScreen && !preserveSleepFrame && !earlyMoon && !renderBeforeExit &&
+      !(requestedPreparation && requestedPreparation->pollWake())) {
+    sleepScreen->onEnter();
+  }
   if (deliverAfterScreen) pluginJoinAttempted = pluginevents::deliverSleepEvents();
   if (syncBook) syncBook->pluginJoinAttempted = pluginJoinAttempted;
   return sleepScreen && sleepScreen->hasMonochromeFrame();

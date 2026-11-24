@@ -112,6 +112,7 @@ bool runSmall(bool expectBatch, size_t failAt = 0, unsigned rejectZipBatch = 0) 
   ZipFile zip;
   zip.failCall = rejectZipBatch;
   const auto closeBuildFiles = [] {};
+  const auto stopIfCancelled = [] { return false; };
 #include "SmallExactBatch.inc"
   assert(!buildIoFailure);
   assert(useBatchSizes == expectBatch);
