@@ -52,6 +52,7 @@
 
 ### Fixed
 
+- Fix an occasional reboot when putting an X3 or X4 to sleep with plugins enabled (#973).
 - Index EPUBs faster when many table-of-contents entries point to the same chapter file or chapter files are stored out of reading order.
 - Credit EPUB and XTC reading to the correct local day across midnight. Preserve live stats if a save fails, retry updates after SD errors, and finish pending saves before sleep, reader restart, or USB Drive handoff.
 - Preserve unreadable stats and offer to restore them from a verified backup. Keep daily, manual, and clockless backups separate and prune numbered backups in the correct order beyond 999.

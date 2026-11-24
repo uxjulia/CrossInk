@@ -5,6 +5,7 @@
 #include <LibraryBuilder.h>
 #include <LibraryFileTypes.h>
 #include <Logging.h>
+#include <Memory.h>
 #ifndef SIMULATOR
 #include <esp_random.h>
 #else
@@ -23,6 +24,7 @@ static uint32_t esp_random() { return std::random_device{}(); }
 #include <vector>
 
 #include "CrossPointSettings.h"
+#include "PluginEventOutbox.h"
 #include "PluginHttp.h"
 #include "PluginLocations.h"
 #include "WifiCredentialStore.h"
@@ -36,13 +38,10 @@ constexpr const char* EVENT_NAMES[] = {"reader.open", "reader.exit", "reader.ses
 static_assert(sizeof(EVENT_NAMES) / sizeof(EVENT_NAMES[0]) == static_cast<size_t>(pluginevents::Event::COUNT),
               "event name table out of sync");
 
-constexpr const char* OUTBOX_NAME = "/events.jsonl";
-// Drop-oldest wholesale: a plugin that is never drained must not grow a file
-// forever, and by the time 4KB of events piled up the old ones describe stale
-// state anyway.
-constexpr size_t MAX_OUTBOX_BYTES = 4 * 1024;
+constexpr const char* OUTBOX_NAME = PluginEventOutbox::NAME;
+constexpr size_t MAX_OUTBOX_BYTES = PluginEventOutbox::MAX_OUTBOX_BYTES;
+constexpr size_t MAX_EVENT_LINE = PluginEventOutbox::MAX_EVENT_LINE;
 constexpr size_t MAX_MANIFEST_SIZE = 8 * 1024;
-constexpr size_t MAX_EVENT_LINE = 2048;
 // Event handler responses are acknowledgements, not content.
 constexpr size_t MAX_EVENT_RESPONSE = 8 * 1024;
 
@@ -51,10 +50,10 @@ constexpr size_t MAX_EVENT_RESPONSE = 8 * 1024;
 // plugin list screen, not a marketplace.
 constexpr size_t MAX_EVENT_PLUGINS = 8;
 struct Subscriber {
-  char name[81] = {0};      // plugin folder name; "" = empty slot
-  char dir[112] = {0};      // "<root>/<name>"
-  uint8_t mask = 0;         // bit per Event
-  uint8_t connectMask = 0;  // events whose handler declares "connect": true
+  char name[81] = {0};                                    // plugin folder name; "" = empty slot
+  char dir[PluginEventOutbox::DIRECTORY_CAPACITY] = {0};  // "<root>/<name>"
+  uint8_t mask = 0;                                       // bit per Event
+  uint8_t connectMask = 0;                                // events whose handler declares "connect": true
 };
 Subscriber subscribers[MAX_EVENT_PLUGINS];
 std::mutex outboxMutex;
@@ -176,44 +175,47 @@ void emit(const Event e, const Var* vars, const size_t varCount) {
   if (!anySubscriber(e)) return;
 
   std::lock_guard<std::mutex> guard(outboxMutex);
-  // One line: {"e":"reader.exit","id":"3fa9c21b-7","ts":1734212345,"vars":{"book":"...","percent":"74"}}
-  JsonDocument doc;
-  doc["e"] = EVENT_NAMES[static_cast<size_t>(e)];
-  // Unique id for server-side dedupe of at-least-once delivery: a per-boot
-  // nonce plus an in-session counter, unique across queued events and reboots
-  // without an SD read-modify-write per event. ts alone repeats (1-second
-  // resolution, and 0 whenever the clock was never set).
-  static const uint32_t bootNonce = esp_random();
-  static uint32_t seq = 0;
-  char id[24];
-  snprintf(id, sizeof(id), "%08lx-%lu", static_cast<unsigned long>(bootNonce), static_cast<unsigned long>(++seq));
-  doc["id"] = id;
-  // Best-effort unix time: 0 when the clock was never set (no RTC, no NTP yet).
-  doc["ts"] = static_cast<long long>(trustedtime::trustedNow());
-  JsonObject varsObj = doc["vars"].to<JsonObject>();
-  for (size_t i = 0; i < varCount; i++) {
-    varsObj[vars[i].key] = vars[i].value;
-  }
-  std::string line;
-  line.reserve(160);
-  serializeJson(doc, line);
-  line += '\n';
-  if (line.size() > MAX_EVENT_LINE) {
-    LOG_ERR("PEVT", "event line too large (%u); dropped", static_cast<unsigned>(line.size()));
-    return;
+  HeapByteBuffer line;
+  size_t lineSize = 0;
+  {
+    // One line: {"e":"reader.exit","id":"3fa9c21b-7","ts":1734212345,"vars":{"book":"...","percent":"74"}}
+    JsonDocument doc;
+    doc["e"] = EVENT_NAMES[static_cast<size_t>(e)];
+    // Unique id for server-side dedupe of at-least-once delivery.
+    static const uint32_t bootNonce = esp_random();
+    static uint32_t seq = 0;
+    char id[24];
+    snprintf(id, sizeof(id), "%08lx-%lu", static_cast<unsigned long>(bootNonce), static_cast<unsigned long>(++seq));
+    doc["id"] = id;
+    // Best-effort unix time: 0 when the clock was never set (no RTC, no NTP yet).
+    doc["ts"] = static_cast<long long>(trustedtime::trustedNow());
+    JsonObject varsObj = doc["vars"].to<JsonObject>();
+    for (size_t i = 0; i < varCount; i++) {
+      varsObj[vars[i].key] = vars[i].value;
+    }
+    if (doc.overflowed()) {
+      LOG_ERR("PEVT", "Cannot allocate plugin event JSON");
+      return;
+    }
+    const size_t bytes = measureJson(doc);
+    if (bytes >= MAX_EVENT_LINE) {
+      LOG_ERR("PEVT", "Event line too large (%u); dropped", static_cast<unsigned>(bytes));
+      return;
+    }
+    // Exact, fallible allocation once for all subscribers. A maximum 2 KiB
+    // event does not belong on the loop stack. Release the JSON pool before I/O.
+    lineSize = bytes + 1;
+    line = makeDefaultByteBufferNoThrow(lineSize);
+    if (!line || serializeJson(doc, reinterpret_cast<char*>(line.get()), lineSize) != bytes) {
+      LOG_ERR("PEVT", "Cannot serialize plugin event (%u bytes); dropped", static_cast<unsigned>(lineSize));
+      return;
+    }
+    line[bytes] = '\n';
   }
 
   for (const auto& sub : subscribers) {
     if (sub.name[0] == '\0' || !(sub.mask & eventBit(e))) continue;
-    const std::string path = outboxPath(sub);
-    if (!DownloadFileSwap::recover(path)) continue;
-    std::string queued;
-    if (Storage.exists(path.c_str()) &&
-        !Storage.readFileToString("PEVT", path, MAX_OUTBOX_BYTES + MAX_EVENT_LINE, queued))
-      continue;
-    if (queued.size() > MAX_OUTBOX_BYTES) queued.clear();
-    queued += line;
-    writeOutbox(path, queued.data(), queued.size());
+    PluginEventOutbox::append(sub.dir, reinterpret_cast<const char*>(line.get()), lineSize);
   }
 }
 
