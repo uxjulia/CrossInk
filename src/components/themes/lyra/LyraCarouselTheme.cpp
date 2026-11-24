@@ -253,19 +253,6 @@ void registerCarouselCoverTouchTargets(const GfxRenderer& renderer, Rect rect,
                       registeredCount);
 }
 
-void drawMenuBookmarkIcon(const GfxRenderer& renderer, int x, int y, bool selected) {
-  constexpr int ribbonWidth = 16;
-  constexpr int ribbonHeight = 22;
-  constexpr int notchSize = 6;
-  const int iconX = x + (kMenuIconSize - ribbonWidth) / 2;
-  const int iconY = y + 4;
-  const int centerX = iconX + ribbonWidth / 2;
-
-  const int polyX[5] = {iconX, iconX + ribbonWidth, iconX + ribbonWidth, centerX, iconX};
-  const int polyY[5] = {iconY, iconY, iconY + ribbonHeight, iconY + ribbonHeight - notchSize, iconY + ribbonHeight};
-  renderer.fillPolygon(polyX, polyY, 5, !selected);
-}
-
 void drawPerspectiveOutline(const GfxRenderer& renderer, int x, int y, int width, int leftHeight, int rightHeight) {
   const int maxHeight = std::max(leftHeight, rightHeight);
   const int topLeft = (maxHeight - leftHeight) / 2;
@@ -626,17 +613,9 @@ void LyraCarouselTheme::drawButtonMenu(GfxRenderer& renderer, Rect rect, int but
     }
 
     if (rowIcon != nullptr) {
-      const UIIcon icon = rowIcon(i);
-      if (icon == UIIcon::BookmarkIcon) {
-        drawMenuBookmarkIcon(renderer, iconX, iconY, selected);
-      } else {
-        const freeink::Icon* bmp = iconForName(icon, kMenuIconSize);
-        if (bmp != nullptr) {
-          if (selected)
-            drawLucideIcon(renderer, *bmp, iconX, iconY, false);
-          else
-            drawLucideIcon(renderer, *bmp, iconX, iconY);
-        }
+      const freeink::Icon* bmp = iconForName(rowIcon(i), kMenuIconSize);
+      if (bmp != nullptr) {
+        drawLucideIcon(renderer, *bmp, iconX, iconY, !selected);
       }
     }
   }

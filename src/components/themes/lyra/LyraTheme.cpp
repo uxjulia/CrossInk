@@ -43,6 +43,7 @@ int mainMenuIconYOffset(const UIIcon icon) {
       return -6;
     case UIIcon::Folder:
       return -4;
+    case UIIcon::BookmarkIcon:
     case UIIcon::Recent:
       return -3;
     case UIIcon::Transfer:
@@ -91,6 +92,8 @@ const freeink::Icon* LyraTheme::iconForName(UIIcon icon, uint32_t size) {
         return &icon_folder_32;
       case UIIcon::Book:
         return &icon_book_marked_32;
+      case UIIcon::BookmarkIcon:
+        return &icon_bookmark_32;
       case UIIcon::Recent:
         return &icon_history_32;
       case UIIcon::Settings:
@@ -680,28 +683,11 @@ void LyraTheme::drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount
     const int textY = tileRect.y + (menuMetrics.menuRowHeight - lineHeight) / 2;
 
     if (rowIcon != nullptr) {
-      UIIcon icon = rowIcon(i);
-      if (icon == UIIcon::BookmarkIcon) {
-        // Draw a small bookmark ribbon icon to match the status bar ribbon.
-        const int ribbonWidth = 16;
-        const int ribbonHeight = 22;
-        const int notchSize = 6;
-        // Center the ribbon horizontally within the mainMenuIconSize box
-        const int iconX = textX + (mainMenuIconSize - ribbonWidth) / 2;
-        const int iconY = textY + 4;
-        const int centerX = iconX + ribbonWidth / 2;
-
-        const int polyX[5] = {iconX, iconX + ribbonWidth, iconX + ribbonWidth, centerX, iconX};
-        const int polyY[5] = {iconY, iconY, iconY + ribbonHeight, iconY + ribbonHeight - notchSize,
-                              iconY + ribbonHeight};
-        renderer.fillPolygon(polyX, polyY, 5, true);
+      const UIIcon icon = rowIcon(i);
+      const freeink::Icon* iconBitmap = iconForName(icon, mainMenuIconSize);
+      if (iconBitmap != nullptr) {
+        drawLucideIcon(renderer, *iconBitmap, textX, textY + 3 + mainMenuIconYOffset(icon));
         textX += mainMenuIconSize + hPaddingInSelection + 2;
-      } else {
-        const freeink::Icon* iconBitmap = iconForName(icon, mainMenuIconSize);
-        if (iconBitmap != nullptr) {
-          drawLucideIcon(renderer, *iconBitmap, textX, textY + 3 + mainMenuIconYOffset(icon));
-          textX += mainMenuIconSize + hPaddingInSelection + 2;
-        }
       }
     }
 
