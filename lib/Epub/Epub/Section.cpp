@@ -37,9 +37,13 @@ constexpr uint32_t SHAPING_STAMP_MAGIC = 0x31524853;  // "SHR1"
 constexpr uint32_t SHAPING_STAMP_BYTES = 7 * sizeof(uint32_t);
 
 uint32_t wordLayoutIdentity(const ReaderRenderSpec& spec, const std::string& language) {
-  const uint32_t hyphenationIdentity = spec.hyphenationEnabled ? Hyphenator::patternIdentity(language) : 0u;
-  // Extend the stored hyphenation identity only for Focus Reading layouts.
-  return spec.focusReadingEnabled ? hyphenationIdentity ^ FocusReading::LAYOUT_IDENTITY : hyphenationIdentity;
+  uint32_t identity = spec.hyphenationEnabled ? Hyphenator::patternIdentity(language) : 0u;
+  if (spec.focusReadingEnabled) identity ^= FocusReading::LAYOUT_IDENTITY;
+#if CROSSINK_SCALABLE_FONTS
+  // Cached drop caps store their source font size and the width reserved for wrapping.
+  if (spec.embeddedStyle && spec.renderMode != EpubRenderMode::Light) identity ^= 0xD40C4401u;
+#endif
+  return identity;
 }
 
 shaping_recovery::Readiness shapingReadiness() {

@@ -832,17 +832,26 @@ bool ChapterHtmlSlimParser::layoutText(const bool includeLastLine) {
     dropCap = {};
     const int lineHeight = effectiveLineHeight();
     const int ascender = renderer.getFontAscenderSize(layoutFont);
-    const int capFont = renderer.resolveBookFont(
-        fontId, cap.fontFamily,
-        std::min<int>(cap.fontFamily ? ScalableContentMaxPointSize : 72, renderer.getFontPointSize(layoutFont) * 3));
+    const int preferredCapPoints = renderer.getFontPointSize(layoutFont) * 3;
+    int capPointLimit = cap.fontFamily ? ScalableContentMaxPointSize : 72;
+    int minimumScale = 256;
+#if CROSSINK_SCALABLE_FONTS
+    if (!cap.fontFamily && preferredCapPoints > ScalableContentMaxPointSize && !renderer.isSdCardFont(fontId)) {
+      // An unavailable size would fall back to body-sized pixels. Use the largest
+      // available outline size and let it shrink when the lines are short.
+      capPointLimit = ScalableContentMaxPointSize;
+      minimumScale = 1;
+    }
+#endif
+    const int capFont = renderer.resolveBookFont(fontId, cap.fontFamily, std::min(capPointLimit, preferredCapPoints));
     int32_t advance = 0;
     int bodyTop = ascender * 7 / 10, capTop = bodyTop;
     renderer.getCodepointMetrics(layoutFont, 'H', EpdFontFamily::REGULAR, advance, bodyTop);
     const auto capStyle = cap.bold ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR;
     renderer.ensureSdCardFontReady(capFont, cap.text, cap.bold ? 2 : 1);
     renderer.getCodepointMetrics(capFont, 'H', capStyle, advance, capTop);
-    const int scale =
-        std::clamp(((cap.lines - 1) * lineHeight + std::max(1, bodyTop)) * 256 / std::max(1, capTop), 256, 4096);
+    const int scale = std::clamp(((cap.lines - 1) * lineHeight + std::max(1, bodyTop)) * 256 / std::max(1, capTop),
+                                 minimumScale, 4096);
     int capWidth = renderer.getSpaceWidth(layoutFont, EpdFontFamily::REGULAR);
     const auto* cursor = reinterpret_cast<const unsigned char*>(cap.text);
     while (const uint32_t cp = utf8NextCodepoint(&cursor)) {

@@ -41,6 +41,7 @@
 #include "util/WordSelectNavigator.h"
 #if CROSSINK_SCALABLE_FONTS
 #include <HalScalableFont.h>
+#include <ScalableBuiltins.h>
 #include <builtinFonts/bitter_12_regular.h>
 
 #include "FontInstaller.h"
@@ -7109,8 +7110,50 @@ class SimulatorSmokeTest {
   }
 
 #if CROSSINK_SCALABLE_FONTS
+  void verifyScalableDropCaps() {
+    const std::string htmlPath = "/scalable-drop-cap.xhtml";
+    if (!Storage.writeFile(htmlPath.c_str(),
+                           "<html><body><p><span style=\"float:left;font-size:2em\">R</span>"
+                           "eading should start with a sharp letter. This paragraph wraps alongside the opening "
+                           "letter for two lines before returning to the left margin.</p></body></html>"))
+      fail("Cannot write scalable drop-cap excerpt");
+
+    Epub book("/scalable-drop-cap.epub", "/.crosspoint");
+    CssParser css(book.getCachePath());
+    ensureScalableBuiltinFamily(renderer, CrossPointSettings::BITTER);
+    for (const uint8_t points : {14, 16, 22}) {
+      const int body = scalableBuiltinReaderFontId(CrossPointSettings::BITTER, points);
+      if (renderer.getFontPointSize(body) != points) fail("Bitter body font is unavailable at %u pt", unsigned(points));
+      const unsigned expected = points == 14 ? 42 : ScalableContentMaxPointSize;
+      unsigned caps = 0;
+      ChapterHtmlSlimParser parser(
+          book, htmlPath, renderer, body, 1.0f, false, false, CrossPointSettings::BOOK_STYLE,
+          renderer.getScreenWidth() - 40, renderer.getScreenHeight() - 40, false, false, false, 0,
+          [&](std::unique_ptr<Page> page, uint16_t, uint16_t, uint32_t, uint32_t) {
+            for (const auto& element : page->elements) {
+              if (element->getTag() != TAG_PageDropCap) continue;
+              const auto& cap = static_cast<const PageDropCap&>(*element);
+              if (std::strcmp(cap.getText(), "R") || cap.getFontSize() != expected)
+                fail("Bitter %u pt drop cap used a %u pt glyph, expected %u pt", unsigned(points),
+                     unsigned(cap.getFontSize()), expected);
+              ++caps;
+            }
+            renderer.setRenderMode(GfxRenderer::BW);
+            renderer.clearScreen();
+            page->renderText(renderer, body, 20, 20);
+            char name[32];
+            std::snprintf(name, sizeof(name), "bitter-drop-cap-%u-pt", unsigned(points));
+            captureStatusBarScreen(name);
+          },
+          true, "", "", 0, {}, nullptr, &css);
+      if (!parser.parseAndBuildPages() || caps != 1) fail("Expected one Bitter %u pt drop cap", unsigned(points));
+    }
+    LOG_INF("SMOKE", "Bitter drop caps use 42/44/44 pt glyphs at 14/16/22 pt body sizes");
+  }
+
   void verifyPublisherFonts() {
     RenderLock lock;
+    verifyScalableDropCaps();
     const auto savedMode = SETTINGS.publisherFonts;
     if (savedMode != static_cast<uint8_t>(PublisherFonts::Accents))
       fail("Fresh settings did not default to Ignore Body Font");
