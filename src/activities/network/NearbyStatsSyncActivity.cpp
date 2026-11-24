@@ -1,5 +1,7 @@
 #include "NearbyStatsSyncActivity.h"
 
+#include <FilePublication.h>
+
 #include "components/TouchHeaderBackButton.h"
 
 #ifdef SIMULATOR
@@ -168,37 +170,15 @@ bool readSmallFile(const char* path, std::array<uint8_t, MAX_STATS_BYTES>& out, 
 bool writeSyncedStatsFile(const std::string& path, const uint8_t* data, const uint8_t size) {
   if (!isValidStatsPayload(data, size) || !ensureSyncedStatsDirectory()) return false;
 
-  const std::string tmpPath = path + ".part";
-  if (Storage.exists(tmpPath.c_str())) Storage.remove(tmpPath.c_str());
-
+  std::string staged;
+  if (!FilePublication::stagePath(path, "nearby-stats", staged)) return false;
   FsFile file;
-  if (!Storage.openFileForWrite(LOG_TAG, tmpPath, file)) return false;
-  const size_t written = file.write(data, size);
-  if (written != size) {
-    file.close();
-    Storage.remove(tmpPath.c_str());
-    return false;
-  }
-  file.flush();
-  if (!file.sync()) {
-    file.close();
-    Storage.remove(tmpPath.c_str());
-    return false;
-  }
-  if (!file.close()) {
-    Storage.remove(tmpPath.c_str());
-    return false;
-  }
-
-  if (Storage.exists(path.c_str()) && !Storage.remove(path.c_str())) {
-    Storage.remove(tmpPath.c_str());
-    return false;
-  }
-  if (!Storage.rename(tmpPath.c_str(), path.c_str())) {
-    Storage.remove(tmpPath.c_str());
-    return false;
-  }
-  return true;
+  if (!Storage.openFileForWrite(LOG_TAG, staged, file)) return false;
+  const bool saved = file.write(data, size) == size && file.sync();
+  const bool closed = file.close();
+  if (saved && closed && FilePublication::publish(staged.c_str(), path.c_str())) return true;
+  Storage.remove(staged.c_str());
+  return false;
 }
 
 void onEspNowReceive(const esp_now_recv_info_t* info, const uint8_t* data, int length) {

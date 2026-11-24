@@ -12,11 +12,16 @@
 // match, so the stores' temp/backup siblings are covered too.
 namespace protectedpaths {
 
-inline constexpr const char* SENSITIVE_FILES[] = {
-    "/.crosspoint/wifi.json",          "/.crosspoint/opds.json",
-    "/.crosspoint/koreader.json",      "/.crosspoint/wifi.bin",
-    "/.crosspoint/plugin-install.txt", "/.crosspoint/settings.json",
-    "/.crosspoint/settings.bin",       "/.crosspoint/crossink-settings.json"};
+inline constexpr const char* SENSITIVE_FILES[] = {"/.crosspoint/xfer",
+                                                  "/.crosspoint/usb-upload.tmp",
+                                                  "/.crosspoint/wifi.json",
+                                                  "/.crosspoint/opds.json",
+                                                  "/.crosspoint/koreader.json",
+                                                  "/.crosspoint/wifi.bin",
+                                                  "/.crosspoint/plugin-install.txt",
+                                                  "/.crosspoint/settings.json",
+                                                  "/.crosspoint/settings.bin",
+                                                  "/.crosspoint/crossink-settings.json"};
 
 // SdFat also opens a name by its generated 8.3 alias (".crosspoint" is
 // CROSSP~1), which no spelling check can map back to the long name.
@@ -38,7 +43,7 @@ inline bool isShortAlias(const char* first, const char* last) {
   return true;
 }
 
-inline bool isSensitivePath(const char* path, const bool includeParents = false) {
+inline bool isSensitivePath(const char* path, const bool includeParents = false, const bool transferFilesOnly = false) {
   if (!path) return true;
   for (const unsigned char* c = reinterpret_cast<const unsigned char*>(path); *c; ++c) {
     if (*c < 32 || *c == 127 || *c == '\\') return true;
@@ -75,6 +80,7 @@ inline bool isSensitivePath(const char* path, const bool includeParents = false)
     seg += len;
   }
   for (const char* file : SENSITIVE_FILES) {
+    if (transferFilesOnly && file != SENSITIVE_FILES[0] && file != SENSITIVE_FILES[1]) continue;
     // FAT names are case-insensitive.
     if (strncasecmp(canon.c_str(), file, strlen(file)) == 0) return true;
     if (includeParents && canon.size() < strlen(file) && file[canon.size()] == '/' &&

@@ -19,7 +19,9 @@ def function(text, signature):
 
 
 validation = (ROOT / 'src/FontFileValidation.cpp').read_text()
-parts = [function(validation, 'bool FontInstaller::finishUpload(')]
+checkpoint = '\n'.join(line for line in (ROOT / 'lib/FsHelpers/TransferWriteCheckpoint.h').read_text().splitlines()
+                        if not line.startswith('#include ') and line != '#pragma once')
+parts = [checkpoint, function(validation, 'bool FontInstaller::finishUpload(')]
 parts += [function(source, signature) for signature in (
     'bool CrossPointWebServer::dropUploadIfCancelled()',
     'void CrossPointWebServer::abortUpload(',

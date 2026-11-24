@@ -44,8 +44,8 @@ struct String : std::string {
 struct FontSystem { int changes=0; void markRegistryDirty() { ++changes; } } sdFontSystem;
 class CrossPointWebServer {
  public:
-  struct UploadState { bool success=false; String fileName="book.epub", error; };
-  struct FontUpload { bool valid=false; std::string filePath; } fontUpload;
+  struct UploadState { bool success=false; int errorStatus=0; String fileName="book.epub", error; };
+  struct FontUpload { bool valid=false; int errorStatus=0; std::string filePath; } fontUpload;
   CrossPointHttpServer* server;
   void handleUploadPost(UploadState&) const;
   void handleFontUpload();

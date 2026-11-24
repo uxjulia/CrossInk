@@ -53,7 +53,7 @@ class HalStorage {
 
   bool beginUsbDrive();
   bool disconnectUsbDriveHost();
-  void endUsbDrive();
+  bool endUsbDrive();
   UsbDriveState usbDriveState() const;
   bool usbDriveHostSuspended() const;
 

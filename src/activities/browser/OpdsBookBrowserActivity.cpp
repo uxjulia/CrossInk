@@ -1,7 +1,7 @@
 #include "OpdsBookBrowserActivity.h"
 
 #include <Arduino.h>
-#include <DownloadFileSwap.h>
+#include <FilePublication.h>
 #include <FreeInkUIIcon.h>
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
@@ -961,7 +961,7 @@ void OpdsBookBrowserActivity::requestDownload(const OpdsEntry& selectedBook) {
     return;
   }
   // Recover an interrupted replacement before deciding whether the book exists.
-  if (!DownloadFileSwap::recover(request.filename)) {
+  if (!FilePublication::recover()) {
     state = BrowserState::ERROR;
     errorMessage = tr(STR_DOWNLOAD_FAILED);
     requestUpdate();

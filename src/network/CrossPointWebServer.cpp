@@ -1,6 +1,8 @@
 #include "CrossPointWebServer.h"
 
 #include <BookKey.h>
+#include <FilePublication.h>
+#include <TransferWriteCheckpoint.h>
 #include <fcntl.h>
 #include <unistd.h>
 
@@ -303,6 +305,8 @@ class WebJsonWriter {
 };
 
 // WebSocket upload state
+constexpr const auto& HTTP_STAGE = FilePublication::HTTP_STAGE;
+constexpr const auto& WS_STAGE = FilePublication::WS_STAGE;
 HalFile wsUploadFile;
 String wsUploadFileName;
 String wsUploadPath;
@@ -393,6 +397,10 @@ bool isProtectedPath(const String& path) {
 }
 }  // namespace
 
+namespace webtransfer {
+bool isWebSocketUploadInProgress() { return wsUploadInProgress; }
+}  // namespace webtransfer
+
 // File listing page template - now using generated headers:
 // - HomePageHtml (from html/HomePage.html)
 // - FilesPageHeaderHtml (from html/FilesPageHeader.html)
@@ -478,56 +486,120 @@ void CrossPointWebServer::begin() {
   server->on("/api/plugins", HTTP_GET, [this] { handlePluginList(); });
   server->on("/plugin", HTTP_GET, [this] { handlePluginFile(); });
   server->on("/plugins-run", HTTP_GET, [this] { handlePluginRunnerPage(); });
-  server->on("/api/plugin-jobs", HTTP_POST, [this] { handlePluginJobSubmit(); });
+  server->on("/api/plugin-jobs", HTTP_POST, [this] {
+    if (!webtransfer::rejectMutationDuringWebSocketUpload(*server)) handlePluginJobSubmit();
+  });
   server->on("/api/plugin-jobs/claim", HTTP_GET, [this] { handlePluginJobClaim(); });
-  server->on("/api/plugin-jobs/complete", HTTP_POST, [this] { handlePluginJobComplete(); });
+  server->on("/api/plugin-jobs/complete", HTTP_POST, [this] {
+    if (!webtransfer::rejectMutationDuringWebSocketUpload(*server)) handlePluginJobComplete();
+  });
   server->on("/api/plugin-jobs/status", HTTP_GET, [this] { handlePluginJobStatus(); });
-  server->on("/api/relay", HTTP_POST, [this] { handleRelay(); });
-  server->on("/api/crypto", HTTP_POST, [this] { handleCrypto(); });
-  server->on("/api/fetch", HTTP_POST, [this] { handleFetch(); });
-  server->on("/api/book-key", HTTP_POST, [this] { handleBookKey(); });
-  server->on("/api/plugin-fs", HTTP_POST, [this] { handlePluginFs(); }, [this] { handlePluginFsUpload(); });
+  server->on("/api/relay", HTTP_POST, [this] {
+    if (!webtransfer::rejectMutationDuringWebSocketUpload(*server)) handleRelay();
+  });
+  server->on("/api/crypto", HTTP_POST, [this] {
+    if (!webtransfer::rejectMutationDuringWebSocketUpload(*server)) handleCrypto();
+  });
+  server->on("/api/fetch", HTTP_POST, [this] {
+    if (!webtransfer::rejectMutationDuringWebSocketUpload(*server)) handleFetch();
+  });
+  server->on("/api/book-key", HTTP_POST, [this] {
+    if (!webtransfer::rejectMutationDuringWebSocketUpload(*server)) handleBookKey();
+  });
+  server->on(
+      "/api/plugin-fs", HTTP_POST,
+      [this] {
+        if (webtransfer::rejectMutationDuringWebSocketUpload(*server)) {
+          pluginFsUpload.errorStatus = 423;
+          pluginFsUpload.error = "file transfer in progress";
+          return;
+        }
+        handlePluginFs();
+      },
+      [this] {
+        if (!webtransfer::isWebSocketUploadInProgress()) {
+          handlePluginFsUpload();
+          return;
+        }
+        if (server->upload().status == UPLOAD_FILE_START) pluginFsUpload.started = true;
+        if (pluginFsUpload.file.isOpen()) pluginFsUpload.file.close();
+        if (!pluginFsUpload.tmp.empty()) Storage.remove(pluginFsUpload.tmp.c_str());
+        pluginFsUpload.errorStatus = 423;
+        pluginFsUpload.error = "file transfer in progress";
+      });
   server->on("/api/status", HTTP_GET, [this] { handleStatus(); });
   server->on("/api/files", HTTP_GET, [this] { handleFileListData(); });
   server->on("/download", HTTP_GET, [this] { handleDownload(); });
 
   // Upload endpoint with special handling for multipart form data
-  server->on("/upload", HTTP_POST, [this] { handleUploadPost(upload); }, [this] { handleUpload(upload); });
+  server->on(
+      "/upload", HTTP_POST,
+      [this] {
+        if (!webtransfer::rejectMutationDuringWebSocketUpload(*server)) handleUploadPost(upload);
+      },
+      [this] { handleUpload(upload); });
 
   // Create folder endpoint
-  server->on("/mkdir", HTTP_POST, [this] { handleCreateFolder(); });
+  server->on("/mkdir", HTTP_POST, [this] {
+    if (!webtransfer::rejectMutationDuringWebSocketUpload(*server)) handleCreateFolder();
+  });
 
   // Rename file endpoint
-  server->on("/rename", HTTP_POST, [this] { handleRename(); });
+  server->on("/rename", HTTP_POST, [this] {
+    if (!webtransfer::rejectMutationDuringWebSocketUpload(*server)) handleRename();
+  });
 
   // Move file endpoint
-  server->on("/move", HTTP_POST, [this] { handleMove(); });
+  server->on("/move", HTTP_POST, [this] {
+    if (!webtransfer::rejectMutationDuringWebSocketUpload(*server)) handleMove();
+  });
 
   // Delete file/folder endpoint
-  server->on("/delete", HTTP_POST, [this] { handleDelete(); });
+  server->on("/delete", HTTP_POST, [this] {
+    if (!webtransfer::rejectMutationDuringWebSocketUpload(*server)) handleDelete();
+  });
 
   // Settings endpoints
   server->on("/settings", HTTP_GET, [this] { handleSettingsPage(); });
   server->on("/api/settings", HTTP_GET, [this] { handleGetSettings(); });
-  server->on("/api/settings", HTTP_POST, [this] { handlePostSettings(); });
+  server->on("/api/settings", HTTP_POST, [this] {
+    if (!webtransfer::rejectMutationDuringWebSocketUpload(*server)) handlePostSettings();
+  });
   server->on("/api/status-bars", HTTP_GET, [this] { handleGetStatusBars(); });
-  server->on("/api/status-bars", HTTP_POST, [this] { handlePostStatusBars(); });
+  server->on("/api/status-bars", HTTP_POST, [this] {
+    if (!webtransfer::rejectMutationDuringWebSocketUpload(*server)) handlePostStatusBars();
+  });
 
   // Font management endpoints
   server->on("/fonts", HTTP_GET, [this] { handleFontsPage(); });
   server->on("/api/fonts", HTTP_GET, [this] { handleFontList(); });
-  server->on("/api/fonts/upload", HTTP_POST, [this] { handleFontUpload(); }, [this] { handleFontUploadData(); });
-  server->on("/api/fonts/delete", HTTP_POST, [this] { handleFontDelete(); });
+  server->on(
+      "/api/fonts/upload", HTTP_POST,
+      [this] {
+        if (!webtransfer::rejectMutationDuringWebSocketUpload(*server)) handleFontUpload();
+      },
+      [this] { handleFontUploadData(); });
+  server->on("/api/fonts/delete", HTTP_POST, [this] {
+    if (!webtransfer::rejectMutationDuringWebSocketUpload(*server)) handleFontDelete();
+  });
 
   // OPDS server endpoints
   server->on("/api/opds", HTTP_GET, [this] { handleGetOpdsServers(); });
-  server->on("/api/opds", HTTP_POST, [this] { handlePostOpdsServer(); });
-  server->on("/api/opds/delete", HTTP_POST, [this] { handleDeleteOpdsServer(); });
+  server->on("/api/opds", HTTP_POST, [this] {
+    if (!webtransfer::rejectMutationDuringWebSocketUpload(*server)) handlePostOpdsServer();
+  });
+  server->on("/api/opds/delete", HTTP_POST, [this] {
+    if (!webtransfer::rejectMutationDuringWebSocketUpload(*server)) handleDeleteOpdsServer();
+  });
 
   // Wi-Fi credential endpoints
   server->on("/api/wifi", HTTP_GET, [this] { handleGetWifiNetworks(); });
-  server->on("/api/wifi", HTTP_POST, [this] { handlePostWifiNetwork(); });
-  server->on("/api/wifi/delete", HTTP_POST, [this] { handleDeleteWifiNetwork(); });
+  server->on("/api/wifi", HTTP_POST, [this] {
+    if (!webtransfer::rejectMutationDuringWebSocketUpload(*server)) handlePostWifiNetwork();
+  });
+  server->on("/api/wifi/delete", HTTP_POST, [this] {
+    if (!webtransfer::rejectMutationDuringWebSocketUpload(*server)) handleDeleteWifiNetwork();
+  });
 
   server->onNotFound([this] { handleNotFound(); });
 
@@ -571,13 +643,8 @@ void CrossPointWebServer::abortUpload(UploadState& state, const char* error) con
   state.success = false;
   state.bufferPos = 0;
   if (state.file) {
-    state.file.close();
-    String filePath = state.path;
-    if (!filePath.endsWith("/")) filePath += "/";
-    filePath += state.fileName;
-    if (!Storage.remove(filePath.c_str())) {
-      LOG_ERR("WEB", "Could not remove incomplete upload: %s", filePath.c_str());
-    }
+    if (!state.file.close()) LOG_ERR("WEB", "Could not close incomplete HTTP upload");
+    if (!Storage.remove(HTTP_STAGE)) LOG_ERR("WEB", "Could not remove incomplete HTTP upload");
   }
   state.error = error;
   LOG_DBG("WEB", "%s", error);
@@ -585,23 +652,17 @@ void CrossPointWebServer::abortUpload(UploadState& state, const char* error) con
 
 void CrossPointWebServer::abortFontUpload() {
   fontUpload.bufferPos = 0;
-  if (fontUpload.file) fontUpload.file.close();
-  if (!fontUpload.filePath.empty()) Storage.remove(fontUpload.filePath.c_str());
+  if (fontUpload.file && !fontUpload.file.close()) LOG_ERR("WEB", "Could not close incomplete font upload");
+  if (!fontUpload.stagePath.empty() && !Storage.remove(fontUpload.stagePath.c_str()))
+    LOG_ERR("WEB", "Could not remove incomplete font upload");
   fontUpload.valid = false;
   LOG_DBG("WEB", "Font upload aborted");
 }
 
 void CrossPointWebServer::abortWsUpload(const char* tag) {
   // Explicit close() required: file-scope global persists beyond function scope
-  wsUploadFile.close();
-  String filePath = wsUploadPath;
-  if (!filePath.endsWith("/")) filePath += "/";
-  filePath += wsUploadFileName;
-  if (Storage.remove(filePath.c_str())) {
-    LOG_DBG(tag, "Deleted incomplete upload: %s", filePath.c_str());
-  } else {
-    LOG_DBG(tag, "Failed to delete incomplete upload: %s", filePath.c_str());
-  }
+  if (wsUploadFile && !wsUploadFile.close()) LOG_ERR(tag, "Could not close incomplete WebSocket upload");
+  if (!Storage.remove(WS_STAGE)) LOG_ERR(tag, "Could not remove incomplete WS upload");
   wsUploadInProgress = false;
   wsUploadClientNum = 255;
   wsLastProgressSent = 0;
@@ -613,6 +674,8 @@ void CrossPointWebServer::stop() {
     return;
   }
 
+  if (upload.file) abortUpload(upload);
+  if (fontUpload.file) abortFontUpload();
   if (pluginFsUpload.file.isOpen()) pluginFsUpload.file.close();
   if (!pluginFsUpload.tmp.empty()) Storage.remove(pluginFsUpload.tmp.c_str());
   pluginFsUpload = PluginFsUploadState{};
@@ -670,6 +733,8 @@ void CrossPointWebServer::handleClient() {
     lastDebugPrint = millis();
   }
 
+  // Read-only requests remain available while a WebSocket upload owns the file-transfer slot.
+  // Each mutating route rejects with 423, including streaming callbacks.
   server->handleClient();
 
   // Handle WebSocket events
@@ -1098,10 +1163,8 @@ static unsigned long uploadStartTime = 0;
 
 static bool flushUploadBuffer(CrossPointWebServer::UploadState& state) {
   if (state.bufferPos > 0 && state.file) {
-    const size_t written = state.file.write(state.buffer.data(), state.bufferPos);
-
-    if (written != state.bufferPos) {
-      LOG_DBG("WEB", "[UPLOAD] Buffer flush failed: expected %d, wrote %d", state.bufferPos, written);
+    if (!FsHelpers::writeAndCheckpoint(state.file, state.buffer.data(), state.bufferPos)) {
+      LOG_DBG("WEB", "[UPLOAD] Buffer flush failed or checkpoint failed");
       state.bufferPos = 0;
       return false;
     }
@@ -1121,12 +1184,25 @@ void CrossPointWebServer::handleUpload(UploadState& state) const {
   }
 
   const HTTPUpload& upload = server->upload();
+  if (webtransfer::isWebSocketUploadInProgress()) {
+    if (upload.status == UPLOAD_FILE_START) {
+      if (state.file) abortUpload(state);
+      state.success = false;
+      state.size = 0;
+    } else if (state.file) {
+      abortUpload(state);
+    }
+    state.errorStatus = 423;
+    state.error = "A file transfer is in progress";
+    return;
+  }
 
   if (upload.status == UPLOAD_FILE_START) {
     if (state.file) abortUpload(state);
     state.fileName = StringUtils::sanitizeFilename(upload.filename.c_str()).c_str();
     state.size = 0;
     state.success = false;
+    state.errorStatus = 0;
     state.error = "";
     uploadStartTime = millis();
     state.bufferPos = 0;
@@ -1162,7 +1238,7 @@ void CrossPointWebServer::handleUpload(UploadState& state) const {
 
     // Open file for writing - this can be slow due to FAT cluster allocation
     sdFontSystem.markRegistryDirtyForPath(filePath.c_str());
-    if (!Storage.openFileForWrite("WEB", filePath, state.file)) {
+    if (!(FilePublication::prepare() && Storage.openFileForWrite("WEB", HTTP_STAGE, state.file))) {
       state.error = "Failed to create file on SD card";
       LOG_DBG("WEB", "[UPLOAD] FAILED to create file: %s", filePath.c_str());
       return;
@@ -1207,21 +1283,22 @@ void CrossPointWebServer::handleUpload(UploadState& state) const {
       return;
     }
     if (state.file) {
+      if (state.size != upload.totalSize) {
+        abortUpload(state, "Upload ended before all file data arrived");
+        return;
+      }
       // Flush any remaining buffered data
       if (!flushUploadBuffer(state) || !state.file.sync()) {
         LOG_ERR("WEB", "Failed to finish upload");
         abortUpload(state, "Failed to write final data to SD card");
         return;
       }
-      if (!state.file.close()) {
-        state.error = "Failed to close file on SD card";
-        String filePath = state.path;
-        if (!filePath.endsWith("/")) filePath += "/";
-        filePath += state.fileName;
-        if (!Storage.remove(filePath.c_str())) {
-          LOG_ERR("WEB", "Could not remove incomplete upload: %s", filePath.c_str());
-        }
-        LOG_ERR("WEB", "%s", state.error.c_str());
+      String destination = state.path;
+      if (!destination.endsWith("/")) destination += "/";
+      destination += state.fileName;
+      if (!state.file.close() || !FilePublication::publish(HTTP_STAGE, destination.c_str(), false)) {
+        state.error = "Failed to finish file on SD card";
+        Storage.remove(HTTP_STAGE);
         return;
       }
 
@@ -1257,7 +1334,8 @@ void CrossPointWebServer::handleUploadPost(UploadState& state) const {
     state.success = false;
   } else {
     const String error = state.error.isEmpty() ? "Unknown error during upload" : state.error;
-    server->send(400, "text/plain", error);
+    server->send(state.errorStatus ? state.errorStatus : 400, "text/plain", error);
+    state.errorStatus = 0;
   }
 }
 
@@ -2424,7 +2502,7 @@ void CrossPointWebServer::onWebSocketEvent(uint8_t num, WStype_t type, uint8_t* 
 
           // Open file for writing
           sdFontSystem.markRegistryDirtyForPath(filePath.c_str());
-          if (!Storage.openFileForWrite("WS", filePath, wsUploadFile)) {
+          if (!(FilePublication::prepare() && Storage.openFileForWrite("WS", WS_STAGE, wsUploadFile))) {
             wsServer->sendTXT(num, "ERROR:Failed to create file");
             wsUploadInProgress = false;
             wsUploadClientNum = 255;
@@ -2433,8 +2511,14 @@ void CrossPointWebServer::onWebSocketEvent(uint8_t num, WStype_t type, uint8_t* 
 
           // Zero-byte upload: complete immediately without waiting for BIN frames
           if (wsUploadSize == 0) {
-            // Explicit close() required: file-scope global persists beyond function scope
-            wsUploadFile.close();
+            // Explicitly sync and close the file-scope handle before publication.
+            const bool synced = wsUploadFile.sync();
+            const bool closed = wsUploadFile.close();
+            if (!synced || !closed || !FilePublication::publish(WS_STAGE, filePath.c_str(), false)) {
+              Storage.remove(WS_STAGE);
+              wsServer->sendTXT(num, "ERROR:Could not finish upload");
+              return;
+            }
             wsLastCompleteName = wsUploadFileName;
             wsLastCompleteSize = 0;
             wsLastCompleteAt = millis();
@@ -2475,12 +2559,16 @@ void CrossPointWebServer::onWebSocketEvent(uint8_t num, WStype_t type, uint8_t* 
         wsServer->sendTXT(num, "ERROR:Upload overflow");
         return;
       }
-      size_t written = wsUploadFile.write(payload, length);
-
-      if (written != length) {
-        abortWsUpload("WS");
-        wsServer->sendTXT(num, "ERROR:Write failed - disk full?");
-        return;
+      constexpr size_t WRITE_CHECKPOINT_SIZE = 4096;
+      size_t written = 0;
+      while (written < length) {
+        const size_t chunk = std::min(WRITE_CHECKPOINT_SIZE, length - written);
+        if (!FsHelpers::writeAndCheckpoint(wsUploadFile, payload + written, chunk)) {
+          abortWsUpload("WS");
+          wsServer->sendTXT(num, "ERROR:Write or checkpoint failed");
+          return;
+        }
+        written += chunk;
       }
 
       wsUploadReceived += written;
@@ -2494,8 +2582,17 @@ void CrossPointWebServer::onWebSocketEvent(uint8_t num, WStype_t type, uint8_t* 
 
       // Check if upload complete
       if (wsUploadReceived >= wsUploadSize) {
-        // Explicit close() required: file-scope global persists beyond function scope
-        wsUploadFile.close();
+        // Explicitly sync and close the file-scope handle before publication.
+        String filePath = wsUploadPath;
+        if (!filePath.endsWith("/")) filePath += "/";
+        filePath += wsUploadFileName;
+        const bool synced = wsUploadFile.sync();
+        const bool closed = wsUploadFile.close();
+        if (!synced || !closed || !FilePublication::publish(WS_STAGE, filePath.c_str(), false)) {
+          abortWsUpload("WS");
+          wsServer->sendTXT(num, "ERROR:Could not finish upload");
+          return;
+        }
         wsUploadInProgress = false;
         wsUploadClientNum = 255;
 
@@ -2509,10 +2606,7 @@ void CrossPointWebServer::onWebSocketEvent(uint8_t num, WStype_t type, uint8_t* 
         LOG_DBG("WS", "Upload complete: %s (%d bytes in %lu ms, %.1f KB/s)", wsUploadFileName.c_str(), wsUploadSize,
                 elapsed, kbps);
 
-        // Clear epub cache after uploading the file
-        String filePath = wsUploadPath;
-        if (!filePath.endsWith("/")) filePath += "/";
-        filePath += wsUploadFileName;
+        // Clear epub cache after publication.
         if (!clearBookCachePreservingUserState(filePath.c_str(), true)) {
           wsLastCompleteName = "";
           LOG_ERR("WS", "File saved but cache refresh failed: %s", filePath.c_str());
@@ -2632,10 +2726,16 @@ void CrossPointWebServer::handleFontUploadData() {
       fontUpload.file = HalFile();
       fontUpload.familyName.clear();
       fontUpload.filePath.clear();
+      fontUpload.stagePath.clear();
       fontUpload.valid = false;
+      fontUpload.errorStatus = 0;
       fontUpload.bytesWritten = 0;
       fontUpload.bufferPos = 0;
 
+      if (webtransfer::isWebSocketUploadInProgress()) {
+        fontUpload.errorStatus = 423;
+        break;
+      }
       if (!FontInstaller::isValidFamilyName(family.c_str())) {
         LOG_ERR("WEB", "Invalid font family name: %s", family.c_str());
         break;
@@ -2666,7 +2766,8 @@ void CrossPointWebServer::handleFontUploadData() {
       fontUpload.filePath = path;
       sdFontSystem.markRegistryDirty();
 
-      if (!Storage.openFileForWrite("WEB", path, fontUpload.file)) {
+      fontUpload.stagePath = std::string(FilePublication::DIRECTORY) + "/font" + strrchr(filename.c_str(), '.');
+      if (!FilePublication::prepare() || !Storage.openFileForWrite("WEB", fontUpload.stagePath, fontUpload.file)) {
         LOG_ERR("WEB", "Failed to open font file for write: %s", path);
         break;
       }
@@ -2677,6 +2778,11 @@ void CrossPointWebServer::handleFontUploadData() {
     }
 
     case UPLOAD_FILE_WRITE: {
+      if (webtransfer::isWebSocketUploadInProgress()) {
+        abortFontUpload();
+        fontUpload.errorStatus = 423;
+        break;
+      }
       if (dropUploadIfCancelled()) {
         abortFontUpload();
         break;
@@ -2707,7 +2813,7 @@ void CrossPointWebServer::handleFontUploadData() {
         remaining -= chunk;
 
         if (fontUpload.bufferPos >= FontUploadState::BUFFER_SIZE) {
-          if (fontUpload.file.write(fontUpload.buffer.data(), fontUpload.bufferPos) != fontUpload.bufferPos) {
+          if (!FsHelpers::writeAndCheckpoint(fontUpload.file, fontUpload.buffer.data(), fontUpload.bufferPos)) {
             abortFontUpload();
             break;
           }
@@ -2719,6 +2825,11 @@ void CrossPointWebServer::handleFontUploadData() {
     }
 
     case UPLOAD_FILE_END: {
+      if (webtransfer::isWebSocketUploadInProgress()) {
+        abortFontUpload();
+        fontUpload.errorStatus = 423;
+        break;
+      }
       if (dropUploadIfCancelled()) {
         abortFontUpload();
         break;
@@ -2726,17 +2837,24 @@ void CrossPointWebServer::handleFontUploadData() {
       // Flush remaining buffer
       if (fontUpload.valid && fontUpload.bufferPos > 0) {
         fontUpload.valid =
-            fontUpload.file.write(fontUpload.buffer.data(), fontUpload.bufferPos) == fontUpload.bufferPos;
+            FsHelpers::writeAndCheckpoint(fontUpload.file, fontUpload.buffer.data(), fontUpload.bufferPos);
         fontUpload.bytesWritten += fontUpload.bufferPos;
         fontUpload.bufferPos = 0;
       }
+      if (fontUpload.bytesWritten + fontUpload.bufferPos != upload.totalSize) fontUpload.valid = false;
       if (fontUpload.file.isOpen()) {
         fontUpload.valid = fontUpload.file.sync() && fontUpload.valid;
         fontUpload.valid = fontUpload.file.close() && fontUpload.valid;
       }
 
-      if (!fontUpload.filePath.empty())
-        fontUpload.valid = FontInstaller::finishUpload(fontUpload.filePath.c_str(), fontUpload.valid);
+      if (!fontUpload.filePath.empty()) {
+        fontUpload.valid = FontInstaller::finishUpload(fontUpload.stagePath.c_str(), fontUpload.valid);
+        if (fontUpload.valid &&
+            !FilePublication::publish(fontUpload.stagePath.c_str(), fontUpload.filePath.c_str(), true, false)) {
+          fontUpload.valid = false;
+          Storage.remove(fontUpload.stagePath.c_str());
+        }
+      }
 
       LOG_DBG("WEB", "Font upload end: valid=%d, %zu bytes", fontUpload.valid, fontUpload.bytesWritten);
       break;
@@ -2757,7 +2875,9 @@ void CrossPointWebServer::handleFontUpload() {
     fontUpload.valid = false;
     fontUpload.filePath.clear();
   } else {
-    server->send(400, "application/json", "{\"error\":\"Unsupported or damaged font file\"}");
+    const int status = fontUpload.errorStatus ? fontUpload.errorStatus : 400;
+    server->send(status, "application/json", "{\"error\":\"Unsupported or damaged font file\"}");
+    fontUpload.errorStatus = 0;
   }
 }
 

@@ -13,6 +13,7 @@
 #include <HalStorage.h>
 #include <I18n.h>
 #include <Memory.h>
+#include <OwnedFileSwap.h>
 
 #include <algorithm>
 #include <optional>
@@ -1577,21 +1578,13 @@ bool XtcReaderActivity::saveProgress(const uint32_t page) {
   if (!xtc) {
     return false;
   }
-  HalFile f;
-  if (!Storage.openFileForWrite("XTR", xtc->getCachePath() + "/progress.bin", f)) {
-    return false;
-  }
+
   uint8_t data[4];
   data[0] = page & 0xFF;
   data[1] = (page >> 8) & 0xFF;
   data[2] = (page >> 16) & 0xFF;
   data[3] = (page >> 24) & 0xFF;
-  const bool written = f.write(data, sizeof(data)) == sizeof(data);
-  f.close();
-  if (!written) {
-    LOG_ERR("XTR", "Short write saving reader progress");
-    return false;
-  }
+  if (!OwnedFileSwap::save("XTR", xtc->getCachePath() + "/progress.bin", data, sizeof(data))) return false;
   progressSaveDebouncer.markPersisted(page);
   // XTC has no KOReader position; reading only changes its stats, and only with tracking on.
   if (statsTrackingActive) pendingSync.mark(xtc->getPath(), SyncPending::STATS_BIT);
@@ -1611,7 +1604,8 @@ bool XtcReaderActivity::flushQueuedProgress() {
 
 void XtcReaderActivity::loadProgress() {
   HalFile f;
-  if (Storage.openFileForRead("XTR", xtc->getCachePath() + "/progress.bin", f)) {
+  if (OwnedFileSwap::recover(xtc->getCachePath() + "/progress.bin") &&
+      Storage.openFileForRead("XTR", xtc->getCachePath() + "/progress.bin", f)) {
     uint8_t data[4];
     if (f.read(data, 4) == 4) {
       currentPage = data[0] | (data[1] << 8) | (data[2] << 16) | (data[3] << 24);
@@ -1635,7 +1629,8 @@ bool XtcReaderActivity::drawCurrentPageToBuffer(const std::string& filePath, Gfx
   // Load saved page number
   uint32_t savedPage = 0;
   FsFile f;
-  if (Storage.openFileForRead("SLP", xtc.getCachePath() + "/progress.bin", f)) {
+  if (OwnedFileSwap::recover(xtc.getCachePath() + "/progress.bin") &&
+      Storage.openFileForRead("SLP", xtc.getCachePath() + "/progress.bin", f)) {
     uint8_t data[4];
     if (f.read(data, 4) == 4) {
       savedPage = (uint32_t)data[0] | ((uint32_t)data[1] << 8) | ((uint32_t)data[2] << 16) | ((uint32_t)data[3] << 24);

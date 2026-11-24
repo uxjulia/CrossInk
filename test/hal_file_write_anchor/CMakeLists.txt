@@ -1,0 +1,4 @@
+add_executable(HalFileWriteAnchorTest HalFileWriteAnchorTest.cpp)
+target_include_directories(HalFileWriteAnchorTest PRIVATE ${REPO_ROOT}/lib/hal)
+target_link_libraries(HalFileWriteAnchorTest PRIVATE GTest::gtest_main)
+gtest_discover_tests(HalFileWriteAnchorTest)

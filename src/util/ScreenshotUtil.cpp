@@ -2,6 +2,7 @@
 
 #include <Arduino.h>
 #include <BitmapHelpers.h>
+#include <FilePublication.h>
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
 #include <HalStorage.h>
@@ -9,10 +10,34 @@
 #include <Memory.h>
 
 #include <cstring>
+#include <mutex>
 #include <string>
 
 #include "Bitmap.h"  // Required for BmpHeader struct definition
 #include "activities/Activity.h"
+
+namespace {
+std::mutex screenshotSaveMutex;
+
+std::string unusedScreenshotPath(const char* filename) {
+  const std::string path(filename);
+  const size_t extension = path.find_last_of('.');
+  if (extension == std::string::npos || path.find_last_of('/') > extension) return path;
+
+  const std::string stem = path.substr(0, extension);
+  const std::string suffix = path.substr(extension);
+  for (unsigned int number = 1;; ++number) {
+    const std::string candidate = stem + "-" + std::to_string(number) + suffix;
+    if (candidate.size() < 256) {
+      if (!Storage.exists(candidate.c_str())) return candidate;
+      continue;
+    }
+    const std::string fallback =
+        "/screenshots/screenshot-" + std::to_string(millis()) + "-" + std::to_string(number) + ".bmp";
+    if (!Storage.exists(fallback.c_str())) return fallback;
+  }
+}
+}  // namespace
 
 void ScreenshotUtil::buildFilename(const ScreenshotInfo& info, char* buf, size_t bufSize) {
   const unsigned long ts = millis();
@@ -76,12 +101,13 @@ void ScreenshotUtil::takeScreenshot(GfxRenderer& renderer) {
   }
 
   ScreenshotInfo info = activityManager.getScreenshotInfo();
-  char filename[256];
-  buildFilename(info, filename, sizeof(filename));
+  char initialFilename[256];
+  buildFilename(info, initialFilename, sizeof(initialFilename));
+  const std::string filename = unusedScreenshotPath(initialFilename);
 
-  bool saved = saveFramebufferAsBmp(filename, fb, renderer.getDisplayWidth(), renderer.getDisplayHeight());
+  bool saved = saveFramebufferAsBmp(filename.c_str(), fb, renderer.getDisplayWidth(), renderer.getDisplayHeight());
   if (saved) {
-    LOG_DBG("SCR", "Screenshot saved to %s", filename);
+    LOG_DBG("SCR", "Screenshot saved to %s", filename.c_str());
   } else {
     LOG_ERR("SCR", "Failed to save screenshot");
     return;
@@ -110,6 +136,7 @@ void ScreenshotUtil::takeScreenshot(GfxRenderer& renderer) {
 }
 
 bool ScreenshotUtil::saveFramebufferAsBmp(const char* filename, const uint8_t* framebuffer, int width, int height) {
+  std::lock_guard<std::mutex> lock(screenshotSaveMutex);
   if (!framebuffer) {
     return false;
   }
@@ -131,15 +158,14 @@ bool ScreenshotUtil::saveFramebufferAsBmp(const char* filename, const uint8_t* f
   size_t last_slash = path.find_last_of('/');
   if (last_slash != std::string::npos) {
     std::string dir = path.substr(0, last_slash);
-    if (!Storage.exists(dir.c_str())) {
-      if (!Storage.mkdir(dir.c_str())) {
-        return false;
-      }
-    }
+    if (!Storage.ensureDirectoryExists(dir.c_str())) return false;
   }
 
+  std::string stagedPath;
+  if (!FilePublication::stagePath(path, "screenshot", stagedPath)) return false;
+
   HalFile file;
-  if (!Storage.openFileForWrite("SCR", filename, file)) {
+  if (!Storage.openFileForWrite("SCR", stagedPath, file)) {
     LOG_ERR("SCR", "Failed to save screenshot");
     return false;
   }
@@ -156,7 +182,7 @@ bool ScreenshotUtil::saveFramebufferAsBmp(const char* filename, const uint8_t* f
   if (write_error) {
     // Explicitly close() file before calling Storage.remove()
     file.close();
-    Storage.remove(filename);
+    Storage.remove(stagedPath.c_str());
     return false;
   }
 
@@ -179,10 +205,16 @@ bool ScreenshotUtil::saveFramebufferAsBmp(const char* filename, const uint8_t* f
   }
 
   // Explicitly close() file before calling Storage.remove()
-  file.close();
+  const bool synced = !write_error && file.sync();
+  const bool closed = file.close();
 
-  if (write_error) {
-    Storage.remove(filename);
+  if (!synced || !closed || write_error) {
+    Storage.remove(stagedPath.c_str());
+    return false;
+  }
+
+  if (!FilePublication::publish(stagedPath.c_str(), filename, false)) {
+    Storage.remove(stagedPath.c_str());
     return false;
   }
 

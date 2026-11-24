@@ -29,6 +29,7 @@ inline bool failDirectorySeek = false;
 inline std::string failDirectoryIterationPath;
 inline std::string failOpenPath;
 inline std::string failClosePath;
+inline std::string failSyncPath;
 inline std::string failWritePath;
 inline unsigned parses = 0;
 inline unsigned reads = 0;
@@ -62,6 +63,7 @@ inline void reset() {
   failDirectoryIterationPath.clear();
   failOpenPath.clear();
   failClosePath.clear();
+  failSyncPath.clear();
   failWritePath.clear();
   parses = 0;
   reads = 0;
@@ -209,7 +211,14 @@ class HalFile {
     return size;
   }
   size_t write(const void* data, const size_t size) { return write(static_cast<const uint8_t*>(data), size); }
-  bool sync() { return bool(node); }
+  bool sync() {
+    if (!fake::failSyncPath.empty() && path == fake::failSyncPath) {
+      fake::failSyncPath.clear();
+      fake::failureTriggered = true;
+      return false;
+    }
+    return bool(node);
+  }
 };
 
 class HalStorage {

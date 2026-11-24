@@ -110,36 +110,6 @@ int main() {
   assert(loadEpubProgressPercent(RecentBook{}) == 12.5f);
   assert(percentWrites == 0);
 
-  // Replacement, preserve failure, publish failure, failed rollback, and occupied backup.
-  for (int failure = 0; failure < 5; ++failure) {
-    Storage = {};
-    Storage.files = {{"/book", 1}, {"/new", 2}};
-    if (failure == 1) Storage.failedRenames.insert("/book");
-    if (failure == 2 || failure == 3) Storage.failedRenames.insert("/new");
-    if (failure == 3) Storage.failedRenames.insert("/book.davold");
-    if (failure == 4) Storage.files["/book.davold"] = 3;
-    assert(replaceFile("/new", "/book") == (failure == 0));
-    if (failure == 0) {
-      assert(Storage.files.at("/book") == 2 && !Storage.exists("/book.davold"));
-    } else {
-      assert(Storage.files.at("/new") == 2);
-      assert(Storage.files.at(failure == 3 ? "/book.davold" : "/book") == 1);
-    }
-    if (failure == 4) assert(Storage.files.at("/book.davold") == 3);
-  }
-  Storage = {};
-  Storage.files = {{"/book", 1}, {"/new", 2}};
-  Storage.failedRemove = "/book.davold";
-  assert(replaceFile("/new", "/book"));
-  assert(Storage.files.at("/book") == 2 && Storage.files.at("/book.davold") == 1);
-  // No retry may throw away a preserved backup.
-  Storage.files["/next"] = 3;
-  assert(!replaceFile("/next", "/book"));
-  assert(Storage.files.at("/book.davold") == 1);
-  Storage = {};
-  Storage.files["/new"] = 2;
-  assert(replaceFile("/new", "/book") && Storage.files.at("/book") == 2);
-
   Storage = {};
   for (int i = 1; i <= 9; ++i) {
     putBackup("stats_2026-10-0" + std::to_string(i) + ".bin");

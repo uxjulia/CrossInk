@@ -139,3 +139,32 @@ TEST_F(SyncFilesTest, FailedReplacementOfCorruptMainRetainsReadableBackup) {
   ASSERT_TRUE(readValue(value, text));
   EXPECT_EQ(text, "replacement");
 }
+
+TEST_F(SyncFilesTest, ChecksumFailureClosesWriterBeforeRemovingScratch) {
+  ASSERT_TRUE(writeValue(1, "kept"));
+  SyncFiles::Writer writer(PATH);
+  ASSERT_TRUE(writer.open() && writer.pod(uint32_t{2}));
+  Storage.failWrites("/.crosspoint/sync_test.bin.tmp");
+  EXPECT_FALSE(writer.commit());
+  EXPECT_FALSE(Storage.exists("/.crosspoint/sync_test.bin.tmp"));
+  uint32_t value = 0;
+  std::string text;
+  ASSERT_TRUE(readValue(value, text));
+  EXPECT_EQ(value, 1u);
+}
+
+TEST_F(SyncFilesTest, FinalSyncAndCloseFailuresNeverPublish) {
+  ASSERT_TRUE(writeValue(1, "kept"));
+  const auto original = *Storage.bytes(PATH);
+  for (const bool failSync : {true, false}) {
+    SyncFiles::Writer writer(PATH);
+    ASSERT_TRUE(writer.open() && writer.pod(uint32_t{2}));
+    if (failSync)
+      Storage.failSync("/.crosspoint/sync_test.bin.tmp");
+    else
+      Storage.failClose("/.crosspoint/sync_test.bin.tmp");
+    EXPECT_FALSE(writer.commit());
+    EXPECT_FALSE(Storage.exists("/.crosspoint/sync_test.bin.tmp"));
+    EXPECT_EQ(original, *Storage.bytes(PATH));
+  }
+}

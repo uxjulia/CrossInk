@@ -13,6 +13,7 @@
 template <typename... Args>
 void testLog(Args&&...) {}
 #define LOG_DBG(...) testLog(__VA_ARGS__)
+#define LOG_ERR(...) testLog(__VA_ARGS__)
 template <typename T>
 std::unique_ptr<T> makeUniqueNoThrow();
 enum class MemoryPool { Internal };
@@ -25,12 +26,22 @@ Heap byteHeapSnapshot(MemoryPool) { return heap; }
 struct Input {
   std::vector<std::string> items;
   size_t index = 0;
-  void seek(size_t position) { index = position; }
+  bool seek(size_t position) {
+    index = position;
+    return position <= items.size();
+  }
+  size_t position() const { return index; }
 };
 struct Entry {
   std::string href;
 };
 Entry readSpineEntryFrom(Input& input) { return {input.items.at(input.index++)}; }
+using SpineEntry = Entry;
+bool readSpineEntryChecked(Input& input, SpineEntry& entry, size_t fileSize) {
+  if (input.position() >= fileSize) return false;
+  entry = readSpineEntryFrom(input);
+  return true;
+}
 namespace FsHelpers {
 std::string normalisePath(const std::string& path) { return path; }
 }  // namespace FsHelpers
@@ -51,6 +62,7 @@ struct ZipFile {
   std::vector<std::string> queries;
   unsigned calls = 0;
   unsigned failCall = 0;
+  bool closed = false;
   static uint64_t fnvHash64(const char* path, size_t len) { return len == 0 ? 0 : path[0]; }
   int fillEntryIdentities(const EntryTarget* targets, size_t count, EntryIdentity* identities, size_t identitiesCount,
                           size_t limit) {
@@ -68,6 +80,7 @@ struct ZipFile {
     }
     return static_cast<int>(count);
   }
+  void close() { closed = true; }
 };
 #include "SmallExactBatchConstants.inc"
 
@@ -79,7 +92,7 @@ std::unique_ptr<T> makeUniqueNoThrow() {
   return failScratch ? nullptr : std::make_unique<T>();
 }
 
-void runSmall(bool expectBatch, size_t failAt = 0, unsigned rejectZipBatch = 0) {
+bool runSmall(bool expectBatch, size_t failAt = 0, unsigned rejectZipBatch = 0) {
   Input spineIn;
   // 16 short entries cross the target limit after a path-byte-bounded early batch.
   for (int i = 0; i < 16; ++i) spineIn.items.emplace_back(200, 'z' - i);
@@ -88,6 +101,9 @@ void runSmall(bool expectBatch, size_t failAt = 0, unsigned rejectZipBatch = 0) 
   spineIn.items[60] = "missing";
   const uint16_t spineCount = spineIn.items.size();
   const bool tryExactSizeBatch = true;
+  const size_t spineInputSize = spineIn.items.size();
+  bool inputOk = true;
+  bool buildIoFailure = false;
 
   Arena metadataArena;
   metadataArena.failAllocation = failAt;
@@ -95,7 +111,9 @@ void runSmall(bool expectBatch, size_t failAt = 0, unsigned rejectZipBatch = 0) 
   bool useBatchSizes = false;
   ZipFile zip;
   zip.failCall = rejectZipBatch;
+  const auto closeBuildFiles = [] {};
 #include "SmallExactBatch.inc"
+  assert(!buildIoFailure);
   assert(useBatchSizes == expectBatch);
   if (expectBatch) {
     assert(zip.calls > 2 && zip.queries.size() == spineCount);
@@ -108,6 +126,7 @@ void runSmall(bool expectBatch, size_t failAt = 0, unsigned rejectZipBatch = 0) 
   } else {
     assert(zip.calls == 0);
   }
+  return true;
 }
 
 int main() {
@@ -118,16 +137,16 @@ int main() {
   for (int i = 0; i < 64; ++i) assert(longPaths.add(std::string(250, 'a')));
   assert(!longPaths.add(std::string(250, 'a')));
   assert(!ExactSizeBatchPlan{}.add(std::string("a\0b", 3)));
-  runSmall(true);
-  runSmall(false, 1);     // result allocation failure still allows the legacy reader
-  runSmall(false, 0, 2);  // reject even after a successful earlier batch
+  assert(runSmall(true));
+  assert(runSmall(false, 1));     // result allocation failure still allows the legacy reader
+  assert(runSmall(false, 0, 2));  // reject even after a successful earlier batch
   failScratch = true;
-  runSmall(false);
+  assert(runSmall(false));
   failScratch = false;
   allocCalls = 0;
   heap = {4096, 4096};
-  runSmall(false);
+  assert(runSmall(false));
   heap = {32768, 4096};  // fragmented heap
-  runSmall(false);
+  assert(runSmall(false));
   assert(allocCalls == 0);
 }

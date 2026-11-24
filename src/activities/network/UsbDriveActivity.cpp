@@ -22,11 +22,9 @@ void UsbDriveActivity::onEnter() {
   startFailed = false;
   restartRequested = false;
   forcedDisconnectRequested = false;
-  hostSuspendPending = false;
   hostWaitStartedAt = 0;
   startFailureStartedAt = 0;
   forcedDisconnectRequestedAt = 0;
-  hostSuspendStartedAt = 0;
 
   // Paint the instruction screen before detaching the filesystem and exposing
   // its block device to the host. The two operations must never overlap.
@@ -80,23 +78,8 @@ void UsbDriveActivity::loop() {
   }
 #endif
 
-// The simulator HAL does not expose TinyUSB's host-suspend signal.
-#if !defined(SIMULATOR)
-  // Cable removal can leave a battery-powered USB device mounted but
-  // suspended. A sleeping host intentionally follows the same timeout policy.
-  if ((state == State::Connected || state == State::Accessed) && Storage.usbDriveHostSuspended()) {
-    if (!hostSuspendPending) {
-      hostSuspendPending = true;
-      hostSuspendStartedAt = millis();
-    } else if (millis() - hostSuspendStartedAt >= HOST_SUSPEND_TIMEOUT_MS) {
-      LOG_INF("USB", "USB Drive host suspend timed out; ending session");
-      restartToHome();
-      return;
-    }
-  } else {
-    hostSuspendPending = false;
-  }
-#endif
+  // USB suspend also occurs while a computer sleeps with the card mounted.
+  // Keep ownership with that host until eject or a confirmed disconnect.
 
   if (state == State::WaitingForHost && millis() - hostWaitStartedAt >= HOST_WAIT_TIMEOUT_MS) {
     LOG_INF("USB", "USB Drive host wait timed out");
@@ -112,7 +95,7 @@ void UsbDriveActivity::loop() {
 
   if (forcedDisconnectRequested) {
     if (millis() - forcedDisconnectRequestedAt >= FORCED_DISCONNECT_TIMEOUT_MS) {
-      LOG_ERR("USB", "USB Drive host disconnect grace period ended; forcing restart");
+      LOG_ERR("USB", "USB Drive host disconnect grace period ended; draining storage");
       restartToHome();
     }
     return;
@@ -208,9 +191,14 @@ void UsbDriveActivity::restartToHome() {
     activityManager.goHome();
     return;
   }
-#endif
-#ifndef SIMULATOR
-  Storage.endUsbDrive();
+  if (!Storage.endUsbDrive()) {
+    LOG_ERR("USB", "USB Drive flush failed; retaining storage for retry");
+    restartRequested = false;
+    forcedDisconnectRequestedAt = millis();
+    state = State::IoError;
+    requestUpdate();
+    return;
+  }
 #endif
 #ifdef SIMULATOR
   activityManager.goHome();

@@ -21,7 +21,10 @@ Writer::~Writer() {
 }
 
 bool Writer::open() {
-  if (Storage.exists(tmpPath.c_str())) Storage.remove(tmpPath.c_str());
+  if (file || (Storage.exists(tmpPath.c_str()) && !Storage.remove(tmpPath.c_str()))) {
+    LOG_ERR("SYNC", "Cannot clear prior writer: %s", tmpPath.c_str());
+    return false;
+  }
   ok = Storage.openFileForWrite("SYNC", tmpPath, file);
   running = 0;
   if (!ok) LOG_ERR("SYNC", "Cannot create %s", tmpPath.c_str());
@@ -54,7 +57,10 @@ bool Writer::commit(const bool trailingChecksum) {
     return false;
   }
   const uint32_t checksum = running;
-  if ((trailingChecksum && file.write(&checksum, sizeof(checksum)) != sizeof(checksum)) || !file.close()) {
+  const bool complete = !trailingChecksum || file.write(&checksum, sizeof(checksum)) == sizeof(checksum);
+  const bool synced = complete && file.sync();
+  const bool closed = file.close();
+  if (!synced || !closed) {
     LOG_ERR("SYNC", "Cannot finish %s", tmpPath.c_str());
     Storage.remove(tmpPath.c_str());
     return false;

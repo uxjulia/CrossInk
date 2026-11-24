@@ -12,11 +12,12 @@ inline std::map<std::string, std::string> files;
 inline std::set<std::string> directories;
 inline std::set<std::string> failRemove, failRename;
 inline std::map<std::string, int> readers;
+inline size_t syncCount = 0;
 inline bool failRead = false, failWrite = false, failClose = false, failSync = false, failIteration = false;
 inline uint64_t totalCapacity = 64 * 1024 * 1024;
 struct FsFile {
   std::string path;
-  size_t position = 0, child = 0;
+  size_t pos = 0, child = 0;
   bool opened = false, directory = false, writer = false;
   std::vector<std::string> children;
   FsFile() = default;
@@ -25,7 +26,7 @@ struct FsFile {
     opened = files.count(p) || directories.count(p);
     directory = directories.count(p);
     if (writer && (flags & O_TRUNC) && opened && !directory) files[p].clear();
-    if (writer && (flags & O_APPEND) && opened && !directory) position = files[p].size();
+    if (writer && (flags & O_APPEND) && opened && !directory) pos = files[p].size();
     if (directory) {
       for (const auto& v : files)
         if (v.first.substr(0, p.size() + 1) == p + "/" && v.first.find('/', p.size() + 1) == std::string::npos)
@@ -45,7 +46,7 @@ struct FsFile {
   FsFile& operator=(FsFile&& other) {
     close();
     path = std::move(other.path);
-    position = other.position;
+    pos = other.pos;
     child = other.child;
     opened = std::exchange(other.opened, false);
     directory = other.directory;
@@ -65,26 +66,30 @@ struct FsFile {
     return name.size();
   }
   uint64_t fileSize64() const { return files.at(path).size(); }
+  size_t position() const { return pos; }
   bool seek(size_t offset) {
     if (!opened || directory || offset > files[path].size()) return false;
-    position = offset;
+    pos = offset;
     return true;
   }
   int read(void* out, size_t n) {
     if (failRead || !opened || directory) return -1;
-    n = std::min(n, files[path].size() - position);
-    std::memcpy(out, files[path].data() + position, n);
-    position += n;
+    n = std::min(n, files[path].size() - pos);
+    std::memcpy(out, files[path].data() + pos, n);
+    pos += n;
     return int(n);
   }
   size_t write(const void* in, size_t n) {
     if (failWrite || !opened || directory || !writer) return 0;
-    if (position + n > files[path].size()) files[path].resize(position + n);
-    std::memcpy(files[path].data() + position, in, n);
-    position += n;
+    if (pos + n > files[path].size()) files[path].resize(pos + n);
+    std::memcpy(files[path].data() + pos, in, n);
+    pos += n;
     return n;
   }
-  bool sync() { return !failSync; }
+  bool sync() {
+    ++syncCount;
+    return !failSync;
+  }
   bool close() {
     if (opened && !directory) --readers[path];
     opened = false;

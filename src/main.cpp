@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <BoardConfig.h>
 #include <CrossInkHalFrontlight.h>
+#include <FilePublication.h>
 #include <FontCacheManager.h>
 #include <FontDecompressor.h>
 #include <FreeInkUIGfxRenderer.h>
@@ -1662,6 +1663,7 @@ void setup() {
     activityManager.goToFullScreenMessage("SD card error", EpdFontFamily::BOLD);
     return;
   }
+  if (!FilePublication::recoverAtBoot()) LOG_ERR("MAIN", "Interrupted SD transfer needs recovery");
   logBootHeap("storage ready");
   display.startBegin();
 

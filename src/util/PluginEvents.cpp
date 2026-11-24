@@ -1,6 +1,7 @@
 #include "PluginEvents.h"
 
 #include <ArduinoJson.h>
+#include <FilePublication.h>
 #include <HalStorage.h>
 #include <LibraryBuilder.h>
 #include <LibraryFileTypes.h>
@@ -362,14 +363,14 @@ bool deliverLine(const DrainManifest& mf, const std::string& lineText, std::stri
       constexpr size_t MAX_EVENT_DOWNLOAD = 1024 * 1024;
       // Stream to a sibling temp and swap it in only on a clean 2xx, so a
       // 404/500 error body can never replace an existing dest (e.g. /sleep.bmp).
-      if (!DownloadFileSwap::recover(dest)) return -1;
-      const std::string tmp = dest + ".part";
+      std::string tmp;
+      if (!FilePublication::stagePath(dest, "plugin-event", tmp)) return -1;
       const int st = pluginhttp::requestToFile(
           nullptr, drainSubstituted(handler->req.url, tok, config, meta, vars, ts, id), handler->req.method,
           drainSubstituted(handler->req.body, tok, config, meta, vars, ts, id), headers, tmp.c_str(),
           MAX_EVENT_DOWNLOAD, expired, timeout());
       if (st >= 200 && st < 300) {
-        if (!DownloadFileSwap::publish(dest)) return -1;
+        if (!FilePublication::publish(tmp.c_str(), dest.c_str())) return -1;
         if (library::fileTypeFor(dest)) library::invalidateLibraryIndex();
       } else {
         Storage.remove(tmp.c_str());

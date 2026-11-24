@@ -3,6 +3,16 @@
 #include <HalStorage.h>
 #include <WebServer.h>
 
+namespace webtransfer {
+bool isWebSocketUploadInProgress();
+
+inline bool rejectMutationDuringWebSocketUpload(WebServer& server) {
+  if (!isWebSocketUploadInProgress()) return false;
+  server.send(423, "text/plain", "A file transfer is in progress");
+  return true;
+}
+}  // namespace webtransfer
+
 class WebDAVHandler : public RequestHandler {
  public:
   // RequestHandler interface
@@ -17,6 +27,8 @@ class WebDAVHandler : public RequestHandler {
   String _putPath;
   bool _putOk = false;
   bool _putExisted = false;
+  size_t _putBytes = 0;
+  int _putErrorStatus = 0;
 
   // WebDAV method handlers
   void handleOptions(WebServer& s);

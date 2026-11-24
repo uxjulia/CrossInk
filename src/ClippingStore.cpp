@@ -953,14 +953,14 @@ bool ClippingStore::writeToFile(const Rewrite& rewrite) {
     newKeyLengths[i] = key.size();
   }
 
-  if (!f.sync()) {
+  const bool synced = f.sync();
+  const bool closed = f.close();
+  if (!synced || !closed) {
     LOG_ERR("CLIP", "Failed to sync clipping file: %s", tmpPath.c_str());
-    f.close();
     if (source) source.close();
     Storage.remove(tmpPath.c_str());
     return false;
   }
-  f.close();
   if (source) source.close();
 
   const bool replacingDestination = Storage.exists(storeFilePath.c_str());

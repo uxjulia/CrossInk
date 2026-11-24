@@ -19,6 +19,12 @@ struct StorageStub {
     if (failRemove || openHandles) return false;
     return files.erase(path) > 0;
   }
+  bool rename(const char* from, const char* to) {
+    if (openHandles || !files.contains(from) || files.contains(to)) return false;
+    files[to] = std::move(files[from]);
+    files.erase(from);
+    return true;
+  }
   bool openFileForWrite(const char*, const std::string& path, class FsFile& file);
   bool openFileForRead(const char*, const std::string& path, class FsFile& file);
 };
@@ -59,3 +65,5 @@ inline bool StorageStub::openFileForRead(const char*, const std::string& path, F
   ++openHandles;
   return true;
 }
+
+using HalFile = FsFile;

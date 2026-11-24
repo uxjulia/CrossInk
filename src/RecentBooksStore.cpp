@@ -198,11 +198,10 @@ RecentBook RecentBooksStore::getDataFromBook(std::string path) const {
 }
 
 bool RecentBooksStore::loadFromFile() {
-  const bool hasStoreFile = Storage.exists(getFilePath());
   if (PersistableStore<RecentBooksStore>::loadFromFile()) {
     return true;
   }
-  if (hasStoreFile) {
+  if (hasStoreFile(getFilePath())) {
     return false;
   }
 

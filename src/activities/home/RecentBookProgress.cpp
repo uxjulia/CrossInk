@@ -4,6 +4,7 @@
 #include <FsHelpers.h>
 #include <HalStorage.h>
 #include <Logging.h>
+#include <OwnedFileSwap.h>
 #include <Serialization.h>
 #include <Txt.h>
 #include <Xtc.h>
@@ -148,7 +149,8 @@ float loadXtcProgressPercent(const RecentBook& book) {
   }
 
   FsFile file;
-  if (!Storage.openFileForRead("RBPR", xtc.getCachePath() + "/progress.bin", file)) {
+  if (!OwnedFileSwap::recover(xtc.getCachePath() + "/progress.bin") ||
+      !Storage.openFileForRead("RBPR", xtc.getCachePath() + "/progress.bin", file)) {
     return -1.0f;
   }
 
@@ -171,7 +173,8 @@ float loadTxtProgressPercent(const RecentBook& book) {
   }
 
   FsFile progressFile;
-  if (!Storage.openFileForRead("RBPR", txt.getCachePath() + "/progress.bin", progressFile)) {
+  if (!OwnedFileSwap::recover(txt.getCachePath() + "/progress.bin") ||
+      !Storage.openFileForRead("RBPR", txt.getCachePath() + "/progress.bin", progressFile)) {
     return -1.0f;
   }
 

@@ -93,7 +93,7 @@ class HttpDownloader {
     // Borrowed only for this synchronous request. Basic credentials are sent
     // only to this origin; empty keeps the request URL as the credential origin.
     std::string_view authorizationOrigin;
-    // Download to "<destPath>.part" and rename it over destPath only once the
+    // Download into the private transfer directory and publish to destPath once the
     // transfer succeeds, so a failed or interrupted download never replaces
     // (or deletes) an existing file and never leaves a truncated one behind
     // under the real name.

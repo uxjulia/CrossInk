@@ -11,8 +11,7 @@ def function(path, signature):
     start = text.index(signature)
     return text[start:text.index('\n}', start) + 2] + '\n'
 
-parts = [function('src/network/WebDAVHandler.cpp', 'bool replaceFile(')]
-parts += [function('src/activities/reader/StatsBackup.cpp', signature) for signature in (
+parts = [function('src/activities/reader/StatsBackup.cpp', signature) for signature in (
     'bool isStatsBackupFileName(', 'bool copyString(', 'int pruneBackups(')]
 parts += [function('src/activities/library/LibraryActivity.cpp', 'void LibraryActivity::loadGridPageCovers(')]
 parts += [function('src/activities/home/RecentBookProgress.cpp', signature) for signature in (
@@ -26,4 +25,4 @@ with tempfile.TemporaryDirectory(prefix='crossink-storage-browsing-') as tmp:
                     str(ROOT / 'test/storage_and_browsing/StorageAndBrowsingTest.cpp'),
                     '-o', str(executable)], check=True)
     subprocess.run([str(executable)], check=True)
-print('PASS: replacement rollback/collisions, backup retention, and batched cover redraws')
+print('PASS: cached progress reads, statistics backup retention, and batched cover redraws')

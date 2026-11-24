@@ -9,6 +9,7 @@
 #include <Memory.h>
 #include <SecureHttpClient.h>
 #include <SyncLog.h>
+#include <TransferWriteCheckpoint.h>
 #include <mbedtls/base64.h>
 #ifndef SIMULATOR
 #endif
@@ -315,7 +316,7 @@ StatsUploadClient::Result StatsUploadClient::get(const char* endpoint, const cha
   size_t size = 0;
   bool stored = true;
   const auto store = [&](const uint8_t* data, const size_t length) {
-    if (length > maxBytes - size || file.write(data, length) != length) {
+    if (length > maxBytes - size || !FsHelpers::writeAndCheckpoint(file, data, length)) {
       stored = false;
       return false;
     }
@@ -339,7 +340,9 @@ StatsUploadClient::Result StatsUploadClient::get(const char* endpoint, const cha
   if (status == 401 || status == 403) return request.finish(Result::Auth);
   if (status == 404 || status == 405) return request.finish(Result::Unsupported);
   if (status != 200) return request.finish(Result::Server);
-  if (!stored || !complete || !file.sync() || !file.close()) {
+  const bool synced = stored && complete && file.sync();
+  const bool closed = file.close();
+  if (!synced || !closed) {
     LOG_ERR("StatsSync", "Incomplete download file");
     return request.finish(Result::InvalidResponse);
   }

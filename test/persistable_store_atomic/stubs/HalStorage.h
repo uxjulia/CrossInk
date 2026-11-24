@@ -11,7 +11,8 @@
 class HalFile {
  public:
   explicit HalFile(String content = {}) : content(std::move(content)) {}
-  explicit HalFile(std::string* output) : output(output) {}
+  explicit HalFile(std::string* output, bool shortWrite, bool syncOk, bool closeOk)
+      : output(output), shortWrite(shortWrite), syncOk(syncOk), closeOk(closeOk) {}
   int available() const {
     const size_t remaining = content.size() - std::min(position, content.size());
     return static_cast<int>(std::min(remaining, static_cast<size_t>(std::numeric_limits<int>::max())));
@@ -23,20 +24,22 @@ class HalFile {
     return static_cast<int>(count);
   }
   size_t write(const uint8_t* bytes, size_t length) {
+    if (shortWrite && length) --length;
     if (output) output->append(reinterpret_cast<const char*>(bytes), length);
     return length;
   }
   size_t write(uint8_t byte) { return write(&byte, 1); }
-  bool sync() { return true; }
+  bool sync() { return syncOk; }
   bool close() {
     content.clear();
     position = 0;
     output = nullptr;
-    return true;
+    return closeOk;
   }
 
  private:
   std::string* output = nullptr;
+  bool shortWrite = false, syncOk = true, closeOk = true;
   String content;
   size_t position = 0;
 };
@@ -47,6 +50,7 @@ class HalStorage {
  public:
   void reset() {
     files.clear();
+    shortWrite = failSync = failClose = false;
     failRenameFrom.clear();
     writeAttempts = 0;
     failWrite = false;
@@ -68,7 +72,7 @@ class HalStorage {
     const auto source = files.find(from);
     if (source == files.end() || files.contains(to)) return false;
     files[to] = source->second;
-    files.erase(source);
+    files.erase(from);
     return true;
   }
 
@@ -119,10 +123,11 @@ class HalStorage {
   }
   bool openFileForWrite(const char*, const char* path, HalFile& file) {
     if (!writeFile(path, "")) return false;
-    file = HalFile(&files[path]);
+    file = HalFile(&files[path], shortWrite, !failSync, !failClose);
     return true;
   }
   size_t writeAttempts = 0;
+  bool shortWrite = false, failSync = false, failClose = false;
 
  private:
   std::unordered_map<std::string, std::string> files;

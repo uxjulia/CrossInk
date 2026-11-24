@@ -70,6 +70,10 @@ bool CrossPointState::saveToFile() const {
   std::lock_guard<std::mutex> stateLock(_mutex);
   JsonDocument doc;
   toJson(doc);
+  if (doc.overflowed()) {
+    LOG_ERR("CPS", "Incomplete state snapshot");
+    return false;
+  }
   StateCrcWriter checksum;
   serializeJson(doc, checksum);
   if (lastSavedCrcValid && checksum.crc == lastSavedCrc && Storage.exists(STATE_FILE_JSON)) return true;
@@ -88,13 +92,12 @@ bool CrossPointState::loadFromFile() {
     std::lock_guard<std::mutex> storeLock(storeMutex);
     lastSavedCrcValid = false;
     // Try JSON first. A reload invalidates the remembered on-disk snapshot.
-    if (Storage.exists(STATE_FILE_JSON)) {
-      JsonDocument doc;
-      if (PersistableStoreBase::readDocFromFile(STATE_FILE_JSON, doc)) {
-        std::lock_guard<std::mutex> stateLock(_mutex);
-        return fromJson(doc.as<JsonVariantConst>());
-      }
+    JsonDocument doc;
+    if (PersistableStoreBase::readDocFromFile(STATE_FILE_JSON, doc)) {
+      std::lock_guard<std::mutex> stateLock(_mutex);
+      return fromJson(doc.as<JsonVariantConst>());
     }
+    if (hasStoreFile(STATE_FILE_JSON)) return false;
   }
 
   // Fall back to binary migration

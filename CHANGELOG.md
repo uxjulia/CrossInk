@@ -29,6 +29,7 @@
 - Remove stray spaces inside EPUB words split by publisher page numbers.
 - Keep the EPUB’s Time Left estimate visible while relearning after a layout change.
 - Keep larger EPUB headings visible on X3 and X4, including with Ruled Lines on. SD-card fonts reuse the loaded bitmap for larger text to reduce memory use.
+- Preserve existing books, fonts, settings, and reading positions when SD saves or transfers are interrupted. Keep USB Drive mounted while the computer sleeps and finish pending writes before ejecting.
 
 ## [v2.0.0] - 2026-11-19
 

@@ -1,9 +1,10 @@
 #include "PluginHttp.h"
 
-#include <DownloadFileSwap.h>
+#include <FilePublication.h>
 #include <HalStorage.h>
 #include <Logging.h>
 #include <SecureHttpClient.h>
+#include <TransferWriteCheckpoint.h>
 
 #include <algorithm>
 #include <cctype>
@@ -169,7 +170,7 @@ bool loadTokenFromFile(const std::string& file, const std::string& path, std::st
   out.clear();
   if (file.empty()) return true;  // token-less plugin
   if (!allowedFile(file)) return false;
-  if (!DownloadFileSwap::recover(file)) return false;
+  if (!FilePublication::recover()) return false;
   std::string raw;
   if (!Storage.readFileToString("PHTP", file, MAX_TOKEN_FILE_SIZE, raw)) return false;
   JsonDocument doc;
@@ -195,13 +196,14 @@ bool saveTokenToFile(const std::string& file, const std::string& path, const std
   }
   std::string out;
   serializeJson(doc, out);
-  if (!DownloadFileSwap::recover(file)) return false;
-  const std::string partial = file + ".part";
+  if (!FilePublication::recover()) return false;
+  std::string partial;
+  if (!FilePublication::stagePath(file, "plugin-token", partial)) return false;
   HalFile f;
   if (!Storage.openFileForWrite("PHTP", partial, f)) return false;
   const bool written = f.write(out.data(), out.size()) == out.size();
   const bool closed = f.close();
-  if (!written || !closed || !DownloadFileSwap::publish(file)) {
+  if (!written || !closed || !FilePublication::publish(partial.c_str(), file.c_str())) {
     LOG_ERR("PHTP", "Token write failed: %s", file.c_str());
     Storage.remove(partial.c_str());
     return false;
@@ -312,11 +314,11 @@ int requestToFile(freeink::SecureHttpClient* session, const std::string& url, co
     status = http.sendRequest(
         method.c_str(), reinterpret_cast<const uint8_t*>(body.data()), body.size(),
         [&](const uint8_t* data, size_t len) {
-          if (written + len > maxResponse) {
+          if (len > maxResponse - written) {
             writeOk = false;
             return false;
           }
-          if (file.write(data, len) != len) {
+          if (!FsHelpers::writeAndCheckpoint(file, data, len)) {
             writeOk = false;
             return false;
           }

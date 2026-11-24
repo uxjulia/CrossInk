@@ -5,6 +5,7 @@
 #include <HalStorage.h>
 #include <Logging.h>
 #include <Memory.h>
+#include <TransferWriteCheckpoint.h>
 #include <mbedtls/sha256.h>
 
 #include <cstdio>
@@ -275,7 +276,8 @@ bool downloadIndexOnce(Workspace& w, size_t index) {
           w.result = Result::Invalid;
           return false;
         }
-        if (file.write(bytes, count) != count || mbedtls_sha256_update(&w.indexContext, bytes, count)) {
+        if (!FsHelpers::writeAndCheckpoint(file, bytes, count) ||
+            mbedtls_sha256_update(&w.indexContext, bytes, count)) {
           w.result = Result::Io;
           return false;
         }
