@@ -90,6 +90,8 @@
 - Make EPUB highlight handles easier to grab and drag across lines on touch readers.
 - Reduce repeated SD card reads when indexing EPUBs with ruled lines and a custom reader font.
 - Dither EPUB illustrations only after resizing, with separate output for Gray and B&W (including Night Mode).
+- Readest and other plugins can send several queued reading sessions on one sleep instead of one per sleep.
+
 
 ## [v1.6.1] - 2026-10-03
 
