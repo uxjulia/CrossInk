@@ -398,7 +398,10 @@ TEST(HyphenationPacks, SupplementalTriesMatchRealWordsAndTheirUppercase) {
       return true;
     });
     Hyphenator::setPreferredLanguage(example.language);
-    EXPECT_NE(Hyphenator::patternIdentity(example.language), 0U);
+    const bool changedFold = std::strcmp(currentCode, "be") == 0 || std::strcmp(currentCode, "bg") == 0 ||
+                             std::strcmp(currentCode, "mn") == 0 || std::strcmp(currentCode, "sr") == 0 ||
+                             std::strcmp(currentCode, "tr") == 0;
+    EXPECT_EQ(Hyphenator::patternIdentity(example.language), changedFold ? 0x08000000U + 123U : 123U);
     check(example.lower, true);
     check(example.upper, true);
     ++matchedCases;

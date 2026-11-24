@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <cstring>
+#include <string_view>
 
 #include "HyphenationCommon.h"
 #include "generated/hyph-en.trie.h"
@@ -70,8 +71,10 @@ uint32_t toLowerTurkish(uint32_t cp) {
   return toLowerLatin(cp);
 }
 
-uint32_t toLowerExternal(uint32_t cp) {
-  return isCyrillicLetter(cp) ? toLowerSupplementalCyrillic(cp) : toLowerLatin(cp);
+uint32_t toLowerExternal(uint32_t cp) { return isCyrillicLetter(cp) ? toLowerCyrillic(cp) : toLowerLatin(cp); }
+
+bool usesSupplementalCyrillic(std::string_view code) {
+  return code == "be" || code == "bg" || code == "mn" || code == "sr";
 }
 
 }  // namespace
@@ -102,7 +105,7 @@ const LanguageHyphenator* getLanguageHyphenatorForPrimaryTag(const std::string& 
   externalPatterns = found.patterns;
   if (primaryTag == "ru" || primaryTag == "uk")
     externalHyphenator.configure(isCyrillicLetter, toLowerCyrillic);
-  else if (primaryTag == "be" || primaryTag == "bg" || primaryTag == "mn" || primaryTag == "sr")
+  else if (usesSupplementalCyrillic(primaryTag))
     externalHyphenator.configure(isCyrillicLetter, toLowerSupplementalCyrillic);
   else if (primaryTag == "tr")
     externalHyphenator.configure(isLatinLetter, toLowerTurkish);
@@ -119,7 +122,14 @@ uint32_t getLanguagePatternIdentity(const char* primaryTag) {
   // Built-in pattern changes already require the section format version bump.
   if (entry && entry->hyphenator) return 1;
   ExternalHyphenationPatterns found{};
-  return externalLookup && externalLookup(primaryTag, found) ? found.identity : 0;
+  if (!externalLookup || !externalLookup(primaryTag, found) || !found.identity) return 0;
+  if (!usesSupplementalCyrillic(primaryTag) && std::strcmp(primaryTag, "tr") != 0) return found.identity;
+  // The same manual pack may have been installed on release with the legacy
+  // fold. Rotate the nonzero identity space so it invalidates layout caches
+  // for these changed rules only, without ever returning the no-pack sentinel.
+  constexpr uint32_t RULE_REVISION = 0x08000000;
+  return found.identity <= UINT32_MAX - RULE_REVISION ? found.identity + RULE_REVISION
+                                                      : found.identity - (UINT32_MAX - RULE_REVISION);
 }
 
 LanguageEntryView getLanguageEntries() {
