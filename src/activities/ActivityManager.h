@@ -30,6 +30,7 @@ struct SleepSyncBook {
   bool pluginJoinAttempted = false;
 };
 
+enum class StrId : uint16_t;
 class Activity;    // forward declaration
 class RenderLock;  // forward declaration
 
@@ -190,7 +191,7 @@ class ActivityManager {
   // Returns true only when sleep rendered a known complete B/W frame.
   bool goToSleep(bool fromTimeout = false, SleepSyncBook* syncBook = nullptr);
   void goToBoot();
-  void goToFullScreenMessage(std::string message, EpdFontFamily::Style style = EpdFontFamily::REGULAR);
+  void goToFullScreenMessage(StrId title, StrId message);
   void goToCrashReport();
   void goHome(HomeMenuItem initialMenuItem = HomeMenuItem::NONE,
               HalDisplay::RefreshMode initialRefreshMode = HalDisplay::FAST_REFRESH);
