@@ -146,6 +146,22 @@ bool HalStorage::begin() {
   return SDCard.begin();
 }
 
+HalStorage::StartupError HalStorage::startupError() const {
+  switch (SDCard.startupError()) {
+    case SDCardManager::StartupError::None:
+      return StartupError::None;
+    case SDCardManager::StartupError::CardNotDetected:
+      return StartupError::CardNotDetected;
+    case SDCardManager::StartupError::CardCommunicationFailure:
+      return StartupError::CardCommunicationFailure;
+    case SDCardManager::StartupError::VolumeMountFailed:
+      return StartupError::VolumeMountFailed;
+    case SDCardManager::StartupError::Unknown:
+    default:
+      return StartupError::Unknown;
+  }
+}
+
 bool HalStorage::ready() const { return SDCard.ready(); }
 
 bool HalStorage::beginUsbDrive() {

@@ -1209,8 +1209,8 @@ bool ActivityManager::goToSleep(bool fromTimeout) {
 
 void ActivityManager::goToBoot() { replaceActivity(std::make_unique<BootActivity>(renderer, mappedInput)); }
 
-void ActivityManager::goToFullScreenMessage(std::string message, EpdFontFamily::Style style) {
-  replaceActivity(std::make_unique<FullScreenMessageActivity>(renderer, mappedInput, std::move(message), style));
+void ActivityManager::goToFullScreenMessage(StrId title, StrId message) {
+  replaceActivity(std::make_unique<FullScreenMessageActivity>(renderer, mappedInput, title, message));
 }
 
 void ActivityManager::goHome(HomeMenuItem initialMenuItem, const HalDisplay::RefreshMode initialRefreshMode) {

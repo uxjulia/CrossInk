@@ -93,6 +93,7 @@
 - Readest and other plugins can send several queued reading sessions on one sleep instead of one per sleep.
 - Keep EPUB text selection following your finger across lines during e-ink refreshes, including when you lift to look up or clip the selection.
 - Preserve existing books, fonts, settings, and reading positions when SD saves or transfers are interrupted. Keep USB Drive mounted while the computer sleeps and finish pending writes before ejecting.
+- Explain SD card startup errors and show how to reconnect the card or check its filesystem.
 
 ## [v1.6.1] - 2026-10-03
 

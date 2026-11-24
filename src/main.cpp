@@ -1573,9 +1573,23 @@ void setup() {
   // SD Card Initialization
   // We need 6 open files concurrently when parsing a new chapter
   if (!Storage.begin()) {
-    LOG_ERR("MAIN", "SD card initialization failed");
-    setupDisplayAndFonts(isSilentReboot, !isNetworkResume, useReaderRenderStack);
-    activityManager.goToFullScreenMessage("SD card error", EpdFontFamily::BOLD);
+    auto description = StrId::STR_SD_START_FAILED;
+#ifndef SIMULATOR
+    switch (Storage.startupError()) {
+      case HalStorage::StartupError::CardNotDetected:
+      case HalStorage::StartupError::CardCommunicationFailure:
+        description = StrId::STR_SD_NO_RESPONSE;
+        break;
+      case HalStorage::StartupError::VolumeMountFailed:
+        description = StrId::STR_SD_MOUNT_FAILED;
+        break;
+      default:
+        break;
+    }
+#endif
+    LOG_ERR("MAIN", "SD card initialization failed: %s", I18n::getInstance().get(description));
+    setupDisplayAndFonts(isSilentReboot, false, useReaderRenderStack);
+    activityManager.goToFullScreenMessage(StrId::STR_SD_START_ERROR, description);
     return;
   }
   if (!FilePublication::recoverAtBoot()) LOG_ERR("MAIN", "Interrupted SD transfer needs recovery");

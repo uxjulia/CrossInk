@@ -22,9 +22,18 @@ enum class UsbDriveState : uint8_t {
 
 class HalStorage {
  public:
+  enum class StartupError : uint8_t {
+    None,
+    CardNotDetected,
+    CardCommunicationFailure,
+    VolumeMountFailed,
+    Unknown,
+  };
+
   HalStorage();
   ~HalStorage();
   bool begin();
+  StartupError startupError() const;
   bool ready() const;
   // Flush and stop the SD backend before deep sleep. Call only after all file
   // users have stopped; deep-sleep wake mounts the card again through begin().
