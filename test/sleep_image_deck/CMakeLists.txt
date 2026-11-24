@@ -8,7 +8,7 @@ add_executable(SleepImageDeckTest SleepImageDeckTest.cpp
   ${REPO_ROOT}/src/activities/boot_sleep/ImageFolderIndex.cpp
   ${REPO_ROOT}/src/activities/boot_sleep/SleepImageDeck.cpp
   ${REPO_ROOT}/lib/Serialization/AtomicFile.cpp)
-target_include_directories(SleepImageDeckTest PRIVATE stubs
+target_include_directories(SleepImageDeckTest PRIVATE stubs ${REPO_ROOT}/lib/FsHelpers
   ${REPO_ROOT}/src/activities/boot_sleep ${REPO_ROOT}/lib/Serialization)
 target_compile_features(SleepImageDeckTest PRIVATE cxx_std_20)
 target_compile_options(SleepImageDeckTest PRIVATE -Wall -Wextra -Werror -UNDEBUG)

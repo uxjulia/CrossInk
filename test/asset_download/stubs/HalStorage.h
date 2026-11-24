@@ -22,13 +22,16 @@ class HalFile {
   std::vector<std::string> children;
   HalFile() = default;
   explicit HalFile(const std::string& p)
-      : path(p), opened(files.count(p) || directories.count(p)), directory(directories.count(p)) {
+      : path(p),
+        opened(p == "/" || files.count(p) || directories.count(p)),
+        directory(p == "/" || directories.count(p)) {
     if (directory) {
+      const std::string prefix = p == "/" ? p : p + "/";
       for (const auto& kv : files)
-        if (kv.first.substr(0, p.size() + 1) == p + "/" && kv.first.find('/', p.size() + 1) == std::string::npos)
+        if (kv.first.substr(0, prefix.size()) == prefix && kv.first.find('/', prefix.size()) == std::string::npos)
           children.push_back(kv.first);
       for (const auto& d : directories)
-        if (d.substr(0, p.size() + 1) == p + "/" && d.find('/', p.size() + 1) == std::string::npos)
+        if (d.substr(0, prefix.size()) == prefix && d.find('/', prefix.size()) == std::string::npos)
           children.push_back(d);
     } else if (opened) {
       // Hardware does not support concurrent readers of one path.
@@ -91,6 +94,16 @@ class HalFile {
   }
 };
 struct StorageFake {
+  bool openFileForWrite(const char*, const char* p, HalFile& file) {
+    files[p].clear();
+    file = HalFile(p);
+    return bool(file);
+  }
+  bool readFileToString(const char*, const std::string& p, size_t cap, std::string& out) {
+    if (failRead || !files.count(p) || files[p].size() > cap) return false;
+    out = files[p];
+    return true;
+  }
   bool exists(const char* p) { return files.count(p) || directories.count(p); }
   HalFile open(const char* p, int flags = O_RDONLY) {
     if (flags & O_CREAT) {
@@ -104,7 +117,10 @@ struct StorageFake {
     return bool(f);
   }
   bool ensureDirectoryExists(const char* p) {
-    directories.insert(p);
+    std::string path(p);
+    for (size_t slash = path.find('/', 1); slash != std::string::npos; slash = path.find('/', slash + 1))
+      directories.insert(path.substr(0, slash));
+    directories.insert(path);
     return true;
   }
   bool remove(const char* p) { return !failRemove.count(p) && files.erase(p); }

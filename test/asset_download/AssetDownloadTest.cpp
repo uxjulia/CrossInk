@@ -1,6 +1,6 @@
 #include <AssetCompanionStore.h>
 #include <AssetDownloadService.h>
-#include <DownloadFileSwap.h>
+#include <FilePublication.h>
 #include <HttpDownloader.h>
 #include <I18n.h>
 #include <Logging.h>
@@ -40,7 +40,8 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
   if (options.shouldCancel && options.shouldCancel()) return ABORTED;
   if (transferResult != OK) return transferResult;
   if (response.size() != options.expectedBytes || response.size() > options.maxBytes) return HTTP_ERROR;
-  const auto partial = destination + ".part";
+  std::string partial;
+  if (!FilePublication::stagePath(destination, "http-download", partial)) return FILE_ERROR;
   files[partial] = response;
   if (progress) progress(response.size(), response.size());
   if (cancelledTransfer) {
@@ -52,7 +53,9 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
     files.erase(partial);
     return FILE_ERROR;
   }
-  return DownloadFileSwap::publish(destination, options.requireBackupCleanup) ? OK : FILE_ERROR;
+  return FilePublication::publish(partial.c_str(), destination.c_str(), true, options.requireBackupCleanup)
+             ? OK
+             : FILE_ERROR;
 }
 std::string digest(const std::string& bytes) {
   unsigned char result[32];
@@ -309,7 +312,7 @@ void cleanupRetryTests(const Endpoints& endpoints) {
     const auto cat = catalog();
     const auto& entry = cat.entries[0];
     const std::string destination = std::string("/.crossink/languages/") + filename;
-    const auto backup = destination + ".old";
+    const std::string backup = FilePublication::BACKUP;
     const auto old = yaml + "# old\n";
     put(destination, old);
     failRemove.insert(backup);
@@ -528,8 +531,8 @@ int main() {
   put("/.crossink/languages/DE.yaml", yaml);
   put("/.crossink/languages/DE.yaml.old", "backup");
   failRemove.insert("/.crossink/languages/DE.yaml.old");
-  assert(download(cat, entry, endpoints, true) == Result::Io && downloads == 0 &&
-         files.at("/.crossink/languages/DE.yaml") == yaml);
+  assert(download(cat, entry, endpoints, true) == Result::Ok && downloads == 1 &&
+         files.at("/.crossink/languages/DE.yaml.old") == "backup");
   reset();
   put("/.crossink/languages/DE.yaml", yaml + "# original\n");
   response[response.size() - 2] = 'X';
@@ -564,12 +567,12 @@ int main() {
   assert(download(cat, entry, endpoints, false) == Result::Cancelled);
   reset();
   put("/.crossink/languages/DE.yaml", yaml + "# old\n");
-  failRename.insert("/.crossink/languages/DE.yaml.part");
+  failRename.insert("/.crosspoint/xfer/http-download/.crossink/languages/DE.yaml");
   assert(download(cat, entry, endpoints, true) == Result::Io &&
          files.at("/.crossink/languages/DE.yaml") == yaml + "# old\n");
   reset();
   put("/.crossink/languages/DE.yaml", yaml + "# old\n");
-  failRemove.insert("/.crossink/languages/DE.yaml.old");
+  failRemove.insert(FilePublication::BACKUP);
   assert(download(cat, entry, endpoints, true) == Result::Io && files.at("/.crossink/languages/DE.yaml") == yaml);
   reset();
   cat = catalog(AssetCatalog::Kind::Hyphenation);

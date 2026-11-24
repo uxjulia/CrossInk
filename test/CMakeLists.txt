@@ -52,6 +52,7 @@ add_subdirectory(text_pool)
 add_subdirectory(clip_word_store)
 add_subdirectory(clipping_preview)
 add_subdirectory(clipping_store)
+add_subdirectory(hal_file_write_anchor)
 add_subdirectory(dict_layout)
 add_subdirectory(reader_progress_save_debouncer)
 add_subdirectory(calibre_progress)
@@ -87,6 +88,7 @@ add_subdirectory(xtc_navigation)
 add_subdirectory(touch_reader_preview)
 add_subdirectory(dictionary_word_parts)
 add_subdirectory(dictionary_lookup)
+add_subdirectory(lookup_history)
 add_subdirectory(ligature_guard)
 add_subdirectory(chapter_html_slim_parser)
 add_subdirectory(korean_line_breaking)
@@ -139,11 +141,15 @@ add_test(NAME CrashTaskContextRegression
   COMMAND ${Python3_EXECUTABLE} ${REPO_ROOT}/test/scripts/test_crash_task_context.py)
 add_test(NAME EpubBookMetadataBounds
   COMMAND ${Python3_EXECUTABLE} ${REPO_ROOT}/test/scripts/test_epub_book_metadata_bounds.py)
+add_test(NAME EpubMetadataBuildIo
+  COMMAND ${Python3_EXECUTABLE} ${REPO_ROOT}/test/scripts/test_epub_metadata_build_io.py)
 add_subdirectory(frontlight_settings_boot)
 add_subdirectory(eego_frontlight)
 add_subdirectory(eego_uid)
 add_test(NAME TransferReliabilityRegression
   COMMAND ${Python3_EXECUTABLE} ${REPO_ROOT}/test/scripts/test_transfer_reliability.py)
+add_test(NAME UsbDriveStorageRegression
+  COMMAND ${Python3_EXECUTABLE} ${REPO_ROOT}/scripts/test_usb_drive_storage.py)
 add_test(NAME ReaderCopyRegression
   COMMAND ${Python3_EXECUTABLE} ${REPO_ROOT}/test/scripts/test_reader_copy_regressions.py)
 add_test(NAME WebDavGetRegression

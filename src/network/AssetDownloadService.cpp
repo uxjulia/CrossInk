@@ -1,6 +1,7 @@
 #include "AssetDownloadService.h"
 
 #include <Arduino.h>
+#include <FilePublication.h>
 #include <HalStorage.h>
 #include <I18n.h>
 #include <LanguageCache.h>
@@ -15,7 +16,6 @@
 #include <optional>
 
 #include "AssetCompanionStore.h"
-#include "DownloadFileSwap.h"
 #include "HttpDownloader.h"
 #include "HyphenationPackStore.h"
 
@@ -309,8 +309,11 @@ Result scan(AssetCatalog::Kind kind, const AssetCatalog::Entry& entry, Source& s
   // Derive this from the selected logical path, including manual filenames.
   // Discovery remains read-only even when the published bytes are current.
   std::snprintf(work.candidate, sizeof(work.candidate), "%s.old", path);
-  source.recoveryPending = Storage.exists(work.candidate);
   const bool recoveryNeeded = !Storage.exists(path);
+  std::string pending;
+  source.recoveryPending =
+      recoveryNeeded || (Storage.exists(FilePublication::BACKUP) &&
+                         Storage.readFileToString("ASSET", FilePublication::JOURNAL, 4096, pending) && pending == path);
   if (recoveryNeeded) {
     path = work.candidate;
   }
@@ -452,7 +455,7 @@ Result download(const AssetCatalog::Metadata& catalog, const AssetCatalog::Entry
     return failure(Result::Unavailable);
   auto result = scan(catalog.kind, entry, work->source, *work);
   if (result != Result::Ok) return result;
-  if (!DownloadFileSwap::recover(work->source.path)) return failure(Result::Io);
+  if (!FilePublication::recover()) return failure(Result::Io);
   result = scan(catalog.kind, entry, work->source, *work);
   if (result != Result::Ok) return result;
   result = sourceCountCapacity(*work);

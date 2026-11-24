@@ -99,12 +99,11 @@ bool WifiCredentialStore::loadFromFile() {
     lastConnectedSsid.clear();
   }
 
-  const bool hasStoreFile = Storage.exists(getFilePath());
   if (PersistableStore<WifiCredentialStore>::loadFromFile()) {
     LOG_INF("WCS", "load JSON complete");
     return true;
   }
-  if (hasStoreFile) {
+  if (hasStoreFile(getFilePath())) {
     LOG_INF("WCS", "load JSON present but unreadable");
     return false;
   }

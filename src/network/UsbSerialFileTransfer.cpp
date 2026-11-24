@@ -1,8 +1,11 @@
 #include "UsbSerialFileTransfer.h"
 
+#include <FilePublication.h>
 #include <Memory.h>
 #include <SyncJsonAllocator.h>
+#include <TransferWriteCheckpoint.h>
 
+#include "ProtectedPaths.h"
 #include "UsbProgressSync.h"
 #include "activities/Activity.h"
 #include "activities/ActivityManager.h"
@@ -52,7 +55,7 @@ constexpr uint32_t SHORT_TIMEOUT_MS = 1000;
 constexpr uint32_t HEADER_TIMEOUT_MS = 2000;
 constexpr uint32_t CHUNK_TIMEOUT_MS = 45000;
 constexpr uint32_t WRITE_TIMEOUT_MS = 1000;
-constexpr const char* TEMP_UPLOAD_PATH = "/.crosspoint/usb-upload.tmp";
+constexpr const char* TEMP_UPLOAD_PATH = FilePublication::USB_SERIAL_STAGE;
 constexpr const char* INTERNAL_DIR = "/.crosspoint";
 constexpr const char* HIDDEN_ITEMS[] = {"System Volume Information", "XTCache"};
 
@@ -227,7 +230,7 @@ bool isProtectedPathSegment(const char* name) {
 }
 
 bool isProtectedPath(const char* path) {
-  if (!path) return true;
+  if (!path || protectedpaths::isSensitivePath(path, false, true)) return true;
 
   int start = 0;
   const int length = strlen(path);
@@ -474,7 +477,7 @@ void handleWrite() {
 #endif
 
   if (!ensureFileTransferAllowed()) return;
-  if (strcmp(path, "/") == 0 || isProtectedPath(path)) {
+  if (strcmp(path, "/") == 0 || isProtectedPath(path) || protectedpaths::isSensitivePath(path, true, true)) {
     writeLine("ERR:protected_path\n");
     return;
   }
@@ -517,9 +520,9 @@ void handleWrite() {
     if (fileBufferPos == 0) return true;
     const size_t bytesToWrite = fileBufferPos;
     logSerial.printf("BUSY:write:%lu\n", static_cast<unsigned long>(bytesAccepted));
-    const size_t written = file.write(fileBuffer.get(), bytesToWrite);
+    const bool written = FsHelpers::writeAndCheckpoint(file, fileBuffer.get(), bytesToWrite);
     fileBufferPos = 0;
-    return written == bytesToWrite;
+    return written;
   };
 
   if (!writeLine("READY\n")) {
@@ -560,7 +563,9 @@ void handleWrite() {
     fileBufferPos += want;
     remaining -= want;
     bytesAccepted += static_cast<uint32_t>(want);
-    if (fileBufferPos >= FILE_BUFFER_SIZE && !flushFileBuffer()) {
+    // The host waits for this chunk's ACK before sending more data, so commit
+    // the bytes before acknowledging them instead of keeping them only in RAM.
+    if (!flushFileBuffer()) {
       file.close();
       Storage.remove(TEMP_UPLOAD_PATH);
       writeLine("ERR:write\n");
@@ -580,7 +585,13 @@ void handleWrite() {
     writeLine("ERR:write\n");
     return;
   }
-  file.close();
+  const bool synced = file.sync();
+  const bool closed = file.close();
+  if (!synced || !closed) {
+    Storage.remove(TEMP_UPLOAD_PATH);
+    writeLine("ERR:write\n");
+    return;
+  }
 
 #if defined(CROSSINK_USB_RX_OVERFLOW_ENABLED)
   if (rxOverflowCount() != rxOverflowAtStart) {
@@ -617,10 +628,7 @@ void handleWrite() {
 
   library::invalidateLibraryIndex();
   sdFontSystem.markRegistryDirtyForPath(path);
-  if (Storage.exists(path)) {
-    Storage.remove(path);
-  }
-  if (!Storage.rename(TEMP_UPLOAD_PATH, path)) {
+  if (!FilePublication::publish(TEMP_UPLOAD_PATH, path)) {
     Storage.remove(TEMP_UPLOAD_PATH);
     writeLine("ERR:rename_failed\n");
     return;
@@ -640,7 +648,7 @@ void handleRemove() {
   char path[PATH_BUFFER_SIZE];
   if (!readNormalizedPath(path, sizeof(path))) return;
   if (!ensureFileTransferAllowed()) return;
-  if (strcmp(path, "/") == 0 || isProtectedPath(path)) {
+  if (strcmp(path, "/") == 0 || isProtectedPath(path) || protectedpaths::isSensitivePath(path, true, true)) {
     writeLine("ERR:protected_path\n");
     return;
   }
@@ -666,7 +674,8 @@ void handleRename() {
   if (!readNormalizedPath(dst, sizeof(dst))) return;
   if (!ensureFileTransferAllowed()) return;
 
-  if (strcmp(src, "/") == 0 || strcmp(dst, "/") == 0 || isProtectedPath(src) || isProtectedPath(dst)) {
+  if (strcmp(src, "/") == 0 || strcmp(dst, "/") == 0 || isProtectedPath(src) ||
+      protectedpaths::isSensitivePath(src, true, true) || isProtectedPath(dst)) {
     writeLine("ERR:protected_path\n");
     return;
   }
@@ -707,7 +716,7 @@ void handleRead() {
   char path[PATH_BUFFER_SIZE];
   if (!readNormalizedPath(path, sizeof(path))) return;
   if (!ensureFileTransferAllowed()) return;
-  if (strcmp(path, "/") == 0 || isProtectedPath(path)) {
+  if (strcmp(path, "/") == 0 || isProtectedPath(path) || protectedpaths::isSensitivePath(path, true, true)) {
     writeLine("ERR:protected_path\n");
     return;
   }
@@ -981,22 +990,41 @@ int relaySyncHttp(void* context, const char* method, const char* endpoint, const
     if ((status != 0 && (status < 100 || status > 599)) || size > (response ? capacity - 1 : capacity)) return 0;
     crc = esp_rom_crc32_le(0, reply, sizeof(reply));
     FsFile target;
-    ScopedCleanup closeTarget{[&] { target.close(); }};
-    if (outputPath && status == 200 && !Storage.openFileForWrite("USBSync", outputPath, target)) return 0;
+    std::string outputStagePath;
+    bool outputStagePrepared = false;
+    bool outputPublished = false;
+    bool targetClosed = false;
+    ScopedCleanup closeTarget{[&] {
+      if (target && !targetClosed && !target.close()) LOG_ERR("USBSync", "Could not close relay output stage");
+      if (outputStagePrepared && !outputPublished && !Storage.remove(outputStagePath.c_str()))
+        LOG_ERR("USBSync", "Could not remove incomplete relay output stage");
+    }};
+    if (outputPath && status == 200) {
+      if (!FilePublication::recover() || !FilePublication::stagePath(outputPath, "usb-relay", outputStagePath))
+        return 0;
+      outputStagePrepared = true;
+      if (!Storage.openFileForWrite("USBSync", outputStagePath, target)) return 0;
+    }
     if (!writeAck()) return 0;
     for (size_t at = 0; at < size;) {
       const size_t chunk = std::min(sizeof(transferBuffer), size - at);
       if (!readExact(transferBuffer, chunk, CHUNK_TIMEOUT_MS)) return 0;
       crc = esp_rom_crc32_le(crc, transferBuffer, chunk);
       if (response) memcpy(response + at, transferBuffer, chunk);
-      if (outputPath && status == 200 && target.write(transferBuffer, chunk) != chunk) return 0;
+      if (outputPath && status == 200 && !FsHelpers::writeAndCheckpoint(target, transferBuffer, chunk)) return 0;
       if (!writeAck()) return 0;
       at += chunk;
     }
     uint8_t checksum[4];
     if (!readExact(checksum, sizeof(checksum), SHORT_TIMEOUT_MS) || readLe32(checksum) != crc) return 0;
     if (response) response[size] = '\0';
-    if (outputPath && status == 200 && (!target.sync() || !target.close())) return 0;
+    if (outputPath && status == 200) {
+      const bool synced = target.sync();
+      const bool closed = target.close();
+      targetClosed = true;
+      if (!synced || !closed || !FilePublication::publish(outputStagePath.c_str(), outputPath, true, false)) return 0;
+      outputPublished = true;
+    }
     return status;
   };
   const int status = exchange();

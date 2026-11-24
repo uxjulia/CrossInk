@@ -49,27 +49,64 @@ auto makeUniqueNoThrow() {
 }
 inline constexpr int O_WRONLY = 1, O_APPEND = 2;
 inline std::map<std::string, std::string> files;
-inline bool failWrite = false, failSync = false;
+inline bool failWrite = false, failSync = false, failClose = false, failDirectoryIteration = false;
+inline bool failFilesystemSync = false;
+inline size_t filesystemSyncCalls = 0;
 inline uint64_t cardCapacity = 0, cardUsedBytes = 0;
 inline size_t fileWriteOpens = 0, capacityChecks = 0;
-inline std::set<std::string> failRemovePaths, failRenameSources;
+inline std::map<std::string, size_t> fileSyncCallsByPath;
+inline std::set<std::string> failRemovePaths, failRenameSources, failDirectoryIterationPaths, failClosePaths,
+    failGetNamePaths;
 struct FsFile {
   std::string path;
   bool opened = false;
+  bool directory = false;
+  bool iterationFailedState = false;
+  bool allocationFailedState = false;
+  size_t nextChild = 0;
   operator bool() const { return opened; }
   size_t fileSize() const { return files[path].size(); }
+  uint64_t fileSize64() const { return files[path].size(); }
+  size_t position() const { return files[path].size(); }
   size_t write(const uint8_t* data, size_t n) {
     if (failWrite) return 0;
     files[path].append((const char*)data, n);
     return n;
   }
-  bool sync() { return !failSync; }
+  size_t getName(char* name, size_t capacity) {
+    if (failGetNamePaths.count(path)) return 0;
+    const auto slash = path.find_last_of('/');
+    const auto base = slash == std::string::npos ? path : path.substr(slash + 1);
+    if (base.size() >= capacity) return 0;
+    std::memcpy(name, base.c_str(), base.size() + 1);
+    return base.size();
+  }
+  FsFile openNextFile();
+  bool isDirectory() const { return directory; }
+  bool iterationFailed() const { return iterationFailedState; }
+  bool allocationFailed() const { return allocationFailedState; }
+  bool sync() {
+    ++fileSyncCallsByPath[path];
+    return !failSync;
+  }
   bool close() {
     opened = false;
-    return true;
+    return !failClose && !failClosePaths.count(path);
   }
 };
+using HalFile = FsFile;
 struct StorageFake {
+  bool ensureDirectoryExists(const char*) { return true; }
+  bool syncFilesystem() {
+    ++filesystemSyncCalls;
+    return !failFilesystemSync;
+  }
+  FsFile open(const char* p);
+  bool readFileToString(const char*, const std::string& p, size_t cap, std::string& out) {
+    if (!exists(p.c_str()) || files[p].size() > cap) return false;
+    out = files[p];
+    return true;
+  }
   uint64_t totalBytes() {
     ++capacityChecks;
     return cardCapacity;
@@ -99,6 +136,38 @@ struct StorageFake {
   }
 };
 inline StorageFake Storage;
+inline FsFile StorageFake::open(const char* path) {
+  const std::string prefix = std::string(path) == "/" ? "/" : std::string(path) + "/";
+  bool hasChildren = false;
+  for (const auto& [candidate, value] : files) {
+    (void)value;
+    if (candidate.compare(0, prefix.size(), prefix) == 0 && candidate.size() > prefix.size()) {
+      hasChildren = true;
+      break;
+    }
+  }
+  const bool isDirectory = std::string(path) == "/" || hasChildren;
+  return {path, files.count(path) != 0 || isDirectory, isDirectory};
+}
+inline FsFile FsFile::openNextFile() {
+  if (!opened || !directory) return {};
+  if (failDirectoryIteration || failDirectoryIterationPaths.count(path)) {
+    iterationFailedState = true;
+    return {};
+  }
+  const std::string prefix = path == "/" ? "/" : path + "/";
+  std::set<std::string> children;
+  for (const auto& [candidate, value] : files) {
+    (void)value;
+    if (candidate.compare(0, prefix.size(), prefix) != 0 || candidate.size() <= prefix.size()) continue;
+    const auto slash = candidate.find('/', prefix.size());
+    children.insert(candidate.substr(0, slash == std::string::npos ? candidate.size() : slash));
+  }
+  if (nextChild >= children.size()) return {};
+  auto child = children.begin();
+  std::advance(child, nextChild++);
+  return Storage.open(child->c_str());
+}
 struct Reply {
   int status = 200;
   std::string body;

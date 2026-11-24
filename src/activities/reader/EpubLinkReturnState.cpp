@@ -2,6 +2,7 @@
 
 #include <HalStorage.h>
 #include <Logging.h>
+#include <OwnedFileSwap.h>
 
 #include <algorithm>
 #include <cstdint>
@@ -41,6 +42,7 @@ bool save(const std::string& cachePath, const Position (&positions)[MAX_DEPTH], 
           const bool transientPreview) {
   const std::string path = cachePath + "/links.bin";
   const int savedDepth = resumeDepth(depth, transientPreview);
+  if (!OwnedFileSwap::recover(path)) return false;
   if (savedDepth == 0) return !Storage.exists(path.c_str()) || Storage.remove(path.c_str());
   if (savedDepth < 0 || savedDepth > MAX_DEPTH) return false;
 
@@ -58,23 +60,13 @@ bool save(const std::string& cachePath, const Position (&positions)[MAX_DEPTH], 
     p[2] = pos.pageNumber & 0xff;
     p[3] = (pos.pageNumber >> 8) & 0xff;
   }
-  FsFile file;
-  if (!Storage.openFileForWrite("ERS", path, file)) return false;
-  const size_t size = 1 + savedDepth * 4;
-  bool saved = file.write(data, size) == size;
-  if (saved) saved = file.sync();
-  const bool closed = file.close();
-  saved = saved && closed;
-  if (!saved) {
-    LOG_ERR("ERS", "Failed to write link return stack");
-    if (!Storage.remove(path.c_str())) LOG_ERR("ERS", "Failed to remove incomplete link stack");
-  }
-  return saved;
+  return OwnedFileSwap::save("ERS", path, data, 1 + savedDepth * 4);
 }
 
 bool load(const std::string& cachePath, Position (&positions)[MAX_DEPTH], int& depth, const int spineCount) {
   depth = 0;
   const std::string path = cachePath + "/links.bin";
+  if (!OwnedFileSwap::recover(path)) return false;
   if (!Storage.exists(path.c_str())) return true;
   uint8_t data[1 + MAX_DEPTH * 4];
   FsFile file;

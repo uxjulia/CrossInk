@@ -120,11 +120,10 @@ bool OpdsServerStore::fromJson(JsonVariantConst doc) {
 bool OpdsServerStore::loadFromFile() {
   servers.clear();
   loaded_ = true;
-  const bool hasStoreFile = Storage.exists(getFilePath());
   if (PersistableStore<OpdsServerStore>::loadFromFile()) {
     return true;
   }
-  if (hasStoreFile) {
+  if (hasStoreFile(getFilePath())) {
     return false;
   }
 

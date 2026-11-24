@@ -13,6 +13,9 @@
 #include <vector>
 
 struct HostFileData {
+  bool failWrite = false;
+  bool failSync = false;
+  bool failClose = false;
   std::vector<uint8_t> bytes;
 };
 
@@ -32,6 +35,7 @@ class HalFile : public Print {
   size_t write(const uint8_t value) override { return write(&value, 1); }
   size_t write(const uint8_t* input, const size_t length) override {
     if (!data_) return 0;
+    if (data_->failWrite) return 0;
     if (cursor_ + length > data_->bytes.size()) data_->bytes.resize(cursor_ + length);
     std::copy_n(input, length, data_->bytes.begin() + static_cast<std::ptrdiff_t>(cursor_));
     cursor_ += length;
@@ -40,11 +44,12 @@ class HalFile : public Print {
   size_t write(const void* input, const size_t length) { return write(static_cast<const uint8_t*>(input), length); }
 
   void flush() {}
-  bool sync() const { return static_cast<bool>(data_); }
+  bool sync() const { return data_ && !data_->failSync; }
   bool close() {
+    const bool ok = !data_ || !data_->failClose;
     data_.reset();
     cursor_ = 0;
-    return true;
+    return ok;
   }
   size_t fileSize() const { return data_ ? data_->bytes.size() : 0; }
   bool seekSet(const size_t offset) {
@@ -77,7 +82,10 @@ class HalStorage {
       failRemovePath_.clear();
       return false;
     }
-    return files_.erase(path) > 0;
+    const auto entry = files_.find(path);
+    if (entry == files_.end() || entry->second.use_count() > 1) return false;
+    files_.erase(entry);
+    return true;
   }
 
   bool rename(const char* from, const char* to) {
@@ -87,7 +95,7 @@ class HalStorage {
     const auto source = files_.find(from);
     if (source == files_.end() || files_.contains(to)) return false;
     files_[to] = source->second;
-    files_.erase(source);
+    files_.erase(from);
     return true;
   }
 
@@ -110,6 +118,10 @@ class HalStorage {
     const auto found = files_.find(path);
     return found == files_.end() ? nullptr : &found->second->bytes;
   }
+
+  void failSync(const char* path) { files_.at(path)->failSync = true; }
+  void failClose(const char* path) { files_.at(path)->failClose = true; }
+  void failWrites(const char* path) { files_.at(path)->failWrite = true; }
 
   void failNextRenameFrom(std::string path) { failRenameFrom_.insert(std::move(path)); }
   void failNextRemove(std::string path) { failRemovePath_ = std::move(path); }

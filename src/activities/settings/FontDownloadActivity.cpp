@@ -1,6 +1,7 @@
 #include "FontDownloadActivity.h"
 
 #include <ArduinoJson.h>
+#include <FilePublication.h>
 #include <GfxRenderer.h>
 #include <HalStorage.h>
 #include <I18n.h>
@@ -850,8 +851,12 @@ void FontDownloadActivity::downloadFamily(ManifestFamily& family) {
 
     char destPath[192];
     FontInstaller::buildFontPath(family.installName.c_str(), file.name, destPath, sizeof(destPath));
-    char tempPath[208];
-    snprintf(tempPath, sizeof(tempPath), "%s.tmp", destPath);
+    std::string staged;
+    if (!FilePublication::stagePath(destPath, "font-download", staged)) {
+      failDownload(tr(STR_FONT_DOWNLOAD_INTERRUPTED), tr(STR_FONT_DOWNLOAD_RETRY_HINT));
+      return;
+    }
+    const char* tempPath = staged.c_str();
 
     if (Storage.exists(destPath)) {
       uint32_t existingCrc = 0;
@@ -959,39 +964,11 @@ void FontDownloadActivity::downloadFamily(ManifestFamily& family) {
       return;
     }
 
-    char backupPath[208];
-    snprintf(backupPath, sizeof(backupPath), "%s.bak", destPath);
-    const bool hadExistingFile = Storage.exists(destPath);
-    if (Storage.exists(backupPath)) {
-      Storage.remove(backupPath);
-    }
     sdFontSystem.markRegistryDirty();
-    if (hadExistingFile && !Storage.rename(destPath, backupPath)) {
-      LOG_ERR("FONT", "Failed to back up existing font file: %s", destPath);
-      Storage.remove(tempPath);
-      failDownload(std::string("Could not replace existing font file: ") + file.name, "");
-      return;
-    }
-    if (!Storage.rename(tempPath, destPath)) {
+    if (!FilePublication::publish(tempPath, destPath)) {
       LOG_ERR("FONT", "Failed to install downloaded font file: %s", destPath);
-      Storage.remove(tempPath);
-      if (hadExistingFile) {
-        Storage.rename(backupPath, destPath);
-      }
-      failDownload(std::string("Could not save downloaded font file: ") + file.name, "");
+      failDownload(std::string(tr(STR_FONT_DOWNLOAD_INTERRUPTED)) + ": " + file.name, tr(STR_FONT_DOWNLOAD_RETRY_HINT));
       return;
-    }
-    if (!fontInstaller_.validateCpfontFile(destPath)) {
-      LOG_ERR("FONT", "Installed .cpfont failed validation: %s", destPath);
-      Storage.remove(destPath);
-      if (hadExistingFile) {
-        Storage.rename(backupPath, destPath);
-      }
-      failDownload(std::string("Downloaded font file was invalid: ") + file.name, tr(STR_FONT_DOWNLOAD_CHECKSUM_HINT));
-      return;
-    }
-    if (hadExistingFile) {
-      Storage.remove(backupPath);
     }
     fontsChanged_ = true;
     currentFileIndex_++;

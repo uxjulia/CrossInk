@@ -11,6 +11,7 @@
 #ifdef SIMULATOR
 #include <ArduinoJsonStringCompat.h>
 #endif
+#include <FilePublication.h>
 #include <FsHelpers.h>
 #include <HalStorage.h>
 #include <LibraryBuilder.h>
@@ -20,13 +21,13 @@
 #include <Memory.h>
 #include <ResumableFetch.h>
 #include <SecureHttpClient.h>
+#include <TransferWriteCheckpoint.h>
 #include <WiFi.h>
 
 #include <algorithm>
 #include <cstring>
 #include <string_view>
 
-#include "DownloadFileSwap.h"
 #include "ProtectedPaths.h"
 #include "SdCardFontSystem.h"
 #include "WifiPowerSaveGuard.h"
@@ -476,13 +477,14 @@ void CrossPointWebServer::handleFetch() {
   req.shrinkToFit();
   releasePluginRequest();
 
-  if (!DownloadFileSwap::recover(dest)) {
+  std::string part;
+  if (!FilePublication::recover() || !FilePublication::stagePath(dest, "plugin-fetch", part)) {
     server->send(500, "application/json", "{\"error\":\"cannot recover previous file\"}");
     return;
   }
   // Stage in <dest>.part so an interrupted or abandoned download never sits
   // under the real name, and an existing dest survives until the new copy is complete.
-  const std::string part = dest + ".part";
+
   HalFile file;
   if (requestedOffset == 0) {
     // Mirror handlePluginFs(): create missing parents so a plugin's first fetch
@@ -556,7 +558,7 @@ void CrossPointWebServer::handleFetch() {
   sink.write = [&](const uint8_t* data, size_t len) {
     resetTaskWatchdogIfSubscribed();
     const size_t writeLen = segmentLimit > 0 ? std::min(len, requestedOffset + segmentLimit - written) : len;
-    if (file.write(data, writeLen) != writeLen) {
+    if (!FsHelpers::writeAndCheckpoint(file, data, writeLen)) {
       sdFull = true;
       return false;
     }
@@ -642,7 +644,7 @@ void CrossPointWebServer::handleFetch() {
   if (!ok2xx) {
     Storage.remove(part.c_str());
     resp["error"] = status < 0 ? "transport failure" : "http status";
-  } else if (complete && !DownloadFileSwap::publish(dest)) {
+  } else if (complete && !FilePublication::publish(part.c_str(), dest.c_str())) {
     Storage.remove(part.c_str());
     complete = false;
     resp["error"] = "sd write failed";
@@ -713,7 +715,10 @@ void CrossPointWebServer::handlePluginFsUpload() {
       if (lastSlash != std::string::npos && lastSlash > 0) {
         Storage.ensureDirectoryExists(st.path.substr(0, lastSlash).c_str());
       }
-      st.tmp = st.path + ".tmp";
+      if (!FilePublication::stagePath(st.path, "plugin-file", st.tmp)) {
+        fail(500, "cannot stage file");
+        return;
+      }
       Storage.remove(st.tmp.c_str());
       if (!Storage.openFileForWrite("PLG", st.tmp, st.file)) fail(500, "cannot write");
       return;
@@ -748,7 +753,7 @@ void CrossPointWebServer::handlePluginFsUpload() {
       // An empty body must not replace existing credentials with nothing.
       if (st.bytes == 0) {
         fail(400, "empty body");
-      } else if (!DownloadFileSwap::publishFrom(st.path, st.tmp)) {
+      } else if (!FilePublication::publish(st.tmp.c_str(), st.path.c_str())) {
         fail(500, "sd write failed");
       } else {
         clearBookCache(st.path);

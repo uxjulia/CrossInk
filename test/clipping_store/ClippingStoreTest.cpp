@@ -208,6 +208,12 @@ int main() {
   fake::failWrite = 0;
   assert(!store.removeClippingAt(0));
   assert(store.clippingCount() == 2 && bytes(path()) == good);
+  fake::failSyncPath = path() + ".tmp";
+  assert(!store.removeClippingAt(0));
+  assert(store.clippingCount() == 2 && bytes(path()) == good);
+  fake::failClosePath = path() + ".tmp";
+  assert(!store.removeClippingAt(0));
+  assert(store.clippingCount() == 2 && bytes(path()) == good);
   assert(store.saveToFile());
   reset();
 }

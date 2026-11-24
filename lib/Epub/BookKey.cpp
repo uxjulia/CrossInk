@@ -1,7 +1,7 @@
 #include "BookKey.h"
 
 #include <DeviceSecret.h>
-#include <DownloadFileSwap.h>
+#include <FilePublication.h>
 #include <FsHelpers.h>
 #include <HalStorage.h>
 #include <Logging.h>
@@ -38,6 +38,27 @@ constexpr size_t TAG_LEN = 16;
 constexpr size_t MAX_FILE_LEN = HEADER_LEN + IV_LEN + MAX_KEY_LEN + TAG_LEN;
 
 std::string keyPath(const std::string& bookPath) { return bookPath + ".key"; }
+
+// Older firmware briefly used the adjacent .old name during key replacement.
+// Check its record shape before treating a possibly user-owned sibling as a key.
+bool isWrappedKeyFile(const std::string& path) {
+  FsFile file;
+  if (!Storage.openFileForRead("BKEY", path, file)) return false;
+  uint8_t header[HEADER_LEN] = {};
+  const size_t size = file.size();
+  bool valid = false;
+  if (size >= V1_HEADER_LEN && size <= MAX_FILE_LEN) {
+    const size_t headerSize = size >= HEADER_LEN ? HEADER_LEN : V1_HEADER_LEN;
+    if (file.read(header, headerSize) == static_cast<int>(headerSize) && memcmp(header, MAGIC, sizeof(MAGIC)) == 0) {
+      if (header[4] == 1) {
+        valid = size == V1_HEADER_LEN + IV_LEN + KEY_LEN + TAG_LEN;
+      } else if (header[4] == VERSION && (header[5] == KEY_LEN || header[5] == MAX_KEY_LEN)) {
+        valid = size == HEADER_LEN + IV_LEN + header[5] + TAG_LEN;
+      }
+    }
+  }
+  return file.close() && valid;
+}
 
 // wolfSSL's Aes carries the GCM tables (KBs): heap, not the task stack.
 struct AesGcm {
@@ -93,39 +114,41 @@ bool write(const std::string& bookPath, const uint8_t* key, const size_t keyLen,
   }
   // Stage and swap: a torn write must not replace a working key with garbage.
   const std::string path = keyPath(bookPath);
-  const std::string tmp = path + ".tmp";
+  std::string tmp;
+  if (!FilePublication::stagePath(path, "book-key", tmp)) return false;
   {
     FsFile f;
     const bool ok = Storage.openFileForWrite("BKEY", tmp, f) && f.write(file, fileLen) == fileLen && f.sync();
-    f.close();
-    if (!ok) {
+    if (!f.close() || !ok) {
       LOG_ERR("BKEY", "Write failed: %s", tmp.c_str());
       return false;
     }
   }
-  return DownloadFileSwap::publishFrom(path, tmp);
+  return FilePublication::publish(tmp.c_str(), path.c_str());
 }
 
 bool hasSidecar(const std::string& bookPath) {
   if (!FsHelpers::hasEpubExtension(bookPath)) return false;
   const std::string path = keyPath(bookPath);
-  return Storage.exists(path.c_str()) || Storage.exists((path + ".old").c_str());
+  return Storage.exists(path.c_str()) || (Storage.exists(bookPath.c_str()) && isWrappedKeyFile(path + ".old"));
 }
 
 bool moveFile(const std::string& from, const std::string& to) {
   std::lock_guard<std::mutex> guard(keyLock);
+  if (!FilePublication::recover()) return false;
   if (Storage.exists(to.c_str())) return false;
   const bool keyed = hasSidecar(from);
   if (!keyed) return !hasSidecar(to) && Storage.rename(from.c_str(), to.c_str());
   if (!FsHelpers::hasEpubExtension(to)) return false;
 
   const std::string src = keyPath(from), dst = keyPath(to);
-  if (!DownloadFileSwap::recover(src) || !DownloadFileSwap::recover(dst)) return false;
   // Copy the wrapped bytes before publishing the book. At every reset point
   // the existing book still has its key. An identical staged key permits retry.
   FsFile file;
   uint8_t wrapped[MAX_FILE_LEN];
-  if (!Storage.openFileForRead("BKEY", src, file)) return false;
+  const auto readPath = Storage.exists(src.c_str()) ? src : src + ".old";
+  if (readPath != src && !isWrappedKeyFile(readPath)) return false;
+  if (!Storage.openFileForRead("BKEY", readPath, file)) return false;
   const size_t size = file.size();
   const bool loaded = size && size <= sizeof(wrapped) && file.read(wrapped, size) == static_cast<int>(size);
   if (!file.close() || !loaded) return false;
@@ -136,7 +159,8 @@ bool moveFile(const std::string& from, const std::string& to) {
                       std::memcmp(wrapped, other, size) == 0;
     if (!file.close() || !same) return false;
   } else {
-    const std::string tmp = dst + ".tmp";
+    std::string tmp;
+    if (!FilePublication::stagePath(dst, "book-key", tmp)) return false;
     if (!Storage.openFileForWrite("BKEY", tmp, file)) return false;
     const bool written = file.write(wrapped, size) == size && file.sync();
     if (!file.close() || !written || !Storage.rename(tmp.c_str(), dst.c_str())) {
@@ -156,19 +180,21 @@ size_t read(const std::string& bookPath, uint8_t (&key)[MAX_KEY_LEN], int64_t* e
   std::lock_guard<std::mutex> guard(keyLock);
   memset(key, 0, sizeof(key));
   if (expiresAt) *expiresAt = 0;
-  if (!DownloadFileSwap::recover(keyPath(bookPath))) return 0;
+  if (!FilePublication::recover()) return 0;
   uint8_t file[MAX_FILE_LEN];
   size_t got = 0;
   {
     FsFile f;
-    if (!Storage.openFileForRead("BKEY", keyPath(bookPath), f)) return 0;
+    const auto path = keyPath(bookPath);
+    const auto readPath = Storage.exists(path.c_str()) ? path : path + ".old";
+    if (readPath != path && !isWrappedKeyFile(readPath)) return 0;
+    if (!Storage.openFileForRead("BKEY", readPath, f)) return 0;
     if (f.size() > sizeof(file)) {
       f.close();
       return 0;
     }
     const int n = f.read(file, sizeof(file));
-    f.close();
-    if (n <= 0) return 0;
+    if (!f.close() || n <= 0) return 0;
     got = static_cast<size_t>(n);
   }
   if (got < V1_HEADER_LEN || memcmp(file, MAGIC, sizeof(MAGIC)) != 0) return 0;

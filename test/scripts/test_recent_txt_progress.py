@@ -66,6 +66,9 @@ struct {
     return true;
   }
 } Storage;
+namespace OwnedFileSwap {
+bool recover(const std::string&) { return true; }
+}
 namespace serialization {
 template<class T> bool tryReadPod(FsFile& file, T& value) {
   return file.read(&value, sizeof(value)) == sizeof(value);

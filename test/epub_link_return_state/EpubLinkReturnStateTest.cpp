@@ -172,3 +172,24 @@ TEST_F(EpubLinkReturnStateTest, PreviewMetadataFallbackNeverUsesAnotherSpinesCou
   ASSERT_TRUE(saved);
   EXPECT_EQ(saved->pageCount, 0);
 }
+
+TEST_F(EpubLinkReturnStateTest, ReplacementFailurePreservesPreviousCheckpointBytes) {
+  push(positions, depth, {1, 7});
+  ASSERT_TRUE(save("book", positions, depth, false));
+  const auto original = Storage.files.at("book/links.bin");
+  push(positions, depth, {2, 8});
+  for (int failure = 0; failure < 3; ++failure) {
+    Storage.shortWrite = failure == 0;
+    Storage.failSync = failure == 1;
+    Storage.failClose = failure == 2;
+    EXPECT_FALSE(save("book", positions, depth, false));
+    EXPECT_EQ(original, Storage.files.at("book/links.bin"));
+    EXPECT_EQ(Storage.openHandles, 0);
+  }
+  Storage.failClose = false;
+  ASSERT_TRUE(Storage.rename("book/links.bin", "book/links.bin.bak"));
+  Storage.files["book/links.bin.tmp"] = {2};
+  ASSERT_TRUE(load("book", positions, depth, 10));
+  ASSERT_EQ(depth, 1);
+  EXPECT_EQ(positions[0].pageNumber, 7);
+}

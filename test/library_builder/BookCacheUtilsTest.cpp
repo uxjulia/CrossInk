@@ -12,6 +12,7 @@
 #include "Epub.h"
 #include "HalStorage.h"
 #include "KOReaderDocumentId.h"
+#include "Txt.h"
 
 // Stub only the content hash and completion peek; persistence and sync tracking
 // use the production implementations below.
@@ -87,6 +88,19 @@ TEST_F(BookCacheUtilsTest, ClearsDerivedFilesWhileKeepingReadingState) {
   expectUserStateIntact();
   EXPECT_FALSE(Storage.exists((cachePath + "/book.bin").c_str()));
   EXPECT_EQ(fake::directoryEntriesByPath[cachePath], 0u);
+}
+
+TEST_F(BookCacheUtilsTest, ReplacementPreservesParkedReaderCheckpointAndHistory) {
+  const auto txtCache = Txt("/a.txt", "/.crosspoint").getCachePath();
+  fake::add("/a.txt", "updated text");
+  fake::add(txtCache + "/progress.bin.bak", "old position");
+  fake::add(cachePath + "/dictionary_history.txt.bak", "prior history");
+  ASSERT_TRUE(clearBookCachePreservingUserState("/a.txt"));
+  ASSERT_TRUE(clearBookCachePreservingUserState("/a.epub"));
+  const auto& position = fake::files.at(txtCache + "/progress.bin.bak")->bytes;
+  const auto& history = fake::files.at(cachePath + "/dictionary_history.txt.bak")->bytes;
+  EXPECT_EQ(std::string(position.begin(), position.end()), "old position");
+  EXPECT_EQ(std::string(history.begin(), history.end()), "prior history");
 }
 
 TEST_F(BookCacheUtilsTest, RetryRecoversStatsAfterFailedRestore) {

@@ -117,6 +117,8 @@ struct HalFile {
   int available() const;
   int read(void*, size_t);
   size_t write(const void*, size_t);
+  uint64_t fileSize64() const;
+  uint64_t position() const;
   bool close() {
     opened = false;
     return true;
@@ -180,12 +182,45 @@ struct StorageMock {
   }
   bool readFileToStream(const char* path, NetworkClient&) { return exists(path); }
 } Storage;
+namespace FilePublication {
+constexpr char DAV_STAGE[] = "/.crosspoint/xfer/dav";
+bool recoverSucceeds = true;
+unsigned recoverCalls = 0;
+unsigned publishCalls = 0;
+bool recover() {
+  ++recoverCalls;
+  return recoverSucceeds;
+}
+bool prepare() { return true; }
+bool stagePath(const std::string& destination, const char* kind, std::string& staged) {
+  staged = std::string("/.crosspoint/xfer/") + kind + destination;
+  return true;
+}
+bool publish(const char* staged, const char* destination, bool replace = true, bool requireCleanup = true) {
+  ++publishCalls;
+  constexpr char backup[] = "/.crosspoint/xfer/previous";
+  if (!Storage.exists(destination)) return Storage.rename(staged, destination);
+  if (!replace) return false;
+  if (!Storage.rename(destination, backup)) return false;
+  if (!Storage.rename(staged, destination)) {
+    Storage.rename(backup, destination);
+    return false;
+  }
+  return Storage.remove(backup) || !requireCleanup;
+}
+}  // namespace FilePublication
+namespace webtransfer {
+bool active = false;
+bool isWebSocketUploadInProgress() { return active; }
+}  // namespace webtransfer
 bool HalFile::isDirectory() const { return Storage.files.at(path).directory; }
 size_t HalFile::getName(char* buffer, size_t length) const {
   const auto name = path.substr(path.rfind('/') + 1);
   return snprintf(buffer, length, "%s", name.c_str());
 }
 size_t HalFile::size() const { return Storage.files.at(path).data.size(); }
+uint64_t HalFile::fileSize64() const { return size(); }
+uint64_t HalFile::position() const { return cursor; }
 int HalFile::available() const { return size() - cursor; }
 int HalFile::read(void* buffer, size_t length) {
   length = std::min(length, size() - cursor);
@@ -195,6 +230,7 @@ int HalFile::read(void* buffer, size_t length) {
 }
 size_t HalFile::write(const void* buffer, size_t length) {
   Storage.files.at(path).data.append(static_cast<const char*>(buffer), length);
+  cursor += length;
   return length;
 }
 HalFile HalFile::openNextFile() {
@@ -233,7 +269,11 @@ void clearBookCache(const char*) {}
 namespace bookkey {
 std::set<std::string> sidecars;
 int moves = 0;
-bool hasSidecar(const char* path) { return sidecars.count(Storage.canonical(path)); }
+int sidecarChecks = 0;
+bool hasSidecar(const char* path) {
+  ++sidecarChecks;
+  return sidecars.count(Storage.canonical(path));
+}
 bool moveFile(const char* from, const char* to) {
   ++moves;
   return Storage.rename(from, to);
@@ -243,8 +283,13 @@ bool moveFile(const char* from, const char* to) {
 
 void reset() {
   Storage = {};
+  FilePublication::recoverSucceeds = true;
+  FilePublication::recoverCalls = 0;
+  FilePublication::publishCalls = 0;
+  webtransfer::active = false;
   bookkey::sidecars.clear();
   bookkey::moves = 0;
+  bookkey::sidecarChecks = 0;
   Storage.files = {{"/", {true, ""}},
                    {"/.crosspoint", {true, ""}},
                    {"/.crosspoint/wifi.json", {false, "secret"}},
@@ -350,7 +395,8 @@ int main() {
   bookkey::sidecars.insert("/books/book.epub");
   Storage.files["/books/target.epub"] = {false, "original"};
   assert(request(handler, HTTP_MOVE, "/books/book.epub", "/books/target.epub").status == 409);
-  assert(Storage.mutations == 0 && bookkey::moves == 0);
+  assert(Storage.mutations == 0 && bookkey::moves == 0 && FilePublication::recoverCalls == 1 &&
+         bookkey::sidecarChecks == 1);
   assert(request(handler, HTTP_MOVE, "/books/book.epub", "/books/new.epub").status == 201);
   assert(bookkey::moves == 1);
   reset();
@@ -364,6 +410,42 @@ int main() {
   assert(Storage.files.at("/books/target.epub").data == "book");
   assert(request(handler, HTTP_COPY, "/books/target.epub", "/books/copy.epub").status == 201);
   assert(request(handler, HTTP_DELETE, "/books/copy.epub").status == 204);
+  reset();
+  FilePublication::recoverSucceeds = false;
+  bookkey::sidecars.insert("/books/book.epub");
+  assert(request(handler, HTTP_MOVE, "/books/book.epub", "/books/new.epub").status == 500);
+  assert(FilePublication::recoverCalls == 1 && bookkey::sidecarChecks == 0 && Storage.mutations == 0);
+  reset();
+  Storage.files["/books/directory"] = {true, ""};
+  assert(request(handler, HTTP_MOVE, "/books/book.epub", "/books/directory").status == 409);
+  assert(Storage.mutations == 0);
+  reset();
+  webtransfer::active = true;
+  assert(request(handler, HTTP_DELETE, "/books/book.epub").status == 423);
+  assert(Storage.mutations == 0);
+  WebServer rejectedPut;
+  rejectedPut.verb = HTTP_PUT;
+  rejectedPut.path = "/books/new.epub";
+  HTTPRaw rejectedRaw{RAW_START};
+  handler.raw(rejectedPut, rejectedPut.path, rejectedRaw);
+  assert(Storage.mutations == 0);
+  webtransfer::active = false;
+  reset();
+  Storage.files["/books/kept.txt"] = {false, "original"};
+  WebDAVHandler incompletePut;
+  WebServer interrupted;
+  interrupted.verb = HTTP_PUT;
+  interrupted.path = "/books/kept.txt";
+  const uint8_t partial[] = {'n', 'e', 'w'};
+  HTTPRaw incompleteRaw{RAW_START};
+  incompletePut.raw(interrupted, interrupted.path, incompleteRaw);
+  incompleteRaw = {RAW_WRITE, partial, sizeof(partial), sizeof(partial)};
+  incompletePut.raw(interrupted, interrupted.path, incompleteRaw);
+  incompleteRaw = {RAW_END, nullptr, 0, sizeof(partial) + 1};
+  incompletePut.raw(interrupted, interrupted.path, incompleteRaw);
+  assert(request(incompletePut, HTTP_PUT, interrupted.path.c_str()).status == 500);
+  assert(Storage.files.at("/books/kept.txt").data == "original");
+  assert(!Storage.exists("/.crosspoint/xfer/dav") && FilePublication::publishCalls == 0);
   // Ordinary tilde names remain valid PUT destinations.
   WebServer put;
   put.verb = HTTP_PUT;

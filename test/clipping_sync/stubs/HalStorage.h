@@ -136,3 +136,5 @@ class HalStorage {
   }
 };
 inline HalStorage Storage;
+
+using HalFile = FsFile;

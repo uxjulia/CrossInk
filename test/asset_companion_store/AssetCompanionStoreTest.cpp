@@ -67,7 +67,9 @@ HttpDownloader::DownloadError HttpDownloader::streamUrl(const std::string& url, 
   if (bytes.size() > options.maxBytes) return HTTP_ERROR;
   for (size_t at = 0; at < bytes.size();) {
     const size_t count = std::min(size_t(1024), bytes.size() - at);
+    const size_t before = syncCount;
     if (!data(reinterpret_cast<const uint8_t*>(bytes.data()) + at, count)) return ABORTED;
+    if (syncCount == before) return FILE_ERROR;
     at += count;
     if (truncateStream && truncateStream(url)) return HTTP_ERROR;
     if (progress) progress(at, bytes.size());
@@ -102,6 +104,7 @@ void reset() {
   files.clear();
   directories.clear();
   readers.clear();
+  syncCount = 0;
   responses.clear();
   failRemove.clear();
   failRename.clear();

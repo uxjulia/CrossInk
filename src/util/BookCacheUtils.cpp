@@ -27,6 +27,7 @@ constexpr PreservedCacheFile EPUB_USER_STATE_FILES[] = {
     {"progress.bin.bak", "upload_preserve_progress.bin.bak"},
     {"reader_settings.bin", "upload_preserve_reader_settings.bin"},
     {"dictionary_history.txt", "upload_preserve_dictionary_history.txt"},
+    {"dictionary_history.txt.bak", "upload_preserve_dictionary_history.txt.bak"},
     {"reading_stats_off", "upload_preserve_reading_stats_off"},
     {"sync.bin", "upload_preserve_sync.bin"},
     {"sync.bin.bak", "upload_preserve_sync.bin.bak"},
@@ -34,13 +35,14 @@ constexpr PreservedCacheFile EPUB_USER_STATE_FILES[] = {
 };
 
 constexpr PreservedCacheFile PAGE_PROGRESS_FILES[] = {
-    {"progress.bin", "upload_preserve_progress.bin"}, {"reading_stats_off", "upload_preserve_reading_stats_off"},
-    {"sync.bin", "upload_preserve_sync.bin"},         {"sync.bin.bak", "upload_preserve_sync.bin.bak"},
-    {"sync.bin.tmp", "upload_preserve_sync.bin.tmp"},
+    {"progress.bin.bak", "upload_preserve_progress.bin.bak"},   {"progress.bin", "upload_preserve_progress.bin"},
+    {"reading_stats_off", "upload_preserve_reading_stats_off"}, {"sync.bin", "upload_preserve_sync.bin"},
+    {"sync.bin.bak", "upload_preserve_sync.bin.bak"},           {"sync.bin.tmp", "upload_preserve_sync.bin.tmp"},
 };
 
 constexpr PreservedCacheFile CACHE_CLEAR_USER_STATE_FILES[] = {
     {"dictionary_history.txt", "clear_preserve_dictionary_history.txt"},
+    {"dictionary_history.txt.bak", "clear_preserve_dictionary_history.txt.bak"},
     {"reading_stats_off", "clear_preserve_reading_stats_off"},
     {"sync.bin", "clear_preserve_sync.bin"},
     {"sync.bin.bak", "clear_preserve_sync.bin.bak"},

@@ -6,6 +6,7 @@
 #include <HalStorage.h>
 #include <Logging.h>
 #include <Memory.h>
+#include <OwnedFileSwap.h>
 
 #include <algorithm>
 #include <array>
@@ -165,6 +166,7 @@ bool headerMatches(const IndexHeader& header, const std::string& directory, cons
 bool openValidIndex(const std::string& directory, const bool includePng, const bool requireValidated, HalFile& file,
                     IndexHeader& header, char* cachePath, const size_t cachePathSize) {
   if (!makeCachePath(directory, includePng, cachePath, cachePathSize)) return false;
+  if (!OwnedFileSwap::recover(cachePath)) return false;
   file = Storage.open(cachePath);
   if (!file) return false;
 
@@ -346,8 +348,7 @@ bool buildIndex(const std::string& directory, const bool includePng, const bool 
     return false;
   }
 
-  Storage.remove(cachePath);
-  if (!Storage.rename(tempPath, cachePath)) {
+  if (!OwnedFileSwap::publish(cachePath, tempPath)) {
     Storage.remove(tempPath);
     return false;
   }

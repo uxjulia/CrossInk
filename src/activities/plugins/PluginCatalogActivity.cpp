@@ -3,6 +3,7 @@
 #include <AppVersion.h>
 #include <Arduino.h>
 #include <ArduinoJson.h>
+#include <FilePublication.h>
 #include <FontCacheManager.h>
 #include <FreeInkUIIcon.h>
 #include <GfxRenderer.h>
@@ -1284,7 +1285,13 @@ HttpDownloader::DownloadError PluginCatalogActivity::downloadBook(const Item& it
       std::string body = substituted(manifest.sidecarBody, &item);
       substituteAll(body, "{md5}", md5);
       substituteAll(body, "{dest}", dest);
-      if (!Storage.writeFile(path.c_str(), String(body.c_str())))
+      std::string staged;
+      HalFile file;
+      const bool written = FilePublication::stagePath(path, "plugin-sidecar", staged) &&
+                           Storage.openFileForWrite("PCAT", staged, file) &&
+                           file.write(body.data(), body.size()) == body.size() && file.sync();
+      const bool closed = file.close();
+      if (!written || !closed || !FilePublication::publish(staged.c_str(), path.c_str()))
         LOG_ERR("PCAT", "Sidecar write failed: %s", path.c_str());
     }
   }

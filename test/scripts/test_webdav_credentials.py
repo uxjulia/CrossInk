@@ -20,6 +20,7 @@ normalise = source[start:source.index('\n}', start) + 2]
 with tempfile.TemporaryDirectory(prefix='crossink-webdav-') as folder:
     folder = Path(folder)
     (folder / 'Production.inc').write_text(
+        without_includes('lib/FsHelpers/TransferWriteCheckpoint.h') + '\n' +
         without_includes('src/network/ProtectedPaths.h') + '\n' +
         'namespace FsHelpers {\n' + normalise + '\n}\n' +
         without_includes('src/network/WebDAVHandler.h') + '\n' +

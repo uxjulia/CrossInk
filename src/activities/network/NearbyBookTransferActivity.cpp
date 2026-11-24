@@ -1,6 +1,7 @@
 #include "NearbyBookTransferActivity.h"
 
 #include <Arduino.h>
+#include <FilePublication.h>
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
 #include <I18n.h>
@@ -8,6 +9,7 @@
 #include <Logging.h>
 #include <Memory.h>
 #include <SdCardFontSystem.h>
+#include <TransferWriteCheckpoint.h>
 
 #include <algorithm>
 #include <cstdio>
@@ -360,8 +362,7 @@ void NearbyBookTransferActivity::handlePacket(const nearby::EspNowTransport::Eve
       sendAck();
       return;
     }
-    const size_t written = receiveFile_.write(packet.payload, packet.payloadLength);
-    if (written != packet.payloadLength ||
+    if (!FsHelpers::writeAndCheckpoint(receiveFile_, packet.payload, packet.payloadLength) ||
         !session_.acceptReceivedChunk(packet.sequence, static_cast<size_t>(packet.payloadLength))) {
       const uint8_t failed = RESULT_FAILED;
       sendPacket(nearby::PacketType::Result, peerMac_.data(), 0, &failed, 1);
@@ -390,6 +391,7 @@ void NearbyBookTransferActivity::handlePacket(const nearby::EspNowTransport::Eve
 }
 
 bool NearbyBookTransferActivity::acceptOffer(const bool keepBoth) {
+  replaceExisting_ = state_ == State::CollisionPrompt && !keepBoth;
   receivingScreenDrawn_.store(false, std::memory_order_release);
   acceptPending_ = false;
   setState(State::Validating);
@@ -407,11 +409,8 @@ bool NearbyBookTransferActivity::acceptOffer(const bool keepBoth) {
   }
   // Do not scan the entire FAT to estimate free space here. Each received
   // chunk must be written in full before it is acknowledged or committed.
-  const std::string finalName = fileNameFromPath(finalPath_);
-  tempPath_ = joinPath(destinationFolder_, "." + finalName + ".crossink-part");
-  backupPath_ = joinPath(destinationFolder_, "." + finalName + ".crossink-backup");
-  if (Storage.exists(tempPath_.c_str())) Storage.remove(tempPath_.c_str());
-  if (!Storage.openFileForWrite(LOG_TAG, tempPath_, receiveFile_)) {
+  if (!FilePublication::stagePath(finalPath_, "nearby", tempPath_) ||
+      !Storage.openFileForWrite(LOG_TAG, tempPath_, receiveFile_)) {
     setError(tr(STR_NEARBY_TRANSFER_WRITE_FAILED));
     return false;
   }
@@ -491,22 +490,11 @@ bool NearbyBookTransferActivity::finishReceivedFile(const uint64_t expectedBytes
     setError(tr(STR_NEARBY_TRANSFER_WRITE_FAILED));
     return false;
   }
-  const bool replacing = Storage.exists(finalPath_.c_str());
-  if (replacing) {
-    if (Storage.exists(backupPath_.c_str())) Storage.remove(backupPath_.c_str());
-    if (!Storage.rename(finalPath_.c_str(), backupPath_.c_str())) {
-      Storage.remove(tempPath_.c_str());
-      setError(tr(STR_NEARBY_TRANSFER_REPLACE_FAILED));
-      return false;
-    }
-  }
-  if (!Storage.rename(tempPath_.c_str(), finalPath_.c_str())) {
-    if (replacing) Storage.rename(backupPath_.c_str(), finalPath_.c_str());
+  if (!FilePublication::publish(tempPath_.c_str(), finalPath_.c_str(), replaceExisting_)) {
     Storage.remove(tempPath_.c_str());
     setError(tr(STR_NEARBY_TRANSFER_REPLACE_FAILED));
     return false;
   }
-  if (replacing) Storage.remove(backupPath_.c_str());
   if (!clearBookCachePreservingUserState(finalPath_, true)) {
     LOG_ERR(LOG_TAG, "File received but cache refresh failed: %s", finalPath_.c_str());
     setError(tr(STR_NEARBY_TRANSFER_WRITE_FAILED));

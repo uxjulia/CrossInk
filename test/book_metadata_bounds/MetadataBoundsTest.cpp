@@ -53,6 +53,10 @@ struct FakeStorage {
   }
 } Storage;
 
+namespace OwnedFileSwap {
+bool recover(const std::string&) { return true; }
+}  // namespace OwnedFileSwap
+
 namespace serialization {
 template <typename T>
 bool tryReadPod(HalFile& file, T& value) {

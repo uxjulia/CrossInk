@@ -1,3 +1,4 @@
+#include <FilePublication.h>
 #include <OpdsParser.h>
 #include <gtest/gtest.h>
 
@@ -20,11 +21,16 @@ class HttpDownloaderTest : public testing::TestWithParam<HttpDownloader::Transpo
     httpReceiveBuffers.clear();
     recordReservations.clear();
     nextReply = 0;
-    failWrite = failSync = false;
+    failWrite = failSync = failClose = failDirectoryIteration = false;
+    failFilesystemSync = false;
+    filesystemSyncCalls = 0;
     cardCapacity = cardUsedBytes = 0;
     fileWriteOpens = capacityChecks = 0;
+    fileSyncCallsByPath.clear();
     failRemovePaths.clear();
     failRenameSources.clear();
+    failDirectoryIterationPaths.clear();
+    failGetNamePaths.clear();
   }
 
  protected:
@@ -110,7 +116,7 @@ TEST_P(HttpDownloaderTest, RejectsWrongOffsetsAndChangedSizes) {
     files["/book"] = "old";
     EXPECT_EQ(download(), HttpDownloader::HTTP_ERROR);
     EXPECT_EQ(files["/book"], "old");
-    EXPECT_FALSE(files.count("/book.part"));
+    EXPECT_FALSE(files.count("/.crosspoint/xfer/http-download/book"));
   }
 }
 TEST_P(HttpDownloaderTest, PartialRangeRequiresAnotherRequest) {
@@ -142,6 +148,24 @@ TEST_P(HttpDownloaderTest, FlushFailureKeepsOriginal) {
   failSync = true;
   EXPECT_EQ(download(), HttpDownloader::FILE_ERROR);
   EXPECT_EQ(files["/book"], "old");
+  EXPECT_FALSE(files.count("/.crosspoint/xfer/http-download/book"));
+}
+
+TEST_P(HttpDownloaderTest, CheckpointsEachReceivedBufferBeforePublishing) {
+  files["/book"] = "original";
+  HttpDownloader::DownloadOptions options;
+  options.transport = GetParam();
+  options.stageAsPart = true;
+  options.bufferSize = 512;
+  Reply reply{200, std::string(2048, 'x'), 2048};
+  reply.chunkSize = 512;
+  replies = {reply};
+
+  ASSERT_EQ(HttpDownloader::downloadToFile("https://example.com/book", "/book", nullptr, nullptr, "", "", options),
+            HttpDownloader::OK);
+  EXPECT_EQ(files["/book"], std::string(2048, 'x'));
+  EXPECT_EQ(fileSyncCallsByPath["/.crosspoint/xfer/http-download/book"], 5u);
+  EXPECT_EQ(fileSyncCallsByPath[FilePublication::JOURNAL], 1u);
 }
 TEST_P(HttpDownloaderTest, RejectsHttpsDowngradeAndOmitsCrossOriginCredentials) {
   replies = {{302, "", 0, "", true, "http://example.com/book"}};
@@ -180,10 +204,11 @@ TEST_P(HttpDownloaderTest, SendsIfRangeAndRejectsChangedRepresentation) {
 TEST_P(HttpDownloaderTest, CancelsBetweenRetryAttempts) {
   files["/book"] = "old";
   replies = {{200, "abc", 6, "", false}, {206, "def", 3, "bytes 3-5/6", true}};
-  EXPECT_EQ(download([] { return files["/book.part"].size() == 3; }), HttpDownloader::ABORTED);
+  EXPECT_EQ(download([] { return files["/.crosspoint/xfer/http-download/book"].size() == 3; }),
+            HttpDownloader::ABORTED);
   EXPECT_EQ(nextReply, 1u);
   EXPECT_EQ(files["/book"], "old");
-  EXPECT_FALSE(files.count("/book.part"));
+  EXPECT_FALSE(files.count("/.crosspoint/xfer/http-download/book"));
 }
 
 TEST_P(HttpDownloaderTest, RetriesTransportFailureWithoutLosingPartialBytes) {
@@ -242,17 +267,19 @@ TEST_P(HttpDownloaderTest, ServerNameFallbacksAndCollisionApproval) {
   nextReply = 0;
   replies = {named()};
   files["/Books/Server_Name.epub"] = "old";
-  files["/Books/Server_Name.epub.part"] = "pending";
+  files["/Books/Server_Name.epub.part"] = "personal";
+  files["/Books/Server_Name.epub.old"] = "archived";
+  files["/.crosspoint/xfer/http-download/Books/Server_Name.epub"] = "pending";
   EXPECT_EQ(serverDownload(), HttpDownloader::FILE_EXISTS);
   EXPECT_EQ(files[resolved], "old");
-  EXPECT_EQ(files[resolved + ".part"], "pending");
+  EXPECT_EQ(files["/.crosspoint/xfer/http-download/Books/Server_Name.epub"], "pending");
   nextReply = 0;
   EXPECT_EQ(serverDownload("/Books/Other.epub"), HttpDownloader::FILE_EXISTS);
   nextReply = 0;
   EXPECT_EQ(serverDownload("/Books/Server_Name.epub"), HttpDownloader::OK);
   EXPECT_EQ(files[resolved], "abc");
-  EXPECT_FALSE(files.count(resolved + ".part"));
-  EXPECT_FALSE(files.count(resolved + ".old"));
+  EXPECT_EQ(files[resolved + ".part"], "personal");
+  EXPECT_EQ(files[resolved + ".old"], "archived");
 }
 TEST_P(HttpDownloaderTest, ServerNameResumesSameIdentityWhenHeaderIsOmitted) {
   auto first = named("Exact.epub", "abc", 200, 6, false);
@@ -281,19 +308,19 @@ TEST_P(HttpDownloaderTest, ApprovedReplacementPreservesOriginalOnSdOrValidationF
   EXPECT_EQ(serverDownload("/Books/Server_Name.epub", nullptr, [](const std::string&) { return false; }),
             HttpDownloader::HTTP_ERROR);
   EXPECT_EQ(files["/Books/Server_Name.epub"], "old");
-  EXPECT_FALSE(files.count("/Books/Server_Name.epub.part"));
+  EXPECT_FALSE(files.count("/.crosspoint/xfer/http-download/Books/Server_Name.epub"));
 }
 TEST_P(HttpDownloaderTest, ServerNameCancellationDeletesOnlyItsPartial) {
   files["/Books/Server_Name.epub"] = "old";
   replies = {named("Server_Name.epub", "abc", 200, 6, false)};
   EXPECT_EQ(serverDownload("/Books/Server_Name.epub",
                            [] {
-                             return files.count("/Books/Server_Name.epub.part") &&
-                                    files["/Books/Server_Name.epub.part"].size() == 3;
+                             return files.count("/.crosspoint/xfer/http-download/Books/Server_Name.epub") &&
+                                    files["/.crosspoint/xfer/http-download/Books/Server_Name.epub"].size() == 3;
                            }),
             HttpDownloader::ABORTED);
   EXPECT_EQ(files["/Books/Server_Name.epub"], "old");
-  EXPECT_FALSE(files.count("/Books/Server_Name.epub.part"));
+  EXPECT_FALSE(files.count("/.crosspoint/xfer/http-download/Books/Server_Name.epub"));
 }
 TEST_P(HttpDownloaderTest, Utf8ExtendedNameAndExtensionCaseArePreserved) {
   auto reply = named();
@@ -391,7 +418,7 @@ TEST_P(HttpDownloaderTest, DeclaredLimitRejectsBeforeOpeningFileOrCallingSink) {
   EXPECT_EQ(HttpDownloader::downloadToFile("https://example.com/book", "/book", nullptr, nullptr, "", "", options),
             HttpDownloader::HTTP_ERROR);
   EXPECT_EQ(files["/book"], "original");
-  EXPECT_FALSE(files.count("/book.part"));
+  EXPECT_FALSE(files.count("/.crosspoint/xfer/http-download/book"));
   nextReply = 0;
   size_t received = 0;
   EXPECT_EQ(HttpDownloader::streamUrl(
@@ -429,7 +456,7 @@ TEST_P(HttpDownloaderTest, UnknownLengthLimitChecksEveryChunkBeforeDelivery) {
   files["/book"] = "original";
   EXPECT_EQ(HttpDownloader::downloadToFile("https://example.com/book", "/book", nullptr, nullptr, "", "", options),
             HttpDownloader::HTTP_ERROR);
-  EXPECT_EQ(files["/book.part"], "ab");
+  EXPECT_EQ(files["/.crosspoint/xfer/http-download/book"], "ab");
   EXPECT_EQ(files["/book"], "original");
   EXPECT_EQ(nextReply, 1u);
 }
@@ -468,7 +495,7 @@ TEST_P(HttpDownloaderTest, LimitsIncludeResumedBytesAndTotalFromContentRange) {
   EXPECT_EQ(HttpDownloader::downloadToFile("https://example.com/book", "/book", nullptr, nullptr, "", "", options),
             HttpDownloader::OK);
   EXPECT_EQ(files["/book"], "abcdef");
-  files["/book.part"] = "abc";
+  files["/.crosspoint/xfer/http-download/book"] = "abc";
   options.resumePartial = true;
   options.maxBytes = 5;
   nextReply = 0;
@@ -476,7 +503,7 @@ TEST_P(HttpDownloaderTest, LimitsIncludeResumedBytesAndTotalFromContentRange) {
   EXPECT_EQ(HttpDownloader::downloadToFile("https://example.com/book", "/book", nullptr, nullptr, "", "", options),
             HttpDownloader::HTTP_ERROR);
   EXPECT_EQ(files["/book"], "abcdef");
-  EXPECT_FALSE(files.count("/book.part"));
+  EXPECT_FALSE(files.count("/.crosspoint/xfer/http-download/book"));
 }
 
 TEST_P(HttpDownloaderTest, UrlPolicyAppliesBeforeInitialAndEachRedirectConnection) {
@@ -530,7 +557,7 @@ TEST_P(HttpDownloaderTest, ContextValidatorChecksStagedFileBeforePublication) {
   std::string expected = "wrong";
   options.validationContext = &expected;
   options.validateWithContext = [](const std::string& path, void* context) {
-    EXPECT_EQ(path, "/book.part");
+    EXPECT_EQ(path, "/.crosspoint/xfer/http-download/book");
     EXPECT_EQ(files["/book"], "original");
     return files[path] == *static_cast<std::string*>(context);
   };
@@ -539,7 +566,7 @@ TEST_P(HttpDownloaderTest, ContextValidatorChecksStagedFileBeforePublication) {
   EXPECT_EQ(HttpDownloader::downloadToFile("https://example.com/book", "/book", nullptr, nullptr, "", "", options),
             HttpDownloader::HTTP_ERROR);
   EXPECT_EQ(files["/book"], "original");
-  EXPECT_FALSE(files.count("/book.part"));
+  EXPECT_FALSE(files.count("/.crosspoint/xfer/http-download/book"));
   expected = "abc";
   nextReply = 0;
   EXPECT_EQ(HttpDownloader::downloadToFile("https://example.com/book", "/book", nullptr, nullptr, "", "", options),
@@ -550,30 +577,30 @@ TEST_P(HttpDownloaderTest, ContextValidatorChecksStagedFileBeforePublication) {
 TEST_P(HttpDownloaderTest, PublicationCleanupFailureReportsFailureAndRecoversWithoutLosingSource) {
   files["/book"] = "original";
   replies = {{200, "abc", 3}};
-  failRemovePaths.insert("/book.old");
+  failRemovePaths.insert(FilePublication::BACKUP);
   EXPECT_EQ(download(nullptr, true), HttpDownloader::FILE_ERROR);
   EXPECT_EQ(files["/book"], "abc");
-  EXPECT_EQ(files["/book.old"], "original");
-  EXPECT_FALSE(DownloadFileSwap::recover("/book"));
+  EXPECT_EQ(files[FilePublication::BACKUP], "original");
+  EXPECT_FALSE(FilePublication::recover());
   EXPECT_EQ(files["/book"], "abc");
   failRemovePaths.clear();
-  EXPECT_TRUE(DownloadFileSwap::recover("/book"));
+  EXPECT_TRUE(FilePublication::recover());
   EXPECT_EQ(files["/book"], "abc");
-  EXPECT_FALSE(files.count("/book.old"));
+  EXPECT_FALSE(files.count(FilePublication::BACKUP));
 }
 
 TEST_P(HttpDownloaderTest, FailedPublishAndRollbackLeaveRecoverableOriginal) {
   files["/book"] = "original";
   replies = {{200, "abc", 3}};
-  failRenameSources.insert("/book.part");
-  failRenameSources.insert("/book.old");
+  failRenameSources.insert("/.crosspoint/xfer/http-download/book");
+  failRenameSources.insert(FilePublication::BACKUP);
   EXPECT_EQ(download(), HttpDownloader::FILE_ERROR);
   EXPECT_FALSE(files.count("/book"));
-  EXPECT_EQ(files["/book.old"], "original");
+  EXPECT_EQ(files[FilePublication::BACKUP], "original");
   failRenameSources.clear();
-  EXPECT_TRUE(DownloadFileSwap::recover("/book"));
+  EXPECT_TRUE(FilePublication::recover());
   EXPECT_EQ(files["/book"], "original");
-  EXPECT_FALSE(files.count("/book.old"));
+  EXPECT_FALSE(files.count(FilePublication::BACKUP));
 }
 
 TEST_P(HttpDownloaderTest, ExactSizeMismatchNeverValidatesOrPublishesStagedFile) {
@@ -593,7 +620,7 @@ TEST_P(HttpDownloaderTest, ExactSizeMismatchNeverValidatesOrPublishesStagedFile)
             HttpDownloader::HTTP_ERROR);
   EXPECT_FALSE(validated);
   EXPECT_EQ(files["/book"], "original");
-  EXPECT_FALSE(files.count("/book.part"));
+  EXPECT_FALSE(files.count("/.crosspoint/xfer/http-download/book"));
   EXPECT_EQ(nextReply, 1u);
 }
 
@@ -619,14 +646,170 @@ TEST_P(HttpDownloaderTest, UnknownLengthBodyAtMaximumIsAccepted) {
 TEST_P(HttpDownloaderTest, LegacyPublicationCleanupFailureStillReportsSuccess) {
   files["/book"] = "original";
   replies = {{200, "abc", 3}};
-  failRemovePaths.insert("/book.old");
+  failRemovePaths.insert(FilePublication::BACKUP);
   EXPECT_EQ(download(), HttpDownloader::OK);
   EXPECT_EQ(files["/book"], "abc");
-  EXPECT_EQ(files["/book.old"], "original");
+  EXPECT_EQ(files[FilePublication::BACKUP], "original");
   failRemovePaths.clear();
-  EXPECT_TRUE(DownloadFileSwap::recover("/book"));
+  EXPECT_TRUE(FilePublication::recover());
   EXPECT_EQ(files["/book"], "abc");
-  EXPECT_FALSE(files.count("/book.old"));
+  EXPECT_FALSE(files.count(FilePublication::BACKUP));
+}
+
+TEST_P(HttpDownloaderTest, BootRecoveryRemovesOnlyFixedNonresumableStages) {
+  files["/book.epub"] = "complete new book";
+  files[FilePublication::JOURNAL] = "/book.epub";
+  files[FilePublication::BACKUP] = "previous book";
+  files[FilePublication::HTTP_STAGE] = "partial http";
+  files[FilePublication::WS_STAGE] = "partial websocket";
+  files[FilePublication::DAV_STAGE] = "partial dav";
+  files[FilePublication::USB_SERIAL_STAGE] = "partial serial";
+  files["/.crosspoint/xfer/http-download/book.epub.part"] = "resumable download";
+
+  ASSERT_TRUE(FilePublication::recover());
+  EXPECT_TRUE(files.count(FilePublication::HTTP_STAGE));
+  EXPECT_TRUE(files.count(FilePublication::WS_STAGE));
+  EXPECT_TRUE(files.count(FilePublication::DAV_STAGE));
+  EXPECT_TRUE(files.count(FilePublication::USB_SERIAL_STAGE));
+
+  ASSERT_TRUE(FilePublication::recoverAtBoot());
+  EXPECT_EQ(files["/book.epub"], "complete new book");
+  EXPECT_FALSE(files.count(FilePublication::BACKUP));
+  EXPECT_FALSE(files.count(FilePublication::JOURNAL));
+  EXPECT_FALSE(files.count(FilePublication::HTTP_STAGE));
+  EXPECT_FALSE(files.count(FilePublication::WS_STAGE));
+  EXPECT_FALSE(files.count(FilePublication::DAV_STAGE));
+  EXPECT_FALSE(files.count(FilePublication::USB_SERIAL_STAGE));
+  EXPECT_EQ(files["/.crosspoint/xfer/http-download/book.epub.part"], "resumable download");
+#ifdef SIMULATOR
+  EXPECT_EQ(filesystemSyncCalls, 0u);
+#else
+  EXPECT_EQ(filesystemSyncCalls, 1u);
+#endif
+}
+
+TEST_P(HttpDownloaderTest, BootCleanupWaitsForSuccessfulJournalRecovery) {
+  files[FilePublication::JOURNAL] = "relative-path";
+  files[FilePublication::BACKUP] = "previous book";
+  files[FilePublication::HTTP_STAGE] = "partial upload";
+
+  EXPECT_FALSE(FilePublication::recoverAtBoot());
+  EXPECT_EQ(files[FilePublication::JOURNAL], "relative-path");
+  EXPECT_EQ(files[FilePublication::BACKUP], "previous book");
+  EXPECT_EQ(files[FilePublication::HTTP_STAGE], "partial upload");
+  EXPECT_EQ(filesystemSyncCalls, 0u);
+}
+
+TEST_P(HttpDownloaderTest, BootCleanupReportsFailedFilesystemSync) {
+  files[FilePublication::HTTP_STAGE] = "partial upload";
+  failFilesystemSync = true;
+
+#ifdef SIMULATOR
+  EXPECT_TRUE(FilePublication::recoverAtBoot());
+  EXPECT_EQ(filesystemSyncCalls, 0u);
+#else
+  EXPECT_FALSE(FilePublication::recoverAtBoot());
+  EXPECT_EQ(filesystemSyncCalls, 1u);
+#endif
+  EXPECT_FALSE(files.count(FilePublication::HTTP_STAGE));
+}
+
+TEST_P(HttpDownloaderTest, DirectoryLookupFailureRetainsJournalAndPreviousFile) {
+  files[FilePublication::JOURNAL] = "/book";
+  files[FilePublication::BACKUP] = "original";
+  failDirectoryIteration = true;
+  EXPECT_FALSE(FilePublication::recover());
+  EXPECT_EQ(files[FilePublication::JOURNAL], "/book");
+  EXPECT_EQ(files[FilePublication::BACKUP], "original");
+  EXPECT_FALSE(files.count("/book"));
+
+  failDirectoryIteration = false;
+  EXPECT_TRUE(FilePublication::recover());
+  EXPECT_EQ(files["/book"], "original");
+  EXPECT_FALSE(files.count(FilePublication::JOURNAL));
+  EXPECT_FALSE(files.count(FilePublication::BACKUP));
+}
+
+TEST_P(HttpDownloaderTest, FailedNameReadForPreviousKeepsRecoveryJournal) {
+  files[FilePublication::JOURNAL] = "/book";
+  files[FilePublication::BACKUP] = "original";
+  failGetNamePaths.insert(FilePublication::BACKUP);
+  EXPECT_FALSE(FilePublication::recover());
+  EXPECT_EQ(files[FilePublication::JOURNAL], "/book");
+  EXPECT_EQ(files[FilePublication::BACKUP], "original");
+  EXPECT_FALSE(files.count("/book"));
+}
+
+TEST_P(HttpDownloaderTest, MissingBackupIsConfirmedByCompleteDirectoryScan) {
+  files[FilePublication::JOURNAL] = "/book";
+  files["/book"] = "original";
+  failDirectoryIterationPaths.insert(FilePublication::DIRECTORY);
+  EXPECT_FALSE(FilePublication::recover());
+  EXPECT_EQ(files[FilePublication::JOURNAL], "/book");
+  EXPECT_EQ(files["/book"], "original");
+
+  failDirectoryIterationPaths.clear();
+  EXPECT_TRUE(FilePublication::recover());
+  EXPECT_FALSE(files.count(FilePublication::JOURNAL));
+  EXPECT_EQ(files["/book"], "original");
+}
+
+TEST_P(HttpDownloaderTest, FailedJournalWritesNeverMoveExistingDestination) {
+  for (const int failure : {0, 1, 2, 3}) {
+    files.clear();
+    failWrite = failure == 0;
+    failSync = failure == 1;
+    if (failure == 2) failClosePaths.insert(FilePublication::JOURNAL);
+    if (failure == 3) failRenameSources.insert("/book");
+    files["/book"] = "original";
+    const char* staged = "/.crosspoint/xfer/http-download/book";
+    files[staged] = "replacement";
+
+    EXPECT_FALSE(FilePublication::publish(staged, "/book"));
+    EXPECT_EQ(files["/book"], "original");
+    EXPECT_FALSE(files.count(FilePublication::BACKUP));
+
+    failWrite = failSync = false;
+    failClosePaths.clear();
+    failRenameSources.clear();
+    EXPECT_TRUE(FilePublication::recover());
+    EXPECT_EQ(files["/book"], "original");
+    EXPECT_FALSE(files.count(FilePublication::JOURNAL));
+  }
+}
+
+TEST_P(HttpDownloaderTest, RejectsDestinationAliasesAndPathsInsideTransactionDirectory) {
+  for (const char* path :
+       {"/.crosspoint/xfer", "/.crosspoint/xfer/book", "/.crosspoint./xfer/book", "/CROSSP~1/xfer/book",
+        "/CRO~ABCD/xfer/previous", "/.crosspoint/xfer/../book", "/.crosspoint/xfer/destination"}) {
+    EXPECT_FALSE(FilePublication::isSafeDestination(path)) << path;
+    EXPECT_FALSE(FilePublication::publish("/stage", path)) << path;
+  }
+  EXPECT_TRUE(FilePublication::isSafeDestination("/books/one.epub"));
+}
+
+TEST_P(HttpDownloaderTest, DirectoryCannotBePublishedAsAFile) {
+  files["/book.epub"] = "original";
+  files["/folder/child"] = "data";
+  EXPECT_FALSE(FilePublication::publish("/folder", "/book.epub"));
+  EXPECT_EQ(files["/book.epub"], "original");
+}
+
+TEST_P(HttpDownloaderTest, LongUnrelatedNamesDoNotBlockTransactionRecovery) {
+  files["/A Very Long Book Title With A Hundred Characters In The Filename 0123456789.epub"] = "book";
+  EXPECT_TRUE(FilePublication::recover());
+
+  files.clear();
+  files["/.crosspoint/epub_0123456789abcdef0123456789abcdef/metadata.bin"] = "cache";
+  EXPECT_TRUE(FilePublication::recover());
+
+  const char* staged = "/.crosspoint/xfer/http-download/book.epub";
+  files["/.crosspoint/xfer/epub_0123456789abcdef0123456789abcdef/metadata.bin"] = "cache";
+  files["/book.epub"] = "original";
+  files[staged] = "replacement";
+
+  EXPECT_TRUE(FilePublication::publish(staged, "/book.epub"));
+  EXPECT_EQ(files["/book.epub"], "replacement");
 }
 
 TEST_P(HttpDownloaderTest, FontStyleUnstagedDownloadKeepsResumablePartialOnTransportFailure) {
@@ -659,7 +842,7 @@ TEST_P(HttpDownloaderTest, ExpectedSizePreflightsUnknownLengthBeforeOpeningOrWri
   EXPECT_EQ(fileWriteOpens, 0u);
   EXPECT_EQ(capacityChecks, 1u);
   EXPECT_EQ(files["/book"], "original");
-  EXPECT_FALSE(files.count("/book.part"));
+  EXPECT_FALSE(files.count("/.crosspoint/xfer/http-download/book"));
   EXPECT_EQ(nextReply, 1u);
 }
 
@@ -678,7 +861,7 @@ TEST_P(HttpDownloaderTest, ExactFreeSpaceAllowsUnknownLengthReplacementWithOldSo
   EXPECT_EQ(HttpDownloader::downloadToFile("https://example.com/book", "/book", nullptr, nullptr, "", "", options),
             HttpDownloader::OK);
   EXPECT_EQ(files["/book"], "abcdef");
-  EXPECT_FALSE(files.count("/book.old"));
+  EXPECT_FALSE(files.count(FilePublication::BACKUP));
   EXPECT_EQ(capacityChecks, 1u);
 }
 
@@ -688,7 +871,7 @@ TEST_P(HttpDownloaderTest, ResumedPreflightRequiresOnlyRemainingBytes) {
   options.stageAsPart = options.checkFreeSpace = options.resumePartial = true;
   options.expectedBytes = 6;
   files["/book"] = "original";
-  files["/book.part"] = "abc";
+  files["/.crosspoint/xfer/http-download/book"] = "abc";
   cardCapacity = 14;
   cardUsedBytes = 11;  // Existing source and partial are both already on SD.
   replies = {{206, "def", 3, "bytes 3-5/6"}};
@@ -724,7 +907,7 @@ TEST_P(HttpDownloaderTest, UnknownCapacityFallsBackToSdWriteError) {
             HttpDownloader::FILE_ERROR);
   EXPECT_EQ(fileWriteOpens, 1u);
   EXPECT_EQ(files["/book"], "original");
-  EXPECT_FALSE(files.count("/book.part"));
+  EXPECT_FALSE(files.count("/.crosspoint/xfer/http-download/book"));
 }
 
 TEST_P(HttpDownloaderTest, UsedCapacityAboveTotalSaturatesWithoutUnsignedWrap) {

@@ -75,3 +75,41 @@ TEST_F(CrossPointStateTest, ReloadInvalidatesPreviousSnapshot) {
   ASSERT_TRUE(APP_STATE.loadFromFile());
   EXPECT_EQ(APP_STATE.openEpubPath, "/old.epub");
 }
+
+TEST_F(CrossPointStateTest, FailedSaveLeavesPreviousStateIntactAndCanRetry) {
+  APP_STATE.openEpubPath = "/original.epub";
+  ASSERT_TRUE(APP_STATE.saveToFile());
+  const auto original = Storage.readFile(STATE_PATH);
+  APP_STATE.openEpubPath = "/updated.epub";
+  for (int fault = 0; fault < 3; ++fault) {
+    Storage.shortWrite = fault == 0;
+    Storage.failSync = fault == 1;
+    Storage.failClose = fault == 2;
+    EXPECT_FALSE(APP_STATE.saveToFile());
+    EXPECT_EQ(Storage.readFile(STATE_PATH), original);
+  }
+  Storage.failClose = false;
+  ASSERT_TRUE(APP_STATE.saveToFile());
+  ASSERT_TRUE(APP_STATE.loadFromFile());
+  EXPECT_EQ(APP_STATE.openEpubPath, "/updated.epub");
+}
+
+TEST_F(CrossPointStateTest, BootReadsParkedStateWhenRollbackRenameFails) {
+  const std::string backup = std::string(STATE_PATH) + ".bak";
+  Storage.put(backup, R"({"openEpubPath":"/original.epub"})");
+  Storage.put(std::string(STATE_PATH) + ".tmp", "{");
+  Storage.failNextRenameFrom(backup);
+  ASSERT_TRUE(APP_STATE.loadFromFile());
+  EXPECT_EQ(APP_STATE.openEpubPath, "/original.epub");
+  EXPECT_TRUE(Storage.exists(backup.c_str()));
+}
+
+TEST_F(CrossPointStateTest, RestoresCompleteLegacyTemporaryStateOnBoot) {
+  Storage.put(std::string(STATE_PATH) + ".tmp", R"({"openEpubPath":"/legacy.epub"})");
+
+  ASSERT_TRUE(APP_STATE.loadFromFile());
+
+  EXPECT_EQ(APP_STATE.openEpubPath, "/legacy.epub");
+  EXPECT_TRUE(Storage.exists(STATE_PATH));
+  EXPECT_FALSE(Storage.exists((std::string(STATE_PATH) + ".tmp").c_str()));
+}

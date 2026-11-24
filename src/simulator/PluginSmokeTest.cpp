@@ -4,6 +4,7 @@
 #include <BookKey.h>
 #include <ContentProtection.h>
 #include <Epub.h>
+#include <FilePublication.h>
 #include <GfxRenderer.h>
 #include <HalStorage.h>
 #include <LibraryBuilder.h>
@@ -293,8 +294,42 @@ struct PluginCatalogSmokeTest {
                       bookkey::read(moved, unwrapped, &expiry) == bits / 8 && expiry == 0 &&
                       freeink::content::openProtectedBook(moved, error),
                   "Moved EPUB lost its key");
+          require(Storage.exists((path + ".key.old").c_str()), "Move discarded a legacy key backup");
+          require(Storage.remove((path + ".key.old").c_str()), "Could not clean legacy key fixture");
           require(bookkey::moveFile(moved, path), "Could not restore protected fixture");
+
+          const std::string ordinary = "/Books/sd-write-old-name.epub";
+          const std::string unrelatedBackup = ordinary + ".key.old";
+          const uint8_t dummy[] = {'b', 'o', 'o', 'k'};
+          HalFile ordinaryFile;
+          require(Storage.openFileForWrite("PLUGINTEST", ordinary, ordinaryFile) &&
+                      ordinaryFile.write(dummy, sizeof(dummy)) == sizeof(dummy) && ordinaryFile.close(),
+                  "Could not create unrelated sidecar fixture");
+          require(Storage.openFileForWrite("PLUGINTEST", unrelatedBackup, ordinaryFile) &&
+                      ordinaryFile.write(dummy, sizeof(dummy)) == sizeof(dummy) && ordinaryFile.close(),
+                  "Could not create unrelated backup fixture");
+          require(!bookkey::hasSidecar(ordinary) && bookkey::moveFile(ordinary, ordinary + ".moved") &&
+                      Storage.exists(unrelatedBackup.c_str()),
+                  "Unrelated .old file was used as a book key");
+          require(Storage.remove((ordinary + ".moved").c_str()) && Storage.remove(unrelatedBackup.c_str()),
+                  "Could not clean unrelated sidecar fixture");
           require(bookkey::write(path, key, bits / 8, 1), "Expiring key write failed");
+          const std::string interruptedMove = path.substr(0, path.size() - 5) + "-recovered.epub";
+          const std::string keyPath = path + ".key";
+          require(FilePublication::prepare() && Storage.rename(keyPath.c_str(), FilePublication::BACKUP),
+                  "Could not stage interrupted key publication");
+          HalFile journal;
+          const bool opened = Storage.openFileForWrite("PLUGINTEST", FilePublication::JOURNAL, journal);
+          const bool written =
+              opened &&
+              journal.write(reinterpret_cast<const uint8_t*>(keyPath.data()), keyPath.size()) == keyPath.size() &&
+              journal.sync();
+          const bool closed = journal.close();
+          require(written && closed, "Could not write interrupted key publication journal");
+          require(bookkey::moveFile(path, interruptedMove) && !Storage.exists(path.c_str()) &&
+                      bookkey::read(interruptedMove, unwrapped, &expiry) == bits / 8 && expiry == 1,
+                  "Book move stranded a key awaiting recovery");
+          require(bookkey::moveFile(interruptedMove, path), "Could not restore recovered-key fixture");
           Epub expired(path, "/.crosspoint");
           require(!expired.load() && expired.getLastLoadFailure() == Epub::OpenFailure::LoanExpired,
                   "Expired book allowed");

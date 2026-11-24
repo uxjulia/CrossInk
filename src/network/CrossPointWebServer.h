@@ -36,6 +36,7 @@ class CrossPointWebServer {
     String path = "/";
     size_t size = 0;
     bool success = false;
+    int errorStatus = 0;
     String error = "";
 
     // Upload write buffer - batches small writes into larger SD card operations
@@ -139,7 +140,9 @@ class CrossPointWebServer {
     HalFile file;
     std::string familyName;
     std::string filePath;
+    std::string stagePath;
     bool valid = false;
+    int errorStatus = 0;
     size_t bytesWritten = 0;
     static constexpr size_t BUFFER_SIZE = 4096;
     std::vector<uint8_t> buffer;

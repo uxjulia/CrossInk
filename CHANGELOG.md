@@ -92,7 +92,7 @@
 - Dither EPUB illustrations only after resizing, with separate output for Gray and B&W (including Night Mode).
 - Readest and other plugins can send several queued reading sessions on one sleep instead of one per sleep.
 - Keep EPUB text selection following your finger across lines during e-ink refreshes, including when you lift to look up or clip the selection.
-
+- Preserve existing books, fonts, settings, and reading positions when SD saves or transfers are interrupted. Keep USB Drive mounted while the computer sleeps and finish pending writes before ejecting.
 
 ## [v1.6.1] - 2026-10-03
 
