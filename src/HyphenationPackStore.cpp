@@ -35,7 +35,9 @@ bool writeFlash(void*, size_t offset, const void* bytes, size_t size) {
 bool eraseFlash(void*, size_t offset, size_t size) { return contains(offset, size) && flash.erase(offset, size); }
 bool supported(const char* code, uint8_t prefix, uint8_t suffix) {
   const auto* language = findLanguageEntry(code);
-  return language && !language->hyphenator && prefix == 2 && suffix == 2;
+  // Finnish already shipped as a local SD pack. Keep its extended bank
+  // identity stable when adding it to the downloadable language list.
+  return language && !language->hyphenator && std::strcmp(code, "fi") && prefix == 2 && suffix == 2;
 }
 bool localSupported(const char* code, uint8_t prefix, uint8_t suffix) {
   return code && code[0] >= 'a' && code[0] <= 'z' && code[1] >= 'a' && code[1] <= 'z' && !code[2] &&
@@ -152,7 +154,8 @@ size_t listLocalPacks(LocalPack* out, size_t capacity) {
 hyphenation_pack::Result validateSource(const char* path, const char* code, void* context,
                                         bool (*continueWork)(void*)) {
   using hyphenation_pack::Result;
-  if (!supported(code, 2, 2)) return Result::Unsupported;
+  const auto* language = findLanguageEntry(code);
+  if (!language || language->hyphenator) return Result::Unsupported;
   if (!initialize(false)) return Result::Unavailable;
   FsFile file;
   if (!Storage.openFileForRead("HYPH", path, file)) return Result::Io;
@@ -162,7 +165,7 @@ hyphenation_pack::Result validateSource(const char* path, const char* code, void
   options.context = context;
   options.continueWork = continueWork;
   hyphenation_pack::Entry entry;
-  const auto result = hyphenation_pack::validate({&file, file.size(), readInput}, supported, entry, options);
+  const auto result = hyphenation_pack::validate({&file, file.size(), readInput}, localSupported, entry, options);
   file.close();
   if (result != Result::Ok) LOG_ERR("HYPH", "Download validation: %s", hyphenation_pack::resultName(result));
   return result;

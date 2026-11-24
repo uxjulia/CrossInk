@@ -149,6 +149,8 @@ with tempfile.TemporaryDirectory(prefix="crossink-language-") as temporary:
         installed = run("install", code, generation, f"/.crossink/languages/{path.name}")
         code, generation = installed.split("|")
         assert run("boot", code, generation).startswith(code + "|")
+        if code in {"AZ", "BS", "BG", "ID", "NB", "FA"}:
+            assert run("lookup", code, generation, "STR_DOWNLOAD_LANGUAGES") != "Download Languages"
     # Duplicate identities remain visible and disabled, not arbitrarily selected.
     shutil.copy2(languages / "french.yaml", languages / "french-copy.yaml")
     assert any(line.startswith("FR|") and "|1|" in line for line in run("scan").splitlines())

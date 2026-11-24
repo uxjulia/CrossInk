@@ -20,8 +20,9 @@ rustc --edition 2021 --test -O tests/generate.rs -o hypher-generate
 the release ZIP without a network fetch or Rust toolchain. The CPHY v1
 wrapper leaves the serialized trie payload unchanged, adjusts its root
 offset to account for the replaced header, and adds the language code,
-2/2 minima, length and CRC-32. These files are for SD installation; the
-legacy Wi-Fi catalog and its nine existing packs are not changed.
+2/2 minima, length and CRC-32. Finnish is also offered over Wi-Fi through
+its own catalog, using the same pack bytes. The legacy Wi-Fi catalog and
+its nine existing packs are not changed. The other extra packs remain SD-only.
 
 Each pattern source carries the original authorship, license and notices.
 The separate Hypher MIT and Apache licenses in `hyphenation-sources/` do

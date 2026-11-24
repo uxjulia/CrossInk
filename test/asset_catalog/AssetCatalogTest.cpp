@@ -76,6 +76,19 @@ TEST(AssetCatalog, SelectedAssetKeepsContractsAfterCatalogRelease) {
   EXPECT_EQ(std::string(path), "snapshots/" + revision + "/translation/" + hash + ".yaml");
 }
 
+TEST(AssetCatalog, FinnishSupplementKeepsLegacyDiscoveryAndValidationSeparate) {
+  Options options;
+  options.finnishSupplement = true;
+  char path[MAX_CATALOG_PATH];
+  EXPECT_TRUE(catalogPath(options, path, sizeof(path)));
+  EXPECT_STREQ(path, "catalogs/stable/hyphenation/fi.json");
+  EXPECT_TRUE(parse(catalog(entry("fi")), options));
+  EXPECT_FALSE(parse(catalog(entry("fr")), options));
+  EXPECT_FALSE(parse(catalog(entry("fi") + "," + entry("fi")), options));
+  EXPECT_FALSE(parse(catalog(entry("fi"))));
+  EXPECT_TRUE(parse(catalog(entry("fr"))));
+}
+
 TEST(AssetCatalog, DiscoveryPathsKeepContractsAndChannelsSeparate) {
   char path[MAX_CATALOG_PATH];
   auto options = translationOptions();

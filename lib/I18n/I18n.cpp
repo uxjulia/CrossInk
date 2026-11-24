@@ -59,7 +59,7 @@ void I18n::selectBuiltin(Language language) {
   std::strcpy(active_.code, LANGUAGE_CODES[index]);
   std::strcpy(active_.name, LANGUAGE_NAMES[index]);
   std::strcpy(active_.keyboard, LANGUAGE_CODES[index]);
-  active_.rtl = language == Language::HE || language == Language::AR;
+  active_.rtl = language == Language::HE || language == Language::AR || language == Language::FA;
 }
 I18n& I18n::getInstance() {
   static I18n instance;

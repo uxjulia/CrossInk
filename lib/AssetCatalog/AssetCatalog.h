@@ -42,6 +42,7 @@ struct Options {
   const char* expectedKeyset = nullptr;
   bool (*supportedTranslation)(const char* code, void* context) = nullptr;
   void* context = nullptr;
+  bool finnishSupplement = false;  // Separate URL; old firmware keeps the nine-entry catalog.
 };
 
 // Translation discovery is scoped to the firmware contract; hyphenation stays shared.

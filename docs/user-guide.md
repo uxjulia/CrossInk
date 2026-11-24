@@ -384,7 +384,7 @@ Which entries you see depends on your device. Button devices show **Front Button
 
 - **About**: Shows the device model, software version, screen, storage, and memory details. Use the buttons or swipe to scroll; **Back** returns to Settings. The figures are captured when the screen opens; reopen it for a fresh snapshot. See [Troubleshooting](./troubleshooting.md#device-information). You can also choose **Export** to save a support file (`/crossink-support.json`) to the SD card, with device and global settings alone or with the last opened EPUB's saved settings without its title or filename. Nothing is uploaded. See [export coverage and privacy](./troubleshooting.md#export-support-information).
 
-- **Language** (in **Device**): Set the menu language. CrossInk supports 28 languages: English, Spanish, French, German, Czech, Brazilian Portuguese, Russian, Swedish, Romanian, Catalan, Ukrainian, Belarusian, Italian, Polish, Finnish, Danish, Dutch, Turkish, Kazakh, Hungarian, Lithuanian, Slovenian, Valencian, Hebrew, Vietnamese, Slovak, Portuguese (Portugal), and Arabic. English is included. Download other languages on the reader or install them from SD; see [Languages](./languages.md).
+- **Language** (in **Device**): Set the menu language. English is included. Download other interface languages on the reader or install them from SD; see [Languages](./languages.md). Text that has not been translated appears in English.
 
 #### 3.6.5 OPDS Servers (Multiple Libraries)
 

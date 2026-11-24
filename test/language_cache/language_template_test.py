@@ -61,7 +61,7 @@ for language in catalog["languages"]:
     assert starter["_template_source_commit"] == catalog["sourceCommit"]
     assert starter["_template_source_sha256"] == catalog["englishSourceSha256"]
     assert starter["_template_keyset_sha256"] == catalog["keysetSha256"]
-    assert starter["_direction"] == ("rtl" if code in ("AR", "HE") else "ltr")
+    assert starter["_direction"] == ("rtl" if code in ("AR", "HE", "FA") else "ltr")
     assert starter["_keyboard"] == code
     expected = {}
     for key, value in sources[code].items():
@@ -81,7 +81,13 @@ for language in catalog["languages"]:
     assert cache_bytes <= 65536
     assert len(data) <= 262144 and all(len(line) <= 2047 for line in data.split(b"\n"))
 assert not unsafe, f"Community translations contain invalid printf contracts: {unsafe}"
-assert len([item for item in catalog["languages"] if "translation" in item]) == 28
+new_locales = {"AZ", "BS", "BG", "ID", "NB", "FA"}
+assert len([item for item in catalog["languages"] if "translation" in item]) == 34
+assert "OOK" not in {item["code"] for item in catalog["languages"]}
+assert new_locales <= {item["code"] for item in catalog["languages"] if "translation" in item}
+for code in new_locales:
+    for key in ("STR_SETTINGS_TITLE", "STR_DOWNLOAD_LANGUAGES", "STR_HYPHENATION_PACKS"):
+        assert sources[code][key] != english[key], f"{code} missing localized {key}"
 
 # The exported budget is the production on-flash layout, not just text length.
 header = (root / "lib/LanguageCache/LanguageCache.h").read_text()

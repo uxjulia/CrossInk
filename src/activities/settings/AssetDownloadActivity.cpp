@@ -202,7 +202,13 @@ void AssetDownloadActivity::fetch() {
     showError(StrId::STR_MEMORY_ERROR, Pending::Exit);
     return;
   }
+  const auto languages = getLanguageEntries();
+  const bool translation = kind_ == AssetCatalog::Kind::Translation;
+  const char* wanted = translation
+                           ? (wantedIndex_ < getLanguageCount() ? LANGUAGE_CODES[wantedIndex_] : nullptr)
+                           : (wantedIndex_ < languages.size ? languages.data[wantedIndex_].primaryTag : nullptr);
   AssetCatalog::Options parserOptions;
+  parserOptions.finnishSupplement = !translation && wanted && std::strcmp(wanted, "fi") == 0;
   parserOptions.expectedKind = kind_;
   parserOptions.expectedChannel = AssetDownloadService::channelForVersion(AppVersion::version());
   parserOptions.expectedSource = I18n::sourceContract();
@@ -253,13 +259,6 @@ void AssetDownloadActivity::fetch() {
     showError(StrId::STR_ASSET_UNAVAILABLE, Pending::Exit);
     return;
   }
-  // Only the one language chosen before the restart is installed. Translation
-  // catalog codes use the same exact spelling as LANGUAGE_CODES.
-  const bool translation = kind_ == AssetCatalog::Kind::Translation;
-  const auto languages = getLanguageEntries();
-  const char* wanted = translation
-                           ? (wantedIndex_ < getLanguageCount() ? LANGUAGE_CODES[wantedIndex_] : nullptr)
-                           : (wantedIndex_ < languages.size ? languages.data[wantedIndex_].primaryTag : nullptr);
   size_t i = 0;
   while (wanted && i < catalog->count && std::strcmp(wanted, catalog->entries[i].code)) ++i;
   if (!wanted || i == catalog->count) {

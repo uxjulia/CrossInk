@@ -252,6 +252,46 @@ def build_hyphenation():
     return hcatalog, {hbase + '/' + k: v for k, v in hfiles.items()}
 
 
+def build_finnish_hyphenation():
+    # Finnish shipped in the SD ZIP before it became downloadable. Reuse its
+    # pinned source/trie verification and exactly the same CPHY bytes.
+    from package_hyphenation_sd import release_artifacts
+    packed = release_artifacts(root)
+    prefix = 'hyphenation-sources/extra/'
+    source = 'source/hypher/'
+    pattern = 'patterns/hyph-fi-x-school.tex'
+    trie = 'tries/fi.bin'
+    files = {source + name: packed[prefix + name] for name in
+             (pattern, trie, 'packs.json', 'package_hyphenation_sd.py', 'package_hyphenation.py')}
+    files.update({source + name: packed['hyphenation-sources/' + name]
+                  for name in ('LICENSE-MIT', 'LICENSE-APACHE')})
+    files[source + 'README.md'] = packed[prefix + 'README.md']
+    payload = packed['.crossink/hyphenation/hyph-fi.cphyph']
+    digest = sha(payload)
+    files['hyphenation/' + digest + '.cphyph'] = payload
+    revision = sha(b'crossink-hyphenation-fi-v1\n' + encode({k: sha(v) for k, v in sorted(files.items())}))[:40]
+    base = 'snapshots/' + revision
+
+    def ref(name):
+        data = files[source + name]
+        return {'path': base + '/' + source + name, 'bytes': len(data), 'sha256': sha(data)}
+
+    files['notices.json'] = encode({'hyphenation': {'fi': {
+        'license': 'See per-pattern terms', 'licenses': ['See per-pattern terms'],
+        'licenseDeclaration': 'Original authorship and license terms are preserved in the included pattern source.',
+        'files': [ref(name) for name in (pattern, 'README.md', 'LICENSE-MIT', 'LICENSE-APACHE')]}}})
+    files['sources.json'] = encode({'hyphenation': {'fi': {
+        'provenance': 'source-snapshot',
+        'files': [ref(name) for name in (pattern, trie, 'packs.json', 'package_hyphenation_sd.py',
+                                        'package_hyphenation.py')]}}})
+    files['snapshot.json'] = encode({'revision': revision, 'status': 'source-snapshot',
+                                     'files': {base + '/' + k: sha(v) for k, v in files.items()}})
+    catalog = {'schema': 1, 'kind': 'hyphenation', 'channel': args.channel, 'revision': revision,
+               'format': 1, 'requires': 0, 'notices': 'notices.json', 'sources': 'sources.json',
+               'entries': [{'code': 'fi', 'bytes': len(payload), 'sha256': digest}]}
+    return catalog, {base + '/' + k: v for k, v in files.items()}
+
+
 def catalog_key(catalog):
     kind, channel = catalog.get('kind'), catalog.get('channel')
     if (kind not in ('translation', 'hyphenation') or channel not in ('stable', 'rc')
@@ -262,6 +302,12 @@ def catalog_key(catalog):
         if any(not re.fullmatch(r'[0-9a-f]{64}', catalog.get(k, '')) for k in ('source', 'keyset')):
             raise RuntimeError('invalid translation contract')
         return f"catalogs/{channel}/translation/{catalog['source']}/{catalog['keyset']}.json"
+    codes = {entry['code'] for entry in catalog['entries']}
+    if codes == {'fi'} and len(catalog['entries']) == 1:
+        return f'catalogs/{channel}/hyphenation/fi.json'
+    from package_hyphenation import CODES
+    if not codes <= set(CODES):
+        raise RuntimeError('invalid legacy hyphenation catalog codes')
     return f'catalogs/{channel}/hyphenation.json'
 
 
@@ -295,7 +341,7 @@ def main():
     if args.assets in ('both', 'languages'):
         bundles.append(build_languages(version, commit))
     if args.assets in ('both', 'hyphenation'):
-        bundles.append(build_hyphenation())
+        bundles.extend((build_hyphenation(), build_finnish_hyphenation()))
     output = root / '.local-language-publish' / args.channel
     output.mkdir(parents=True, exist_ok=True)
     print(f'Target: s3://{args.bucket}/{args.prefix}/catalogs/{args.channel}/', flush=True)

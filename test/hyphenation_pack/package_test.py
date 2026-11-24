@@ -79,3 +79,23 @@ for code, raw in (("en", b"12345"), ("da", b"1234"), ("da", b"\0\0\0\4" + b"x" *
     else:
         raise AssertionError("An invalid SD trie was packaged")
 print("Nine legacy and fifteen SD packs, RC ZIP, checksums, notices and flash installation passed")
+
+
+# Build the exact products for the S3 publisher without network writes.
+from types import SimpleNamespace
+import publish_language_assets as publish
+
+for channel in ('stable', 'rc'):
+    publish.args = SimpleNamespace(channel=channel)
+    legacy, legacy_files = publish.build_hyphenation()
+    scoped, scoped_files = publish.build_finnish_hyphenation()
+    assert set(item['code'] for item in legacy['entries']) == set(module.CODES)
+    assert publish.catalog_key(legacy) == f'catalogs/{channel}/hyphenation.json'
+    assert [item['code'] for item in scoped['entries']] == ['fi']
+    assert publish.catalog_key(scoped) == f'catalogs/{channel}/hyphenation/fi.json'
+    for catalog, files in ((legacy, legacy_files), (scoped, scoped_files)):
+        publish.validate_companions(catalog, files)
+    pack = scoped['entries'][0]
+    path = f"snapshots/{scoped['revision']}/hyphenation/{pack['sha256']}.cphyph"
+    assert scoped_files[path] == expanded['.crossink/hyphenation/hyph-fi.cphyph']
+    assert len(scoped_files[path]) == pack['bytes']

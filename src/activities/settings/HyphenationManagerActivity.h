@@ -24,7 +24,7 @@ class HyphenationManagerActivity final : public Activity {
 #ifdef SIMULATOR
   friend struct AssetDownloadSmokeTest;
 #endif
-  static constexpr size_t KNOWN_CAPACITY = 10;
+  static constexpr size_t KNOWN_CAPACITY = 11;
   static constexpr size_t LOCAL_CAPACITY = 16;
   struct Row {
     char label[128] = {};

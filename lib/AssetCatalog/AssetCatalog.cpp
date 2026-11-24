@@ -48,7 +48,10 @@ bool catalogPath(const Options& options, char* output, size_t capacity) {
   const char* channel = options.expectedChannel == Channel::Rc ? "rc" : "stable";
   const int size = translation ? std::snprintf(output, capacity, "catalogs/%s/translation/%s/%s.json", channel,
                                                options.expectedSource, options.expectedKeyset)
-                               : std::snprintf(output, capacity, "catalogs/%s/hyphenation.json", channel);
+                               : std::snprintf(output, capacity,
+                                               options.finnishSupplement ? "catalogs/%s/hyphenation/fi.json"
+                                                                         : "catalogs/%s/hyphenation.json",
+                                               channel);
   if (size < 0 || static_cast<size_t>(size) >= capacity) {
     output[0] = '\0';
     return false;
@@ -349,7 +352,8 @@ bool Parser::stringComplete() {
       break;
     case Code:
       if (!validCode(token_) || sameCode(token_, "en")) return fail("Invalid or built-in code");
-      if (options_.expectedKind == Kind::Hyphenation && !hyphenationCode(token_))
+      if (options_.expectedKind == Kind::Hyphenation &&
+          !(options_.finnishSupplement ? std::strcmp(token_, "fi") == 0 : hyphenationCode(token_)))
         return fail("Unsupported language code");
       destination = catalog_.entries[catalog_.count].code;
       break;
@@ -390,7 +394,9 @@ bool Parser::numberComplete() {
   return true;
 }
 bool Parser::beginEntry() {
-  const size_t limit = options_.expectedKind == Kind::Hyphenation ? MAX_HYPHENATION_ENTRIES : MAX_ENTRIES;
+  const size_t limit = options_.expectedKind == Kind::Hyphenation
+                           ? (options_.finnishSupplement ? 1 : MAX_HYPHENATION_ENTRIES)
+                           : MAX_ENTRIES;
   if (catalog_.count >= limit) return fail("Too many entries");
   auto& entry = catalog_.entries[catalog_.count];
   entry.code[0] = entry.name[0] = entry.sha256[0] = entry.previous[0] = '\0';

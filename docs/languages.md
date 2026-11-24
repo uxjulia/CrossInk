@@ -70,7 +70,8 @@ Good to know:
 
 English hyphenation is included. **Hyphenation Packs** shows what your firmware
 can download. You can also install compatible packs from SD, even if they are
-not in the download catalog.
+not in the download catalog. Finnish is available both over Wi-Fi and in the
+release ZIP.
 
 A book uses the pack for its own language, regardless of your menu language.
 If a downloadable pack is missing, CrossInk offers once per reading session to open
@@ -104,7 +105,7 @@ and [Finnish](https://github.com/crosspoint-reader/crosspoint-assets/releases/do
 Not every pack in that archive is compatible. Use the CrossInk release ZIP
 first; its extra packs are for SD installation and do not appear in Wi-Fi
 downloads. The extra packs cover Albanian, Bulgarian, Catalan, Croatian,
-Czech, Danish, Dutch, Finnish, Galician, Icelandic, Kurmanji, Latin,
+Czech, Danish, Dutch, Galician, Icelandic, Kurmanji, Latin,
 Lithuanian, Norwegian, and Slovenian.
 
 The Kurmanji pack matches `ku` and the Norwegian pack matches `no`, not
