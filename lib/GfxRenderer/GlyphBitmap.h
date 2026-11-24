@@ -82,21 +82,12 @@ __attribute__((always_inline)) inline void paint(uint8_t* buffer, int destinatio
     buffer[destination >> 3] |= mask;
 }
 
-// Paint a packed glyph into target.
-//
-// bitmap: rows are contiguous, MSB first, 1 or 2 bits per pixel; widths need
-//   not be byte-aligned. 2bpp values are 0=white, 1=light gray, 2=dark gray,
-//   3=black. 1bpp value 1 is ink.
-// plane: which 2bpp values are painted. BW paints every non-white value and
-//   honours state (true clears the bit, i.e. black). The gray planes only ever
-//   set bits, because there 0 means leave alone and 1 means update: MSB paints
-//   both grays, LSB paints dark gray only. 1bpp glyphs paint ink with state on
-//   every plane.
-// Absolute gray planes replace nonzero coverage with the complete shade;
-// zero coverage leaves the seeded background untouched.
-// Clipping happens before pixel decoding, so fully hidden glyphs cost nothing.
-inline void draw(const uint8_t* bitmap, int width, int height, bool twoBit, Plane plane, bool state,
-                 const Target& target, Clip clip, bool absolute = false, uint8_t darkness = 0) {
+struct InkPaint {
+  uint8_t levels;
+  uint8_t clearLevels;
+};
+
+inline InkPaint inkPaint(bool twoBit, Plane plane, bool state, bool absolute, uint8_t darkness) {
   // Bit n of levels set means source value n is painted.
   uint8_t levels = 0x02;
   uint8_t clearLevels = state ? 0xff : 0;
@@ -125,6 +116,26 @@ inline void draw(const uint8_t* bitmap, int width, int height, bool twoBit, Plan
       if (originalClearLevels & (1u << mapped)) clearLevels |= 1u << ink;
     }
   }
+
+  return {levels, clearLevels};
+}
+
+// Paint a packed glyph into target.
+//
+// bitmap: rows are contiguous, MSB first, 1 or 2 bits per pixel; widths need
+//   not be byte-aligned. 2bpp values are 0=white, 1=light gray, 2=dark gray,
+//   3=black. 1bpp value 1 is ink.
+// plane: which 2bpp values are painted. BW paints every non-white value and
+//   honours state (true clears the bit, i.e. black). The gray planes only ever
+//   set bits, because there 0 means leave alone and 1 means update: MSB paints
+//   both grays, LSB paints dark gray only. 1bpp glyphs paint ink with state on
+//   every plane.
+// Absolute gray planes replace nonzero coverage with the complete shade;
+// zero coverage leaves the seeded background untouched.
+// Clipping happens before pixel decoding, so fully hidden glyphs cost nothing.
+inline void draw(const uint8_t* bitmap, int width, int height, bool twoBit, Plane plane, bool state,
+                 const Target& target, Clip clip, bool absolute = false, uint8_t darkness = 0) {
+  const auto [levels, clearLevels] = inkPaint(twoBit, plane, state, absolute, darkness);
 
   // Intersect with the glyph bounds, then with the panel width and the
   // buffered row band.

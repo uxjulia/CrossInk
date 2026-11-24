@@ -17,6 +17,9 @@
 #endif
 #include <Logging.h>
 #include <SdCardFont.h>
+#if !CROSSINK_SCALABLE_FONTS
+#include <DropCapStrikeCache.h>
+#endif
 #include <Utf8.h>
 #include <freertos/task.h>
 
@@ -25,6 +28,7 @@
 
 #include "FontCacheManager.h"
 #include "GlyphBitmap.h"
+#include "ScaledGlyphBitmap.h"
 
 namespace {
 
@@ -940,22 +944,18 @@ static void renderCharImpl(const GfxRenderer& renderer, GfxRenderer::RenderMode 
   renderer.drawGlyphBitmap(bitmap, width, height, frame, is2Bit, renderMode, pixelState);
 }
 
-// Draw an unscaled glyph placed by a logical frame. Equivalent to calling
-// drawPixel() for each ink pixel, but the clip test, orientation rotation,
-// strip-band check and address math are resolved once per glyph rather than
-// once per pixel.
-void GfxRenderer::drawGlyphBitmap(const uint8_t* bitmap, const int width, const int height,
-                                  const glyphBitmap::Frame& frame, const bool twoBit, const RenderMode mode,
-                                  const bool state) const {
-  // Apply the logical clip rectangle before rotating, in glyph-local pixels.
-  glyphBitmap::Clip clip{0, 0, width, height};
-  if (textClipActive_) {
-    glyphBitmap::clipToRect(frame, textClipLeft_, textClipTop_, textClipRight_, textClipBottom_, clip);
-  }
+static inline glyphBitmap::Plane glyphPlane(const GfxRenderer::RenderMode mode) {
+  return mode == GfxRenderer::BW              ? glyphBitmap::Plane::BW
+         : mode == GfxRenderer::GRAYSCALE_MSB ? glyphBitmap::Plane::GrayMSB
+                                              : glyphBitmap::Plane::GrayLSB;
+}
 
-  // Writes go to the framebuffer, or to the strip scratch in tiled grayscale
-  // mode; getWriteOriginY()/getWriteRows() bound the rows that exist there.
-  glyphBitmap::Target target{getWriteTarget(), panelWidth, panelWidthBytes, getWriteOriginY(), getWriteRows(), {}};
+__attribute__((always_inline)) static inline glyphBitmap::Target glyphTarget(
+    const GfxRenderer& renderer, const glyphBitmap::Frame& frame, const GfxRenderer::Orientation orientation,
+    const int panelWidth, const int panelHeight, const int panelWidthBytes) {
+  // Writes go to the framebuffer or to the active tiled grayscale strip.
+  glyphBitmap::Target target{renderer.getWriteTarget(), panelWidth, panelWidthBytes, renderer.getWriteOriginY(),
+                             renderer.getWriteRows(),   {}};
   // Rotate the glyph origin once, then derive the two physical axes by
   // rotating its neighbours along each logical axis. Together these encode
   // the text rotation and the panel orientation as one orthogonal transform.
@@ -969,10 +969,25 @@ void GfxRenderer::drawGlyphBitmap(const uint8_t* bitmap, const int width, const 
   physical.dyX = nextX - physical.x;
   physical.dyY = nextY - physical.y;
 
-  const glyphBitmap::Plane plane = mode == BW              ? glyphBitmap::Plane::BW
-                                   : mode == GRAYSCALE_MSB ? glyphBitmap::Plane::GrayMSB
-                                                           : glyphBitmap::Plane::GrayLSB;
-  glyphBitmap::draw(bitmap, width, height, twoBit, plane, state, target, clip, absoluteGrayPlanes, textDarkness_);
+  return target;
+}
+
+// Draw an unscaled glyph placed by a logical frame. Equivalent to calling
+// drawPixel() for each ink pixel, but the clip test, orientation rotation,
+// strip-band check and address math are resolved once per glyph rather than
+// once per pixel.
+void GfxRenderer::drawGlyphBitmap(const uint8_t* bitmap, const int width, const int height,
+                                  const glyphBitmap::Frame& frame, const bool twoBit, const RenderMode mode,
+                                  const bool state) const {
+  // Apply the logical clip rectangle before rotating, in glyph-local pixels.
+  glyphBitmap::Clip clip{0, 0, width, height};
+  if (textClipActive_) {
+    glyphBitmap::clipToRect(frame, textClipLeft_, textClipTop_, textClipRight_, textClipBottom_, clip);
+  }
+
+  const auto target = glyphTarget(*this, frame, orientation, panelWidth, panelHeight, panelWidthBytes);
+  glyphBitmap::draw(bitmap, width, height, twoBit, glyphPlane(mode), state, target, clip, absoluteGrayPlanes,
+                    textDarkness_);
 }
 
 // IMPORTANT: This function is in critical rendering path and is called for every pixel. Please keep it as simple and
@@ -3308,46 +3323,53 @@ int GfxRenderer::drawScaledCodepoint(const int fontId, const uint32_t cp, const 
   if (syntheticGlyph::isBlankSpace(cp, cp == 0x1680 && font.findGlyphData(cp, style).glyph)) {
     return fp4::toPixel(static_cast<int32_t>(font.getSpaceAdvanceX(cp, style)) * scale256 / 256);
   }
-  const EpdGlyph* glyph = font.getGlyph(cp, style);
-  if (!glyph) return 0;
+  const auto [fontData, glyph] = font.getGlyphData(cp, style);
+  if (!glyph || !fontData) return 0;
   const int advance = fp4::toPixel(static_cast<int32_t>(glyph->advanceX) * scale256 / 256);
-  const EpdFontData* fontData = font.getData(style);
-  const uint8_t* bitmap = getGlyphBitmap(fontData, glyph);
-  if (!bitmap) return advance;
+  if (glyph->width == 0 || glyph->height == 0 || (renderMode != BW && !fontData->is2Bit)) return advance;
 
-  const int srcW = glyph->width;
-  const int srcH = glyph->height;
-  const bool is2Bit = fontData->is2Bit;
-  // Raw coverage: 1-bit fonts read 0 or 3, 2-bit fonts 0 (white) .. 3 (black); 0 outside the bitmap.
-  const auto sample = [&](const int sx, const int sy) -> int {
-    if (sx < 0 || sy < 0 || sx >= srcW || sy >= srcH) return 0;
-    const int pos = sy * srcW + sx;
-    if (is2Bit) return (bitmap[pos >> 2] >> ((3 - (pos & 3)) * 2)) & 0x3;
-    return ((bitmap[pos >> 3] >> (7 - (pos & 7))) & 1) ? 3 : 0;
-  };
-
-  if (renderMode != BW) return advance;
-  const int dstW = (srcW * scale256 + 255) / 256;
-  const int dstH = (srcH * scale256 + 255) / 256;
+  const int dstW = glyphBitmap::scaledExtent(glyph->width, scale256);
+  const int dstH = glyphBitmap::scaledExtent(glyph->height, scale256);
   const int left = x + glyph->left * scale256 / 256;
   const int top = baselineY - glyph->top * scale256 / 256;
-  // Source position of each destination pixel centre, 16.16 fixed point.
-  const int32_t step = (256 << 16) / scale256;
-  const int32_t origin = step / 2 - (1 << 15);
-  for (int dy = 0; dy < dstH; ++dy) {
-    const int32_t sy = origin + dy * step;
-    const int y0 = sy >> 16;
-    const int fy = (sy >> 8) & 0xFF;
-    for (int dx = 0; dx < dstW; ++dx) {
-      const int32_t sx = origin + dx * step;
-      const int x0 = sx >> 16;
-      const int fx = (sx >> 8) & 0xFF;
-      const int upper = sample(x0, y0) * (256 - fx) + sample(x0 + 1, y0) * fx;
-      const int lower = sample(x0, y0 + 1) * (256 - fx) + sample(x0 + 1, y0 + 1) * fx;
-      // Ink where interpolated coverage reaches half of full black (3).
-      if ((upper * (256 - fy) + lower * fy) * 2 >= 3 * 256 * 256) drawPixel(left + dx, top + dy, pixelState);
+  if (!glyphIntersectsStrip(left, top, left + dstW - 1, top + dstH - 1)) return advance;
+
+  int srcW = glyph->width, srcH = glyph->height;
+  int paintScale = scale256;
+  int paintX = left, paintY = top;
+  const uint8_t* bitmap = nullptr;
+#if !CROSSINK_SCALABLE_FONTS
+  if (dropCapStrikes_ && scale256 > 256 && fontData->is2Bit) {
+    const auto sd = sdCardFonts_.find(fontId);
+    const auto strike = dropCapStrikes_->locate(fontId, sd == sdCardFonts_.end() ? nullptr : sd->second->loadedPath(),
+                                                font.pointSize(), cp, style & 3, scale256, glyph->width, glyph->height);
+    if (strike.pixels) {
+      // Preserve the cached drop cap's advance, original ink box and last
+      // line baseline. Only replace its raster; install/remove needs no reflow.
+      paintScale = std::min(dstW * 256 / strike.width, dstH * 256 / strike.height);
+      if (paintScale > 0) {
+        srcW = strike.width;
+        srcH = strike.height;
+        paintX += (dstW - glyphBitmap::scaledExtent(srcW, paintScale)) / 2;
+        paintY += dstH - glyphBitmap::scaledExtent(srcH, paintScale);
+        bitmap = strike.pixels;
+      } else {
+        paintScale = scale256;
+      }
     }
   }
+#endif
+  if (!bitmap) bitmap = getGlyphBitmap(fontData, glyph);
+  if (!bitmap) return advance;
+  const glyphBitmap::Frame frame{paintX, paintY, 1, 0, 0, 1};
+  glyphBitmap::Clip clip{0, 0, glyphBitmap::scaledExtent(srcW, paintScale),
+                         glyphBitmap::scaledExtent(srcH, paintScale)};
+  if (textClipActive_) {
+    glyphBitmap::clipToRect(frame, textClipLeft_, textClipTop_, textClipRight_, textClipBottom_, clip);
+  }
+  const auto target = glyphTarget(*this, frame, orientation, panelWidth, panelHeight, panelWidthBytes);
+  glyphBitmap::drawScaled(bitmap, srcW, srcH, paintScale, fontData->is2Bit, glyphPlane(renderMode), pixelState, target,
+                          clip, scaledGlyphGrayscaleBase_, absoluteGrayPlanes, textDarkness_);
   return advance;
 }
 

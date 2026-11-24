@@ -4,6 +4,9 @@
 #include <BidiUtils.h>
 #include <BookKey.h>
 #include <ComplexShaper.h>
+#if !CROSSINK_SCALABLE_FONTS
+#include <DropCapStrikeCache.h>
+#endif
 #include <Epub/Page.h>
 #include <Epub/PageCountEstimator.h>
 #include <Epub/SpineSizeLookup.h>
@@ -8275,15 +8278,20 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
 #endif
   };
 
+#if !CROSSINK_SCALABLE_FONTS
+  DropCapStrikeCache dropCapStrikes;
+  const GfxRenderer::DropCapStrikeScope dropCapScope(renderer, dropCapStrikes);
+#endif
   const ReaderRuling ruling{SETTINGS.ruledLines, orientedMarginLeft,
                             renderer.getScreenWidth() - orientedMarginLeft - orientedMarginRight, contentBottom,
                             SETTINGS.lineHeightPercent};
-  const auto drawTextAndRules = [&]() {
+  const auto drawTextAndRules = [&](const bool grayscaleBase) {
+    const GfxRenderer::ScaledGlyphAntialiasScope antialias(renderer, grayscaleBase);
     page->renderText(renderer, fontId, orientedMarginLeft, orientedMarginTop, foregroundBlack);
     ruling.drawPage(renderer, *page, fontId, orientedMarginTop);
   };
   const auto composePageBuffer = [&]() {
-    drawTextAndRules();
+    drawTextAndRules(updatePanel && needsTextGrayscale);
     if (deferImageLoading) {
       page->renderImagesWithPlaceholders(renderer, fontId, orientedMarginLeft, orientedMarginTop, foregroundBlack,
                                          /*renderCachedImages=*/false, SETTINGS.imageGrayscale);
@@ -8305,7 +8313,7 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
     finalizeBufferComposition();
   };
   if (updatePanel && pageHasImagesNeedingDecode) {
-    drawTextAndRules();
+    drawTextAndRules(needsTextGrayscale);
     page->renderImagesWithPlaceholders(renderer, fontId, orientedMarginLeft, orientedMarginTop, foregroundBlack,
                                        /*renderCachedImages=*/true, SETTINGS.imageGrayscale);
     finalizeBufferComposition();
@@ -8392,7 +8400,7 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
       page->prepareImageCaches(/*grayscale=*/false);
     }
     renderer.clearScreen(ReaderUtils::readerBackgroundColor());
-    drawTextAndRules();
+    drawTextAndRules(false);
     page->renderImages(renderer, fontId, orientedMarginLeft, orientedMarginTop, foregroundBlack, false);
     finalizeBufferComposition();
     renderStatusBar();

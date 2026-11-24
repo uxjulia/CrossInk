@@ -18,6 +18,11 @@ writing systems (Chinese/Japanese/Korean, Cyrillic, Greek, and more).
 
 You can view pre-built fonts available for download at [Inky](https://inky.crossink.dev/#downloads).
 
+On X3 and X4, EPUB drop caps can use a higher-resolution 2-bit glyph from the closest larger ordinary
+`.cpfont` in the active SD-card font's folder (up to 44 pt). The reader loads only that glyph, not
+another font; body text and pagination are unchanged. If the larger size or the glyph is unavailable,
+the reader scales the current font as usual. No extra font format or companion file is needed.
+
 ## Converting Custom Fonts with CrossPoint's Font Builder
 
 To make `.cpfont` packs from your own TrueType/OpenType fonts, use CrossPoint's

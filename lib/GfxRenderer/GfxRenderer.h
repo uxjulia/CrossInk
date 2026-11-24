@@ -14,6 +14,7 @@ enum class BidiBaseDir : signed char { AUTO = -1, LTR = 0, RTL = 1 };
 }  // namespace BidiUtils
 
 class FontCacheManager;
+class DropCapStrikeCache;
 class SdCardFont;
 
 #include <array>
@@ -82,6 +83,10 @@ class GfxRenderer {
   RenderMode renderMode;
   uint8_t textDarkness_ = 0;
   mutable bool absoluteGrayPlanes = false;
+  bool scaledGlyphGrayscaleBase_ = false;
+#if !CROSSINK_SCALABLE_FONTS
+  DropCapStrikeCache* dropCapStrikes_ = nullptr;
+#endif
   Orientation orientation;
   bool fadingFix;
   uint8_t* frameBuffer = nullptr;
@@ -310,6 +315,37 @@ class GfxRenderer {
     TextCullingScope(const TextCullingScope&) = delete;
     TextCullingScope& operator=(const TextCullingScope&) = delete;
   };
+  // An AA overlay expects all nonzero edge coverage to have a matching
+  // foreground pixel in the B/W base. Standalone monochrome draws instead
+  // use the original half-coverage threshold.
+  class ScaledGlyphAntialiasScope {
+    GfxRenderer& renderer_;
+    const bool previous_;
+
+   public:
+    explicit ScaledGlyphAntialiasScope(GfxRenderer& renderer, bool enabled)
+        : renderer_(renderer), previous_(renderer.scaledGlyphGrayscaleBase_) {
+      renderer_.scaledGlyphGrayscaleBase_ = enabled;
+    }
+    ~ScaledGlyphAntialiasScope() { renderer_.scaledGlyphGrayscaleBase_ = previous_; }
+    ScaledGlyphAntialiasScope(const ScaledGlyphAntialiasScope&) = delete;
+    ScaledGlyphAntialiasScope& operator=(const ScaledGlyphAntialiasScope&) = delete;
+  };
+#if !CROSSINK_SCALABLE_FONTS
+  class DropCapStrikeScope {
+    GfxRenderer& renderer_;
+    DropCapStrikeCache* previous_;
+
+   public:
+    DropCapStrikeScope(GfxRenderer& renderer, DropCapStrikeCache& cache)
+        : renderer_(renderer), previous_(renderer.dropCapStrikes_) {
+      renderer_.dropCapStrikes_ = &cache;
+    }
+    ~DropCapStrikeScope() { renderer_.dropCapStrikes_ = previous_; }
+    DropCapStrikeScope(const DropCapStrikeScope&) = delete;
+    DropCapStrikeScope& operator=(const DropCapStrikeScope&) = delete;
+  };
+#endif
   uint64_t textCullGeneration() const { return _stripActive ? textCullGeneration_ : 0; }
   void beginTextBounds(int* bounds) const;
   void endTextBounds() const;

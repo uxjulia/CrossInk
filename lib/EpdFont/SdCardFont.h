@@ -166,6 +166,7 @@ class SdCardFont {
   // Content hash of the file header + style TOC entries + shaping blobs (computed during load).
   // Used to generate deterministic font IDs for section cache invalidation.
   uint32_t contentHash() const { return contentHash_; }
+  const char* loadedPath() const { return filePath_; }
 
  private:
   // Per-style metadata (parsed from file header/TOC)
