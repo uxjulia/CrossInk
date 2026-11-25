@@ -1,6 +1,6 @@
 add_executable(font_catalog_index FontCatalogIndexTest.cpp ../../lib/EpdFont/SdCardFontRegistry.cpp)
 target_compile_features(font_catalog_index PRIVATE cxx_std_17)
-target_include_directories(font_catalog_index PRIVATE stubs ../../lib/EpdFont)
+target_include_directories(font_catalog_index PRIVATE stubs ../../lib/EpdFont ../../lib/Memory)
 target_compile_definitions(font_catalog_index PRIVATE CROSSINK_SCALABLE_FONTS=1)
 target_compile_options(font_catalog_index PRIVATE -UNDEBUG -fsanitize=address,undefined -fno-omit-frame-pointer)
 target_link_options(font_catalog_index PRIVATE -fsanitize=address,undefined)

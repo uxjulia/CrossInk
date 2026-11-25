@@ -31,6 +31,7 @@
 - Remove stray spaces inside EPUB words split by publisher page numbers.
 - Keep the EPUB’s Time Left estimate visible while relearning after a layout change.
 - Turn off the frontlight as soon as sleep starts, including when plugins or Sync on Sleep are still working.
+- Use font filenames to pick the correct styles when scalable SD fonts have incorrect style metadata (adapted from CrossPoint #4325).
 
 ## [v2.0.0] - 2026-11-24
 

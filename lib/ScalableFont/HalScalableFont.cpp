@@ -913,6 +913,7 @@ bool HalScalableFont::inspectFile(const char* path, Info& info, bool* unavailabl
     LOG_ERR("TTF", "TTF family name exceeds %u bytes: %s", unsigned(sizeof(info.family) - 1), path);
     return failed(FontLoadError::Unsupported);
   }
+  info.weight = details.weight;
   info.style = (details.weight >= 600 ? 1 : 0) | (details.italic ? 2 : 0);
   return info.family[0] != '\0';
 }

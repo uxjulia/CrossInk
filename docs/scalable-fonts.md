@@ -25,9 +25,11 @@ No font conversion or separate files for each size are needed.
 
 For the full range of text styles, add all four files for a family: **regular**,
 **bold**, **italic**, and **bold italic**. CrossInk can use a family with fewer
-styles, but missing styles may appear in another available style. If the files
-are in a family folder, that folder's name appears in the font picker. Keep
-scalable fonts and `.cpfont` files in separate family folders.
+styles, but missing styles may appear in another available style. Use filenames
+ending in `-Regular`, `-Bold`, `-Italic`, and `-BoldItalic` before the extension to
+choose the styles even when the font metadata is wrong. When the filename gives
+no recognized style, CrossInk uses the font's metadata. The folder's name appears
+in the font picker. Keep scalable fonts and `.cpfont` files in separate family folders.
 
 ## Adjust the appearance
 

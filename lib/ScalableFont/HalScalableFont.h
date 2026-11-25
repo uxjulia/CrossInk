@@ -56,6 +56,7 @@ class HalScalableFont {
     char family[64] = {};
     uint8_t style = 0;
     bool variable = false;
+    uint16_t weight = 400;
   };
   // Temporary uses a per-open identity and streams large faces; never persist
   // its layouts. Auto and Stream retain content-based reader cache identities.

@@ -19,8 +19,23 @@ int main() {
   put("/.fonts/Bitmap/Bitmap_14.cpfont", "bitmap14");
   put("/fonts/Bitmap/Bitmap_22.cpfont", "shadowed");
   put("/fonts/Other/Other_12.cpfont", "other");
+  // These files claim to be regular. Explicit suffixes must win even when
+  // another validated file claims the role through metadata.
+  put("/.fonts/Vector/Aardvark.ttf", "Vector 0");
   put("/.fonts/Vector/Vector-Regular.OTF", "Vector 0");
-  put("/.fonts/Vector/Vector-Bold.ttf", "Vector 1");
+  put("/.fonts/Vector/Vector-Bold.ttf", "Vector 0");
+  put("/.fonts/Vector/Vector-Italic.ttf", "Vector 0");
+  put("/.fonts/Vector/Vector_black-Oblique.TtC", "Vector 0");
+  put("/.fonts/Vector/Zeta_BoldItalic.ttf", "Vector 0");
+  put("/.fonts/Vector/Another-Bold.ttf", "invalid");
+  // Keep metadata for unrecognized names, including misleading family names.
+  put("/fonts/Metadata/ExtraBold.ttf", "Metadata 0");
+  put("/fonts/Metadata/Bold.ttf", "Metadata 1");
+  put("/fonts/Metadata/Other-Italic.ttf", "invalid");
+  put("/fonts/Metadata/OtherSlanted.ttf", "Metadata 2");
+  put("/fonts/Weights/Weights-Regular.ttf", "Weights 0 400");
+  put("/fonts/Weights/Weights-Black.ttf", "Weights 1 900");
+  put("/fonts/Weights/Weights-Bold.ttf", "Weights 1 700");
   // An empty/invalid hidden family must not hide a valid visible install.
   std::filesystem::create_directories(testRoot + "/.fonts/Fallback");
   put("/fonts/Fallback/Fallback_16.cpfont", "fallback");
@@ -43,11 +58,10 @@ int main() {
   assert(registry.loadNames());
   assert(directorySteps == steps);
   assert(registry.getFamilies().capacity() == registry.getFamilies().size());
-  // A catalog written before CFF support must be rescanned even when the
-  // directory names and file sizes have not changed.
+  // A metadata-only catalog must be rescanned even when inventory is unchanged.
   {
     std::fstream index(testRoot + fontcatalog::Path, std::ios::binary | std::ios::in | std::ios::out);
-    constexpr uint32_t previousVersion = 1;
+    constexpr uint32_t previousVersion = 2;
     index.seekp(offsetof(fontcatalog::Header, version));
     index.write(reinterpret_cast<const char*>(&previousVersion), sizeof(previousVersion));
   }
@@ -74,9 +88,27 @@ int main() {
   assert(bitmap->files.empty());
   assert(bitmap->availableSizes() == std::vector<uint8_t>({10, 14}));
   const auto* vector = registry.findFamily("Vector");
-  assert(vector && vector->isScalable() && vector->files.size() == 2);
+  assert(vector && vector->isScalable() && vector->files.size() == 4);
+  const char* names[] = {"Vector-Regular.OTF", "Vector-Bold.ttf", "Vector-Italic.ttf", "Vector_black-Oblique.TtC"};
+  for (uint8_t style = 0; style < 4; ++style) {
+    const auto* file = vector->findFile(0, style);
+    assert(file && file->path == std::string("/.fonts/Vector/") + names[style]);
+  }
   vector->releaseDetails();
   assert(vector->files.empty());
+  const auto* metadata = registry.findFamily("Metadata");
+  assert(metadata && metadata->isScalable() && metadata->files.size() == 3);
+  const char* fallbackNames[] = {"ExtraBold.ttf", "Bold.ttf", "OtherSlanted.ttf"};
+  for (uint8_t style = 0; style < 3; ++style) {
+    const auto* file = metadata->findFile(0, style);
+    assert(file && file->path == std::string("/fonts/Metadata/") + fallbackNames[style]);
+  }
+  metadata->releaseDetails();
+  const auto* weights = registry.findFamily("Weights");
+  assert(weights && weights->files.size() == 2);
+  const auto* bold = weights->findFile(0, 1);
+  assert(bold && bold->path == "/fonts/Weights/Weights-Bold.ttf");
+  weights->releaseDetails();
   for (const auto& family : registry.getFamilies())
     if (family.name != "Bitmap") assert(family.files.empty());
 
@@ -136,7 +168,7 @@ int main() {
     put(path, "font");
   }
   assert(registry.loadNames(true));
-  assert(registry.getFamilyCount() == 29);
+  assert(registry.getFamilyCount() == 31);
   for (const auto& family : registry.getFamilies()) {
     assert(family.ensureDetails());
     assert(!family.files.empty());

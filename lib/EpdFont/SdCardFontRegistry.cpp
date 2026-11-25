@@ -8,11 +8,13 @@
 #include "../../src/ReaderFontSizeStep.h"
 #if CROSSINK_SCALABLE_FONTS
 #include <HalScalableFont.h>
+#include <Memory.h>
 #endif
 
 #include <algorithm>
 #include <atomic>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 #include "FontCatalogIndex.h"
@@ -103,6 +105,65 @@ bool SdCardFontRegistry::parseFilename(const char* filename, uint8_t& size, uint
 }
 
 namespace {
+#if CROSSINK_SCALABLE_FONTS
+constexpr uint8_t ScalableStyleCount = 4;
+constexpr size_t FontNameCapacity = 128;
+
+bool isStyleSeparator(char c) { return c == ' ' || c == '-' || c == '_'; }
+
+uint8_t filenameStyle(const char* name) {
+  // Only separated suffixes are explicit. A family such as "ExtraBold"
+  // should still use its metadata unless its filename names a style.
+  const size_t stemLength = std::strlen(name) - 4;  // Validated .ttf, .otf or .ttc.
+  static constexpr struct {
+    const char* text;
+    uint8_t style;
+    uint8_t split;
+  } suffixes[] = {
+      {"BoldItalic", 3, 4}, {"BoldOblique", 3, 4}, {"BlackItalic", 3, 5}, {"BlackOblique", 3, 5},
+      {"Regular", 0, 0},    {"Book", 0, 0},        {"Roman", 0, 0},       {"Bold", 1, 0},
+      {"Black", 1, 0},      {"Italic", 2, 0},      {"Oblique", 2, 0},
+  };
+  for (const auto& [text, style, split] : suffixes) {
+    const size_t length = std::strlen(text);
+    if (stemLength > length + 1) {
+      const size_t start = stemLength - length;
+      if (isStyleSeparator(name[start - 1]) && strncasecmp(name + start, text, length) == 0) return style;
+    }
+    if (split && stemLength > length + 2) {
+      const size_t start = stemLength - length - 1;
+      if (isStyleSeparator(name[start - 1]) && isStyleSeparator(name[start + split]) &&
+          strncasecmp(name + start, text, split) == 0 &&
+          strncasecmp(name + start + split + 1, text + split, length - split) == 0) {
+        return style;
+      }
+    }
+  }
+  return ScalableStyleCount;
+}
+
+struct ScalableFontChoices {
+  struct Choice {
+    char name[FontNameCapacity] = {};
+    uint16_t weight = 0;
+    bool explicitStyle = false;
+
+    bool prefers(const char* candidate, uint16_t candidateWeight, bool named, uint8_t style) const {
+      if (!name[0]) return true;
+      if (!named) return false;
+      if (!explicitStyle) return true;
+      const int target = style & 1 ? 700 : 400;
+      const int distance = std::abs(int(candidateWeight) - target);
+      const int currentDistance = std::abs(int(weight) - target);
+      if (distance != currentDistance) return distance < currentDistance;
+      if (candidateWeight != weight) return candidateWeight > weight;
+      return std::strcmp(candidate, name) < 0;
+    }
+  };
+  Choice styles[ScalableStyleCount];
+};
+#endif
+
 bool scanFamilySummary(const char* dirPath, SdCardFontFamilyInfo& family) {
   HalFile dir = Storage.open(dirPath);
   if (!dir || !dir.isDirectory()) {
@@ -114,9 +175,11 @@ bool scanFamilySummary(const char* dirPath, SdCardFontFamilyInfo& family) {
   // Point sizes are uint8_t, so a 32-byte bitmap rejects duplicate files
   // without retaining their paths.
   uint8_t seenSizes[32] = {};
+#if CROSSINK_SCALABLE_FONTS
   uint8_t seenStyles = 0;
-  char name[128];
   char path[fontcatalog::MaxPath + 1];
+#endif
+  char name[128];
   uint16_t count = 0;
   uint8_t first = UINT8_MAX, last = 0;
   bool scalable = false;
@@ -145,7 +208,8 @@ bool scanFamilySummary(const char* dirPath, SdCardFontFamilyInfo& family) {
         }
         continue;
       }
-      const uint8_t styleMask = uint8_t(1U << info.style);
+      const uint8_t explicitStyle = filenameStyle(name);
+      const uint8_t styleMask = uint8_t(1U << (explicitStyle < ScalableStyleCount ? explicitStyle : info.style));
       if (seenStyles & styleMask) continue;
       seenStyles |= styleMask;
       scalable = true;
@@ -239,18 +303,84 @@ bool addFamilySummaries(const char* rootPath, bool visibleRoot, std::vector<SdCa
   return ok;
 }
 
-bool writeFamilyDetails(HalFile& index, const char* dirPath, const uint16_t expectedCount,
-                        fontcatalog::Entry& summary) {
+bool writeFontDetail(HalFile& index, fontcatalog::Entry& summary, const char* path, uint8_t length, uint8_t size,
+                     uint8_t style) {
+  const uint8_t meta[] = {size, style, length};
+  if (index.write(meta, sizeof(meta)) != sizeof(meta) || index.write(path, length) != length) return false;
+  summary.hash = fontcatalog::hashBytes(summary.hash, meta, sizeof(meta));
+  summary.hash = fontcatalog::hashBytes(summary.hash, path, length);
+  summary.bytes += static_cast<uint32_t>(sizeof(meta)) + length;
+  ++summary.count;
+  return true;
+}
+
+#if CROSSINK_SCALABLE_FONTS
+bool writeScalableDetails(HalFile& index, const char* dirPath, fontcatalog::Entry& summary,
+                          ScalableFontChoices& choices) {
   HalFile dir = Storage.open(dirPath);
   if (!dir || !dir.isDirectory()) {
     dir.close();
     return false;
   }
 
-  // This cold rebuild path uses bounded stack buffers instead of one heap
-  // string per font. It runs before Wi-Fi when entering the web server.
+  for (auto& choice : choices.styles) choice.name[0] = '\0';
+  char name[FontNameCapacity];
+  char path[fontcatalog::MaxPath + 1];
+  while (true) {
+    HalFile entry = dir.openNextFile();
+    if (!entry) break;
+    const bool isDirectory = entry.isDirectory();
+    if (!isDirectory) entry.getName(name, sizeof(name));
+    entry.close();
+    if (isDirectory || name[0] == '.' || name[0] == '_' || !fontfiles::isScalable(name)) continue;
+
+    const int length = std::snprintf(path, sizeof(path), "%s/%s", dirPath, name);
+    if (length <= 0 || static_cast<size_t>(length) >= sizeof(path)) continue;
+    HalScalableFont::Info info;
+    bool unavailable = false;
+    if (!HalScalableFont::inspectFile(path, info, &unavailable)) {
+      if (unavailable) {
+        dir.close();
+        return false;
+      }
+      continue;
+    }
+
+    const uint8_t explicitStyle = filenameStyle(name);
+    const bool named = explicitStyle < ScalableStyleCount;
+    const uint8_t style = named ? explicitStyle : info.style;
+    auto& choice = choices.styles[style];
+    // Explicit names select the role. Weight distinguishes files that share
+    // the same role, for example a Bold and a heavier Black face.
+    if (!choice.prefers(name, info.weight, named, style)) continue;
+    std::strcpy(choice.name, name);
+    choice.weight = info.weight;
+    choice.explicitStyle = named;
+  }
+  const bool ok = !FsHelpers::directoryIterationFailed(dir);
+  dir.close();
+  if (!ok) return false;
+
+  for (uint8_t style = 0; style < ScalableStyleCount; ++style) {
+    const auto& choice = choices.styles[style];
+    if (!choice.name[0]) continue;
+    const int length = std::snprintf(path, sizeof(path), "%s/%s", dirPath, choice.name);
+    if (length <= 0 || static_cast<size_t>(length) >= sizeof(path) ||
+        !writeFontDetail(index, summary, path, static_cast<uint8_t>(length), 0, style))
+      return false;
+  }
+  return true;
+}
+#endif
+
+bool writeBitmapDetails(HalFile& index, const char* dirPath, fontcatalog::Entry& summary) {
+  HalFile dir = Storage.open(dirPath);
+  if (!dir || !dir.isDirectory()) {
+    dir.close();
+    return false;
+  }
+
   uint8_t seenSizes[32] = {};
-  uint8_t seenStyles = 0;
   char name[128];
   char path[fontcatalog::MaxPath + 1];
   bool ok = true;
@@ -263,51 +393,15 @@ bool writeFamilyDetails(HalFile& index, const char* dirPath, const uint16_t expe
     if (isDirectory || name[0] == '.' || name[0] == '_') continue;
 
     uint8_t size = 0, style = 0;
-    if (summary.scalable) {
-#if CROSSINK_SCALABLE_FONTS
-      if (!fontfiles::isScalable(name)) continue;
-      const int length = std::snprintf(path, sizeof(path), "%s/%s", dirPath, name);
-      if (length <= 0 || static_cast<size_t>(length) >= sizeof(path)) continue;
-      HalScalableFont::Info info;
-      bool unavailable = false;
-      if (!HalScalableFont::inspectFile(path, info, &unavailable)) {
-        if (unavailable) {
-          dir.close();
-          return false;
-        }
-        continue;
-      }
-      const uint8_t styleMask = uint8_t(1U << info.style);
-      if (seenStyles & styleMask) continue;
-      seenStyles |= styleMask;
-      size = 0;
-      style = info.style;
-#else
-      continue;
-#endif
-    } else if (!SdCardFontRegistry::parseFilename(name, size, style)) {
-      continue;
-    }
+    if (!SdCardFontRegistry::parseFilename(name, size, style)) continue;
     const int length = std::snprintf(path, sizeof(path), "%s/%s", dirPath, name);
     if (length <= 0 || static_cast<size_t>(length) >= sizeof(path)) continue;
-    if (!summary.scalable) {
-      const uint8_t mask = uint8_t(1U << (size & 7U));
-      if (seenSizes[size >> 3U] & mask) continue;
-      seenSizes[size >> 3U] |= mask;
-    }
-
-    const uint8_t meta[] = {size, style, uint8_t(length)};
-    summary.hash = fontcatalog::hashBytes(summary.hash, meta, sizeof(meta));
-    summary.hash = fontcatalog::hashBytes(summary.hash, path, length);
-    ok = index.write(meta, sizeof(meta)) == sizeof(meta) &&
-         index.write(path, static_cast<size_t>(length)) == static_cast<size_t>(length);
-    summary.bytes += sizeof(meta) + static_cast<uint32_t>(length);
-    ++summary.count;
+    const uint8_t mask = uint8_t(1U << (size & 7U));
+    if (seenSizes[size >> 3U] & mask) continue;
+    seenSizes[size >> 3U] |= mask;
+    ok = writeFontDetail(index, summary, path, static_cast<uint8_t>(length), size, style);
   }
-  ok = ok && !FsHelpers::directoryIterationFailed(dir) && summary.count == expectedCount;
-  if (!ok)
-    LOG_ERR("SDREG", "Could not index font family details: %s (expected=%u actual=%u)", dirPath,
-            unsigned(expectedCount), unsigned(summary.count));
+  ok = ok && !FsHelpers::directoryIterationFailed(dir);
   dir.close();
   return ok;
 }
@@ -558,6 +652,11 @@ bool SdCardFontRegistry::rebuildIndex(uint64_t fingerprint, uint32_t generation)
     ok = file.write(&blank, sizeof(blank)) == sizeof(blank);
   }
   uint32_t offset = sizeof(Header) + header.count * sizeof(Entry);
+#if CROSSINK_SCALABLE_FONTS
+  // Reuse one bounded set of names across scalable families. Keep the half
+  // kilobyte of scratch off the build caller's stack and out of C3 builds.
+  std::unique_ptr<ScalableFontChoices> choices;
+#endif
   for (size_t i = 0; ok && i < families_.size(); ++i) {
     const auto& family = families_[i];
     Entry entry;
@@ -575,7 +674,23 @@ bool SdCardFontRegistry::rebuildIndex(uint64_t fingerprint, uint32_t generation)
     entry.scalable = family.indexedScalable;
     entry.hash = 2166136261u;
     ok = file.seek(offset);
-    if (ok) ok = writeFamilyDetails(file, familyPath, family.indexCount, entry);
+    if (ok) {
+#if CROSSINK_SCALABLE_FONTS
+      if (entry.scalable) {
+        if (!choices) choices = makeUniqueNoThrow<ScalableFontChoices>();
+        if (!choices) LOG_ERR("SDREG", "Insufficient memory for scalable font choices");
+        ok = choices && writeScalableDetails(file, familyPath, entry, *choices);
+      } else
+#endif
+      {
+        ok = writeBitmapDetails(file, familyPath, entry);
+      }
+      if (ok && entry.count != family.indexCount) {
+        LOG_ERR("SDREG", "Font family changed during scan: %s (expected=%u actual=%u)", familyPath,
+                unsigned(family.indexCount), unsigned(entry.count));
+        ok = false;
+      }
+    }
     entry.checksum = hashBytes(2166136261u, &entry, offsetof(Entry, checksum));
     offset += entry.bytes;
     ok = ok && offset <= MaxBytes && file.seek(sizeof(Header) + i * sizeof(Entry)) &&

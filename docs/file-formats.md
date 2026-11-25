@@ -2040,7 +2040,7 @@ limits and lifecycle.
 
 ## `/.crosspoint/font-catalog.bin`
 
-### Versions 1–3
+### Versions 1–4
 
 Disposable font metadata cache, shared by reader, settings and web font controls.
 The 24-byte little-endian header contains magic `0x46434931`, version, a 64-bit
@@ -2072,11 +2072,14 @@ including failed dedicated font uploads; USB Drive invalidates before handing
 the card to the host. Manage Fonts performs a full rescan; alternatively remove
 this cache to force reinspection after external same-length font changes.
 
-EPUB layout cache versions and identities are unchanged by this catalog.
+The reader's font identity includes the selected faces and their styles, so a
+change in the selected faces invalidates the affected EPUB layout cache.
 
 Version 2 (2.0.0) normalizes development versions 2–3 into one release bump.
 It rescans static `.ttf` and `.otf` files, including OpenType CFF faces rejected
-by earlier firmware, without a manual font refresh. The binary layout is unchanged.
+by earlier firmware, without a manual font refresh. Version 4 rebuilds catalogs on
+scalable-font builds to apply filename style selection. Bitmap-only builds stay
+on version 2. The binary layout is unchanged.
 
 ### Daily reading counters (v2)
 
