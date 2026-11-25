@@ -15,9 +15,10 @@
 namespace PluginLocations {
 inline constexpr const char* ROOTS[] = {"/.crosspoint/plugins", "/plugins", "/.plugins"};
 inline constexpr size_t MAX_PLUGINS = 16;
+inline constexpr size_t MAX_NAME_BYTES = 80;
 inline bool validName(const std::string& name) {
-  if (name.empty() || name.size() > 80 || name.front() == '.' || name.front() == ' ' || name.back() == '.' ||
-      name.back() == ' ' || name.find("..") != std::string::npos)
+  if (name.empty() || name.size() > MAX_NAME_BYTES || name.front() == '.' || name.front() == ' ' ||
+      name.back() == '.' || name.back() == ' ' || name.find("..") != std::string::npos)
     return false;
   if (std::any_of(name.begin(), name.end(), [](unsigned char c) {
         return c < 32 || c == 127 || std::string_view("/\\:*?\"<>|").find(c) != std::string_view::npos;

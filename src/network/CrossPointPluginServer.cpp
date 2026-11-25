@@ -473,6 +473,11 @@ void CrossPointWebServer::handleFetch() {
     server->send(400, "application/json", "{\"error\":\"invalid request\"}");
     return;
   }
+  // The download event needs the name after the request is freed for TLS.
+  char plugin[PluginLocations::MAX_NAME_BYTES + 1] = {};
+  if (const auto name = req["plugin"].as<JsonString>(); !name.isNull() && name.size() < sizeof(plugin)) {
+    memcpy(plugin, name.c_str(), name.size());
+  }
   req.clear();
   req.shrinkToFit();
   releasePluginRequest();
@@ -653,7 +658,7 @@ void CrossPointWebServer::handleFetch() {
     clearBookCache(dest);
     if (library::fileTypeFor(dest)) {
       library::invalidateLibraryIndex();
-      const pluginevents::Var vars[] = {{"path", dest.c_str()}, {"title", ""}, {"plugin", req["plugin"] | ""}};
+      const pluginevents::Var vars[] = {{"path", dest.c_str()}, {"title", ""}, {"plugin", plugin}};
       pluginevents::emit(pluginevents::Event::BookDownloaded, vars, 3);
     }
     sdFontSystem.markRegistryDirtyForPath(dest.c_str());
