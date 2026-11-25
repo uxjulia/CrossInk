@@ -79,7 +79,7 @@ class TxtReaderActivity final : public Activity {
 
   void initializeReader();
   static size_t parseAndWrapLines(const uint8_t* buffer, size_t chunkSize, size_t fileOffset, size_t fileSize,
-                                  int linesPerPage, GfxRenderer& renderer, int fontId, int vw,
+                                  int linesPerPage, const GfxRenderer& renderer, int fontId, int vw,
                                   std::vector<PageLine>* outLines, int8_t characterSpacing, int ruledViewportHeight,
                                   int requestedHeight);
   bool loadPageAtOffset(size_t offset, std::vector<PageLine>* outLines, size_t& nextOffset, uint8_t* scratch = nullptr);

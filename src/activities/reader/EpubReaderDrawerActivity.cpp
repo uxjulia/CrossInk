@@ -2114,7 +2114,9 @@ void EpubReaderDrawerActivity::showEnumOptions(const RowId row) {
       title = StrId::STR_WORD_HOLD_ACTION;
       raw = {CrossPointSettings::WORD_HOLD_USE_GLOBAL, CrossPointSettings::WORD_HOLD_LOOKUP,
              CrossPointSettings::WORD_HOLD_CLIP, CrossPointSettings::WORD_HOLD_ASK};
-      for (const auto action : raw) labels.emplace_back(I18N.get(WORD_HOLD_LABELS[action]));
+      labels.reserve(raw.size());
+      std::transform(raw.begin(), raw.end(), std::back_inserter(labels),
+                     [](const auto action) { return I18N.get(WORD_HOLD_LABELS[action]); });
       currentRaw = bookWordHoldAction;
       break;
     case RowId::DictionaryFontFamily: {

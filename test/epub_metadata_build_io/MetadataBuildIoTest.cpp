@@ -14,6 +14,7 @@ struct FakeFile {
   std::vector<uint8_t> bytes;
   size_t cursor = 0;
   size_t failAt = std::numeric_limits<size_t>::max();
+  size_t absoluteSeeks = 0;
   bool failSeek = false;
   bool active = true;
 
@@ -22,13 +23,16 @@ struct FakeFile {
   size_t size() const { return bytes.size(); }
   bool seek(size_t position) {
     if (!active || failSeek || position > bytes.size()) return false;
+    ++absoluteSeeks;
     cursor = position;
     return true;
   }
   bool seekCur(size_t length) {
-    return cursor <= bytes.size() && length <= bytes.size() - cursor && seek(cursor + length);
+    if (!active || failSeek || cursor > bytes.size() || length > bytes.size() - cursor) return false;
+    cursor += length;
+    return true;
   }
-  int read(uint8_t* destination, size_t length) {
+  int read(void* destination, size_t length) {
     if (!active || cursor > bytes.size()) return -1;
     if (cursor == failAt) {
       const size_t shortLength = length == 0 ? 0 : length - 1;
@@ -86,12 +90,20 @@ class BookMetadataCache {
   std::unique_ptr<uint32_t[]> cumulativeSizes;
   uint16_t cumulativeSizeCount = 0;
 
+  bool cacheCumulativeSizes = true;
+  void cacheSpineCumulativeSizes();
   SpineEntry getSpineEntry(int index);
   size_t getSpineCumulativeSize(int index);
   TocEntry getTocEntry(int index);
   bool readEntryBounds(bool spineEntry, int index, size_t& start, size_t& end, bool& ioFailure);
   void invalidateReadCache(bool discardCache);
 };
+
+constexpr uint16_t MAX_CACHED_CUMULATIVE_SIZES = 1024;
+template <typename T>
+auto makeUniqueNoThrow(size_t count) {
+  return std::make_unique<T>(count);
+}
 
 #include "CheckedMetadataReads.inc"
 
@@ -138,7 +150,82 @@ void makeValidCache(BookMetadataCache& cache) {
   Storage.cacheFile = &cache.bookFile;
 }
 
+void checkCumulativeScan(const uint16_t count, const bool withToc) {
+  BookMetadataCache cache;
+  cache.spineCount = count;
+  cache.tocCount = withToc;
+  auto& file = cache.bookFile;
+  file.bytes.resize(cache.lutOffset + (count + cache.tocCount) * sizeof(uint32_t));
+  for (uint16_t i = 0; i < count; ++i) {
+    writeAt(file, cache.lutOffset + i * sizeof(uint32_t), file.bytes.size());
+    appendString(file, "chapter.xhtml");
+    append(file, uint32_t{23} * (i + 1));
+    append(file, int16_t{-1});
+  }
+  if (withToc) {
+    writeAt(file, cache.lutOffset + count * sizeof(uint32_t), file.bytes.size());
+    append(file, uint8_t{0});
+  }
+  cache.cacheCumulativeSizes = false;
+  cache.cacheSpineCumulativeSizes();
+  assert(!cache.cumulativeSizes && file.absoluteSeeks == 0);
+  cache.cacheCumulativeSizes = true;
+  cache.cacheSpineCumulativeSizes();
+  if (count == 0 || count > MAX_CACHED_CUMULATIVE_SIZES) {
+    assert(!cache.cumulativeSizes && file.absoluteSeeks == 0);
+    return;
+  }
+  assert(cache.cumulativeSizeCount == count && file.absoluteSeeks == 2);
+  for (uint16_t i = 0; i < count; ++i) assert(cache.getSpineCumulativeSize(i) == 23u * (i + 1));
+  if (count > 1) {
+    // A short read of the last record must discard the entire optional cache.
+    uint32_t lastStart = 0;
+    std::memcpy(&lastStart, file.bytes.data() + cache.lutOffset + (count - 1) * sizeof(uint32_t), sizeof(lastStart));
+    file.failAt = lastStart;
+    cache.cacheSpineCumulativeSizes();
+    assert(!cache.cumulativeSizes && !cache.cumulativeSizeCount && file.active);
+    file.failAt = std::numeric_limits<size_t>::max();
+    assert(cache.getSpineCumulativeSize(count - 1) == 23u * count);
+  }
+}
+
+void checkInvalidCumulativeScan() {
+  BookMetadataCache cache;
+  for (int fault = 0; fault < 6; ++fault) {
+    makeValidCache(cache);
+    auto& file = cache.bookFile;
+    file.failAt = std::numeric_limits<size_t>::max();
+    switch (fault) {
+      case 0:
+        file.failAt = cache.lutOffset;
+        break;
+      case 1:
+        file.failAt = cache.lutOffset + 4;
+        break;
+      case 2:
+        writeAt(file, cache.lutOffset, 1);
+        break;
+      case 3:
+        writeAt(file, cache.lutOffset + 4, 12);
+        break;
+      case 4:
+        writeAt(file, cache.lutOffset + 4, file.size() + 1);
+        break;
+      case 5:
+        writeAt(file, 12, 1000);
+        break;
+    }
+    cache.cacheSpineCumulativeSizes();
+    assert(!cache.cumulativeSizes && !cache.cumulativeSizeCount && file.active && !Storage.removals);
+  }
+}
+
 int main() {
+  for (uint16_t count : {0, 1, 144, 1024, 1025}) {
+    checkCumulativeScan(count, false);
+    checkCumulativeScan(count, true);
+  }
+  checkInvalidCumulativeScan();
   FakeFile spineFile;
   appendString(spineFile, "Text/chapter.xhtml");
   append(spineFile, uint32_t{4096});

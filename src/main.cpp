@@ -1623,13 +1623,19 @@ void setup() {
 
   bool cablePreparation = false;
   LOG_INF("BOOT", "Wake route: %s", wakeupRouteName(wakeupReason));
+  wakePowerReleasePending = wakeupReason == HalGPIO::WakeupReason::PowerButton;
+#if FREEINK_DEVICE_PICCO && !defined(SIMULATOR)
+  // A Picco cold boot can report Other even when Power is physically held.
+  if (wakeupReason == HalGPIO::WakeupReason::Other && gpio.isPowerButtonPhysicallyPressed()) {
+    wakePowerReleasePending = true;
+  }
+#endif
+  if (wakePowerReleasePending) {
+    mappedInputManager.suppressNextPowerRelease();
+    mappedInputManager.suppressNextPowerConfirmRelease();
+  }
   switch (wakeupReason) {
     case HalGPIO::WakeupReason::PowerButton:
-      wakePowerReleasePending = true;
-      // Readers also handle held Power shortcuts. Hide the wake hold from
-      // mapped input until its release, while allowing the activity to load.
-      mappedInputManager.suppressNextPowerRelease();
-      mappedInputManager.suppressNextPowerConfirmRelease();
       break;
     case HalGPIO::WakeupReason::AfterUSBPower:
 #if FREEINK_DEVICE_EEGO_A4

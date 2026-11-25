@@ -880,20 +880,32 @@ void BookMetadataCache::cacheSpineCumulativeSizes() {
     return;
   }
 
+  // The spine offsets are contiguous. Reuse the output array for them, replacing
+  // each offset only after consuming it and looking ahead to the next boundary.
+  const size_t fileSize = bookFile.size();
+  const size_t offsetBytes = static_cast<size_t>(spineCount) * sizeof(uint32_t);
+  const size_t tableEnd = lutOffset + offsetBytes + static_cast<size_t>(tocCount) * sizeof(uint32_t);
+  uint32_t firstToc = 0;
+  if (!bookFile.seek(lutOffset) || bookFile.read(sizes.get(), offsetBytes) != static_cast<int>(offsetBytes) ||
+      (tocCount && !readPodChecked(bookFile, firstToc, fileSize))) {
+    LOG_DBG("BMC", "Could not read spine offsets for cumulative size cache; using SD lookups");
+    return;
+  }
+  if (sizes[0] < tableEnd || !bookFile.seek(sizes[0])) {
+    LOG_DBG("BMC", "Could not locate spine data for cumulative size cache; using SD lookups");
+    return;
+  }
   for (uint16_t i = 0; i < spineCount; ++i) {
-    bool ioFailure = false;
-    size_t start = 0;
-    size_t end = 0;
-    if (!readEntryBounds(true, i, start, end, ioFailure) || !bookFile.seek(start)) {
-      LOG_DBG("BMC", "Could not locate spine entry for cumulative size cache; using SD lookups");
+    const size_t end = i + 1 < spineCount ? sizes[i + 1] : (tocCount ? firstToc : fileSize);
+    if (end <= sizes[i] || end > fileSize) {
+      LOG_DBG("BMC", "Invalid spine bounds for cumulative size cache; using SD lookups");
       return;
     }
     uint32_t hrefLen = 0;
     int16_t tocIndex = -1;
-    if (!readPodChecked(bookFile, hrefLen, end, &ioFailure) || hrefLen > MAX_BUILD_ENTRY_STRING_BYTES ||
-        hrefLen > end - bookFile.position() || !bookFile.seekCur(hrefLen) ||
-        !readPodChecked(bookFile, sizes[i], end, &ioFailure) || !readPodChecked(bookFile, tocIndex, end, &ioFailure) ||
-        bookFile.position() != end) {
+    if (!readPodChecked(bookFile, hrefLen, end) || hrefLen > MAX_BUILD_ENTRY_STRING_BYTES ||
+        hrefLen > end - bookFile.position() || !bookFile.seekCur(hrefLen) || !readPodChecked(bookFile, sizes[i], end) ||
+        !readPodChecked(bookFile, tocIndex, end) || bookFile.position() != end) {
       LOG_DBG("BMC", "Could not populate cumulative size cache; using SD lookups");
       return;
     }
