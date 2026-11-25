@@ -59,7 +59,7 @@ void drawToast(const GfxRenderer& renderer, const char* msg) {
 // Parses and word-wraps lines from a file chunk into outLines.
 // Returns the number of bytes consumed from the start of buffer.
 size_t TxtReaderActivity::parseAndWrapLines(const uint8_t* buffer, size_t chunkSize, size_t fileOffset, size_t fileSize,
-                                            int linesPerPage, GfxRenderer& renderer, int fontId, int vw,
+                                            int linesPerPage, const GfxRenderer& renderer, int fontId, int vw,
                                             std::vector<PageLine>* outLines, int8_t characterSpacing,
                                             int ruledViewportHeight, int requestedHeight) {
   // Indexing only needs the next byte offset. Keep text and geometry for visible pages.
@@ -122,6 +122,8 @@ size_t TxtReaderActivity::parseAndWrapLines(const uint8_t* buffer, size_t chunkS
       if (breakPos < line.length() && line[breakPos] == ' ') skipChars++;
       lineBytePos += skipChars;
       line = line.substr(skipChars);
+      // appendLine increments lineCount through its capture.
+      // cppcheck-suppress knownConditionTrueFalse
     } while (!line.empty() && lineCount < linesPerPage);
 
     if (line.empty()) {

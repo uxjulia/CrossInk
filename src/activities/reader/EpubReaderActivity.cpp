@@ -1511,7 +1511,7 @@ BookReaderSettingsData loadBookReaderSettingsFile(const std::string& cachePath,
                                : version == PRE_PUBLISHER_FONTS_READER_SETTINGS_FILE_VERSION   ? (1U << 21) - 1
                                : version == PRE_TEXT_DARKNESS_READER_SETTINGS_FILE_VERSION     ? (1U << 22) - 1
                                : version == PRE_TWO_TONE_AA_READER_SETTINGS_FILE_VERSION       ? (1U << 23) - 1
-                               : version == PRE_RULED_LINES_READER_SETTINGS_FILE_VERSION ? (1U << 24) - 1
+                               : version == PRE_RULED_LINES_READER_SETTINGS_FILE_VERSION       ? (1U << 24) - 1
                                                                                          : ALL_READER_SETTING_OVERRIDES;
     ok = readU32(file, overrideMask) && (overrideMask & ~validMask) == 0;
     if (version == PRE_IMAGE_GRAYSCALE_READER_SETTINGS_FILE_VERSION) {

@@ -69,7 +69,32 @@ jobs:
         run: uv pip install --system -U https://github.com/pioarduino/platformio-core/archive/refs/tags/v6.1.19.zip
 
       - name: Run cppcheck
-        run: pio check -e default --fail-on-defect low --fail-on-defect medium --fail-on-defect high
+        run: |
+          python - check -e default --fail-on-defect low --fail-on-defect medium --fail-on-defect high <<'PY'
+          from functools import cache
+          from pathlib import Path
+          from platformio.__main__ import main
+          from platformio.check.tools.cppcheck import CppcheckCheckTool
+          from platformio.package.manager.tool import ToolPackageManager
+
+          # Keep the analyzer used by the previous ESP32 platform. The new
+          # bundled analyzer needs libpcre3, unavailable on Ubuntu 26.04.
+          @cache
+          def cppcheck_path():
+              package = ToolPackageManager().install('platformio/tool-cppcheck@~1.21100.0')
+              return str(Path(package.path) / 'cppcheck')
+
+          # Resolve the replacement after the platform prepares build metadata.
+          original = CppcheckCheckTool.configure_command
+
+          def configure_command(self, language, src_file):
+              command = original(self, language, src_file)
+              command[0] = cppcheck_path()
+              return command
+
+          CppcheckCheckTool.configure_command = configure_command
+          raise SystemExit(main())
+          PY
 
   build:
     # Firmware artifacts are validated on pull requests; release builds stay

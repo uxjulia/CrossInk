@@ -263,8 +263,8 @@ void ScreenCalibrationActivity::calibrationScreen(UiApp::ScreenType& screen, voi
     drawStepButton(renderer, minusX, stepY, stepSize, false, editing);
     drawStepButton(renderer, plusX, stepY, stepSize, true, editing);
     char value[8];
-    std::snprintf(value, sizeof(value), "%u",
-                  (row < EDGE_COUNT ? self.draft.edges[row] : self.draft.cornerInsets[row - EDGE_COUNT]));
+    const unsigned int inset = row < EDGE_COUNT ? self.draft.edges[row] : self.draft.cornerInsets[row - EDGE_COUNT];
+    std::snprintf(value, sizeof(value), "%u", inset);
     const auto valueStyle = editing ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR;
     renderer.drawText(UI_10_FONT_ID,
                       valueX + (VALUE_WIDTH - renderer.getTextWidth(UI_10_FONT_ID, value, valueStyle)) / 2, textY,
