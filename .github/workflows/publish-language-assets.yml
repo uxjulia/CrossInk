@@ -1,0 +1,107 @@
+name: Prepare language download assets
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Firmware release tag to prepare or retry
+        required: true
+        type: string
+      source_commit:
+        description: Exact full firmware source commit (40 characters)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+# Serialize publication, including manual retries. Never cancel an active upload.
+concurrency:
+  group: language-assets-publication
+  cancel-in-progress: false
+
+jobs:
+  verify-source:
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ inputs.tag }}
+      SOURCE_COMMIT: ${{ inputs.source_commit }}
+    steps:
+      - name: Require the exact release tag and source
+        run: |
+          [[ "$GITHUB_REF_TYPE" == tag && "$GITHUB_REF_NAME" == "$RELEASE_TAG" && "$GITHUB_SHA" == "$SOURCE_COMMIT" ]] || {
+            echo 'Run this workflow on the matching release tag and full source commit'
+            exit 1
+          }
+
+  publish-github:
+    needs: verify-source
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      RELEASE_TAG: ${{ inputs.tag }}
+      SOURCE_COMMIT: ${{ inputs.source_commit }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.source_commit }}
+          fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Check GitHub asset publishing configuration
+        env:
+          ASSETS_TOKEN: ${{ secrets.RELEASE_PAT }}
+        run: |
+          [[ -n "$ASSETS_TOKEN" ]] || { echo 'Set RELEASE_PAT with contents write access to uxjulia/crossink-assets'; exit 1; }
+      - uses: actions/checkout@v6
+        with:
+          repository: uxjulia/crossink-assets
+          ref: main
+          token: ${{ secrets.RELEASE_PAT }}
+          path: github-assets
+      - name: Export individual GitHub downloads from release source
+        run: python3 scripts/export_github_language_assets.py --prepare-release "$RELEASE_TAG" --source-commit "$SOURCE_COMMIT" --output github-assets/assets
+      - name: Publish individual files and catalogs to crossink-assets
+        working-directory: github-assets
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add assets
+          if git diff --cached --quiet; then
+            echo 'GitHub language downloads are already current'
+            exit 0
+          fi
+          git commit -m "Update language downloads for $RELEASE_TAG"
+          git push origin HEAD:main
+
+  publish:
+    needs: verify-source
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: language-assets
+    env:
+      RELEASE_TAG: ${{ inputs.tag }}
+      SOURCE_COMMIT: ${{ inputs.source_commit }}
+      AWS_ROLE: ${{ vars.LANGUAGE_ASSETS_AWS_ROLE_ARN }}
+    steps:
+      - name: Check release publishing configuration
+        shell: bash
+        run: |
+          [[ -n "$AWS_ROLE" ]] || { echo 'Set LANGUAGE_ASSETS_AWS_ROLE_ARN'; exit 1; }
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.source_commit }}
+          fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Verify release source and build matching assets
+        run: python3 scripts/publish_language_assets.py --prepare-release "$RELEASE_TAG" --source-commit "$SOURCE_COMMIT"
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.LANGUAGE_ASSETS_AWS_ROLE_ARN }}
+          aws-region: us-east-1
+      - name: Publish changed assets and verified catalogs
+        run: python3 scripts/publish_language_assets.py --prepare-release "$RELEASE_TAG" --source-commit "$SOURCE_COMMIT" --publish
