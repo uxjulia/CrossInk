@@ -27,12 +27,16 @@ class HalFrontlight {
   void setWarmth(uint8_t warmPercent);
   void setOn(bool on);
 
+  // Temporarily darken the hardware output while preserving the user's settings.
+  void setOutputSuspended(bool suspended);
+
   uint8_t brightness() const { return lastBrightness; }
   uint8_t warmth() const { return manager.colorTemperature(); }
   bool isOn() const { return lit; }
 
  private:
   HalFrontlight() = default;
+  void applyOutput();
 
   FrontlightManager manager;
   bool initialized = false;
@@ -40,6 +44,7 @@ class HalFrontlight {
   // the on/off state separate so toggling restores the previous level.
   uint8_t lastBrightness = 60;
   bool lit = false;
+  bool outputSuspended = false;
 
   static HalFrontlight instance;
 };

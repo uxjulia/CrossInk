@@ -30,6 +30,7 @@
 - Keep wide EPUB tables in a grid on X3 and X4 when an SD-card font leaves less memory for indexing.
 - Remove stray spaces inside EPUB words split by publisher page numbers.
 - Keep the EPUB’s Time Left estimate visible while relearning after a layout change.
+- Turn off the frontlight as soon as sleep starts, including when plugins or Sync on Sleep are still working.
 
 ## [v2.0.0] - 2026-11-24
 

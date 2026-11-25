@@ -1231,7 +1231,6 @@ bool ActivityManager::goToSleep(SleepRequest request, ChargingBookPreparation* r
   currentActivity = std::move(sleepActivity);
   std::optional<RenderLock> finishLock;
   if (sleepScreen && preparation && !preparation->pollWake() && ChargingBookPreparation::hasExternalPower()) {
-    Frontlight.setOn(false);
     sleepScreen->setChargingPreparation(preparation);
     entryRenderRequested = enteringActivity;
     lock.unlock();

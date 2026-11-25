@@ -1315,6 +1315,9 @@ static void sleepWithChargingPreparation(SleepRequest request) {
   // Commit to sleeping before goToSleep() runs the outgoing activity's onExit():
   // a WiFi activity would otherwise silentRestart() here and reboot instead.
   deepSleepInProgress = true;
+  // Plugin delivery and Sync on Sleep can take a while. Darken the screen now,
+  // but let the outgoing activity save the user's chosen light state.
+  Frontlight.setOutputSuspended(true);
   const bool prepare = deviceSupportsChargePreparation() && !APP_STATE.chargePreparationFolder.empty() &&
                        Storage.ready() && ChargingBookPreparation::hasExternalPower();
   SleepSyncBook* sleepSync = nullptr;
@@ -1372,7 +1375,6 @@ static void sleepWithChargingPreparation(SleepRequest request) {
   // card mounted for a charge-complete row until unplug or button wake.
   const bool storageSynced = !Storage.ready() || !gpio.isUsbConnected() || Storage.syncFilesystem();
   if (storageSynced && !usbWakeRequested) {
-    Frontlight.setOn(false);
     usbWakeRequested = holdSleepWhileUsbPowered(monochromeSleepFrame);
   }
   const bool storageStopped = storageSynced && Storage.shutdown();
@@ -1392,14 +1394,13 @@ static void sleepWithChargingPreparation(SleepRequest request) {
 #ifndef SIMULATOR
     gpio.startButtonCapture();
 #endif
+    Frontlight.setOutputSuspended(false);
     queueStorageSaveAlert();
     activityManager.goHome();
     return;
   }
 
 #if FREEINK_DEVICE_PICCO && !CROSSINK_BATTERY_DIAG_LOG
-  // The I2C light retains its state through sleep. Keep the saved preference.
-  Frontlight.setOn(false);
   if (!usbWakeRequested) usbWakeRequested = holdSleepWhileUsbPowered(monochromeSleepFrame);
 #endif
   putTiltSensorToSleepForDeepSleep();
