@@ -345,20 +345,21 @@ void testSparseKernLookupHandlesEmptyRow() {
 }
 
 void testGlyphLookup() {
+  EpdGlyph decoded;
   printf("testGlyphLookup...\n");
 
-  ASSERT_TRUE(testFont.getGlyph('T') != nullptr);
-  ASSERT_TRUE(testFont.getGlyph('a') != nullptr);
-  ASSERT_TRUE(testFont.getGlyph('o') != nullptr);
-  ASSERT_TRUE(testFont.getGlyph('x') != nullptr);
-  ASSERT_EQ(testFont.getGlyph('T')->advanceX, 137);
-  ASSERT_EQ(testFont.getGlyph('a')->advanceX, 130);
-  ASSERT_EQ(testFont.getGlyph('o')->advanceX, 145);
-  ASSERT_EQ(testFont.getGlyph('x')->advanceX, 136);
+  ASSERT_TRUE(testFont.getGlyph(decoded, 'T') != nullptr);
+  ASSERT_TRUE(testFont.getGlyph(decoded, 'a') != nullptr);
+  ASSERT_TRUE(testFont.getGlyph(decoded, 'o') != nullptr);
+  ASSERT_TRUE(testFont.getGlyph(decoded, 'x') != nullptr);
+  ASSERT_EQ(testFont.getGlyph(decoded, 'T')->advanceX, 137);
+  ASSERT_EQ(testFont.getGlyph(decoded, 'a')->advanceX, 130);
+  ASSERT_EQ(testFont.getGlyph(decoded, 'o')->advanceX, 145);
+  ASSERT_EQ(testFont.getGlyph(decoded, 'x')->advanceX, 136);
 
   // No U+FFFD in font, so unknown codepoints return nullptr
-  ASSERT_TRUE(testFont.getGlyph('Z') == nullptr);
-  ASSERT_TRUE(testFont.getGlyph('b') == nullptr);
+  ASSERT_TRUE(testFont.getGlyph(decoded, 'Z') == nullptr);
+  ASSERT_TRUE(testFont.getGlyph(decoded, 'b') == nullptr);
 
   printf("  All glyph lookups correct\n");
   PASS();

@@ -89,6 +89,7 @@ struct SdFontBitmapStorageTest : testing::Test {
   }
 };
 TEST_F(SdFontBitmapStorageTest, ProductionLoadGrowRetainReleaseAndReload) {
+  EpdGlyph decoded;
   SdCardFont font;
   ASSERT_TRUE(font.load("font.cpfont"));
   ASSERT_EQ(font.prewarm("A", 1), 0);
@@ -104,7 +105,7 @@ TEST_F(SdFontBitmapStorageTest, ProductionLoadGrowRetainReleaseAndReload) {
   data = font.getEpdFont()->data;
   EXPECT_EQ(byteBufferPool(data->bitmap), MemoryPool::Psram);
   for (uint32_t cp : {uint32_t('A'), uint32_t('B'), uint32_t('C'), 0xFFFDu}) {
-    const auto* glyph = font.getEpdFont()->findGlyph(cp);
+    const auto* glyph = font.getEpdFont()->findGlyph(decoded, cp);
     ASSERT_NE(glyph, nullptr);
     const int start = cp == 0xFFFD ? 24 : (cp - 'A') * 8;
     for (int i = 0; i < 8; ++i) EXPECT_EQ(data->bitmap[glyph->dataOffset + i], start + i);
@@ -150,6 +151,7 @@ TEST_F(SdFontBitmapStorageTest, C3AndAdmittedInternalFallbackAndMetadataOnly) {
 }
 
 TEST_F(SdFontBitmapStorageTest, ExternalBitmapsStillHonorUnderuseAndInternalPressureRelease) {
+  EpdGlyph decoded;
   // A dense page followed by disjoint sparse pages must not pin its high-water
   // bitmap forever, even though the payload lives externally.
   std::vector<uint8_t> bytes(64, 0);
@@ -197,7 +199,7 @@ TEST_F(SdFontBitmapStorageTest, ExternalBitmapsStillHonorUnderuseAndInternalPres
       EXPECT_GT(font.prewarm(range(525, 25).c_str(), 1), 0);
       EXPECT_EQ(font.getEpdFont()->data->bitmap, pixels);
       EXPECT_EQ(Storage.openHandles("large.cpfont"), 0);
-      const auto* resident = font.getEpdFont()->findGlyph(0x100 + 500);
+      const auto* resident = font.getEpdFont()->findGlyph(decoded, 0x100 + 500);
       ASSERT_NE(resident, nullptr);
       EXPECT_EQ(pixels[resident->dataOffset], 0xA5);
       file.readFailAt = std::numeric_limits<size_t>::max();
@@ -258,6 +260,7 @@ TEST_F(SdFontBitmapStorageTest, FailureAfterSharedStylesCanUnloadAndRetry) {
 }
 
 TEST_F(SdFontBitmapStorageTest, ContentGlyphsSurviveRedrawsAndReleaseTheirPsram) {
+  EpdGlyph decoded;
   SdCardFont font;
   const size_t budget = SdCardFont::contentResidentBytes("font.cpfont", 12 * 1024);
   ASSERT_TRUE(font.load("font.cpfont", budget));
@@ -272,7 +275,7 @@ TEST_F(SdFontBitmapStorageTest, ContentGlyphsSurviveRedrawsAndReleaseTheirPsram)
   for (unsigned pass = 0; pass < 10; ++pass) {
     const size_t reads = Storage.data("font.cpfont").readCalls;
     for (unsigned i = 0; i < 3; ++i) {
-      const auto* glyph = font.getEpdFont()->findGlyph('A' + i);
+      const auto* glyph = font.getEpdFont()->findGlyph(decoded, 'A' + i);
       ASSERT_NE(glyph, nullptr);
       EXPECT_TRUE(font.isOverflowGlyph(glyph));
       const auto* pixels = font.getOverflowBitmap(glyph);
@@ -285,7 +288,7 @@ TEST_F(SdFontBitmapStorageTest, ContentGlyphsSurviveRedrawsAndReleaseTheirPsram)
     font.clearCache();
     {
       SdCardFont::MetricsScope measure(&font);
-      EXPECT_EQ(font.getEpdFont()->findGlyph('C'), last);
+      EXPECT_EQ(font.getEpdFont()->findGlyph(decoded, 'C'), last);
     }
   }
   const size_t attempts = fakeheap::external.attempts;
@@ -294,13 +297,13 @@ TEST_F(SdFontBitmapStorageTest, ContentGlyphsSurviveRedrawsAndReleaseTheirPsram)
   EXPECT_EQ(font.getOverflowBitmap(last), nullptr);
   ASSERT_EQ(font.prewarm("ABC", 1), 0);
   EXPECT_EQ(fakeheap::external.attempts, attempts + 1);
-  const auto* glyph = font.getEpdFont()->findGlyph('A');
+  const auto* glyph = font.getEpdFont()->findGlyph(decoded, 'A');
   ASSERT_NE(glyph, nullptr);
   ASSERT_NE(font.getOverflowBitmap(glyph), nullptr);
   EXPECT_EQ(font.getOverflowBitmap(glyph)[0], 0);
   font.clearPersistentCache();
   EXPECT_EQ(font.getOverflowBitmap(glyph), nullptr);
-  glyph = font.getEpdFont()->findGlyph('B');
+  glyph = font.getEpdFont()->findGlyph(decoded, 'B');
   ASSERT_NE(glyph, nullptr);
   EXPECT_EQ(font.getOverflowBitmap(glyph)[0], 8);
   ASSERT_TRUE(font.load("font.cpfont", budget));
@@ -308,6 +311,7 @@ TEST_F(SdFontBitmapStorageTest, ContentGlyphsSurviveRedrawsAndReleaseTheirPsram)
 }
 
 TEST_F(SdFontBitmapStorageTest, PsramContentCacheNeverFallsBackToInternalRamOrRetriesEachFrame) {
+  EpdGlyph decoded;
   for (unsigned failure = 1; failure < 4; ++failure) {
     fakeheap::reset(failure != 0);
     SdCardFont font;
@@ -317,7 +321,7 @@ TEST_F(SdFontBitmapStorageTest, PsramContentCacheNeverFallsBackToInternalRamOrRe
     if (failure == 3) fakeheap::external.fail = 1;
     for (unsigned pass = 0; pass < 3; ++pass) {
       ASSERT_EQ(font.prewarm("ABC", 1), 0);
-      const auto* glyph = font.getEpdFont()->findGlyph('B');
+      const auto* glyph = font.getEpdFont()->findGlyph(decoded, 'B');
       ASSERT_NE(glyph, nullptr);
       ASSERT_NE(font.getOverflowBitmap(glyph), nullptr);
       EXPECT_EQ(font.getOverflowBitmap(glyph)[0], 8);
@@ -330,6 +334,7 @@ TEST_F(SdFontBitmapStorageTest, PsramContentCacheNeverFallsBackToInternalRamOrRe
 }
 
 TEST_F(SdFontBitmapStorageTest, ContentBitmapReadFailureDoesNotPublishPartialPixels) {
+  EpdGlyph decoded;
   for (bool psram : {false, true}) {
     fakeheap::reset(psram);
     SdCardFont font;
@@ -338,10 +343,10 @@ TEST_F(SdFontBitmapStorageTest, ContentBitmapReadFailureDoesNotPublishPartialPix
     // A's eight-byte bitmap begins after the 4-glyph metadata table.
     auto& file = Storage.data("font.cpfont");
     file.readFailAt = 64 + 2 * sizeof(EpdUnicodeInterval) + 4 * sizeof(EpdGlyph) + 3;
-    EXPECT_EQ(font.getEpdFont()->findGlyph('A'), nullptr);
+    EXPECT_EQ(font.getEpdFont()->findGlyph(decoded, 'A'), nullptr);
     EXPECT_EQ(Storage.openHandles("font.cpfont"), 0);
     file.readFailAt = std::numeric_limits<size_t>::max();
-    const auto* glyph = font.getEpdFont()->findGlyph('A');
+    const auto* glyph = font.getEpdFont()->findGlyph(decoded, 'A');
     ASSERT_NE(glyph, nullptr);
     const auto* pixels = font.getOverflowBitmap(glyph);
     ASSERT_NE(pixels, nullptr);
@@ -350,6 +355,7 @@ TEST_F(SdFontBitmapStorageTest, ContentBitmapReadFailureDoesNotPublishPartialPix
 }
 
 TEST_F(SdFontBitmapStorageTest, ContentBitmapsKeepStylesAndSupplementaryCharactersDistinct) {
+  EpdGlyph decoded;
   for (bool psram : {false, true}) {
     fakeheap::reset(psram);
     Storage.put("styles.cpfont", multiStyleFixture(true));
@@ -359,7 +365,7 @@ TEST_F(SdFontBitmapStorageTest, ContentBitmapsKeepStylesAndSupplementaryCharacte
     for (unsigned pass = 0; pass < 3; ++pass) {
       for (uint8_t style = 0; style < 4; ++style) {
         for (uint32_t cp = 0x10000; cp < 0x10003; ++cp) {
-          const auto* glyph = font.getEpdFont(style)->findGlyph(cp);
+          const auto* glyph = font.getEpdFont(style)->findGlyph(decoded, cp);
           ASSERT_NE(glyph, nullptr);
           EXPECT_EQ(glyph->advanceX, 128 + style * 16);
           const auto* bitmap = font.getOverflowBitmap(glyph);
@@ -373,6 +379,7 @@ TEST_F(SdFontBitmapStorageTest, ContentBitmapsKeepStylesAndSupplementaryCharacte
 }
 
 TEST_F(SdFontBitmapStorageTest, ContentCacheCollisionsAndOversizedGlyphsPreservePixels) {
+  EpdGlyph decoded;
   for (bool psram : {false, true}) {
     fakeheap::reset(psram);
     constexpr uint32_t count = 512, largeBytes = 640;
@@ -409,13 +416,13 @@ TEST_F(SdFontBitmapStorageTest, ContentCacheCollisionsAndOversizedGlyphsPreserve
     for (unsigned pass = 0; pass < 2; ++pass) {
       // More distinct keys than slots forces eviction without knowing the hash.
       for (uint32_t i = 0; i < count; ++i) {
-        const auto* glyph = font.getEpdFont()->findGlyph(0x100 + i);
+        const auto* glyph = font.getEpdFont()->findGlyph(decoded, 0x100 + i);
         ASSERT_NE(glyph, nullptr);
         const auto* bitmap = font.getOverflowBitmap(glyph);
         ASSERT_NE(bitmap, nullptr);
         for (unsigned j = 0; j < 8; ++j) EXPECT_EQ(bitmap[j], uint8_t(i));
       }
-      const auto* large = font.getEpdFont()->findGlyph(0x10000);
+      const auto* large = font.getEpdFont()->findGlyph(decoded, 0x10000);
       ASSERT_NE(large, nullptr);
       ASSERT_EQ(large->dataLength, largeBytes);
       const auto* bitmap = font.getOverflowBitmap(large);
@@ -429,6 +436,7 @@ TEST_F(SdFontBitmapStorageTest, ContentCacheCollisionsAndOversizedGlyphsPreserve
 }
 
 TEST_F(SdFontBitmapStorageTest, IncrementalReadsOnlyMissingGlyphsAndPreservesAllPixels) {
+  EpdGlyph decoded;
   for (bool psram : {false, true}) {
     fakeheap::reset(psram);
     SdCardFont font;
@@ -446,7 +454,7 @@ TEST_F(SdFontBitmapStorageTest, IncrementalReadsOnlyMissingGlyphsAndPreservesAll
     EXPECT_EQ(file.readCalls - reads, 2u);
     const auto* data = font.getEpdFont()->data;
     for (uint32_t cp = 'A'; cp <= 'C'; ++cp) {
-      const auto* glyph = font.getEpdFont()->findGlyph(cp);
+      const auto* glyph = font.getEpdFont()->findGlyph(decoded, cp);
       ASSERT_NE(glyph, nullptr);
       for (unsigned b = 0; b < 8; ++b) EXPECT_EQ(data->bitmap[glyph->dataOffset + b], (cp - 'A') * 8 + b);
     }
@@ -484,6 +492,7 @@ TEST_F(SdFontBitmapStorageTest, IncrementalReadFailurePreservesResidentViewAndRe
 }
 
 TEST_F(SdFontBitmapStorageTest, MetadataExtensionAndPromotionNeverConfuseFileAndCacheOffsets) {
+  EpdGlyph decoded;
   SdCardFont font;
   ASSERT_TRUE(font.load("font.cpfont"));
   ASSERT_EQ(font.prewarm("C", 1, true), 0);
@@ -495,7 +504,7 @@ TEST_F(SdFontBitmapStorageTest, MetadataExtensionAndPromotionNeverConfuseFileAnd
   ASSERT_EQ(font.prewarm("ABC", 1), 0);
   const auto* data = font.getEpdFont()->data;
   for (uint32_t cp = 'A'; cp <= 'C'; ++cp) {
-    const auto* glyph = font.getEpdFont()->findGlyph(cp);
+    const auto* glyph = font.getEpdFont()->findGlyph(decoded, cp);
     ASSERT_NE(glyph, nullptr);
     EXPECT_EQ(data->bitmap[glyph->dataOffset], (cp - 'A') * 8);
   }
@@ -511,6 +520,7 @@ TEST_F(SdFontBitmapStorageTest, MetadataExtensionAndPromotionNeverConfuseFileAnd
 }
 
 TEST_F(SdFontBitmapStorageTest, IncrementalStylesAndSupplementaryCoverageStayDistinct) {
+  EpdGlyph decoded;
   for (bool supplementary : {false, true}) {
     Storage.put("styles.cpfont", multiStyleFixture(supplementary));
     SdCardFont font;
@@ -525,7 +535,7 @@ TEST_F(SdFontBitmapStorageTest, IncrementalStylesAndSupplementaryCoverageStayDis
     EXPECT_EQ(Storage.data("styles.cpfont").readCalls - reads, 8u);
     for (uint8_t style = 0; style < 4; ++style) {
       for (uint32_t value : {cp, cp + 2}) {
-        const auto* glyph = font.getEpdFont(style)->findGlyph(value);
+        const auto* glyph = font.getEpdFont(style)->findGlyph(decoded, value);
         ASSERT_NE(glyph, nullptr);
         EXPECT_EQ(glyph->advanceX, 128 + style * 16);
         const auto* data = font.getEpdFont(style)->data;
@@ -536,6 +546,7 @@ TEST_F(SdFontBitmapStorageTest, IncrementalStylesAndSupplementaryCoverageStayDis
 }
 
 TEST_F(SdFontBitmapStorageTest, ZeroBitmapExtensionAndLowMemoryRebuildStayValid) {
+  EpdGlyph decoded;
   auto bytes = fixture();
   EpdGlyph space{};
   space.advanceX = 64;
@@ -550,19 +561,20 @@ TEST_F(SdFontBitmapStorageTest, ZeroBitmapExtensionAndLowMemoryRebuildStayValid)
   ASSERT_EQ(font.prewarm("AB", 1), 0);
   EXPECT_EQ(Storage.data("space.cpfont").readCalls - reads, 1u);
   EXPECT_EQ(font.getEpdFont()->data->bitmap, original);
-  const auto* blank = font.getEpdFont()->findGlyph('B');
+  const auto* blank = font.getEpdFont()->findGlyph(decoded, 'B');
   ASSERT_NE(blank, nullptr);
   EXPECT_EQ(blank->dataLength, 0);
   EXPECT_EQ(blank->advanceX, 64);
   // Too little headroom for staging: use the existing cold rebuild, then recover.
   fakeheap::internal.free = 40 * 1024 + 1;
   ASSERT_EQ(font.prewarm("ABC", 1), 0);
-  const auto* glyph = font.getEpdFont()->findGlyph('C');
+  const auto* glyph = font.getEpdFont()->findGlyph(decoded, 'C');
   ASSERT_NE(glyph, nullptr);
   EXPECT_EQ(font.getEpdFont()->data->bitmap[glyph->dataOffset], 16);
 }
 
 TEST_F(SdFontBitmapStorageTest, C3ContentCacheReusesPixelsWithinResidentCeiling) {
+  EpdGlyph decoded;
   fakeheap::reset(false);
   const size_t resident = SdCardFont::contentResidentBytes("font.cpfont", 12 * 1024);
   size_t reads[2]{};
@@ -584,7 +596,7 @@ TEST_F(SdFontBitmapStorageTest, C3ContentCacheReusesPixelsWithinResidentCeiling)
     // 600 characters, repeated over BW and two grayscale passes.
     for (unsigned pass = 0; pass < 3; ++pass) {
       for (unsigned i = 0; i < 600; ++i) {
-        const auto* glyph = font.getEpdFont()->findGlyph('A' + i % 3);
+        const auto* glyph = font.getEpdFont()->findGlyph(decoded, 'A' + i % 3);
         ASSERT_NE(glyph, nullptr);
         const auto* pixels = font.getOverflowBitmap(glyph);
         ASSERT_NE(pixels, nullptr);
@@ -598,7 +610,7 @@ TEST_F(SdFontBitmapStorageTest, C3ContentCacheReusesPixelsWithinResidentCeiling)
     font.releaseForLowMemory(true);
     EXPECT_TRUE(fakeheap::live.empty());
     ASSERT_EQ(font.prewarm("ABC", 1), 0);
-    const auto* glyph = font.getEpdFont()->findGlyph('C');
+    const auto* glyph = font.getEpdFont()->findGlyph(decoded, 'C');
     ASSERT_NE(glyph, nullptr);
     ASSERT_NE(font.getOverflowBitmap(glyph), nullptr);
     EXPECT_EQ(font.getOverflowBitmap(glyph)[0], 16);
@@ -609,6 +621,7 @@ TEST_F(SdFontBitmapStorageTest, C3ContentCacheReusesPixelsWithinResidentCeiling)
 }
 
 TEST_F(SdFontBitmapStorageTest, C3ContentCachePreservesReservesAndStreamsAfterAllocationFailure) {
+  EpdGlyph decoded;
   for (unsigned failure = 0; failure < 3; ++failure) {
     fakeheap::reset(false);
     SdCardFont font;
@@ -619,7 +632,7 @@ TEST_F(SdFontBitmapStorageTest, C3ContentCachePreservesReservesAndStreamsAfterAl
     for (unsigned pass = 0; pass < 3; ++pass) {
       ASSERT_EQ(font.prewarm("ABC", 1), 0);
       for (uint32_t cp = 'A'; cp <= 'C'; ++cp) {
-        const auto* glyph = font.getEpdFont()->findGlyph(cp);
+        const auto* glyph = font.getEpdFont()->findGlyph(decoded, cp);
         ASSERT_NE(glyph, nullptr);
         ASSERT_NE(font.getOverflowBitmap(glyph), nullptr);
         EXPECT_EQ(font.getOverflowBitmap(glyph)[0], (cp - 'A') * 8);
@@ -636,6 +649,7 @@ TEST_F(SdFontBitmapStorageTest, C3ContentCachePreservesReservesAndStreamsAfterAl
 }
 
 TEST_F(SdFontBitmapStorageTest, C3ContentWrapInvalidatesOverlappingPixelsEvenAfterPartialReads) {
+  EpdGlyph decoded;
   fakeheap::reset(false);
   auto bytes = fixture();
   // A 12-byte C overlaps both older eight-byte entries when the 16-byte
@@ -650,19 +664,19 @@ TEST_F(SdFontBitmapStorageTest, C3ContentWrapInvalidatesOverlappingPixelsEvenAft
   const size_t resident = SdCardFont::contentResidentBytes("font.cpfont", 12 * 1024);
   ASSERT_TRUE(font.load("font.cpfont", resident + 16));
   ASSERT_EQ(font.prewarm("ABC", 1), 0);
-  const auto* a = font.getEpdFont()->findGlyph('A');
-  const auto* b = font.getEpdFont()->findGlyph('B');
+  const auto* a = font.getEpdFont()->findGlyph(decoded, 'A');
+  const auto* b = font.getEpdFont()->findGlyph(decoded, 'B');
   ASSERT_NE(a, nullptr);
   ASSERT_NE(b, nullptr);
   auto& file = Storage.data("font.cpfont");
   const size_t bitmapStart = 64 + 2 * sizeof(EpdUnicodeInterval) + 4 * sizeof(EpdGlyph);
   file.readFailAt = bitmapStart + 16 + 3;
-  EXPECT_EQ(font.getEpdFont()->findGlyph('C'), nullptr);
+  EXPECT_EQ(font.getEpdFont()->findGlyph(decoded, 'C'), nullptr);
   EXPECT_EQ(font.getOverflowBitmap(a), nullptr);
   EXPECT_EQ(font.getOverflowBitmap(b), nullptr);
   file.readFailAt = std::numeric_limits<size_t>::max();
   for (unsigned i = 0; i < 100; ++i) {
-    const auto* glyph = font.getEpdFont()->findGlyph('A' + i % 3);
+    const auto* glyph = font.getEpdFont()->findGlyph(decoded, 'A' + i % 3);
     ASSERT_NE(glyph, nullptr);
     const auto* pixels = font.getOverflowBitmap(glyph);
     ASSERT_NE(pixels, nullptr);

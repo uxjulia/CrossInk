@@ -1,8 +1,4 @@
-"""Intern byte-identical built-in font tables without changing the source faces.
-
-Only immutable metadata tables are eligible. Glyph and bitmap arrays, font
-descriptors, font IDs and downloadable .cpfont records remain untouched.
-"""
+"""Share immutable metadata and byte-identical compressed blocks across built-in faces."""
 
 import argparse
 import hashlib
@@ -21,6 +17,78 @@ TABLE = re.compile(
 )
 FACE_INCLUDE = re.compile(r"^#include <builtinFonts/(\w+\.h)>$", re.MULTILINE)
 COMMENT = re.compile(r"//[^\n]*|/\*.*?\*/", re.DOTALL)
+
+
+BITMAP = re.compile(r"^static const uint8_t (\w+Bitmaps)\[(\d+)\] = \{\n(.*?)^\};", re.M | re.S)
+GROUPS = re.compile(r"^static const EpdFontGroup \w+Groups\[\] = \{\n(.*?)^\};", re.M | re.S)
+GROUP = re.compile(r"(\s*\{\s*)(\d+)(,\s*(\d+),\s*\d+,\s*\d+,\s*\d+\s*\},\s*)")
+
+
+GLYPHS = re.compile(r"^static const EpdGlyph (\w+Glyphs)\[\] = \{\n(.*?)^\};", re.M | re.S)
+GLYPH_ROW = re.compile(r"\s*\{\s*(-?\d+(?:,\s*-?\d+){6})\s*\},\s*(?://[^\n]*)?")
+DESCRIPTOR = re.compile(r"^(static constexpr EpdFontData \w+ = )\{\n(.*?)^\};", re.M | re.S)
+
+
+def compact_glyphs(name, face):
+    glyphs = GLYPHS.search(face)
+    if not glyphs:
+        return face
+    descriptor = DESCRIPTOR.search(face)
+    fields = [field.strip() for field in COMMENT.sub("", descriptor[2]).split(",")] if descriptor else []
+    if len(fields) < 8 or fields[1] != glyphs[1] or fields[7] not in ("true", "false"):
+        raise ValueError(f"{name}: unrecognized built-in font descriptor")
+    per_byte = 4 if fields[7] == "true" else 8
+    rows = []
+    for line in glyphs[2].splitlines():
+        match = GLYPH_ROW.fullmatch(line)
+        if not match:
+            raise ValueError(f"{name}: invalid glyph record: {line}")
+        w, h, advance, left, top, length, offset = map(int, match[1].split(","))
+        if not (0 <= w <= 255 and 0 <= h <= 255 and 0 <= advance <= 65535
+                and -128 <= left <= 127 and -128 <= top <= 127 and 0 <= offset <= 65535
+                and length == (w * h + per_byte - 1) // per_byte):
+            # Future larger faces can still use the original full-width representation.
+            return face
+        rows.append(f"    {{ {w}, {h}, {advance}, {left}, {top}, {offset} }},")
+    compact = f"static const EpdBuiltinGlyph {glyphs[1]}[] = {{\n" + "\n".join(rows) + "\n};"
+    fields_text = descriptor[2].replace(glyphs[1] + ",", "nullptr,", 1)
+    wrapped = f"{descriptor[1]}withBuiltinGlyphs({{\n{fields_text}}}, {glyphs[1]});"
+    return face.replace(glyphs[0], compact).replace(descriptor[0], wrapped)
+
+
+def pool_bitmaps(name, face, pool, offsets):
+    """Relocate compressed groups; the renderer already reads each by offset and size."""
+    groups = GROUPS.search(face)
+    if not groups:
+        return face
+    bitmap = BITMAP.search(face)
+    if not bitmap:
+        raise ValueError(f"{name}: compressed groups without a bitmap array")
+    data = bytes.fromhex(bitmap[3].replace("0x", "").replace(",", " "))
+    if len(data) != int(bitmap[2]):
+        raise ValueError(f"{name}: invalid bitmap length")
+
+    rows = []
+    consumed = 0
+    for line in groups[1].splitlines(keepends=True):
+        row = GROUP.fullmatch(line)
+        if not row:
+            raise ValueError(f"{name}: invalid group initializer: {line!r}")
+        start, size = int(row[2]), int(row[4])
+        if start != consumed or start + size > len(data):
+            raise ValueError(f"{name}: invalid compressed group range")
+        block = data[start:start + size]
+        if block not in offsets:
+            offsets[block] = len(pool)
+            pool.extend(block)
+        rows.append(f"{row[1]}{offsets[block]}{row[3]}")
+        consumed += size
+    if consumed != len(data):
+        raise ValueError(f"{name}: compressed groups do not cover bitmap array")
+
+    # Include the pool only from compressed faces, respecting all_faces.h's profile gate.
+    alias = f'#include "BuiltinFontBitmapPool.generated.h"\nstatic constexpr auto& {bitmap[1]} = builtin_font_tables::bitmapPool;'
+    return face.replace(groups[0], groups[0].replace(groups[1], "".join(rows))).replace(bitmap[0], alias)
 
 
 def write_changed(path, text):
@@ -75,6 +143,8 @@ def generate(source, output):
         + "\n".join(declarations)
         + "\n}  // namespace builtin_font_tables\n",
     )
+    pool = bytearray()
+    offsets = {}
     for name, face in faces.items():
         def replace(match):
             symbol = match[2]
@@ -83,7 +153,13 @@ def generate(source, output):
                 return match[0]
             return f"static constexpr auto& {symbol} = builtin_font_tables::{shared_symbol};"
 
-        write_changed(output / name, TABLE.sub(replace, face))
+        write_changed(output / name, pool_bitmaps(name, compact_glyphs(name, TABLE.sub(replace, face)), pool, offsets))
+
+    if pool:
+        rows = (", ".join(map(str, pool[i:i + 32])) for i in range(0, len(pool), 32))
+        write_changed(output / "BuiltinFontBitmapPool.generated.h",
+                      "#pragma once\n#include <cstdint>\nnamespace builtin_font_tables {\n"
+                      "static const uint8_t bitmapPool[] = {\n" + ",\n".join(rows) + "\n};\n}\n")
 
     # Preserve the manifest's existing scalable/bitmap profile gate. Both
     # common declarations and transformed faces stay private to this include.

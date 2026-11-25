@@ -1,3 +1,4 @@
+#include <DropCapStrikeCache.h>
 #include <FontCacheManager.h>
 #include <FontDecompressor.h>
 #include <GfxRenderer.h>
@@ -9,6 +10,14 @@
 #include <array>
 #include <string>
 #include <vector>
+
+#if !CROSSINK_SCALABLE_FONTS
+// This memory-only display fixture draws the registered font without an external drop-cap strike.
+DropCapStrikeCache::Bitmap DropCapStrikeCache::locate(int, const char*, uint8_t, uint32_t, uint8_t, uint16_t, uint8_t,
+                                                      uint8_t) {
+  return {};
+}
+#endif
 
 namespace {
 // Raw DEFLATE stored blocks keep the compressed fixtures readable and deterministic.
@@ -144,6 +153,36 @@ TEST(FontScratch, ReusesOneAllocationAndReleasesItBeforeReturning) {
     expectPackedGlyphs(decoder, font);
     EXPECT_EQ(decoder.getStats().cacheHits, 3u);
     EXPECT_EQ(decoder.getStats().cacheMisses, 0u);
+  }
+}
+
+TEST(FontScratch, CompactRecordsKeepTheOwningIndexThroughFallbackAndPrewarm) {
+  fakeheap::reset(false);
+  for (bool frequency : {false, true}) {
+    GroupFont font(frequency);
+    const EpdBuiltinGlyph compact[] = {{5, 1, 80, -2, 1, 0}, {5, 1, 80, 0, 1, 0}, {5, 1, 80, 1, 1, 0}};
+    font.data.glyph = nullptr;
+    font.data.builtinGlyphs = compact;
+    EpdFontData empty{};
+    EpdFont primary(&empty), fallback(&font.data);
+    EpdFontFamily family(&primary, nullptr, nullptr, nullptr, &fallback);
+    FontDecompressor decoder;
+    for (bool prewarm : {false, true}) {
+      if (prewarm) ASSERT_EQ(decoder.prewarmCache(&font.data, "ABC"), 0);
+      for (uint32_t i = 0; i < 3; ++i) {
+        EpdGlyph decoded;
+        const auto result = family.getGlyphData(decoded, 'A' + i);
+        ASSERT_EQ(result.fontData, &font.data);
+        ASSERT_EQ(result.index, i);
+        ASSERT_EQ(result.glyph, &decoded);
+        EXPECT_EQ(decoded.left, compact[i].left);
+        EXPECT_EQ(decoded.dataLength, 2);
+        const auto* pixels = decoder.getBitmap(result.fontData, result.glyph, result.index);
+        ASSERT_NE(pixels, nullptr);
+        EXPECT_EQ(pixels[0], GroupFont::pattern(i));
+        EXPECT_EQ(pixels[1], GroupFont::pattern(i) & 0xC0);
+      }
+    }
   }
 }
 

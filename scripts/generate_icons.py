@@ -83,6 +83,7 @@ def main():
             [
                 sys.executable,
                 str(SDK_GENERATOR),
+                "--shared",
                 "--manifest",
                 args.manifest,
                 "--svgdir",

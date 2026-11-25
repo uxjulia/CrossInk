@@ -8262,14 +8262,17 @@ class SimulatorSmokeTest {
           const auto& primary = fonts.at(id);
           const auto& composite = fonts.at(compositeId);
           for (auto style : {EpdFontFamily::REGULAR, EpdFontFamily::BOLD}) {
-            if (primary.getGlyphData('A', style).fontData != primary.getData(style) ||
-                primary.getGlyphData('A', style).glyph != composite.getGlyphData('A', style).glyph)
+            EpdGlyph decoded;
+            const auto latin = primary.getGlyphData(decoded, 'A', style);
+            const auto compositeLatin = composite.getGlyphData(decoded, 'A', style);
+            if (!latin.glyph || latin.fontData != primary.getData(style) || latin.fontData != compositeLatin.fontData ||
+                latin.index != compositeLatin.index)
               fail("Filename font replaced built-in Latin");
-            const auto cjk = composite.getGlyphData(0x4e00, style);
+            const auto cjk = composite.getGlyphData(decoded, 0x4e00, style);
             if (!composite.hasCodepoint(0x4e00) || !cjk.glyph || cjk.fontData == primary.getData(style))
               fail("Missing CJK fallback glyph");
             const bool covered = primary.hasCodepoint(0x4e00, style);
-            const auto sharedCjk = primary.getGlyphData(0x4e00, style);
+            const auto sharedCjk = primary.getGlyphData(decoded, 0x4e00, style);
             const int sharedWidth = renderer.getTextWidth(id, "Menu 一 Հայերեն", style);
             const int aliasWidth = renderer.getTextWidth(compositeId, "Menu 一 Հայերեն", style);
             // Scalable glyph descriptors rotate through scratch slots; compare

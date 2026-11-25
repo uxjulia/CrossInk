@@ -54,6 +54,7 @@ void EpdFontFamily::getTextDimensions(const char* string, int* w, int* h, const 
   while ((cp = utf8NextCodepoint(reinterpret_cast<const uint8_t**>(&string)))) {
     if (utf8IsVariationSelector(cp)) continue;
 
+    EpdGlyph decoded;
     const bool isCombining = utf8IsCombiningMark(cp);
 
     if (!isCombining) {
@@ -61,7 +62,7 @@ void EpdFontFamily::getTextDimensions(const char* string, int* w, int* h, const 
       cp = getFallbackCodepoint(cp, style);
     }
 
-    const bool hasRealGlyph = findGlyphData(cp, style).glyph != nullptr;
+    const bool hasRealGlyph = findGlyphData(decoded, cp, style).glyph != nullptr;
 
     if (!isCombining && syntheticGlyph::isBlankSpace(cp, hasRealGlyph)) {
       lastBaseX += fp4::toPixel(prevAdvanceFP);
@@ -75,7 +76,7 @@ void EpdFontFamily::getTextDimensions(const char* string, int* w, int* h, const 
 
     if (!isCombining && !hasRealGlyph && syntheticGlyph::isSolid(cp)) {
       const EpdFontData* data = getData(style);
-      const uint16_t advanceX = syntheticGlyph::solidAdvanceX(data, getGlyph('M', style));
+      const uint16_t advanceX = syntheticGlyph::solidAdvanceX(data, getGlyph(decoded, 'M', style));
       const int glyphHeight = syntheticGlyph::solidHeight(data, cp);
       const int glyphWidth = syntheticGlyph::solidWidth(cp, advanceX, glyphHeight);
       const int glyphLeft = syntheticGlyph::solidLeft(cp, advanceX, glyphWidth);
@@ -100,7 +101,7 @@ void EpdFontFamily::getTextDimensions(const char* string, int* w, int* h, const 
 
     if (!isCombining && !hasRealGlyph && syntheticGlyph::isGreekFallback(cp)) {
       const EpdFontData* data = getData(style);
-      const uint16_t advanceX = syntheticGlyph::greekAdvanceX(data, getGlyph('M', style), cp);
+      const uint16_t advanceX = syntheticGlyph::greekAdvanceX(data, getGlyph(decoded, 'M', style), cp);
       const int glyphHeight = syntheticGlyph::greekHeight(data, cp);
       const int glyphWidth = syntheticGlyph::greekWidth(cp, advanceX, glyphHeight);
       const int glyphLeft = syntheticGlyph::greekLeft(cp, advanceX, glyphWidth);
@@ -125,7 +126,7 @@ void EpdFontFamily::getTextDimensions(const char* string, int* w, int* h, const 
 
     if (!isCombining && !hasRealGlyph && syntheticGlyph::isReplacementFallback(cp)) {
       const EpdFontData* data = getData(style);
-      const uint16_t advanceX = syntheticGlyph::replacementAdvanceX(data, getGlyph('M', style));
+      const uint16_t advanceX = syntheticGlyph::replacementAdvanceX(data, getGlyph(decoded, 'M', style));
       const int glyphHeight = syntheticGlyph::replacementHeight(data);
       const int glyphWidth = syntheticGlyph::replacementWidth(advanceX, glyphHeight);
       const int glyphLeft = syntheticGlyph::replacementLeft(advanceX, glyphWidth);
@@ -148,7 +149,7 @@ void EpdFontFamily::getTextDimensions(const char* string, int* w, int* h, const 
       continue;
     }
 
-    const EpdGlyph* glyph = getGlyph(cp, style);
+    const EpdGlyph* glyph = getGlyph(decoded, cp, style);
     if (!glyph) {
       if (!isCombining) {
         lastBaseX += fp4::toPixel(prevAdvanceFP);
@@ -201,56 +202,59 @@ const EpdFontData* EpdFontFamily::shapingData(const Style style) const {
   return primary->shapeHandler || !extra ? primary : extra->data;
 }
 
-EpdFontFamily::GlyphData EpdFontFamily::findGlyphData(const uint32_t cp, const Style style) const {
+EpdFontFamily::GlyphData EpdFontFamily::findGlyphData(EpdGlyph& decoded, const uint32_t cp, const Style style) const {
+  uint32_t index = 0;
   const EpdFont* font = getFont(style);
-  if (const EpdGlyph* glyph = font->findGlyph(cp)) {
-    return {font->data, glyph};
+  if (const EpdGlyph* glyph = font->findGlyph(decoded, cp, &index)) {
+    return {font->data, glyph, index};
   }
 
   if (font != regular) {
-    if (const EpdGlyph* glyph = regular->findGlyph(cp)) {
-      return {regular->data, glyph};
+    if (const EpdGlyph* glyph = regular->findGlyph(decoded, cp, &index)) {
+      return {regular->data, glyph, index};
     }
   }
 
   if (fallback) {
-    if (const EpdGlyph* glyph = fallback->findGlyph(cp)) {
-      return {fallback->data, glyph};
+    if (const EpdGlyph* glyph = fallback->findGlyph(decoded, cp, &index)) {
+      return {fallback->data, glyph, index};
     }
   }
   const auto extra = getFallbackFont(style);
   if (extra) {
-    if (const auto glyph = extra->findGlyph(cp)) return {extra->data, glyph};
+    if (const auto glyph = extra->findGlyph(decoded, cp, &index)) return {extra->data, glyph, index};
     if (extra != fallbackRegular && fallbackRegular) {
-      if (const auto glyph = fallbackRegular->findGlyph(cp)) return {fallbackRegular->data, glyph};
+      if (const auto glyph = fallbackRegular->findGlyph(decoded, cp, &index))
+        return {fallbackRegular->data, glyph, index};
     }
   }
   return {nullptr, nullptr};
 }
 
-EpdFontFamily::GlyphData EpdFontFamily::getGlyphData(const uint32_t cp, const Style style) const {
-  if (const GlyphData glyphData = findGlyphData(cp, style); glyphData.glyph) {
+EpdFontFamily::GlyphData EpdFontFamily::getGlyphData(EpdGlyph& decoded, const uint32_t cp, const Style style) const {
+  if (const GlyphData glyphData = findGlyphData(decoded, cp, style); glyphData.glyph) {
     return glyphData;
   }
 
   if (cp != REPLACEMENT_GLYPH) {
-    return getGlyphData(REPLACEMENT_GLYPH, style);
+    return getGlyphData(decoded, REPLACEMENT_GLYPH, style);
   }
   return {nullptr, nullptr};
 }
 
-const EpdGlyph* EpdFontFamily::getGlyph(const uint32_t cp, const Style style) const {
-  return getGlyphData(cp, style).glyph;
+const EpdGlyph* EpdFontFamily::getGlyph(EpdGlyph& decoded, const uint32_t cp, const Style style) const {
+  return getGlyphData(decoded, cp, style).glyph;
 }
 
 uint16_t EpdFontFamily::getSpaceAdvanceX(const uint32_t cp, const Style style) const {
   if (syntheticGlyph::isZeroWidthSpace(cp)) return 0;
-  const auto native = findGlyphData(cp, style).glyph;
+  EpdGlyph decoded;
+  const auto native = findGlyphData(decoded, cp, style).glyph;
   if (native && native->advanceX > 0) return native->advanceX;
 
   // Copy each metric before the next lookup: dynamic fonts can reuse glyph slots.
   const auto advance = [&](uint32_t codepoint) -> uint16_t {
-    const auto glyph = findGlyphData(codepoint, style).glyph;
+    const auto glyph = findGlyphData(decoded, codepoint, style).glyph;
     return glyph ? glyph->advanceX : 0;
   };
   const uint16_t space = advance(' ');
@@ -261,19 +265,20 @@ uint16_t EpdFontFamily::getSpaceAdvanceX(const uint32_t cp, const Style style) c
   return syntheticGlyph::spaceAdvanceX(cp, em, space, figure, punctuation);
 }
 
-uint32_t EpdFontFamily::getFallbackCodepoint(const uint32_t cp, const Style style, const EpdGlyph** glyph) const {
+uint32_t EpdFontFamily::getFallbackCodepoint(EpdGlyph& decoded, const uint32_t cp, const Style style,
+                                             const EpdGlyph** glyph) const {
   if (syntheticGlyph::isSpaceFallback(cp)) {
-    if (glyph) *glyph = findGlyphData(cp, style).glyph;
+    if (glyph) *glyph = findGlyphData(decoded, cp, style).glyph;
     return cp;
   }
-  const auto* matching = findGlyphData(cp, style).glyph;
+  const auto* matching = findGlyphData(decoded, cp, style).glyph;
   if (matching) {
     if (glyph) *glyph = matching;
     return cp;
   }
   const uint32_t aliasCp = syntheticGlyph::aliasCodepoint(cp);
   if (aliasCp != cp) {
-    matching = findGlyphData(aliasCp, style).glyph;
+    matching = findGlyphData(decoded, aliasCp, style).glyph;
     if (matching) {
       if (glyph) *glyph = matching;
       return aliasCp;
@@ -282,7 +287,7 @@ uint32_t EpdFontFamily::getFallbackCodepoint(const uint32_t cp, const Style styl
     if (glyph) *glyph = nullptr;
     return cp;
   }
-  if (glyph) *glyph = cp == REPLACEMENT_GLYPH ? nullptr : findGlyphData(REPLACEMENT_GLYPH, style).glyph;
+  if (glyph) *glyph = cp == REPLACEMENT_GLYPH ? nullptr : findGlyphData(decoded, REPLACEMENT_GLYPH, style).glyph;
   return REPLACEMENT_GLYPH;
 }
 

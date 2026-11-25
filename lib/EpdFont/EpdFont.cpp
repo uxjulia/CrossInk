@@ -45,7 +45,8 @@ void EpdFont::getTextBounds(const char* string, const int startX, const int star
       cp = applyLigatures(cp, string);
     }
 
-    const EpdGlyph* glyph = getGlyph(cp);
+    EpdGlyph decoded;
+    const EpdGlyph* glyph = getGlyph(decoded, cp);
     if (!glyph) {
       // Keep cursor movement stable when a base glyph is missing, but don't attach subsequent
       // combining marks to stale base metrics.
@@ -235,7 +236,7 @@ uint32_t EpdFont::applyLigatures(uint32_t cp, const char*& text) const {
   return cp;
 }
 
-const EpdGlyph* EpdFont::findGlyph(const uint32_t cp) const {
+const EpdGlyph* EpdFont::findGlyph(EpdGlyph& decoded, const uint32_t cp, uint32_t* index) const {
 #if CROSSINK_SCALABLE_FONTS
   if (data->dynamicGlyphHandler) return recordGlyphLookup(data->dynamicGlyphHandler(data->glyphMissCtx, cp));
 #endif
@@ -255,7 +256,9 @@ const EpdGlyph* EpdFont::findGlyph(const uint32_t cp) const {
     if (it != intervals) {
       const auto& interval = *(it - 1);
       if (cp <= interval.last) {
-        return &data->glyph[interval.offset + (cp - interval.first)];
+        const uint32_t i = interval.offset + (cp - interval.first);
+        if (index) *index = i;
+        return &data->glyphAt(i, decoded);
       }
     }
   }
@@ -265,16 +268,16 @@ const EpdGlyph* EpdFont::findGlyph(const uint32_t cp) const {
   return data->glyphMissHandler ? recordGlyphLookup(data->glyphMissHandler(data->glyphMissCtx, cp)) : nullptr;
 }
 
-const EpdGlyph* EpdFont::getGlyph(const uint32_t cp) const {
-  if (const EpdGlyph* glyph = findGlyph(cp)) {
+const EpdGlyph* EpdFont::getGlyph(EpdGlyph& decoded, const uint32_t cp) const {
+  if (const EpdGlyph* glyph = findGlyph(decoded, cp)) {
     return glyph;
   }
 
   // CrossPoint #3891: use the matching quotation mark when the turned comma is absent.
-  if (cp == 0x02BB && hasCodepoint(0x2018)) return getGlyph(0x2018);
+  if (cp == 0x02BB && hasCodepoint(0x2018)) return getGlyph(decoded, 0x2018);
 
   if (cp != REPLACEMENT_GLYPH) {
-    return getGlyph(REPLACEMENT_GLYPH);
+    return getGlyph(decoded, REPLACEMENT_GLYPH);
   }
   return nullptr;
 }

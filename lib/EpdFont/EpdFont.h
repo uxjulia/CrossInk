@@ -13,8 +13,11 @@ class EpdFont {
   // Changes when an on-demand/scalable lookup returns no metadata. A render
   // bounds collector must stay conservative if a failed lookup could recover.
   static uint32_t glyphLookupFailureCount();
-  const EpdGlyph* findGlyph(uint32_t cp) const;
-  const EpdGlyph* getGlyph(uint32_t cp) const;
+  // Built-ins can return &decoded. Keep it alive until the glyph is consumed.
+  // SD/scalable lookups return the backend's original pointer. The optional
+  // index identifies an interval-table hit for compressed bitmap lookup.
+  const EpdGlyph* findGlyph(EpdGlyph& decoded, uint32_t cp, uint32_t* index = nullptr) const;
+  const EpdGlyph* getGlyph(EpdGlyph& decoded, uint32_t cp) const;
 
   /// Returns true if this font covers `cp`: either via its in-RAM interval
   /// table or, for SD card fonts, via the coverageHandler that consults the

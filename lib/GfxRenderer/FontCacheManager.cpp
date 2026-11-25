@@ -69,6 +69,7 @@ void FontCacheManager::releaseInactiveSdFontCaches(const int activeFontId) {
 bool FontCacheManager::prewarmCache(int fontId, const char* utf8Text, uint8_t styleMask,
                                     const PreparationPolicy policy) {
 #if CROSSINK_SCALABLE_FONTS
+  EpdGlyph decoded;
   ScalableFontAccess access;
 #endif
   // SD card font prewarm path: prewarm all requested styles in one call
@@ -98,7 +99,7 @@ bool FontCacheManager::prewarmCache(int fontId, const char* utf8Text, uint8_t st
         uint32_t cp = utf8NextCodepoint(reinterpret_cast<const uint8_t**>(&text));
         if (!cp) break;
         cp = family.applyLigatures(cp, text, style);
-        const auto gd = family.getGlyphData(cp, style);
+        const auto gd = family.getGlyphData(decoded, cp, style);
         if (!gd.glyph) {
           if (family.hasCodepoint(cp, style)) {
             LOG_ERR("FCM", "TTF metrics preparation failed: U+%04X font=%d style=%d", unsigned(cp), fontId, i);
@@ -384,6 +385,7 @@ void FontCacheManager::PrewarmScope::endScanForIdle(IdleScalableJob& job) {
 FontCacheManager::IdleResult FontCacheManager::prewarmIdleSlice(IdleScalableJob& job, bool (*shouldYield)(void*),
                                                                 void* context, const uint16_t maxGlyphs,
                                                                 bool (*cancelled)(void*)) {
+  EpdGlyph decoded;
   HalScalableFont::IdlePrewarmScope admission;
   uint16_t attempted = 0;
   while (job.cursor < job.count) {
@@ -396,7 +398,7 @@ FontCacheManager::IdleResult FontCacheManager::prewarmIdleSlice(IdleScalableJob&
       const auto* data = font->second.getData(style);
       // Leave cpfont and built-in fallback caches alone during speculative work.
       if (data && data->bitmapHandler) {
-        const auto gd = font->second.getGlyphData(cp, style);
+        const auto gd = font->second.getGlyphData(decoded, cp, style);
         // Time budgets apply between whole glyphs so a slow metrics lookup
         // cannot starve the same glyph forever. Input can still cancel here.
         if (cancelled && cancelled(context)) return IdleResult::Yielded;

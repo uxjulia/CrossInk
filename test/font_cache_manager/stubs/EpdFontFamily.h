@@ -34,7 +34,7 @@ class EpdFontFamily {
     const EpdGlyph* glyph;
     const EpdFontData* fontData;
   };
-  GlyphData getGlyphData(uint32_t cp, Style style) const {
+  GlyphData getGlyphData(EpdGlyph&, uint32_t cp, Style style) const {
     const auto* data = getData(style);
     return {data && data->dynamicGlyphHandler ? data->dynamicGlyphHandler(data->glyphMissCtx, cp) : nullptr, data};
   }

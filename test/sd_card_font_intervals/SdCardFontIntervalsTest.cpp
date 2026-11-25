@@ -345,6 +345,7 @@ void streamingChecks(const std::string& path) {
 }
 
 void incrementalChecks(const std::string& path) {
+  EpdGlyph decoded;
   fixture(path, {{0, table({{'A', 'D'}, {0xFFFD, 0xFFFD}})}});
   enforceSingleReader = true;
   int allocations = 0, reads = 0, seeks = 0;
@@ -360,7 +361,7 @@ void incrementalChecks(const std::string& path) {
     assert(reads == 2);  // Only D metadata and bitmap, not all five residents.
     const auto* data = font.getEpdFont()->data;
     for (uint32_t cp : {uint32_t('A'), uint32_t('B'), uint32_t('C'), uint32_t('D'), 0xFFFDu}) {
-      const auto* glyph = font.getEpdFont()->findGlyph(cp);
+      const auto* glyph = font.getEpdFont()->findGlyph(decoded, cp);
       assert(glyph && data->bitmap[glyph->dataOffset] == 0x80);
       assert(glyph->advanceX == advance(cp == 0xFFFD ? 4 : cp - 'A', 0));
     }
@@ -397,7 +398,7 @@ void incrementalChecks(const std::string& path) {
       failOpen = false;
       assert(openFiles == 0 && arrayBytes() == bytes);
       assert(font.getEpdFont()->data == before && before->glyph == glyphs && before->bitmap == pixels);
-      const auto* glyph = font.getEpdFont()->findGlyph('A');
+      const auto* glyph = font.getEpdFont()->findGlyph(decoded, 'A');
       assert(glyph && before->bitmap[glyph->dataOffset] == 0x80);
       assert(font.prewarm("ABCD", 1) == 0 && !font.lastPrewarmFailed());
     }
@@ -522,6 +523,7 @@ void compactContentBudgetChecks(const std::string& path) {
 }
 
 void sharedContentScratchChecks(const std::string& path) {
+  EpdGlyph decoded;
   // Two distinguishable glyphs larger than the bitmap-cache slot limit ensure
   // the fallback scratch is used, even if bitmap caching is enabled later.
   const auto second = path + "-scratch";
@@ -547,16 +549,16 @@ void sharedContentScratchChecks(const std::string& path) {
     assert(arrayBytes() == before - 1024);
     const int allocations = arrayCalls;
     for (int i = 0; i < 5; ++i) {
-      const auto* a = owner.getEpdFont()->getGlyph('A');
+      const auto* a = owner.getEpdFont()->getGlyph(decoded, 'A');
       assert(a && owner.getOverflowBitmap(a)[0] == 0xAA);
-      const auto* b = borrower.getEpdFont()->getGlyph('A');
+      const auto* b = borrower.getEpdFont()->getGlyph(decoded, 'A');
       assert(b && borrower.getOverflowBitmap(b)[0] == 0x55);
       assert(owner.getOverflowBitmap(a) == nullptr);  // Never return the other size's pixels.
-      const auto* again = owner.getEpdFont()->getGlyph('A');
+      const auto* again = owner.getEpdFont()->getGlyph(decoded, 'A');
       assert(again && owner.getOverflowBitmap(again)[0] == 0xAA);
       assert(borrower.getOverflowBitmap(b) == nullptr);
       failReadCall = readCalls + 1;  // Fail the next bitmap read after metadata.
-      assert(borrower.getEpdFont()->getGlyph('A') == nullptr);
+      assert(borrower.getEpdFont()->getGlyph(decoded, 'A') == nullptr);
       failReadCall = -1;
       assert(owner.getOverflowBitmap(again) == nullptr);
     }
@@ -601,6 +603,7 @@ void contentCacheFixture(const std::string& path) {
   out.write(reinterpret_cast<const char*>(bytes.data()), bytes.size());
 }
 void bodyMetricsCacheSaturationChecks(const std::string& path) {
+  EpdGlyph decoded;
   contentCacheFixture(path);
   SdCardFont font;
   assert(font.load(path.c_str()));
@@ -618,7 +621,7 @@ void bodyMetricsCacheSaturationChecks(const std::string& path) {
   assert(hot && miss);
   SdCardFont::MetricsScope scope(&font);
   auto measure = [&](uint32_t cp, uint8_t style = 0) {
-    const auto* glyph = font.getEpdFont(style)->getGlyph(cp);
+    const auto* glyph = font.getEpdFont(style)->getGlyph(decoded, cp);
     assert(glyph && glyph->advanceX == advance(cp, style));
   };
   measure(hot);
@@ -642,6 +645,7 @@ void bodyMetricsCacheSaturationChecks(const std::string& path) {
 }
 
 void bitmapReclamationChecks(const std::string& path) {
+  EpdGlyph decoded;
   contentCacheFixture(path);
   {
     SdCardFont body;
@@ -651,7 +655,7 @@ void bitmapReclamationChecks(const std::string& path) {
     assert(advances && body.getAdvance('A', 0) == advance('A', 0));
     {
       SdCardFont::MetricsScope metrics(&body);
-      assert(body.getEpdFont()->getGlyph('D')->advanceX == advance('D', 0));
+      assert(body.getEpdFont()->getGlyph(decoded, 'D')->advanceX == advance('D', 0));
     }
     const auto* metrics = body.contentMetrics_.get();
     assert(metrics);
@@ -661,7 +665,7 @@ void bitmapReclamationChecks(const std::string& path) {
     assert(body.getEpdFont()->data->bitmap);
     const auto* metadata = body.getEpdFont(1)->data;
     assert(metadata->glyph && !metadata->bitmap);
-    const auto* overflow = body.getEpdFont()->getGlyph('z');
+    const auto* overflow = body.getEpdFont()->getGlyph(decoded, 'z');
     assert(overflow && body.getOverflowBitmap(overflow)[0] == 'z');
     const auto before = arrayBytes();
     assert(body.releaseBitmapCachesForLowMemory());
@@ -673,7 +677,7 @@ void bitmapReclamationChecks(const std::string& path) {
     assert(!body.releaseBitmapCachesForLowMemory());
     body.prewarm("ABC", 1);
     assert(!body.lastPrewarmFailed());
-    const auto* glyph = body.getEpdFont()->getGlyph('A');
+    const auto* glyph = body.getEpdFont()->getGlyph(decoded, 'A');
     assert(glyph && body.getEpdFont()->data->bitmap[glyph->dataOffset] == 'A');
   }
   {
@@ -683,19 +687,20 @@ void bitmapReclamationChecks(const std::string& path) {
     assert(size.contentBitmaps_ && size.contentBitmap_);
     const auto* metrics = size.contentMetrics_.get();
     const auto* scratch = size.contentBitmap_.get();
-    const auto* cached = size.getEpdFont()->getGlyph('A');
+    const auto* cached = size.getEpdFont()->getGlyph(decoded, 'A');
     assert(cached && size.contentMetricsIndex(cached) >= 0 && size.getOverflowBitmap(cached)[0] == 'A');
     assert(size.releaseBitmapCachesForLowMemory());
     assert(!size.contentBitmaps_ && size.contentMetrics_.get() == metrics && size.contentBitmap_.get() == scratch);
     assert(!size.getOverflowBitmap(cached));  // Invalid until reloaded; metrics stay live.
     assert(!size.releaseBitmapCachesForLowMemory());
-    const auto* reloaded = size.getEpdFont()->getGlyph('A');
+    const auto* reloaded = size.getEpdFont()->getGlyph(decoded, 'A');
     assert(reloaded && size.getOverflowBitmap(reloaded)[0] == 'A');
   }
   assert(arrayBytes() == 0 && openFiles == 0);
 }
 
 void contentCacheCollisionChecks(const std::string& path) {
+  EpdGlyph decoded;
   contentCacheFixture(path);
   SdCardFont font;
   assert(font.load(path.c_str(), 12U * 1024U));
@@ -704,7 +709,7 @@ void contentCacheCollisionChecks(const std::string& path) {
   const auto allocationCount = arrayCalls;
   const auto residentBytes = arrayBytes();
   auto draw = [&](uint32_t cp, uint8_t style = 0) {
-    const auto* glyph = font.getEpdFont(style)->getGlyph(cp);
+    const auto* glyph = font.getEpdFont(style)->getGlyph(decoded, cp);
     assert(glyph && glyph->advanceX == advance(cp, style));
     const auto* bitmap = font.getOverflowBitmap(glyph);
     assert(bitmap);
@@ -777,7 +782,7 @@ void contentCacheCollisionChecks(const std::string& path) {
   // Read failure invalidates the overlapped owner before any retry.
   font.contentGlyphMetrics(15, 0, 15);
   failReadCall = readCalls;
-  assert(!font.getEpdFont()->getGlyph(15));
+  assert(!font.getEpdFont()->getGlyph(decoded, 15));
   failReadCall = -1;
   assert(!font.getOverflowBitmap(y));
   draw(15);
@@ -801,6 +806,7 @@ void contentCacheCollisionChecks(const std::string& path) {
 }
 
 void contentSizeChecks(const std::string& path) {
+  EpdGlyph decoded;
   fixture(path, {{0, table({{0x41, 0x5A}})}, {1, table({{0x41, 0x5A}})}});
   constexpr size_t limit = 12U * 1024U;
   const size_t budget =
@@ -869,7 +875,7 @@ void contentSizeChecks(const std::string& path) {
     assert(font.metricsDepth_ == 0 && readCalls < 700);
     assert(arrayBytes() == baseline && arrayCalls == allocationCalls && openFiles == 0);
     // Metrics-only glyphs must never stand in for the bitmap when drawing resumes.
-    const auto* drawn = font.getEpdFont()->getGlyph('A');
+    const auto* drawn = font.getEpdFont()->getGlyph(decoded, 'A');
     assert(drawn && font.getOverflowBitmap(drawn)[0] == 0x80);
     font.clearPersistentCache();
     uint16_t width = 0;
@@ -886,11 +892,11 @@ void contentSizeChecks(const std::string& path) {
     assert(font.prewarm("ABCDEFGHIJKLMNOPQRSTUVWXYZ", 3) == 0);
     const EpdFontFamily family(font.getEpdFont(), font.getEpdFont(1));
     assert(family.getFallbackCodepoint('A', EpdFontFamily::REGULAR) == 'A');
-    assert(family.findGlyphData('B', EpdFontFamily::BOLD).glyph);
-    assert(!family.findGlyphData('?', EpdFontFamily::REGULAR).glyph);
+    assert(family.findGlyphData(decoded, 'B', EpdFontFamily::BOLD).glyph);
+    assert(!family.findGlyphData(decoded, '?', EpdFontFamily::REGULAR).glyph);
     for (unsigned pass = 0; pass < 100; ++pass) {
       for (uint32_t cp = 0x41; cp <= 0x5A; ++cp) {
-        const auto* glyph = font.getEpdFont(pass % 2)->getGlyph(cp);
+        const auto* glyph = font.getEpdFont(pass % 2)->getGlyph(decoded, cp);
         assert(glyph && font.getOverflowBitmap(glyph)[0] == 0x80);
         assert(glyph->advanceX == advance(cp - 0x41, pass % 2));
       }
@@ -899,7 +905,7 @@ void contentSizeChecks(const std::string& path) {
     assert(arrayBytes() == baseline && arrayCalls == allocationCalls);
     font.releaseForLowMemory();
     assert(font.prewarm("AB", 3) == 0);
-    const auto* glyph = font.getEpdFont()->getGlyph(0x41);
+    const auto* glyph = font.getEpdFont()->getGlyph(decoded, 0x41);
     assert(glyph && font.getOverflowBitmap(glyph)[0] == 0x80);
     font.freeAll();
     clean(font);
@@ -926,7 +932,7 @@ void contentSizeChecks(const std::string& path) {
       out.seekp(96 + sizeof(EpdUnicodeInterval));
       out.write(reinterpret_cast<const char*>(&larger), sizeof(larger));
     }
-    assert(font.getEpdFont()->getGlyph(0x41) == nullptr);
+    assert(font.getEpdFont()->getGlyph(decoded, 0x41) == nullptr);
     font.freeAll();
     clean(font);
     fixture(path, {{0, table({{0x41, 0x5A}})}, {1, table({{0x41, 0x5A}})}});
@@ -1079,6 +1085,7 @@ void contentSizeChecks(const std::string& path) {
 }
 
 void upstreamFontTests(const std::string& path) {
+  EpdGlyph decoded;
   // Corrupt length, out-of-file bitmap, and 32-bit offset wrap must all be blank
   // through direct metrics, prewarm, and on-demand/lean-content loading.
   for (int damage = 0; damage < 3; ++damage) {
@@ -1104,13 +1111,13 @@ void upstreamFontTests(const std::string& path) {
       assert(!SdCardFont::takeCorruptGlyphNotice());
       assert(font.buildAdvanceTable("ABCD", 1) == 0);
       assert(font.prewarm("ABCD", 1) == (lean ? 0 : 1));  // fixture has no replacement glyph
-      const auto* bad = font.getEpdFont()->getGlyph('B');
+      const auto* bad = font.getEpdFont()->getGlyph(decoded, 'B');
       assert(bad && bad->width == 0 && bad->dataLength == 0 && bad->advanceX == 0);
-      const auto* good = font.getEpdFont()->getGlyph('A');
+      const auto* good = font.getEpdFont()->getGlyph(decoded, 'A');
       assert(good && good->dataLength == 1 && good->width == 1);
       assert(!SdCardFont::takeCorruptGlyphNotice());
       font.clearPersistentCache();
-      bad = font.getEpdFont()->getGlyph('B');
+      bad = font.getEpdFont()->getGlyph(decoded, 'B');
       assert(bad && bad->dataLength == 0);
     }
   }
@@ -1157,6 +1164,7 @@ void upstreamFontTests(const std::string& path) {
 }
 
 int main() {
+  EpdGlyph decoded;
   auto dir = std::filesystem::temp_directory_path() / "crossink-font-interval-tests";
   std::filesystem::create_directories(dir);
   const auto path = (dir / "test.cpfont").string();
@@ -1229,7 +1237,7 @@ int main() {
         "Mixed fixture: 3 distinct tables x (3 BMP + 2 full): old=180 B new=%zu B saved=54 B (table payload only)\n",
         arrayBytes());
     assert(font.prewarm("A\xF0\x90\x80\x80", 0x03, true) == 0);
-    assert(font.getEpdFont(0)->getGlyph(0x10000)->advanceX == advance(reference(mixed, 0x10000), 0));
+    assert(font.getEpdFont(0)->getGlyph(decoded, 0x10000)->advanceX == advance(reference(mixed, 0x10000), 0));
     const uint32_t cps[] = {0x41, 0x10000};
     assert(font.buildAdvanceTableForCodepoints(cps, 2, false, false, 0x03) == 0);
     assert(font.getAdvance(0x10000, 1) == advance(reference(mixed, 0x10000), 1));
@@ -1301,14 +1309,14 @@ int main() {
       SdCardFont::MetricsScope metrics(&body);
       for (int row = 0; row < 100; ++row) {
         for (unsigned char cp = 'a'; cp <= 'z'; ++cp) {
-          const auto* glyph = body.getEpdFont()->getGlyph(cp);
+          const auto* glyph = body.getEpdFont()->getGlyph(decoded, cp);
           assert(glyph && glyph->advanceX == advance(cp, 0));
         }
       }
     }
     // Cold metadata reads only. The same workload read 5,200 records on RC-3.
     assert(readCalls - before == 26);
-    const auto* glyph = body.getEpdFont()->getGlyph('z');
+    const auto* glyph = body.getEpdFont()->getGlyph(decoded, 'z');
     assert(glyph && body.getOverflowBitmap(glyph)[0] == 'z');
     body.releaseForLowMemory(true);
     assert(!body.contentMetrics_);
@@ -1318,16 +1326,16 @@ int main() {
       SdCardFont::MetricsScope metrics(&body);
       const int startReads = readCalls;
       const int startAllocations = arrayCalls;
-      const auto* measured = body.getEpdFont()->getGlyph('a');
+      const auto* measured = body.getEpdFont()->getGlyph(decoded, 'a');
       assert(measured && measured->advanceX == advance('a', 0));
       assert(!body.contentMetrics_);
       assert(!body.getOverflowBitmap(measured));
-      assert(body.getEpdFont()->getGlyph('a') == measured);
+      assert(body.getEpdFont()->getGlyph(decoded, 'a') == measured);
       assert(readCalls == startReads + 1);         // One metadata record, no pixels.
       assert(arrayCalls == startAllocations + 1);  // Only the failed optional-cache allocation.
     }
     failArrayCall = -1;
-    const auto* drawn = body.getEpdFont()->getGlyph('a');
+    const auto* drawn = body.getEpdFont()->getGlyph(decoded, 'a');
     assert(drawn && body.getOverflowBitmap(drawn)[0] == 'a');
   }
   bodyMetricsCacheSaturationChecks(path);

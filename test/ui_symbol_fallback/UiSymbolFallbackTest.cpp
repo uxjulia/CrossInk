@@ -25,11 +25,12 @@ TEST(UiSymbolFallback, ContainsExactlyOneGlyph) {
 }
 
 TEST(UiSymbolFallback, SharesTheSameRasterAtBothScalesAndStyles) {
+  EpdGlyph decoded;
   for (const auto* family : {&small, &large}) {
     for (const auto style : {EpdFontFamily::REGULAR, EpdFontFamily::BOLD}) {
-      const auto glyph = family->getGlyphData(POWER, style);
+      const auto glyph = family->getGlyphData(decoded, POWER, style);
       EXPECT_EQ(glyph.fontData, &ui_symbols_10);
-      EXPECT_EQ(glyph.glyph, symbols.findGlyph(POWER));
+      EXPECT_EQ(glyph.glyph, symbols.findGlyph(decoded, POWER));
       EXPECT_TRUE(family->hasCodepoint(POWER, style));
       EXPECT_EQ(family->getFallbackCodepoint(POWER, style), POWER);
       int width = 0, height = 0;
@@ -41,11 +42,12 @@ TEST(UiSymbolFallback, SharesTheSameRasterAtBothScalesAndStyles) {
 }
 
 TEST(UiSymbolFallback, PreservesNormalGlyphsAndMissingGlyphBehavior) {
-  EXPECT_EQ(small.getGlyphData('A').fontData, &inter_10_regular);
-  EXPECT_EQ(large.getGlyphData('*', EpdFontFamily::BOLD).fontData, &inter_12_bold);
+  EpdGlyph decoded;
+  EXPECT_EQ(small.getGlyphData(decoded, 'A').fontData, &inter_10_regular);
+  EXPECT_EQ(large.getGlyphData(decoded, '*', EpdFontFamily::BOLD).fontData, &inter_12_bold);
   const EpdFontFamily noFallback(&smallRegular);
   EXPECT_FALSE(noFallback.hasCodepoint(POWER));
-  EXPECT_EQ(noFallback.getGlyphData(POWER).glyph, smallRegular.getGlyph(REPLACEMENT_GLYPH));
+  EXPECT_EQ(noFallback.getGlyphData(decoded, POWER).glyph, smallRegular.getGlyph(decoded, REPLACEMENT_GLYPH));
 }
 
 namespace {
@@ -69,12 +71,13 @@ const EpdFont cjkRegular(&cjkRegularData), cjkBold(&cjkBoldData);
 }  // namespace
 
 TEST(FilenameFallback, PreservesLatinAndSharedSymbolsWithinMixedText) {
+  EpdGlyph decoded;
   const auto composite = small.withFallbackFonts(&cjkRegular, &cjkBold);
-  EXPECT_EQ(composite.getGlyphData('A').fontData, &inter_10_regular);
-  EXPECT_EQ(composite.getGlyphData('A', EpdFontFamily::BOLD).fontData, &inter_10_bold);
-  EXPECT_EQ(composite.getGlyphData(POWER, EpdFontFamily::BOLD).fontData, &ui_symbols_10);
-  EXPECT_EQ(composite.getGlyphData(0x4E00).fontData, &cjkRegularData);
-  EXPECT_EQ(composite.getGlyphData(0x4E00, EpdFontFamily::BOLD).fontData, &cjkBoldData);
+  EXPECT_EQ(composite.getGlyphData(decoded, 'A').fontData, &inter_10_regular);
+  EXPECT_EQ(composite.getGlyphData(decoded, 'A', EpdFontFamily::BOLD).fontData, &inter_10_bold);
+  EXPECT_EQ(composite.getGlyphData(decoded, POWER, EpdFontFamily::BOLD).fontData, &ui_symbols_10);
+  EXPECT_EQ(composite.getGlyphData(decoded, 0x4E00).fontData, &cjkRegularData);
+  EXPECT_EQ(composite.getGlyphData(decoded, 0x4E00, EpdFontFamily::BOLD).fontData, &cjkBoldData);
   EXPECT_EQ(composite.getData()->ascender, small.getData()->ascender);
   int primaryW = 0, primaryH = 0, compositeW = 0, compositeH = 0;
   small.getTextDimensions("Latin Volume 2", &primaryW, &primaryH);
@@ -84,43 +87,47 @@ TEST(FilenameFallback, PreservesLatinAndSharedSymbolsWithinMixedText) {
 }
 
 TEST(FilenameFallback, UsesRegularWhenBoldIsMissingOrLacksAGlyph) {
+  EpdGlyph decoded;
   const auto withoutBold = small.withFallbackFonts(&cjkRegular);
-  EXPECT_EQ(withoutBold.getGlyphData(0x4E00, EpdFontFamily::BOLD).fontData, &cjkRegularData);
+  EXPECT_EQ(withoutBold.getGlyphData(decoded, 0x4E00, EpdFontFamily::BOLD).fontData, &cjkRegularData);
   const auto partialBold = small.withFallbackFonts(&cjkRegular, &cjkBold);
-  EXPECT_EQ(partialBold.getGlyphData(0x4E01, EpdFontFamily::BOLD).fontData, &cjkRegularData);
+  EXPECT_EQ(partialBold.getGlyphData(decoded, 0x4E01, EpdFontFamily::BOLD).fontData, &cjkRegularData);
   EXPECT_TRUE(partialBold.hasCodepoint(0x4E01, EpdFontFamily::BOLD));
 }
 
 TEST(UiSymbolFallback, RemovingBorrowedFacesPreservesBuiltinsAndSharedSymbols) {
+  EpdGlyph decoded;
   const auto restored = small.withFallbackFonts(&cjkRegular, &cjkBold).withFallbackFonts(nullptr);
   for (const auto style :
        {EpdFontFamily::REGULAR, EpdFontFamily::BOLD, EpdFontFamily::ITALIC, EpdFontFamily::BOLD_ITALIC}) {
     EXPECT_FALSE(restored.hasCodepoint(0x4E00, style));
-    EXPECT_EQ(restored.getGlyphData('A', style).glyph, small.getGlyphData('A', style).glyph);
-    EXPECT_EQ(restored.getGlyphData(POWER, style).fontData, &ui_symbols_10);
+    EXPECT_EQ(restored.getGlyphData(decoded, 'A', style).glyph, small.getGlyphData(decoded, 'A', style).glyph);
+    EXPECT_EQ(restored.getGlyphData(decoded, POWER, style).fontData, &ui_symbols_10);
   }
 }
 
 TEST(FilenameFallback, MeasuresFallbackGlyphsAndPreservesMissingGlyphBehavior) {
+  EpdGlyph decoded;
   const auto composite = small.withFallbackFonts(&cjkRegular);
   int width = 0, height = 0;
   composite.getTextDimensions("一丁", &width, &height);
   EXPECT_EQ(width, 38);  // 20-pixel advance plus the last glyph's 18-pixel ink
   EXPECT_EQ(height, 18);
   EXPECT_EQ(composite.getFallbackCodepoint(0x4E00), 0x4E00u);
-  EXPECT_EQ(composite.getGlyphData(0x4E02).glyph, smallRegular.getGlyph(REPLACEMENT_GLYPH));
+  EXPECT_EQ(composite.getGlyphData(decoded, 0x4E02).glyph, smallRegular.getGlyph(decoded, REPLACEMENT_GLYPH));
   EXPECT_EQ(composite.getKerning('A', 0x4E00), 0);
   EXPECT_EQ(composite.getKerning(0x4E00, 'V'), 0);
 }
 
 TEST(FilenameFallback, SupportsNonCjkGlyphsWithoutAProbeList) {
+  EpdGlyph decoded;
   constexpr EpdUnicodeInterval armenianIntervals[] = {{0x0531, 0x0532, 0}};
   const auto data = cjkData(cjkGlyphs, armenianIntervals);
   const EpdFont armenian(&data);
   const auto composite = small.withFallbackFonts(&armenian);
-  EXPECT_EQ(composite.getGlyphData(0x0531).fontData, &data);
-  EXPECT_EQ(composite.getGlyphData(0x0532, EpdFontFamily::BOLD).fontData, &data);
-  EXPECT_EQ(composite.getGlyphData('A').fontData, &inter_10_regular);
+  EXPECT_EQ(composite.getGlyphData(decoded, 0x0531).fontData, &data);
+  EXPECT_EQ(composite.getGlyphData(decoded, 0x0532, EpdFontFamily::BOLD).fontData, &data);
+  EXPECT_EQ(composite.getGlyphData(decoded, 'A').fontData, &inter_10_regular);
   EXPECT_FALSE(composite.hasCodepoint(0x4E00));
   int width = 0, height = 0;
   composite.getTextDimensions("ԱԲ", &width, &height);
@@ -174,6 +181,7 @@ TEST(UnicodeSpaces, MissingSpacesHaveDistinctWidthsWithoutReplacementInk) {
 }
 
 TEST(UnicodeSpaces, ControlsStayZeroWidthAndUnrelatedMissingCharactersStillUseABox) {
+  EpdGlyph decoded;
   for (uint32_t cp :
        {0x180Eu, 0x200Bu, 0x200Cu, 0x200Du, 0x200Eu, 0x200Fu, 0x2060u, 0x2061u, 0x2062u, 0x2063u, 0x2064u, 0xFEFFu}) {
     EXPECT_EQ(spacingFamily.getFallbackCodepoint(cp), cp);
@@ -181,12 +189,13 @@ TEST(UnicodeSpaces, ControlsStayZeroWidthAndUnrelatedMissingCharactersStillUseAB
   }
   for (uint32_t cp = 9; cp <= 13; ++cp) EXPECT_EQ(spacingFamily.getSpaceAdvanceX(cp), 80);
   EXPECT_EQ(spacingFamily.getFallbackCodepoint(0x2603), REPLACEMENT_GLYPH);
-  EXPECT_EQ(spacingFamily.getGlyphData(0x2603).glyph, &spacingGlyphs[5]);
+  EXPECT_EQ(spacingFamily.getGlyphData(decoded, 0x2603).glyph, &spacingGlyphs[5]);
 }
 
 TEST(UnicodeSpaces, PreservesNativeBlankWidthsAndScalesWithFontStyle) {
+  EpdGlyph decoded;
   for (auto style : {EpdFontFamily::REGULAR, EpdFontFamily::BOLD}) {
-    const auto native = small.findGlyphData(0x2009, style).glyph;
+    const auto native = small.findGlyphData(decoded, 0x2009, style).glyph;
     ASSERT_NE(native, nullptr);
     EXPECT_EQ(small.getSpaceAdvanceX(0x2009, style), native->advanceX);
   }

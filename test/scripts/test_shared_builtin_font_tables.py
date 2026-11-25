@@ -5,6 +5,7 @@ from pathlib import Path
 import re
 import tempfile
 import unittest
+import zlib
 
 ROOT = Path(__file__).resolve().parents[2]
 FONT_DIR = ROOT / "lib/EpdFont/builtinFonts"
@@ -49,6 +50,10 @@ class BuiltinFontTablesTest(unittest.TestCase):
             self.assertEqual(unique_shared, len(tables))
             self.assertEqual(len(tables), len({(kind, normalize(value)) for kind, value in tables.values()}))
 
+            pool_header = (out / "BuiltinFontBitmapPool.generated.h").read_text()
+            pool = bytes(map(int, PAYLOAD.search(pool_header)[3].split(",")))
+            unique_blocks = set()
+
             for filename in share.FACE_INCLUDE.findall(source["all_faces.h"]):
                 generated = (out / filename).read_text()
                 original_matches = {match[2]: match for match in share.TABLE.finditer(source[filename])}
@@ -60,10 +65,52 @@ class BuiltinFontTablesTest(unittest.TestCase):
                     self.assertEqual((kind, normalize(initializer)), (original[1], normalize(original[3])))
                     return original[0]
 
-                # Every nonshared byte, including glyphs, bitmaps, counts and
-                # names, must stay identical. The only allowed edits are table aliases.
-                self.assertEqual(ALIAS.sub(undo_alias, generated), source[filename])
+                original = source[filename]
+                # Decode every compact record independently and restore the source
+                # declaration before checking the rest of the header byte-for-byte.
+                before_glyphs = share.GLYPHS.search(original)
+                packed = re.search(r"static const EpdBuiltinGlyph (\w+)\[\] = \{\n(.*?)^\};", generated, re.M | re.S)
+                self.assertIsNotNone(packed, filename)
+                self.assertEqual(packed[1], before_glyphs[1])
+                def records(body):
+                    return [tuple(map(int, row.split(",")))
+                            for row in re.findall(r"^\s*\{\s*([-\d, ]+)\}", body, re.M)]
+                raw = records(before_glyphs[2])
+                per_byte = 4 if "    true,\n" in share.DESCRIPTOR.search(original)[2] else 8
+                expanded = [(w, h, adv, left, top, (w*h + per_byte - 1)//per_byte, off)
+                            for w, h, adv, left, top, off in records(packed[2])]
+                self.assertEqual(expanded, raw, filename)
+                descriptor = share.DESCRIPTOR.search(original)
+                expected = (descriptor[1] + "withBuiltinGlyphs({\n" +
+                            descriptor[2].replace(packed[1] + ",", "nullptr,", 1) + "}, " + packed[1] + ");")
+                self.assertIn(expected, generated)
+                generated = generated.replace(packed[0], before_glyphs[0]).replace(expected, descriptor[0])
+                if "static const EpdFontGroup " in original:
+                    bitmap = share.BITMAP.search(original)
+                    original_data = bytes.fromhex(bitmap[3].replace("0x", "").replace(",", " "))
+                    before, after = share.GROUPS.search(original), share.GROUPS.search(generated)
+                    def rows(groups):
+                        return [tuple(map(int, row.split(",")))
+                                for row in re.findall(r"\{([^{}]+)\}", groups[1])]
 
+                    expected_rows, actual_rows = rows(before), rows(after)
+                    self.assertEqual(len(actual_rows), len(expected_rows))
+                    for (offset, size, expanded, count, first), actual in zip(expected_rows, actual_rows):
+                        new_offset, *metadata = actual
+                        self.assertEqual(metadata, [size, expanded, count, first])
+                        block = original_data[offset:offset + size]
+                        unique_blocks.add(block)
+                        self.assertEqual(pool[new_offset:new_offset + size], block)
+                        self.assertEqual(len(zlib.decompress(block, -15)), expanded)
+
+                    # Restore the two substitutions before checking every other byte.
+                    alias = (f'#include "BuiltinFontBitmapPool.generated.h"\n'
+                             f'static constexpr auto& {bitmap[1]} = builtin_font_tables::bitmapPool;')
+                    generated = generated.replace(alias, bitmap[0]).replace(after[0], before[0])
+
+                self.assertEqual(ALIAS.sub(undo_alias, generated), original)
+
+            self.assertEqual(len(pool), sum(map(len, unique_blocks)))
             expected_manifest = source["all_faces.h"].replace("<builtinFonts/", '"').replace(".h>", '.h"')
             aggregate = (out / "BuiltinFontsShared.generated.h").read_text()
             self.assertEqual(
@@ -77,6 +124,15 @@ class BuiltinFontTablesTest(unittest.TestCase):
 
         self.assertEqual({entry.name: entry.read_text() for entry in FONT_DIR.glob("*.h")}, source)
         self.assertEqual((ROOT / "src/fontIds.h").read_bytes(), ids_before)
+
+    def test_wide_face_keeps_full_records(self):
+        original = (FONT_DIR / "ui_symbols_10.h").read_text()
+        for row in ("18, 18, 298, -129, 17, 41, 0", "18, 18, 298, 0, 128, 41, 0",
+                    "18, 18, 298, 0, 17, 41, 65536", "18, 18, 298, 0, 17, 42, 0"):
+            with self.subTest(row=row):
+                wide = original.replace("18, 18, 298, 0, 17, 41, 0", row)
+                self.assertNotEqual(wide, original)
+                self.assertEqual(share.compact_glyphs("wide", wide), wide)
 
     def test_type_is_part_of_identity_and_bitmap_is_not_eligible(self):
         with tempfile.TemporaryDirectory() as temp:

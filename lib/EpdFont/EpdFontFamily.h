@@ -1,4 +1,6 @@
 #pragma once
+#include <optional>
+
 #include "EpdFont.h"
 
 class EpdFontFamily {
@@ -20,6 +22,7 @@ class EpdFontFamily {
   struct GlyphData {
     const EpdFontData* fontData;
     const EpdGlyph* glyph;
+    uint32_t index = 0;  // Table index in the owning face, used for compressed bitmaps.
   };
 
   explicit EpdFontFamily(const EpdFont* regular, const EpdFont* bold = nullptr, const EpdFont* italic = nullptr,
@@ -48,14 +51,24 @@ class EpdFontFamily {
   const EpdFontData* getData(Style style = REGULAR) const;
   // Built-in UI families may borrow a configured scalable fallback.
   const EpdFontData* shapingData(Style style) const;
-  GlyphData findGlyphData(uint32_t cp, Style style = REGULAR) const;
-  GlyphData getGlyphData(uint32_t cp, Style style = REGULAR) const;
-  const EpdGlyph* getGlyph(uint32_t cp, Style style = REGULAR) const;
+  GlyphData findGlyphData(EpdGlyph& decoded, uint32_t cp, Style style = REGULAR) const;
+  GlyphData getGlyphData(EpdGlyph& decoded, uint32_t cp, Style style = REGULAR) const;
+  const EpdGlyph* getGlyph(EpdGlyph& decoded, uint32_t cp, Style style = REGULAR) const;
+  // Value form for UI callers that only need the metrics.
+  std::optional<EpdGlyph> getGlyph(uint32_t cp, Style style = REGULAR) const {
+    EpdGlyph decoded;
+    const auto* glyph = getGlyph(decoded, cp, style);
+    return glyph ? std::optional<EpdGlyph>(*glyph) : std::nullopt;
+  }
   // Blank spacing metrics, without replacement-glyph lookup or bitmap allocation.
   uint16_t getSpaceAdvanceX(uint32_t cp, Style style = REGULAR) const;
   // If requested, return glyph metrics for the resolved codepoint as well.
   // Use the result before another lookup, which may replace an on-demand slot.
-  uint32_t getFallbackCodepoint(uint32_t cp, Style style = REGULAR, const EpdGlyph** glyph = nullptr) const;
+  uint32_t getFallbackCodepoint(EpdGlyph& decoded, uint32_t cp, Style style, const EpdGlyph** glyph) const;
+  uint32_t getFallbackCodepoint(uint32_t cp, Style style = REGULAR) const {
+    EpdGlyph decoded;
+    return getFallbackCodepoint(decoded, cp, style, nullptr);
+  }
   /// Returns true if the resolved style or shared fallback can render `cp`
   /// (interval coverage only — see EpdFont::hasCodepoint).
   bool hasCodepoint(uint32_t cp, Style style = REGULAR) const;
