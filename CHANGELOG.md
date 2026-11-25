@@ -50,6 +50,7 @@
 - Use clearer web dialogs, dropdowns, and upload feedback. Plugin files skip redundant transfers through ETags, and plugin automation waits until a job starts to allocate job storage (CrossPoint #3984, #4090, #4193, adapted from CrossPoint #4085 and #4288).
 - Make dictionary lookups quicker, move definition pagination to the bottom right, and add a close button on touch devices. Use side-by-side number pads in landscape and consistent labels for covers, time sync, shortcuts, and loading.
 - Reduce font lookup and kerning memory use and validate TTFs faster. Tuned firmware builds omit unused Arduino, Bluetooth, and Zigbee components (adapted from serialx and CrossPoint #3831, #3838, #3857).
+- Reopen EPUBs with many chapters faster by reading cached chapter offsets together.
 
 ### Fixed
 

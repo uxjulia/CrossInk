@@ -12,7 +12,7 @@ start = source.index('template <typename F, typename T>\nbool readPodChecked')
 end = source.index('}  // namespace', start)
 with tempfile.TemporaryDirectory(prefix='crossink-metadata-build-io-') as tmp:
     build = Path(tmp)
-    accessors = source.index('BookMetadataCache::SpineEntry BookMetadataCache::getSpineEntry(')
+    accessors = source.index('void BookMetadataCache::cacheSpineCumulativeSizes()')
     (build / 'CheckedMetadataReads.inc').write_text(source[start:end] + source[accessors:])
     executable = build / 'test'
     compiler = shlex.split(os.environ.get('CXX', 'c++'))
