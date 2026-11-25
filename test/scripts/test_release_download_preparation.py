@@ -25,7 +25,8 @@ class ReleasePreparationTest(unittest.TestCase):
         self.result = {'status': 'completed', 'conclusion': 'success', 'head_sha': self.commit,
                        'head_branch': self.tag, 'event': 'workflow_dispatch'}
         self.dispatched = {'workflow_run_id': 71}
-        self.failed_watch = False
+        self.run_responses = []
+        self.elapsed = 0
         self.failed_create = False
         self.workflow_state = 'active'
         self.workflow_error = None
@@ -51,31 +52,62 @@ class ReleasePreparationTest(unittest.TestCase):
             self.assertEqual(data, {'ref': self.tag, 'inputs': {'tag': self.tag, 'source_commit': self.commit}})
             return self.dispatched
         self.assertEqual(path, 'actions/runs/71')
+        if self.run_responses:
+            response = self.run_responses.pop(0)
+            if isinstance(response, Exception):
+                raise response
+            return response
         return self.result
 
-    def watch(self, command, **options):
-        self.assertEqual(command, ['gh', 'run', 'watch', '71', '--repo', self.repository,
-                                   '--exit-status', '--interval', '10'])
-        self.assertTrue(options['check'])
-        if self.failed_watch:
-            raise subprocess.CalledProcessError(1, command)
+    def sleep(self, seconds):
+        self.elapsed += seconds
 
     def prepare(self):
         with patch.object(preparation, 'api', side_effect=self.api), \
              patch.object(preparation.publisher, 'prepared_release_identity') as identity, \
              patch.object(preparation.subprocess, 'check_output', return_value=self.commit), \
-             patch.object(preparation.subprocess, 'run', side_effect=self.watch) as watch, \
+             patch.object(preparation.time, 'monotonic', side_effect=lambda: self.elapsed), \
+             patch.object(preparation.time, 'sleep', side_effect=self.sleep), \
              patch.dict('os.environ', {}, clear=True), contextlib.redirect_stdout(io.StringIO()):
             preparation.prepare(self.repository, self.tag, self.commit)
             identity.assert_called_once_with(self.tag, self.commit, self.commit)
-        return watch
 
     def test_waits_for_the_returned_run_before_accepting_success(self):
-        watch = self.prepare()
-        watch.assert_called_once()
+        self.run_responses = [preparation.GitHubApiError('actions/runs/71', 'gh: Not Found (HTTP 404)'),
+                              {**self.result, 'status': 'queued', 'conclusion': None},
+                              {**self.result, 'status': 'in_progress', 'conclusion': None}]
+        self.prepare()
         paths = [path for path, _ in self.calls]
         self.assertLess(paths.index('git/refs'), paths.index('actions/workflows/publish-language-assets.yml/dispatches'))
+        self.assertEqual(paths.count('actions/workflows/publish-language-assets.yml/dispatches'), 1)
+        self.assertEqual(paths.count('actions/runs/71'), 4)
         self.assertEqual(paths[-1], 'commits/' + self.tag)
+
+    def test_persistent_404_expires_at_the_visibility_deadline(self):
+        error = preparation.GitHubApiError('actions/runs/71', 'gh: Not Found (HTTP 404)')
+        self.run_responses = [error] * 10
+        with self.assertRaisesRegex(RuntimeError, 'HTTP 404'):
+            self.prepare()
+        self.assertEqual(self.elapsed, preparation.VISIBILITY_TIMEOUT_SECONDS)
+
+    def test_forbidden_lookup_fails_immediately(self):
+        self.run_responses = [preparation.GitHubApiError('actions/runs/71', 'gh: Forbidden (HTTP 403)')]
+        with self.assertRaisesRegex(RuntimeError, 'HTTP 403'):
+            self.prepare()
+        self.assertEqual(self.elapsed, 0)
+
+    def test_404_after_run_is_visible_fails_immediately(self):
+        self.run_responses = [{**self.result, 'status': 'in_progress', 'conclusion': None},
+                              preparation.GitHubApiError('actions/runs/71', 'gh: Not Found (HTTP 404)')]
+        with self.assertRaisesRegex(RuntimeError, 'HTTP 404'):
+            self.prepare()
+        self.assertEqual(self.elapsed, preparation.POLL_INTERVAL_SECONDS)
+
+    def test_unfinished_downloads_time_out(self):
+        self.result.update(status='in_progress', conclusion=None)
+        with self.assertRaisesRegex(RuntimeError, 'timed out waiting for language workflow 71'):
+            self.prepare()
+        self.assertEqual(self.elapsed, preparation.DOWNLOAD_TIMEOUT_SECONDS)
 
     def test_retry_uses_existing_correct_tag_without_replacing_it(self):
         self.remote_commit = self.commit
@@ -109,11 +141,12 @@ class ReleasePreparationTest(unittest.TestCase):
         self.assertFalse(any(path.endswith('/dispatches') for path, _ in self.calls))
 
     def test_failed_child_run_blocks_completion_and_retains_tag_for_retry(self):
-        self.failed_watch = True
-        with self.assertRaises(subprocess.CalledProcessError):
-            self.prepare()
+        for conclusion in ('failure', 'cancelled', 'skipped'):
+            self.result['conclusion'] = conclusion
+            with self.subTest(conclusion=conclusion), self.assertRaisesRegex(RuntimeError, f'concluded with {conclusion}'):
+                self.prepare()
         self.assertEqual(self.remote_commit, self.commit)
-        self.assertNotIn('actions/runs/71', [path for path, _ in self.calls])
+        self.assertEqual(self.calls[-1][0], 'actions/runs/71')
 
     def test_missing_run_id_is_not_replaced_by_an_older_success(self):
         for value in ({}, {'workflow_run_id': None}, {'workflow_run_id': True}):
@@ -121,11 +154,9 @@ class ReleasePreparationTest(unittest.TestCase):
             with self.subTest(response=value), self.assertRaisesRegex(RuntimeError, 'run ID'):
                 self.prepare()
 
-    def test_wrong_or_unsuccessful_run_is_rejected_even_if_watch_exits_zero(self):
+    def test_run_from_wrong_source_is_rejected(self):
         original = self.result.copy()
-        for field, value in (('head_sha', '2' * 40), ('head_branch', 'main'), ('event', 'push'),
-                             ('status', 'in_progress'), ('conclusion', 'failure'),
-                             ('conclusion', 'cancelled'), ('conclusion', 'skipped')):
+        for field, value in (('head_sha', '2' * 40), ('head_branch', 'main'), ('event', 'push')):
             self.result = {**original, field: value}
             with self.subTest(field=field, value=value), self.assertRaisesRegex(RuntimeError, 'exact release source'):
                 self.prepare()
