@@ -270,12 +270,29 @@ void KOReaderSettingsActivity::handleSelection() {
       if (!KOREADER_STORE.saveToFile()) LOG_ERR("KOSync", "Cannot save bookmark sync setting");
       requestUpdate();
       break;
-    case ROW_SYNC_ON_SLEEP:
+    case ROW_SYNC_ON_SLEEP: {
       if (!KOREADER_STORE.hasCredentials()) return;
-      KOREADER_STORE.setSyncOnSleep(!KOREADER_STORE.getSyncOnSleep());
-      if (!KOREADER_STORE.saveToFile()) LOG_ERR("KOSync", "Cannot save sleep sync setting");
-      requestUpdate();
+      const auto save = [this](bool enabled) {
+        KOREADER_STORE.setSyncOnSleep(enabled);
+        if (!KOREADER_STORE.saveToFile()) LOG_ERR("KOSync", "Cannot save sleep sync setting");
+        requestUpdate();
+      };
+      if (KOREADER_STORE.getSyncOnSleep()) {
+        save(false);
+        break;
+      }
+
+      auto confirmation = makeUniqueNoThrow<ConfirmationActivity>(renderer, mappedInput, std::string{},
+                                                                  tr(STR_SYNC_ON_SLEEP_REQUIREMENT));
+      if (!confirmation) {
+        LOG_ERR("KOSync", "Cannot allocate sleep sync confirmation");
+        break;
+      }
+      startActivityForResult(std::move(confirmation), [save](const ActivityResult& result) {
+        if (!result.isCancelled) save(true);
+      });
       break;
+    }
     case ROW_SYNC_BEHAVIOR: {
       const auto current = KOREADER_STORE.getSyncBehavior();
       KOREADER_STORE.setSyncBehavior(current == KOReaderSyncBehavior::ASK_EVERY_TIME

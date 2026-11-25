@@ -54,7 +54,9 @@ behavior; see [Plugins](./sd-plugins.md).
 ### Sync on Sleep
 
 With an account configured, turn on **Settings > System > Sync Server >
-Sync on Sleep** to try syncing when the reader goes to sleep with an EPUB open.
+Sync on Sleep** and confirm the prompt. Sync runs only when the device goes to
+sleep with the EPUB page visible. Close the reader menu before sleeping to sync
+the book.
 It is off by default and turns off if you change the server URL or username.
 On sleep, the reader can send its saved position if it is further through the
 book. It leaves positions that are the same or further ahead on the server

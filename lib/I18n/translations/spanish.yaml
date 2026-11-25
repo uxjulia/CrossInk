@@ -725,6 +725,7 @@ STR_SYNC_ALL_CONFIRM: "¿Sincronizar todos los libros de la tarjeta SD según tu
 STR_SYNC: "Sincronizar"
 STR_WHAT_TO_SYNC: "Qué sincronizar"
 STR_SYNC_ON_SLEEP: "Sincronizar al suspender"
+STR_SYNC_ON_SLEEP_REQUIREMENT: "La sincronización solo se realiza si la página del EPUB está visible cuando el dispositivo entra en reposo."
 STR_SYNC_OPTIONS: "Opciones de sincronización"
 STR_REQUIRES_CROSSPOINT_SYNC: "Requiere CrossPoint Sync"
 STR_SERVER_EXTRAS_AVAILABLE: "También se pueden sincronizar estadísticas y recortes"

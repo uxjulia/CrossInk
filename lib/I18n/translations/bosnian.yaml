@@ -864,6 +864,7 @@ STR_SYNC_ALL_CONFIRM: "Sinhronizirati sve knjige na SD kartici prema vašim post
 STR_SYNC: "Sinhroniziraj"
 STR_WHAT_TO_SYNC: "Šta sinhronizirati"
 STR_SYNC_ON_SLEEP: "Sinhronizacija pri prelasku u mirovanje"
+STR_SYNC_ON_SLEEP_REQUIREMENT: "Sinhronizacija radi samo ako je EPUB stranica vidljiva kada uređaj pređe u stanje mirovanja."
 STR_SYNC_OPTIONS: "Opcije sinhronizacije"
 STR_REQUIRES_CROSSPOINT_SYNC: "Potreban je CrossPoint Sync"
 STR_SERVER_EXTRAS_AVAILABLE: "Mogu se sinhronizirati i statistika i isječci"

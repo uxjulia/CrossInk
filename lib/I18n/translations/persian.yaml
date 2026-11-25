@@ -864,6 +864,7 @@ STR_SYNC_ALL_CONFIRM: "همهٔ کتاب‌های کارت SD با تنظیما�
 STR_SYNC: "همگام‌سازی"
 STR_WHAT_TO_SYNC: "موارد همگام‌سازی"
 STR_SYNC_ON_SLEEP: "همگام‌سازی هنگام ورود به حالت خواب"
+STR_SYNC_ON_SLEEP_REQUIREMENT: "همگام‌سازی فقط زمانی انجام می‌شود که هنگام رفتن دستگاه به حالت خواب، صفحهٔ EPUB روی نمایشگر باشد."
 STR_SYNC_OPTIONS: "گزینه‌های همگام‌سازی"
 STR_REQUIRES_CROSSPOINT_SYNC: "نیازمند CrossPoint Sync"
 STR_SERVER_EXTRAS_AVAILABLE: "آمار و گزیده‌ها هم می‌توانند همگام شوند"

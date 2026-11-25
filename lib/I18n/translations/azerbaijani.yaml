@@ -864,6 +864,7 @@ STR_SYNC_ALL_CONFIRM: "SD kartdakı bütün kitablar ayarlarınıza uyğun sinxr
 STR_SYNC: "Sinxronlaşdır"
 STR_WHAT_TO_SYNC: "Sinxronlaşdırılacaq məlumatlar"
 STR_SYNC_ON_SLEEP: "Yuxu rejiminə keçəndə sinxronlaşdır"
+STR_SYNC_ON_SLEEP_REQUIREMENT: "Sinxronizasiya yalnız cihaz yuxuya keçərkən EPUB səhifəsi ekranda görünürsə işləyir."
 STR_SYNC_OPTIONS: "Sinxronlaşdırma seçimləri"
 STR_REQUIRES_CROSSPOINT_SYNC: "CrossPoint Sync tələb olunur"
 STR_SERVER_EXTRAS_AVAILABLE: "Statistika və çıxarışlar da sinxronlaşdırıla bilər"

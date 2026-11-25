@@ -728,6 +728,7 @@ STR_SYNC_ALL_CONFIRM: "مزامنة كل الكتب على بطاقة SD وفق 
 STR_SYNC: "مزامنة"
 STR_WHAT_TO_SYNC: "ما يُزامَن"
 STR_SYNC_ON_SLEEP: "المزامنة عند السكون"
+STR_SYNC_ON_SLEEP_REQUIREMENT: "تتم المزامنة فقط إذا كانت صفحة EPUB ظاهرة عند دخول الجهاز في وضع السكون."
 STR_SYNC_OPTIONS: "خيارات المزامنة"
 STR_REQUIRES_CROSSPOINT_SYNC: "يتطلب CrossPoint Sync"
 STR_SERVER_EXTRAS_AVAILABLE: "يمكن مزامنة الإحصاءات والمقتطفات أيضًا"

@@ -864,6 +864,7 @@ STR_SYNC_ALL_CONFIRM: "Synkronisere alle bøker på SD-kortet med dine synkronis
 STR_SYNC: "Synkroniser"
 STR_WHAT_TO_SYNC: "Hva skal synkroniseres?"
 STR_SYNC_ON_SLEEP: "Synkroniser ved hvile"
+STR_SYNC_ON_SLEEP_REQUIREMENT: "Synkronisering skjer bare hvis EPUB-siden vises når enheten går i hvilemodus."
 STR_SYNC_OPTIONS: "Synkroniseringsvalg"
 STR_REQUIRES_CROSSPOINT_SYNC: "Krever CrossPoint Sync"
 STR_SERVER_EXTRAS_AVAILABLE: "Statistikk og utklipp kan også synkroniseres"

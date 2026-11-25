@@ -864,6 +864,7 @@ STR_SYNC_ALL_CONFIRM: "Sinkronkan semua buku di kartu SD dengan pengaturan Anda?
 STR_SYNC: "Sinkronkan"
 STR_WHAT_TO_SYNC: "Data yang Disinkronkan"
 STR_SYNC_ON_SLEEP: "Sinkronkan saat masuk mode tidur"
+STR_SYNC_ON_SLEEP_REQUIREMENT: "Sinkronisasi hanya berjalan jika halaman EPUB terlihat saat perangkat masuk ke mode tidur."
 STR_SYNC_OPTIONS: "Opsi Sinkronisasi"
 STR_REQUIRES_CROSSPOINT_SYNC: "Memerlukan CrossPoint Sync"
 STR_SERVER_EXTRAS_AVAILABLE: "Statistik dan kliping juga bisa disinkronkan"

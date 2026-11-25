@@ -738,6 +738,7 @@ STR_SYNC_ALL_CONFIRM: "Synchronizovat všechny knihy na SD kartě podle nastaven
 STR_SYNC: "Synchronizovat"
 STR_WHAT_TO_SYNC: "Co synchronizovat"
 STR_SYNC_ON_SLEEP: "Synchronizovat při uspání"
+STR_SYNC_ON_SLEEP_REQUIREMENT: "Synchronizace proběhne jen tehdy, když je při uspání zařízení viditelná stránka EPUB."
 STR_SYNC_OPTIONS: "Možnosti synchronizace"
 STR_REQUIRES_CROSSPOINT_SYNC: "Vyžaduje CrossPoint Sync"
 STR_SERVER_EXTRAS_AVAILABLE: "Lze synchronizovat i statistiky a výstřižky"

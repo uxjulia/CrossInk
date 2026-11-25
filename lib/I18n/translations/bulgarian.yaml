@@ -864,6 +864,7 @@ STR_SYNC_ALL_CONFIRM: "Синхронизиране на всички книги
 STR_SYNC: "Синхронизиране"
 STR_WHAT_TO_SYNC: "Данни за синхронизиране"
 STR_SYNC_ON_SLEEP: "Синхронизиране при заспиване"
+STR_SYNC_ON_SLEEP_REQUIREMENT: "Синхронизирането работи само ако страницата на EPUB е видима, когато устройството заспива."
 STR_SYNC_OPTIONS: "Настройки за синхронизиране"
 STR_REQUIRES_CROSSPOINT_SYNC: "Изисква CrossPoint Sync"
 STR_SERVER_EXTRAS_AVAILABLE: "Може да се синхронизират и статистиката и откъсите"
