@@ -1006,7 +1006,7 @@ STR_NOTES_2_0_0_BOOKS_TITLE: "الكتب تُعاد ترتيبها تلقائي�
 STR_NOTES_2_0_0_BOOKS_BODY: "تُعاد صفحة الكتب بلغات أخرى بعد تثبيت حزمة تقسيم الكلمات. يُحفظ موضع القراءة."
 STR_NOTES_2_0_0_PLUGINS_TITLE: "إضافات بطاقة SD"
 STR_NOTES_2_0_0_PLUGINS_BODY: "فعّل الإضافات لاستخدام الأدوات المثبّتة على بطاقة SD."
-STR_NOTES_2_0_0_SYNC_TITLE: "إحصائيات القراءة والقصاصات"
+STR_NOTES_2_0_0_SYNC_TITLE: "مزامنة إحصائيات القراءة والقصاصات"
 STR_NOTES_2_0_0_SYNC_BODY: "استخدم CrossPoint Sync خادمًا للمزامنة وفعّل العناصر التي تريد مزامنتها."
 STR_CHAPTER_PROGRESS_PERCENTAGE: "نسبة التقدم في الفصل"
 STR_SERVER_TYPE: "نوع الخادم"
