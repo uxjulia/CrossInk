@@ -19,6 +19,7 @@ def function(source, signature):
 keyboard = (ROOT / 'src/activities/util/KeyboardEntryActivity.cpp').read_text()
 http = (ROOT / 'src/util/PluginHttp.cpp').read_text()
 gfx = (ROOT / 'lib/GfxRenderer/GfxRenderer.cpp').read_text()
+gfx_header = (ROOT / 'lib/GfxRenderer/GfxRenderer.h').read_text()
 source = r'''
 #include <algorithm>
 #include <cassert>
@@ -91,10 +92,12 @@ lookup_start = gfx.index('  const auto sdIt = sdCardFonts_.find(resolvedFontId);
 lookup = gfx[lookup_start:gfx.index('\n', lookup_start)]
 start = gfx.index('  // Advance table fast-path for SD card fonts during layout.', gfx.index('int GfxRenderer::getTextAdvanceX('))
 end = gfx.index('\n  const auto fontIt = fontMap.find(resolvedFontId);', start + 300)
+source += function(gfx_header, 'struct BitmapTextSize {') + ';\n'
 source += r'''
 int measure(const char* text, int advance = 17, EpdFontFamily::Style style = EpdFontFamily::REGULAR,
-            int8_t characterSpacing = 0, uint32_t followingCp = 0, int kern = 0, bool shaped = false) {
-  const int resolvedFontId = 1;
+            int8_t characterSpacing = 0, uint32_t followingCp = 0, int kern = 0, int points = 10, bool shaped = false) {
+  const BitmapTextSize size{1, 10, points};
+  const int resolvedFontId = size.sourceId;
   const struct { bool shaped; } resolved{shaped};
   shaping::PendingGlyph position;
   SdCardFont sd{advance};
@@ -136,6 +139,7 @@ int main() {
   assert(openClient(&session, temporary, "https://x", headers, 42, [] {return true;}) == nullptr);
   assert(session.calls.size() == 2);
   assert(measure("aaaaaaaaaa") == 10); // Previously rounds 170/16 once, giving 11.
+  assert(measure("aaaaaaaaaa", 17, EpdFontFamily::REGULAR, 0, 0, 0, 15) == 15);
   assert(measure("a\u0301\ufe0fb\u05b0c") == 3);
   assert(measure("abc", 23, EpdFontFamily::SUP) == 3);
   assert(measure("abc", 23, EpdFontFamily::SMALL_CAPS) == 3);
@@ -144,7 +148,9 @@ int main() {
     assert(measure("abcd", 17, EpdFontFamily::REGULAR, level, 'e', 7) == 3 + fp4::toPixel(24) + fp4::toPixel(4*level*8));
   }
   assert(measure("") == 0);
-  assert(measure("\U000fe020\U000f0001\U000fe030\U000f0002", 0, EpdFontFamily::REGULAR, 2, 0, 0, true) == 5);
+  constexpr auto shapedText = "\U000fe020\U000f0001\U000fe030\U000f0002";
+  assert(measure(shapedText, 0, EpdFontFamily::REGULAR, 2, 0, 0, 10, true) == 5);
+  assert(measure(shapedText, 0, EpdFontFamily::REGULAR, 2, 0, 0, 15, true) == 8);
 }
 '''
 with tempfile.TemporaryDirectory(prefix='crossink-upstream-ports-') as directory:

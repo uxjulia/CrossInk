@@ -98,8 +98,10 @@ struct Section {
 struct Epub { std::string getCachePath() const { return "/cache"; } };
 struct ReaderViewportLayout { int marginLeft = 0, marginTop = 0, marginBottom = 0; };
 ReaderViewportLayout computeReaderViewportLayout(GfxRenderer&, bool) { return {}; }
-struct CrossPointSettings { static constexpr uint8_t WORD_HOLD_USE_GLOBAL = 3; };
-struct Settings { uint8_t wordHoldAction = 0; } SETTINGS;
+struct CrossPointSettings {
+  static constexpr uint8_t WORD_HOLD_USE_GLOBAL = 3;
+  uint8_t wordHoldAction = 0;
+} SETTINGS;
 struct BookReaderSettingsData {
   std::string dictionarySdFontFamilyName;
   int dictionaryFontPointSize = 0;

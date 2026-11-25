@@ -74,7 +74,8 @@ int main() {
   // Upgrade with old covers and both historical thumbnail names still on SD.
   Storage.files = {"/cache/cover.bmp", "/cache/cover_crop_picco_image.bmp",
                    "/cache/thumb_120x180.bmp", "/cache/thumb_180.bmp",
-                   "/cache/thumb_120x180_fit.bmp", "/cache/img_0_1.pxc"};
+                   "/cache/thumb_120x180_fit.bmp", "/cache/img_0_1.pxc",
+                   "/cache/img_0_1_v2.pxc", "/cache/img_0_2_png_v3.pxc"};
   for (bool crop : {false, true}) {
     for (auto tone : {ImageToneProfile::Legacy, ImageToneProfile::Even, ImageToneProfile::PiccoCover}) {
       assert(!Storage.exists(epub.getCoverBmpPath(crop, tone).c_str()));
@@ -84,12 +85,13 @@ int main() {
   assert(!Storage.exists(thumbnail.c_str()));
   assert(UITheme::getCoverThumbPath(epub.getThumbBmpPath(), 120, 180, true) == thumbnail);
   assert(!Storage.exists(epub.getAdaptiveThumbBmpPath(120, 180).c_str()));
-  const auto grayImageCache = getCachePath("/cache/img_0_1.jpg", true);
-  const auto monoImageCache = getCachePath("/cache/img_0_1.jpg", false);
-  assert(grayImageCache == "/cache/img_0_1_gray_v4.pxc");
-  assert(monoImageCache == "/cache/img_0_1_mono_v1.pxc");
-  assert(!Storage.exists(grayImageCache.c_str()));
-  assert(!Storage.exists(monoImageCache.c_str()));
+  for (const std::string path : {"/cache/img_0_1.jpg", "/cache/img_0_2.png"}) {
+    const std::string stem = path.substr(0, path.find_last_of('.'));
+    const auto gray = getCachePath(path, true);
+    const auto mono = getCachePath(path, false);
+    assert(gray == stem + "_gray_v4.pxc" && !Storage.exists(gray.c_str()));
+    assert(mono == stem + "_mono_v1.pxc" && !Storage.exists(mono.c_str()));
+  }
   assert(Storage.exists("/cache/img_0_1.pxc"));  // Legacy pixels remain bypassed.
   RecentBook book{"/book.epub", "Saved title", "Saved author", "/cache/thumb_[WIDTH]x[HEIGHT].bmp"};
   refreshEpubCoverPath(book);

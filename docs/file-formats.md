@@ -1264,6 +1264,11 @@ Inline publisher page markers no longer introduce a space inside a word.
 Complete sections use version 125 and suspended sections use `0xEE` so
 previously laid-out pages rebuild automatically. The binary payload is unchanged.
 
+The stored word-layout identity also rebuilds older non-Light layouts on
+bitmap-only devices and older publisher-styled, non-Light layouts on
+scalable-font devices. The v2.0.0 release uses the same identity update with
+its section version. The header and page payloads keep the same format.
+
 ### Version 124
 
 Simple EPUB tables can measure widths for up to eight logical columns before

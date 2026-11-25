@@ -96,6 +96,7 @@ int main(){
 def main():
     source = (ROOT / "src/main.cpp").read_text()
     production = definition(source, "struct SleepChargeOverlay {") + ";\n"
+    production += definition(source, "static bool holdPiccoUsbSleep(") + "\n"
     production += definition(source, "static bool holdSleepWhileUsbPowered(bool monochrome = false) {")
     with tempfile.TemporaryDirectory(prefix="crossink-picco-sleep-lock-") as temp:
         path = Path(temp)

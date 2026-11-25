@@ -42,6 +42,9 @@ uint32_t wordLayoutIdentity(const ReaderRenderSpec& spec, const std::string& lan
 #if CROSSINK_SCALABLE_FONTS
   // Cached drop caps store their source font size and the width reserved for wrapping.
   if (spec.embeddedStyle && spec.renderMode != EpubRenderMode::Light) identity ^= 0xD40C4401u;
+#else
+  // Bitmap enlargement changes word wrapping and ruled-row heights.
+  if (spec.renderMode != EpubRenderMode::Light) identity ^= 0x21A7D4B3u;
 #endif
   return identity;
 }
