@@ -1,0 +1,7927 @@
+{
+  "schemaVersion": 1,
+  "format": "CrossInk flat YAML v1",
+  "firmwareVersion": "2.0.0",
+  "status": "release-build",
+  "sourceCommit": "2cdd6117568c8877c3180d5fac8d5b20e55d1ac7",
+  "englishSourceSha256": "119f63665cec025e3b285ccd595f980cff1b3eda407e2814efe0037f27791534",
+  "keysetSha256": "fd9ee9fdb86f0ce76fcbdf570abaca35fd315069b87c51809b9e0ad4c444a058",
+  "template": {
+    "filename": "english_template.yaml",
+    "sha256": "8ce5621fb2642189d4d98e74a68d210f7dd374c1e9de08ecdede99612bdb36df"
+  },
+  "limits": {
+    "sourceBytes": 262144,
+    "lineBytes": 2047,
+    "keyBytes": 127,
+    "unknownKeys": 256,
+    "codeBytes": 31,
+    "nameBytes": 95,
+    "cacheBytes": 65536,
+    "cacheHeaderBytes": 256,
+    "cacheRecordBytes": 18,
+    "maxKeys": 2048,
+    "printfArgs": 32,
+    "printfWidth": 1024,
+    "printfPrecision": 128
+  },
+  "languages": [
+    {
+      "code": "EN",
+      "name": "English"
+    },
+    {
+      "code": "ES",
+      "name": "Español",
+      "translation": {
+        "filename": "translations/77160f93e328a58b4886f5777da75c1d077da4a2f0ce92783747f4e0d6d7b311.yaml",
+        "sha256": "77160f93e328a58b4886f5777da75c1d077da4a2f0ce92783747f4e0d6d7b311",
+        "omittedKeys": 0
+      }
+    },
+    {
+      "code": "FR",
+      "name": "Français",
+      "translation": {
+        "filename": "translations/79d3a49066f51a330230b6b0f5e2a6dbff4b4f8d054f306057d66708b59f97a1.yaml",
+        "sha256": "79d3a49066f51a330230b6b0f5e2a6dbff4b4f8d054f306057d66708b59f97a1",
+        "omittedKeys": 0
+      }
+    },
+    {
+      "code": "DE",
+      "name": "Deutsch",
+      "translation": {
+        "filename": "translations/19aef4834e1c614725f94cccde12a478c88c42d378859faeefda13296875e261.yaml",
+        "sha256": "19aef4834e1c614725f94cccde12a478c88c42d378859faeefda13296875e261",
+        "omittedKeys": 0
+      }
+    },
+    {
+      "code": "CS",
+      "name": "Čeština",
+      "translation": {
+        "filename": "translations/4c131dcf5c63fa862e2070e6b07972686c221f3d202d308d59db42a68999c96e.yaml",
+        "sha256": "4c131dcf5c63fa862e2070e6b07972686c221f3d202d308d59db42a68999c96e",
+        "omittedKeys": 0
+      }
+    },
+    {
+      "code": "PT",
+      "name": "Português (Brasil)",
+      "translation": {
+        "filename": "translations/fbf2bea5810a1f1416e03e9602000773ef53d5063345f47ef804f03c607b764f.yaml",
+        "sha256": "fbf2bea5810a1f1416e03e9602000773ef53d5063345f47ef804f03c607b764f",
+        "omittedKeys": 0
+      }
+    },
+    {
+      "code": "RU",
+      "name": "Русский",
+      "translation": {
+        "filename": "translations/40f2ac19cf482402360a03d27110a94ae0d420f9a2ab181c73f8a98bde5e1aac.yaml",
+        "sha256": "40f2ac19cf482402360a03d27110a94ae0d420f9a2ab181c73f8a98bde5e1aac",
+        "omittedKeys": 0
+      }
+    },
+    {
+      "code": "SV",
+      "name": "Svenska",
+      "translation": {
+        "filename": "translations/6d038edb066d3fac59dbc6c0b8d3b26802a8ff571c82ed08b990359049bdb1ff.yaml",
+        "sha256": "6d038edb066d3fac59dbc6c0b8d3b26802a8ff571c82ed08b990359049bdb1ff",
+        "omittedKeys": 0
+      }
+    },
+    {
+      "code": "RO",
+      "name": "Română",
+      "translation": {
+        "filename": "translations/0c5d93409c6a8c5ef5c548ccf40a32ef4abe99fd9aaa303106f360dbceaac94f.yaml",
+        "sha256": "0c5d93409c6a8c5ef5c548ccf40a32ef4abe99fd9aaa303106f360dbceaac94f",
+        "omittedKeys": 0
+      }
+    },
+    {
+      "code": "CA",
+      "name": "Català",
+      "translation": {
+        "filename": "translations/8a4b9a7479c0bfd64c51de05c82485ad86c254bc88e12cc23394f453f095bc79.yaml",
+        "sha256": "8a4b9a7479c0bfd64c51de05c82485ad86c254bc88e12cc23394f453f095bc79",
+        "omittedKeys": 0
+      }
+    },
+    {
+      "code": "UK",
+      "name": "Українська",
+      "translation": {
+        "filename": "translations/47369d60a515c96cf20a67d1e8c250c21b87285406ebcca55261c9bef2d57309.yaml",
+        "sha256": "47369d60a515c96cf20a67d1e8c250c21b87285406ebcca55261c9bef2d57309",
+        "omittedKeys": 0
+      }
+    },
+    {
+      "code": "BE",
+      "name": "Беларуская",
+      "translation": {
+        "filename": "translations/79f544a37f8c12951f86bd03c58e86bfba75a098e325721e2c4a073fc1e03ef5.yaml",
+        "sha256": "79f544a37f8c12951f86bd03c58e86bfba75a098e325721e2c4a073fc1e03ef5",
+        "omittedKeys": 0
+      }
+    },
+    {
+      "code": "IT",
+      "name": "Italiano",
+      "translation": {
+        "filename": "translations/d8bfaa79197c6e08eecf99d57d75896fb146384cda5883118a4099acffea02ec.yaml",
+        "sha256": "d8bfaa79197c6e08eecf99d57d75896fb146384cda5883118a4099acffea02ec",
+        "omittedKeys": 0
+      }
+    },
+    {
+      "code": "PL",
+      "name": "Polski",
+      "translation": {
+        "filename": "translations/1dd0306ff7f50805da3b0cd072e5ad487b324bf79fab57769a3b968e608a0e4a.yaml",
+        "sha256": "1dd0306ff7f50805da3b0cd072e5ad487b324bf79fab57769a3b968e608a0e4a",
+        "omittedKeys": 0
+      }
+    },
+    {
+      "code": "FI",
+      "name": "Suomi",
+      "translation": {
+        "filename": "translations/e8d08f1c8dee115ffa9617d799608853d4db8f4edb5a795108df9d05f152a371.yaml",
+        "sha256": "e8d08f1c8dee115ffa9617d799608853d4db8f4edb5a795108df9d05f152a371",
+        "omittedKeys": 0
+      }
+    },
+    {
+      "code": "DA",
+      "name": "Dansk",
+      "translation": {
+        "filename": "translations/f08a95c6229e02e8559677f1759bd589b7dbd77d1de194f9ed857514b994cb21.yaml",
+        "sha256": "f08a95c6229e02e8559677f1759bd589b7dbd77d1de194f9ed857514b994cb21",
+        "omittedKeys": 0
+      }
+    },
+    {
+      "code": "NL",
+      "name": "Nederlands",
+      "translation": {
+        "filename": "translations/ee144a43700a8e6e40bc9292a75c2ffbbef8c3ec7b71230bc6e85db7f501f89e.yaml",
+        "sha256": "ee144a43700a8e6e40bc9292a75c2ffbbef8c3ec7b71230bc6e85db7f501f89e",
+        "omittedKeys": 0
+      }
+    },
+    {
+      "code": "TR",
+      "name": "Türkçe",
+      "translation": {
+        "filename": "translations/4002102e395449535abf6a4d91c42430f2b8bdc73e8e07fd871ad060fa8a360e.yaml",
+        "sha256": "4002102e395449535abf6a4d91c42430f2b8bdc73e8e07fd871ad060fa8a360e",
+        "omittedKeys": 0
+      }
+    },
+    {
+      "code": "KK",
+      "name": "Қазақша",
+      "translation": {
+        "filename": "translations/d4cb7a84e63bd57843bec2580442591d205baa10e2d7255e14cced2db09d3de1.yaml",
+        "sha256": "d4cb7a84e63bd57843bec2580442591d205baa10e2d7255e14cced2db09d3de1",
+        "omittedKeys": 0
+      }
+    },
+    {
+      "code": "HU",
+      "name": "Magyar",
+      "translation": {
+        "filename": "translations/7f52549f85882cce8aa4ba7f207ecada097d16fab6aee67ddf533a6a5139153f.yaml",
+        "sha256": "7f52549f85882cce8aa4ba7f207ecada097d16fab6aee67ddf533a6a5139153f",
+        "omittedKeys": 0
+      }
+    },
+    {
+      "code": "LT",
+      "name": "Lietuvių",
+      "translation": {
+        "filename": "translations/81405649432254136942d630fc82faedecab4e9c3e7f6ed758338d4ad81cd459.yaml",
+        "sha256": "81405649432254136942d630fc82faedecab4e9c3e7f6ed758338d4ad81cd459",
+        "omittedKeys": 0
+      }
+    },
+    {
+      "code": "SI",
+      "name": "Slovenščina",
+      "translation": {
+        "filename": "translations/4316543fb92ac2ff56ee78f2f5b28c9552033d32ee96eaa010f2c51a2d716da5.yaml",
+        "sha256": "4316543fb92ac2ff56ee78f2f5b28c9552033d32ee96eaa010f2c51a2d716da5",
+        "omittedKeys": 0
+      }
+    },
+    {
+      "code": "CAV",
+      "name": "Valencià",
+      "translation": {
+        "filename": "translations/ccdaff6c3d2c3dd3c7af6053562a44ccc0231ef40c71222e59e85673f80dbc41.yaml",
+        "sha256": "ccdaff6c3d2c3dd3c7af6053562a44ccc0231ef40c71222e59e85673f80dbc41",
+        "omittedKeys": 0
+      }
+    },
+    {
+      "code": "HE",
+      "name": "עברית",
+      "translation": {
+        "filename": "translations/484ec93e31957d440b0eae9b3687902996eb15cb133e18778377b0e2059ff67c.yaml",
+        "sha256": "484ec93e31957d440b0eae9b3687902996eb15cb133e18778377b0e2059ff67c",
+        "omittedKeys": 0
+      }
+    },
+    {
+      "code": "VI",
+      "name": "Tiếng Việt",
+      "translation": {
+        "filename": "translations/9aa9aea97111cb9411c9071fe0a5ffdfd40ac847aab34c90cf35ff5f12b09e75.yaml",
+        "sha256": "9aa9aea97111cb9411c9071fe0a5ffdfd40ac847aab34c90cf35ff5f12b09e75",
+        "omittedKeys": 0
+      }
+    },
+    {
+      "code": "SK",
+      "name": "Slovenčina",
+      "translation": {
+        "filename": "translations/b6bcec216217adfff3310828f45c5922f71afbbc3d2cc162de8c4fadbfce5b7f.yaml",
+        "sha256": "b6bcec216217adfff3310828f45c5922f71afbbc3d2cc162de8c4fadbfce5b7f",
+        "omittedKeys": 0
+      }
+    },
+    {
+      "code": "PT2",
+      "name": "Português (Portugal)",
+      "translation": {
+        "filename": "translations/9f14e90c979624f0542d33a3a9fe3fed903121f5bfdcaa4cfb790c0119b71f24.yaml",
+        "sha256": "9f14e90c979624f0542d33a3a9fe3fed903121f5bfdcaa4cfb790c0119b71f24",
+        "omittedKeys": 0
+      }
+    },
+    {
+      "code": "AR",
+      "name": "العربية",
+      "translation": {
+        "filename": "translations/0ffe05188d994c54bb75488954a35105c91b4e35349b2fff547077a9f5ce1259.yaml",
+        "sha256": "0ffe05188d994c54bb75488954a35105c91b4e35349b2fff547077a9f5ce1259",
+        "omittedKeys": 0
+      }
+    },
+    {
+      "code": "ET",
+      "name": "Eesti",
+      "translation": {
+        "filename": "translations/708248b93b108a2d4dbb92d1c55e59a145eb449d47b0bd9c836c6791817e2fc3.yaml",
+        "sha256": "708248b93b108a2d4dbb92d1c55e59a145eb449d47b0bd9c836c6791817e2fc3",
+        "omittedKeys": 0
+      }
+    },
+    {
+      "code": "NB",
+      "name": "Norsk bokmål",
+      "translation": {
+        "filename": "translations/229b11ca39db7497c6cc6ef6ec9fad09871d55aca90189929559ca76007403e4.yaml",
+        "sha256": "229b11ca39db7497c6cc6ef6ec9fad09871d55aca90189929559ca76007403e4",
+        "omittedKeys": 0
+      }
+    },
+    {
+      "code": "BS",
+      "name": "Bosanski",
+      "translation": {
+        "filename": "translations/16e4db2caaa8cf0d72fd5a241bf60f3741b266eab0d6c9d48f95dd35d04cf4f7.yaml",
+        "sha256": "16e4db2caaa8cf0d72fd5a241bf60f3741b266eab0d6c9d48f95dd35d04cf4f7",
+        "omittedKeys": 0
+      }
+    },
+    {
+      "code": "ID",
+      "name": "Bahasa Indonesia",
+      "translation": {
+        "filename": "translations/cac2e682dac2280cde17f85d55ae0c9596d8a018e6888c8a65daa82b91fee119.yaml",
+        "sha256": "cac2e682dac2280cde17f85d55ae0c9596d8a018e6888c8a65daa82b91fee119",
+        "omittedKeys": 0
+      }
+    },
+    {
+      "code": "BG",
+      "name": "Български",
+      "translation": {
+        "filename": "translations/85551074a007133a5a03313ce5119501fd6afdd20e63b13e81a86adfce5d6743.yaml",
+        "sha256": "85551074a007133a5a03313ce5119501fd6afdd20e63b13e81a86adfce5d6743",
+        "omittedKeys": 0
+      }
+    },
+    {
+      "code": "AZ",
+      "name": "Azərbaycanca",
+      "translation": {
+        "filename": "translations/8715a5f01074d1b3376bb1b7ddbb616f9e37ad9c8fb0233004b0e47bc2767cac.yaml",
+        "sha256": "8715a5f01074d1b3376bb1b7ddbb616f9e37ad9c8fb0233004b0e47bc2767cac",
+        "omittedKeys": 0
+      }
+    },
+    {
+      "code": "FA",
+      "name": "فارسی",
+      "translation": {
+        "filename": "translations/8a524e020d3af935a3772a101532cac9a9455a42df8e5b7ea7620f0c828c4756.yaml",
+        "sha256": "8a524e020d3af935a3772a101532cac9a9455a42df8e5b7ea7620f0c828c4756",
+        "omittedKeys": 0
+      }
+    }
+  ],
+  "entries": [
+    {
+      "key": "STR_CROSSINK",
+      "english": "CrossInk",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_BOOTING",
+      "english": "BOOTING",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_AM",
+      "english": "AM",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_PM",
+      "english": "PM",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SLEEPING",
+      "english": "SLEEPING",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_ENTERING_SLEEP",
+      "english": "Sleeping...",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_BROWSE_FILES",
+      "english": "Browse Files",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_BROWSE",
+      "english": "Browse",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_FILE_TRANSFER",
+      "english": "File Transfer",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SETTINGS_TITLE",
+      "english": "Settings",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_FILE_BROWSER_SETTINGS",
+      "english": "File Browser Settings",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SETTINGS_SHORT",
+      "english": "Settings",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_READ",
+      "english": "Read",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_MENU",
+      "english": "Menu",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_CONTINUE_READING",
+      "english": "Continue Reading",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NO_OPEN_BOOK",
+      "english": "No open book",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_START_READING",
+      "english": "Start reading below",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NO_FILES_FOUND",
+      "english": "No files found",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SELECT_CHAPTER",
+      "english": "Select Chapter",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NO_CHAPTERS",
+      "english": "No chapters",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_END_OF_BOOK",
+      "english": "End of book",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_EMPTY_CHAPTER",
+      "english": "Empty chapter",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_INDEXING",
+      "english": "Indexing",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_INDEX_FAILED",
+      "english": "Failed to index - invalid book",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_EPUB_OPEN_FAILED_BODY",
+      "english": "CrossInk could not read this EPUB. The file may be invalid or damaged.",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_EPUB_OPEN_MEMORY_BODY",
+      "english": "CrossInk could not open this book because the device ran out of memory.",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_MEMORY_ERROR",
+      "english": "Memory error",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_PREVIEW_UNAVAILABLE",
+      "english": "Preview unavailable",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_PAGE_LOAD_ERROR",
+      "english": "Page load error",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_EMPTY_FILE",
+      "english": "Empty file",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_OUT_OF_BOUNDS",
+      "english": "Out of bounds",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_LOADING",
+      "english": "Loading...",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_WIFI_NETWORKS",
+      "english": "WiFi Networks",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NO_NETWORKS",
+      "english": "No networks found",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NETWORKS_FOUND",
+      "english": "%zu networks found",
+      "formatted": true,
+      "signature": [
+        50
+      ],
+      "active": true
+    },
+    {
+      "key": "STR_SCANNING",
+      "english": "Scanning...",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_FINDING_SAVED_WIFI",
+      "english": "Finding saved Wi-Fi...",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_CONNECTING",
+      "english": "Connecting...",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_CONNECTING_SAVED_WIFI",
+      "english": "Connecting to saved Wi-Fi...",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SHOW_NETWORKS",
+      "english": "Show",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_CONNECTED",
+      "english": "Connected!",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_CONNECTION_FAILED",
+      "english": "Connection Failed",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_FORGET_NETWORK",
+      "english": "Forget Network?",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SAVE_PASSWORD",
+      "english": "Save password for next time?",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_PRESS_OK_SCAN",
+      "english": "Press OK to scan again",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_JOIN_NETWORK",
+      "english": "Join a Network",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_CREATE_HOTSPOT",
+      "english": "Create Hotspot",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_USB_DRIVE",
+      "english": "USB Drive",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_USB_DRIVE_DESC",
+      "english": "Manage the SD card from your computer",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_USB_DRIVE_PREPARING",
+      "english": "Preparing USB Drive...",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_USB_DRIVE_WAITING",
+      "english": "Connect this reader to your computer",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_USB_DRIVE_CONNECTED",
+      "english": "USB Drive connected",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_USB_DRIVE_EJECT_HINT",
+      "english": "Eject the drive on your computer, or disconnect the cable, to return Home.",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_USB_DRIVE_ERROR",
+      "english": "USB Drive error. Disconnect the cable to return Home.",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_USB_DRIVE_START_ERROR",
+      "english": "Unable to start USB Drive. Press Back to return Home.",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NEARBY_DEVICE",
+      "english": "Nearby Device",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NEARBY_STATS_SYNC",
+      "english": "Nearby Stats Sync",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SYNC_AND_TRANSFER",
+      "english": "Sync & Transfer",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NEARBY_POSITION_SYNC",
+      "english": "Nearby Position Sync",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NEARBY_BOOK_TRANSFER",
+      "english": "Nearby File Transfer",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SEND_NEARBY_BOOK",
+      "english": "Send to Nearby Device",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_RECEIVE_NEARBY_BOOK",
+      "english": "Receive File",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_RECEIVE_NEARBY_BOOK_DESC",
+      "english": "Receive a file from another reader",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NEARBY_RECEIVE_FOLDER",
+      "english": "Nearby receive folder",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SELECT_RECEIVE_FOLDER",
+      "english": "Select receive folder",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_START_RECEIVING",
+      "english": "Start receiving",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_CHANGE_FOLDER",
+      "english": "Change folder",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_ACCEPT",
+      "english": "Accept",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_OK",
+      "english": "OK",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_REPLACE",
+      "english": "Replace",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_KEEP_BOTH",
+      "english": "Keep both",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NEARBY_TRANSFER_LISTENING",
+      "english": "Waiting for a nearby sender",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NEARBY_TRANSFER_DISCOVERING",
+      "english": "Looking for receiving devices",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NEARBY_TRANSFER_WAITING_APPROVAL",
+      "english": "Waiting for receiver approval",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NEARBY_TRANSFER_INCOMING",
+      "english": "Incoming file",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NEARBY_TRANSFER_SIZE",
+      "english": "%lu bytes",
+      "formatted": true,
+      "signature": [
+        26
+      ],
+      "active": true
+    },
+    {
+      "key": "STR_NEARBY_TRANSFER_VALIDATING",
+      "english": "Validating...",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NEARBY_TRANSFER_SENDING",
+      "english": "Sending file",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NEARBY_TRANSFER_RECEIVING",
+      "english": "Receiving file",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NEARBY_TRANSFER_SENT",
+      "english": "File sent",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NEARBY_TRANSFER_RECEIVED",
+      "english": "File received",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NEARBY_TRANSFER_FAILED",
+      "english": "Transfer failed",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NEARBY_TRANSFER_UNSUPPORTED",
+      "english": "Unsupported file type",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NEARBY_TRANSFER_SOURCE_FAILED",
+      "english": "Could not read the source file",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NEARBY_TRANSFER_RADIO_FAILED",
+      "english": "Could not start nearby transfer",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NEARBY_TRANSFER_REJECTED",
+      "english": "The receiver declined the transfer",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NEARBY_TRANSFER_VERIFY_FAILED",
+      "english": "The received file did not pass verification",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NEARBY_TRANSFER_CANCELLED",
+      "english": "Transfer cancelled",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NEARBY_TRANSFER_WRITE_FAILED",
+      "english": "Could not write the received file",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NEARBY_TRANSFER_NAME_FAILED",
+      "english": "Could not choose an available filename",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NEARBY_TRANSFER_REPLACE_FAILED",
+      "english": "Could not safely replace the existing file",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NEARBY_TRANSFER_TIMEOUT",
+      "english": "The other device stopped responding",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_JOIN_DESC",
+      "english": "Connect to an existing WiFi network",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_HOTSPOT_DESC",
+      "english": "Create a WiFi network others can join",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NEARBY_STATS_SYNC_DESC",
+      "english": "Sync reading stats between readers",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NEARBY_STATS_VERSION_MISMATCH",
+      "english": "Version mismatch. Stats not synced",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NEARBY_POSITION_VERSION_MISMATCH",
+      "english": "Version mismatch. Position not synced",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NEARBY_POSITION_BOOK_MISMATCH",
+      "english": "Different book. Position not synced",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_STARTING_HOTSPOT",
+      "english": "Starting Hotspot...",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_HOTSPOT_MODE",
+      "english": "Hotspot Mode",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_CONNECT_WIFI_HINT",
+      "english": "Connect your device to this WiFi network",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_OPEN_URL_HINT",
+      "english": "Open this URL in your browser",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_OR_HTTP_PREFIX",
+      "english": "or http://",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SCAN_QR_HINT",
+      "english": "or scan QR code with your phone:",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_CALIBRE_WIRELESS",
+      "english": "Calibre Wireless",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NETWORK_LEGEND",
+      "english": "* = Encrypted | + = Saved",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_MAC_ADDRESS",
+      "english": "MAC address:",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_CHECKING_WIFI",
+      "english": "Checking WiFi...",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_ENTER_WIFI_PASSWORD",
+      "english": "Enter WiFi Password",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_ADD_HIDDEN_NETWORK",
+      "english": "Add hidden network...",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_ENTER_WIFI_SSID",
+      "english": "Enter network name (SSID)",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_TO_PREFIX",
+      "english": "to ",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_CALIBRE_RECEIVING",
+      "english": "Receiving: ",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_CALIBRE_RECEIVED",
+      "english": "Received: ",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_CALIBRE_INSTRUCTION_1",
+      "english": "1) Install CrossPoint Reader plugin",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_CALIBRE_INSTRUCTION_2",
+      "english": "2) Be on the same WiFi network",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_CALIBRE_INSTRUCTION_3",
+      "english": "3) In Calibre: 'Send to device'",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_CALIBRE_INSTRUCTION_4",
+      "english": "Keep this screen open while sending",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_CAT_DISPLAY",
+      "english": "Display",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_CAT_READER",
+      "english": "Reader",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_CAT_CONTROLS",
+      "english": "Controls",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_CAT_SYSTEM",
+      "english": "System",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SLEEP_SCREEN",
+      "english": "Sleep Screen",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SLEEP_SCREEN_WALLPAPER",
+      "english": "Wallpaper",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_QUICK_RESUME_TIMEOUT",
+      "english": "Quick Resume on Timeout",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SLEEP_COVER_MODE",
+      "english": "Cover Mode",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_EXTRA_SPACING",
+      "english": "Extra Paragraph Spacing",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_FORCE_PARAGRAPH_INDENTS",
+      "english": "Force Paragraph Indents",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_TEXT_AA",
+      "english": "Text Anti-Aliasing",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_READER_DARK_MODE",
+      "english": "Dark Mode",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_IMAGES",
+      "english": "Images",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_IMAGES_DISPLAY",
+      "english": "Display",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_IMAGES_DISPLAY_BW",
+      "english": "Display (B&W)",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_IMAGES_PLACEHOLDER",
+      "english": "Placeholder",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_IMAGES_SUPPRESS",
+      "english": "Suppress",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_TOUCH_READER_CONTROLS",
+      "english": "Touch Reader Controls",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_TAP_AND_SWIPE",
+      "english": "Tap & Swipe",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_TAP_ONLY",
+      "english": "Tap Only",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SWIPE_ONLY",
+      "english": "Swipe Only",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_INVERTED_TAP",
+      "english": "Inverted Tap",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_DISABLE_TOUCHSCREEN",
+      "english": "Disable Touchscreen",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_PINCH_FONT_RESIZE",
+      "english": "Pinch to Resize Font",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_TWO_FINGER_ROTATION",
+      "english": "Two-finger Screen Rotation",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_TAPS_AND_GESTURES",
+      "english": "Taps & Gestures",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_TWO_FINGER_SWIPE",
+      "english": "Two-finger Swipe",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_EDGE_GESTURES",
+      "english": "Edge Gestures",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_LEFT_EDGE",
+      "english": "Left Edge",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_RIGHT_EDGE",
+      "english": "Right Edge",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_LEFT_EDGE_UP",
+      "english": "Left Edge Up",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_LEFT_EDGE_DOWN",
+      "english": "Left Edge Down",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_RIGHT_EDGE_UP",
+      "english": "Right Edge Up",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_RIGHT_EDGE_DOWN",
+      "english": "Right Edge Down",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_TWO_FINGER_SWIPE_UP",
+      "english": "Swipe Up",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_TWO_FINGER_SWIPE_DOWN",
+      "english": "Swipe Down",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_TWO_FINGER_SWIPE_LEFT",
+      "english": "Swipe Left",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_TWO_FINGER_SWIPE_RIGHT",
+      "english": "Swipe Right",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_INCREASE_BRIGHTNESS",
+      "english": "Increase Brightness",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_DECREASE_BRIGHTNESS",
+      "english": "Decrease Brightness",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_INCREASE_WARMTH",
+      "english": "Increase Warmth",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_DECREASE_WARMTH",
+      "english": "Decrease Warmth",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NEXT_CHAPTER",
+      "english": "Next Chapter",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_PREVIOUS_CHAPTER",
+      "english": "Previous Chapter",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_INCREASE_FONT_SIZE",
+      "english": "Increase Font Size",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_DECREASE_FONT_SIZE",
+      "english": "Decrease Font Size",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_TOGGLE_TOUCHSCREEN",
+      "english": "Toggle Touchscreen",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_ON",
+      "english": "ON",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_OFF",
+      "english": "OFF",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_EOB_CONTINUE_WITH",
+      "english": "Continue with",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SHORT_PWR_BTN",
+      "english": "Short-press",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_ORIENTATION",
+      "english": "Orientation",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_ROTATE_CCW",
+      "english": "Rotate Page CCW",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_ROTATE_CW",
+      "english": "Rotate Page CW",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_ROTATE_FLIP",
+      "english": "Rotate Page 180°",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_ORIENTATION_AWARE",
+      "english": "Orientation Aware",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NAV_BUTTONS",
+      "english": "Nav Buttons",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_ALL_BUTTONS",
+      "english": "All Buttons",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_CHANGE_FONT_SIZE",
+      "english": "Change Font Size",
+      "formatted": false,
+      "signature": null,
+      "active": false
+    },
+    {
+      "key": "STR_FRONT_BTN_FOLLOW_ORIENTATION",
+      "english": "Orient front buttons",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_LONG_PRESS_BEHAVIOR_SKIP",
+      "english": "Chapter Skip",
+      "formatted": false,
+      "signature": null,
+      "active": false
+    },
+    {
+      "key": "STR_LONG_PRESS_BEHAVIOR_ORIENTATION",
+      "english": "Orientation Change",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_FONT_FAMILY",
+      "english": "Font Family",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_DICTIONARY_FONT",
+      "english": "Dictionary Font",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_USE_READER_FONT",
+      "english": "Use Reader Font",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_DICTIONARY_FONT_SIZE",
+      "english": "Dictionary Font Size",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_USE_READER_FONT_SIZE",
+      "english": "Use Reader Size",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_UNAVAILABLE",
+      "english": "Unavailable",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_FONT_SIZE",
+      "english": "Font Size",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SD_FONT_SIZE_RANGE",
+      "english": "Download Font Size Range",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_READER_FONT_OPTIONS",
+      "english": "Font Options",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_READER_PAGE_LAYOUT",
+      "english": "Page Layout",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_EPUB_RENDER_MODE",
+      "english": "EPUB Render Mode",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_RENDER_MODE_CROSSINK_DEFAULT",
+      "english": "CrossInk Default",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_RENDER_MODE_BALANCED",
+      "english": "Balanced",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_RENDER_MODE_LIGHT",
+      "english": "Light",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_INDEXING_METHOD",
+      "english": "Indexing Method",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_INDEXING_INCREMENTAL",
+      "english": "Incremental",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_INDEXING_FULL_SECTION",
+      "english": "Full Section",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_BALANCED_MODE",
+      "english": "Balanced Mode",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_LIGHT_MODE",
+      "english": "Light Mode",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SAFE_MODE",
+      "english": "Safe Mode",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_LINE_SPACING",
+      "english": "Line Spacing",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_READER_FONT",
+      "english": "Reader Font",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SPACING",
+      "english": "Line/Word Spacing",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_WORD_SPACING",
+      "english": "Word Spacing",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_CHARACTER_SPACING",
+      "english": "Character Spacing",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SCREEN_MARGIN",
+      "english": "Screen Margins",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_TOP_BOTTOM",
+      "english": "Top/Bottom",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_LEFT_RIGHT",
+      "english": "Left/Right",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_PUBLISHER_PAGE_NUMBERS",
+      "english": "Publisher Page Numbers",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_PARA_ALIGNMENT",
+      "english": "Paragraph Alignment",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_FONT_PREVIEW_TEXT",
+      "english": "Waltz, bad nymph, for quick jigs vex",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_HYPHENATION",
+      "english": "Hyphenation",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_DICTIONARY",
+      "english": "Dictionary",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NOT_FOUND",
+      "english": "Not Found",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_BOOK_DICTIONARY",
+      "english": "Book Dictionary",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_DICT_USE_GLOBAL",
+      "english": "Use Global",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_DICT_NO_DICT_SET",
+      "english": "No dictionary set",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_DICT_NO_WORD",
+      "english": "No word",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_DICT_LOOKING_UP",
+      "english": "Looking up...",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_DICT_READ_FAILED",
+      "english": "Unable to read definition",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_DICT_SEARCH_ALT_FORMS",
+      "english": "Search alternate forms?",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_DICT_DID_YOU_MEAN",
+      "english": "Did you mean?",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_LOOKUP",
+      "english": "Look Up Word",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_LOOKUP_SHORT",
+      "english": "Look Up",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_DICT_SWITCH",
+      "english": "Switch",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SWITCH_DICTIONARY",
+      "english": "Switch Dictionary",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_LOOKUP_HISTORY",
+      "english": "Lookup History",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_LOOKUP_HISTORY_EMPTY",
+      "english": "No words looked up yet",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_TIME_TO_SLEEP",
+      "english": "Time to Sleep",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SHOW_HIDDEN_FILES",
+      "english": "Show Hidden Files",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_HIDE_FILE_EXTENSION",
+      "english": "Hide File Extension",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_FILE_BROWSER_DISPLAY",
+      "english": "File Browser Display",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_FILE_BROWSER_DISPLAY_1_LINE",
+      "english": "1 Line",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_FILE_BROWSER_DISPLAY_2_LINES",
+      "english": "2 Lines",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_REMOVE_READ_FROM_RECENTS",
+      "english": "Clear Finished Books from History",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_MOVE_FINISHED_TO_READ",
+      "english": "Move Finished Books to Read Folder",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_AUTO_BACKUP_STATS",
+      "english": "Automatic Backups",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_BACKUP_NOW",
+      "english": "Backup Now",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_BACKUP_STATS_CONFIRM",
+      "english": "Save a copy to /.crossink-stats-backup/?",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_BACKUP_STATS_DONE",
+      "english": "Backup saved",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_BACKUP_STATS_FAILED",
+      "english": "Backup failed",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SYSTEM_DEVICE",
+      "english": "Device",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_DEVICE_NAME",
+      "english": "Device Name",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SYSTEM_FILES_CACHE",
+      "english": "Files & Cache",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_ALL_TIME_STATS",
+      "english": "All-time Stats",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SYNC_STATS_SETUP",
+      "english": "Setup",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SYNC_STATS_TOTALS",
+      "english": "Totals",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SYNC_STATS_DAILY",
+      "english": "Daily history",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SYNC_STATS_STEP_STATUS_FORMAT",
+      "english": "%s: %s",
+      "formatted": true,
+      "signature": [
+        5,
+        5
+      ],
+      "active": true
+    },
+    {
+      "key": "STR_IDLE_TIME_THRESHOLD",
+      "english": "Idle Time Threshold",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SECONDS_VALUE_FORMAT",
+      "english": "%u sec",
+      "formatted": true,
+      "signature": [
+        2
+      ],
+      "active": true
+    },
+    {
+      "key": "STR_RESET_ALL_TIME_STATS",
+      "english": "Reset All-time Stats",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_RESET_ALL_TIME_STATS_CONFIRM",
+      "english": "Clear this reader's all-time stats? Backups are kept.",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_REFRESH_FREQ",
+      "english": "Refresh Frequency",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SYNC_SERVER",
+      "english": "Sync Server",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_CHECK_UPDATES",
+      "english": "Check for Updates",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_LANGUAGE",
+      "english": "Language",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_KEYBOARD_LAYOUTS",
+      "english": "Keyboard Layouts",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_CLEAR_READING_CACHE",
+      "english": "Clear Reading Cache",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_USERNAME",
+      "english": "Username",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_PASSWORD",
+      "english": "Password",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SYNC_SERVER_URL",
+      "english": "Sync Server URL",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_DOCUMENT_MATCHING",
+      "english": "Document Matching",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SEND_METADATA",
+      "english": "Send Document Metadata",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SYNC_BEHAVIOR",
+      "english": "Sync Behavior",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_ASK_EVERY_TIME",
+      "english": "Ask on Conflicts",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SMART_SYNC",
+      "english": "Smart Sync",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_AUTHENTICATE",
+      "english": "Authenticate",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SIGN_UP",
+      "english": "Sign Up",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_CREATING_ACCOUNT",
+      "english": "Creating account...",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_ACCOUNT_CREATED",
+      "english": "Account created",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SIGNUP_FAILED",
+      "english": "Sign up failed",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_USERNAME_TAKEN",
+      "english": "Username is already registered",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_KOREADER_USERNAME",
+      "english": "KOReader Username",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_KOREADER_PASSWORD",
+      "english": "KOReader Password",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_FILENAME",
+      "english": "Filename",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_RENAME",
+      "english": "Rename",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_AUTHOR_TITLE",
+      "english": "Author - Title",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SERVER_FILENAME",
+      "english": "Server filename",
+      "formatted": false,
+      "signature": null,
+      "active": false
+    },
+    {
+      "key": "STR_USE_SERVER_FILENAME",
+      "english": "Use Server Filename",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_TITLE_AUTHOR",
+      "english": "Title - Author",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_BINARY",
+      "english": "Binary",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SET_CREDENTIALS_FIRST",
+      "english": "Set credentials first",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_AUTHENTICATING",
+      "english": "Authenticating...",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_AUTH_SUCCESS",
+      "english": "Successfully authenticated!",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SYNC_READY",
+      "english": "Sync is ready to use",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_AUTH_FAILED",
+      "english": "Authentication Failed",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_DONE",
+      "english": "Done",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_COMPLETE",
+      "english": "Complete",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_CLEAR_CACHE_WARNING_1",
+      "english": "This will clear all cached book data.",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_CLEAR_CACHE_WARNING_2",
+      "english": "All reading progress will be lost!",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_CLEAR_CACHE_WARNING_3",
+      "english": "Books will need to be re-indexed",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_CLEAR_CACHE_WARNING_4",
+      "english": "when opened again.",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_CLEARING_CACHE",
+      "english": "Clearing cache...",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_CACHE_CLEARED",
+      "english": "Cache Cleared",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_ITEMS_REMOVED",
+      "english": "items removed",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_FAILED_LOWER",
+      "english": "failed",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_CLEAR_CACHE_FAILED",
+      "english": "Failed to clear cache",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_CHECK_SERIAL_OUTPUT",
+      "english": "Check serial output for details",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_DARK",
+      "english": "Dark",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_LIGHT",
+      "english": "Light",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_CUSTOM",
+      "english": "Custom",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_COVER",
+      "english": "Cover",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NONE_OPT",
+      "english": "None",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_FIT",
+      "english": "Fit",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_CROP",
+      "english": "Crop",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NEVER",
+      "english": "Never",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_IN_READER",
+      "english": "In Reader",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_ALWAYS",
+      "english": "Always",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_IGNORE",
+      "english": "Ignore",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SLEEP",
+      "english": "Sleep",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_WAKE",
+      "english": "Wake",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_PAGE_TURN",
+      "english": "Page Turn",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_FORCE_REFRESH",
+      "english": "Refresh Screen",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_CHANGE_FONT",
+      "english": "Change Font",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_PORTRAIT",
+      "english": "Portrait",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_LANDSCAPE_CW",
+      "english": "Landscape CW",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_INVERTED",
+      "english": "Inverted",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_ORIENTATION_INVERTED",
+      "english": "Portrait 180°",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_LANDSCAPE_CCW",
+      "english": "Landscape CCW",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_DISABLED",
+      "english": "Disabled",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_LEXEND_DECA",
+      "english": "Lexend Deca",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_BITTER",
+      "english": "Bitter",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_COMPACT",
+      "english": "Compact",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SMALL",
+      "english": "Small",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_MEDIUM",
+      "english": "Medium",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_LARGE",
+      "english": "Large",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_FONT_RANGE_TEENSY",
+      "english": "8-12pt",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_FONT_RANGE_TINY",
+      "english": "10-16pt",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_FONT_RANGE_XLARGE",
+      "english": "14-20pt",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_FONT_RANGE_ALL",
+      "english": "8-20pt",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_JUSTIFY",
+      "english": "Justify",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_CENTER",
+      "english": "Center",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_PAGES_1",
+      "english": "1 page",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_PAGES_5",
+      "english": "5 pages",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_PAGES_10",
+      "english": "10 pages",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_PAGES_15",
+      "english": "15 pages",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_PAGES_30",
+      "english": "30 pages",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_UPDATE",
+      "english": "Update",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_CHECKING_UPDATE",
+      "english": "Checking for update...",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NEW_UPDATE",
+      "english": "New update available!",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_CURRENT_VERSION",
+      "english": "Current Version: ",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NEW_VERSION",
+      "english": "New Version: ",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_UPDATING",
+      "english": "Updating...",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NO_UPDATE",
+      "english": "No update available",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_UPDATE_FAILED",
+      "english": "Update failed",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_UPDATE_HASH_MISMATCH",
+      "english": "Update file did not match",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_UPDATE_COMPLETE",
+      "english": "Update complete",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_POWER_ON_HINT",
+      "english": "Press and hold power button to turn back on",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_RESTARTING_HINT",
+      "english": "Restarting... If device does not restart, hold the power button for a few seconds.",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NO_ENTRIES",
+      "english": "No entries found",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_DOWNLOADING",
+      "english": "Downloading...",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_DOWNLOAD_FAILED",
+      "english": "Download failed",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_ERROR_MSG",
+      "english": "Error:",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_UNNAMED",
+      "english": "Unnamed",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NO_SERVER_URL",
+      "english": "No server URL configured",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_FETCH_FEED_FAILED",
+      "english": "Failed to fetch feed",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_FEED_UNAUTHORIZED",
+      "english": "Check username and password",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_FEED_REDIRECTED",
+      "english": "Credentials withheld. Check server URL",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_FEED_SERVER_ERROR",
+      "english": "Server error, try again later",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_FEED_UNREACHABLE",
+      "english": "Can't reach server",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_PARSE_FEED_FAILED",
+      "english": "Failed to parse feed",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_OPDS_FEED_BUFFER_MEMORY_ERROR",
+      "english": "Couldn't allocate memory for buffer",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_EPUB_CHAPTER_INCOMPLETE_TITLE",
+      "english": "Chapter incomplete",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_EPUB_CHAPTER_INCOMPLETE_BODY",
+      "english": "This chapter contains malformed EPUB markup. CrossInk stopped at the unreadable part, so some content may be missing.",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NEXT_PAGE",
+      "english": "Next Page",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_PREV_PAGE",
+      "english": "Previous Page",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_ARROW_LEFT",
+      "english": "« ",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_ARROW_RIGHT",
+      "english": " »",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NETWORK_PREFIX",
+      "english": "Network: ",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_IP_ADDRESS_PREFIX",
+      "english": "IP Address: ",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_ERROR_GENERAL_FAILURE",
+      "english": "Error: General failure",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_ERROR_NETWORK_NOT_FOUND",
+      "english": "Error: Network not found",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_ERROR_CONNECTION_TIMEOUT",
+      "english": "Error: Connection timeout",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SD_CARD",
+      "english": "SD card",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SD_START_ERROR",
+      "english": "SD card error",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SD_NO_RESPONSE",
+      "english": "The reader could not communicate with the card. Turn the reader off, reinsert the card, and restart.",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SD_MOUNT_FAILED",
+      "english": "The reader could not open the filesystem. Check the card on a computer and back up your files. For a new card, use one FAT32 partition with MBR.",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SD_START_FAILED",
+      "english": "Storage could not start. Restart the reader. If this continues, check the card on a computer.",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_TOGGLE_HIDDEN_FILES_HINT",
+      "english": "Long-press HOME key to toggle hidden files",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_BACK",
+      "english": "Back",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_EXIT",
+      "english": "Exit",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_HOME",
+      "english": "Home",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_HOME_BUTTON",
+      "english": "Home Button",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_HOME_BUTTON_TAP",
+      "english": "Tap",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_HOME_BUTTON_DOUBLE_TAP",
+      "english": "Double Tap",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_ENABLED",
+      "english": "Enabled",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_HOME_BUTTON_LOCK",
+      "english": "Home Button Lock",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_HOME_BUTTON_DISABLED",
+      "english": "Home Button: Disabled",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_HOME_BUTTON_ENABLED",
+      "english": "Home Button: Enabled",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_TOUCHSCREEN_DISABLED",
+      "english": "Reader Touchscreen: Disabled",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_TOUCHSCREEN_ENABLED",
+      "english": "Reader Touchscreen: Enabled",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_TOUCHSCREEN_DISABLED_GLOBAL",
+      "english": "Touchscreen: Disabled",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_TOUCHSCREEN_ENABLED_GLOBAL",
+      "english": "Touchscreen: Enabled",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_TOUCHSCREEN_REENABLE_HINT",
+      "english": "Press Up + Down to Re-enable Touchscreen",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_BACK_HOME",
+      "english": "Back/Home",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_HOME_READER",
+      "english": "Home/Reader",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_TOGGLE_FRONTLIGHT",
+      "english": "Toggle Frontlight",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_READER_MENU",
+      "english": "Reader Menu",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SELECT",
+      "english": "Select",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SELECTED",
+      "english": "Selected",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_TOGGLE",
+      "english": "Toggle",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_CONFIRM",
+      "english": "Confirm",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_CANCEL",
+      "english": "Cancel",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SAVE",
+      "english": "Save",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_CONNECT",
+      "english": "Connect",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_OPEN",
+      "english": "Open",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_DOWNLOAD",
+      "english": "Download",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_RETRY",
+      "english": "Retry",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_TAP_TO_RETRY",
+      "english": "Tap to retry",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_YES",
+      "english": "Yes",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NO",
+      "english": "No",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_HIDE",
+      "english": "Hide",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_FRONTLIGHT",
+      "english": "Frontlight",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_BRIGHTNESS",
+      "english": "Brightness",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_WARMTH",
+      "english": "Warmth",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_RESTORE_LIGHT_ON_WAKE",
+      "english": "Restore Light on Wake",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_FRONTLIGHT_SCHEDULE",
+      "english": "Schedule",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_START",
+      "english": "Start",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_END",
+      "english": "End",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NOT_SET",
+      "english": "Not Set",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_DIR_LEFT",
+      "english": "Left",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_DIR_RIGHT",
+      "english": "Right",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_DIR_UP",
+      "english": "Up",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_DIR_DOWN",
+      "english": "Down",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_KEY_MODE_SYMBOLS",
+      "english": "?123",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_KEY_MODE_ABC",
+      "english": "abc",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SLEEP_COVER_FILTER",
+      "english": "Cover Filter",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_FILTER_CONTRAST",
+      "english": "Contrast",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_STATUS_BARS",
+      "english": "Status Bars",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_CHAPTER_PAGE_COUNT",
+      "english": "Chapter Page Count",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_STABLE_PAGE_NUMBERS",
+      "english": "Stable Page Numbers",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_BOOK_PROGRESS_PERCENTAGE",
+      "english": "Book Progress Percentage",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_PERCENTAGE_FORMAT",
+      "english": "Percentage Format",
+      "formatted": true,
+      "signature": [],
+      "active": true
+    },
+    {
+      "key": "STR_PERCENTAGE_FORMAT_WHOLE",
+      "english": "10%",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_PERCENTAGE_FORMAT_ONE_DECIMAL",
+      "english": "10.1%",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_PERCENTAGE_FORMAT_TWO_DECIMALS",
+      "english": "10.12%",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_PROGRESS_BAR",
+      "english": "Progress Bar",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_PROGRESS_BAR_THICKNESS",
+      "english": "Progress Bar Thickness",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_PROGRESS_BAR_THIN",
+      "english": "Thin",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_PROGRESS_BAR_MEDIUM",
+      "english": "Medium",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_PROGRESS_BAR_THICK",
+      "english": "Thick",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_BOOK",
+      "english": "Book",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_CHAPTER",
+      "english": "Chapter",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_EXAMPLE_CHAPTER",
+      "english": "Chapter 21",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_EXAMPLE_BOOK",
+      "english": "Book Title",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_PREVIEW",
+      "english": "Preview",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_TITLE",
+      "english": "Title",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_TIME_LEFT",
+      "english": "Time Left",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_TIME_LEFT_SHORT",
+      "english": "Time Left",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_TIME_LEFT_CALCULATING",
+      "english": "Calculating...",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_BATTERY",
+      "english": "Battery",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_BATTERY_ICON_AND_PERCENT",
+      "english": "Icon + %",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_BATTERY_ICON_ONLY",
+      "english": "Icon Only",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_BATTERY_PERCENT_ONLY",
+      "english": "% Only",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_XTC_STATUS_BAR",
+      "english": "XTC Status Bar",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_STATUS_BAR_TEXT_SIZE",
+      "english": "Status Bar Text Size",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_BOTTOM",
+      "english": "Bottom",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_TOP",
+      "english": "Top",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_HIDE_CLOCK",
+      "english": "Hide Clock",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_CLOCK_UTC_OFFSET",
+      "english": "Clock UTC Offset",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_CLOCK_FORMAT",
+      "english": "Clock Format",
+      "formatted": true,
+      "signature": [],
+      "active": true
+    },
+    {
+      "key": "STR_CLOCK_FORMAT_24H",
+      "english": "24-hour",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_CLOCK_FORMAT_12H",
+      "english": "12-hour",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_DATE_FORMAT",
+      "english": "Date Format",
+      "formatted": true,
+      "signature": [],
+      "active": true
+    },
+    {
+      "key": "STR_DATE_FORMAT_MONTH_DAY_YEAR_LONG",
+      "english": "Dec 31, 2026",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_DATE_FORMAT_DAY_MONTH_YEAR_LONG",
+      "english": "31 Dec 2026",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_DATE_FORMAT_MONTH_DAY_YEAR_NUMERIC",
+      "english": "12/31/2026",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_DATE_FORMAT_DAY_MONTH_YEAR_NUMERIC",
+      "english": "31/12/2026",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_DATE_FORMAT_YEAR_MONTH_DAY_NUMERIC",
+      "english": "2026/12/31",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_DATE_FORMAT_MONTH_DAY_NUMERIC",
+      "english": "12/31",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_DATE_FORMAT_DAY_MONTH_NUMERIC",
+      "english": "31/12",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_DATE_FORMAT_MONTH_DAY_LONG",
+      "english": "December 31",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_DATE_FORMAT_DAY_MONTH_LONG",
+      "english": "31 December",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_DATE_SEPARATOR",
+      "english": "Date Separator",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_DATE_SEPARATOR_PERIOD",
+      "english": "Period (.)",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_DATE_SEPARATOR_HYPHEN",
+      "english": "Hyphen (-)",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_DATE_SEPARATOR_SLASH",
+      "english": "Slash (/)",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_CURRENT_TIME",
+      "english": "Current time:",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NEXT_FIELD",
+      "english": "Next",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_CLOCK_SYNC_NOW",
+      "english": "Sync Date/Time",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_CLOCK_SYNC_NO_WIFI",
+      "english": "WiFi not connected",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_CLOCK_SYNC_NO_WIFI_HINT",
+      "english": "Connect to WiFi first, then try again.",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_CLOCK_SYNCED",
+      "english": "Clock Synced",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_UI_THEME",
+      "english": "UI Theme",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_UI_SCALE",
+      "english": "UI Scale",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_THEME_CLASSIC",
+      "english": "Classic",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_THEME_LYRA",
+      "english": "Lyra",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_THEME_ROUNDEDRAFF",
+      "english": "RoundedRaff",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_THEME_COVER_GRID",
+      "english": "Cover Grid",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_THEME_LYRA_EXTENDED",
+      "english": "Lyra Extended",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_THEME_LYRA_CAROUSEL",
+      "english": "Lyra Carousel",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_THEME_MINIMAL",
+      "english": "Minimal",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_THEME_DASHBOARD",
+      "english": "Dashboard",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_THEME_MINIMAL_STATS",
+      "english": "Minimal Stats",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_QUICK_RESUME",
+      "english": "Quick Resume",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_LIST_VIEW",
+      "english": "List",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_GRID_VIEW",
+      "english": "Grid",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SUNLIGHT_FADING_FIX",
+      "english": "Sunlight Fading Fix",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_REMAP_FRONT_BUTTONS",
+      "english": "Remap Buttons",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_REMAP_FRONT_BUTTONS_READER",
+      "english": "Remap Buttons (Reader)",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_OPDS_BROWSER",
+      "english": "OPDS Browser",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SEARCH",
+      "english": "Search",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_COVER_CUSTOM",
+      "english": "Cover + Custom",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_PAGE_OVERLAY",
+      "english": "Page Overlay",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_REMOVE_FROM_RECENTS_ACTION",
+      "english": "Remove from History",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NO_RECENT_BOOKS",
+      "english": "No recent books",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_CALIBRE_DESC",
+      "english": "Use Calibre wireless device transfers",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_FORGET_AND_REMOVE",
+      "english": "Forget network and remove saved password?",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_FORGET_BUTTON",
+      "english": "Forget",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_CALIBRE_STARTING",
+      "english": "Starting Calibre...",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_CALIBRE_SETUP",
+      "english": "Setup",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_CALIBRE_STATUS",
+      "english": "Status",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_CLEAR_BUTTON",
+      "english": "Clear",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_DEFAULT_VALUE",
+      "english": "Default",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_REMAP_PROMPT",
+      "english": "Press a front button for each role",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_UNASSIGNED",
+      "english": "Unassigned",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_ALREADY_ASSIGNED",
+      "english": "Already assigned",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_REMAP_RESET_HINT",
+      "english": "Side button Up: Reset to default layout",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_REMAP_CANCEL_HINT",
+      "english": "Side button Down: Cancel remapping",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_HW_BACK_LABEL",
+      "english": "Back (1st button)",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_HW_CONFIRM_LABEL",
+      "english": "Confirm (2nd button)",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_HW_LEFT_LABEL",
+      "english": "Left (3rd button)",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_HW_RIGHT_LABEL",
+      "english": "Right (4th button)",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_GO_TO_PERCENT",
+      "english": "Go to %",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_GO_TO_STABLE_PAGE",
+      "english": "Go to Stable Page",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SYNC_BOOK",
+      "english": "Sync Book",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_DELETE_CACHE",
+      "english": "Delete Book Cache",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SAVE_CLIPPING",
+      "english": "Create Clipping",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_VIEW_CLIPPINGS",
+      "english": "View Clippings",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_CLIPPINGS",
+      "english": "Clippings",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_BOOKMARKS_AND_CLIPPINGS",
+      "english": "Bookmarks & Clippings",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NO_CLIPPINGS",
+      "english": "No clippings yet",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_DELETE_CLIPPINGS",
+      "english": "Clear Clippings",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_CLIPPING_SAVED",
+      "english": "Clipping saved",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_CLIPPING_FAILED",
+      "english": "Could not save clipping",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_CLIPPING_LIMIT_REACHED",
+      "english": "Clipping limit reached",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_BOOK_CACHE_DELETED",
+      "english": "Book Cache Deleted",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_DELETE_BOOK_STATS",
+      "english": "Delete Book's Reading Stats",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_BOOK_STATS_DELETED",
+      "english": "Reading Stats Deleted",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_RESET_BOOK_READER_SETTINGS",
+      "english": "Reset Book Reader Settings",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_BOOK_READER_SETTINGS_RESET",
+      "english": "Book Reader Settings Reset",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_RESET_READING_PACE",
+      "english": "Reset Reading Pace",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_READING_PACE_RESET",
+      "english": "Reading Pace Reset",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_DELETE",
+      "english": "Delete",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_PIN_AS_FAVORITE",
+      "english": "Set Sleep Screen",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_UNPIN_AS_FAVORITE",
+      "english": "Unset Sleep Screen",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_PIN_PNG_WARNING",
+      "english": "Pinning a PNG is only compatible with Page Overlay mode",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SET_AS_BOOT_SCREEN",
+      "english": "Set Boot Screen",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_CLEAR_BOOT_SCREEN",
+      "english": "Clear Boot Screen",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SET_AS_SLEEP_FOLDER",
+      "english": "Set as Sleep Folder",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_USE_DEFAULT_SLEEP_FOLDERS",
+      "english": "Use Default Sleep Folders",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_DISPLAY_QR",
+      "english": "Show Page as QR",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_PAGES_SEPARATOR",
+      "english": " pages  |  ",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_CALIBRE_URL_HINT",
+      "english": "For Calibre, add /opds to your URL",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SYNCING_TIME",
+      "english": "Syncing Date/Time",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_CALC_HASH",
+      "english": "Calculating document hash...",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_HASH_FAILED",
+      "english": "Failed to calculate document hash",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_FETCH_PROGRESS",
+      "english": "Fetching remote progress...",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_UPLOAD_PROGRESS",
+      "english": "Uploading progress...",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NO_CREDENTIALS_MSG",
+      "english": "No credentials configured",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_KOREADER_SETUP_HINT",
+      "english": "Set up a sync account in Settings",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_PROGRESS_FOUND",
+      "english": "Progress found!",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_LOCAL_LABEL",
+      "english": "Local:",
+      "formatted": false,
+      "signature": null,
+      "active": false
+    },
+    {
+      "key": "STR_PAGE_OVERALL_FORMAT",
+      "english": "Page %d, %.2f%% overall",
+      "formatted": true,
+      "signature": [
+        1,
+        3
+      ],
+      "active": false
+    },
+    {
+      "key": "STR_PAGE_TOTAL_OVERALL_FORMAT",
+      "english": "Page %d/%d, %.2f%% overall",
+      "formatted": true,
+      "signature": [
+        1,
+        1,
+        3
+      ],
+      "active": false
+    },
+    {
+      "key": "STR_DEVICE_FROM_FORMAT",
+      "english": "  From: %s",
+      "formatted": true,
+      "signature": [
+        5
+      ],
+      "active": false
+    },
+    {
+      "key": "STR_APPLY_REMOTE",
+      "english": "Apply remote progress",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_UPLOAD_LOCAL",
+      "english": "Upload local progress",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SYNC_REMOTE_TITLE",
+      "english": "Remote",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SYNC_AHEAD",
+      "english": "Ahead",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SYNC_PAGE_FORMAT",
+      "english": "Page %d",
+      "formatted": true,
+      "signature": [
+        1
+      ],
+      "active": true
+    },
+    {
+      "key": "STR_SYNC_PAGE_TOTAL_FORMAT",
+      "english": "Page %d of %d",
+      "formatted": true,
+      "signature": [
+        1,
+        1
+      ],
+      "active": true
+    },
+    {
+      "key": "STR_NO_REMOTE_MSG",
+      "english": "No remote progress found",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_UPLOAD_SUCCESS",
+      "english": "Progress uploaded!",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_ALREADY_SYNCED",
+      "english": "Already synced",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SYNC_FAILED_MSG",
+      "english": "Sync failed",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SYNC_REOPTIMIZE_REQUIRED",
+      "english": "Re-optimize this EPUB before filename sync",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_KOREADER_SYNC_AUTH_REJECTED",
+      "english": "Username or password was rejected by the sync server",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_KOREADER_SYNC_NETWORK_ERROR",
+      "english": "Couldn't reach the sync server. Check WiFi and the server URL.",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_KOREADER_SYNC_NETWORK_REFUSED",
+      "english": "Sync server refused the connection. Check the server URL and that the server is online.",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_KOREADER_SYNC_NETWORK_TIMEOUT",
+      "english": "Sync server timed out. Check WiFi strength and try again.",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_KOREADER_SYNC_HTTP_404",
+      "english": "Sync endpoint not found. Check that the server URL points to your KOReader sync server.",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_KOREADER_SYNC_HTTP_STATUS_FORMAT",
+      "english": "Sync server returned HTTP %d. Try again later.",
+      "formatted": true,
+      "signature": [
+        1
+      ],
+      "active": true
+    },
+    {
+      "key": "STR_KOREADER_SYNC_SERVER_ERROR",
+      "english": "Sync server returned an unexpected response. Try again later.",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_KOREADER_SYNC_BAD_RESPONSE",
+      "english": "Sync server replied with invalid data. Check the server URL or proxy setup.",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_KOREADER_SYNC_LOW_MEMORY",
+      "english": "Not enough free memory to finish sync. Please retry.",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_UNKNOWN_ERROR",
+      "english": "Unknown error",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SAVE_PROGRESS_FAILED",
+      "english": "Could not save progress",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SECTION_PREFIX",
+      "english": "Section ",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_BOOK_S_STYLE",
+      "english": "Book's Style",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_EMBEDDED_STYLE",
+      "english": "Embedded Style",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_FOCUS_READING",
+      "english": "Focus Reading",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_GUIDE_READING",
+      "english": "Guide Dots",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_OPDS_SERVER_URL",
+      "english": "OPDS Server URL",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_PWR_BTN_FOOTNOTE_BACK",
+      "english": "Quick-return from Footnotes",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SET_SLEEP_COVER",
+      "english": "Set Cover",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_FOOTNOTES",
+      "english": "Footnotes",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NO_FOOTNOTES",
+      "english": "No footnotes on this page",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_LINK",
+      "english": "[link]",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SCREENSHOT_BUTTON",
+      "english": "Take Screenshot",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_QUICK_LOCK",
+      "english": "Quick Lock",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_POWER_BUTTON_CHORD",
+      "english": "Power + Up Combo",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SIDE_BUTTON_CHORD",
+      "english": "Up + Down Combo",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NOTE",
+      "english": "Note:",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_TOUCHSCREEN_ESCAPE_HATCH_NOTE",
+      "english": "When touchscreen is disabled, this shortcut will open the reader menu",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_AUTO_TURN_INTERVAL_SECONDS",
+      "english": "Auto Page Turn",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SLEEP_TIMER_VALUE_FORMAT",
+      "english": "%u min",
+      "formatted": true,
+      "signature": [
+        2
+      ],
+      "active": true
+    },
+    {
+      "key": "STR_READING_STATS",
+      "english": "Reading Stats",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_EDIT",
+      "english": "Edit",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_MORE",
+      "english": "More",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_TRACK_READING_STATS",
+      "english": "Track Reading Stats",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_MARK_FINISHED",
+      "english": "Mark as Finished",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_MARK_UNFINISHED",
+      "english": "Mark as Unfinished",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_MARK_FINISHED_PROMPT_BODY",
+      "english": "You have reached 99% of this book",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_BOOKMARKS",
+      "english": "Bookmarks",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_ADD_BOOKMARK",
+      "english": "Add Bookmark",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_REMOVE_BOOKMARK",
+      "english": "Remove Bookmark",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_VIEW_BOOKMARKS",
+      "english": "View Bookmarks",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_DELETE_BOOKMARKS",
+      "english": "Clear Bookmark List",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_BOOKMARK_ADDED",
+      "english": "Bookmark added",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_BOOKMARK_REMOVED",
+      "english": "Bookmark removed",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_BOOKMARK_LIMIT_REACHED",
+      "english": "Bookmark limit reached",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NO_BOOKMARKS",
+      "english": "No bookmarks yet",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_CONFIRM_DELETE_BOOKMARK",
+      "english": "Delete this bookmark?",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_UNKNOWN_CHAPTER",
+      "english": "Unknown chapter",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_STATS_TOTAL_TIME",
+      "english": "Total time: ",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_STATS_LESS_THAN_MIN",
+      "english": "< 1 min",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_STATS_PAGES_PER_MIN",
+      "english": "Pages/Min",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_STATS_COMPLETED_LBL",
+      "english": "Books Read",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_STATS_SESSIONS_LBL",
+      "english": "Sessions",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_STATS_TIME_LBL",
+      "english": "Reading Time",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_STATS_PROGRESS_LBL",
+      "english": "Progress",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_STATS_AVG_SESSION_LBL",
+      "english": "Avg Session",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_STATS_DAILY_AVG_LBL",
+      "english": "Daily Avg",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_STATS_TODAY_LBL",
+      "english": "Today",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_STATS_SEVEN_DAY_AVG_LBL",
+      "english": "7-Day Avg",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_STATS_READING_STREAK_LBL",
+      "english": "Reading Streak",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_STATS_ALL_TIME",
+      "english": "All Books",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_STATS_TOTAL_READING_TIME_LBL_SHORT",
+      "english": "Reading Time",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_STATS_THIS_DEVICE_SCREEN",
+      "english": "This Device",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_STATS_ALL_DEVICES_SCREEN",
+      "english": "All Devices",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_STATS_TIME_OF_DAY",
+      "english": "Time of Day",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_STATS_DAY_OF_WEEK",
+      "english": "Day of Week",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_STATS_MORNING",
+      "english": "Morning",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_STATS_AFTERNOON",
+      "english": "Afternoon",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_STATS_EVENING",
+      "english": "Evening",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_STATS_NIGHT",
+      "english": "Night",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_STATS_MON",
+      "english": "Mon",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_STATS_TUE",
+      "english": "Tue",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_STATS_WED",
+      "english": "Wed",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_STATS_THU",
+      "english": "Thu",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_STATS_FRI",
+      "english": "Fri",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_STATS_SAT",
+      "english": "Sat",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_STATS_SUN",
+      "english": "Sun",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_STATS_START_DATE",
+      "english": "Start Date",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_STATS_FINISHED_DATE",
+      "english": "Finished Date",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_STATS_EST_FINISH_DATE",
+      "english": "Est. Finish Date",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_STATS_STARTED",
+      "english": "Started",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_STATS_DAY",
+      "english": "day",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_STATS_DAYS",
+      "english": "days",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_STATS_DAY_STREAK_FORMAT",
+      "english": "%u day streak",
+      "formatted": true,
+      "signature": [
+        2
+      ],
+      "active": true
+    },
+    {
+      "key": "STR_STATS_NO_STREAK",
+      "english": "No streak yet",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_STATS_NEW_READER",
+      "english": "New Reader",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_STATS_MORNING_READER",
+      "english": "Morning Reader",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_STATS_AFTERNOON_READER",
+      "english": "Afternoon Reader",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_STATS_EVENING_READER",
+      "english": "Evening Reader",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_STATS_NIGHT_READER",
+      "english": "Night Reader",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_HOLD_FOR_KEYBOARD",
+      "english": "Hold %s for Keyboard",
+      "formatted": true,
+      "signature": [
+        5
+      ],
+      "active": true
+    },
+    {
+      "key": "STR_ADD_SERVER",
+      "english": "Add Server",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SERVER_NAME",
+      "english": "Server Name",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NO_SERVERS",
+      "english": "No OPDS servers configured",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_DELETE_SERVER",
+      "english": "Delete Server",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_OPDS_SERVERS",
+      "english": "OPDS Servers",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_OPDS_DOWNLOAD_FOLDER",
+      "english": "Download Folder",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_OPDS_SD_ROOT",
+      "english": "SD Root",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_OPDS_DEFAULT_FOLDER",
+      "english": "Default Folder",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_OPDS_USE_DEFAULT",
+      "english": "Use default",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_OPDS_CUSTOM_FOLDER",
+      "english": "Custom folder",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_OPDS_INVALID_FOLDER",
+      "english": "Invalid folder path",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_MOVE_TO_READ_FAILED_TITLE",
+      "english": "Could not move book",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_MOVE_TO_READ_FAILED_BODY",
+      "english": "Failed to move \"%s\" to /Read folder.",
+      "formatted": true,
+      "signature": [
+        5
+      ],
+      "active": true
+    },
+    {
+      "key": "STR_DOWNLOAD_FONTS",
+      "english": "Download Fonts",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_FONT_BROWSER",
+      "english": "Font Browser",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_LOADING_FONT_LIST",
+      "english": "Loading font list...",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NO_FONTS_AVAILABLE",
+      "english": "No fonts available",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_FONT_INSTALLED",
+      "english": "Font installed!",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_FONT_INSTALL_FAILED",
+      "english": "Font installation failed",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_FONT_DOWNLOAD_INTERRUPTED",
+      "english": "Network interrupted while downloading",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_FONT_DOWNLOAD_RETRY_HINT",
+      "english": "Retry will continue saved progress.",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_FONT_DOWNLOAD_CHECKSUM_HINT",
+      "english": "Retry will download this file again.",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_INSTALLED",
+      "english": "Installed",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SD_CARD_FULL",
+      "english": "Insufficient SD card space",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_UPDATE_ALL",
+      "english": "Update All",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_CRASH_TITLE",
+      "english": "System Crash",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_CRASH_DESCRIPTION",
+      "english": "A detailed report was saved to crash_report.txt. Please include this file in your bug report.",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_CRASH_REASON",
+      "english": "Crash reason:",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_CRASH_NO_REASON",
+      "english": "(No reason was recorded)",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_TILT_PAGE_TURN",
+      "english": "Tilt Page Turn",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_TILT_PAGE_TURN_DIRECTION",
+      "english": "Tilt Direction",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_TILT_NEXT_PAGE_ONLY",
+      "english": "Tilt: Next Page Only",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_TILT_SENSITIVITY",
+      "english": "Tilt Sensitivity",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SENSITIVITY_LOW",
+      "english": "Low",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SENSITIVITY_NORMAL",
+      "english": "Normal",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SENSITIVITY_HIGH",
+      "english": "High",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_TILT_DIRECTION_LEFT_RIGHT",
+      "english": "Left-Right",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_TILT_DIRECTION_LEFT_RIGHT_INVERTED",
+      "english": "Right-Left",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_TILT_DIRECTION_FORWARD_BACK",
+      "english": "Forward-Back",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_TILT_DIRECTION_FORWARD_BACK_INVERTED",
+      "english": "Back-Forward",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_KB_HINT_MOVE_CURSOR",
+      "english": "Press LEFT or RIGHT to move cursor",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_KB_HINT_RETURN_CURSOR",
+      "english": "Press LEFT to return to cursor position",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_KB_HINT_HIDE_PASSWORD",
+      "english": "Hold RIGHT then press [***] to hide password",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_KB_HINT_SHOW_PASSWORD",
+      "english": "Hold RIGHT then press [abc] to show password",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_KB_HINT_TOGGLE_HIDE_PASSWORD",
+      "english": "Press [***] to hide password",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_KB_HINT_TOGGLE_SHOW_PASSWORD",
+      "english": "Press [abc] to show password",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_KB_HINT_EDIT_ENTRY",
+      "english": "Hold UP to edit entry",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_KB_TIPS",
+      "english": "Tips:",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_KB_HINT_RETURN_KEYBOARD",
+      "english": "Press DOWN to return to keyboard",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_KB_HINT_EXIT_URL_MODE",
+      "english": "Press ABC to exit URL mode",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_KB_HINT_CLEAR_TEXT",
+      "english": "Hold DEL to clear all text",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_KB_HINT_SECONDARY_CHAR",
+      "english": "Hold SELECT for secondary char",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_KB_HINT_UPPER_SECONDARY",
+      "english": "Hold SELECT for UPPERCASE or secondary char",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_KB_HINT_LOWER_SECONDARY",
+      "english": "Hold SELECT for lowercase or secondary char",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_KB_HINT_URL_SNIPPETS",
+      "english": "Press URL for snippets",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_POWER_BUTTON",
+      "english": "Power Button",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_FRONT_BUTTONS",
+      "english": "Front Buttons",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SIDE_BUTTONS",
+      "english": "Side Buttons",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_LONG_PRESS_ACTION",
+      "english": "Long-press",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_LONG_PRESS_MENU_ACTION",
+      "english": "Long-press Menu",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_LONG_PRESS_BACK_ACTION",
+      "english": "Long-press Back",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_LONG_PRESS_LEFT_ACTION",
+      "english": "Long-press Left",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_LONG_PRESS_RIGHT_ACTION",
+      "english": "Long-press Right",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_TOGGLE_BOOKMARK",
+      "english": "Toggle Bookmark",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_MARKED_FINISHED",
+      "english": "Marked as Finished",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_MARKED_UNFINISHED",
+      "english": "Marked as Unfinished",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_TILT_TO_TURN_OFF",
+      "english": "Tilt-to-turn: OFF",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_TILT_TO_TURN_ON",
+      "english": "Tilt-to-turn: ON",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_EPUB_LAYOUT_MEMORY_TITLE",
+      "english": "Chapter needs too much memory",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_EPUB_LAYOUT_MEMORY_BODY",
+      "english": "This chapter needs more memory to lay out than this device can safely spare.",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SD_FIRMWARE_UPDATE",
+      "english": "SD Card Firmware Update",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SELECT_FIRMWARE_FILE",
+      "english": "Select firmware file (.bin)",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NO_BIN_FILES",
+      "english": "No .bin files found",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_VALIDATING_FIRMWARE",
+      "english": "Validating firmware...",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_INVALID_FIRMWARE",
+      "english": "Invalid firmware file",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_FIRMWARE_TOO_LARGE",
+      "english": "Firmware too large for partition",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_FIRMWARE_TOO_SMALL",
+      "english": "Firmware file is too small",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_FIRMWARE_WRONG_DEVICE",
+      "english": "Firmware is for a different device",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_FIRMWARE_UPDATE_PROMPT",
+      "english": "Update firmware?",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_FIRMWARE_FILE_OPEN_FAILED",
+      "english": "Cannot open file",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_FIRMWARE_WRITE_FAILED",
+      "english": "Firmware write failed",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_FIRMWARE_UPDATE_DO_NOT_POWER_OFF",
+      "english": "Do not power off!",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_RECOVERY_MODE",
+      "english": "Recovery Mode",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_RECOVERY_MODE_HINT",
+      "english": "Place firmware.bin on SD card root and select it",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NEARBY_STATS_READY",
+      "english": "Ready to sync both readers",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NEARBY_STATS_READY_HINT",
+      "english": "Press Sync on one reader only",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NEARBY_STATS_SCANNING",
+      "english": "Finding reader to exchange stats",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NEARBY_STATS_SYNCING",
+      "english": "Sending and receiving stats",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NEARBY_STATS_SYNCED",
+      "english": "Both readers synced",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NEARBY_STATS_SIMULATOR_UNAVAILABLE",
+      "english": "Nearby stats sync is not available in simulator",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NEARBY_POSITION_READY",
+      "english": "Ready to share this position",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NEARBY_POSITION_SHARE_BUTTON",
+      "english": "Share",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NEARBY_POSITION_READY_HINT",
+      "english": "Press Share on the X3/X4 at the correct page",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NEARBY_POSITION_SCANNING",
+      "english": "Finding reader to exchange position",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NEARBY_POSITION_SHARING",
+      "english": "Sharing this position",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NEARBY_POSITION_WAITING",
+      "english": "Waiting for shared position",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NEARBY_POSITION_APPLYING",
+      "english": "Sending position",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NEARBY_POSITION_SHARED",
+      "english": "Position shared",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NEARBY_POSITION_SYNCED",
+      "english": "Book position synced",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NEARBY_POSITION_FOUND",
+      "english": "Nearby position found!",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NEARBY_POSITION_START_FAILED",
+      "english": "Could not start nearby position sync",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NEARBY_POSITION_DEVICE_ID_FAILED",
+      "english": "Could not read device id",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NEARBY_POSITION_QUEUE_OVERFLOW",
+      "english": "Sync queue overflow",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NEARBY_POSITION_TIMEOUT",
+      "english": "Position sync timed out",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NEARBY_POSITION_NO_READER",
+      "english": "No nearby reader found",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NEARBY_LABEL",
+      "english": "Nearby:",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_APPLY_NEARBY_POSITION",
+      "english": "Apply nearby position",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_QUICK_ACTIONS",
+      "english": "Quick Actions",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SHORTCUT",
+      "english": "Shortcut",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SHORT_PRESS_POWER",
+      "english": "Short-Press Power",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_LONG_PRESS_POWER",
+      "english": "Long-Press Power",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_TAP_HOME_SHORTCUT",
+      "english": "Tap Home",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_LONG_PRESS_HOME_SHORTCUT",
+      "english": "Long-Press Home",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_DOUBLE_TAP_HOME_SHORTCUT",
+      "english": "Double Tap Home",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_CUSTOM_BOOTSCREEN",
+      "english": "Custom Boot Screen",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_TAP_HIDE_STATUS_BAR",
+      "english": "Tap to Hide Status Bar",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_FONT_DATA_UNREADABLE",
+      "english": "The font data may be damaged or unreadable. Copy the font files to the SD card again.",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_TTF_RENDERING",
+      "english": "TTF Rendering",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_TTF_HINTING",
+      "english": "Hinting",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_TTF_RASTER_MODE",
+      "english": "Raster Mode",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_TTF_INTERPRETER",
+      "english": "TrueType Interpreter",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_TTF_WEIGHT",
+      "english": "Weight",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_TTF_SLANT",
+      "english": "Slant",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_TTF_STEM_DARKENING",
+      "english": "Stem Darkening",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_TTF_RESET",
+      "english": "Reset TTF Defaults",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_TTF_DEFAULTS_RESET",
+      "english": "TTF defaults reset",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_TTF_RESET_FAILED",
+      "english": "Could not reset TTF defaults. Try again.",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_TTF_NATIVE",
+      "english": "Native",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_TTF_AUTO",
+      "english": "Automatic",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_TTF_GRAYSCALE",
+      "english": "Grayscale",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_TTF_MONOCHROME",
+      "english": "Monochrome",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_TTF_GENTLE",
+      "english": "Gentle",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_TTF_MEDIUM",
+      "english": "Medium",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_TTF_STRONG",
+      "english": "Strong",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_LIBRARY",
+      "english": "Library",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_LIBRARY_EMPTY",
+      "english": "No books found on the SD card",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_LIBRARY_NO_RESULTS",
+      "english": "No books match this search",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_LIBRARY_AUTHOR_LAST_NAME",
+      "english": "Author (Last Name)",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_LIBRARY_AUTHOR_FIRST_NAME",
+      "english": "Author (First Name)",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_LIBRARY_SCANNING",
+      "english": "Reading your books...",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_LIBRARY_RESCAN",
+      "english": "Refresh Library",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_LIBRARY_SCAN_FAILED",
+      "english": "Could not rebuild the index",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_LIBRARY_SCAN_COUNT",
+      "english": "Reading your books... %u",
+      "formatted": true,
+      "signature": [
+        2
+      ],
+      "active": true
+    },
+    {
+      "key": "STR_LIBRARY_ORGANIZING",
+      "english": "Sorting your books...",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_LIBRARY_SCAN_CANCELLED",
+      "english": "Library scan cancelled",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_LIBRARY_TOO_MANY_BOOKS",
+      "english": "Too many books to index",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_TAP_TO_CANCEL",
+      "english": "Tap to cancel",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_LIBRARY_UNSORTED",
+      "english": "Library (unsorted)",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_LIBRARY_USE_METADATA",
+      "english": "Use Book Metadata",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_LIBRARY_SORT_BY",
+      "english": "Sort By:",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SORT",
+      "english": "Sort",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_LIBRARY_DATE_ADDED",
+      "english": "Date Added",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_LIBRARY_SERIES",
+      "english": "Series",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_LIBRARY_GENRE",
+      "english": "Genre",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_LIBRARY_RECENTLY_OPENED",
+      "english": "Recently Opened",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_LIBRARY_UNAVAILABLE",
+      "english": "Book unavailable",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_LIBRARY_SEARCH_FAILED",
+      "english": "Search unavailable",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_LIBRARY_SETTINGS",
+      "english": "Library Settings",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_LIBRARY_FINISHED_BOOKS",
+      "english": "Finished Books",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_LIBRARY_LIST_VIEW",
+      "english": "List View",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_LIBRARY_RECENTLY_OPENED_VIEW",
+      "english": "Recently Opened View",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_LIBRARY_EXPANDED",
+      "english": "Expanded",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_LIBRARY_SHOW_FILES",
+      "english": "Show Files",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_LIBRARY_FILES_COUNT",
+      "english": "%u files",
+      "formatted": true,
+      "signature": [
+        2
+      ],
+      "active": true
+    },
+    {
+      "key": "STR_LIBRARY_EPUBS",
+      "english": "EPUBs",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_LIBRARY_XTC_XTCH",
+      "english": "XTC/XTCH",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_LIBRARY_TXT",
+      "english": "TXT",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_LIBRARY_MARKDOWN",
+      "english": "Markdown",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_TOP_STATUS_BAR",
+      "english": "Top Status Bar",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_BOTTOM_STATUS_BAR",
+      "english": "Bottom Status Bar",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_STATUS_BAR_EMPTY",
+      "english": "Empty",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_STATUS_BAR_CLOCK",
+      "english": "Clock",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_STATUS_BAR_BOTH",
+      "english": "Both",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_FOLDER_SYNC",
+      "english": "Sync Folder",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_FOLDER_SYNC_CONFIRM",
+      "english": "Sync books in this folder and its subfolders using your sync settings?",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_FOLDER_SYNC_COUNTS",
+      "english": "Synced: %u · Skipped: %u · Failed attempts: %u",
+      "formatted": true,
+      "signature": [
+        2,
+        2,
+        2
+      ],
+      "active": true
+    },
+    {
+      "key": "STR_SKIP_BOOK",
+      "english": "Skip book",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_FOLDER_SYNC_READ_FAILED",
+      "english": "Folder could not be read",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SYNC_BOOKS",
+      "english": "Sync Books",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SYNC_BOOKS_DESC",
+      "english": "Progress, stats, and clippings for every book",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SYNC_READING_STATS",
+      "english": "Sync Reading Stats",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SYNC_READING_STATS_DESC",
+      "english": "Upload reading stats only",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SYNC_CLIPPINGS",
+      "english": "Sync Clippings",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SYNC_CLIPPINGS_DESC",
+      "english": "Upload clippings only",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SYNC_READING_STATS_CONFIRM",
+      "english": "Upload all reading stats?",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SCANNING_READING_STATS",
+      "english": "Scanning your SD card for reading stats...",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_CHECKING_CLIPPINGS",
+      "english": "Checking clippings...",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SYNC_SERVER_SETUP_FIRST",
+      "english": "Set up an account in Settings > System > Sync Server first.",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SYNC_ALL_CONFIRM",
+      "english": "Sync every book on your SD card using your sync settings?",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SYNC",
+      "english": "Sync",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_WHAT_TO_SYNC",
+      "english": "What to Sync",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SYNC_OPTIONS",
+      "english": "Sync Options",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_REQUIRES_CROSSPOINT_SYNC",
+      "english": "Requires CrossPoint Sync",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SERVER_EXTRAS_AVAILABLE",
+      "english": "Stats and clippings can sync too",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SERVER_PROGRESS_ONLY",
+      "english": "This server syncs progress only",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NOT_SUPPORTED",
+      "english": "Not supported",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SWAP_LIBRARY_FILE_BROWSER",
+      "english": "Swap Library/File Browser",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_STATUS_BAR",
+      "english": "Status Bar",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_CENTER_STATUS_BAR",
+      "english": "Center Status Bar",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SEPARATOR",
+      "english": "Separator",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_OPTIONS",
+      "english": "Options",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_LAYOUT",
+      "english": "Layout",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_DATE",
+      "english": "Date",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_MONTH_JAN_SHORT",
+      "english": "Jan",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_MONTH_FEB_SHORT",
+      "english": "Feb",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_MONTH_MAR_SHORT",
+      "english": "Mar",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_MONTH_APR_SHORT",
+      "english": "Apr",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_MONTH_MAY_SHORT",
+      "english": "May",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_MONTH_JUN_SHORT",
+      "english": "Jun",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_MONTH_JUL_SHORT",
+      "english": "Jul",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_MONTH_AUG_SHORT",
+      "english": "Aug",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_MONTH_SEP_SHORT",
+      "english": "Sep",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_MONTH_OCT_SHORT",
+      "english": "Oct",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_MONTH_NOV_SHORT",
+      "english": "Nov",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_MONTH_DEC_SHORT",
+      "english": "Dec",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_MONTH_JAN",
+      "english": "January",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_MONTH_FEB",
+      "english": "February",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_MONTH_MAR",
+      "english": "March",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_MONTH_APR",
+      "english": "April",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_MONTH_MAY",
+      "english": "May",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_MONTH_JUN",
+      "english": "June",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_MONTH_JUL",
+      "english": "July",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_MONTH_AUG",
+      "english": "August",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_MONTH_SEP",
+      "english": "September",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_MONTH_OCT",
+      "english": "October",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_MONTH_NOV",
+      "english": "November",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_MONTH_DEC",
+      "english": "December",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_ABOUT",
+      "english": "About",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_ABOUT_DEVICE",
+      "english": "Device profile",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_ABOUT_FIRMWARE",
+      "english": "Firmware",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_ABOUT_BUILD",
+      "english": "Build / revision",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_ABOUT_CHIP",
+      "english": "Chip / revision",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_ABOUT_CPU",
+      "english": "CPU",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_ABOUT_CPU_FORMAT",
+      "english": "%u cores / %u MHz",
+      "formatted": true,
+      "signature": [
+        2,
+        2
+      ],
+      "active": true
+    },
+    {
+      "key": "STR_ABOUT_FLASH",
+      "english": "Flash capacity",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_ABOUT_DISPLAY",
+      "english": "Display controller",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_ABOUT_RESOLUTION",
+      "english": "Panel resolution",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_ABOUT_TOUCH",
+      "english": "Touch controller / status",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_ABOUT_RTC",
+      "english": "External RTC",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_ABOUT_IMU",
+      "english": "Tilt sensor (IMU)",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_ABOUT_SD_TRANSPORT",
+      "english": "SD transport",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_ABOUT_SD_CAPACITY",
+      "english": "SD capacity",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_ABOUT_PSRAM",
+      "english": "PSRAM capacity",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_ABOUT_INTERNAL_FREE",
+      "english": "Internal RAM free (snapshot)",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_ABOUT_INTERNAL_MINIMUM",
+      "english": "Internal RAM minimum since boot",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_ABOUT_INTERNAL_LARGEST",
+      "english": "Internal RAM largest block (snapshot)",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_ABOUT_PSRAM_FREE",
+      "english": "PSRAM free (snapshot)",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_ABOUT_PSRAM_LARGEST",
+      "english": "PSRAM largest block (snapshot)",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_ABOUT_UPTIME",
+      "english": "Uptime (snapshot)",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_ABOUT_UPTIME_FORMAT",
+      "english": "%lu seconds",
+      "formatted": true,
+      "signature": [
+        26
+      ],
+      "active": true
+    },
+    {
+      "key": "STR_ABOUT_RESET",
+      "english": "Reset reason (ESP-IDF code)",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_ABOUT_SDK",
+      "english": "ESP-IDF version",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_ABOUT_FREEINK_SDK",
+      "english": "FreeInk SDK",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_ABOUT_NOT_PRESENT",
+      "english": "Not present",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_ABOUT_AVAILABLE",
+      "english": "Available",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_ABOUT_SIMULATED",
+      "english": "Simulated",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_ABOUT_MODIFIED",
+      "english": "Modified",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_ABOUT_CLEAN",
+      "english": "Clean",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SUPPORT_EXPORT_SHORT",
+      "english": "Export",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SUPPORT_SCOPE",
+      "english": "Choose support export scope",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SUPPORT_DEVICE_ONLY",
+      "english": "Device and global settings",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SUPPORT_INCLUDE_EPUB",
+      "english": "Also include last opened EPUB settings",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SUPPORT_CONFIRM_DEVICE",
+      "english": "Save device and global settings to /crossink-support.json? This replaces the previous export.",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SUPPORT_CONFIRM_BOOK",
+      "english": "Also save last opened EPUB overrides without its identity? This replaces /crossink-support.json.",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SUPPORT_EXCLUSIONS",
+      "english": "Credentials, network details, names, paths, book identity/history and logs are excluded. No upload. Review the file before sharing.",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SUPPORT_SAVED",
+      "english": "Saved /crossink-support.json",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SUPPORT_SAVED_BACKUP",
+      "english": "Saved; previous export kept as .bak",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SUPPORT_FAILED",
+      "english": "Export failed; check SD card and retry",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SUPPORT_RECOVERY",
+      "english": "Export failed; previous export kept as .bak",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_LANGUAGE_APPLY_HINT",
+      "english": "SD: /.crossink/languages. Select to apply and restart.",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_LANGUAGE_INSTALL_FAILED",
+      "english": "Language not applied",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_LANGUAGE_FILE_INVALID",
+      "english": "Invalid language file. Check the English template and device log.",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_LANGUAGE_STORAGE_UNAVAILABLE",
+      "english": "Language storage unavailable. Check the device log.",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_LANGUAGE_IO_ERROR",
+      "english": "SD or flash error. Check the card and device log.",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_LANGUAGE_SAVE_FAILED",
+      "english": "Cannot save language. Check the SD card and try again.",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_LANGUAGE_DUPLICATE",
+      "english": "Duplicate language codes. Check the SD files.",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_LANGUAGE_CATALOG_LIMIT",
+      "english": "Too many language files or long names. Keep fewer on SD.",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_FILENAME_FALLBACK_FONT",
+      "english": "UI Fallback Font",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_FILENAME_FONT_HINT",
+      "english": "TTF: /.crossink/languages/fonts. Regular required; bold optional.",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_HYPHENATION_PACKS",
+      "english": "Hyphenation Packs",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_HYPHENATION_APPLY_HINT",
+      "english": "SD: /.crossink/hyphenation. Changes restart to Home.",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_HYPHENATION_BUILT_IN",
+      "english": "Built in",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_HYPHENATION_FAILED",
+      "english": "Check the SD files and device log.",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_HYPHENATION_MISSING",
+      "english": "Hyphenation pack missing. Open the manager?",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SCREEN_CALIBRATION",
+      "english": "Screen Calibration",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_CALIBRATION_HELP",
+      "english": "Align the border with the straight bezel.",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_CALIBRATION_RESET",
+      "english": "Reset to Defaults",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_CALIBRATION_SAVE_FAILED",
+      "english": "Could not save calibration. Try again.",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_CALIBRATION_EDIT_OR_APPLY",
+      "english": "Edit or Apply",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_CALIBRATION_ADJUST",
+      "english": "Adjust",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_MENU_NAVIGATION",
+      "english": "Menu navigation",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_MENU_DIRECTIONAL",
+      "english": "Directional",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_MENU_CLASSIC",
+      "english": "Legacy",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_CLIP",
+      "english": "Clip",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_CHECKING_FOR_UPDATES",
+      "english": "Checking for updates...",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_UPLOADING_CHANGES",
+      "english": "Uploading changes...",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_KEPT_POSITION_FORMAT",
+      "english": "Continue from %d%% (%s)?",
+      "formatted": true,
+      "signature": [
+        1,
+        5
+      ],
+      "active": true
+    },
+    {
+      "key": "STR_CONTINUE",
+      "english": "Continue",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_STAY_HERE",
+      "english": "Stay here",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_MATCHING_CHANGE_WARNING",
+      "english": "Change Document Matching? Books get new ids, so the next sync checks every book again. Progress already uploaded stays under the old ids until you merge books in the web app.",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_PROGRESS_SYNC_FAILED",
+      "english": "Progress sync failed",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_STATS_SYNC_FAILED",
+      "english": "Stats sync failed",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_CLIPPINGS_SYNC_FAILED",
+      "english": "Clippings sync failed",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SYNCING_CARD_BOOKS",
+      "english": "Syncing books on your SD card...",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SYNCING_FOLDER_BOOKS",
+      "english": "Syncing books in this folder...",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SYNC_TO_REVIEW_FORMAT",
+      "english": "Conflicts to review: %u",
+      "formatted": true,
+      "signature": [
+        2
+      ],
+      "active": true
+    },
+    {
+      "key": "STR_FAILED_BOOKS",
+      "english": "Failed books",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_MORE_ITEMS_FORMAT",
+      "english": "+%u more",
+      "formatted": true,
+      "signature": [
+        2
+      ],
+      "active": false
+    },
+    {
+      "key": "STR_PUBLISHER_FONTS",
+      "english": "Publisher fonts",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_PUBLISHER_FONTS_ACCENTS",
+      "english": "Ignore Body Font",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_PUBLISHER_FONTS_ALL",
+      "english": "All Text",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_DOWNLOAD_LANGUAGES",
+      "english": "Download Languages",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_ASSET_CURRENT",
+      "english": "Current",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_ASSET_OVERWRITE_HINT",
+      "english": "Replace this file? Local changes will be lost.",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_ASSET_UNAVAILABLE",
+      "english": "Downloads unavailable",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_ASSET_USE",
+      "english": "Activate",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_ASSET_VERIFYING",
+      "english": "Verifying...",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_ASSET_INSTALLING",
+      "english": "Activating...",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_ASSET_CATALOG_INVALID",
+      "english": "Catalog invalid or incompatible",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_ASSET_WIFI_DOWNLOAD",
+      "english": "Download over Wi-Fi",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_ASSET_STEP_FORMAT",
+      "english": "Step %u/%u",
+      "formatted": true,
+      "signature": [
+        2,
+        2
+      ],
+      "active": true
+    },
+    {
+      "key": "STR_ASSET_STEP_CATALOG",
+      "english": "Catalog",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_ASSET_STEP_LICENSES",
+      "english": "Licenses",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_ASSET_STEP_PACK",
+      "english": "Pack",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_HYPHENATION_INSTALL_ACTION",
+      "english": "Install",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_WHATS_NEW",
+      "english": "What's New",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_RELEASE_NOTES",
+      "english": "Release Notes",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_LATER",
+      "english": "Later",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_INSTALL_LANGUAGES",
+      "english": "Install Languages",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_UPDATE_LANGUAGE_FORMAT",
+      "english": "Update %s",
+      "formatted": true,
+      "signature": [
+        5
+      ],
+      "active": true
+    },
+    {
+      "key": "STR_LANGUAGE_PACK_OUTDATED",
+      "english": "Your language pack is missing or older than this firmware. New screens, including this one, show in English until you update.",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_RELEASE_NOTES_FULL_CHANGELOG",
+      "english": "Full changelog",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NOTES_2_0_0_LANGUAGES_TITLE",
+      "english": "Languages are now downloads",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NOTES_2_0_0_LANGUAGES_BODY",
+      "english": "To save space, only English is built in. Other interface languages install from the internet.",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NOTES_2_0_0_HYPHENATION_TITLE",
+      "english": "Hyphenation, where available",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NOTES_2_0_0_HYPHENATION_BODY",
+      "english": "If a language has a hyphenation pack, it installs with the language. English hyphenation is still built in.",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NOTES_2_0_0_BOOKS_TITLE",
+      "english": "Books reflow on their own",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NOTES_2_0_0_BOOKS_BODY",
+      "english": "Books in other languages are laid out again once their hyphenation pack is installed. Your reading position is kept.",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NOTES_2_0_0_PLUGINS_TITLE",
+      "english": "SD card plugins",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NOTES_2_0_0_PLUGINS_BODY",
+      "english": "Enable plugins to use tools installed on your SD card.",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NOTES_2_0_0_SYNC_TITLE",
+      "english": "Sync reading stats and clippings",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NOTES_2_0_0_SYNC_BODY",
+      "english": "Use CrossPoint Sync as your server and turn on the items you want to sync.",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_CHAPTER_PROGRESS_PERCENTAGE",
+      "english": "Chapter Progress Percentage",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SERVER_TYPE",
+      "english": "Server Type",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_CROSSPOINT",
+      "english": "CrossPoint",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_KOSYNC_SERVER",
+      "english": "KOSync",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_OTHER",
+      "english": "Other",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_CUSTOM_HEADER_1",
+      "english": "Custom Header 1",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_CUSTOM_HEADER_2",
+      "english": "Custom Header 2",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_DISABLE_PAGE_TURN_GESTURES",
+      "english": "Disable Page Turn Gestures",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_FONT_DAMAGED",
+      "english": "Damaged font file",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_PLUGINS",
+      "english": "Plugins",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_NO_PLUGINS_INSTALLED",
+      "english": "No plugins installed",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_PLUGIN_NOT_SIGNED_IN",
+      "english": "Sign in through the plugin on the web Settings page.",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_PLUGIN_MANIFEST_INVALID",
+      "english": "Invalid plugin manifest",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_PLUGIN_SIGN_IN",
+      "english": "Sign in",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_PLUGIN_SIGN_IN_HINT",
+      "english": "Sign-in required",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_PLUGIN_AUTH_WAITING",
+      "english": "Awaiting authorization...",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_PLUGIN_AUTH_FAILED",
+      "english": "Sign-in failed or expired",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_PLUGIN_WEB_ONLY",
+      "english": "Web-only plugin",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_DOWNLOAD_COMPLETE",
+      "english": "Download complete",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_PLUGIN_HUB",
+      "english": "Plugin Hub",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_PLUGIN_HUB_DESCRIPTION",
+      "english": "Discover and update plugins",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_PLUGIN_RECEIVES_EVENTS",
+      "english": "Receives: %s",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_EVENT_BOOK_OPEN",
+      "english": "book opens",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_EVENT_BOOK_CLOSE",
+      "english": "book closes and progress",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_EVENT_READING_SESSION",
+      "english": "reading sessions",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_EVENT_DOWNLOAD",
+      "english": "downloads",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_EVENT_SLEEP",
+      "english": "sleep and current book",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_BOOK_KEY_REQUIRED",
+      "english": "Unlock this book with its plugin.",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_BOOK_LOAN_EXPIRED",
+      "english": "This loan has expired.",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_BOOK_LOAN_CLOCK",
+      "english": "Connect to Wi-Fi to verify the loan date.",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_DELETE_ITEM_CONFIRM",
+      "english": "Delete?",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SET_SLEEP_COVER_CONFIRM",
+      "english": "Set Sleep Cover?",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_PLUGIN_UNINSTALL",
+      "english": "Uninstall",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_PLUGIN_UNINSTALL_TITLE",
+      "english": "Uninstall plugin",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_PLUGIN_UNINSTALL_CONFIRM",
+      "english": "Uninstall %s and delete all of its files?",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_COVER_TRANSPARENT",
+      "english": "Cover Overlay",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SLIDE_SWITCH",
+      "english": "Slide Switch",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_UI_FONT_MEMORY_ERROR",
+      "english": "Not enough font memory. Try a smaller or prepared font.",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_UI_FONT_UNSUPPORTED",
+      "english": "Unsupported font. Use a static TTF or OTF.",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_UI_FONT_TOO_LARGE",
+      "english": "UI fonts must be 32 MiB or smaller.",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_UI_FONT_FAMILY_ERROR",
+      "english": "Use one regular face per folder, without duplicate styles.",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_UI_FONT_SAVE_ERROR",
+      "english": "Could not save the font choice. Try again.",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SYSTEM_ADVANCED",
+      "english": "Advanced",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_WIFI_TRANSMIT_POWER",
+      "english": "Wi-Fi Transmit Power",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_WIFI_TRANSMIT_POWER_HELP",
+      "english": "Lower power reduces range. Applies on the next Wi-Fi start.",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_WIFI_TX_POWER_15",
+      "english": "15 dBm",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_WIFI_TX_POWER_8_5",
+      "english": "8.5 dBm",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_WIFI_TX_POWER_5",
+      "english": "5 dBm",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_WIFI_TX_POWER_2",
+      "english": "2 dBm",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SYNC_SERVER_ERROR_SHORT",
+      "english": "Server error",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SYNC_INVALID_DATA_SHORT",
+      "english": "Invalid sync data",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_SYNC_MORE_FAILURES_FORMAT",
+      "english": "%u more failed attempts",
+      "formatted": true,
+      "signature": [
+        2
+      ],
+      "active": true
+    },
+    {
+      "key": "STR_CALIBRATION_TOP_CORNERS",
+      "english": "Top Corners",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_CALIBRATION_BOTTOM_CORNERS",
+      "english": "Bottom Corners",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_CALIBRATION_CORNER_HELP",
+      "english": "Move the Clock and Battery clear of the corner or curved bezel.",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_ABOUT_UID",
+      "english": "UID",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_RESTORE_STATS",
+      "english": "Restore stats",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_STATS_RESTORED",
+      "english": "Stats restored",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_TEXT_DARKNESS",
+      "english": "Text Darkness",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_DARKER",
+      "english": "Darker",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_TWO_TONE_TEXT_AA",
+      "english": "Two-tone Text AA",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_RULED_LINES",
+      "english": "Ruled Lines",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_WORD_HOLD_ACTION",
+      "english": "Long-press Text",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    },
+    {
+      "key": "STR_ASK",
+      "english": "Ask",
+      "formatted": false,
+      "signature": null,
+      "active": true
+    }
+  ]
+}
