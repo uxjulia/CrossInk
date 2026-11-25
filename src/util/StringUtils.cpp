@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdio>
 
 namespace {
 
@@ -108,6 +109,17 @@ std::string sanitizeFilename(const std::string& name, size_t maxBytes) {
   }
 
   return sanitizeFilenamePart(name, maxBytes);
+}
+
+void formatByteSize(const size_t bytes, char* const buffer, const size_t bufferSize) {
+  if (bufferSize == 0) return;
+  if (bytes >= 1024 * 1024) {
+    snprintf(buffer, bufferSize, "%.1f MB", static_cast<double>(bytes) / (1024.0 * 1024.0));
+  } else if (bytes >= 1024) {
+    snprintf(buffer, bufferSize, "%.0f KB", static_cast<double>(bytes) / 1024.0);
+  } else {
+    snprintf(buffer, bufferSize, "%zu B", bytes);
+  }
 }
 
 }  // namespace StringUtils

@@ -15,7 +15,7 @@ constexpr char DEFAULT_SERVER_URL[] = "https://sync.crosspointreader.com";
 constexpr char LEGACY_DEFAULT_SERVER_URL[] = "https://sync.koreader.rocks:443";
 
 // Bumped when a change to defaults would alter behavior for existing configs.
-constexpr uint8_t CONFIG_VERSION = 2;
+constexpr uint8_t CONFIG_VERSION = 3;
 }  // namespace
 
 void KOReaderCredentialStore::toJson(JsonDocument& doc) const {
@@ -25,8 +25,21 @@ void KOReaderCredentialStore::toJson(JsonDocument& doc) const {
   doc["username"] = username;
   doc["password_obf"] = obfuscation::obfuscateToBase64(password);
   doc["serverUrl"] = serverUrl;
+  doc["serverType"] = static_cast<uint8_t>(serverType);
+  auto headers = doc["headers"].to<JsonArray>();
+  for (const auto& header : customHeaders) {
+    auto entry = headers.add<JsonObject>();
+    entry["name"] = header.name;
+    entry["value_obf"] = obfuscation::obfuscateToBase64(header.value);
+  }
   doc["matchMethod"] = static_cast<uint8_t>(matchMethod);
   doc["sendMetadata"] = sendMetadata;
+  doc["syncStats"] = syncStats;
+  doc["syncClippings"] = syncClippings;
+  if (serverSupport != SyncServerSupport::UNKNOWN && !serverSupportUrl.empty()) {
+    doc["serverSupport"] = static_cast<uint8_t>(serverSupport);
+    doc["serverSupportUrl"] = serverSupportUrl;
+  }
   doc["syncBehavior"] = static_cast<uint8_t>(syncBehavior);
 }
 
@@ -55,12 +68,29 @@ bool KOReaderCredentialStore::fromJson(JsonVariantConst doc) {
   // against the old default — pin that URL so the upgrade doesn't switch servers
   // out from under the user. Fresh setups get the new default.
   const uint8_t cfgVersion = doc["cfgVersion"] | (uint8_t)1;
-  if (cfgVersion < CONFIG_VERSION) {
+  if (cfgVersion < 2) {
     if (getServerUrl().empty() && hasCredentials()) {
       LOG_DBG("KRS", "Pre-v2 config used the old default server; pinning %s", LEGACY_DEFAULT_SERVER_URL);
       setServerUrl(LEGACY_DEFAULT_SERVER_URL);
     }
     needsResave = true;  // stamp cfgVersion so this migration runs once
+  }
+
+  const auto type = doc["serverType"];
+  if (cfgVersion < 3 || type.isNull()) {
+    serverType = usesCrossPointSyncServer() ? KOReaderServerType::CROSSPOINT : KOReaderServerType::KOSYNC;
+    needsResave = true;
+  } else if (type.is<unsigned>() && type.as<unsigned>() <= 2) {
+    serverType = static_cast<KOReaderServerType>(type.as<unsigned>());
+  } else {
+    serverType = KOReaderServerType::KOSYNC;
+    needsResave = true;
+  }
+  customHeaders = {};
+  size_t headerIndex = 0;
+  for (JsonObjectConst entry : doc["headers"].as<JsonArrayConst>()) {
+    if (headerIndex == customHeaders.size()) break;
+    setCustomHeader(headerIndex++, entry["name"] | "", obfuscation::deobfuscateFromBase64(entry["value_obf"] | ""));
   }
 
   uint8_t method = doc["matchMethod"] | (uint8_t)0;
@@ -70,7 +100,14 @@ bool KOReaderCredentialStore::fromJson(JsonVariantConst doc) {
     LOG_DBG("KRS", "Invalid matchMethod %u in JSON, resetting to FILENAME", method);
     setMatchMethod(DocumentMatchMethod::FILENAME);
   }
-  setSendMetadata(doc["sendMetadata"] | false);
+  setSendMetadata(doc["sendMetadata"] | usesCrossPointSyncServer());
+  setSyncStats(doc["syncStats"] | false);
+  setSyncClippings(doc["syncClippings"] | false);
+  const uint8_t support = doc["serverSupport"] | (uint8_t)0;
+  serverSupportUrl = doc["serverSupportUrl"] | "";
+  serverSupport = support <= static_cast<uint8_t>(SyncServerSupport::UNSUPPORTED)
+                      ? static_cast<SyncServerSupport>(support)
+                      : SyncServerSupport::UNKNOWN;
 
   const JsonVariantConst behaviorValue = doc["syncBehavior"];
   const bool missingBehavior = behaviorValue.isNull();
@@ -145,6 +182,48 @@ std::string KOReaderCredentialStore::getBaseUrl() const {
 
 bool KOReaderCredentialStore::usesCrossPointSyncServer() const { return getBaseUrl() == DEFAULT_SERVER_URL; }
 
+SyncServerSupport KOReaderCredentialStore::getServerSupport() const {
+  ensureLoaded();
+  const std::string base = getBaseUrl();
+  if (base == DEFAULT_SERVER_URL) return SyncServerSupport::SUPPORTED;
+  // A changed URL (from the device or the web portal) invalidates what was learned.
+  return base == serverSupportUrl ? serverSupport : SyncServerSupport::UNKNOWN;
+}
+
+void KOReaderCredentialStore::setServerSupport(const SyncServerSupport support) {
+  ensureLoaded();
+  std::string base = getBaseUrl();
+  if (base == DEFAULT_SERVER_URL) return;  // Always supported; nothing to learn or persist.
+  if (support == serverSupport && base == serverSupportUrl) return;
+  serverSupport = support;
+  serverSupportUrl = std::move(base);
+  LOG_INF("KRS", "Sync server extensions: %s",
+          support == SyncServerSupport::SUPPORTED     ? "supported"
+          : support == SyncServerSupport::UNSUPPORTED ? "unsupported"
+                                                      : "unknown");
+  if (!saveToFile()) LOG_ERR("KRS", "Cannot save sync server support");
+}
+
+bool KOReaderCredentialStore::getSyncStats() const {
+  ensureLoaded();
+  return syncStats && getServerSupport() != SyncServerSupport::UNSUPPORTED;
+}
+
+bool KOReaderCredentialStore::getSyncClippings() const {
+  ensureLoaded();
+  return syncClippings && getServerSupport() != SyncServerSupport::UNSUPPORTED;
+}
+
+void KOReaderCredentialStore::setSyncStats(const bool enabled) {
+  ensureLoaded();
+  syncStats = enabled;
+}
+
+void KOReaderCredentialStore::setSyncClippings(const bool enabled) {
+  ensureLoaded();
+  syncClippings = enabled;
+}
+
 void KOReaderCredentialStore::setMatchMethod(DocumentMatchMethod method) {
   ensureLoaded();
   matchMethod = method;
@@ -161,4 +240,19 @@ void KOReaderCredentialStore::setSyncBehavior(KOReaderSyncBehavior behavior) {
     behavior = KOReaderSyncBehavior::ASK_EVERY_TIME;
   }
   syncBehavior = behavior;
+}
+
+void KOReaderCredentialStore::setServerType(KOReaderServerType type) {
+  ensureLoaded();
+  serverType = static_cast<unsigned>(type) <= 2 ? type : KOReaderServerType::KOSYNC;
+}
+
+bool KOReaderCredentialStore::setCustomHeader(size_t index, const std::string& name, const std::string& value) {
+  ensureLoaded();
+  if (index >= customHeaders.size() || !isValidHttpHeader(name, value)) {
+    LOG_ERR("KRS", "Invalid custom HTTP header");
+    return false;
+  }
+  customHeaders[index] = {name, name.empty() ? std::string{} : value};
+  return true;
 }

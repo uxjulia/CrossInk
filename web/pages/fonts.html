@@ -5,10 +5,15 @@
 
     <div class="card">
       <h2>Upload Font</h2>
+      <p id="formatHelp" class="family-meta"></p>
       <form class="upload-form" id="uploadForm">
         <input type="file" id="fontFiles" webkitdirectory directory multiple required />
         <button type="submit" class="btn btn-primary">Upload</button>
       </form>
       <p id="pickedInfo" class="family-meta" style="margin: 8px 0 0;"></p>
-      <div id="status"></div>
     </div>
+
+<div id="fontFeedback" hidden>
+  <button type="button" class="feedback-close" aria-label="Dismiss font notification" onclick="document.getElementById('fontFeedback').hidden = true;">&times;</button>
+  <div id="status" role="status" aria-live="polite" aria-atomic="true"></div>
+</div>

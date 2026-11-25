@@ -1,34 +1,47 @@
 #include <Epub.h>
 #include <GfxRenderer.h>
+#include <PrintSerialization.h>
 #include <Serialization.h>
 
 #include "Epub/Page.h"
 #include "Epub/hyphenation/Hyphenator.h"
 #include "Epub/parsers/ChapterHtmlSlimParser.h"
+#include "sync/ProgressBookIterator.h"
 
 Epub::Epub(std::string path, const std::string& cacheDir) : filepath(std::move(path)), cachePath(cacheDir) {}
 
 const std::string& Epub::getCachePath() const { return cachePath; }
+const std::string& Epub::getPath() const { return filepath; }
+void ProgressBookIterator::rememberPath(const std::string&, const std::string&) {}
 const std::string& Epub::getLanguage() const {
   static const std::string language = "en";
   return language;
 }
 BookMetadataCache::SpineEntry Epub::getSpineItem(int) const { return {}; }
-BookMetadataCache::TocEntry Epub::getTocItem(int) const { return {}; }
-int Epub::getTocItemsCount() const { return 0; }
-int Epub::getTocIndexForSpineIndex(int) const { return -1; }
+std::vector<BookMetadataCache::TocEntry> testTocEntries;
+BookMetadataCache::TocEntry Epub::getTocItem(int i) const { return testTocEntries.at(i); }
+int Epub::getTocItemsCount() const { return testTocEntries.size(); }
+int Epub::getTocIndexForSpineIndex(int spine) const {
+  for (size_t i = 0; i < testTocEntries.size(); ++i)
+    if (testTocEntries[i].spineIndex == spine) return i;
+  return -1;
+}
 bool Epub::readItemContentsToStream(const std::string&, Print&, size_t, bool) const { return false; }
+
+uint32_t testHyphenationIdentity = 1;
+uint32_t Hyphenator::patternIdentity(const std::string&) { return testHyphenationIdentity; }
 
 void Hyphenator::setPreferredLanguage(const std::string&) {}
 
 ChapterHtmlSlimParser::~ChapterHtmlSlimParser() = default;
+bool ChapterHtmlSlimParser::prewarmSectionAdvanceStep() { return false; }
 bool ChapterHtmlSlimParser::beginParse() { return false; }
 ChapterHtmlSlimParser::ParseStatus ChapterHtmlSlimParser::parseStep() { return ParseStatus::Error; }
 bool ChapterHtmlSlimParser::finishParse() { return true; }
 void ChapterHtmlSlimParser::abortParse() {}
 void ChapterHtmlSlimParser::releaseInputFile() {}
 
-bool Page::serialize(FsFile& file) const {
+bool Page::serialize(Print& file) const {
   constexpr uint32_t marker = 0x50414745;
   return serialization::tryWritePod(file, marker);
 }

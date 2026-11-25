@@ -4,6 +4,9 @@
 #include <cstddef>
 #include <cstdint>
 
+// Periodic persistence uses accepted reading time; explicit exit/restart saves bypass this interval.
+constexpr uint32_t READING_STATS_CHECKPOINT_SECONDS = 5 * 60;
+
 constexpr size_t READING_TIME_BUCKET_COUNT = 4;
 constexpr size_t READING_DAY_OF_WEEK_COUNT = 7;
 constexpr size_t READING_HISTORY_DAYS = 730;
@@ -39,6 +42,7 @@ uint32_t readingStatsDayIndex(const ReadingStatsDate& date);
 bool readingStatsDateFromDayIndex(uint32_t dayIndex, ReadingStatsDate& outDate);
 uint8_t readingStatsDayOfWeekIndex(const ReadingStatsDate& date);  // Monday = 0
 ReadingTimeBucket readingTimeBucketForHour(uint8_t hour);
+bool getCurrentLocalDailyReadingDateTime(ReadingStatsDateTime& outDateTime);
 bool getCurrentLocalReadingStatsDateTime(ReadingStatsDateTime& outDateTime);
 uint16_t readingSpanDaysInclusive(const ReadingStatsDate& start, const ReadingStatsDate& end);
 uint16_t readingSpanDaysElapsed(const ReadingStatsDate& start, const ReadingStatsDate& end);
@@ -57,3 +61,11 @@ void mergeReadingHistory(uint32_t& targetAnchorDay, std::array<uint8_t, READING_
 uint16_t computeReadingHistoryLongestStreak(uint32_t anchorDay, const std::array<uint8_t, READING_HISTORY_BYTES>& bits);
 uint16_t computeReadingHistoryCurrentStreak(uint32_t anchorDay, const std::array<uint8_t, READING_HISTORY_BYTES>& bits,
                                             const ReadingStatsDate* today);
+
+// The reader's shared active-page gate: a stopped timer or an entire idle span contributes nothing.
+bool readingStatsIntervalSeconds(uint32_t nowMs, uint32_t shownAtMs, uint32_t idleSeconds, uint32_t& seconds);
+
+// Validate a measured page interval against its captured local wall times.
+// Reject unavailable clocks, timezone changes, and clock corrections.
+bool isValidReadingStatsInterval(const ReadingStatsDateTime& start, const ReadingStatsDateTime& end,
+                                 uint8_t startOffset, uint8_t endOffset, uint32_t seconds);

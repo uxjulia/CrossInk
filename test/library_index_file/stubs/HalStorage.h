@@ -21,7 +21,9 @@ class HalFile {
   }
 
   bool isOpen() const { return hasImpl && open; }
+  static inline size_t reads = 0;
   int read(void* dst, size_t len) {
+    ++reads;
     if (!isOpen() || !data || position + len > data->size()) return 0;
     std::memcpy(dst, data->data() + position, len);
     position += len;

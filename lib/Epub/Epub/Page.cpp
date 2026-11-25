@@ -2,7 +2,10 @@
 
 #include <GfxRenderer.h>
 #include <Logging.h>
+#include <Memory.h>
+#include <PrintSerialization.h>
 #include <Serialization.h>
+#include <Utf8.h>
 
 #include "tables/TableColumnLayout.h"
 #include "tables/TableTextLineOrder.h"
@@ -24,15 +27,38 @@ uint16_t tableSelectionForLine(const size_t elementIndex, const uint8_t logicalC
   return static_cast<uint16_t>(elementIndex * MAX_TABLE_CELLS_PER_ROW + logicalColumn);
 }
 
-template <typename Predicate>
-void renderFilteredPageElements(const std::vector<std::unique_ptr<PageElement>>& elements, GfxRenderer& renderer,
-                                const int fontId, const int xOffset, const int yOffset, const bool foregroundBlack,
-                                Predicate&& predicate) {
-  for (const auto& element : elements) {
-    if (predicate(*element)) {
-      element->render(renderer, fontId, xOffset, yOffset, foregroundBlack);
+// Draws one border edge as a strip along a box side.
+void drawBorderEdge(const GfxRenderer& renderer, const int x, const int y, const int length, const CssBorderSide& side,
+                    const bool horizontal, const bool foregroundBlack) {
+  const int thickness = side.width;
+  const auto strip = [&](const int offset, const int along, const int span, const int depth) {
+    if (horizontal) {
+      renderer.fillRect(x + along, y + offset, span, depth, foregroundBlack);
+    } else {
+      renderer.fillRect(x + offset, y + along, depth, span, foregroundBlack);
     }
+  };
+  switch (side.style) {
+    case CssBorderStyle::Double:
+      if (thickness >= 3) {
+        const int line = std::max(1, thickness / 3);
+        strip(0, 0, length, line);
+        strip(thickness - line, 0, length, line);
+        return;
+      }
+      break;
+    case CssBorderStyle::Dotted:
+    case CssBorderStyle::Dashed: {
+      const int dash = side.style == CssBorderStyle::Dotted ? thickness : std::max(3, thickness * 3);
+      const int gap = side.style == CssBorderStyle::Dotted ? std::max(2, thickness) : std::max(2, thickness * 2);
+      for (int along = 0; along < length; along += dash + gap)
+        strip(0, along, std::min(dash, length - along), thickness);
+      return;
+    }
+    default:
+      break;
   }
+  strip(0, 0, length, thickness);
 }
 
 }  // namespace
@@ -42,7 +68,7 @@ void PageLine::render(GfxRenderer& renderer, const int fontId, const int xOffset
   block->render(renderer, fontId, xPos + xOffset, yPos + yOffset, foregroundBlack);
 }
 
-bool PageLine::serialize(FsFile& file) {
+bool PageLine::serialize(Print& file) {
   if (!serialization::tryWritePod(file, xPos) || !serialization::tryWritePod(file, yPos)) {
     LOG_ERR("PGE", "Serialization failed: could not write PageLine coordinates");
     return false;
@@ -76,9 +102,14 @@ std::unique_ptr<PageLine> PageLine::deserialize(FsFile& file) {
 
 void PageImage::render(GfxRenderer& renderer, const int fontId, const int xOffset, const int yOffset,
                        const bool foregroundBlack) {
+  render(renderer, fontId, xOffset, yOffset, foregroundBlack, true);
+}
+
+bool PageImage::render(GfxRenderer& renderer, const int fontId, const int xOffset, const int yOffset,
+                       const bool foregroundBlack, const bool imageGrayscale) {
   (void)fontId;
   // Images don't use fontId for text rendering
-  imageBlock->render(renderer, xPos + xOffset, yPos + yOffset, foregroundBlack);
+  return imageBlock->render(renderer, xPos + xOffset, yPos + yOffset, foregroundBlack, imageGrayscale);
 }
 
 void PageImage::renderPlaceholder(GfxRenderer& renderer, const int xOffset, const int yOffset,
@@ -86,7 +117,7 @@ void PageImage::renderPlaceholder(GfxRenderer& renderer, const int xOffset, cons
   imageBlock->renderPlaceholder(renderer, xPos + xOffset, yPos + yOffset, foregroundBlack);
 }
 
-bool PageImage::serialize(FsFile& file) {
+bool PageImage::serialize(Print& file) {
   if (!serialization::tryWritePod(file, xPos) || !serialization::tryWritePod(file, yPos) ||
       !serialization::tryWritePod(file, static_cast<uint8_t>(inlineImage))) {
     LOG_ERR("PGE", "Serialization failed: could not write PageImage coordinates");
@@ -132,7 +163,7 @@ void PageHorizontalRule::render(GfxRenderer& renderer, const int fontId, const i
                     foregroundBlack);
 }
 
-bool PageHorizontalRule::serialize(FsFile& file) {
+bool PageHorizontalRule::serialize(Print& file) {
   return serialization::tryWritePod(file, xPos) && serialization::tryWritePod(file, yPos) &&
          serialization::tryWritePod(file, width) && serialization::tryWritePod(file, thickness);
 }
@@ -162,7 +193,203 @@ std::unique_ptr<PageHorizontalRule> PageHorizontalRule::deserialize(FsFile& file
   return std::unique_ptr<PageHorizontalRule>(rule);
 }
 
-bool TableFragmentCell::serialize(FsFile& file) const {
+PageDropCap::PageDropCap(const uint8_t fontSize, const uint16_t scale256, const EpdFontFamily::Style style,
+                         const char* utf8, const int16_t xPos, const int16_t yPos, const uint32_t fontFamily)
+    : PageElement(xPos, yPos), fontSize(fontSize), fontFamily(fontFamily), scale256(scale256), style(style) {
+  strncpy(text, utf8, MAX_TEXT_BYTES);
+}
+
+void PageDropCap::render(GfxRenderer& renderer, const int sectionFontId, const int xOffset, const int yOffset,
+                         const bool foregroundBlack) {
+  // A sized variant that can no longer be loaded draws from the section font instead.
+  const int drawFontId = renderer.resolveBookFont(sectionFontId, fontFamily, fontSize);
+  int x = xPos + xOffset;
+  const auto* cursor = reinterpret_cast<const unsigned char*>(text);
+  while (const uint32_t cp = utf8NextCodepoint(&cursor)) {
+    x += renderer.drawScaledCodepoint(drawFontId, cp, style, x, yPos + yOffset, scale256, foregroundBlack);
+  }
+}
+
+bool PageDropCap::serialize(Print& file) {
+  if (!serialization::tryWritePod(file, xPos)) {
+    LOG_ERR("PGE", "Truncated decoration write");
+    return false;
+  }
+  if (!serialization::tryWritePod(file, yPos)) {
+    LOG_ERR("PGE", "Truncated decoration write");
+    return false;
+  }
+  if (!serialization::tryWritePod(file, fontSize)) {
+    LOG_ERR("PGE", "Truncated decoration write");
+    return false;
+  }
+  if (!serialization::tryWritePod(file, scale256)) {
+    LOG_ERR("PGE", "Truncated decoration write");
+    return false;
+  }
+  if (!serialization::tryWritePod(file, static_cast<uint8_t>(style))) {
+    LOG_ERR("PGE", "Truncated decoration write");
+    return false;
+  }
+  if (!serialization::tryWritePod(file, fontFamily)) return false;
+  const auto length = static_cast<uint8_t>(strnlen(text, MAX_TEXT_BYTES));
+  if (!serialization::tryWritePod(file, length)) {
+    LOG_ERR("PGE", "Truncated decoration write");
+    return false;
+  }
+  return file.write(reinterpret_cast<const uint8_t*>(text), length) == length;
+}
+
+std::unique_ptr<PageDropCap> PageDropCap::deserialize(FsFile& file) {
+  int16_t xPos = 0;
+  int16_t yPos = 0;
+  uint8_t fontSize = 0;
+  uint16_t scale256 = 0;
+  uint8_t style = 0;
+  uint8_t length = 0;
+  uint32_t fontFamily = 0;
+  if (!serialization::tryReadPod(file, xPos)) {
+    LOG_ERR("PGE", "Truncated decoration read");
+    return nullptr;
+  }
+  if (!serialization::tryReadPod(file, yPos)) {
+    LOG_ERR("PGE", "Truncated decoration read");
+    return nullptr;
+  }
+  if (!serialization::tryReadPod(file, fontSize)) {
+    LOG_ERR("PGE", "Truncated decoration read");
+    return nullptr;
+  }
+  if (!serialization::tryReadPod(file, scale256)) {
+    LOG_ERR("PGE", "Truncated decoration read");
+    return nullptr;
+  }
+  if (!serialization::tryReadPod(file, style)) {
+    LOG_ERR("PGE", "Truncated decoration read");
+    return nullptr;
+  }
+  if (!serialization::tryReadPod(file, fontFamily) || !serialization::tryReadPod(file, length)) {
+    LOG_ERR("PGE", "Truncated decoration read");
+    return nullptr;
+  }
+  char text[MAX_TEXT_BYTES + 1] = {};
+  if (length == 0 || length > MAX_TEXT_BYTES || scale256 == 0 || scale256 > 4096 || file.read(text, length) != length) {
+    LOG_ERR("PGE", "Deserialization failed: invalid drop cap");
+    return nullptr;
+  }
+  auto dropCap = makeUniqueNoThrow<PageDropCap>(fontSize, scale256, static_cast<EpdFontFamily::Style>(style), text,
+                                                xPos, yPos, fontFamily);
+  if (!dropCap) LOG_ERR("PGE", "Deserialization failed: could not allocate PageDropCap");
+  return dropCap;
+}
+
+void PageBorderBox::render(GfxRenderer& renderer, const int, const int xOffset, const int yOffset,
+                           const bool foregroundBlack) {
+  const int x = xPos + xOffset;
+  const int y = yPos + yOffset;
+  if (renderer.getRenderMode() != GfxRenderer::BW) return;
+  if (shaded) {
+    for (int row = 0; row < height; ++row)
+      for (int col = row & 1; col < width; col += 2)
+        if ((row & 1) == 0) renderer.drawPixel(x + col, y + row, foregroundBlack);
+  }
+  const CssBorderSide& top = sides[0];
+  const CssBorderSide& right = sides[1];
+  const CssBorderSide& bottom = sides[2];
+  const CssBorderSide& left = sides[3];
+  if (top.visible()) drawBorderEdge(renderer, x, y, width, top, true, foregroundBlack);
+  if (bottom.visible()) drawBorderEdge(renderer, x, y + height - bottom.width, width, bottom, true, foregroundBlack);
+  if (left.visible()) drawBorderEdge(renderer, x, y, height, left, false, foregroundBlack);
+  if (right.visible()) drawBorderEdge(renderer, x + width - right.width, y, height, right, false, foregroundBlack);
+}
+
+bool PageBorderBox::serialize(Print& file) {
+  if (!serialization::tryWritePod(file, xPos)) {
+    LOG_ERR("PGE", "Truncated decoration write");
+    return false;
+  }
+  if (!serialization::tryWritePod(file, yPos)) {
+    LOG_ERR("PGE", "Truncated decoration write");
+    return false;
+  }
+  if (!serialization::tryWritePod(file, width)) {
+    LOG_ERR("PGE", "Truncated decoration write");
+    return false;
+  }
+  if (!serialization::tryWritePod(file, height)) {
+    LOG_ERR("PGE", "Truncated decoration write");
+    return false;
+  }
+  for (const CssBorderSide& side : sides) {
+    if (!serialization::tryWritePod(file, side.width)) {
+      LOG_ERR("PGE", "Truncated decoration write");
+      return false;
+    }
+    if (!serialization::tryWritePod(file, static_cast<uint8_t>(side.style))) {
+      LOG_ERR("PGE", "Truncated decoration write");
+      return false;
+    }
+  }
+  if (!serialization::tryWritePod(file, shaded)) {
+    LOG_ERR("PGE", "Truncated decoration write");
+    return false;
+  }
+  return true;
+}
+
+std::unique_ptr<PageBorderBox> PageBorderBox::deserialize(FsFile& file) {
+  int16_t xPos = 0;
+  int16_t yPos = 0;
+  uint16_t width = 0;
+  uint16_t height = 0;
+  CssBorderSide sides[4];
+  bool shaded = false;
+  if (!serialization::tryReadPod(file, xPos)) {
+    LOG_ERR("PGE", "Truncated decoration read");
+    return nullptr;
+  }
+  if (!serialization::tryReadPod(file, yPos)) {
+    LOG_ERR("PGE", "Truncated decoration read");
+    return nullptr;
+  }
+  if (!serialization::tryReadPod(file, width)) {
+    LOG_ERR("PGE", "Truncated decoration read");
+    return nullptr;
+  }
+  if (!serialization::tryReadPod(file, height)) {
+    LOG_ERR("PGE", "Truncated decoration read");
+    return nullptr;
+  }
+  for (CssBorderSide& side : sides) {
+    uint8_t style = 0;
+    if (!serialization::tryReadPod(file, side.width)) {
+      LOG_ERR("PGE", "Truncated decoration read");
+      return nullptr;
+    }
+    if (!serialization::tryReadPod(file, style)) {
+      LOG_ERR("PGE", "Truncated decoration read");
+      return nullptr;
+    }
+    if (side.width > 8 || style > static_cast<uint8_t>(CssBorderStyle::Dashed)) {
+      LOG_ERR("PGE", "Deserialization failed: invalid border style %u", style);
+      return nullptr;
+    }
+    side.style = static_cast<CssBorderStyle>(style);
+  }
+  if (!serialization::tryReadPod(file, shaded)) {
+    LOG_ERR("PGE", "Truncated decoration read");
+    return nullptr;
+  }
+  if (width == 0 || height == 0) {
+    LOG_ERR("PGE", "Deserialization failed: empty border box");
+    return nullptr;
+  }
+  auto box = makeUniqueNoThrow<PageBorderBox>(width, height, sides, shaded, xPos, yPos);
+  if (!box) LOG_ERR("PGE", "Deserialization failed: could not allocate PageBorderBox");
+  return box;
+}
+
+bool TableFragmentCell::serialize(Print& file) const {
   if (colSpan == 0 || colSpan > MAX_TABLE_CELLS_PER_ROW || lines.size() > MAX_TABLE_LINES_PER_CELL) {
     LOG_ERR("PTB", "Serialization failed: invalid cell span/line count (span=%u lines=%u)", colSpan,
             static_cast<uint32_t>(lines.size()));
@@ -209,7 +436,7 @@ bool TableFragmentCell::deserialize(FsFile& file, TableFragmentCell& outCell) {
   return true;
 }
 
-bool TableFragmentRow::serialize(FsFile& file) const {
+bool TableFragmentRow::serialize(Print& file) const {
   if (cells.size() > MAX_TABLE_CELLS_PER_ROW) {
     LOG_ERR("PTB", "Serialization failed: row cell count %u exceeds maximum", static_cast<uint32_t>(cells.size()));
     return false;
@@ -409,7 +636,7 @@ bool Page::forEachTextLine(const PageTextLineVisitor visitor, void* context) con
   return true;
 }
 
-bool PageTableFragment::serialize(FsFile& file) {
+bool PageTableFragment::serialize(Print& file) {
   if (rows.size() > MAX_TABLE_ROWS_PER_FRAGMENT) {
     LOG_ERR("PTB", "Serialization failed: fragment row count %u exceeds maximum", static_cast<uint32_t>(rows.size()));
     return false;
@@ -473,35 +700,53 @@ std::unique_ptr<PageTableFragment> PageTableFragment::deserialize(FsFile& file) 
 }
 
 void Page::render(GfxRenderer& renderer, const int fontId, const int xOffset, const int yOffset,
-                  const bool foregroundBlack) const {
+                  const bool foregroundBlack, const bool imageGrayscale) const {
   renderText(renderer, fontId, xOffset, yOffset, foregroundBlack);
-  renderImages(renderer, fontId, xOffset, yOffset, foregroundBlack);
+  renderImages(renderer, fontId, xOffset, yOffset, foregroundBlack, imageGrayscale);
 }
 
-void Page::renderText(GfxRenderer& renderer, const int fontId, const int xOffset, const int yOffset,
-                      const bool foregroundBlack) const {
-  renderFilteredPageElements(elements, renderer, fontId, xOffset, yOffset, foregroundBlack,
-                             [](const PageElement& element) { return element.getTag() != TAG_PageImage; });
+bool Page::renderText(GfxRenderer& renderer, const int fontId, const int xOffset, const int yOffset,
+                      const bool foregroundBlack, bool (*shouldStop)(void*), void* context) const {
+  // Keep borders behind text, with the same ordering as a foreground render.
+  for (bool borders : {true, false}) {
+    for (const auto& element : elements) {
+      if (shouldStop && shouldStop(context)) return false;
+      const auto tag = element->getTag();
+      // Borders contain no glyphs. In particular, shaded boxes draw raw pixels
+      // rather than scan-aware text/shapes, so never run them during font scans.
+      if (tag == TAG_PageBorderBox && renderer.isFontCacheScanning()) continue;
+      if (tag != TAG_PageImage && (tag == TAG_PageBorderBox) == borders) {
+        element->render(renderer, fontId, xOffset, yOffset, foregroundBlack);
+      }
+    }
+  }
+  return true;
 }
 
-void Page::renderImages(GfxRenderer& renderer, const int fontId, const int xOffset, const int yOffset,
-                        const bool foregroundBlack) const {
-  renderFilteredPageElements(elements, renderer, fontId, xOffset, yOffset, foregroundBlack,
-                             [](const PageElement& element) { return element.getTag() == TAG_PageImage; });
+bool Page::renderImages(GfxRenderer& renderer, const int fontId, const int xOffset, const int yOffset,
+                        const bool foregroundBlack, const bool imageGrayscale) const {
+  for (const auto& element : elements) {
+    if (element->getTag() == TAG_PageImage) {
+      if (!static_cast<PageImage&>(*element).render(renderer, fontId, xOffset, yOffset, foregroundBlack,
+                                                    imageGrayscale))
+        return false;
+    }
+  }
+  return true;
 }
 
-void Page::renderWithImagePlaceholders(GfxRenderer& renderer, const int fontId, const int xOffset, const int yOffset,
-                                       const bool foregroundBlack, const bool renderCachedImages) const {
-  renderText(renderer, fontId, xOffset, yOffset, foregroundBlack);
+void Page::renderImagesWithPlaceholders(GfxRenderer& renderer, const int fontId, const int xOffset, const int yOffset,
+                                        const bool foregroundBlack, const bool renderCachedImages,
+                                        const bool imageGrayscale) const {
   for (const auto& element : elements) {
     if (element->getTag() != TAG_PageImage) {
       continue;
     }
     auto& pageImage = static_cast<PageImage&>(*element);
-    if (!renderCachedImages || pageImage.getImageBlock().needsDecode()) {
+    if (!renderCachedImages || pageImage.getImageBlock().needsDecode(imageGrayscale && !renderer.isDisplayInverted())) {
       pageImage.renderPlaceholder(renderer, xOffset, yOffset, foregroundBlack);
     } else {
-      pageImage.render(renderer, fontId, xOffset, yOffset, foregroundBlack);
+      pageImage.render(renderer, fontId, xOffset, yOffset, foregroundBlack, imageGrayscale);
     }
   }
 }
@@ -536,11 +781,13 @@ uint16_t Page::imageEstimateUnits(const uint16_t viewportWidth, const uint16_t v
         }
         break;
       }
+      case TAG_PageDropCap:
       case TAG_PageLine:
       case TAG_PageTableFragment:
         hasReadableContent = true;
         break;
       case TAG_PageHorizontalRule:
+      case TAG_PageBorderBox:
         break;
     }
   }
@@ -554,7 +801,7 @@ uint16_t Page::imageEstimateUnits(const uint16_t viewportWidth, const uint16_t v
   return static_cast<uint16_t>(std::min<uint64_t>(PageCountEstimator::kUnitsPerPage, units));
 }
 
-bool Page::serialize(FsFile& file) const {
+bool Page::serialize(Print& file) const {
   const uint16_t count = elements.size();
   if (elements.size() > MAX_PAGE_ELEMENTS) {
     LOG_ERR("PGE", "Serialization failed: element count %u exceeds maximum", static_cast<uint32_t>(elements.size()));
@@ -585,8 +832,9 @@ bool Page::serialize(FsFile& file) const {
   }
   for (uint16_t i = 0; i < fnCount; i++) {
     const auto& fn = footnotes[i];
-    if (file.write(fn.number, sizeof(fn.number)) != sizeof(fn.number) ||
-        file.write(fn.href, sizeof(fn.href)) != sizeof(fn.href) || !serialization::tryWritePod(file, fn.linkId)) {
+    if (file.write(reinterpret_cast<const uint8_t*>(fn.number), sizeof(fn.number)) != sizeof(fn.number) ||
+        file.write(reinterpret_cast<const uint8_t*>(fn.href), sizeof(fn.href)) != sizeof(fn.href) ||
+        !serialization::tryWritePod(file, fn.linkId)) {
       LOG_ERR("PGE", "Failed to write footnote");
       return false;
     }
@@ -600,7 +848,7 @@ bool Page::serialize(FsFile& file) const {
   for (uint8_t i = 0; i < markerCount; i++) {
     const auto& marker = publisherPageMarkers[i];
     if (!serialization::tryWritePod(file, marker.yPos) ||
-        file.write(marker.label, sizeof(marker.label)) != sizeof(marker.label)) {
+        file.write(reinterpret_cast<const uint8_t*>(marker.label), sizeof(marker.label)) != sizeof(marker.label)) {
       LOG_ERR("PGE", "Failed to write publisher page marker");
       return false;
     }
@@ -653,6 +901,14 @@ std::unique_ptr<Page> Page::deserialize(FsFile& file) {
         return nullptr;
       }
       page->elements.push_back(std::move(fragment));
+    } else if (tag == TAG_PageDropCap) {
+      auto cap = PageDropCap::deserialize(file);
+      if (!cap) return nullptr;
+      page->elements.push_back(std::move(cap));
+    } else if (tag == TAG_PageBorderBox) {
+      auto box = PageBorderBox::deserialize(file);
+      if (!box) return nullptr;
+      page->elements.push_back(std::move(box));
     } else if (tag == TAG_PageHorizontalRule) {
       auto rule = PageHorizontalRule::deserialize(file);
       if (!rule) {
@@ -712,10 +968,10 @@ std::unique_ptr<Page> Page::deserialize(FsFile& file) {
   return page;
 }
 
-void Page::prepareImageCaches() const {
+void Page::prepareImageCaches(const bool grayscale) const {
   for (const auto& element : elements) {
     if (element->getTag() == TAG_PageImage) {
-      static_cast<const PageImage&>(*element).getImageBlock().prepareCache();
+      static_cast<const PageImage&>(*element).getImageBlock().prepareCache(grayscale);
     }
   }
 }

@@ -4,6 +4,7 @@
 #include <HalClock.h>
 #include <I18n.h>
 #include <Logging.h>
+#include <TrustedTime.h>
 #include <WiFi.h>
 
 #include <cstdio>
@@ -67,6 +68,8 @@ void ClockSyncActivity::runSync() {
   }
 
   const bool ok = halClock.syncFromNTP();
+  trustedtime::note();
+  trustedtime::startSync();
   if (!ok) {
     state = FAILED;
     requestUpdate();
@@ -117,19 +120,19 @@ void ClockSyncActivity::render(RenderLock&&) {
 
   const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput);
   if (mappedInput.hasTouchHardware()) {
-    TouchHeaderBackButton::draw(renderer, header, tr(STR_CLOCK_SYNC), false);
+    TouchHeaderBackButton::draw(renderer, header, tr(STR_CLOCK_SYNC_NOW), false);
   } else {
-    GUI.drawHeader(renderer, header, tr(STR_CLOCK_SYNC));
+    GUI.drawHeader(renderer, header, tr(STR_CLOCK_SYNC_NOW));
   }
 
   const int midY = pageHeight / 2;
 
   switch (state) {
     case SYNCING:
-      renderer.drawCenteredText(UI_12_FONT_ID, midY, tr(STR_CLOCK_SYNCING));
+      renderer.drawCenteredText(UI_12_FONT_ID, midY, tr(STR_SYNCING_TIME));
       break;
     case SUCCESS: {
-      renderer.drawCenteredText(UI_12_FONT_ID, midY - 20, tr(STR_CLOCK_SYNC_OK), true, EpdFontFamily::BOLD);
+      renderer.drawCenteredText(UI_12_FONT_ID, midY - 20, tr(STR_CLOCK_SYNCED), true, EpdFontFamily::BOLD);
       if (syncedTime[0] != '\0') {
         // Sized for the longest translated label plus a 12-hour time. UTF-8
         // translations can use multiple bytes per displayed character.
@@ -144,7 +147,7 @@ void ClockSyncActivity::render(RenderLock&&) {
       renderer.drawCenteredText(UI_10_FONT_ID, midY + 10, tr(STR_CLOCK_SYNC_NO_WIFI_HINT));
       break;
     case FAILED:
-      renderer.drawCenteredText(UI_12_FONT_ID, midY - 20, tr(STR_CLOCK_SYNC_FAIL), true, EpdFontFamily::BOLD);
+      renderer.drawCenteredText(UI_12_FONT_ID, midY - 20, tr(STR_SYNC_FAILED_MSG), true, EpdFontFamily::BOLD);
       renderer.drawCenteredText(UI_10_FONT_ID, midY + 10, tr(STR_CHECK_SERIAL_OUTPUT));
       break;
   }

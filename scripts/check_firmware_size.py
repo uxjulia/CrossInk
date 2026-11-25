@@ -1,6 +1,6 @@
 """
 PlatformIO post-build script: fail when firmware.bin does not fit in the
-smallest app partition from partitions.csv.
+selected application partition, or the smallest app slot for multi-slot layouts.
 """
 
 import csv
@@ -42,7 +42,7 @@ def _get_partition_file(project_dir, env):
     return os.path.join(project_dir, partition_file)
 
 
-def _get_app_partition_limit(partition_file):
+def _get_app_partition_limit(partition_file, target_label=None):
     app_sizes = []
     app_labels = []
 
@@ -56,7 +56,7 @@ def _get_app_partition_limit(partition_file):
                 continue
 
             name, partition_type, _subtype, _offset, size = row[:5]
-            if partition_type != 'app':
+            if partition_type != 'app' or (target_label and name != target_label):
                 continue
 
             app_labels.append(name)
@@ -80,7 +80,8 @@ def check_firmware_size(source, target, env):
         print('Unable to find partition table for firmware size check', file=sys.stderr)
         env.Exit(1)
 
-    limit, labels = _get_app_partition_limit(partition_file)
+    target_label = _get_project_option(env, "custom_firmware_app_partition")
+    limit, labels = _get_app_partition_limit(partition_file, target_label)
     if not limit:
         print(f'No app partition found in {partition_file}', file=sys.stderr)
         env.Exit(1)

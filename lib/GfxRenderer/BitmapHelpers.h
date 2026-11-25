@@ -6,6 +6,7 @@
 #include <memory>
 
 #include "../Memory/Memory.h"
+#include "ImageToneProfile.h"
 
 struct BmpHeader;
 
@@ -118,6 +119,32 @@ class Atkinson1BitDitherer {
   int16_t* errorRow2 = nullptr;
 };
 
+// Decision boundaries and error-diffusion reference values for a four-tone image.
+struct ImageTonePalette {
+  uint8_t thresholds[3];
+  uint8_t levels[4];
+
+  uint8_t quantize(int gray) const {
+    if (gray < thresholds[0]) return 0;
+    if (gray < thresholds[1]) return 1;
+    if (gray < thresholds[2]) return 2;
+    return 3;
+  }
+};
+
+inline constexpr ImageTonePalette legacyTonePalette{{30, 50, 140}, {15, 30, 80, 210}};
+inline constexpr ImageTonePalette evenTonePalette{{43, 128, 213}, {0, 85, 170, 255}};
+constexpr const ImageTonePalette& paletteFor(ImageToneProfile profile) {
+  switch (profile) {
+    case ImageToneProfile::Legacy:
+      return legacyTonePalette;
+    case ImageToneProfile::Even:
+    case ImageToneProfile::PiccoCover:
+      return evenTonePalette;
+  }
+  return legacyTonePalette;
+}
+
 // Atkinson dithering - distributes only 6/8 (75%) of error for cleaner results
 // Error distribution pattern:
 //     X  1/8 1/8
@@ -126,7 +153,8 @@ class Atkinson1BitDitherer {
 // Less error buildup = fewer artifacts than Floyd-Steinberg
 class AtkinsonDitherer {
  public:
-  explicit AtkinsonDitherer(int width, bool imageLevels = false) : imageLevels(imageLevels) {
+  explicit AtkinsonDitherer(int width, ImageToneProfile toneProfile = ImageToneProfile::Legacy)
+      : palette(paletteFor(toneProfile)) {
     if (width <= 0) return;
     const size_t candidateRowSize = static_cast<size_t>(width) + 4;
     if (candidateRowSize > SIZE_MAX / (3 * sizeof(int16_t))) return;
@@ -151,40 +179,9 @@ class AtkinsonDitherer {
     if (adjusted < 0) adjusted = 0;
     if (adjusted > 255) adjusted = 255;
 
-    // Quantize to 4 levels
-    uint8_t quantized;
-    int quantizedValue;
-    if (imageLevels) {  // evenly spaced image tones
-      if (adjusted < 43) {
-        quantized = 0;
-        quantizedValue = 0;
-      } else if (adjusted < 128) {
-        quantized = 1;
-        quantizedValue = 85;
-      } else if (adjusted < 213) {
-        quantized = 2;
-        quantizedValue = 170;
-      } else {
-        quantized = 3;
-        quantizedValue = 255;
-      }
-    } else {  // fine-tuned to X4 eink display
-      if (adjusted < 30) {
-        quantized = 0;
-        quantizedValue = 15;
-      } else if (adjusted < 50) {
-        quantized = 1;
-        quantizedValue = 30;
-      } else if (adjusted < 140) {
-        quantized = 2;
-        quantizedValue = 80;
-      } else {
-        quantized = 3;
-        quantizedValue = 210;
-      }
-    }
-
+    const uint8_t quantized = palette.quantize(adjusted);
     if (!isValid()) return quantized;
+    const int quantizedValue = palette.levels[quantized];
 
     // Calculate error (only distribute 6/8 = 75%)
     int error = (adjusted - quantizedValue) >> 3;  // error/8
@@ -217,7 +214,7 @@ class AtkinsonDitherer {
   }
 
  private:
-  const bool imageLevels;
+  const ImageTonePalette& palette;
   size_t rowSize{0};
   std::unique_ptr<int16_t[]> errorRows;
   int16_t* errorRow0 = nullptr;
@@ -235,7 +232,8 @@ class AtkinsonDitherer {
 //      7/16  X
 class FloydSteinbergDitherer {
  public:
-  explicit FloydSteinbergDitherer(int width, bool imageLevels = false) : imageLevels(imageLevels), rowCount(0) {
+  explicit FloydSteinbergDitherer(int width, ImageToneProfile toneProfile = ImageToneProfile::Legacy)
+      : palette(paletteFor(toneProfile)), rowCount(0) {
     if (width <= 0) return;
     const size_t candidateRowSize = static_cast<size_t>(width) + 2;
     if (candidateRowSize > SIZE_MAX / (2 * sizeof(int16_t))) return;
@@ -264,40 +262,9 @@ class FloydSteinbergDitherer {
     if (adjusted < 0) adjusted = 0;
     if (adjusted > 255) adjusted = 255;
 
-    // Quantize to 4 levels (0, 85, 170, 255)
-    uint8_t quantized;
-    int quantizedValue;
-    if (imageLevels) {  // evenly spaced image tones
-      if (adjusted < 43) {
-        quantized = 0;
-        quantizedValue = 0;
-      } else if (adjusted < 128) {
-        quantized = 1;
-        quantizedValue = 85;
-      } else if (adjusted < 213) {
-        quantized = 2;
-        quantizedValue = 170;
-      } else {
-        quantized = 3;
-        quantizedValue = 255;
-      }
-    } else {  // fine-tuned to X4 eink display
-      if (adjusted < 30) {
-        quantized = 0;
-        quantizedValue = 15;
-      } else if (adjusted < 50) {
-        quantized = 1;
-        quantizedValue = 30;
-      } else if (adjusted < 140) {
-        quantized = 2;
-        quantizedValue = 80;
-      } else {
-        quantized = 3;
-        quantizedValue = 210;
-      }
-    }
-
+    const uint8_t quantized = palette.quantize(adjusted);
     if (!isValid()) return quantized;
+    const int quantizedValue = palette.levels[quantized];
 
     // Calculate error
     int error = adjusted - quantizedValue;
@@ -352,7 +319,7 @@ class FloydSteinbergDitherer {
   }
 
  private:
-  const bool imageLevels;
+  const ImageTonePalette& palette;
   int rowCount;
   size_t rowSize{0};
   std::unique_ptr<int16_t[]> errorRows;

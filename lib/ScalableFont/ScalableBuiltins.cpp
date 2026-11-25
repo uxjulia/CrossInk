@@ -75,7 +75,9 @@ void ensureScalableBuiltinFamily(GfxRenderer& renderer, unsigned family) {
       const auto it = renderer.getFontMap().find(UI_12_FONT_ID);
       if (it != renderer.getFontMap().end()) {
         for (unsigned size = 0; size < 4; ++size)
-          if (points == 10 + size * 2) renderer.insertFont(ids[family][size], it->second);
+          // Recovery reader fonts must not borrow the selected UI font: the
+          // latter can be released independently for selection/storage changes.
+          if (points == 10 + size * 2) renderer.insertFont(ids[family][size], it->second.withFallbackFonts(nullptr));
       }
     }
   }

@@ -6,6 +6,7 @@
 
 #include "../Activity.h"
 #include "BookReadingStats.h"
+#include "BookStatsView.h"
 #include "GlobalReadingStats.h"
 
 class BookStatsActivity final : public Activity {
@@ -13,9 +14,12 @@ class BookStatsActivity final : public Activity {
 
   std::string bookTitle;
   std::string bookCachePath;
+  std::string syncBookPath;  // the book, for the sync pending-push list; empty when unknown
   BookReadingStats stats;
+  bool savedCompleted = false;  // finished state last written, to spot a change on save
   GlobalReadingStats globalStats;
   GlobalReadingStats allDevicesStats;
+  DailyReadingStats::Summary dailySummary;
   bool showAllDevicesStats = false;
   bool returnToHomeOnExit = false;
   float progressPercent = -1.0f;
@@ -36,6 +40,7 @@ class BookStatsActivity final : public Activity {
   bool hasEditableBook() const { return !bookCachePath.empty() && halClock.isAvailable(); }
   bool usesNoRtcSingleScreenLayout() const { return !halClock.isAvailable(); }
   void refreshAllDevicesStats();
+  void loadDailySummary();
   void saveStats();
   void beginDateEditing();
   void finishDateEditing(bool saveChanges);
@@ -50,8 +55,13 @@ class BookStatsActivity final : public Activity {
   bool showPreviousStatsPage();
   bool showNextStatsPage();
   bool selectEditFieldFromTouchTarget(int touchTarget);
+  // "This Device" totals sync from here; needs a configured sync account.
+  bool canSyncReadingStats() const;
+  void startSyncReadingStats();
 
  public:
+  // The book these stats belong to, so date edits are queued for the next sync.
+  void setSyncBookPath(std::string path) { syncBookPath = std::move(path); }
   BookStatsActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, const std::string& title,
                     const std::string& bookCachePath, const BookReadingStats& stats, float progressPercent,
                     bool hasEstimatedTimeLeft, uint32_t estimatedTimeLeftSeconds, const GlobalReadingStats& globalStats,

@@ -156,22 +156,51 @@ def get_hardware_version(project_dir, pioenv):
         if os.environ.get('CROSSINK_RELEASE_VERSION')
         else get_crossink_version(project_dir)
     )
-    device_suffix = {'sticky': '-sticky', 'x4-pro': '-x4-pro', 'x4-classic': '-x4-classic'}[pioenv]
+    device_suffix = {'sticky': '-sticky', 'x4-pro': '-x4-pro', 'x4-classic': '-x4-classic', 'picco': '-picco', 'eego_a4': '-eego_a4'}[pioenv]
     return f'{base_version}{device_suffix}'
 
 
+def inject_download_endpoints(env):
+    # Explicit build configuration only; never read an endpoint from SD/catalogs.
+    for variable, define, scheme in (
+        ('CROSSINK_ASSET_BASE_URL', 'ASSET_DOWNLOAD_BASE_URL', 'https'),
+        ('CROSSINK_FONT_BASE_URL', 'FONT_DOWNLOAD_BASE_URL', 'https?'),
+    ):
+        base = os.environ.get(variable, '')
+        if not base:
+            continue
+        if not re.fullmatch(scheme + r'://[A-Za-z0-9.-]+(?::[0-9]+)?/(?:[A-Za-z0-9_-]+/)*', base):
+            protocols = 'HTTP(S)' if scheme == 'https?' else 'HTTPS'
+            raise ValueError(f'{variable} must be an {protocols} prefix ending in /')
+        env.Append(CPPDEFINES=[(define, '\\\"' + base + '\\\"')])
+
+
 def inject_version(env):
+    inject_download_endpoints(env)
     project_dir = env['PROJECT_DIR']
     pioenv = env['PIOENV']
     # Keep build provenance separate from CROSSINK_VERSION: production versions
     # intentionally omit the source revision, while diagnostics need the base
     # commit and whether the compiled tree had tracked modifications.
+    # Support exports exclude branch-bearing version labels and identify the actual SDK checkout.
+    canonical_version = (
+        get_production_version(project_dir)
+        if os.environ.get('CROSSINK_RELEASE_VERSION') and not os.environ.get('CROSSINK_RC_HASH')
+        else get_crossink_version(project_dir)
+    )
+    if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", canonical_version):
+        canonical_version = "unknown"
+    sdk_sha = run_git_value(os.path.join(project_dir, "freeink-sdk"), ["rev-parse", "HEAD"], "SDK SHA")
+    if not re.fullmatch(r"[0-9a-f]{40}", sdk_sha):
+        sdk_sha = "unknown"
     scoped = [
+        ('CROSSINK_SUPPORT_VERSION', f'\\"{canonical_version}\\"'),
+        ('CROSSINK_SDK_SHA', f'\\"{sdk_sha}\\"'),
         ('CROSSINK_GIT_SHA', f'\\"{get_git_short_sha(project_dir)}\\"'),
         ('CROSSINK_GIT_DIRTY', f'\\"{get_git_dirty(project_dir)}\\"'),
     ]
 
-    if pioenv in {'default', 'sticky', 'x4-pro', 'x4-classic'}:
+    if pioenv in {'default', 'sticky', 'x4-pro', 'x4-classic', 'picco', 'eego_a4'}:
         version_string = get_hardware_version(project_dir, pioenv)
         if os.environ.get('CROSSINK_RC_HASH'):
             print(f'CrossInk RC build version: {version_string}')
@@ -205,7 +234,7 @@ def inject_version(env):
         ])
         print(f'CrossInk test build version: {ci_version}{suffix}')
 
-    elif pioenv in {'x4-pro-debug', 'x4-classic-debug'}:
+    elif pioenv in {'x4-pro-debug', 'x4-classic-debug', 'picco-debug', 'eego_a4-debug'}:
         branch = get_git_branch(project_dir)
         short_hash = get_git_short_hash(project_dir)
         ci_version = get_crossink_version(project_dir)

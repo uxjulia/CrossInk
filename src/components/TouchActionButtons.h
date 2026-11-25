@@ -28,7 +28,8 @@ struct Layout {
 
 Layout vertical(Rect container, uint8_t count, int buttonHeight = kDefaultHeight, int gap = kDefaultGap);
 
-int indexAt(const Layout& layout, int x, int y);
+// Optional finger-placement margin; callers should keep it within half the gap between buttons.
+int indexAt(const Layout& layout, int x, int y, int touchPadding = 0);
 
 void draw(const GfxRenderer& renderer, const Layout& layout, const char* const* labels, int primaryIndex = -1,
           int selectedIndex = -1, int fontId = 0);

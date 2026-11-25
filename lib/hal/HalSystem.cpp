@@ -12,10 +12,22 @@
 #include "esp_private/esp_system_attr.h"
 #include "esp_private/panic_internal.h"
 
-#if CONFIG_IDF_TARGET_ARCH_XTENSA
-#include "esp_cpu_utils.h"
+#if CONFIG_IDF_TARGET_ARCH_RISCV || CONFIG_IDF_TARGET_ARCH_XTENSA
 #include "esp_memory_utils.h"
 #include "freertos/task.h"
+#endif
+#if CONFIG_IDF_TARGET_ARCH_RISCV && CONFIG_ESP_SYSTEM_HW_STACK_GUARD
+#include "esp_private/hw_stack_guard.h"
+#endif
+
+#if defined(BOARD_HAS_PSRAM) && CONFIG_SPIRAM_BOOT_INIT && !defined(SIMULATOR)
+#include "esp32-hal-psram.h"
+#include "esp_heap_caps.h"
+#include "esp_psram.h"
+#endif
+
+#if CONFIG_IDF_TARGET_ARCH_XTENSA
+#include "esp_cpu_utils.h"
 #include "xtensa/corebits.h"
 #endif
 
@@ -42,6 +54,9 @@ struct RiscvPanicRegisters {
   uint32_t mcause;
   uint32_t mtval;
   uint32_t mstatus;
+  uint32_t stackMin;
+  uint32_t stackMax;
+  char taskName[16];
   uint32_t captured;
 };
 RTC_NOINIT_ATTR RiscvPanicRegisters panicRiscvRegisters;
@@ -151,7 +166,7 @@ void IRAM_ATTR captureXtensaPanicBacktrace(const void* frame, const int core) {
 #endif
 
 #if CONFIG_IDF_TARGET_ARCH_RISCV
-void IRAM_ATTR captureRiscvPanicRegisters(const void* frame) {
+void IRAM_ATTR captureRiscvPanicRegisters(const void* frame, const int core) {
   const auto* exceptionFrame = static_cast<const esp_cpu_frame_t*>(frame);
   panicRiscvRegisters.mepc = exceptionFrame->mepc;
   panicRiscvRegisters.ra = exceptionFrame->ra;
@@ -160,6 +175,25 @@ void IRAM_ATTR captureRiscvPanicRegisters(const void* frame) {
   panicRiscvRegisters.mcause = exceptionFrame->mcause;
   panicRiscvRegisters.mtval = exceptionFrame->mtval;
   panicRiscvRegisters.mstatus = exceptionFrame->mstatus;
+  panicRiscvRegisters.taskName[0] = '\0';
+  panicRiscvRegisters.stackMin = 0;
+  panicRiscvRegisters.stackMax = 0;
+  if (core >= 0 && core < portNUM_PROCESSORS) {
+    // Use the same panic-handler APIs as ESP-IDF's serial diagnostics. Do not
+    // scan stack watermarks, allocate, or take scheduler locks during a panic.
+#if CONFIG_ESP_SYSTEM_HW_STACK_GUARD
+    esp_hw_stack_guard_get_bounds(core, &panicRiscvRegisters.stackMin, &panicRiscvRegisters.stackMax);
+#endif
+    const TaskHandle_t task = xTaskGetCurrentTaskHandleForCore(core);
+    if (task && esp_ptr_in_dram(task)) {
+      const char* name = pcTaskGetName(task);
+      size_t i = 0;
+      for (; name && i < sizeof(panicRiscvRegisters.taskName) - 1 && esp_ptr_in_dram(name + i) && name[i]; ++i) {
+        panicRiscvRegisters.taskName[i] = name[i];
+      }
+      panicRiscvRegisters.taskName[i] = '\0';
+    }
+  }
   panicRiscvRegisters.captured = PANIC_CAPTURE_MAGIC;
 }
 #endif
@@ -202,7 +236,7 @@ void IRAM_ATTR __wrap_panic_print_backtrace(const void* frame, int core) {
   }
   panicBacktraceDepth = 0;
 
-  captureRiscvPanicRegisters(frame);
+  captureRiscvPanicRegisters(frame, core);
 
   // Copied from components/esp_system/port/arch/riscv/panic_arch.c
   uint32_t sp = (uint32_t)((RvExcFrame*)frame)->sp;
@@ -235,6 +269,20 @@ void IRAM_ATTR __wrap_panic_print_backtrace(const void* frame, int core) {
 namespace HalSystem {
 
 void begin() {
+#if defined(BOARD_HAS_PSRAM) && CONFIG_SPIRAM_BOOT_INIT && !defined(SIMULATOR)
+  // SD firmware updates replace the app but retain the installed bootloader.
+  // Older bootloaders do not initialize PSRAM as this Arduino SDK expects.
+  if (heap_caps_get_total_size(MALLOC_CAP_SPIRAM) == 0) {
+    const esp_err_t initResult = esp_psram_is_initialized() ? ESP_OK : esp_psram_init();
+    if (initResult != ESP_OK) {
+      LOG_ERR("HAL", "PSRAM initialization failed: %d", int(initResult));
+    } else if (!psramInit() || !psramAddToHeap()) {
+      LOG_ERR("HAL", "Could not add PSRAM to heap");
+    } else {
+      LOG_INF("HAL", "Initialized PSRAM for app-only firmware update");
+    }
+  }
+#endif
   // On a panic reboot, preserve diagnostics until checkPanic() has tried to write them to the SD card.
   // Ordinary boots clear any stale retained diagnostics.
   if (!isRebootFromPanic()) {
@@ -258,6 +306,10 @@ void begin() {
 void checkPanic() {
   if (isRebootFromPanic()) {
     auto panicInfo = getPanicInfo(true);
+    // The report now owns the old text; capture logs from this boot again even
+    // if the SD card cannot save the report.
+    clearLastLogs();
+    pauseLogRetention(false);
     auto file = Storage.open("/crash_report.txt", O_WRITE | O_CREAT | O_TRUNC);
     if (file) {
       const size_t written = file.write(panicInfo.c_str(), panicInfo.size());
@@ -291,6 +343,7 @@ void clearPanic() {
   panicCoreCaptureCount = 0;
 #endif
   clearLastLogs();
+  pauseLogRetention(false);
 }
 
 std::string getPanicInfo(bool full) {
@@ -314,6 +367,14 @@ std::string getPanicInfo(bool full) {
     };
 #if CONFIG_IDF_TARGET_ARCH_RISCV
     if (panicRiscvRegisters.captured == PANIC_CAPTURE_MAGIC) {
+      info += "\n\nDetected in task: ";
+      info += panicRiscvRegisters.taskName[0] ? panicRiscvRegisters.taskName : "(unavailable)";
+      info += "\nStack bounds (hardware guard): ";
+      if (panicRiscvRegisters.stackMin < panicRiscvRegisters.stackMax) {
+        info += "0x" + toHex(panicRiscvRegisters.stackMin) + " - 0x" + toHex(panicRiscvRegisters.stackMax);
+      } else {
+        info += "(unavailable)";
+      }
       info += "\n\nRISC-V exception registers:\n";
       info += "MEPC (faulting instruction): 0x" + toHex(panicRiscvRegisters.mepc);
       info += "\nRA (caller): 0x" + toHex(panicRiscvRegisters.ra);

@@ -4,6 +4,7 @@
 
 #include <algorithm>
 
+#include "UIScale.h"
 #include "UIThemeTokens.h"
 #include "components/CompactHeader.h"
 #include "components/HeaderDate.h"
@@ -18,9 +19,15 @@ namespace TouchHeaderBackButton {
 
 namespace {
 constexpr int actionSize = 52;
-constexpr int touchSize = 68;
+constexpr int touchSize = 80;
 constexpr int titleGap = 8;
 constexpr int defaultRightReserve = 52;
+
+// uiThemeTokens builds ~1.5 KiB of tokens just to return this small style.
+// Release that scratch before drawing the header/status row on network tasks.
+[[gnu::noinline]] fui::TextStyle titleTextStyle(const fui::GfxRendererTarget& target) {
+  return uiThemeTokens(target).titleText;
+}
 
 int effectiveVerticalOffset(const Layout& layout, const Rect& header, const int requestedOffset) {
   const int iconBottom = layout.iconRect.y + (layout.iconRect.height + ICON_SIZE) / 2;
@@ -36,20 +43,19 @@ Layout layout(const Rect& header) {
   // spare space above and below the back button/title instead of placing all
   // of it above the title.
   const int actionX = header.x;
-  const int actionY = header.y + (header.height - actionHeight) / 2;
+  const int actionY = header.y + (header.height - actionHeight + UITheme::getDisplayStatusBarHeightIncrease()) / 2;
   const int touchWidth = std::min(touchSize, header.width);
-  const int touchHeight = touchSize;
-  const int touchX = std::max(header.x, actionX + (actionWidth - touchWidth) / 2);
-  // The common 45px header is shorter than the minimum touch target. Let the
-  // hit box extend above and below the visual band instead of shrinking it.
-  const int touchY = std::max(0, actionY + (actionHeight - touchHeight) / 2);
+  // Keep the whole navigation target inside its header, above the shared divider.
+  const int touchHeight = std::max(0, header.height - 1);
+  const int touchX = header.x;
+  const int touchY = header.y;
   return {Rect{actionX, actionY, actionWidth, actionHeight}, Rect{touchX, touchY, touchWidth, touchHeight},
           actionX + actionWidth + titleGap};
 }
 
 Rect standardHeaderRect(const GfxRenderer& renderer) {
   const auto& metrics = UITheme::getInstance().getMetrics();
-  return Rect{0, metrics.topPadding, renderer.getScreenWidth(), metrics.headerHeight};
+  return UITheme::getHeaderRect(renderer, metrics.headerHeight);
 }
 
 int height(const ThemeMetrics& metrics, const MappedInputManager& input) {
@@ -58,13 +64,21 @@ int height(const ThemeMetrics& metrics, const MappedInputManager& input) {
 
 Rect headerRect(const GfxRenderer& renderer, const MappedInputManager& input) {
   const auto& metrics = UITheme::getInstance().getMetrics();
-  return Rect{0, metrics.topPadding, renderer.getScreenWidth(), height(metrics, input)};
+  return UITheme::getHeaderRect(renderer, height(metrics, input));
+}
+
+Rect headerRect(const GfxRenderer& renderer, const MappedInputManager& input, const Rect& area) {
+  return UITheme::getHeaderRect(renderer, height(UITheme::getInstance().getMetrics(), input), area);
 }
 
 Rect compactHeaderRect(const GfxRenderer& renderer) {
   const auto& metrics = UITheme::getInstance().getMetrics();
-  return Rect{0, metrics.topPadding, renderer.getScreenWidth(),
-              CompactHeader::headerBottomY(metrics) - metrics.topPadding};
+  return UITheme::getHeaderRect(renderer, CompactHeader::height(metrics));
+}
+
+int contentTop(const GfxRenderer& renderer, const MappedInputManager& input, const int areaTop) {
+  const auto header = headerRect(renderer, input);
+  return std::max(areaTop, header.y) + header.height;
 }
 
 bool wasTapped(const MappedInputManager& input, const Rect& header) {
@@ -75,6 +89,20 @@ bool wasTapped(const MappedInputManager& input, const Rect& header) {
 
 bool wasTapped(const MappedInputManager& input, const GfxRenderer& renderer) {
   return wasTapped(input, headerRect(renderer, input));
+}
+
+bool wasTapped(const MappedInputManager& input, const GfxRenderer& renderer, const char* title) {
+  int x = 0;
+  int y = 0;
+  if (!input.hasTouchHardware() || !input.wasScreenTapped(x, y)) return false;
+  const Rect header = headerRect(renderer, input);
+  const Layout back = layout(header);
+  constexpr int titleEndPadding = 12;
+  const int titleWidth = renderer.getTextWidth(uiScaleSpec().titleFontId, title, EpdFontFamily::BOLD);
+  const int touchWidth =
+      std::min(header.width, std::max(back.touchRect.width, back.titleX - header.x + titleWidth + titleEndPadding));
+  return x >= back.touchRect.x && x < back.touchRect.x + touchWidth && y >= back.touchRect.y &&
+         y < back.touchRect.y + back.touchRect.height;
 }
 
 void draw(GfxRenderer& renderer, const Rect& header, const char* title, const bool readerContext,
@@ -93,7 +121,7 @@ void draw(GfxRenderer& renderer, fui::GfxRendererTarget& target, const Rect& hea
   // adds breathing room below it for the navigation icon and title.
   GUI.drawHeader(renderer, header, "", subtitle, readerContext, showStatus);
 
-  fui::TextStyle titleStyle = uiThemeTokens(target).titleText;
+  fui::TextStyle titleStyle = titleTextStyle(target);
   titleStyle.align = fui::TextAlign::Left;
   titleStyle.maxLines = 1;
   const int reservedRight = rightReserve > 0 ? rightReserve : defaultRightReserve;
@@ -109,11 +137,11 @@ void draw(GfxRenderer& renderer, fui::GfxRendererTarget& target, const Rect& hea
 }
 
 void drawCompact(GfxRenderer& renderer, const char* title, const bool readerContext, const bool showDate,
-                 const int verticalOffset) {
+                 const int verticalOffset, const int minRightReserve) {
   const auto& metrics = UITheme::getInstance().getMetrics();
   const Rect header = compactHeaderRect(renderer);
-  const int rightReserve =
-      metrics.batteryWidth + 2 * metrics.headerSidePadding + (showDate ? headerDateReservedWidth(renderer) : 0);
+  const int rightReserve = std::max(minRightReserve, metrics.batteryWidth + 2 * metrics.headerSidePadding +
+                                                         (showDate ? headerDateReservedWidth(renderer) : 0));
   draw(renderer, header, title, readerContext, rightReserve, nullptr, verticalOffset);
   if (showDate) {
     const Layout back = layout(header);
@@ -121,8 +149,26 @@ void drawCompact(GfxRenderer& renderer, const char* title, const bool readerCont
     const int titleBaselineY = back.iconRect.y + offset +
                                std::max(0, (back.iconRect.height - renderer.getLineHeight(UI_12_FONT_ID)) / 2) +
                                renderer.getFontAscenderSize(UI_12_FONT_ID);
-    drawHeaderDateAtBaseline(renderer, renderer.getScreenWidth(), titleBaselineY);
+    drawHeaderDateAtBaseline(renderer, header.x + header.width, titleBaselineY);
   }
+}
+
+const int TRAILING_ACTION_RESERVE = actionSize + titleGap;
+
+void drawTrailingIcon(GfxRenderer& renderer, const Rect& header, const freeink::Icon& icon, const int verticalOffset) {
+  Layout back = layout(header);
+  back.iconRect.y += effectiveVerticalOffset(back, header, verticalOffset);
+  const int x = header.x + header.width - back.iconRect.width + (back.iconRect.width - icon.w) / 2;
+  const int y = back.iconRect.y + (back.iconRect.height - icon.h) / 2;
+  auto target = makeUiTarget(renderer);
+  target.bitmap(fui::Rect{static_cast<int16_t>(x), static_cast<int16_t>(y), static_cast<int16_t>(icon.w),
+                          static_cast<int16_t>(icon.h)},
+                fui::bitmapFromIcon(icon), fui::BitmapMode::Center);
+}
+
+Rect trailingTouchRect(const Rect& header) {
+  const Rect touch = layout(header).touchRect;
+  return Rect{header.x + header.width - (touch.x - header.x) - touch.width, touch.y, touch.width, touch.height};
 }
 
 }  // namespace TouchHeaderBackButton

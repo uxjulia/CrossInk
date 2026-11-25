@@ -7,6 +7,8 @@
 - Xteink X4 Pro
 - Xteink X4 Classic
 - Seeed Studio Sticky
+- EEGO Reader A4
+- BOOX Picco
 
 ## What's different in this fork
 
@@ -27,11 +29,12 @@ My goal with this fork was to maintain the core Crosspoint firmware while integr
 
 ### Highlights
 
+- Editable SD language files with persistent caching. See [language setup and translation instructions](docs/languages.md).
 - New reader fonts: Lexend Deca and Bitter.
 - Music notation and selected supplemental Unicode glyph support to be able to render Project Hail Mary accurately.
 - Added a custom `Minimal` theme and sleep screen option for the minimalists out there.
 - Added a custom `Dashboard` theme and sleep screen option for reading stats enthusiasts.
-- Reader font sizes: 10 pt, 12 pt, 14 pt, and 16 pt.
+- Reader font sizes: 10 to 16 pt built in on Xteink X3/X4. X4 Classic, X4 Pro, Sticky, and EEGO A4 use scalable fonts with 1 pt steps from 8 to 22 pt.
 - Added ~~strikethrough~~ support.
 - Made <u>underlines</u> thicker for better visibility.
 - Added support for `<hr>` section breaks.
@@ -50,7 +53,7 @@ My goal with this fork was to maintain the core Crosspoint firmware while integr
 - All-time reading stats [syncing](./docs/reading-stats-sync.md) between two CrossInk devices.
 - Reading [progress sync](./docs/nearby-position-sync.md) between two CrossInk devices.
 - Added customizable Auto Page Turn Interval (anything between 5-120 seconds).
-- Added ability to view Recent Books as a 3x3 grid view.
+- A Library screen that lists every book on the SD card, with search, sorting, and a list or cover grid view for recently opened books.
 - To view a more detailed list for each version, visit the [releases](https://github.com/uxjulia/CrossInk/releases) page to read release notes.
 
 ---
@@ -72,7 +75,8 @@ The UI now uses [Inter](https://fonts.google.com/specimen/Inter) as the display 
 
 ### Font Sizes
 
-CrossInk includes 10 pt, 12 pt, 14 pt, and 16 pt built-in reader font sizes.
+- Xteink X3 and X4: built-in reader font sizes are 10 pt, 12 pt, 14 pt, and 16 pt.
+- X4 Classic, X4 Pro, Sticky, and EEGO A4: Lexend Deca and Bitter are scalable, so you can pick any size from 8 pt to 22 pt in 1 pt steps.
 
 See [SD Card Fonts](./docs/sd-card-fonts.md) for installing additional font families and size ranges.
 
@@ -92,7 +96,7 @@ See [Controls](./docs/controls.md) for the full action list and defaults.
 
 ## Tips for the best reading experience
 
-CrossInk runs on an ESP32-C3 with limited RAM, so very large folders or complex EPUBs can be slower than they would be on a phone, tablet, or desktop app.
+CrossInk runs on a small, low-power chip with limited memory (especially on the Xteink X3 and X4), so very large folders or complex EPUBs can be slower than they would be on a phone, tablet, or computer.
 
 - Keep folders under about 200 files. For the smoothest browsing, aim for 50-100 files per folder.
 - Having 1000+ books on the SD card is fine if they are split into smaller folders, such as by author, series, genre, or read/unread status.
@@ -106,9 +110,9 @@ CrossInk runs on an ESP32-C3 with limited RAM, so very large folders or complex 
 
 ## Installation
 
-The fastest way to install Crossink is by using Inky, Crossink's web companion app: https://inky.crossink.dev/#flash-tools
+The fastest way to install CrossInk is with Inky, CrossInk's web companion app: https://inky.crossink.dev/#flash-tools. Connect your reader to your computer with a USB cable and follow the steps on the page.
 
-Download a `firmware-*.bin` from the [releases page](https://github.com/uxjulia/CrossInk/releases), then flash it with the web installer or command line.
+You can also download a `firmware-*.bin` file from the [releases page](https://github.com/uxjulia/CrossInk/releases) and flash it with the web installer or the command line.
 
 See [Installation](./docs/installation.md) for step-by-step flashing and revert instructions.
 
@@ -116,7 +120,10 @@ See [Installation](./docs/installation.md) for step-by-step flashing and revert 
 
 ## Guides & Documentation
 
-Visit [https://www.crossink.dev](https://www.crossink.dev) for more user guides and additional documentation.
+Visit [https://www.crossink.dev](https://www.crossink.dev) for user guides.
+Start with the [User Guide](./docs/user-guide.md), or see [Plugins](./docs/sd-plugins.md)
+for installing and using extensions. Plugin authors can use the separate
+[Plugin Development Guide](./docs/development/plugin-development.md).
 
 ---
 
@@ -134,7 +141,7 @@ nix develop -f nix
 nix-shell nix
 ```
 
-To flash a connected ESP32-C3 device, enable PlatformIO's udev rules in your NixOS configuration:
+To flash a connected device, enable PlatformIO's udev rules in your NixOS configuration:
 
 ```nix
 services.udev.packages = with pkgs; [ platformio-core.udev ];
@@ -150,7 +157,7 @@ Connect your device to your computer via a USB cable. Before the first build, in
 git submodule update --init --recursive
 ```
 
-Then flash the firmware using the correct environment for the device. The `default` environment is for the X3/X4 devices. ESP32-S3 devices have their own named environments.
+Then flash the firmware using the correct environment for the device. The `default` environment is for the X3/X4 devices. The ESP32-S3 readers have their own named environments. EEGO A4 uses `eego_a4` (production) and `eego_a4-debug` (debug); see the [EEGO A4 build and hardware guide](docs/development/eego-a4-hardware.md).
 
 ```sh
 pio run -e default --target upload

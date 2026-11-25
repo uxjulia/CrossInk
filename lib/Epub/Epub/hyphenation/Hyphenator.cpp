@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cstring>
 #include <vector>
 
 #include "HyphenationCommon.h"
@@ -24,31 +25,12 @@ struct Iso639Mapping {
 };
 static constexpr Iso639Mapping kIso639Mappings[] = {{"eng", "en"}, {"fra", "fr"}, {"fre", "fr"}, {"deu", "de"},
                                                     {"ger", "de"}, {"rus", "ru"}, {"spa", "es"}, {"ita", "it"},
-                                                    {"ukr", "uk"}, {"swe", "sv"}, {"por", "pt"}};
+                                                    {"ukr", "uk"}, {"swe", "sv"}, {"por", "pt"}, {"pol", "pl"}};
 
 // Maps a BCP-47 or ISO 639-2 language tag to a language-specific hyphenator.
 const LanguageHyphenator* hyphenatorForLanguage(const std::string& langTag) {
-  if (langTag.empty()) return nullptr;
-
-  // Extract primary subtag and normalize to lowercase (e.g., "en-US" -> "en", "ENG" -> "en").
-  std::string primary;
-  primary.reserve(langTag.size());
-  for (char c : langTag) {
-    if (c == '-' || c == '_') break;
-    if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
-    primary.push_back(c);
-  }
-  if (primary.empty()) return nullptr;
-
-  // Normalize ISO 639-2 three-letter codes to two-letter equivalents.
-  for (const auto& mapping : kIso639Mappings) {
-    if (primary == mapping.iso639_2) {
-      primary = mapping.iso639_1;
-      break;
-    }
-  }
-
-  return getLanguageHyphenatorForPrimaryTag(primary);
+  char primary[3];
+  return Hyphenator::primaryLanguageTag(langTag, primary) ? getLanguageHyphenatorForPrimaryTag(primary) : nullptr;
 }
 
 // Maps a codepoint index back to its byte offset inside the source word.
@@ -273,3 +255,33 @@ std::vector<Hyphenator::BreakInfo> Hyphenator::breakOffsets(const std::string& w
 }
 
 void Hyphenator::setPreferredLanguage(const std::string& lang) { cachedHyphenator_ = hyphenatorForLanguage(lang); }
+
+// A bounded normalization path shared by the reader, cache key and manager.
+bool Hyphenator::primaryLanguageTag(const std::string& lang, char out[3]) {
+  char primary[4] = {};
+  size_t length = 0;
+  for (char c : lang) {
+    if (c == '-' || c == '_') break;
+    if (length == 3) return false;
+    if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
+    if (c < 'a' || c > 'z') return false;
+    primary[length++] = c;
+  }
+  if (length == 3) {
+    for (const auto& mapping : kIso639Mappings) {
+      if (!std::strcmp(primary, mapping.iso639_2)) {
+        std::memcpy(out, mapping.iso639_1, 3);
+        return true;
+      }
+    }
+    return false;
+  }
+  if (length != 2) return false;
+  std::memcpy(out, primary, 3);
+  return true;
+}
+
+uint32_t Hyphenator::patternIdentity(const std::string& lang) {
+  char primary[3];
+  return primaryLanguageTag(lang, primary) ? getLanguagePatternIdentity(primary) : 0;
+}

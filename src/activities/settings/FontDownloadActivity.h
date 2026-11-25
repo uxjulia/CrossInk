@@ -23,18 +23,24 @@ struct Rect;
 #define FONTS_MANIFEST_VERSION 1
 
 #ifndef FONT_MANIFEST_URL
-// Default hosted SD-font manifest. Use plain HTTP for this public S3 bucket:
-// HTTPS stalls inside esp_http_client on ESP32-C3, and downloaded .cpfont files
-// are still validated by CRC before install. The versioned prefix must stay in
-// sync with .github/workflows/release-fonts.yml and cpfont_version.py.
+// Official builds opt into their own host. Unconfigured builds use the
+// matching GitHub release for both the catalog and individual font files.
+#ifndef FONT_DOWNLOAD_BASE_URL
+#define FONT_DOWNLOAD_BASE_URL "https://github.com/uxjulia/crossink-fonts/releases/download/"
+#define FONT_DOWNLOAD_USE_GITHUB_RELEASES
+#endif
 #define FONT_MANIFEST_URL_STRINGIFY_INNER(x) #x
 #define FONT_MANIFEST_URL_STRINGIFY(x) FONT_MANIFEST_URL_STRINGIFY_INNER(x)
-#define FONT_MANIFEST_URL                                                                    \
-  "http://crossink-fonts.s3.us-east-1.amazonaws.com/sd-fonts-m" FONT_MANIFEST_URL_STRINGIFY( \
-      FONTS_MANIFEST_VERSION) "-b" FONT_MANIFEST_URL_STRINGIFY(CPFONT_VERSION) "/fonts.json"
+#define FONT_DOWNLOAD_CATALOG_BASE_URL                             \
+  FONT_DOWNLOAD_BASE_URL "sd-fonts-m" FONT_MANIFEST_URL_STRINGIFY( \
+      FONTS_MANIFEST_VERSION) "-b" FONT_MANIFEST_URL_STRINGIFY(CPFONT_VERSION) "/"
+#define FONT_MANIFEST_URL FONT_DOWNLOAD_CATALOG_BASE_URL "fonts.json"
 #endif
 
 class FontDownloadActivity : public Activity {
+#ifdef SIMULATOR
+  friend struct ScreenCalibrationSmokeTest;
+#endif
  public:
   explicit FontDownloadActivity(GfxRenderer& renderer, MappedInputManager& mappedInput);
 
@@ -165,5 +171,4 @@ class FontDownloadActivity : public Activity {
   int familyIndexFromList(int listIndex) const { return listIndex - specialRowCount(); }
   int listItemCount() const;
   size_t totalUpdateSize() const;
-  static void formatSize(size_t bytes, char* buffer, size_t bufferSize);
 };

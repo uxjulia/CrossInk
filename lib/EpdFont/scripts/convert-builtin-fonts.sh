@@ -4,6 +4,11 @@ set -e
 
 cd "$(dirname "$0")"
 
+case "${1:-}" in
+  ""|--ui-only) ;;
+  *) echo "Usage: $0 [--ui-only]" >&2; exit 2 ;;
+esac
+
 SYMBOLS_FONT="../builtinFonts/source/NotoSymbols/NotoSansSymbols-Regular.ttf"
 PHM_FONT="../builtinFonts/source/NotoSansCJKsc/NotoSansCJKsc-Regular.otf"
 
@@ -168,16 +173,24 @@ generate_reading_fonts() {
   echo ""
 }
 
-# Built-in reader fonts retain the PHM fallback ranges, but exclude emoticons.
-generate_reading_fonts
+if [[ "${1:-}" != "--ui-only" ]]; then
+  # Built-in reader fonts retain the PHM fallback ranges, but exclude emoticons.
+  generate_reading_fonts
 
-# Shared fixed-size UI symbols
-bash ./generate-ui-symbols.sh
+  # Shared fixed-size UI symbols
+  bash ./generate-ui-symbols.sh
+fi
 
 # UI Font - Inter
 
 UI_FONT_SIZES=(10 12)
 UI_FONT_STYLES=("Regular" "Bold")
+# Azerbaijani schwa lies outside the default Latin ranges. Only the UI stack
+# needs this extra coverage; leave the built-in reading fonts unchanged.
+AZERBAIJANI_INTERVALS=(
+  --additional-intervals 0x018F,0x018F
+  --additional-intervals 0x0259,0x0259
+)
 
 # Arabic glyphs for UI text (menus, file browser titles). The built-in fonts
 # must cover the *output* of MiniBidi's do_shape() — contextual presentation
@@ -185,15 +198,20 @@ UI_FONT_STYLES=("Regular" "Bold")
 # Curated for firmware-size budget: core Arabic (Presentation Forms-B,
 # incl. the Lam-Alef ligature forms) plus the Farsi/Urdu extra letters'
 # Presentation Forms-A blocks, the few characters shaping leaves at their
-# base codepoint, Arabic punctuation, and both digit sets. No harakat and
-# no Sindhi/Pashto/Kurdish forms — book text gets those from SD-card fonts.
+# base codepoint, Arabic punctuation, both digit sets, and marks used by the
+# shipped Persian UI. Additional harakat and Sindhi/Pashto/Kurdish forms
+# remain in the SD-card reading fonts.
 ARABIC_INTERVALS=(
   --additional-intervals 0x060C,0x060C  # Arabic comma
   --additional-intervals 0x061B,0x061B  # Arabic semicolon
   --additional-intervals 0x061F,0x061F  # Arabic question mark
   --additional-intervals 0x0621,0x0621  # hamza (non-joining, never shaped)
   --additional-intervals 0x0640,0x0640  # tatweel
+  --additional-intervals 0x064B,0x064B  # fathatan
+  --additional-intervals 0x0650,0x0650  # kasra
+  --additional-intervals 0x0654,0x0654  # combining hamza above (Persian)
   --additional-intervals 0x0660,0x0669  # Arabic-Indic digits
+  --additional-intervals 0x066A,0x066A  # Arabic percent sign
   --additional-intervals 0x06BA,0x06BA  # noon ghunna base (initial/medial keep base cp)
   --additional-intervals 0x06D4,0x06D4  # Urdu full stop
   --additional-intervals 0x06F0,0x06F9  # extended Arabic-Indic digits (Farsi/Urdu)
@@ -215,7 +233,7 @@ for size in ${UI_FONT_SIZES[@]}; do
     arabic_path="../builtinFonts/source/NotoSansArabic/NotoSansArabic-${style}.ttf"
     output_path="../builtinFonts/${font_name}.h"
     python fontconvert.py $font_name $size $font_path $hebrew_path $arabic_path \
-      --additional-intervals 0x05D0,0x05EA "${ARABIC_INTERVALS[@]}" > $output_path
+      --additional-intervals 0x05D0,0x05EA "${AZERBAIJANI_INTERVALS[@]}" "${ARABIC_INTERVALS[@]}" > $output_path
     echo "Generated $output_path"
   done
 done
@@ -226,7 +244,7 @@ python fontconvert.py inter_8_regular 8 \
   ../builtinFonts/source/Inter/Inter-Regular.ttf \
   ../builtinFonts/source/IBMPlexSansHebrew/IBMPlexSansHebrew-Regular.ttf \
   ../builtinFonts/source/NotoSansArabic/NotoSansArabic-Regular.ttf \
-  --additional-intervals 0x05D0,0x05EA "${ARABIC_INTERVALS[@]}" > ../builtinFonts/inter_8_regular.h
+  --additional-intervals 0x05D0,0x05EA "${AZERBAIJANI_INTERVALS[@]}" "${ARABIC_INTERVALS[@]}" > ../builtinFonts/inter_8_regular.h
 
 echo ""
 echo "Running compression verification..."

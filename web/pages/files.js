@@ -56,6 +56,9 @@ function showNotification(message, type = "info") {
     document.body.appendChild(notification);
   }
 
+  clearTimeout(notification.hideTimer);
+  clearTimeout(notification.removeTimer);
+
   // Set styles based on type
   const styles = {
     success: "background-color: #27ae60;",
@@ -71,10 +74,10 @@ function showNotification(message, type = "info") {
   notification.style.transform = "translateX(0)";
 
   // Auto-hide after 5 seconds
-  setTimeout(() => {
+  notification.hideTimer = setTimeout(() => {
     notification.style.opacity = "0";
     notification.style.transform = "translateX(100%)";
-    setTimeout(() => {
+    notification.removeTimer = setTimeout(() => {
       if (notification.parentNode) {
         notification.parentNode.removeChild(notification);
       }
@@ -107,27 +110,28 @@ async function hydrate() {
   // Fetch CrossInk version
   fetchVersion();
 
-  // Close modals when clicking overlay - call proper cleanup functions
+  // Dismiss only clicks that also began on the backdrop (CrossPoint #3931).
   document.querySelectorAll(".modal-overlay").forEach(function (overlay) {
+    let clickTarget = null;
+    overlay.addEventListener("mousedown", function (e) {
+      clickTarget = e.target;
+    });
     overlay.addEventListener("click", function (e) {
-      if (e.target === overlay) {
+      const clickedBackdrop = clickTarget === overlay && e.target === overlay;
+      clickTarget = null;
+      if (clickedBackdrop) {
         const closeFn = MODAL_OUTSIDE_CLICK_FNS[overlay.id];
         if (closeFn) return closeFn();
-        overlay.classList.remove("open");
+        overlay.close();
       }
     });
   });
 
-  // Escape cancels whichever modal is currently open
-  document.addEventListener("keydown", function (e) {
-    if (e.key !== "Escape" || e.repeat || e.isComposing) return;
-    const openOverlay = document.querySelector(".modal-overlay.open");
-    if (!openOverlay) return;
-    const closeFn = MODAL_CANCEL_FNS[openOverlay.id];
-    if (closeFn) {
-      e.preventDefault();
-      closeFn();
-    }
+  document.querySelectorAll("dialog.modal-overlay").forEach((modal) => {
+    modal.addEventListener("cancel", (event) => {
+      event.preventDefault();
+      MODAL_CANCEL_FNS[modal.id]();
+    });
   });
 
   // Enter confirms the rename/move text inputs
@@ -317,6 +321,16 @@ function downloadUrl(filePath) {
   return `/download?path=${encodeURIComponent(filePath)}`;
 }
 
+function openWebModal(id) {
+  const modal = document.getElementById(id);
+  if (!modal.open) modal.showModal();
+}
+
+function closeWebModal(id) {
+  const modal = document.getElementById(id);
+  if (modal.open) modal.close();
+}
+
 function openImagePreview(link) {
   const url = link.getAttribute("href");
   const name = link.textContent;
@@ -339,13 +353,13 @@ function openImagePreview(link) {
   img.alt = name;
   document.getElementById("imagePreviewDownload").href = url;
   document.getElementById("imagePreviewNav").classList.toggle("single", links.length < 2);
-  document.getElementById("imagePreviewModal").classList.add("open");
+  openWebModal("imagePreviewModal");
 }
 
 // Image navigation is independent of the file-dialog shortcuts.
 document.addEventListener("keydown", (e) => {
   if (e.repeat || e.isComposing || (e.key !== "ArrowLeft" && e.key !== "ArrowRight")) return;
-  if (!document.getElementById("imagePreviewModal").classList.contains("open")) return;
+  if (!document.getElementById("imagePreviewModal").open) return;
   e.preventDefault();
   stepImagePreview(e.key === "ArrowLeft" ? -1 : 1);
 });
@@ -363,7 +377,7 @@ function stepImagePreview(dir) {
 }
 
 function closeImagePreview() {
-  document.getElementById("imagePreviewModal").classList.remove("open");
+  closeWebModal("imagePreviewModal");
   const img = document.getElementById("imagePreviewImg");
   img.onload = img.onerror = null;
   img.removeAttribute("src");
@@ -401,7 +415,7 @@ function openUploadModal() {
   if (logContainer) logContainer.innerHTML = "";
 
   document.getElementById("uploadPathDisplay").textContent = currentPath === "/" ? "/ 🏠" : currentPath;
-  document.getElementById("uploadModal").classList.add("open");
+  openWebModal("uploadModal");
 }
 
 function handleCancelUploadModal() {
@@ -444,7 +458,7 @@ function closeUploadModal() {
   if (isUploadInProgress) {
     return;
   }
-  document.getElementById("uploadModal").classList.remove("open");
+  closeWebModal("uploadModal");
   const fileInput = document.getElementById("fileInput");
   fileInput.value = "";
   fileInput.classList.remove("has-files");
@@ -962,7 +976,7 @@ async function showImagePicker(file) {
   // Check if JSZip is available
   if (typeof JSZip === "undefined") {
     console.error("JSZip not loaded");
-    alert("JSZip library not available. Conversion will proceed without image picker.");
+    showWebAlert("JSZip library not available. Conversion will proceed without image picker.");
     startConversionWithImageStates();
     return;
   }
@@ -1013,7 +1027,7 @@ async function showImagePicker(file) {
     document.getElementById("pickerColumns").classList.add("picker-active");
   } catch (error) {
     console.error("Failed to extract images:", error);
-    alert("Failed to preview images: " + error.message + "\n\nConversion will proceed normally.");
+    showWebAlert("Failed to preview images: " + error.message + "\n\nConversion will proceed normally.");
     // Fallback: start conversion directly
     startConversionWithImageStates();
   }
@@ -1036,6 +1050,7 @@ function renderImageGrid() {
     const state = imageStates[img.path] || 0;
 
     const item = document.createElement("div");
+    const imageName = escapeHtml(img.name);
 
     if (isCover) {
       // Cover image - locked, cannot be split
@@ -1043,8 +1058,8 @@ function renderImageGrid() {
       item.title = `${img.width}×${img.height} - Cover image (locked)`;
       item.innerHTML = `
           <span class="image-state-badge cover-badge">🔒</span>
-          <img src="${img.dataUrl}" alt="${img.name}" loading="lazy">
-          <div class="image-name">${img.name}</div>
+          <img src="${img.dataUrl}" alt="${imageName}" loading="lazy">
+          <div class="image-name">${imageName}</div>
         `;
     } else if (isSeparator) {
       // Separator/ornament - locked, cannot be split
@@ -1052,8 +1067,8 @@ function renderImageGrid() {
       item.title = `${img.width}×${img.height} - Separator (locked)`;
       item.innerHTML = `
           <span class="image-state-badge separator-badge">✦</span>
-          <img src="${img.dataUrl}" alt="${img.name}" loading="lazy">
-          <div class="image-name">${img.name}</div>
+          <img src="${img.dataUrl}" alt="${imageName}" loading="lazy">
+          <div class="image-name">${imageName}</div>
         `;
     } else {
       // All other images are selectable - all modes allowed
@@ -1107,8 +1122,8 @@ function renderImageGrid() {
           <div class="image-preview-overlay">
             ${splitLinesHtml}
           </div>
-          <img src="${img.dataUrl}" alt="${img.name}" loading="lazy">
-          <div class="image-name">${img.name}</div>
+          <img src="${img.dataUrl}" alt="${imageName}" loading="lazy">
+          <div class="image-name">${imageName}</div>
         `;
     }
 
@@ -1258,7 +1273,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
 function openFolderModal() {
   document.getElementById("folderPathDisplay").textContent = currentPath === "/" ? "/ 🏠" : currentPath;
-  document.getElementById("folderModal").classList.add("open");
+  openWebModal("folderModal");
   document.getElementById("folderName").value = "";
   setTimeout(() => document.getElementById("folderName").focus(), 50);
   document.getElementById("folderName").onkeydown = (e) => {
@@ -1267,7 +1282,7 @@ function openFolderModal() {
 }
 
 function closeFolderModal() {
-  document.getElementById("folderModal").classList.remove("open");
+  closeWebModal("folderModal");
 }
 
 // Toggle select-all checkbox
@@ -1294,7 +1309,7 @@ function getSelectedItems() {
 function openDeleteSelectedModal() {
   const items = getSelectedItems();
   if (items.length === 0) {
-    alert("Please select at least one item to delete.");
+    showWebAlert("Please select at least one item to delete.");
     return;
   }
   openDeleteModalForItems(items);
@@ -1317,11 +1332,11 @@ function openDeleteModalForItems(items) {
     div.textContent = (it.isFolder ? "📁 " : "📄 ") + it.path;
     listEl.appendChild(div);
   });
-  document.getElementById("deleteModal").classList.add("open");
+  openWebModal("deleteModal");
 }
 
 function closeDeleteModal() {
-  document.getElementById("deleteModal").classList.remove("open");
+  closeWebModal("deleteModal");
 }
 
 async function confirmDelete() {
@@ -1364,7 +1379,7 @@ async function confirmDelete() {
 
     const shown = failed.slice(0, 3).join("\n");
     const hiddenCount = failed.length - 3;
-    alert(
+    showWebAlert(
       "Failed to delete " +
         failed.length +
         " item" +
@@ -1375,7 +1390,7 @@ async function confirmDelete() {
     );
     closeDeleteModal();
   } catch (_) {
-    alert("Failed to delete - network error");
+    showWebAlert("Failed to delete - network error");
     closeDeleteModal();
   } finally {
     if (deleteBtn) {
@@ -1577,6 +1592,7 @@ const DEFAULT_UPLOAD_SETTINGS = Object.freeze({
   renameFromMetadata: false,
   splitLongSections: true,
   preserveCoverColor: true,
+  removeEmbeddedFonts: true,
   quality: DEFAULT_JPEG_QUALITY,
   referenceCharacters: X_DEFAULT_REFERENCE_CHARACTERS_PER_PAGE,
   deviceTarget: "auto",
@@ -1592,6 +1608,7 @@ function getCurrentUploadSettings() {
     renameFromMetadata: !!document.getElementById("renameFromMetadataToggle")?.checked,
     splitLongSections: !!document.getElementById("splitLongSectionsToggle")?.checked,
     preserveCoverColor: !!document.getElementById("preserveCoverColorToggle")?.checked,
+    removeEmbeddedFonts: !!document.getElementById("removeEmbeddedFontsToggle")?.checked,
     quality: parseInt(document.getElementById("qualitySlider")?.value || JPEG_QUALITY, 10),
     referenceCharacters: parseInt(
       document.getElementById("referenceCharactersInput")?.value || X_DEFAULT_REFERENCE_CHARACTERS_PER_PAGE,
@@ -1612,6 +1629,7 @@ function applyUploadSettings(settings = {}) {
     document.getElementById("renameFromMetadataToggle").checked = !!merged.renameFromMetadata;
     document.getElementById("splitLongSectionsToggle").checked = !!merged.splitLongSections;
     document.getElementById("preserveCoverColorToggle").checked = !!merged.preserveCoverColor;
+    document.getElementById("removeEmbeddedFontsToggle").checked = !!merged.removeEmbeddedFonts;
     document.getElementById("export-log-checkbox").checked = !!merged.exportLog;
     document.getElementById("rememberUploadSettings").checked = !!settings.rememberSettings;
     document.getElementById("referenceCharactersInput").value = normalizedReferenceCharactersPerPage(
@@ -1850,7 +1868,7 @@ function logImage(
       "SPLIT",
     );
     if (partsDetail) {
-      log(`<span class="log-detail" style="margin-left: 20px;">↳ ${partsDetail}</span>`, "", "");
+      log(`<span class="log-detail" style="margin-left: 20px;">↳ ${escapeHtml(partsDetail)}</span>`, "", "");
     }
   } else {
     conversionStats.images++;
@@ -1867,7 +1885,7 @@ function logImage(
 // Log fix applied
 function logFix(type, detail) {
   conversionStats.fixes++;
-  log(`${type}: <span class="log-detail">${detail}</span>`, "success", "FIX");
+  log(`${type}: <span class="log-detail">${escapeHtml(detail)}</span>`, "success", "FIX");
 }
 
 // Log skipped item
@@ -1879,7 +1897,7 @@ function logSkip(name, reason) {
 // Log error
 function logError(message) {
   conversionStats.errors++;
-  log(message, "error", "ERROR");
+  log(escapeHtml(message), "error", "ERROR");
 }
 
 // Log summary table
@@ -2225,7 +2243,7 @@ function scrubBlankCodepoints(text) {
 function scrubEpubTextResource(path, text) {
   const scrubbed = scrubBlankCodepoints(text);
   if (scrubbed.count > 0) {
-    logFix("Blank codepoints", `${escapeHtml(path.split("/").pop())} (${scrubbed.count} removed)`);
+    logFix("Blank codepoints", `${path.split("/").pop()} (${scrubbed.count} removed)`);
   }
   return scrubbed.text;
 }
@@ -2362,7 +2380,13 @@ async function maybeRenameEbookFile(file) {
 }
 
 function reserveAvailableUploadFilename(fileName, usedFileNames) {
-  const normalize = (name) => name.toLowerCase();
+  // Use NFC filenames for cross-platform SD card compatibility (CrossPoint #3961).
+  const normalizedName = fileName.normalize("NFC");
+  if (normalizedName !== fileName) {
+    console.log(`[Upload] Normalized filename to NFC: ${fileName} -> ${normalizedName}`);
+    fileName = normalizedName;
+  }
+  const normalize = (name) => name.normalize("NFC").toLowerCase();
   if (!usedFileNames.has(normalize(fileName))) {
     usedFileNames.add(normalize(fileName));
     return fileName;
@@ -2380,6 +2404,7 @@ function reserveAvailableUploadFilename(fileName, usedFileNames) {
   } while (usedFileNames.has(normalize(candidateName)));
 
   usedFileNames.add(normalize(candidateName));
+  console.log(`[Upload] Renamed to avoid collision: ${fileName} -> ${candidateName}`);
   return candidateName;
 }
 
@@ -2387,7 +2412,7 @@ async function fetchExistingUploadNames() {
   const response = await fetch(`/api/files?path=${encodeURIComponent(currentPath)}&_=${Date.now()}`);
   if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
   const entries = await response.json();
-  return new Set(entries.map((entry) => entry.name.toLowerCase()));
+  return new Set(entries.map((entry) => entry.name.normalize("NFC").toLowerCase()));
 }
 
 /**
@@ -3759,9 +3784,7 @@ function ensureCoverMetaRegex(o) {
   return { o, fixed: false };
 }
 
-function flattenCanvasAlpha(ctx, width, height) {
-  const imageData = ctx.getImageData(0, 0, width, height);
-  const data = imageData.data;
+function flattenCanvasAlpha(data) {
   for (let i = 0; i < data.length; i += 4) {
     if (data[i + 3] === 255) continue;
     const a = data[i + 3] / 255;
@@ -3770,21 +3793,58 @@ function flattenCanvasAlpha(ctx, width, height) {
     data[i + 2] = Math.round(data[i + 2] * a + 255 * (1 - a));
     data[i + 3] = 255;
   }
-  ctx.putImageData(imageData, 0, 0);
 }
 
-// Apply grayscale to canvas image data
-function applyGrayscale(ctx, width, height) {
-  flattenCanvasAlpha(ctx, width, height);
-  if (!ENABLE_GRAYSCALE) return;
-  const imageData = ctx.getImageData(0, 0, width, height);
-  const data = imageData.data;
+// Match Inky desktop's 1% autocontrast followed by a 1.2x boost around the stretched mean.
+function applyImageContrast(data) {
+  const histogram = new Uint32Array(256);
+  const pixelCount = data.length / 4;
   for (let i = 0; i < data.length; i += 4) {
-    const gray = Math.round(data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114);
+    // Pillow RGB-to-L luminance coefficients, scaled by 65536.
+    const gray = (19595 * data[i] + 38470 * data[i + 1] + 7471 * data[i + 2] + 32768) >> 16;
     data[i] = gray;
-    data[i + 1] = gray;
-    data[i + 2] = gray;
+    histogram[gray]++;
   }
+
+  const cutoff = Math.floor(pixelCount / 100);
+  let low = 0;
+  let high = 255;
+  let skipped = 0;
+  while (low < 255 && skipped + histogram[low] <= cutoff) {
+    skipped += histogram[low];
+    low++;
+  }
+  skipped = 0;
+  while (high > 0 && skipped + histogram[high] <= cutoff) {
+    skipped += histogram[high];
+    high--;
+  }
+
+  const tones = new Uint8ClampedArray(256);
+  const scale = high > low ? 255 / (high - low) : 1;
+  let sum = 0;
+  for (let gray = 0; gray < 256; gray++) {
+    tones[gray] = high > low ? Math.trunc(gray * scale - low * scale) : gray;
+    sum += tones[gray] * histogram[gray];
+  }
+  const mean = Math.round(sum / pixelCount);
+  // Pillow blends in single precision, then truncates to an 8-bit sample.
+  const factor = Math.fround(1.2);
+  for (let gray = 0; gray < 256; gray++) {
+    tones[gray] = Math.trunc(Math.fround(mean + factor * (tones[gray] - mean)));
+  }
+  for (let i = 0; i < data.length; i += 4) {
+    const tone = tones[data[i]];
+    data[i] = tone;
+    data[i + 1] = tone;
+    data[i + 2] = tone;
+  }
+}
+
+function applyGrayscale(ctx, width, height) {
+  const imageData = ctx.getImageData(0, 0, width, height);
+  flattenCanvasAlpha(imageData.data);
+  if (ENABLE_GRAYSCALE) applyImageContrast(imageData.data);
   ctx.putImageData(imageData, 0, 0);
 }
 
@@ -4358,23 +4418,24 @@ function crossInkPxcStyle(rules, image) {
   return style;
 }
 
-function crossInkPxcLength(value, relative) {
+function crossInkPxcLength(value, relative, viewportWidth = relative) {
   if (!value) return undefined;
   const parsed = Number.parseFloat(value);
   if (!Number.isFinite(parsed)) return undefined;
-  if (value.endsWith("%") || value.endsWith("vw")) return Math.max(1, Math.round(relative * parsed / 100));
+  if (value.endsWith("vw")) return Math.max(1, Math.round(viewportWidth * parsed / 100));
+  if (value.endsWith("%")) return Math.max(1, Math.round(relative * parsed / 100));
   if (!value.endsWith("px") && !/^\d+(?:\.\d+)?$/.test(value)) return undefined;
   return Math.max(1, Math.round(parsed));
 }
 
-function crossInkPxcSize(width, height, style, viewportWidth, viewportHeight) {
-  let resolvedWidth = crossInkPxcLength(style.width, viewportWidth);
-  let resolvedHeight = crossInkPxcLength(style.height, viewportHeight);
+function crossInkPxcSize(width, height, style) {
+  let resolvedWidth = crossInkPxcLength(style.width, MAX_WIDTH);
+  let resolvedHeight = crossInkPxcLength(style.height, MAX_HEIGHT, MAX_WIDTH);
   if (!resolvedWidth && !resolvedHeight) return { width, height };
   if (!resolvedWidth) resolvedWidth = Math.max(1, Math.round(resolvedHeight * width / height));
   if (!resolvedHeight) resolvedHeight = Math.max(1, Math.round(resolvedWidth * height / width));
-  if (resolvedWidth > viewportWidth || resolvedHeight > viewportHeight) {
-    const scale = Math.min(viewportWidth / resolvedWidth, viewportHeight / resolvedHeight);
+  if (resolvedWidth > MAX_WIDTH || resolvedHeight > MAX_HEIGHT) {
+    const scale = Math.min(MAX_WIDTH / resolvedWidth, MAX_HEIGHT / resolvedHeight);
     resolvedWidth = Math.max(1, Math.round(resolvedWidth * scale));
     resolvedHeight = Math.max(1, Math.round(resolvedHeight * scale));
   }
@@ -4518,9 +4579,6 @@ async function buildCrossInkPxcSidecars(out, zip, xhtmlFiles) {
   }
   const entries = [];
   const seen = new Set();
-  // The display is landscape while the UI's conversion bounds are portrait.
-  const viewportWidth = MAX_HEIGHT;
-  const viewportHeight = MAX_WIDTH;
   for (const [xhtmlPath, xhtml] of Object.entries(xhtmlFiles)) {
     const doc = new DOMParser().parseFromString(xhtml, "text/html");
     const rules = [];
@@ -4539,7 +4597,7 @@ async function buildCrossInkPxcSidecars(out, zip, xhtmlFiles) {
         const sourceHeight = bitmap.height;
         if (bitmap.close) bitmap.close();
         if (!sourceWidth || !sourceHeight) continue;
-        const size = crossInkPxcSize(sourceWidth, sourceHeight, crossInkPxcStyle(rules, image), viewportWidth, viewportHeight);
+        const size = crossInkPxcSize(sourceWidth, sourceHeight, crossInkPxcStyle(rules, image));
         if (entries.length >= 256 || entries.some((e) => e.href === href) || !crossInkIndexPath(href, 128)) continue;
         const key = `${href}:${size.width}x${size.height}`;
         if (seen.has(key)) continue;
@@ -4557,6 +4615,105 @@ async function buildCrossInkPxcSidecars(out, zip, xhtmlFiles) {
   return entries;
 }
 
+// Strip complete @font-face blocks while respecting comments, quotes, and braces.
+function stripEmbeddedFontRules(css) {
+  const tokens = /\/\*[\s\S]*?\*\/|"(?:\\[\s\S]|[^"\\])*"|'(?:\\[\s\S]|[^'\\])*'|@font-face\b|[{}]/gi;
+  let start = -1;
+  let depth = 0;
+  let cursor = 0;
+  let result = "";
+  for (const match of css.matchAll(tokens)) {
+    const token = match[0];
+    if (start < 0 && token.toLowerCase() === "@font-face") {
+      start = match.index;
+    } else if (start >= 0 && token === "{") {
+      depth++;
+    } else if (start >= 0 && token === "}" && --depth === 0) {
+      result += css.slice(cursor, start);
+      cursor = match.index + 1;
+      start = -1;
+    }
+  }
+  return result + css.slice(cursor);
+}
+
+async function removeEmbeddedFontsFromZip(zip) {
+  const fonts = new Set();
+  const fontExtension = /\.(?:ttf|otf|ttc|otc|woff2?|eot|cpfont)$/i;
+  const fontMediaType = /^(?:font\/|application\/(?:x-font|font|vnd\.ms-opentype|vnd\.ms-fontobject))|opentype|truetype/i;
+  const fontAlgorithms = new Set([
+    "http://www.idpf.org/2008/embedding",
+    "http://ns.adobe.com/pdf/enc#RC",
+  ]);
+  const resolveFontPath = (base, href) => {
+    let decoded = href.split(/[?#]/)[0];
+    try { decoded = decodeURIComponent(decoded); } catch (_) { /* Keep literal paths. */ }
+    const parts = (decoded.startsWith("/") ? decoded : base.slice(0, base.lastIndexOf("/") + 1) + decoded).split("/");
+    const normalized = [];
+    for (const part of parts) {
+      if (part === "..") normalized.pop();
+      else if (part && part !== ".") normalized.push(part);
+    }
+    return normalized.join("/");
+  };
+  for (const [path, entry] of Object.entries(zip.files)) {
+    if (!entry.dir && fontExtension.test(path)) fonts.add(path);
+  }
+  const packages = [];
+  for (const [path, entry] of Object.entries(zip.files)) {
+    if (entry.dir || !path.toLowerCase().endsWith(".opf")) continue;
+    const original = await safeReadText(entry);
+    const doc = new DOMParser().parseFromString(original, "application/xml");
+    if (doc.querySelector("parsererror")) throw new Error("Could not read EPUB font manifest");
+    packages.push({ path, original, doc });
+    for (const item of doc.getElementsByTagNameNS("*", "item")) {
+      const href = item.getAttribute("href") || "";
+      if (fontExtension.test(href) || fontMediaType.test(item.getAttribute("media-type") || "")) {
+        fonts.add(resolveFontPath(path, href));
+      }
+    }
+  }
+  const encryption = zip.file("META-INF/encryption.xml");
+  if (encryption) {
+    const original = await safeReadText(encryption);
+    const doc = new DOMParser().parseFromString(original, "application/xml");
+    if (doc.querySelector("parsererror")) throw new Error("Could not read EPUB font obfuscation metadata");
+    let changed = false;
+    for (const encrypted of [...doc.getElementsByTagNameNS("*", "EncryptedData")]) {
+      const algorithm = encrypted.getElementsByTagNameNS("*", "EncryptionMethod")[0]?.getAttribute("Algorithm");
+      const uri = encrypted.getElementsByTagNameNS("*", "CipherReference")[0]?.getAttribute("URI");
+      if (!uri) continue;
+      const path = resolveFontPath("", uri);
+      if (fontAlgorithms.has(algorithm)) fonts.add(path);
+      if (fonts.has(path)) { encrypted.remove(); changed = true; }
+    }
+    if (changed) {
+      if (doc.getElementsByTagNameNS("*", "EncryptedData").length) {
+        zip.file("META-INF/encryption.xml", safeSerialize(doc, original));
+      } else zip.remove("META-INF/encryption.xml");
+    }
+  }
+  for (const { path, original, doc } of packages) {
+    let changed = false;
+    for (const item of [...doc.getElementsByTagNameNS("*", "item")]) {
+      if (fonts.has(resolveFontPath(path, item.getAttribute("href") || ""))) {
+        item.remove(); changed = true;
+      }
+    }
+    if (changed) zip.file(path, safeSerialize(doc, original));
+  }
+  for (const path of fonts) zip.remove(path);
+  for (const [path, entry] of Object.entries(zip.files)) {
+    if (entry.dir || !/\.(?:css|xhtml|html|htm)$/i.test(path)) continue;
+    const original = await safeReadText(entry);
+    const cleaned = /\.css$/i.test(path)
+      ? stripEmbeddedFontRules(original)
+      : original.replace(/(<(?:[\w-]+:)?style\b[^>]*>)([\s\S]*?)(<\/(?:[\w-]+:)?style\s*>)/gi,
+          (_, open, css, close) => open + stripEmbeddedFontRules(css) + close);
+    if (cleaned !== original) zip.file(path, cleaned);
+  }
+}
+
 // Convert EPUB file - returns converted blob
 async function convertEpubFile(file, progressCallback) {
   const startTime = Date.now();
@@ -4565,7 +4722,7 @@ async function convertEpubFile(file, progressCallback) {
   // Initialize logging
   clearLog();
   showLog();
-  log(`<strong>${file.name}</strong> <span class="log-detail">(${formatBytes(originalSize)})</span>`, "", "INFO");
+  log(`<strong>${escapeHtml(file.name)}</strong> <span class="log-detail">(${formatBytes(originalSize)})</span>`, "", "INFO");
   log(
     `Quality: ${JPEG_QUALITY}% | Overlap: ${OVERLAP_PERCENT}% | Rotation: ${HANDEDNESS === "right" ? "CW" : "CCW"} | Grayscale: ${ENABLE_GRAYSCALE ? "ON" : "OFF"}`,
     "",
@@ -4574,6 +4731,8 @@ async function convertEpubFile(file, progressCallback) {
 
   const zip = await JSZip.loadAsync(file);
   await assertEpubHasNoContentEncryption(zip);
+  const removeEmbeddedFonts = document.getElementById("removeEmbeddedFontsToggle")?.checked ?? true;
+  if (removeEmbeddedFonts) await removeEmbeddedFontsFromZip(zip);
   const renamed = {};
   zip.forEach((p) => {
     const l = p.toLowerCase();
@@ -4619,7 +4778,7 @@ async function convertEpubFile(file, progressCallback) {
       } catch (imageError) {
         // Log error but continue with original image
         console.error(`Failed to process image ${path}:`, imageError);
-        log(`Warning: Failed to process ${path.split("/").pop()}, using original`, "warning", "IMG-ERR");
+        log(`Warning: Failed to process ${escapeHtml(path.split("/").pop())}, using original`, "warning", "IMG-ERR");
         delete renamed[path];
         out.file(path, data, { compression: "STORE", createFolders: false });
         if (progressCallback) progressCallback((i / entries.length) * 60);
@@ -4959,9 +5118,9 @@ async function convertEpubFile(file, progressCallback) {
     const manifest = new TextEncoder().encode(JSON.stringify({
       format: "crossink-optimizer",
       version: 1,
-      target: { device: ACTIVE_DEVICE.toLowerCase(), width: MAX_HEIGHT, height: MAX_WIDTH, grayscaleLevels: 4 },
+      target: { device: ACTIVE_DEVICE.toLowerCase(), width: MAX_WIDTH, height: MAX_HEIGHT, grayscaleLevels: 4 },
       generator: "crossink-web-uploader",
-      features: { htmlNormalized: true, cssFlattened: false, xLocations: true, prebuiltPxc: imageCacheEntries.length > 0 },
+      features: { htmlNormalized: true, fontsRemoved: removeEmbeddedFonts, cssFlattened: false, xLocations: true, prebuiltPxc: imageCacheEntries.length > 0 },
       images: imageCacheEntries,
     }));
     out.file(CROSSINK_OPTIMIZER_MANIFEST_PATH, manifest, { compression: "STORE", createFolders: false });
@@ -5219,7 +5378,7 @@ async function uploadFile() {
   const convertEnabled = document.getElementById("convertBeforeUpload").checked;
 
   if (files.length === 0) {
-    alert("Please select at least one file!");
+    showWebAlert("Please select at least one file!");
     return;
   }
 
@@ -5229,7 +5388,7 @@ async function uploadFile() {
     usedFileNames = await fetchExistingUploadNames();
   } catch (error) {
     isUploadInProgress = false;
-    alert(`Failed to check existing files: ${error.message}`);
+    showWebAlert(`Failed to check existing files: ${error.message}`);
     return;
   }
 
@@ -5334,7 +5493,6 @@ async function uploadFile() {
 
     const availableName = reserveAvailableUploadFilename(file.name, usedFileNames);
     if (availableName !== file.name) {
-      console.log(`[Upload] Renamed to avoid collision: ${file.name} -> ${availableName}`);
       file = new File([file], availableName, {
         type: file.type,
         lastModified: file.lastModified,
@@ -5592,12 +5750,12 @@ function createFolder() {
   const folderName = document.getElementById("folderName").value.trim();
 
   if (!folderName) {
-    alert("Please enter a folder name!");
+    showWebAlert("Please enter a folder name!");
     return;
   }
 
   if (!isSafeFileName(folderName)) {
-    alert("Folder name " + SAFE_FILE_NAME_RULE_MESSAGE);
+    showWebAlert("Folder name " + SAFE_FILE_NAME_RULE_MESSAGE);
     return;
   }
 
@@ -5612,12 +5770,12 @@ function createFolder() {
     if (xhr.status === 200) {
       window.location.reload();
     } else {
-      alert("Failed to create folder: " + xhr.responseText);
+      showWebAlert("Failed to create folder: " + xhr.responseText);
     }
   };
 
   xhr.onerror = function () {
-    alert("Failed to create folder - network error");
+    showWebAlert("Failed to create folder - network error");
   };
 
   xhr.send(formData);
@@ -5628,7 +5786,7 @@ function openRenameModal(name, path) {
   document.getElementById("renameItemName").textContent = "📄 " + name;
   document.getElementById("renameItemPath").value = path;
   document.getElementById("renameNewName").value = name;
-  document.getElementById("renameModal").classList.add("open");
+  openWebModal("renameModal");
   setTimeout(() => {
     const input = document.getElementById("renameNewName");
     input.focus();
@@ -5642,7 +5800,7 @@ function openRenameModal(name, path) {
 }
 
 function closeRenameModal() {
-  document.getElementById("renameModal").classList.remove("open");
+  closeWebModal("renameModal");
 }
 
 function confirmRename() {
@@ -5650,11 +5808,11 @@ function confirmRename() {
   const newName = document.getElementById("renameNewName").value.trim();
 
   if (!newName) {
-    alert("Please enter a new name.");
+    showWebAlert("Please enter a new name.");
     return;
   }
   if (!isSafeFileName(newName)) {
-    alert("File name " + SAFE_FILE_NAME_RULE_MESSAGE);
+    showWebAlert("File name " + SAFE_FILE_NAME_RULE_MESSAGE);
     return;
   }
 
@@ -5669,13 +5827,13 @@ function confirmRename() {
     if (xhr.status === 200) {
       window.location.reload();
     } else {
-      alert("Failed to rename: " + xhr.responseText);
+      showWebAlert("Failed to rename: " + xhr.responseText);
     }
     closeRenameModal();
   };
 
   xhr.onerror = function () {
-    alert("Failed to rename - network error");
+    showWebAlert("Failed to rename - network error");
     closeRenameModal();
   };
 
@@ -5750,7 +5908,7 @@ function openMoveModal(name, path) {
   document.getElementById("moveItemName").textContent = "📄 " + name;
   document.getElementById("moveItemPath").value = path;
   document.getElementById("moveDestPath").value = currentPath === "/" ? "/" : currentPath;
-  document.getElementById("moveModal").classList.add("open");
+  openWebModal("moveModal");
   loadMoveFolderOptions();
   setTimeout(() => {
     document.getElementById("moveDestPath").focus();
@@ -5758,7 +5916,7 @@ function openMoveModal(name, path) {
 }
 
 function closeMoveModal() {
-  document.getElementById("moveModal").classList.remove("open");
+  closeWebModal("moveModal");
 }
 
 function confirmMove() {
@@ -5766,7 +5924,7 @@ function confirmMove() {
   const destPath = normalizePath(document.getElementById("moveDestPath").value);
 
   if (!destPath) {
-    alert("Please enter a destination folder.");
+    showWebAlert("Please enter a destination folder.");
     return;
   }
 
@@ -5781,16 +5939,18 @@ function confirmMove() {
     if (xhr.status === 200) {
       window.location.reload();
     } else {
-      alert("Failed to move: " + xhr.responseText);
+      showWebAlert("Failed to move: " + xhr.responseText);
     }
     closeMoveModal();
   };
 
   xhr.onerror = function () {
-    alert("Failed to move - network error");
+    showWebAlert("Failed to move - network error");
     closeMoveModal();
   };
 
   xhr.send(formData);
 }
 hydrate();
+
+loadPlugins("files");

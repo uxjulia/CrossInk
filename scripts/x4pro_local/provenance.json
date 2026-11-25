@@ -1,0 +1,14 @@
+{
+  "repository": "https://github.com/serialx/x4prosim",
+  "commit": "55f6917885d89b60834cf8987177813e9fef648c",
+  "workflow_run": 38066668497,
+  "native_macos_arm64": {
+    "artifact_id": 11675089686,
+    "archive_sha256": "b8b009973b6e8476a236112838929b1e41ba4fc1ed2b47d211c54a5753b611e8",
+    "binary_sha256": "84845734fae320f1324b6f0cc91c8c710b151eddc6a4b70c55304460a523aff4"
+  },
+  "browser": {
+    "artifact_id": 11675735170,
+    "archive_sha256": "6441c23cc4e6e4d66c27d5f271961a748b8a5656c66f7aee2d20a0661ca474f9"
+  }
+}

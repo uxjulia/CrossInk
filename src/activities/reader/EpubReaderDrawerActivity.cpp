@@ -22,17 +22,23 @@
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
 #include "DeviceCapabilities.h"
+#include "FilenameFontSystem.h"
 #include "MappedInputManager.h"
 #include "ReaderFontLoading.h"
+#include "ReaderRefreshScope.h"
 #include "ReaderUtils.h"
 #include "SettingsList.h"
 #include "StablePageSelectionModel.h"
 #include "activities/reader/ControlsOptionsActivity.h"
 #include "activities/settings/StatusBarSettingsActivity.h"
+#include "util/ImageDisplayMode.h"
 #if CROSSINK_SCALABLE_FONTS
+#include "BookFontSystem.h"
 #include "activities/settings/TtfRenderOptionsActivity.h"
 #endif
 #include "components/DrawerHandle.h"
+#include "components/ReaderBookSummary.h"
+#include "components/ReaderSliderHints.h"
 #include "components/SliderValue.h"
 #include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
@@ -50,6 +56,9 @@
 namespace fui = freeink::ui;
 
 namespace {
+constexpr std::array<StrId, 4> WORD_HOLD_LABELS = {StrId::STR_LOOKUP_SHORT, StrId::STR_CLIP, StrId::STR_ASK,
+                                                   StrId::STR_DICT_USE_GLOBAL};
+
 constexpr int16_t TAB_BAR_HEIGHT = 58;
 constexpr int16_t SLIDER_CONTROL_HEIGHT = 30;
 constexpr int16_t SLIDER_CAPTION_GAP = 15;
@@ -79,6 +88,8 @@ constexpr uint8_t PORTRAIT_DRAWER_HEIGHT_PERCENT = 50;
 // height is calculated from the rows reserved in drawerHeight().
 constexpr uint8_t LANDSCAPE_DRAWER_HEIGHT_PERCENT = 65;
 constexpr uint8_t LANDSCAPE_DUAL_SLIDER_DRAWER_HEIGHT_PERCENT = 75;
+// Button-device landscape preview panes split the body: controls left, sample right.
+constexpr uint8_t LANDSCAPE_SAMPLE_PREVIEW_WIDTH_PERCENT = 55;
 
 bool isLandscapeOrientation(const GfxRenderer::Orientation orientation) {
   return orientation == GfxRenderer::Orientation::LandscapeClockwise ||
@@ -120,6 +131,8 @@ struct ReaderSliderRowProps {
   fui::ActionId decrement = fui::NO_ACTION;
   fui::ActionId increment = fui::NO_ACTION;
   int16_t captionGap = SLIDER_CAPTION_GAP;
+  int16_t inlineLabelWidth = 0;
+  bool compact = false;
   bool focused = false;
   bool editing = false;
   bool enabled = true;
@@ -130,21 +143,44 @@ void configureReaderSliderScale(ReaderSliderRowProps& row, const char* minimum, 
   row.maximumLabel = maximum;
 }
 
+int16_t readerSliderRowHeight(const fui::DrawTarget& target, const fui::ThemeTokens& theme,
+                              const ReaderSliderRowProps& row) {
+  const int16_t lineHeight = target.lineHeight(theme.bodyText.font);
+  const int16_t captionHeight =
+      row.label && row.inlineLabelWidth == 0 ? static_cast<int16_t>(lineHeight + row.captionGap) : 0;
+  const int16_t currentValueHeight =
+      row.value && !row.compact ? static_cast<int16_t>(lineHeight + SLIDER_SCALE_GAP) : 0;
+  const int16_t endpointHeight =
+      (row.minimumLabel || row.maximumLabel) && !row.compact ? static_cast<int16_t>(lineHeight + SLIDER_SCALE_GAP) : 0;
+  return static_cast<int16_t>(captionHeight + currentValueHeight + SLIDER_CONTROL_HEIGHT + endpointHeight);
+}
+
 template <size_t MaxInteractions>
 int16_t readerSliderRowHeight(fui::Screen<MaxInteractions>& screen, const ReaderSliderRowProps& row) {
-  const int16_t lineHeight = screen.target().lineHeight(screen.theme().bodyText.font);
-  const int16_t captionHeight = row.label ? static_cast<int16_t>(lineHeight + row.captionGap) : 0;
-  const int16_t currentValueHeight = row.value ? static_cast<int16_t>(lineHeight + SLIDER_SCALE_GAP) : 0;
-  const int16_t endpointHeight =
-      (row.minimumLabel || row.maximumLabel) ? static_cast<int16_t>(lineHeight + SLIDER_SCALE_GAP) : 0;
-  return static_cast<int16_t>(captionHeight + currentValueHeight + SLIDER_CONTROL_HEIGHT + endpointHeight);
+  return readerSliderRowHeight(screen.target(), screen.theme(), row);
+}
+
+// Use the same label column for both controls, including translated labels.
+template <size_t MaxInteractions>
+void alignReaderSliderLabels(fui::Screen<MaxInteractions>& screen, ReaderSliderRowProps& first,
+                             ReaderSliderRowProps& second) {
+  const auto& style = screen.theme().bodyText;
+  const int16_t labelWidth = std::max(screen.target().measureText(style.font, first.label, style).width,
+                                      screen.target().measureText(style.font, second.label, style).width);
+  // Leave a usable track and both step buttons even with longer translations.
+  const int16_t controlWidth =
+      static_cast<int16_t>(2 * screen.theme().rowHeight + screen.theme().spaceSm * 2 + screen.theme().minTouchSize);
+  first.inlineLabelWidth = second.inlineLabelWidth =
+      std::max<int16_t>(1, std::min<int16_t>(labelWidth, screen.body().width - controlWidth - screen.theme().spaceMd));
 }
 
 template <size_t MaxInteractions>
 int16_t readerSliderControlTopInset(fui::Screen<MaxInteractions>& screen, const ReaderSliderRowProps& row) {
   const int16_t lineHeight = screen.target().lineHeight(screen.theme().bodyText.font);
-  const int16_t captionHeight = row.label ? static_cast<int16_t>(lineHeight + row.captionGap) : 0;
-  const int16_t currentValueHeight = row.value ? static_cast<int16_t>(lineHeight + SLIDER_SCALE_GAP) : 0;
+  const int16_t captionHeight =
+      row.label && row.inlineLabelWidth == 0 ? static_cast<int16_t>(lineHeight + row.captionGap) : 0;
+  const int16_t currentValueHeight =
+      row.value && !row.compact ? static_cast<int16_t>(lineHeight + SLIDER_SCALE_GAP) : 0;
   return static_cast<int16_t>(captionHeight + currentValueHeight);
 }
 
@@ -168,36 +204,71 @@ void drawReaderSliderRow(fui::Screen<MaxInteractions>& screen, const ReaderSlide
   }
 
   const int16_t lineHeight = screen.target().lineHeight(labelStyle.font);
-  const int16_t captionHeight = row.label ? static_cast<int16_t>(lineHeight + row.captionGap) : 0;
-  if (row.label) screen.target().text(fui::Rect{rect.x, rect.y, rect.width, lineHeight}, row.label, labelStyle);
+  const int16_t captionHeight =
+      row.label && row.inlineLabelWidth == 0 ? static_cast<int16_t>(lineHeight + row.captionGap) : 0;
+  int16_t labelWidth = rect.width;
+  if (row.compact && row.value) {
+    const fui::Size valueSize = screen.target().measureText(valueStyle.font, row.value, valueStyle);
+    labelWidth = std::max<int16_t>(0, rect.width - valueSize.width - screen.theme().spaceSm);
+    screen.target().text(
+        fui::Rect{static_cast<int16_t>(rect.right() - valueSize.width), rect.y, valueSize.width, lineHeight}, row.value,
+        valueStyle);
+  }
+  if (row.label && row.inlineLabelWidth == 0)
+    screen.target().text(fui::Rect{rect.x, rect.y, labelWidth, lineHeight}, row.label, labelStyle);
 
-  const int16_t currentValueHeight = row.value ? static_cast<int16_t>(lineHeight + SLIDER_SCALE_GAP) : 0;
+  const int16_t currentValueHeight =
+      row.value && !row.compact ? static_cast<int16_t>(lineHeight + SLIDER_SCALE_GAP) : 0;
   const int16_t controlTop = static_cast<int16_t>(rect.y + captionHeight + currentValueHeight);
-  const fui::Rect band{rect.x, controlTop, rect.width, SLIDER_CONTROL_HEIGHT};
+  const int16_t labelInset =
+      row.inlineLabelWidth > 0 ? static_cast<int16_t>(row.inlineLabelWidth + screen.theme().spaceMd) : 0;
+  const fui::Rect band{static_cast<int16_t>(rect.x + labelInset), controlTop,
+                       static_cast<int16_t>(rect.width - labelInset), SLIDER_CONTROL_HEIGHT};
+  if (row.inlineLabelWidth > 0)
+    screen.target().text(fui::Rect{rect.x, band.y, row.inlineLabelWidth, band.height}, row.label, labelStyle);
   // Match the frontlight slider's control lanes: a shorter track leaves
   // genuinely finger-sized +/- targets at either end, even on the Sticky.
-  const int16_t stepWidth = std::max<int16_t>(band.height, screen.theme().rowHeight);
+  int16_t stepWidth = std::max<int16_t>(band.height, screen.theme().rowHeight);
+  const auto& endpointText = row.compact ? screen.theme().smallText : screen.theme().bodyText;
+  if (row.minimumLabel)
+    stepWidth =
+        std::max(stepWidth, screen.target().measureText(endpointText.font, row.minimumLabel, endpointText).width);
+  if (row.maximumLabel)
+    stepWidth =
+        std::max(stepWidth, screen.target().measureText(endpointText.font, row.maximumLabel, endpointText).width);
   const int16_t sideGap = static_cast<int16_t>(stepWidth + screen.theme().spaceSm);
-  fui::ButtonProps step;
-  step.text = screen.theme().bodyText;
-  step.text.bold = true;
-  step.styles = fui::plainStyles();
-  step.inputMask = fui::InputTouch;
-  step.enabled = row.enabled;
-  step.minTouchSize = stepWidth;
-  step.label = "-";
-  step.action = row.decrement;
-  step.value = -1;
-  step.hitPadding.right = screen.theme().spaceSm;
-  fui::button(screen.frame(), fui::Rect{band.x, band.y, stepWidth, band.height}, step);
+  // In the narrow button landscape column, put the range at the track ends
+  // and the current value beside its caption. Keyboard step hints remain below.
+  if (row.compact) {
+    fui::TextStyle endpointStyle = screen.theme().smallText;
+    endpointStyle.align = fui::TextAlign::Center;
+    if (row.minimumLabel)
+      screen.target().text(fui::Rect{band.x, band.y, stepWidth, band.height}, row.minimumLabel, endpointStyle);
+    if (row.maximumLabel)
+      screen.target().text(fui::Rect{static_cast<int16_t>(band.right() - stepWidth), band.y, stepWidth, band.height},
+                           row.maximumLabel, endpointStyle);
+  } else {
+    fui::ButtonProps step;
+    step.text = screen.theme().bodyText;
+    step.text.bold = true;
+    step.styles = fui::plainStyles();
+    step.inputMask = fui::InputTouch;
+    step.enabled = row.enabled;
+    step.minTouchSize = stepWidth;
+    step.label = "-";
+    step.action = row.decrement;
+    step.value = -1;
+    step.hitPadding.right = screen.theme().spaceSm;
+    fui::button(screen.frame(), fui::Rect{band.x, band.y, stepWidth, band.height}, step);
 
-  const int16_t plusX = static_cast<int16_t>(band.right() - stepWidth);
-  step.label = "+";
-  step.action = row.increment;
-  step.value = 1;
-  step.hitPadding.left = screen.theme().spaceSm;
-  step.hitPadding.right = 0;
-  fui::button(screen.frame(), fui::Rect{plusX, band.y, stepWidth, band.height}, step);
+    const int16_t plusX = static_cast<int16_t>(band.right() - stepWidth);
+    step.label = "+";
+    step.action = row.increment;
+    step.value = 1;
+    step.hitPadding.left = screen.theme().spaceSm;
+    step.hitPadding.right = 0;
+    fui::button(screen.frame(), fui::Rect{plusX, band.y, stepWidth, band.height}, step);
+  }
 
   const fui::Rect trackRect = band.inset(fui::Insets{0, sideGap, 0, sideGap});
   fui::SliderProps slider;
@@ -214,7 +285,7 @@ void drawReaderSliderRow(fui::Screen<MaxInteractions>& screen, const ReaderSlide
   slider.border = fui::Paint::none();
   slider.enabled = row.enabled;
 
-  if (row.value) {
+  if (row.value && !row.compact) {
     const int32_t maxValue = slider.max <= 0 ? 1 : slider.max;
     const int32_t value = std::clamp<int32_t>(slider.value, 0, maxValue);
     const int16_t knobWidth = std::max<int16_t>(4, slider.knobWidth);
@@ -231,7 +302,8 @@ void drawReaderSliderRow(fui::Screen<MaxInteractions>& screen, const ReaderSlide
   }
   fui::slider(screen.frame(), trackRect, slider);
 
-  if (row.minimumLabel || row.maximumLabel) {
+  if (!row.compact && (row.minimumLabel || row.maximumLabel)) {
+    const int16_t plusX = static_cast<int16_t>(band.right() - stepWidth);
     const int16_t endpointY = static_cast<int16_t>(band.bottom() + SLIDER_SCALE_GAP);
     fui::TextStyle endpointStyle = valueStyle;
     endpointStyle.bold = false;
@@ -255,13 +327,12 @@ int16_t centeredReaderSliderControlTop(fui::Screen<MaxInteractions>& screen, con
 template <size_t MaxInteractions>
 void drawButtonSliderStepHints(fui::Screen<MaxInteractions>& screen, const int fineStep, const int coarseStep,
                                const char* unit) {
-  fui::TextStyle hint = screen.theme().smallText;
-  hint.align = fui::TextAlign::Center;
+  const fui::TextStyle hint = ReaderSliderHints::style(screen.theme());
   const int16_t lineHeight = screen.target().lineHeight(hint.font);
   char line[64];
-  std::snprintf(line, sizeof(line), "%s %d%s", tr(STR_STEP_HINT_FRONT), fineStep, unit);
+  std::snprintf(line, sizeof(line), "%s: %d%s", tr(STR_FRONT_BUTTONS), fineStep, unit);
   screen.target().text(screen.takeTop(lineHeight, screen.theme().spaceSm), line, hint);
-  std::snprintf(line, sizeof(line), "%s %d%s", tr(STR_STEP_HINT_SIDE), coarseStep, unit);
+  std::snprintf(line, sizeof(line), "%s: %d%s", tr(STR_SIDE_BUTTONS), coarseStep, unit);
   screen.target().text(screen.takeTop(lineHeight), line, hint);
 }
 
@@ -269,40 +340,41 @@ template <size_t MaxInteractions>
 void drawDualReaderSliderRows(fui::Screen<MaxInteractions>& screen, const ReaderSliderRowProps& first,
                               const ReaderSliderRowProps& second, const bool showButtonHints) {
   const int16_t bottomPadding = screen.theme().spaceSm;
-  fui::TextStyle hint = screen.theme().smallText;
-  hint.align = fui::TextAlign::Center;
+  const fui::TextStyle hint = ReaderSliderHints::style(screen.theme());
   char frontHint[64] = {};
   char sideHint[64] = {};
+  const int16_t hintGap = screen.theme().spaceMd;
+  const int16_t hintColumnWidth = std::max<int16_t>(0, static_cast<int16_t>((screen.body().width - hintGap) / 2));
   bool inlineHints = false;
   if (showButtonHints) {
-    std::snprintf(frontHint, sizeof(frontHint), "%s +/- 1", tr(STR_STEP_HINT_FRONT));
-    std::snprintf(sideHint, sizeof(sideHint), "%s +/- 5", tr(STR_STEP_HINT_SIDE));
-    const int16_t halfWidth = static_cast<int16_t>(screen.body().width / 2);
-    inlineHints = screen.target().measureText(hint.font, frontHint, hint).width <= halfWidth &&
-                  screen.target().measureText(hint.font, sideHint, hint).width <= halfWidth;
+    std::snprintf(frontHint, sizeof(frontHint), "%s: +/- 1", tr(STR_FRONT_BUTTONS));
+    std::snprintf(sideHint, sizeof(sideHint), "%s: +/- 5", tr(STR_SIDE_BUTTONS));
+    inlineHints = screen.target().measureText(hint.font, frontHint, hint).width <= hintColumnWidth &&
+                  screen.target().measureText(hint.font, sideHint, hint).width <= hintColumnWidth;
   }
-  const int16_t hintLineHeight = showButtonHints ? screen.target().lineHeight(screen.theme().smallText.font) : 0;
+  const int16_t hintLineHeight = showButtonHints ? screen.target().lineHeight(hint.font) : 0;
   const int16_t hintRows = inlineHints ? 1 : 2;
   const int16_t hintHeight =
       showButtonHints ? static_cast<int16_t>((hintLineHeight + screen.theme().spaceSm) * hintRows) : 0;
   const int16_t remaining =
       std::max<int16_t>(0, static_cast<int16_t>(screen.body().height - readerSliderRowHeight(screen, first) -
                                                 readerSliderRowHeight(screen, second) - hintHeight - bottomPadding));
+  // Move a little spare space above and between the sliders, keeping the
+  // button hints anchored in place. Tight layouts simply use a smaller inset.
+  const int16_t topInset = showButtonHints ? std::min<int16_t>(screen.theme().spaceSm, remaining / 6) : 0;
+  screen.spacer(topInset);
   drawReaderSliderRow(screen, first);
-  // On button devices, put most of the spare space below the second slider so
-  // the two settings read as a group and the help text stays distinct.
-  const int16_t betweenRows = showButtonHints ? static_cast<int16_t>(remaining / 3) : remaining;
+  const int16_t betweenRows = showButtonHints ? static_cast<int16_t>(remaining / 2 + topInset * 2) : remaining;
   screen.spacer(betweenRows);
   drawReaderSliderRow(screen, second);
   if (showButtonHints) {
-    screen.spacer(static_cast<int16_t>(remaining - betweenRows));
+    screen.spacer(static_cast<int16_t>(remaining - topInset - betweenRows));
     screen.spacer(screen.theme().spaceSm);
     const fui::Rect hintRow = screen.takeTop(hintLineHeight);
     if (inlineHints) {
-      const int16_t halfWidth = static_cast<int16_t>(hintRow.width / 2);
-      screen.target().text(fui::Rect{hintRow.x, hintRow.y, halfWidth, hintRow.height}, frontHint, hint);
-      screen.target().text(fui::Rect{static_cast<int16_t>(hintRow.x + halfWidth), hintRow.y,
-                                     static_cast<int16_t>(hintRow.width - halfWidth), hintRow.height},
+      screen.target().text(fui::Rect{hintRow.x, hintRow.y, hintColumnWidth, hintRow.height}, frontHint, hint);
+      screen.target().text(fui::Rect{static_cast<int16_t>(hintRow.x + hintColumnWidth + hintGap), hintRow.y,
+                                     static_cast<int16_t>(hintRow.width - hintColumnWidth - hintGap), hintRow.height},
                            sideHint, hint);
     } else {
       screen.target().text(hintRow, frontHint, hint);
@@ -342,18 +414,8 @@ fui::Rect drawerScrollbarBounds(fui::Rect bounds) {
 }
 
 const char* wordSpacingValue(const uint8_t value) {
-  switch (std::min<uint8_t>(value, CrossPointSettings::MAX_WORD_SPACING)) {
-    case 0:
-      return "0";
-    case 1:
-      return "1";
-    case 2:
-      return "2";
-    case 3:
-      return "3";
-    default:
-      return "4";
-  }
+  static constexpr const char* labels[] = {"-4", "-3", "-2", "-1", "0", "1", "2", "3", "4"};
+  return labels[WordSpacing::sliderValue(value)];
 }
 
 uint8_t percentToByte(const int16_t permille, const uint8_t minimum, const uint8_t maximum) {
@@ -433,6 +495,7 @@ EpubReaderDrawerActivity::EpubReaderDrawerActivity(
       dictionaryFontChangedContext(dictionaryFontChangedContext),
       uiTarget(makeUiTarget(renderer)),
       app(uiTarget, uiTarget.deviceContext()) {
+  ReaderSliderHints::bindFont(uiTarget);
   if (dictionaryFontFamilyName) {
     std::strncpy(this->dictionaryFontFamilyName, dictionaryFontFamilyName, sizeof(this->dictionaryFontFamilyName) - 1);
   }
@@ -444,6 +507,11 @@ EpubReaderDrawerActivity::EpubReaderDrawerActivity(
 
 void EpubReaderDrawerActivity::onEnter() {
   Activity::onEnter();
+  // Only the full-screen button drawer displays the book/chapter summary.
+  if (!mappedInput.hasTouchHardware()) {
+    RenderLock lock(*this);
+    filenameFontSystem.ensureLoaded(renderer);
+  }
   if (mappedInput.hasTouchHardware()) mappedInput.setReaderTouchscreenOverride(true);
 
   const ReaderDrawerCatalog catalog = makeReaderDrawerCatalog(
@@ -503,7 +571,7 @@ void EpubReaderDrawerActivity::onExit() {
 
 void EpubReaderDrawerActivity::discoverFonts() {
   RenderLock lock;
-  GUI.drawPopup(renderer, tr(STR_LOADING_POPUP), true);
+  GUI.drawPopup(renderer, tr(STR_LOADING), true);
   sdFontSystem.refreshIfDirty();
   const auto& families = sdFontSystem.registry().getFamilies();
   fontLabels.clear();
@@ -525,8 +593,8 @@ void EpubReaderDrawerActivity::refreshTtfRenderingRow() {
   paneRows.erase(std::remove(paneRows.begin(), paneRows.end(), RowId::TtfRendering), paneRows.end());
 #if CROSSINK_SCALABLE_FONTS
   if (state.pane == ReaderDrawerPane::ReaderFont && sdFontSystem.isScalableFamily(draft.sdFontFamilyName.data())) {
-    const auto fontSize = std::find(paneRows.begin(), paneRows.end(), RowId::FontSize);
-    if (fontSize != paneRows.end()) paneRows.insert(std::next(fontSize), RowId::TtfRendering);
+    const auto spacing = std::find(paneRows.begin(), paneRows.end(), RowId::CharacterSpacing);
+    if (spacing != paneRows.end()) paneRows.insert(std::next(spacing), RowId::TtfRendering);
   }
 #endif
 }
@@ -543,14 +611,15 @@ void EpubReaderDrawerActivity::rebuildTtfRenderingRows() {
   state.paneTopIndex = std::min<int16_t>(state.paneTopIndex, static_cast<int16_t>(paneRows.size() - 1));
 }
 
-void EpubReaderDrawerActivity::saveTtfRenderingProfile() {
+bool EpubReaderDrawerActivity::saveTtfRenderingProfile() {
   const char* const family = draft.sdFontFamilyName.data();
-  if (ttfRenderProfile == TTF_RENDER_PROFILES.profileFor(family)) return;
+  if (ttfRenderProfile == TTF_RENDER_PROFILES.profileFor(family)) return true;
   if (!TTF_RENDER_PROFILES.setProfile(family, ttfRenderProfile)) {
     LOG_ERR("ERDM", "Failed to save TTF rendering profile for %s", family);
-    return;
+    return false;
   }
   ttfRenderingChanged = ttfRenderProfile != initialTtfRenderProfile;
+  return true;
 }
 
 void EpubReaderDrawerActivity::finishTtfRenderingEdit() {
@@ -636,11 +705,15 @@ ReaderSettingsDraft EpubReaderDrawerActivity::captureSettings() {
   std::strncpy(value.sdFontFamilyName.data(), SETTINGS.sdFontFamilyName, value.sdFontFamilyName.size() - 1);
   value.lineHeightPercent = SETTINGS.lineHeightPercent;
   value.wordSpacing = SETTINGS.wordSpacing;
+  value.characterSpacing = SETTINGS.characterSpacing;
   value.screenMarginVertical = SETTINGS.screenMarginVertical;
   value.screenMarginHorizontal = SETTINGS.screenMarginHorizontal;
   value.orientation = SETTINGS.orientation;
   value.paragraphAlignment = SETTINGS.paragraphAlignment;
   value.textAntiAliasing = SETTINGS.textAntiAliasing;
+  value.twoToneTextAA = SETTINGS.twoToneTextAA;
+  value.textDarkness = SETTINGS.textDarkness;
+  value.ruledLines = SETTINGS.ruledLines;
   value.focusReadingEnabled = SETTINGS.focusReadingEnabled;
   value.guideReadingEnabled = SETTINGS.guideReadingEnabled;
   value.hyphenationEnabled = SETTINGS.hyphenationEnabled;
@@ -648,7 +721,9 @@ ReaderSettingsDraft EpubReaderDrawerActivity::captureSettings() {
   value.extraParagraphSpacing = SETTINGS.extraParagraphSpacing;
   value.forceParagraphIndents = SETTINGS.forceParagraphIndents;
   value.embeddedStyle = SETTINGS.embeddedStyle;
+  value.publisherFonts = SETTINGS.publisherFonts;
   value.imageRendering = SETTINGS.imageRendering;
+  value.imageGrayscale = SETTINGS.imageGrayscale;
   value.epubRenderMode = SETTINGS.epubRenderMode;
   value.indexingMethod = SETTINGS.indexingMethod;
   return value;
@@ -661,11 +736,15 @@ void EpubReaderDrawerActivity::applySettings(const ReaderSettingsDraft& value) {
   SETTINGS.sdFontFamilyName[sizeof(SETTINGS.sdFontFamilyName) - 1] = '\0';
   SETTINGS.lineHeightPercent = value.lineHeightPercent;
   SETTINGS.wordSpacing = value.wordSpacing;
+  SETTINGS.characterSpacing = value.characterSpacing;
   SETTINGS.screenMarginVertical = value.screenMarginVertical;
   SETTINGS.screenMarginHorizontal = value.screenMarginHorizontal;
   SETTINGS.orientation = value.orientation;
   SETTINGS.paragraphAlignment = value.paragraphAlignment;
   SETTINGS.textAntiAliasing = value.textAntiAliasing;
+  SETTINGS.twoToneTextAA = value.twoToneTextAA;
+  SETTINGS.textDarkness = value.textDarkness;
+  SETTINGS.ruledLines = value.ruledLines;
   SETTINGS.focusReadingEnabled = value.focusReadingEnabled;
   SETTINGS.guideReadingEnabled = value.guideReadingEnabled;
   SETTINGS.hyphenationEnabled = value.hyphenationEnabled;
@@ -673,7 +752,9 @@ void EpubReaderDrawerActivity::applySettings(const ReaderSettingsDraft& value) {
   SETTINGS.extraParagraphSpacing = value.extraParagraphSpacing;
   SETTINGS.forceParagraphIndents = value.forceParagraphIndents;
   SETTINGS.embeddedStyle = value.embeddedStyle;
+  SETTINGS.publisherFonts = value.publisherFonts;
   SETTINGS.imageRendering = value.imageRendering;
+  SETTINGS.imageGrayscale = value.imageGrayscale;
   SETTINGS.epubRenderMode = value.epubRenderMode;
   SETTINGS.indexingMethod = value.indexingMethod;
 }
@@ -746,9 +827,12 @@ void EpubReaderDrawerActivity::onSliderEvent(const fui::ActionEvent& event, void
     return self->sliderTapPending ? snapSliderTapValue(value, minimum, maximum, 5) : value;
   };
   const bool second = event.action == ACTION_SLIDER + 3;
-  if (self->state.pane == ReaderDrawerPane::Spacing) {
+  if (self->state.pane == ReaderDrawerPane::CharacterSpacing) {
+    self->draft.characterSpacing = percentToByte(event.dragPermille, 0, CrossPointSettings::MAX_CHARACTER_SPACING);
+  } else if (self->state.pane == ReaderDrawerPane::Spacing) {
     if (second) {
-      self->draft.wordSpacing = percentToByte(event.dragPermille, 0, CrossPointSettings::MAX_WORD_SPACING);
+      self->draft.wordSpacing =
+          WordSpacing::fromSlider(percentToByte(event.dragPermille, 0, CrossPointSettings::MAX_WORD_SPACING));
     } else {
       const int value = percentToByte(event.dragPermille, CrossPointSettings::MIN_LINE_HEIGHT_PERCENT,
                                       CrossPointSettings::MAX_LINE_HEIGHT_PERCENT);
@@ -789,8 +873,7 @@ void EpubReaderDrawerActivity::onStepEvent(const fui::ActionEvent& event, void* 
   const bool second = event.action == ACTION_STEP + 3;
   if (second) {
     if (self->state.pane == ReaderDrawerPane::Spacing) {
-      self->draft.wordSpacing =
-          std::clamp<int>(self->draft.wordSpacing + event.value, 0, CrossPointSettings::MAX_WORD_SPACING);
+      self->draft.wordSpacing = WordSpacing::fromLevel(WordSpacing::level(self->draft.wordSpacing) + event.value);
     } else if (self->state.pane == ReaderDrawerPane::Margins) {
       self->draft.screenMarginHorizontal =
           std::clamp<int>(self->draft.screenMarginHorizontal + event.value, CrossPointSettings::MIN_SCREEN_MARGIN,
@@ -834,7 +917,18 @@ int16_t EpubReaderDrawerActivity::drawerHeight() const {
   // and grabber do not consume one of the intended visible rows.
   const int16_t tabBarHeight = static_cast<int16_t>(TAB_BAR_HEIGHT + TAB_BAR_VERTICAL_PADDING * 2);
   int16_t drawerHeight = static_cast<int16_t>(readerDrawerHeight(renderer, state.pane) + grabberBand);
-  if (state.pane == ReaderDrawerPane::Root && isLandscapeOrientation(renderer.getOrientation())) {
+  if (mappedInput.hasTouchHardware() && readerDrawerSliderPreviewsText(state.pane)) {
+    ReaderSliderRowProps row;
+    row.label = row.value = row.minimumLabel = row.maximumLabel = " ";
+    row.inlineLabelWidth = 1;
+    const auto& theme = app.theme();
+    // Fit the inline rows instead of retaining the old tall sheet's empty space.
+    drawerHeight = static_cast<int16_t>(grabberBand + sheet.ruleWidth + tabBarHeight + theme.headerHeight +
+                                        (state.pane == ReaderDrawerPane::CharacterSpacing ? 1 : 2) *
+                                            readerSliderRowHeight(uiTarget, theme, row) +
+                                        theme.spaceMd + theme.spaceSm);
+    drawerHeight = std::min<int16_t>(drawerHeight, renderer.getScreenHeight());
+  } else if (state.pane == ReaderDrawerPane::Root && isLandscapeOrientation(renderer.getOrientation())) {
     const int16_t rowHeight = app.theme().rowHeight;
     const int16_t gap = app.theme().spaceSm;
     drawerHeight = static_cast<int16_t>(grabberBand + sheet.ruleWidth + tabBarHeight + DRAWER_LIST_TOP_PADDING +
@@ -853,6 +947,14 @@ fui::Rect EpubReaderDrawerActivity::previewBounds() const {
 bool EpubReaderDrawerActivity::showsSamplePreview() const {
   if (!CROSSINK_APP_READER_SAMPLE_PREVIEW) return false;
   return readerDrawerShowsSamplePreview(state.pane, state.tab, enumOptionRow);
+}
+
+bool EpubReaderDrawerActivity::showsSamplePreviewAaNote(const ReaderSettingsDraft& settings) const {
+  return CROSSINK_APP_READER_SAMPLE_PREVIEW && state.pane == ReaderDrawerPane::FontFamily && settings.textAntiAliasing;
+}
+
+bool EpubReaderDrawerActivity::samplePreviewBesideControls() const {
+  return readerDrawerSamplePreviewBesideControls(isLandscapeOrientation(renderer.getOrientation()));
 }
 
 void EpubReaderDrawerActivity::buildDrawer(UiApp::ScreenType& screen) {
@@ -876,9 +978,11 @@ void EpubReaderDrawerActivity::buildDrawer(UiApp::ScreenType& screen) {
   }
   int16_t buttonHeaderHeight = 0;
   if (buttonDevice) {
-    const auto& metrics = UITheme::getInstance().getMetrics();
-    buttonHeaderHeight = static_cast<int16_t>(metrics.topPadding + TouchHeaderBackButton::height(metrics, mappedInput) +
-                                              metrics.tabBarHeight);
+    const Rect safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
+    const auto header = TouchHeaderBackButton::headerRect(renderer, mappedInput, safe);
+    const int summaryHeight = ReaderBookSummary::height(renderer, chapterTitle.c_str());
+    buttonHeaderHeight =
+        static_cast<int16_t>(std::max(0, header.y + header.height + summaryHeight - screen.contentRect().y));
     screen.takeTop(buttonHeaderHeight);
   }
   // Give every tab row four pixels of white space above and below its icons.
@@ -895,26 +999,40 @@ void EpubReaderDrawerActivity::buildDrawer(UiApp::ScreenType& screen) {
     const int previewBaseHeight =
         screen.body().height + (isLandscapeOrientation(renderer.getOrientation()) ? 0 : buttonHeaderHeight);
     int previewHeight = previewBaseHeight * metrics.previewHeightPercent / 100;
-    if (readerDrawerSliderPreviewsText(state.pane)) {
-      // Leave both controls and both translated help lines usable in landscape.
+    if (readerDrawerSliderPreviewsText(state.pane) && !samplePreviewBesideControls()) {
+      // Keep the sample height unchanged; smaller hints free space between the controls.
       ReaderSliderRowProps row;
       row.label = row.value = row.minimumLabel = row.maximumLabel = " ";
       row.captionGap = COMPACT_SLIDER_CAPTION_GAP;
       const int controlsHeight =
-          screen.theme().headerHeight + 2 * readerSliderRowHeight(screen, row) +
+          screen.theme().headerHeight +
+          (state.pane == ReaderDrawerPane::CharacterSpacing ? 1 : 2) * readerSliderRowHeight(screen, row) +
           2 * (screen.target().lineHeight(screen.theme().smallText.font) + screen.theme().spaceSm) +
           screen.theme().spaceSm + sheet.ruleWidth + metrics.verticalSpacing;
       previewHeight = std::min(previewHeight, std::max(0, screen.body().height - controlsHeight));
     }
-    samplePreviewBounds =
-        screen.takeTop(static_cast<int16_t>(previewHeight), static_cast<int16_t>(metrics.verticalSpacing));
+    if (samplePreviewBesideControls()) {
+      // Give the sample the full body height in a right-hand column; the pane
+      // header and controls keep the left column.
+      const fui::Rect body = screen.body();
+      const int16_t width = static_cast<int16_t>(body.width * LANDSCAPE_SAMPLE_PREVIEW_WIDTH_PERCENT / 100);
+      samplePreviewBounds = fui::Rect{static_cast<int16_t>(body.right() - width), body.y, width, body.height};
+      screen.insetContent(fui::Insets{0, static_cast<int16_t>(width + metrics.verticalSpacing), 0, 0});
+    } else {
+      samplePreviewBounds =
+          screen.takeTop(static_cast<int16_t>(previewHeight), static_cast<int16_t>(metrics.verticalSpacing));
+    }
   }
 #endif
   screen.insetContent(fui::Insets{sheet.ruleWidth, DRAWER_SIDE_INSET, 0, DRAWER_SIDE_INSET});
 
   switch (state.pane) {
     case ReaderDrawerPane::Root:
-      buildRootRows(screen);
+      screen.spacer(DRAWER_LIST_TOP_PADDING);
+      buildRows(screen);
+      break;
+    case ReaderDrawerPane::CharacterSpacing:
+      buildCharacterSpacingPane(screen);
       break;
     case ReaderDrawerPane::Spacing:
       buildSpacingPane(screen);
@@ -953,18 +1071,15 @@ void EpubReaderDrawerActivity::buildDrawer(UiApp::ScreenType& screen) {
 
 void EpubReaderDrawerActivity::drawButtonBookHeader() {
   const Rect safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
-  const auto& metrics = UITheme::getInstance().getMetrics();
-  const Rect header{safe.x, safe.y + metrics.topPadding, safe.width,
-                    TouchHeaderBackButton::height(metrics, mappedInput)};
-  GUI.drawHeader(renderer, header, epub ? epub->getTitle().c_str() : "", nullptr, false, true);
+  const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput, safe);
+  GUI.drawHeader(renderer, header, epub ? epub->getTitle().c_str() : "", nullptr, false, false, true);
+  GUI.drawDisplayStatusBar(renderer, header.y, &header);
 
-  const Rect summary{safe.x, header.y + header.height, safe.width, metrics.tabBarHeight};
   char progress[96];
   formatReaderBookProgress(progress, sizeof(progress), chapterPage, chapterPageCount, chapterPageCountEstimated,
                            percentSeed / 100);
-  GUI.drawSubHeader(renderer, summary, progress);
-  renderer.drawLine(summary.x, summary.y + summary.height - 1, summary.x + summary.width - 1,
-                    summary.y + summary.height - 1, 1, true);
+  ReaderBookSummary::draw(renderer, Rect{safe.x, header.y + header.height, safe.width, 0}, chapterTitle.c_str(),
+                          progress);
 }
 
 void EpubReaderDrawerActivity::buildTabBar(UiApp::ScreenType& screen, const fui::Rect rect, const bool drawBottomRule) {
@@ -1009,7 +1124,12 @@ void EpubReaderDrawerActivity::buildPaneHeader(UiApp::ScreenType& screen) {
   header.titleText.bold = true;
   header.sidePadding = screen.theme().headerSidePadding;
   header.minTouchSize = screen.theme().minTouchSize;
-  const fui::Rect rect = screen.takeTop(screen.theme().headerHeight);
+  // Two sliders and their button hints need the landscape column's full height.
+  const bool compactSliders =
+      CROSSINK_APP_READER_SAMPLE_PREVIEW && samplePreviewBesideControls() && readerDrawerSliderPreviewsText(state.pane);
+  const int16_t height =
+      compactSliders ? screen.target().lineHeight(header.titleText.font) + 10 : screen.theme().headerHeight;
+  const fui::Rect rect = screen.takeTop(height);
   fui::header(screen.frame(), rect, header);
 
   fui::ButtonProps back;
@@ -1038,8 +1158,7 @@ int EpubReaderDrawerActivity::activeTopIndex() const {
   return state.pane == ReaderDrawerPane::Root ? state.rootTopIndex[static_cast<size_t>(state.tab)] : state.paneTopIndex;
 }
 
-void EpubReaderDrawerActivity::buildRootRows(UiApp::ScreenType& screen) {
-  screen.spacer(DRAWER_LIST_TOP_PADDING);
+void EpubReaderDrawerActivity::buildRows(UiApp::ScreenType& screen) {
   const auto& rows = activeRows();
   const fui::Rect listBounds = screen.body();
   const bool buttonDevice = !mappedInput.hasTouchHardware();
@@ -1048,9 +1167,10 @@ void EpubReaderDrawerActivity::buildRootRows(UiApp::ScreenType& screen) {
   const int16_t gap = buttonDevice ? static_cast<int16_t>(screen.theme().spaceMd * rowHeight / screen.theme().rowHeight)
                                    : screen.theme().spaceSm;
   visibleRows = std::max(1, readerDrawerVisibleRows(listBounds.height, rowHeight, gap));
-  int top = std::clamp<int>(state.rootTopIndex[static_cast<size_t>(state.tab)], 0,
-                            std::max(0, static_cast<int>(rows.size()) - visibleRows));
-  state.rootTopIndex[static_cast<size_t>(state.tab)] = static_cast<int16_t>(top);
+  auto& topIndex =
+      state.pane == ReaderDrawerPane::Root ? state.rootTopIndex[static_cast<size_t>(state.tab)] : state.paneTopIndex;
+  const int top = std::clamp<int>(topIndex, 0, std::max(0, static_cast<int>(rows.size()) - visibleRows));
+  topIndex = static_cast<int16_t>(top);
   const int displayedRows = std::min(visibleRows, static_cast<int>(rows.size()) - top);
   for (int i = 0; i < displayedRows; ++i) {
     const RowId row = rows[static_cast<size_t>(top + i)];
@@ -1061,6 +1181,7 @@ void EpubReaderDrawerActivity::buildRootRows(UiApp::ScreenType& screen) {
     props.action = ACTION_ROW;
     props.valueId = static_cast<int16_t>(top + i);
     props.drawChevron = rowShowsNavigationCaret(row);
+    props.enabled = row != RowId::FontFamily || !publisherBodyFontActive();
     props.labelText = screen.theme().bodyText;
     props.valueText = screen.theme().smallText;
     if (buttonDevice) props.minTouchSize = rowHeight;
@@ -1068,7 +1189,7 @@ void EpubReaderDrawerActivity::buildRootRows(UiApp::ScreenType& screen) {
     props.state = isReaderDrawerRowFocused(buttonFocusActive, state.selectedIndex, static_cast<int16_t>(top + i))
                       ? fui::StateSelected
                       : fui::StateNormal;
-    if (rowIsToggle(row)) {
+    if (state.pane == ReaderDrawerPane::Root && rowIsToggle(row)) {
       fui::ToggleRowProps toggle;
       toggle.row = props;
       toggle.checked = rowToggleValue(row);
@@ -1076,7 +1197,15 @@ void EpubReaderDrawerActivity::buildRootRows(UiApp::ScreenType& screen) {
       toggle.toggleValue = static_cast<int16_t>(top + i);
       screen.toggleRow(toggle, buttonDevice ? rowHeight : 0);
     } else {
+      const fui::Rect rowBounds{screen.body().x, screen.body().y, screen.body().width, rowHeight};
       screen.settingRow(props, buttonDevice ? rowHeight : 0);
+      if (!props.enabled) {
+        // This renderer predates the SDK's gray-text API. A transparent white
+        // checker mask dims only the row's existing ink, with no extra buffer.
+        static constexpr uint8_t dimMask[] = {0x80, 0x40};
+        screen.target().bitmap(rowBounds, fui::BitmapRef{dimMask, 2, 2, fui::BitmapFormat::BW1}, fui::BitmapMode::Tile,
+                               fui::Paint::solid(fui::Color::White));
+      }
     }
   }
   fui::drawListScrollIndicator(screen.target(), drawerScrollbarBounds(listBounds), rows.size(), visibleRows, top,
@@ -1086,26 +1215,25 @@ void EpubReaderDrawerActivity::buildRootRows(UiApp::ScreenType& screen) {
 
 void EpubReaderDrawerActivity::buildSimplePane(UiApp::ScreenType& screen) {
   buildPaneHeader(screen);
-  const auto& rows = activeRows();
-  const bool buttonDevice = !mappedInput.hasTouchHardware();
-  const int16_t rowHeight = buttonDevice ? uiListRowHeight(screen.theme(), UiListRowType::SingleLine) : 0;
-  for (size_t i = 0; i < rows.size(); ++i) {
-    char value[48] = {};
-    fui::SettingRowProps props;
-    props.label = rowLabel(rows[i]);
-    props.value = rowValue(rows[i], value, sizeof(value));
-    props.action = ACTION_ROW;
-    props.valueId = static_cast<int16_t>(i);
-    props.drawChevron = rowShowsNavigationCaret(rows[i]);
-    props.labelText = screen.theme().bodyText;
-    props.valueText = screen.theme().smallText;
-    if (buttonDevice) props.minTouchSize = rowHeight;
-    setDrawerSelectionStyle(props.styles);
-    props.state = isReaderDrawerRowFocused(buttonFocusActive, state.selectedIndex, static_cast<int16_t>(i))
-                      ? fui::StateSelected
-                      : fui::StateNormal;
-    screen.settingRow(props, rowHeight);
-  }
+  buildRows(screen);
+}
+
+void EpubReaderDrawerActivity::buildCharacterSpacingPane(UiApp::ScreenType& screen) {
+  buildPaneHeader(screen);
+  char value[8];
+  CrossPointSettings::formatCharacterSpacing(draft.characterSpacing, value, sizeof(value));
+  ReaderSliderRowProps row;
+  row.value = value;
+  row.sliderValue = byteToPermille(draft.characterSpacing, 0, CrossPointSettings::MAX_CHARACTER_SPACING);
+  row.sliderAction = ACTION_SLIDER;
+  row.max = 1000;
+  row.decrement = ACTION_STEP;
+  row.increment = ACTION_STEP;
+  configureReaderSliderScale(row, "-5", "+5");
+  row.focused = !mappedInput.hasTouchHardware();
+  row.editing = row.focused && buttonSliderState.editing;
+  drawReaderSliderRow(screen, row);
+  if (!mappedInput.hasTouchHardware()) drawButtonSliderStepHints(screen, 1, 5, "");
 }
 
 void EpubReaderDrawerActivity::buildSpacingPane(UiApp::ScreenType& screen) {
@@ -1125,18 +1253,21 @@ void EpubReaderDrawerActivity::buildSpacingPane(UiApp::ScreenType& screen) {
   ReaderSliderRowProps word;
   word.label = tr(STR_WORD_SPACING);
   word.value = wordSpacingValue(draft.wordSpacing);
-  word.sliderValue = byteToPermille(draft.wordSpacing, 0, CrossPointSettings::MAX_WORD_SPACING);
+  word.sliderValue =
+      byteToPermille(WordSpacing::sliderValue(draft.wordSpacing), 0, CrossPointSettings::MAX_WORD_SPACING);
   word.max = 1000;
   word.sliderAction = ACTION_SLIDER + 3;
   word.decrement = ACTION_STEP + 3;
   word.increment = ACTION_STEP + 3;
-  configureReaderSliderScale(word, "0", "4");
+  configureReaderSliderScale(word, "-4", "4");
+  line.compact = word.compact = CROSSINK_APP_READER_SAMPLE_PREVIEW && samplePreviewBesideControls();
   line.captionGap = COMPACT_SLIDER_CAPTION_GAP;
   word.captionGap = COMPACT_SLIDER_CAPTION_GAP;
   line.focused = !mappedInput.hasTouchHardware() && buttonSliderState.focus == 0;
   word.focused = !mappedInput.hasTouchHardware() && buttonSliderState.focus == 1;
   line.editing = line.focused && buttonSliderState.editing;
   word.editing = word.focused && buttonSliderState.editing;
+  if (mappedInput.hasTouchHardware()) alignReaderSliderLabels(screen, line, word);
   drawDualReaderSliderRows(screen, line, word, !mappedInput.hasTouchHardware());
 }
 
@@ -1166,12 +1297,14 @@ void EpubReaderDrawerActivity::buildMarginsPane(UiApp::ScreenType& screen) {
   horizontal.decrement = ACTION_STEP + 3;
   horizontal.increment = ACTION_STEP + 3;
   configureReaderSliderScale(horizontal, "5", "150");
+  vertical.compact = horizontal.compact = CROSSINK_APP_READER_SAMPLE_PREVIEW && samplePreviewBesideControls();
   vertical.captionGap = COMPACT_SLIDER_CAPTION_GAP;
   horizontal.captionGap = COMPACT_SLIDER_CAPTION_GAP;
   vertical.focused = !mappedInput.hasTouchHardware() && buttonSliderState.focus == 0;
   horizontal.focused = !mappedInput.hasTouchHardware() && buttonSliderState.focus == 1;
   vertical.editing = vertical.focused && buttonSliderState.editing;
   horizontal.editing = horizontal.focused && buttonSliderState.editing;
+  if (mappedInput.hasTouchHardware()) alignReaderSliderLabels(screen, vertical, horizontal);
   drawDualReaderSliderRows(screen, vertical, horizontal, !mappedInput.hasTouchHardware());
 }
 
@@ -1200,8 +1333,9 @@ void EpubReaderDrawerActivity::buildPercentSlider(UiApp::ScreenType& screen) {
   readout.align = fui::TextAlign::Center;
   const int16_t readoutHeight = screen.target().lineHeight(readout.font);
   const int16_t hintHeight = screen.target().lineHeight(theme.smallText.font);
-  const int16_t groupHeight =
-      static_cast<int16_t>(readoutHeight + theme.rowHeight + hintHeight * 3 + theme.spaceLg * 2 + theme.spaceSm * 2);
+  const int16_t stepHintHeight = screen.target().lineHeight(ReaderSliderHints::style(theme).font);
+  const int16_t groupHeight = static_cast<int16_t>(readoutHeight + SLIDER_CONTROL_HEIGHT + stepHintHeight * 2 +
+                                                   hintHeight + theme.spaceLg * 2 + theme.spaceSm * 2);
   screen.spacer(std::max<int16_t>(0, static_cast<int16_t>((screen.body().height - groupHeight) / 2)));
 
   char value[16];
@@ -1211,7 +1345,7 @@ void EpubReaderDrawerActivity::buildPercentSlider(UiApp::ScreenType& screen) {
   // The slider is visual only on button devices. Physical buttons change the
   // value directly, preserving the old selector's 1% and 10% steps.
   const fui::Insets sideInset{0, static_cast<int16_t>(theme.spaceLg * 2), 0, static_cast<int16_t>(theme.spaceLg * 2)};
-  const fui::Rect row = screen.takeTop(theme.rowHeight, theme.spaceLg).inset(sideInset);
+  const fui::Rect row = screen.takeTop(SLIDER_CONTROL_HEIGHT, theme.spaceLg).inset(sideInset);
   fui::SliderProps slider;
   slider.value = percent / 10;
   slider.max = 1000;
@@ -1251,15 +1385,15 @@ void EpubReaderDrawerActivity::buildDrawerKeypad(UiApp::ScreenType& screen, cons
   readout.align = fui::TextAlign::Center;
   const int16_t readoutLh = screen.target().lineHeight(readout.font);
   const int16_t readoutRowH = std::max<int16_t>(theme.rowHeight, static_cast<int16_t>(readoutLh + 16));
-  const fui::Rect readoutRow = screen.takeTop(readoutRowH, theme.spaceLg);
-  const int16_t iconSize = readoutRow.height;
-  const fui::Rect iconRect{static_cast<int16_t>(readoutRow.right() - iconSize), readoutRow.y, iconSize,
-                           readoutRow.height};
-  // The icon sits in unused space at the row's edge; keep the readout centered
-  // in the full row instead of shifting it left when the icon appears.
+  const bool beside = isLandscapeOrientation(renderer.getOrientation());
+  const auto layout = fui::keyGridReadoutLayout(
+      screen.body(), readoutRowH, static_cast<int16_t>(screen.target().measureText(readout.font, value, readout).width),
+      theme.spaceLg, theme.spaceLg, beside);
+  const fui::Rect readoutRow = layout.readout;
+  const fui::Rect iconRect = layout.backspace;
   screen.target().text(readoutRow, value, readout);
 
-  if (entryLen > 0 || !mappedInput.hasTouchHardware()) {
+  if (entryLen > 0 || !mappedInput.hasTouchHardware() || beside) {
     fui::ButtonProps backspaceBtn;
     backspaceBtn.icon = fui::bitmapFromIcon(icon_backspace_28);
     backspaceBtn.action = ACTION_KEYPAD_BACKSPACE;
@@ -1269,8 +1403,7 @@ void EpubReaderDrawerActivity::buildDrawerKeypad(UiApp::ScreenType& screen, cons
     screen.button(backspaceBtn, iconRect);
   }
 
-  fui::Rect gridArea = screen.body().inset(fui::Insets{0, theme.spaceLg, theme.spaceLg, theme.spaceLg});
-  gridArea.height = std::max<int16_t>(0, gridArea.height);
+  const fui::Rect gridArea = layout.grid;
 
   static const char* const kDigitLabels[10] = {"0", "1", "2", "3", "4", "5", "6", "7", "8", "9"};
   for (int i = 0; i < 9; ++i) {
@@ -1324,7 +1457,8 @@ void EpubReaderDrawerActivity::buildAutoPageTurnPane(UiApp::ScreenType& screen) 
   slider.decrement = ACTION_STEP;
   slider.increment = ACTION_STEP;
   configureReaderSliderScale(slider, "5s", "120s");
-  const int16_t hintLineHeight = buttonDevice ? screen.target().lineHeight(screen.theme().smallText.font) : 0;
+  const int16_t hintLineHeight =
+      buttonDevice ? screen.target().lineHeight(ReaderSliderHints::style(screen.theme()).font) : 0;
   const int16_t hintsHeight =
       buttonDevice ? static_cast<int16_t>(hintLineHeight * 2 + screen.theme().spaceMd + screen.theme().spaceSm) : 0;
   const int16_t top =
@@ -1530,7 +1664,7 @@ void EpubReaderDrawerActivity::openPane(const ReaderDrawerPane pane) {
   }
   paneRows.clear();
   if (pane == ReaderDrawerPane::ReaderFont) {
-    paneRows = {RowId::FontFamily, RowId::FontSize};
+    paneRows = {RowId::FontFamily, RowId::FontSize, RowId::CharacterSpacing};
     refreshTtfRenderingRow();
   }
   if (pane == ReaderDrawerPane::DictionaryFont) {
@@ -1556,7 +1690,7 @@ void EpubReaderDrawerActivity::closePane() {
   }
   if (state.pane == ReaderDrawerPane::EnumOptions) {
     state.pane = enumOptionReturnPane;
-  } else if (state.pane == ReaderDrawerPane::FontFamily) {
+  } else if (state.pane == ReaderDrawerPane::FontFamily || state.pane == ReaderDrawerPane::CharacterSpacing) {
     state.pane = ReaderDrawerPane::ReaderFont;
 #if CROSSINK_SCALABLE_FONTS
   } else if (state.pane == ReaderDrawerPane::TtfRendering) {
@@ -1568,7 +1702,7 @@ void EpubReaderDrawerActivity::closePane() {
   }
   paneRows.clear();
   if (state.pane == ReaderDrawerPane::ReaderFont) {
-    paneRows = {RowId::FontFamily, RowId::FontSize};
+    paneRows = {RowId::FontFamily, RowId::FontSize, RowId::CharacterSpacing};
     refreshTtfRenderingRow();
   }
   if (state.pane == ReaderDrawerPane::DictionaryFont) {
@@ -1615,7 +1749,7 @@ void EpubReaderDrawerActivity::activateListIndex(const int index) {
     if (index < 0 || index >= static_cast<int>(fontSettingIndexes.size())) return;
     if (state.pendingFontIndex == index) {
       state.pane = ReaderDrawerPane::ReaderFont;
-      paneRows = {RowId::FontFamily, RowId::FontSize};
+      paneRows = {RowId::FontFamily, RowId::FontSize, RowId::CharacterSpacing};
       refreshTtfRenderingRow();
       state.pendingFontIndex = -1;
       state.selectedIndex = 0;
@@ -1650,6 +1784,9 @@ void EpubReaderDrawerActivity::activateListIndex(const int index) {
 
 void EpubReaderDrawerActivity::activateRow(const RowId row) {
   switch (row) {
+    case RowId::CharacterSpacing:
+      openPane(ReaderDrawerPane::CharacterSpacing);
+      return;
     case RowId::ReaderFont:
       openPane(ReaderDrawerPane::ReaderFont);
       return;
@@ -1671,24 +1808,34 @@ void EpubReaderDrawerActivity::activateRow(const RowId row) {
       saveTtfRenderingProfile();
       requestUpdate();
       return;
-    case RowId::TtfReset:
+    case RowId::TtfReset: {
+      const TtfRenderProfile previous = ttfRenderProfile;
       ttfRenderProfile = {};
+      const bool saved = saveTtfRenderingProfile();
+      if (!saved) ttfRenderProfile = previous;
       rebuildTtfRenderingRows();
-      saveTtfRenderingProfile();
+      static constexpr StrId options[] = {StrId::STR_OK};
+      ttfResetPopup.show(saved ? StrId::STR_TTF_DEFAULTS_RESET : StrId::STR_TTF_RESET_FAILED, options, 1, 0, nullptr);
       requestUpdate();
       return;
+    }
 #endif
     case RowId::FontFamily:
+      if (publisherBodyFontActive()) return;
       discoverFonts();
       openPane(ReaderDrawerPane::FontFamily);
       return;
     case RowId::FontSize:
+    case RowId::TextDarkness:
+    case RowId::RuledLines:
     case RowId::DictionaryFontFamily:
     case RowId::DictionaryFontSize:
     case RowId::Orientation:
     case RowId::Alignment:
     case RowId::Images:
+    case RowId::PublisherFonts:
     case RowId::RenderMode:
+    case RowId::BookWordHoldAction:
       showEnumOptions(row);
       return;
     case RowId::IndexingMethod:
@@ -1758,6 +1905,7 @@ void EpubReaderDrawerActivity::activateRow(const RowId row) {
       closeAndReturn(false, EpubReaderMenuAction::RESET_BOOK_READER_SETTINGS);
       return;
     case RowId::TextAa:
+    case RowId::TwoToneTextAa:
     case RowId::Focus:
     case RowId::GuideDots:
     case RowId::Hyphenation:
@@ -1840,6 +1988,9 @@ void EpubReaderDrawerActivity::activateRow(const RowId row) {
 
 void EpubReaderDrawerActivity::toggleSetting(const RowId row) {
   switch (row) {
+    case RowId::TwoToneTextAa:
+      draft.twoToneTextAA = !draft.twoToneTextAA;
+      break;
     case RowId::TextAa:
       draft.textAntiAliasing = !draft.textAntiAliasing;
       break;
@@ -1867,7 +2018,7 @@ void EpubReaderDrawerActivity::toggleSetting(const RowId row) {
     default:
       return;
   }
-  if (row == RowId::TextAa) {
+  if (row == RowId::TextAa || row == RowId::TwoToneTextAa) {
     // Anti-aliasing changes pixels only. Rebuilding the EPUB section here
     // makes the in-drawer preview appear to zoom while the page reflows.
     markSettingChanged(ReaderSettingsChangeMask::Preview | ReaderSettingsChangeMask::NonLayout);
@@ -1884,7 +2035,7 @@ void EpubReaderDrawerActivity::showEnumOptions(const RowId row) {
   const bool fontSizeNeedsLoading = row == RowId::FontSize && draft.sdFontFamilyName[0] != '\0' &&
                                     ReaderUtils::shouldShowFontPreviewLoading(draft.sdFontFamilyName.data());
   if (row == RowId::DictionaryFontFamily || row == RowId::DictionaryFontSize || fontSizeNeedsLoading) {
-    GUI.drawPopup(renderer, tr(STR_LOADING_POPUP), true);
+    GUI.drawPopup(renderer, tr(STR_LOADING), true);
   }
   if (row == RowId::DictionaryFontFamily || row == RowId::DictionaryFontSize) sdFontSystem.refreshIfDirty();
   std::vector<std::string> labels;
@@ -1912,6 +2063,18 @@ void EpubReaderDrawerActivity::showEnumOptions(const RowId row) {
   }
 
   switch (row) {
+    case RowId::RuledLines:
+      title = StrId::STR_RULED_LINES;
+      labels = {tr(STR_OFF), tr(STR_LIGHT), tr(STR_MEDIUM), tr(STR_DARK)};
+      raw = {0, 1, 2, 3};
+      currentRaw = draft.ruledLines;
+      break;
+    case RowId::TextDarkness:
+      title = StrId::STR_TEXT_DARKNESS;
+      labels = {tr(STR_SENSITIVITY_NORMAL), tr(STR_DARK), tr(STR_DARKER)};
+      raw = {0, 1, 2};
+      currentRaw = draft.textDarkness;
+      break;
     case RowId::Orientation:
       title = StrId::STR_ORIENTATION;
       labels = {tr(STR_PORTRAIT), tr(STR_LANDSCAPE_CW), tr(STR_LANDSCAPE_CCW), tr(STR_ORIENTATION_INVERTED)};
@@ -1921,21 +2084,37 @@ void EpubReaderDrawerActivity::showEnumOptions(const RowId row) {
       break;
     case RowId::Alignment:
       title = StrId::STR_PARA_ALIGNMENT;
-      labels = {tr(STR_JUSTIFY), tr(STR_ALIGN_LEFT), tr(STR_CENTER), tr(STR_ALIGN_RIGHT), tr(STR_BOOK_S_STYLE)};
+      labels = {tr(STR_JUSTIFY), tr(STR_DIR_LEFT), tr(STR_CENTER), tr(STR_DIR_RIGHT), tr(STR_BOOK_S_STYLE)};
       raw = {0, 1, 2, 3, 4};
       currentRaw = draft.paragraphAlignment;
       break;
+    case RowId::PublisherFonts:
+      title = StrId::STR_PUBLISHER_FONTS;
+      labels = {tr(STR_OFF), tr(STR_PUBLISHER_FONTS_ACCENTS), tr(STR_PUBLISHER_FONTS_ALL)};
+      raw = {0, 1, 2};
+      currentRaw = draft.publisherFonts;
+      break;
     case RowId::Images:
       title = StrId::STR_IMAGES;
-      labels = {tr(STR_IMAGES_DISPLAY), tr(STR_IMAGES_PLACEHOLDER), tr(STR_IMAGES_SUPPRESS)};
-      raw = {0, 1, 2};
-      currentRaw = draft.imageRendering;
+      labels = {tr(STR_IMAGES_DISPLAY), tr(STR_IMAGES_DISPLAY_BW), tr(STR_IMAGES_PLACEHOLDER), tr(STR_IMAGES_SUPPRESS)};
+      raw = {ImageDisplayMode::Grayscale, ImageDisplayMode::BlackAndWhite, ImageDisplayMode::Placeholder,
+             ImageDisplayMode::Hidden};
+      currentRaw = ImageDisplayMode::selected(draft.imageRendering, draft.imageGrayscale);
       break;
     case RowId::RenderMode:
       title = StrId::STR_EPUB_RENDER_MODE;
       labels = {tr(STR_RENDER_MODE_CROSSINK_DEFAULT), tr(STR_RENDER_MODE_BALANCED), tr(STR_RENDER_MODE_LIGHT)};
       raw = {0, 1, 2};
       currentRaw = draft.epubRenderMode;
+      break;
+    case RowId::BookWordHoldAction:
+      title = StrId::STR_WORD_HOLD_ACTION;
+      raw = {CrossPointSettings::WORD_HOLD_USE_GLOBAL, CrossPointSettings::WORD_HOLD_LOOKUP,
+             CrossPointSettings::WORD_HOLD_CLIP, CrossPointSettings::WORD_HOLD_ASK};
+      labels.reserve(raw.size());
+      std::transform(raw.begin(), raw.end(), std::back_inserter(labels),
+                     [](const auto action) { return I18N.get(WORD_HOLD_LABELS[action]); });
+      currentRaw = bookWordHoldAction;
       break;
     case RowId::DictionaryFontFamily: {
       title = StrId::STR_FONT_FAMILY;
@@ -2024,24 +2203,12 @@ void EpubReaderDrawerActivity::notifyDictionaryFontChanged() {
 void EpubReaderDrawerActivity::selectEnumOption(const int index) {
   if (index < 0 || index >= static_cast<int>(enumOptionValues.size())) return;
   const uint8_t value = enumOptionValues[static_cast<size_t>(index)];
-  const bool previewsBeforeSelecting = enumOptionRow == RowId::FontSize || enumOptionRow == RowId::Alignment;
-  if (previewsBeforeSelecting && previewedEnumOptionIndex != index) {
-    previewedEnumOptionIndex = static_cast<int16_t>(index);
-    if (enumOptionRow == RowId::FontSize) {
-      fontPreviewLoading = ReaderUtils::shouldShowFontPreviewLoading(draft.sdFontFamilyName.data());
-      draft.readerFontPointSize = value;
-    } else {
-      draft.paragraphAlignment = value;
-    }
-    markSettingChanged(ReaderSettingsChangeMask::Preview | ReaderSettingsChangeMask::Relayout);
-    requestUpdate();
-    return;
-  }
+  const bool previewSelection = readerDrawerPreviewsEnum(enumOptionRow) && previewedEnumOptionIndex != index;
   switch (enumOptionRow) {
     case RowId::FontSize:
+      if (previewSelection)
+        fontPreviewLoading = ReaderUtils::shouldShowFontPreviewLoading(draft.sdFontFamilyName.data());
       draft.readerFontPointSize = value;
-      enumOptionSelectedIndex = static_cast<int16_t>(index);
-      previewedEnumOptionIndex = -1;
       markSettingChanged(ReaderSettingsChangeMask::Preview | ReaderSettingsChangeMask::Relayout);
       break;
     case RowId::Orientation:
@@ -2050,17 +2217,36 @@ void EpubReaderDrawerActivity::selectEnumOption(const int index) {
       break;
     case RowId::Alignment:
       draft.paragraphAlignment = value;
-      enumOptionSelectedIndex = static_cast<int16_t>(index);
-      previewedEnumOptionIndex = -1;
       markSettingChanged(ReaderSettingsChangeMask::Preview | ReaderSettingsChangeMask::Relayout);
       break;
+    case RowId::RuledLines: {
+      const bool reflow = (draft.ruledLines != 0) != (value != 0);
+      draft.ruledLines = value;
+      markSettingChanged(ReaderSettingsChangeMask::Preview |
+                         (reflow ? ReaderSettingsChangeMask::Relayout : ReaderSettingsChangeMask::NonLayout));
+      break;
+    }
+    case RowId::TextDarkness:
+      draft.textDarkness = value;
+      markSettingChanged(ReaderSettingsChangeMask::Preview | ReaderSettingsChangeMask::NonLayout);
+      break;
+    case RowId::PublisherFonts:
+      draft.publisherFonts = value;
+      markSettingChanged(ReaderSettingsChangeMask::Relayout);
+      break;
     case RowId::Images:
-      draft.imageRendering = value;
+      ImageDisplayMode::apply(value, draft.imageRendering, draft.imageGrayscale);
       markSettingChanged(ReaderSettingsChangeMask::NonLayout);
       break;
     case RowId::RenderMode:
       draft.epubRenderMode = value;
       markSettingChanged(ReaderSettingsChangeMask::Relayout);
+      break;
+    case RowId::BookWordHoldAction:
+      if (value != bookWordHoldAction && saveBookWordHoldAction &&
+          saveBookWordHoldAction(saveReaderSettingsContext, value)) {
+        bookWordHoldAction = value;
+      }
       break;
     case RowId::DictionaryFontFamily:
       if (index == 0) {
@@ -2116,6 +2302,13 @@ void EpubReaderDrawerActivity::selectEnumOption(const int index) {
     default:
       return;
   }
+  if (previewSelection) {
+    previewedEnumOptionIndex = static_cast<int16_t>(index);
+    requestUpdate();
+    return;
+  }
+  enumOptionSelectedIndex = static_cast<int16_t>(index);
+  previewedEnumOptionIndex = -1;
   state.pane = enumOptionReturnPane;
   state.paneTopIndex = 0;
   state.selectedIndex = 0;
@@ -2326,7 +2519,10 @@ void EpubReaderDrawerActivity::completeAutoPageTurnSelection() {
 }
 
 void EpubReaderDrawerActivity::adjustActiveSlider(const int delta) {
-  if (state.pane == ReaderDrawerPane::Spacing) {
+  if (state.pane == ReaderDrawerPane::CharacterSpacing) {
+    draft.characterSpacing =
+        std::clamp<int>(draft.characterSpacing + delta, 0, CrossPointSettings::MAX_CHARACTER_SPACING);
+  } else if (state.pane == ReaderDrawerPane::Spacing) {
     draft.lineHeightPercent = CrossPointSettings::clampedLineHeightPercent(static_cast<uint8_t>(
         std::clamp<int>(draft.lineHeightPercent + delta, CrossPointSettings::MIN_LINE_HEIGHT_PERCENT,
                         CrossPointSettings::MAX_LINE_HEIGHT_PERCENT)));
@@ -2342,7 +2538,11 @@ void EpubReaderDrawerActivity::adjustActiveSlider(const int delta) {
 
 void EpubReaderDrawerActivity::adjustButtonSlider(const int delta) {
   bool changed = false;
-  if (state.pane == ReaderDrawerPane::Spacing) {
+  if (state.pane == ReaderDrawerPane::CharacterSpacing) {
+    const uint8_t previous = draft.characterSpacing;
+    adjustActiveSlider(delta);
+    changed = previous != draft.characterSpacing;
+  } else if (state.pane == ReaderDrawerPane::Spacing) {
     if (buttonSliderState.focus == 0) {
       const uint8_t value = CrossPointSettings::clampedLineHeightPercent(static_cast<uint8_t>(
           std::clamp<int>(draft.lineHeightPercent + delta, CrossPointSettings::MIN_LINE_HEIGHT_PERCENT,
@@ -2350,8 +2550,7 @@ void EpubReaderDrawerActivity::adjustButtonSlider(const int delta) {
       changed = value != draft.lineHeightPercent;
       draft.lineHeightPercent = value;
     } else {
-      const uint8_t value =
-          static_cast<uint8_t>(std::clamp<int>(draft.wordSpacing + delta, 0, CrossPointSettings::MAX_WORD_SPACING));
+      const uint8_t value = WordSpacing::fromLevel(WordSpacing::level(draft.wordSpacing) + delta);
       changed = value != draft.wordSpacing;
       draft.wordSpacing = value;
     }
@@ -2443,7 +2642,8 @@ void EpubReaderDrawerActivity::renderPreviewContents(const ReaderSettingsDraft& 
   if (CROSSINK_APP_READER_SAMPLE_PREVIEW) {
     const auto& metrics = UITheme::getInstance().getMetrics();
     const int labelTextHeight = renderer.getTextHeight(UI_10_FONT_ID);
-    const int noteHeight = previewSettings.textAntiAliasing ? labelTextHeight + 2 : 0;
+    const bool showAaNote = showsSamplePreviewAaNote(previewSettings);
+    const int noteHeight = showAaNote ? labelTextHeight + 2 : 0;
     const char* name = previewSettings.sdFontFamilyName[0]
                            ? previewSettings.sdFontFamilyName.data()
                            : (previewSettings.fontFamily == 0 ? tr(STR_LEXEND_DECA) : tr(STR_BITTER));
@@ -2455,18 +2655,23 @@ void EpubReaderDrawerActivity::renderPreviewContents(const ReaderSettingsDraft& 
     renderer.beginTextClip(preview.x, preview.y, preview.width, preview.height);
     renderer.drawText(UI_10_FONT_ID, preview.x + metrics.previewPadding, labelY, label,
                       ReaderUtils::readerForegroundBlack());
-    if (previewSettings.textAntiAliasing) {
+    if (showAaNote) {
       std::snprintf(label, sizeof(label), "%s: %s", tr(STR_TEXT_AA), tr(STR_PREVIEW_UNAVAILABLE));
       renderer.drawText(SMALL_FONT_ID, preview.x + metrics.previewPadding, labelY + labelTextHeight + 6, label,
                         ReaderUtils::readerForegroundBlack());
     }
     renderer.endTextClip();
-    renderer.drawLine(preview.x, preview.bottom() - 1, preview.right() - 1, preview.bottom() - 1,
-                      ReaderUtils::readerForegroundBlack());
+    if (samplePreviewBesideControls()) {
+      renderer.drawLine(preview.x, preview.y, preview.x, preview.bottom() - 1, ReaderUtils::readerForegroundBlack());
+    } else {
+      renderer.drawLine(preview.x, preview.bottom() - 1, preview.right() - 1, preview.bottom() - 1,
+                        ReaderUtils::readerForegroundBlack());
+    }
   }
 }
 
 void EpubReaderDrawerActivity::renderPreviewText(const ReaderSettingsDraft& previewSettings, const int previewFontId) {
+  const GfxRenderer::TextDarknessScope darkness(renderer, previewSettings.textDarkness);
   if (CROSSINK_APP_READER_SAMPLE_PREVIEW) {
     renderSamplePreviewText(previewSettings, previewFontId);
     return;
@@ -2481,33 +2686,38 @@ void EpubReaderDrawerActivity::renderPreviewText(const ReaderSettingsDraft& prev
                             previewSettings.sdFontFamilyName == sourceSettings.sdFontFamilyName &&
                             previewSettings.lineHeightPercent == sourceSettings.lineHeightPercent &&
                             previewSettings.wordSpacing == sourceSettings.wordSpacing &&
+                            previewSettings.characterSpacing == sourceSettings.characterSpacing &&
                             previewSettings.screenMarginVertical == sourceSettings.screenMarginVertical &&
                             previewSettings.screenMarginHorizontal == sourceSettings.screenMarginHorizontal &&
                             previewSettings.paragraphAlignment == sourceSettings.paragraphAlignment &&
                             previewSettings.focusReadingEnabled == sourceSettings.focusReadingEnabled &&
+                            (previewSettings.ruledLines != 0) == (sourceSettings.ruledLines != 0) &&
                             previewSettings.guideReadingEnabled == sourceSettings.guideReadingEnabled;
-  if (sourceLayout && EpubReaderPreviewModel::RETAINS_SOURCE_BLOCKS) {
-    renderer.beginTextClip(safe.x, clipTop, safe.width, clipHeight);
-    previewModel->renderSource(renderer, previewFontId, ReaderUtils::readerForegroundBlack());
-    renderer.endTextClip();
-    return;
-  }
   int orientedTop, orientedRight, orientedBottom, orientedLeft;
   renderer.getOrientedViewableTRBL(&orientedTop, &orientedRight, &orientedBottom, &orientedLeft);
-  (void)orientedRight;
   (void)orientedBottom;
-  (void)orientedLeft;
   const int clockReservation = ReaderUtils::getTopStatusBarReservedHeight(renderer);
   const int previewYOffset =
       orientedTop + std::max(static_cast<int>(previewSettings.screenMarginVertical),
                              clockReservation > 0 ? clockReservation + ReaderUtils::TOP_STATUS_BAR_TEXT_PADDING : 0);
-  const int previewWidth =
-      std::max(1, renderer.getScreenWidth() - static_cast<int>(previewSettings.screenMarginHorizontal) * 2);
+  const int previewXOffset = orientedLeft + previewSettings.screenMarginHorizontal;
+  const int previewWidth = std::max(1, renderer.getScreenWidth() - orientedLeft - orientedRight -
+                                           static_cast<int>(previewSettings.screenMarginHorizontal) * 2);
+  if (sourceLayout && EpubReaderPreviewModel::RETAINS_SOURCE_BLOCKS) {
+    renderer.beginTextClip(safe.x, clipTop, safe.width, clipHeight);
+    const int left = previewModel->sourceLeft();
+    const ReaderRuling ruling{previewSettings.ruledLines, left, previewXOffset + previewWidth - left, clipBottom,
+                              previewSettings.lineHeightPercent};
+    previewModel->renderSource(renderer, previewFontId, ReaderUtils::readerForegroundBlack(), ruling);
+    renderer.endTextClip();
+    return;
+  }
   renderer.beginTextClip(safe.x, clipTop, safe.width, clipHeight);
-  previewModel->renderText(renderer, previewFontId, previewSettings.screenMarginHorizontal, previewYOffset,
-                           previewWidth, previewSettings.lineHeightPercent, previewSettings.wordSpacing,
-                           previewSettings.paragraphAlignment, previewSettings.focusReadingEnabled,
-                           previewSettings.guideReadingEnabled, ReaderUtils::readerForegroundBlack());
+  previewModel->renderText(
+      renderer, previewFontId, previewXOffset, previewYOffset, previewWidth, previewSettings.lineHeightPercent,
+      previewSettings.wordSpacing, previewSettings.paragraphAlignment, previewSettings.focusReadingEnabled,
+      previewSettings.guideReadingEnabled, ReaderUtils::readerForegroundBlack(), std::numeric_limits<int>::max(),
+      CrossPointSettings::characterSpacingLevel(previewSettings.characterSpacing), previewSettings.ruledLines);
   renderer.endTextClip();
 }
 
@@ -2517,7 +2727,7 @@ void EpubReaderDrawerActivity::renderSamplePreviewText(const ReaderSettingsDraft
   const fui::Rect area = previewBounds();
   const int labelTextHeight = renderer.getTextHeight(UI_10_FONT_ID);
   const int labelHeight =
-      labelTextHeight + (settings.textAntiAliasing ? labelTextHeight + 2 : 0) + metrics.previewPadding + 8;
+      labelTextHeight + (showsSamplePreviewAaNote(settings) ? labelTextHeight + 2 : 0) + metrics.previewPadding + 8;
   const int textHeight = std::max(0, area.height - labelHeight - metrics.previewPadding);
   // The sample is a short page: show top AND bottom margins proportionally
   // to its height, while horizontal margins and font sizes remain actual pixels.
@@ -2530,15 +2740,17 @@ void EpubReaderDrawerActivity::renderSamplePreviewText(const ReaderSettingsDraft
   previewModel->renderText(renderer, fontId, area.x + marginX, top, width, settings.lineHeightPercent,
                            settings.wordSpacing, settings.paragraphAlignment, settings.focusReadingEnabled,
                            settings.guideReadingEnabled, ReaderUtils::readerForegroundBlack(),
-                           top + std::max(0, textHeight - marginY * 2));
+                           top + std::max(0, textHeight - marginY * 2),
+                           CrossPointSettings::characterSpacingLevel(settings.characterSpacing), settings.ruledLines);
   renderer.endTextClip();
 }
 
 void EpubReaderDrawerActivity::renderPreviewUnavailable() {
   const fui::Rect preview = previewBounds();
   renderer.fillRect(preview.x, preview.y, preview.width, preview.height, ReaderUtils::readerDarkModeEnabled());
-  renderer.drawCenteredText(UI_12_FONT_ID, preview.y + preview.height / 2, tr(STR_PREVIEW_UNAVAILABLE),
-                            ReaderUtils::readerForegroundBlack());
+  const char* text = tr(STR_PREVIEW_UNAVAILABLE);
+  const int x = preview.x + std::max(0, (preview.width - renderer.getTextWidth(UI_12_FONT_ID, text)) / 2);
+  renderer.drawText(UI_12_FONT_ID, x, preview.y + preview.height / 2, text, ReaderUtils::readerForegroundBlack());
 }
 
 bool EpubReaderDrawerActivity::renderPreview(int& previewFontId,
@@ -2576,7 +2788,7 @@ bool EpubReaderDrawerActivity::renderPreview(int& previewFontId,
   }
   if (CROSSINK_APP_READER_SAMPLE_PREVIEW && releasePreviewIfBelowReserve()) return false;
   if (fontPreviewLoading) {
-    GUI.drawPopup(renderer, tr(STR_LOADING_POPUP), true);
+    GUI.drawPopup(renderer, tr(STR_LOADING), true);
     fontPreviewLoading = false;
   }
   const ReaderSettingsDraft previewSettings = draft;
@@ -2623,6 +2835,10 @@ void EpubReaderDrawerActivity::renderPreviewWithAntiAliasing(const int previewFo
   if (!previewModel || !previewModel->valid()) return;
 
   const ReaderSettingsDraft previewSettings = draft;
+#if FREEINK_DEVICE_EEGO_A4
+  const ReaderUtils::ReaderRefreshScope refresh(renderer,
+                                                ReaderUtils::ReaderRefreshScope::text(previewSettings.twoToneTextAA));
+#endif
   // The BW refresh has already drawn the reader preview and drawer. Re-render
   // only preview text into the grayscale planes so the drawer stays crisp.
   ReaderUtils::renderAntiAliased(
@@ -2630,6 +2846,17 @@ void EpubReaderDrawerActivity::renderPreviewWithAntiAliasing(const int previewFo
 }
 
 void EpubReaderDrawerActivity::loop() {
+#if CROSSINK_SCALABLE_FONTS
+  if (ttfResetPopup.handleInput(mappedInput, [this] { requestUpdate(); })) {
+    if (!ttfResetPopup.isActive()) {
+      // The centered popup can cover reader pixels above the drawer. Restore
+      // the book backdrop as well as any draft preview before repainting.
+      activityManager.restoreBackdropBehindCurrentOverlay();
+      previewDirty = true;
+    }
+    return;
+  }
+#endif
   if (mappedInput.wasBottomEdgeUpSwipe()) {
     closeAndReturn(false, EpubReaderMenuAction::GO_HOME, false);
     return;
@@ -2747,12 +2974,8 @@ void EpubReaderDrawerActivity::loop() {
     }
     buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Left}, [this] { adjustPercentSlider(-1); });
     buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Right}, [this] { adjustPercentSlider(1); });
-    const int upStep = deviceHasEdgeSideButtons(gpio) ? -10 : 10;
-    const int downStep = -upStep;
-    buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Up},
-                                         [this, upStep] { adjustPercentSlider(upStep); });
-    buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Down},
-                                         [this, downStep] { adjustPercentSlider(downStep); });
+    buttonNavigator.onPressAndContinuous({mappedInput.sliderIncreaseButton()}, [this] { adjustPercentSlider(10); });
+    buttonNavigator.onPressAndContinuous({mappedInput.sliderDecreaseButton()}, [this] { adjustPercentSlider(-10); });
     return;
   }
   if (!mappedInput.hasTouchHardware() && state.pane == ReaderDrawerPane::AutoPageTurn) {
@@ -2766,10 +2989,8 @@ void EpubReaderDrawerActivity::loop() {
     };
     buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Left}, [&] { adjust(-1); });
     buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Right}, [&] { adjust(1); });
-    const int upStep = deviceHasEdgeSideButtons(gpio) ? -5 : 5;
-    const int downStep = -upStep;
-    buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Up}, [&] { adjust(upStep); });
-    buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Down}, [&] { adjust(downStep); });
+    buttonNavigator.onPressAndContinuous({mappedInput.sliderIncreaseButton()}, [&] { adjust(5); });
+    buttonNavigator.onPressAndContinuous({mappedInput.sliderDecreaseButton()}, [&] { adjust(-5); });
     return;
   }
   if (!mappedInput.hasTouchHardware() && readerDrawerStepChangesSettings(state.pane)) {
@@ -2794,27 +3015,38 @@ void EpubReaderDrawerActivity::loop() {
     };
     handleDirection(MappedInputManager::Button::Left, ReaderButtonSliderInput::Previous, -1);
     handleDirection(MappedInputManager::Button::Right, ReaderButtonSliderInput::Next, 1);
-    handleDirection(MappedInputManager::Button::Up, ReaderButtonSliderInput::Previous, -5);
-    handleDirection(MappedInputManager::Button::Down, ReaderButtonSliderInput::Next, 5);
+    // Outside edit mode the side keys select a row; while editing they adjust its value.
+    const auto previous =
+        buttonSliderState.editing ? mappedInput.sliderDecreaseButton() : MappedInputManager::Button::Up;
+    const auto next = buttonSliderState.editing ? mappedInput.sliderIncreaseButton() : MappedInputManager::Button::Down;
+    handleDirection(previous, ReaderButtonSliderInput::Previous, -5);
+    handleDirection(next, ReaderButtonSliderInput::Next, 5);
     if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
       readerButtonSliderInput(buttonSliderState, ReaderButtonSliderInput::Confirm);
       requestUpdate();
     }
     return;
   }
-  const auto left = mappedInput.menuButton(MappedInputManager::Button::Left);
-  const auto right = mappedInput.menuButton(MappedInputManager::Button::Right);
-  const auto up = mappedInput.menuButton(MappedInputManager::Button::Up);
-  const auto down = mappedInput.menuButton(MappedInputManager::Button::Down);
-  buttonNavigator.onRelease({down, down}, [this] { moveSelection(true, false); });
-  buttonNavigator.onRelease({up, up}, [this] { moveSelection(false, false); });
-  buttonNavigator.onContinuous({down, down}, [this] { moveSelection(true, true); });
-  buttonNavigator.onContinuous({up, up}, [this] { moveSelection(false, true); });
-  if (state.pane == ReaderDrawerPane::Root) {
-    buttonNavigator.onRelease({right, right}, [this] { changeTab(adjacentReaderDrawerTab(state.tab, true)); });
-    buttonNavigator.onRelease({left, left}, [this] { changeTab(adjacentReaderDrawerTab(state.tab, false)); });
-    buttonNavigator.onContinuous({right, right}, [this] { changeTab(adjacentReaderDrawerTab(state.tab, true)); });
-    buttonNavigator.onContinuous({left, left}, [this] { changeTab(adjacentReaderDrawerTab(state.tab, false)); });
+  if (SETTINGS.menuNavigation == CrossPointSettings::MENU_NAV_CLASSIC) {
+    buttonNavigator.onNextRelease([this] { moveSelection(true, false); });
+    buttonNavigator.onPreviousRelease([this] { moveSelection(false, false); });
+    buttonNavigator.onNextContinuous([this] { moveSelection(true, true); });
+    buttonNavigator.onPreviousContinuous([this] { moveSelection(false, true); });
+  } else {
+    const auto left = mappedInput.menuButton(MappedInputManager::Button::Left);
+    const auto right = mappedInput.menuButton(MappedInputManager::Button::Right);
+    const auto up = mappedInput.menuButton(MappedInputManager::Button::Up);
+    const auto down = mappedInput.menuButton(MappedInputManager::Button::Down);
+    buttonNavigator.onRelease({down, down}, [this] { moveSelection(true, false); });
+    buttonNavigator.onRelease({up, up}, [this] { moveSelection(false, false); });
+    buttonNavigator.onContinuous({down, down}, [this] { moveSelection(true, true); });
+    buttonNavigator.onContinuous({up, up}, [this] { moveSelection(false, true); });
+    if (state.pane == ReaderDrawerPane::Root) {
+      buttonNavigator.onRelease({right, right}, [this] { changeTab(adjacentReaderDrawerTab(state.tab, true)); });
+      buttonNavigator.onRelease({left, left}, [this] { changeTab(adjacentReaderDrawerTab(state.tab, false)); });
+      buttonNavigator.onContinuous({right, right}, [this] { changeTab(adjacentReaderDrawerTab(state.tab, true)); });
+      buttonNavigator.onContinuous({left, left}, [this] { changeTab(adjacentReaderDrawerTab(state.tab, false)); });
+    }
   }
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
     if (!mappedInput.hasTouchHardware() && state.pane == ReaderDrawerPane::Root && !buttonFocusActive) {
@@ -2839,6 +3071,10 @@ void EpubReaderDrawerActivity::loop() {
 }
 
 void EpubReaderDrawerActivity::render(RenderLock&&) {
+#if CROSSINK_SCALABLE_FONTS
+  if (ttfResetPopup.processRender(renderer, mappedInput)) return;
+  resolvePublisherBodyFontName();
+#endif
   const bool buttonDevice = !mappedInput.hasTouchHardware();
   const int16_t drawerEdge =
       buttonDevice ? drawerHeight() : static_cast<int16_t>(renderer.getScreenHeight() - drawerHeight());
@@ -2861,17 +3097,16 @@ void EpubReaderDrawerActivity::render(RenderLock&&) {
 #endif
   uiReady = false;
   if (CROSSINK_APP_READER_SAMPLE_PREVIEW && fontPreviewLoading) {
-    GUI.drawPopup(renderer, tr(STR_LOADING_POPUP), true);
+    GUI.drawPopup(renderer, tr(STR_LOADING), true);
     fontPreviewLoading = false;
   }
-  app.setDevice(uiTarget.deviceContext());
-  app.render();
+  renderUiApp(app, uiTarget);
   if (buttonDevice) drawButtonBookHeader();
 #if CROSSINK_APP_READER_SAMPLE_PREVIEW
   previewDirty = true;  // The full-screen UI cleared the sample area as well.
   previewRendered = renderPreview(previewFontId, previewPrewarmScope);
   if (showsSamplePreview() && previewUnavailable) {
-    app.render();  // A failed font selection rolled the draft back; repaint its values too.
+    renderUiApp(app, uiTarget);  // A failed font selection rolled the draft back; repaint its values too.
     drawButtonBookHeader();
     renderPreviewUnavailable();
   }
@@ -2898,7 +3133,9 @@ void EpubReaderDrawerActivity::render(RenderLock&&) {
     const bool menuNavigation = state.pane != ReaderDrawerPane::Percent &&
                                 state.pane != ReaderDrawerPane::AutoPageTurn &&
                                 !readerDrawerStepChangesSettings(state.pane);
-    const bool horizontalFront = menuNavigation && !deviceUsesHorizontalSideButtonsForMenus(gpio);
+    const bool horizontalFront =
+        SETTINGS.menuNavigation == CrossPointSettings::MENU_NAV_DIRECTIONAL && menuNavigation &&
+        mappedInput.menuButton(MappedInputManager::Button::Up) == MappedInputManager::Button::Up;
     const char* previousLabel = horizontalFront ? tr(STR_DIR_LEFT) : tr(STR_DIR_UP);
     const char* nextLabel = horizontalFront ? tr(STR_DIR_RIGHT) : tr(STR_DIR_DOWN);
     if (state.pane == ReaderDrawerPane::Percent && percentKeypadActive) {
@@ -2931,6 +3168,8 @@ const char* EpubReaderDrawerActivity::paneTitle() const {
       return tr(STR_DICTIONARY_FONT);
     case ReaderDrawerPane::FontFamily:
       return tr(STR_FONT_FAMILY);
+    case ReaderDrawerPane::CharacterSpacing:
+      return tr(STR_CHARACTER_SPACING);
     case ReaderDrawerPane::Spacing:
       return tr(STR_SPACING);
     case ReaderDrawerPane::Margins:
@@ -2969,6 +3208,12 @@ const char* EpubReaderDrawerActivity::rowLabel(const RowId row) const {
       return tr(STR_DICTIONARY_FONT);
     case RowId::Spacing:
       return tr(STR_SPACING);
+    case RowId::RuledLines:
+      return tr(STR_RULED_LINES);
+    case RowId::TextDarkness:
+      return tr(STR_TEXT_DARKNESS);
+    case RowId::TwoToneTextAa:
+      return tr(STR_TWO_TONE_TEXT_AA);
     case RowId::TextAa:
       return tr(STR_TEXT_AA);
     case RowId::Focus:
@@ -2989,6 +3234,8 @@ const char* EpubReaderDrawerActivity::rowLabel(const RowId row) const {
       return tr(STR_EXTRA_SPACING);
     case RowId::ForceIndents:
       return tr(STR_FORCE_PARAGRAPH_INDENTS);
+    case RowId::PublisherFonts:
+      return tr(STR_PUBLISHER_FONTS);
     case RowId::EmbeddedStyle:
       return tr(STR_EMBEDDED_STYLE);
     case RowId::Images:
@@ -3033,6 +3280,8 @@ const char* EpubReaderDrawerActivity::rowLabel(const RowId row) const {
       return tr(STR_TRACK_READING_STATS);
     case RowId::Controls:
       return tr(STR_CAT_CONTROLS);
+    case RowId::BookWordHoldAction:
+      return tr(STR_WORD_HOLD_ACTION);
     case RowId::ResetReadingPace:
       return tr(STR_RESET_READING_PACE);
     case RowId::ResetBookReaderSettings:
@@ -3046,13 +3295,15 @@ const char* EpubReaderDrawerActivity::rowLabel(const RowId row) const {
     case RowId::ReadingStats:
       return tr(STR_READING_STATS);
     case RowId::SyncProgress:
-      return tr(STR_SYNC_PROGRESS);
+      return tr(STR_SYNC_BOOK);
     case RowId::NearbyPositionSync:
       return tr(STR_NEARBY_POSITION_SYNC);
     case RowId::SendNearbyBook:
       return tr(STR_SEND_NEARBY_BOOK);
     case RowId::FontFamily:
       return tr(STR_FONT_FAMILY);
+    case RowId::CharacterSpacing:
+      return tr(STR_CHARACTER_SPACING);
     case RowId::FontSize:
       return tr(STR_FONT_SIZE);
     case RowId::DictionaryFontFamily:
@@ -3081,15 +3332,54 @@ const char* EpubReaderDrawerActivity::rowLabel(const RowId row) const {
   return "";
 }
 
+bool EpubReaderDrawerActivity::publisherBodyFontActive() const {
+#if CROSSINK_SCALABLE_FONTS
+  return draft.publisherFonts == static_cast<uint8_t>(PublisherFonts::All) && draft.embeddedStyle &&
+         draft.epubRenderMode != static_cast<uint8_t>(EpubRenderMode::Light) && publisherBodyFontName[0];
+#else
+  return false;
+#endif
+}
+
+#if CROSSINK_SCALABLE_FONTS
+void EpubReaderDrawerActivity::resolvePublisherBodyFontName() {
+  if (publisherBodyFontNameResolved || state.pane != ReaderDrawerPane::ReaderFont || !epub || !draft.embeddedStyle ||
+      draft.publisherFonts != static_cast<uint8_t>(PublisherFonts::All) ||
+      draft.epubRenderMode == static_cast<uint8_t>(EpubRenderMode::Light))
+    return;
+  publisherBodyFontNameResolved = true;
+  if (!bookFontSystem.loadedFaces()) return;
+  if (publisherBodyFontProbe) publisherBodyFontFamily = publisherBodyFontProbe(publisherBodyFontContext);
+  // This informational row must not load fonts or change their admission order.
+  if (!bookFontSystem.hasLoadedFamily(publisherBodyFontFamily)) return;
+  if (!bookFontSystem.copyFamilyName(publisherBodyFontFamily, publisherBodyFontName, sizeof(publisherBodyFontName)))
+    std::snprintf(publisherBodyFontName, sizeof(publisherBodyFontName), "%s", tr(STR_PUBLISHER_FONTS));
+}
+#endif
+
 const char* EpubReaderDrawerActivity::rowValue(const RowId row, char* buffer, const size_t bufferSize) const {
   switch (row) {
     case RowId::FontFamily: {
+#if CROSSINK_SCALABLE_FONTS
+      if (publisherBodyFontActive()) return publisherBodyFontName;
+#endif
       if (draft.sdFontFamilyName[0] != '\0') return draft.sdFontFamilyName.data();
       static constexpr std::array<StrId, CrossPointSettings::BUILTIN_FONT_COUNT> labels = {StrId::STR_LEXEND_DECA,
                                                                                            StrId::STR_BITTER};
       if (draft.fontFamily >= labels.size()) return tr(STR_UNAVAILABLE);
       return I18N.get(labels[draft.fontFamily]);
     }
+    case RowId::RuledLines: {
+      static constexpr StrId labels[] = {StrId::STR_OFF, StrId::STR_LIGHT, StrId::STR_MEDIUM, StrId::STR_DARK};
+      return I18N.get(labels[draft.ruledLines <= 3 ? draft.ruledLines : 0]);
+    }
+    case RowId::TextDarkness:
+      return draft.textDarkness == 2   ? tr(STR_DARKER)
+             : draft.textDarkness == 1 ? tr(STR_DARK)
+                                       : tr(STR_SENSITIVITY_NORMAL);
+    case RowId::CharacterSpacing:
+      CrossPointSettings::formatCharacterSpacing(draft.characterSpacing, buffer, bufferSize);
+      return buffer;
     case RowId::FontSize:
       std::snprintf(buffer, bufferSize, "%upt", draft.readerFontPointSize);
       return buffer;
@@ -3113,14 +3403,20 @@ const char* EpubReaderDrawerActivity::rowValue(const RowId row, char* buffer, co
       return I18N.get(readerOrientationLabel(draft.orientation));
     }
     case RowId::Alignment: {
-      static const std::array<StrId, 5> labels = {StrId::STR_JUSTIFY, StrId::STR_ALIGN_LEFT, StrId::STR_CENTER,
-                                                  StrId::STR_ALIGN_RIGHT, StrId::STR_BOOK_S_STYLE};
+      static const std::array<StrId, 5> labels = {StrId::STR_JUSTIFY, StrId::STR_DIR_LEFT, StrId::STR_CENTER,
+                                                  StrId::STR_DIR_RIGHT, StrId::STR_BOOK_S_STYLE};
       return I18N.get(labels[std::min<size_t>(draft.paragraphAlignment, labels.size() - 1)]);
     }
+    case RowId::PublisherFonts: {
+      static constexpr std::array<StrId, 3> labels = {StrId::STR_OFF, StrId::STR_PUBLISHER_FONTS_ACCENTS,
+                                                      StrId::STR_PUBLISHER_FONTS_ALL};
+      return I18N.get(labels[std::min<size_t>(draft.publisherFonts, labels.size() - 1)]);
+    }
     case RowId::Images: {
-      static const std::array<StrId, 3> labels = {StrId::STR_IMAGES_DISPLAY, StrId::STR_IMAGES_PLACEHOLDER,
-                                                  StrId::STR_IMAGES_SUPPRESS};
-      return I18N.get(labels[std::min<size_t>(draft.imageRendering, labels.size() - 1)]);
+      static constexpr std::array<StrId, ImageDisplayMode::Count> labels = {
+          StrId::STR_IMAGES_DISPLAY, StrId::STR_IMAGES_DISPLAY_BW, StrId::STR_IMAGES_PLACEHOLDER,
+          StrId::STR_IMAGES_SUPPRESS};
+      return I18N.get(labels[ImageDisplayMode::selected(draft.imageRendering, draft.imageGrayscale)]);
     }
     case RowId::RenderMode: {
       static const std::array<StrId, 3> labels = {StrId::STR_RENDER_MODE_CROSSINK_DEFAULT,
@@ -3129,6 +3425,8 @@ const char* EpubReaderDrawerActivity::rowValue(const RowId row, char* buffer, co
     }
     case RowId::IndexingMethod:
       return draft.indexingMethod == 0 ? tr(STR_INDEXING_INCREMENTAL) : tr(STR_INDEXING_FULL_SECTION);
+    case RowId::BookWordHoldAction:
+      return I18N.get(WORD_HOLD_LABELS[bookWordHoldAction]);
     case RowId::BookDictionary:
       if (bookDictionaryPath.empty()) return tr(STR_DICT_USE_GLOBAL);
       for (size_t i = 1; i < dictionaryPaths.size(); ++i) {
@@ -3153,6 +3451,7 @@ bool EpubReaderDrawerActivity::rowIsToggle(const RowId row) const {
   switch (row) {
     case RowId::TrackBookStats:
     case RowId::TextAa:
+    case RowId::TwoToneTextAa:
     case RowId::Focus:
     case RowId::GuideDots:
     case RowId::Hyphenation:
@@ -3198,6 +3497,8 @@ bool EpubReaderDrawerActivity::rowToggleValue(const RowId row) const {
   switch (row) {
     case RowId::TrackBookStats:
       return bookStatsEnabled;
+    case RowId::TwoToneTextAa:
+      return draft.twoToneTextAA;
     case RowId::TextAa:
       return draft.textAntiAliasing;
     case RowId::Focus:

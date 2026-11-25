@@ -354,6 +354,15 @@ curl -X POST \
   http://crosspoint.local/api/opds
 ```
 
+The `downloadFolder` field is returned by `GET /api/opds` and accepted by `POST /api/opds`:
+
+- Missing on an update: preserve the saved override for compatibility with older clients.
+- Empty string: use the shared `opdsDownloadFolder` setting.
+- `/`: explicitly use SD root.
+- Another path, such as `/Books/Calibre`: use that folder. Paths are normalized and limited to 63 UTF-8 bytes; invalid values or non-string fields return HTTP 400.
+
+Updates that cannot be persisted return HTTP 500. The shared default is still available through `/api/settings` under the unchanged `opdsDownloadFolder` key; blank means SD root.
+
 ### `POST /api/opds/delete`
 
 Deletes an OPDS server by index.
@@ -505,3 +514,21 @@ The final field is the WebSocket upload port.
 
 Calibre Wireless starts the same web server in STA mode and displays setup
 instructions plus WebSocket upload progress on the device screen.
+
+## Plugin protected-book support
+
+These endpoints require Plugins to be enabled.
+
+- `GET /api/status?plugin=<name>` adds `deviceId`, a stable SHA-256 identifier
+  derived from the device secret and lowercase plugin name (up to 64 bytes).
+- `POST /api/crypto` accepts `{op, ...fields}` and returns base64 binary values.
+  Supported operations are `random`, `sha1`, `sha256`, `aesenc`, `aesdec`,
+  `rsadec`, `keygen`, `pubencrypt`, `sign`, and `pkcs12`, matching the upstream
+  plugin contract. Request JSON is limited to 16 KiB.
+- `POST /api/book-key` accepts `{path, key, expires}`. The key is base64 AES-128
+  or AES-256 content-key bytes, the path is an allowed EPUB destination, and
+  expiry is a nonnegative UTC epoch timestamp (zero for no expiry). Returns
+  `{ok:true}` after device-bound wrapped-key publication.
+
+See [Plugin Development Guide](development/plugin-development.md#protected-books) for clock, enrollment, and cache
+limitations. These APIs do not transfer the internal device secret.

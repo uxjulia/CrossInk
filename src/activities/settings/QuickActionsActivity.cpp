@@ -12,15 +12,24 @@
 #include "QuickActions.h"
 
 namespace {
-constexpr StrId triggerLabels[] = {
-    StrId::STR_NONE_OPT,          StrId::STR_SHORT_PRESS_POWER,        StrId::STR_LONG_PRESS_POWER,
-    StrId::STR_LONG_PRESS_BACK,   StrId::STR_LONG_PRESS_MENU_SHORTCUT, StrId::STR_POWER_BUTTON_CHORD,
-    StrId::STR_TAP_HOME_SHORTCUT, StrId::STR_LONG_PRESS_HOME_SHORTCUT, StrId::STR_DOUBLE_TAP_HOME_SHORTCUT,
-    StrId::STR_SIDE_BUTTON_CHORD};
+constexpr StrId triggerLabels[] = {StrId::STR_NONE_OPT,
+                                   StrId::STR_SHORT_PRESS_POWER,
+                                   StrId::STR_LONG_PRESS_POWER,
+                                   StrId::STR_LONG_PRESS_BACK_ACTION,
+                                   StrId::STR_LONG_PRESS_MENU_ACTION,
+                                   StrId::STR_POWER_BUTTON_CHORD,
+                                   StrId::STR_TAP_HOME_SHORTCUT,
+                                   StrId::STR_LONG_PRESS_HOME_SHORTCUT,
+                                   StrId::STR_DOUBLE_TAP_HOME_SHORTCUT,
+                                   StrId::STR_SIDE_BUTTON_CHORD};
 
 std::string triggerLabel(const QuickActions::Trigger trigger) {
   const auto raw = static_cast<uint8_t>(trigger);
   if (raw < std::size(triggerLabels)) return I18N.get(triggerLabels[raw]);
+  if (trigger == QuickActions::Trigger::FrontLeftLong || trigger == QuickActions::Trigger::FrontRightLong)
+    return std::string(tr(STR_FRONT_BUTTONS)) + " " +
+           (trigger == QuickActions::Trigger::FrontLeftLong ? tr(STR_DIR_LEFT) : tr(STR_DIR_RIGHT)) + " " +
+           tr(STR_LONG_PRESS_ACTION);
   const bool up = trigger == QuickActions::Trigger::SideUpShort || trigger == QuickActions::Trigger::SideUpLong;
   const bool longPress = trigger == QuickActions::Trigger::SideUpLong || trigger == QuickActions::Trigger::SideDownLong;
   return std::string(up ? tr(STR_DIR_LEFT) : tr(STR_DIR_RIGHT)) + "/" + (up ? tr(STR_DIR_UP) : tr(STR_DIR_DOWN)) + " " +
@@ -39,6 +48,10 @@ std::vector<QuickActions::Trigger> availableTriggers() {
   triggers.push_back(QuickActions::Trigger::SideUpLong);
   triggers.push_back(QuickActions::Trigger::SideDownShort);
   triggers.push_back(QuickActions::Trigger::SideDownLong);
+  if (deviceHasFrontButtons()) {
+    triggers.push_back(QuickActions::Trigger::FrontLeftLong);
+    triggers.push_back(QuickActions::Trigger::FrontRightLong);
+  }
   if (gpio.hasHomeKey()) {
     triggers.push_back(QuickActions::Trigger::TapHome);
     triggers.push_back(QuickActions::Trigger::LongPressHome);

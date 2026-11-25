@@ -7,6 +7,8 @@ const char* version();
 const char* versionLabel();
 const char* userAgent();
 const char* gitSha();
+const char* supportVersion();
+const char* sdkSha();
 const char* gitDirtyFlag();
 }  // namespace AppVersion
 

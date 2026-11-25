@@ -17,23 +17,37 @@ class SleepActivity final : public Activity {
         fromTimeout(fromTimeout),
         sleepPopupOrientation(sleepPopupOrientation) {}
   void onEnter() override;
+  void showSleepPopup();
   // Whether this screen is independent of the outgoing activity's saves.
   bool rendersBeforeExit() const;
+  bool hasMonochromeFrame() const { return monochromeFrame; }
 
  private:
+#ifdef SIMULATOR
+  friend struct UpstreamFeatureSmokeTest;
+#endif
   void renderDefaultSleepScreen() const;
   void renderCustomSleepScreen() const;
+  bool renderCustomSleepBmp(const std::string& path) const;
   void renderCoverSleepScreen() const;
   void renderReadingStatsSleepScreen() const;
   void renderMinimalSleepScreen() const;
   void renderMinimalStatsSleepScreen() const;
   void renderDashboardSleepScreen() const;
+  struct BitmapPlacement {
+    int x, y, width, height;
+    float cropX, cropY;
+  };
+  BitmapPlacement prepareSleepBitmap(Bitmap& bitmap) const;
+  bool drawSleepBitmap(Bitmap& bitmap, const BitmapPlacement& placement) const;
   bool renderBitmapSleepScreen(Bitmap& bitmap) const;
   void renderLastScreenSleepScreen() const;
   void renderBlankSleepScreen() const;
-  void renderOverlaySleepScreen() const;
+  void renderOverlaySleepScreen(Bitmap* cover = nullptr) const;
+  mutable bool monochromeFrame = false;
   bool canSnapshotOverlayBackground = false;
-  bool overlayBackgroundBufferStored = false;
+  bool overlayBackgroundAvailable = false;
+  bool sleepPopupShown = false;
   std::string currentBookPath;
   bool fromTimeout = false;
   GfxRenderer::Orientation sleepPopupOrientation = GfxRenderer::Orientation::Portrait;

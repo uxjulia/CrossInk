@@ -1,4 +1,3 @@
-
 This directory is intended for PlatformIO Test Runner and project tests.
 
 Unit Testing is a software testing method by which individual units of
@@ -8,9 +7,11 @@ determine whether they are fit for use. Unit testing finds problems early
 in the development cycle.
 
 More information about PlatformIO Unit Testing:
+
 - https://docs.platformio.org/en/latest/advanced/unit-testing/index.html
 
 Simulator smoke test:
+
 - Run `./scripts/run_simulator_smoke_test.py` from the repo root.
 - The script builds `env:simulator`, creates a temporary `fs_`, copies a test EPUB into it, opens common screens, renders them, drives reader page/menu input, and fails on crashes or missing success output.
 - Use `--book path/to/book.epub` to choose a specific EPUB and `--page-turns 10` to change how far the reader flow navigates.
@@ -18,21 +19,25 @@ Simulator smoke test:
 - Use `--no-build` to reuse the existing simulator binary or `--window` to show the SDL window instead of running headless.
 
 Expected coverage:
+
 - This is a fast regression tripwire, similar to a small browser smoke test. It proves the simulator can boot, open common screens, load the selected EPUB, turn pages, open reader menus, and exit without crashing or hanging.
 - It is useful for catching activity entry/render crashes, bad allocations, uncaught exceptions, assertions, segfaults, AddressSanitizer/UndefinedBehaviorSanitizer reports, obvious hangs, and EPUB/theme-specific failures for the exact book and theme under test.
 - It also covers a narrow scripted reader path: page forward, open the reader menu, enter Reader Options, navigate/toggle one option, and back out to the reader.
 
 Limits:
+
 - It does not replace hardware testing. The desktop simulator has different memory, filesystem, timing, display, sleep, button, battery, USB, Wi-Fi, and OTA behavior than the ESP32-C3 device.
 - It should not be expected to catch exact hardware heap pressure, SD-card locking/timing issues, e-ink ghosting or refresh quality, real deep-sleep wake behavior, electrical button behavior, subtle visual layout problems, or EPUB cases that are not present in the selected test book.
 - After a simulator pass, still verify important changes on hardware with the same EPUB and theme by turning pages, opening the reader menu, entering Reader Options, toggling a setting, backing out, and watching for crashes or memory-related logs.
 
 Native regression suite (macOS/Linux):
+
 - Configure: `cmake -S test -B /tmp/crossink-tests -G 'Unix Makefiles'`
 - Build: `cmake --build /tmp/crossink-tests -j 6`
 - Run all registered tests: `ctest --test-dir /tmp/crossink-tests --output-on-failure`
 
 High-risk storage/update coverage:
+
 - `ota_boot_switch` links production `OtaBootSwitch.cpp` against an in-memory
   partition API. It checks slot selection, rejection of corrupt/invalid entries,
   preservation of the active sector, and read/erase/partial-write failures.
@@ -51,3 +56,100 @@ Remaining high-risk integration gaps include the complete firmware download /
 flash / reboot sequence, interrupted settings writes and migration, and activity
 teardown during asynchronous network/storage work. The source-text OTA staging
 check is an ordering guard, not an executable test of the complete updater.
+
+Image probe and WebDAV regressions:
+
+- `python3 scripts/test_webdav_get.py` runs the production GET handler with the pinned SDK streamer and host storage/socket doubles. It checks bytes and length, empty/large files, short writes, disconnect/read failures, reader closure, watchdog yielding, and pre-stream guards under ASan/UBSan.
+- `python3 scripts/test_image_probe_framebuffer.py` runs production renderer loan and reader invalidation/popup gate methods with framebuffer/display doubles and the real scratch registry under ASan/UBSan. It covers nesting, early return, blank-buffer invalidation, popup deferral, toast gates, dictionary handoff, screenshot routing, and active versus stacked Quick Lock notifications.
+- The chapter parser target links the real image header probe and tests scratch retries, extraction failure/success, admission guards, and optimizer bypass. Storage and heap failures are simulated; these host checks do not measure device heap or panel refresh quality.
+
+Language and hyphenation downloads:
+
+- Native targets `AssetCatalogTest`, `AssetDownloadTest`, `HttpDownloaderTest`,
+  `AssetCompanionIndexTest`, `AssetCompanionStoreTest`,
+  `LanguageCacheTest`, and `HyphenationPackTest` cover the bounded catalog,
+  source transactions, transport faults, and read-only format validation.
+  `AssetDownloadTest` uses the real SHA-256 implementation through OpenSSL;
+  transport, SD failures, and activation boundaries use host doubles.
+  Companion targets cover bounded streaming index parsing, complete selected
+  source/notice unions, hashes, disk faults, cancellation, interrupted directory
+  replacement and recovery. The simulator checks exact delivered companion
+  bytes and repair of a Current payload with missing companions before activation.
+- `./scripts/run_simulator_smoke_test.py --asset-downloads --asset-snapshot
+/path/to/assets/snapshots/<revision>` consumes an actual immutable producer
+  snapshot in a disposable SD/network fixture. Add `--asset-hyphenation-only`
+  when testing packs independently of the translation source/keyset contract.
+  The translation success case requires a snapshot generated from the running
+  binary's English source contract. Keep an older snapshot for rejection tests.
+- Add `--asset-expect-translation-rejection` with that older snapshot to require
+  a format/contract rejection after the independent hyphenation phase succeeds.
+  `--asset-empty-catalog` checks an empty discovery response without downloads.
+  `--asset-save-failure` forces a real settings temporary-file write failure
+  after language preparation and checks saved/runtime generation rollback,
+  Cancel, the one-mutation guard, and explicit restart to the previous locale.
+- `--asset-captures /tmp/asset-captures` writes framebuffer images for offline
+  listing, progress, overwrite confirmation, source/runtime state, and error
+  screens at small/large scales and portrait/landscape orientations. Repeat with
+  `--env x4-pro-simulator --language-file lib/I18n/translations/arabic.yaml
+--language-installer /path/to/I18nIntegrationTool` for actual touch targets and
+  an installed RTL locale. The installer must come from the same source build.
+- The matching-snapshot run also checks installed hyphenation identity and its
+  Update action independently of current/previous SD source status. Reapplying
+  an identical active translation must preserve flash bytes and generation
+  without restarting; a subsequent changed same-code source must still activate.
+- Compile a test-only `ASSET_DOWNLOAD_BASE_URL` of `https://assets.invalid/` for
+  this mock suite. Do not use that configuration for distribution. The simulator
+  dependency must implement actual SHA-256 and report directory iteration errors;
+  a placeholder hash is unsuitable for these tests.
+- On X3/X4 and a touch S3 device, verify entry restart, saved EPUB position,
+  offline source state, button/touch Cancel, current/previous/unknown source
+  status, overwrite warning, SD full/removal, and a power interruption during
+  staging/replacement. Verify a completed download leaves active language and
+  installed packs unchanged, then explicit activation restarts to Home. Inspect
+  internal heap/largest block and stack high-water marks through catalog fetch,
+  YAML/large-pack validation, flash activation, and subsequent reading with an
+  SD font. S3 additionally requires PSRAM and internal/DMA memory checks.
+- Real endpoint certificate/hostname/redirect qualification and power-loss tests
+  remain hardware release checks. Simulator mocks do not establish those claims.
+
+To test RC language and hyphenation downloads with a local debug build, add the
+channel override alongside your existing endpoint in `platformio.local.ini`:
+
+```ini
+[env]
+build_src_flags =
+  '-DASSET_DOWNLOAD_BASE_URL="https://assets.example.com"'
+  '-DASSET_DOWNLOAD_CHANNEL="rc"'
+```
+
+Rebuild your usual debug environment and retry a download on the device. Use
+`"stable"` to test the stable catalogs. Remove the channel flag to restore the
+default selection: versions ending in `-RC` use RC; all others use stable.
+The override applies to both language and hyphenation catalogs and keeps the
+firmware version and language compatibility checks unchanged.
+
+OPDS discovery and scoped requests:
+
+- `OpdsParserTest` checks linked OpenSearch parsing, bounded authentication
+  documents, and strict JSON grammar before accepting Basic offers.
+- `python3 test/scripts/test_http_sdk_session.py` uses the production pinned SDK
+  with a scripted transport under ASan/UBSan to check fixed-length reuse, stale
+  reconnect, abort/truncation closure, and the chunked-trailer safety workaround.
+- `HttpDownloaderTest` and `HttpDownloaderDevicePathTest` exercise challenge-first
+  Basic negotiation, combined/repeated challenge headers, foreign-origin
+  rejection, truncated challenges, final response URLs, and session admission,
+  origin rotation, cancellation/failure/destruction cleanup with host doubles.
+- `python3 test/scripts/test_opds_feed_recovery.py` executes production browser
+  methods under ASan/UBSan, including redirected description URLs, expansion
+  before URL encoding, broken description fallback and downgrade rejection.
+- OPDS reuse is opt-in for one synchronous feed/description operation. It needs
+  at least 64 KiB free internal RAM and a 32 KiB largest block; lower memory
+  uses the existing one-shot transport. A session rotates before its ninth
+  request or after 30 seconds at the next request, and closes before UI returns.
+  Chunked/close-delimited sockets are always closed because the pinned SDK
+  cannot prove trailer completion. It does not change certificate verification: OPDS WOLFSSL retains its existing
+  verification limitation; asset companions stay on CA-verified ESP HTTP.
+- These doubles do not establish hardware TLS peak memory, stale-socket timing
+  or power-loss behavior. Test a Basic-protected local catalog on X3/X4, linked
+  search, repeated entry/exit, an interrupted EPUB download and low-memory
+  fallback. OAuth/token grants, federated sign-in and LCP remain unsupported.

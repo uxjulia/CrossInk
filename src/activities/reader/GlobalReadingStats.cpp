@@ -1,7 +1,10 @@
 #include "GlobalReadingStats.h"
 
+#include <FsHelpers.h>
 #include <HalStorage.h>
+#include <KOReaderCredentialStore.h>
 #include <Logging.h>
+#include <MD5Builder.h>
 #include <esp_mac.h>
 
 #include <array>
@@ -9,10 +12,13 @@
 #include <limits>
 #include <string>
 
-#include "util/FileContentEquals.h"
+#include "DailyReadingStats.h"
+#include "TwoSlotFile.h"
+#include "sync/SyncFiles.h"
+#include "util/StatsStorage.h"
 
 namespace {
-enum class StatsLoadResult : uint8_t { Ok, Invalid, NewerFormat };
+enum class StatsLoadResult : uint8_t { Ok, Missing, Invalid, NewerFormat };
 
 struct StatsLoadOutcome {
   StatsLoadResult result = StatsLoadResult::Invalid;
@@ -49,11 +55,35 @@ static constexpr uint8_t GLOBAL_STATS_VERSION_V1 = 1;
 static constexpr int GLOBAL_STATS_FILE_SIZE_V1 = 13;
 static constexpr uint8_t GLOBAL_STATS_VERSION_V2 = 2;
 static constexpr int GLOBAL_STATS_FILE_SIZE_V2 = 17;
+static constexpr int GLOBAL_STATS_FILE_SIZE_V3 = 159;
 static constexpr int GLOBAL_STATS_FILE_SIZE = static_cast<int>(GlobalReadingStats::CURRENT_FILE_SIZE);
 static constexpr char GLOBAL_STATS_PATH[] = "/.crosspoint/global_stats.bin";
-static constexpr char GLOBAL_STATS_BAK_PATH[] = "/.crosspoint/global_stats.bin.bak";
 static constexpr char SYNCED_STATS_DIR[] = "/.crosspoint/synced_stats";
 static bool s_blockDestructiveSave = false;
+static uint32_t s_localResetRevision = 0;
+
+// Bind the cached calendar to the selected server/account without storing credentials.
+std::string serverStreakPath() {
+  MD5Builder md5;
+  md5.begin();
+  md5.add(KOREADER_STORE.getBaseUrl().c_str());
+  md5.add("\n");
+  md5.add(KOREADER_STORE.getUsername().c_str());
+  md5.calculate();
+  return std::string("/.crosspoint/server_streak_") + md5.toString().c_str() + ".bin";
+}
+
+bool loadServerStreak(GlobalReadingStats& out) {
+  if (!KOREADER_STORE.hasCredentials() || !KOREADER_STORE.getSyncStats()) return false;
+  SyncFiles::Reader reader(serverStreakPath().c_str());
+  uint8_t version = 0;
+  const bool loaded = reader.open() != SyncFiles::Reader::Source::None && reader.pod(version) && version == 1 &&
+                      reader.pod(out.readingHistoryAnchorDay) &&
+                      reader.read(out.readingHistoryBits.data(), READING_HISTORY_BYTES) &&
+                      reader.pod(out.longestReadingStreak) && reader.atEnd();
+  reader.close();
+  return loaded;
+}
 
 uint32_t readLe32(const uint8_t* data, const int offset) {
   return static_cast<uint32_t>(data[offset]) | (static_cast<uint32_t>(data[offset + 1]) << 8) |
@@ -132,17 +162,25 @@ void serializeStats(const GlobalReadingStats& stats, uint8_t* data) {
   memcpy(data + 65, stats.readingHistoryBits.data(), stats.readingHistoryBits.size());
   data[157] = stats.longestReadingStreak & 0xFF;
   data[158] = (stats.longestReadingStreak >> 8) & 0xFF;
+  memcpy(data + GLOBAL_STATS_FILE_SIZE_V3, stats.counterId.bytes.data(), stats.counterId.bytes.size());
 }
 
 StatsLoadOutcome loadFromOpenFile(FsFile& f, GlobalReadingStats& out) {
   StatsLoadOutcome outcome;
-  outcome.fileSize = f.fileSize();
+  outcome.fileSize = two_slot::payloadLength(f, f.fileSize() == GLOBAL_STATS_FILE_SIZE_V3 + two_slot::TRAILER_BYTES
+                                                    ? GLOBAL_STATS_FILE_SIZE_V3
+                                                    : GLOBAL_STATS_FILE_SIZE);
 
   uint8_t data[GLOBAL_STATS_FILE_SIZE] = {};
   const size_t bytesToRead = std::min(outcome.fileSize, static_cast<size_t>(GLOBAL_STATS_FILE_SIZE));
   const int n = f.read(data, bytesToRead);
   if (n <= 0 || static_cast<size_t>(n) != bytesToRead) return outcome;
   outcome.version = data[0];
+
+  // A partial trailer on a current-version payload is a torn slot. Try the other save.
+  if (outcome.version == GLOBAL_STATS_VERSION && outcome.fileSize > GLOBAL_STATS_FILE_SIZE &&
+      outcome.fileSize < GLOBAL_STATS_FILE_SIZE + two_slot::TRAILER_BYTES)
+    return outcome;
 
   if (outcome.fileSize > static_cast<size_t>(GLOBAL_STATS_FILE_SIZE) || outcome.version > GLOBAL_STATS_VERSION) {
     outcome.result = StatsLoadResult::NewerFormat;
@@ -163,7 +201,9 @@ StatsLoadOutcome loadFromOpenFile(FsFile& f, GlobalReadingStats& out) {
     return outcome;
   }
 
-  if (n != GLOBAL_STATS_FILE_SIZE || data[0] != GLOBAL_STATS_VERSION) return outcome;
+  if (!((n == GLOBAL_STATS_FILE_SIZE && data[0] == GLOBAL_STATS_VERSION) ||
+        (n == GLOBAL_STATS_FILE_SIZE_V3 && data[0] == 3)))
+    return outcome;
   loadCommonFields(data, out);
   out.completedBooks = readLe32(data, 13);
   for (size_t i = 0; i < out.timeOfDaySeconds.size(); ++i) {
@@ -175,6 +215,8 @@ StatsLoadOutcome loadFromOpenFile(FsFile& f, GlobalReadingStats& out) {
   out.readingHistoryAnchorDay = readLe32(data, 61);
   memcpy(out.readingHistoryBits.data(), data + 65, out.readingHistoryBits.size());
   out.longestReadingStreak = readLe16(data, 157);
+  if (n == GLOBAL_STATS_FILE_SIZE)
+    memcpy(out.counterId.bytes.data(), data + GLOBAL_STATS_FILE_SIZE_V3, out.counterId.bytes.size());
   outcome.result = StatsLoadResult::Ok;
   return outcome;
 }
@@ -188,104 +230,109 @@ std::string localSyncedStatsFileName() {
   return name;
 }
 
-bool verifyFileSize(const char* path, const size_t expectedSize) {
-  FsFile file;
-  if (!Storage.openFileForRead("GSTATS", path, file)) return false;
-  const size_t actualSize = file.fileSize();
-  file.close();
-  return actualSize == expectedSize;
-}
-
 bool saveToFile(const GlobalReadingStats& stats, const char* path, const char* backupPath) {
   uint8_t data[GLOBAL_STATS_FILE_SIZE];
   serializeStats(stats, data);
 
-  // Reader exit saves unconditionally; a quick open-and-close changes nothing.
-  const bool unchanged = fileContentEquals("GSTATS", path, data, sizeof(data));
-  if (unchanged) return true;
-
-  const std::string tmpPath = std::string(path) + ".tmp";
-  if (Storage.exists(tmpPath.c_str()) && !Storage.remove(tmpPath.c_str())) {
-    LOG_ERR("GSTATS", "Could not remove stale stats temp file: %s", tmpPath.c_str());
-    return false;
-  }
-
-  FsFile f;
-  if (!Storage.openFileForWrite("GSTATS", tmpPath.c_str(), f)) {
-    LOG_ERR("GSTATS", "Could not write stats temp file: %s", tmpPath.c_str());
-    return false;
-  }
-
-  const size_t bytesWritten = f.write(data, GLOBAL_STATS_FILE_SIZE);
-  if (bytesWritten != GLOBAL_STATS_FILE_SIZE) {
-    LOG_ERR("GSTATS", "Short write for stats temp file %s: %u/%u bytes", tmpPath.c_str(),
-            static_cast<unsigned>(bytesWritten), static_cast<unsigned>(GLOBAL_STATS_FILE_SIZE));
-    f.close();
-    Storage.remove(tmpPath.c_str());
-    return false;
-  }
-
-  f.flush();
-  if (!f.sync()) {
-    LOG_ERR("GSTATS", "Failed to sync stats temp file: %s", tmpPath.c_str());
-    f.close();
-    Storage.remove(tmpPath.c_str());
-    return false;
-  }
-
-  if (!f.close()) {
-    LOG_ERR("GSTATS", "Failed to close stats temp file after save: %s", tmpPath.c_str());
-    Storage.remove(tmpPath.c_str());
-    return false;
-  }
-
-  if (!verifyFileSize(tmpPath.c_str(), GLOBAL_STATS_FILE_SIZE)) {
-    LOG_ERR("GSTATS", "Stats temp file has unexpected size: %s", tmpPath.c_str());
-    Storage.remove(tmpPath.c_str());
-    return false;
-  }
-
-  if (backupPath != nullptr) {
-    if (Storage.exists(backupPath) && !Storage.remove(backupPath)) {
-      LOG_ERR("GSTATS", "Could not remove old stats backup: %s", backupPath);
-      Storage.remove(tmpPath.c_str());
-      return false;
-    }
-    if (Storage.exists(path) && !Storage.rename(path, backupPath)) {
-      LOG_ERR("GSTATS", "Could not rotate stats backup: %s", path);
-      Storage.remove(tmpPath.c_str());
-      return false;
-    }
-  } else if (Storage.exists(path) && !Storage.remove(path)) {
-    LOG_ERR("GSTATS", "Could not replace stats file: %s", path);
-    Storage.remove(tmpPath.c_str());
-    return false;
-  }
-
-  if (!Storage.rename(tmpPath.c_str(), path)) {
-    LOG_ERR("GSTATS", "Could not replace stats file: %s", path);
-    if (backupPath != nullptr && Storage.exists(backupPath) && !Storage.exists(path)) {
-      Storage.rename(backupPath, path);
-    }
-    Storage.remove(tmpPath.c_str());
-    return false;
-  }
-  return true;
+  return two_slot::write(
+      "GSTATS", path, backupPath, data, sizeof(data),
+      [](const uint8_t* bytes, size_t size) {
+        return (size == GLOBAL_STATS_FILE_SIZE && bytes[0] == GLOBAL_STATS_VERSION) ||
+               (size == GLOBAL_STATS_FILE_SIZE_V1 && bytes[0] == GLOBAL_STATS_VERSION_V1) ||
+               (size == GLOBAL_STATS_FILE_SIZE_V2 && bytes[0] == GLOBAL_STATS_VERSION_V2) ||
+               (size == GLOBAL_STATS_FILE_SIZE_V3 && bytes[0] == 3);
+      },
+      GLOBAL_STATS_FILE_SIZE_V3);
 }
+
 }  // namespace
 
-static StatsLoadOutcome loadFromFile(const char* path, GlobalReadingStats& out) {
+// exists() alone also returns false on FAT I/O errors. Only a complete parent
+// scan can establish first use after open fails. This is a cold failure path;
+// the bounded filename buffer avoids allocating a directory listing.
+static bool confirmedMissingFile(const char* path, const bool recovering = false) {
+  const std::string full(path);
+  const auto slash = full.find_last_of('/');
+  if (slash == std::string::npos) return false;
+  const std::string parent = full.substr(0, slash);
+  const char* wanted = path + slash + 1;
+  const std::string marker = std::string(wanted) + ".recovery";
+  FsFile dir = Storage.open(parent.c_str());
+  if (!dir || !dir.isDirectory()) {
+    dir.close();
+    return false;
+  }
+  bool absent = true;
+  char name[128];
+  for (FsFile file = dir.openNextFile(); file; file = dir.openNextFile()) {
+    const bool named = file.getName(name, sizeof(name)) != 0;
+    const bool closed = file.close();
+    if (!named || !closed || strcmp(name, wanted) == 0 || (!recovering && strcmp(name, marker.c_str()) == 0)) {
+      absent = false;
+      break;
+    }
+  }
+  const bool scanned = !FsHelpers::directoryIterationFailed(dir);
+  const bool closed = dir.close();
+  return absent && scanned && closed;
+}
+
+static StatsLoadOutcome loadFromFile(const char* path, GlobalReadingStats& out, bool primary = false) {
   StatsLoadOutcome outcome;
   FsFile f;
-  if (!Storage.openFileForRead("GSTATS", path, f)) return outcome;
+  if (!Storage.openFileForRead("GSTATS", path, f)) {
+    if (confirmedMissingFile(path)) outcome.result = StatsLoadResult::Missing;
+    return outcome;
+  }
   outcome = loadFromOpenFile(f, out);
-  f.close();
+  if (!f.close()) outcome.result = StatsLoadResult::Invalid;
+  if (primary && outcome.result != StatsLoadResult::NewerFormat) {
+    const std::string selected =
+        two_slot::preferredPath("GSTATS", path, GLOBAL_STATS_FILE_SIZE, false, GLOBAL_STATS_FILE_SIZE_V3);
+    if (selected != path && Storage.openFileForRead("GSTATS", selected, f)) {
+      outcome = loadFromOpenFile(f, out);
+      if (!f.close()) outcome.result = StatsLoadResult::Invalid;
+    }
+  }
   return outcome;
+}
+
+bool GlobalReadingStats::loadForUpload(GlobalReadingStats& stats) {
+  stats = {};
+  if (s_blockDestructiveSave) return false;
+  const std::string path = StatsStorage::localPath(GLOBAL_STATS_PATH);
+  if (path.empty()) return false;
+  if (Storage.exists((path + ".recovery").c_str())) {
+    s_blockDestructiveSave = true;
+    return false;
+  }
+  const auto primary = loadFromFile(path.c_str(), stats, true);
+  if (primary.result == StatsLoadResult::Ok) return true;
+  if (primary.result == StatsLoadResult::NewerFormat) return false;
+  const auto backup = loadFromFile((path + ".bak").c_str(), stats);
+  return backup.result == StatsLoadResult::Ok;
+}
+
+bool GlobalReadingStats::exportLocal(uint8_t* data, size_t capacity) {
+  GlobalReadingStats stats;
+  if (!data || capacity < CURRENT_FILE_SIZE || !loadForUpload(stats)) return false;
+  serializeStats(stats, data);
+  return true;
 }
 
 GlobalReadingStats GlobalReadingStats::load() {
   GlobalReadingStats stats;
-  const StatsLoadOutcome primary = loadFromFile(GLOBAL_STATS_PATH, stats);
+  const std::string path = StatsStorage::localPath(GLOBAL_STATS_PATH);
+  if (path.empty()) {
+    s_blockDestructiveSave = true;
+    return stats;
+  }
+  if (Storage.exists((path + ".recovery").c_str())) {
+    s_blockDestructiveSave = true;
+    LOG_ERR("GSTATS", "Interrupted history recovery; preserving all snapshots");
+    return stats;
+  }
+  const StatsLoadOutcome primary = loadFromFile(path.c_str(), stats, true);
   if (primary.result == StatsLoadResult::Ok) return stats;
   if (primary.result == StatsLoadResult::NewerFormat) {
     s_blockDestructiveSave = true;
@@ -294,7 +341,7 @@ GlobalReadingStats GlobalReadingStats::load() {
     return stats;
   }
 
-  const StatsLoadOutcome backup = loadFromFile(GLOBAL_STATS_BAK_PATH, stats);
+  const StatsLoadOutcome backup = loadFromFile((path + ".bak").c_str(), stats);
   if (backup.result == StatsLoadResult::Ok) {
     LOG_DBG("GSTATS", "Recovered global stats from backup");
     return stats;
@@ -306,8 +353,81 @@ GlobalReadingStats GlobalReadingStats::load() {
     return stats;
   }
 
-  LOG_DBG("GSTATS", "Global stats missing or corrupt, starting fresh");
+  if (primary.result != StatsLoadResult::Missing || backup.result != StatsLoadResult::Missing) {
+    s_blockDestructiveSave = true;
+    LOG_ERR("GSTATS", "Cannot read saved history; preserving stats and backups for recovery");
+    return {};
+  }
+  LOG_DBG("GSTATS", "No global stats yet, starting fresh");
+  stats.counterId = StatsCounterId::create();
   return stats;
+}
+
+bool GlobalReadingStats::recoveryRequired() { return s_blockDestructiveSave; }
+
+bool GlobalReadingStats::readBackup(const char* path, GlobalReadingStats& stats) {
+  stats = {};
+  if (!path || !*path) return false;
+  return loadFromFile(path, stats, true).result == StatsLoadResult::Ok ||
+         loadFromFile((std::string(path) + ".bak").c_str(), stats).result == StatsLoadResult::Ok;
+}
+
+bool GlobalReadingStats::restoreBackup(const char* backupPath) {
+  GlobalReadingStats restored;
+  if (!backupPath || strncmp(backupPath, "/.crossink-stats-backup/", 24) != 0 || !readBackup(backupPath, restored)) {
+    LOG_ERR("GSTATS", "Cannot validate recovery snapshot");
+    return false;
+  }
+  const std::string path = StatsStorage::localPath(GLOBAL_STATS_PATH);
+  if (path.empty()) return false;
+  s_blockDestructiveSave = true;
+  // Presence protects a recovery interrupted after the originals were archived
+  // but before the replacement reached disk. Even an empty marker fails closed.
+  const std::string marker = path + ".recovery";
+  const uint8_t recovering = 1;
+  if (!Storage.exists(marker.c_str()) && !writeFileInPlace("GSTATS", marker.c_str(), &recovering, 1)) return false;
+  // Keep the original bytes, including unreadable slots, rather than turning a
+  // failed recovery write into permanent loss. These are cold, user-requested
+  // path allocations, independent of book size.
+  for (const char* suffix : {"", ".bak", ".tmp"}) {
+    const std::string source = path + suffix;
+    if (!Storage.exists(source.c_str()) && confirmedMissingFile(source.c_str(), true)) continue;
+    bool archived = false;
+    for (unsigned i = 0; i < 16; ++i) {
+      const std::string archive = source + ".damaged." + std::to_string(i);
+      if (Storage.exists(archive.c_str())) continue;
+      archived = Storage.rename(source.c_str(), archive.c_str());
+      break;
+    }
+    if (!archived) {
+      LOG_ERR("GSTATS", "Cannot preserve original stats: %s", source.c_str());
+      return false;
+    }
+  }
+  if (!saveToFile(restored, path.c_str(), (path + ".bak").c_str())) return false;
+  GlobalReadingStats verified;
+  if (loadFromFile(path.c_str(), verified, true).result != StatsLoadResult::Ok) {
+    LOG_ERR("GSTATS", "Recovered stats could not be read back");
+    return false;
+  }
+  // Two bounded 175-byte snapshots on this cold recovery path verify every
+  // persisted field without depending on struct padding or another allocation.
+  std::array<uint8_t, CURRENT_FILE_SIZE> intended{}, actual{};
+  serializeStats(restored, intended.data());
+  serializeStats(verified, actual.data());
+  if (intended != actual) {
+    LOG_ERR("GSTATS", "Recovered history differs from the selected backup");
+    return false;
+  }
+  if (!Storage.remove(marker.c_str())) {
+    LOG_ERR("GSTATS", "Cannot complete history recovery marker");
+    return false;
+  }
+  s_blockDestructiveSave = false;
+  // An open reader must replace its live counters after explicit restoration.
+  // resetLocal() and recovery share this revision (defined below).
+  ++s_localResetRevision;
+  return true;
 }
 
 GlobalReadingStats GlobalReadingStats::loadAggregated() { return loadAggregated(load()); }
@@ -368,23 +488,40 @@ GlobalReadingStats GlobalReadingStats::loadAggregated(const GlobalReadingStats& 
   return stats;
 }
 
-void GlobalReadingStats::save() const {
+bool GlobalReadingStats::save() const {
+  const bool dailySaved = DailyReadingStats::flush();
+  if (!dailySaved) LOG_ERR("GSTATS", "Failed to flush daily reading counters");
   if (s_blockDestructiveSave) {
-    LOG_ERR("GSTATS", "Refusing to overwrite on-disk stats after newer-format file was detected");
-    return;
+    LOG_ERR("GSTATS", "Refusing to overwrite protected reading history");
+    return false;
   }
-  saveToFile(*this, GLOBAL_STATS_PATH, GLOBAL_STATS_BAK_PATH);
+  // Keep the global snapshot even if the independent daily flush needs retrying.
+  const std::string path = StatsStorage::localPath(GLOBAL_STATS_PATH);
+  const bool globalSaved = !path.empty() && saveToFile(*this, path.c_str(), (path + ".bak").c_str());
+  return globalSaved && dailySaved;
 }
 
-static uint32_t s_localResetRevision = 0;
-
 bool GlobalReadingStats::resetLocal() {
-  if (!saveToFile(GlobalReadingStats{}, GLOBAL_STATS_PATH, nullptr)) return false;
+  if (s_blockDestructiveSave) {
+    LOG_ERR("GSTATS", "Recover unreadable history before resetting counters");
+    return false;
+  }
+  const std::string path = StatsStorage::localPath(GLOBAL_STATS_PATH);
+  GlobalReadingStats fresh;
+  fresh.counterId = StatsCounterId::create();
+  if (path.empty() || !saveToFile(fresh, path.c_str(), (path + ".bak").c_str())) return false;
   s_localResetRevision++;
   return true;
 }
 
 uint32_t GlobalReadingStats::localResetRevision() { return s_localResetRevision; }
+
+#ifdef STATS_STORAGE_TEST
+void resetGlobalReadingStatsForTest() {
+  s_blockDestructiveSave = false;
+  s_localResetRevision = 0;
+}
+#endif
 
 void GlobalReadingStats::recordReadingSpan(const ReadingStatsDateTime& localStart, const uint32_t seconds) {
   recordReadingSpanIntoBuckets(timeOfDaySeconds, dayOfWeekSeconds, localStart, seconds);
@@ -397,10 +534,33 @@ void GlobalReadingStats::recordReadingSpan(const ReadingStatsDateTime& localStar
 }
 
 uint16_t GlobalReadingStats::currentReadingStreak(const ReadingStatsDate* today) const {
+  GlobalReadingStats server;
+  if (loadServerStreak(server)) {
+    mergeReadingHistory(server.readingHistoryAnchorDay, server.readingHistoryBits, readingHistoryAnchorDay,
+                        readingHistoryBits);
+    return computeReadingHistoryCurrentStreak(server.readingHistoryAnchorDay, server.readingHistoryBits, today);
+  }
   return computeReadingHistoryCurrentStreak(readingHistoryAnchorDay, readingHistoryBits, today);
 }
 
 uint16_t GlobalReadingStats::displayLongestReadingStreak() const {
+  GlobalReadingStats server;
+  if (loadServerStreak(server)) {
+    mergeReadingHistory(server.readingHistoryAnchorDay, server.readingHistoryBits, readingHistoryAnchorDay,
+                        readingHistoryBits);
+    return std::max(std::max(longestReadingStreak, server.longestReadingStreak),
+                    computeReadingHistoryLongestStreak(server.readingHistoryAnchorDay, server.readingHistoryBits));
+  }
   return std::max(longestReadingStreak,
                   computeReadingHistoryLongestStreak(readingHistoryAnchorDay, readingHistoryBits));
+}
+
+bool GlobalReadingStats::saveServerStreak(const GlobalReadingStats& streak) {
+  SyncFiles::Writer writer(serverStreakPath().c_str());
+  constexpr uint8_t version = 1;
+  const bool saved = writer.open() && writer.pod(version) && writer.pod(streak.readingHistoryAnchorDay) &&
+                     writer.write(streak.readingHistoryBits.data(), READING_HISTORY_BYTES) &&
+                     writer.pod(streak.longestReadingStreak) && writer.commit();
+  if (!saved) LOG_ERR("GSTATS", "Cannot save server reading calendar");
+  return saved;
 }

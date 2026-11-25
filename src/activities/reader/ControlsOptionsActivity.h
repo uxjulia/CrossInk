@@ -8,6 +8,7 @@
 
 #include "../Activity.h"
 #include "../settings/SettingsActivity.h"
+#include "components/MenuNavigationNote.h"
 #include "components/OptionPopup.h"
 #include "components/UIThemeTokens.h"
 #include "components/UiAppHelpers.h"
@@ -29,6 +30,7 @@ class ControlsOptionsActivity final : public Activity {
   SettingAction activeSubmenu = SettingAction::None;
   SettingAction parentSubmenu = SettingAction::None;
   OptionPopup optionPopup;
+  MenuNavigationNote menuNavigationNote;
 
   using UiApp = freeink::ui::FreeInkApp<20, 4>;
   static constexpr freeink::ui::ActionId ACTION_ROW = 1;

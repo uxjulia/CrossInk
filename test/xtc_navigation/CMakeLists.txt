@@ -1,0 +1,4 @@
+add_executable(XtcNavigationTest XtcNavigationTest.cpp)
+target_include_directories(XtcNavigationTest PRIVATE ${REPO_ROOT}/src/activities/reader)
+target_link_libraries(XtcNavigationTest PRIVATE crosspoint_test_common GTest::gtest_main)
+gtest_discover_tests(XtcNavigationTest)

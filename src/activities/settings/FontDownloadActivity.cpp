@@ -1,6 +1,7 @@
 #include "FontDownloadActivity.h"
 
 #include <ArduinoJson.h>
+#include <FilePublication.h>
 #include <GfxRenderer.h>
 #include <HalStorage.h>
 #include <I18n.h>
@@ -12,6 +13,7 @@
 #include <cctype>
 #include <cstdlib>
 #include <cstring>
+#include <string_view>
 
 #include "CrossPointSettings.h"
 #include "MappedInputManager.h"
@@ -26,6 +28,7 @@
 #include "components/UiAppHelpers.h"
 #include "fontIds.h"
 #include "network/HttpDownloader.h"
+#include "util/StringUtils.h"
 
 namespace fui = freeink::ui;
 
@@ -37,15 +40,16 @@ Rect downloadCancelButtonRect(const GfxRenderer& renderer, const ThemeMetrics& m
                               const int downloadAttemptTotal) {
   constexpr int kButtonHeight = 44;
   constexpr int kMaxButtonWidth = 240;
-  const int pageWidth = renderer.getScreenWidth();
-  const int pageHeight = renderer.getScreenHeight();
+  const auto safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
+  const int pageWidth = safe.width;
+  const int pageHeight = safe.height;
   const int lineHeight = renderer.getLineHeight(UI_10_FONT_ID);
-  const int centerY = (pageHeight - lineHeight) / 2;
+  const int centerY = safe.y + (pageHeight - lineHeight) / 2;
   const int barY = centerY + (downloadAttemptTotal > 1 ? lineHeight : metrics.verticalSpacing);
   const int width = std::min(kMaxButtonWidth, pageWidth - metrics.contentSidePadding * 2);
   const int y = std::min(barY + metrics.progressBarHeight + lineHeight + metrics.verticalSpacing,
-                         pageHeight - metrics.buttonHintsHeight - kButtonHeight - metrics.verticalSpacing);
-  return Rect{(pageWidth - width) / 2, y, width, kButtonHeight};
+                         safe.y + pageHeight - kButtonHeight - metrics.verticalSpacing);
+  return Rect{safe.x + (pageWidth - width) / 2, y, width, kButtonHeight};
 }
 
 constexpr int FONT_DOWNLOAD_MAX_ATTEMPTS = 3;
@@ -208,6 +212,19 @@ void FontDownloadActivity::onExit() {
     }
   }
 
+  // The catalog is no longer rendered. Free it before restoring the reader
+  // font so a full download list cannot starve the selected font of memory.
+  uiReady_ = false;
+  listItems_.reset();
+  listItemCapacity_ = 0;
+  retryFamily_ = {};
+  hasRetryFamily_ = false;
+  clearManifestFamilies();
+  manifestFiles_.reset();
+  manifestStringArena_.reset();
+  manifestStringArenaUsed_ = 0;
+  manifestStringArenaCapacity_ = 0;
+  sdFontSystem.releaseRegistry();
   sdFontSystem.ensureLoaded(renderer);
   sdFontSystem.releaseRegistry();
 }
@@ -289,6 +306,11 @@ bool FontDownloadActivity::fetchAndParseManifest() {
   // retry delays do not swallow the press.
   HttpDownloader::DownloadOptions manifestOptions;
   manifestOptions.shouldCancel = [this]() { return pollCancelInput(false); };
+  // GitHub releases require HTTPS; use the existing streaming TLS transport
+  // rather than esp_http_client, which has stalled on C3 font downloads.
+  if (std::string_view(FONT_MANIFEST_URL).starts_with("https://")) {
+    manifestOptions.transport = HttpDownloader::Transport::WOLFSSL;
+  }
   // The font list is fetched again after individual updates. Release registry
   // memory on every manifest load, not only when entering Manage Fonts.
   sdFontSystem.releaseForNetwork(renderer);
@@ -398,7 +420,13 @@ bool FontDownloadActivity::fetchAndParseManifest() {
     manifestStringArenaUsed_ = 1;
     manifestStringArenaCapacity_ = stringBytes;
 
+#ifdef FONT_DOWNLOAD_USE_GITHUB_RELEASES
+    // Published catalogs also serve S3 builds. A fallback build must keep the
+    // font payloads on GitHub even when that shared catalog advertises S3.
+    baseUrl_ = FONT_DOWNLOAD_CATALOG_BASE_URL;
+#else
     baseUrl_ = doc["baseUrl"] | "";
+#endif
     manifestFiles_ = makeUniqueNoThrow<ManifestFile[]>(retainedFileCount);
     if (retainedFileCount > 0 && !manifestFiles_) {
       LOG_ERR("FONT", "OOM: %zu-entry font manifest file table (free=%u maxAlloc=%u)", retainedFileCount,
@@ -544,6 +572,7 @@ bool FontDownloadActivity::installedFilesMatch(const ManifestFamily& family, boo
   if (resolvedFamilyName) {
     *resolvedFamilyName = installedFamily->name;
   }
+  installedFamily->releaseDetails();
   return true;
 }
 
@@ -679,7 +708,7 @@ bool FontDownloadActivity::rebuildListItems() {
   size_t itemIndex = 0;
   if (showUpdateAllRow()) {
     char sizeLabel[32];
-    formatSize(totalUpdateSize(), sizeLabel, sizeof(sizeLabel));
+    StringUtils::formatByteSize(totalUpdateSize(), sizeLabel, sizeof(sizeLabel));
     snprintf(updateAllLabel_, sizeof(updateAllLabel_), "%s (%s)", tr(STR_UPDATE_ALL), sizeLabel);
     listItems_[itemIndex] = fui::ListItem{};
     listItems_[itemIndex].label = updateAllLabel_;
@@ -694,12 +723,9 @@ bool FontDownloadActivity::rebuildListItems() {
     item.label = family.name;
     if (family.description[0] != '\0') item.subtitle = family.description;
     if (family.hasUpdate) {
-      item.value = tr(STR_UPDATE_AVAILABLE);
+      item.value = tr(STR_UPDATE);
     } else if (family.installed) {
       item.value = tr(STR_INSTALLED);
-      // Dimmed but still tappable (opens the delete prompt): visual-only
-      // disabled state, the row stays enabled for hit registration.
-      item.state = fui::StateDisabled;
     }
     item.actionValue = static_cast<int16_t>(itemIndex);
     ++itemIndex;
@@ -825,8 +851,12 @@ void FontDownloadActivity::downloadFamily(ManifestFamily& family) {
 
     char destPath[192];
     FontInstaller::buildFontPath(family.installName.c_str(), file.name, destPath, sizeof(destPath));
-    char tempPath[208];
-    snprintf(tempPath, sizeof(tempPath), "%s.tmp", destPath);
+    std::string staged;
+    if (!FilePublication::stagePath(destPath, "font-download", staged)) {
+      failDownload(tr(STR_FONT_DOWNLOAD_INTERRUPTED), tr(STR_FONT_DOWNLOAD_RETRY_HINT));
+      return;
+    }
+    const char* tempPath = staged.c_str();
 
     if (Storage.exists(destPath)) {
       uint32_t existingCrc = 0;
@@ -849,6 +879,12 @@ void FontDownloadActivity::downloadFamily(ManifestFamily& family) {
     HttpDownloader::DownloadOptions downloadOptions;
     downloadOptions.preservePartial = true;
     downloadOptions.resumePartial = true;
+    if (std::string_view(url).starts_with("https://")) {
+      downloadOptions.transport = HttpDownloader::Transport::WOLFSSL;
+      // Reuse a full TLS record buffer for bulk font payloads, as OPDS does.
+      // The SDK falls back to normal growth if the reservation cannot fit.
+      downloadOptions.reserveFullRecord = true;
+    }
     // Poll Back and the touch Cancel controls from shouldCancel, which
     // HttpDownloader checks at the top of every read-loop iteration. The
     // progress callback is throttled to every 64KB / 250ms, so polling input
@@ -928,39 +964,11 @@ void FontDownloadActivity::downloadFamily(ManifestFamily& family) {
       return;
     }
 
-    char backupPath[208];
-    snprintf(backupPath, sizeof(backupPath), "%s.bak", destPath);
-    const bool hadExistingFile = Storage.exists(destPath);
-    if (Storage.exists(backupPath)) {
-      Storage.remove(backupPath);
-    }
     sdFontSystem.markRegistryDirty();
-    if (hadExistingFile && !Storage.rename(destPath, backupPath)) {
-      LOG_ERR("FONT", "Failed to back up existing font file: %s", destPath);
-      Storage.remove(tempPath);
-      failDownload(std::string("Could not replace existing font file: ") + file.name, "");
-      return;
-    }
-    if (!Storage.rename(tempPath, destPath)) {
+    if (!FilePublication::publish(tempPath, destPath)) {
       LOG_ERR("FONT", "Failed to install downloaded font file: %s", destPath);
-      Storage.remove(tempPath);
-      if (hadExistingFile) {
-        Storage.rename(backupPath, destPath);
-      }
-      failDownload(std::string("Could not save downloaded font file: ") + file.name, "");
+      failDownload(std::string(tr(STR_FONT_DOWNLOAD_INTERRUPTED)) + ": " + file.name, tr(STR_FONT_DOWNLOAD_RETRY_HINT));
       return;
-    }
-    if (!fontInstaller_.validateCpfontFile(destPath)) {
-      LOG_ERR("FONT", "Installed .cpfont failed validation: %s", destPath);
-      Storage.remove(destPath);
-      if (hadExistingFile) {
-        Storage.rename(backupPath, destPath);
-      }
-      failDownload(std::string("Downloaded font file was invalid: ") + file.name, tr(STR_FONT_DOWNLOAD_CHECKSUM_HINT));
-      return;
-    }
-    if (hadExistingFile) {
-      Storage.remove(backupPath);
     }
     fontsChanged_ = true;
     currentFileIndex_++;
@@ -1053,9 +1061,9 @@ void FontDownloadActivity::listScreen(UiApp::ScreenType& screen, void* user) {
 void FontDownloadActivity::buildListScreen(UiApp::ScreenType& screen) {
   const auto& metrics = UITheme::getInstance().getMetrics();
   // Content below the GUI.drawHeader band, above the button hints.
-  screen.setContentMargin(
-      fui::Insets{static_cast<int16_t>(metrics.topPadding + TouchHeaderBackButton::height(metrics, mappedInput)), 0,
-                  static_cast<int16_t>(metrics.buttonHintsHeight), 0});
+  setUiContentMargin(screen, renderer,
+                     fui::Insets{static_cast<int16_t>(TouchHeaderBackButton::contentTop(renderer, mappedInput)), 0,
+                                 static_cast<int16_t>(UITheme::getButtonHintsReserve(renderer)), 0});
   screen.spacer(static_cast<int16_t>(metrics.verticalSpacing));
 
   if (manifestFamilyCount_ == 0) {
@@ -1153,7 +1161,7 @@ void FontDownloadActivity::loop() {
       requestUpdate();
     }
   } else if (state_ == ERROR) {
-    if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
+    if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
       if (manifestReloadNeeded_) {
         returnToFamilyList();
         requestUpdate();
@@ -1172,7 +1180,9 @@ void FontDownloadActivity::loop() {
         state_ = FAMILY_LIST;
       }
       requestUpdate();
-    } else if (mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
+    } else {
+      int x = 0, y = 0;
+      if (!mappedInput.wasReleased(MappedInputManager::Button::Confirm) && !mappedInput.wasScreenTapped(x, y)) return;
       if (hasRetryFamily_) {
         currentFileIndex_ = 0;
         currentFileTotal_ = retryFamily_.fileCount;
@@ -1192,22 +1202,7 @@ void FontDownloadActivity::loop() {
         requestUpdateAndWait();
         return;
       } else {
-        returnToFamilyList();
-        requestUpdate();
-      }
-    } else {
-      int x = 0;
-      int y = 0;
-      if (mappedInput.wasScreenTapped(x, y)) {
-        if (downloadingFamilyIndex_ >= 0 && downloadingFamilyIndex_ < static_cast<int>(manifestFamilyCount_)) {
-          downloadFamily(manifestFamilies_[downloadingFamilyIndex_]);
-          requestUpdateAndWait();
-          return;
-        }
-        {
-          RenderLock lock(*this);
-          state_ = FAMILY_LIST;
-        }
+        onWifiSelectionComplete(true);
         requestUpdate();
       }
     }
@@ -1216,21 +1211,11 @@ void FontDownloadActivity::loop() {
 
 // --- Rendering ---
 
-void FontDownloadActivity::formatSize(const size_t bytes, char* const buffer, const size_t bufferSize) {
-  if (bufferSize == 0) return;
-  if (bytes >= 1024 * 1024) {
-    snprintf(buffer, bufferSize, "%.1f MB", static_cast<double>(bytes) / (1024.0 * 1024.0));
-  } else if (bytes >= 1024) {
-    snprintf(buffer, bufferSize, "%.0f KB", static_cast<double>(bytes) / 1024.0);
-  } else {
-    snprintf(buffer, bufferSize, "%zu B", bytes);
-  }
-}
-
 void FontDownloadActivity::render(RenderLock&&) {
   const auto& metrics = UITheme::getInstance().getMetrics();
-  const auto pageWidth = renderer.getScreenWidth();
-  const auto pageHeight = renderer.getScreenHeight();
+  const auto safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
+  const int pageWidth = safe.width;
+  const int pageHeight = safe.height;
 
   renderer.clearScreen();
 
@@ -1242,17 +1227,16 @@ void FontDownloadActivity::render(RenderLock&&) {
   }
 
   const auto lineHeight = renderer.getLineHeight(UI_10_FONT_ID);
-  const auto contentTop =
-      metrics.topPadding + TouchHeaderBackButton::height(metrics, mappedInput) + metrics.verticalSpacing;
-  const auto centerY = (pageHeight - lineHeight) / 2;
+  const auto contentTop = TouchHeaderBackButton::contentTop(renderer, mappedInput) + metrics.verticalSpacing;
+  const auto centerY = safe.y + (pageHeight - lineHeight) / 2;
 
   if (state_ == LOADING_MANIFEST) {
-    renderer.drawCenteredText(UI_10_FONT_ID, centerY, tr(STR_LOADING_FONT_LIST));
+    UITheme::drawCenteredText(renderer, safe, UI_10_FONT_ID, centerY, tr(STR_LOADING_FONT_LIST));
     const auto labels = mappedInput.mapLabels(tr(STR_CANCEL), "", "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   } else if (state_ == FAMILY_LIST) {
     uiReady_ = false;
-    app_.render();
+    renderUiApp(app_, uiTarget_);
     uiReady_ = true;
 
     const char* confirmLabel = manifestFamilyCount_ == 0        ? ""
@@ -1268,11 +1252,11 @@ void FontDownloadActivity::render(RenderLock&&) {
 
     std::string statusText = std::string(tr(STR_DOWNLOADING)) + " " + familyName + " (" +
                              std::to_string(currentFileIndex_ + 1) + "/" + std::to_string(currentFileTotal_) + ")";
-    renderer.drawCenteredText(UI_10_FONT_ID, centerY - lineHeight, statusText.c_str());
+    UITheme::drawCenteredText(renderer, safe, UI_10_FONT_ID, centerY - lineHeight, statusText.c_str());
     if (downloadAttemptTotal_ > 1) {
       std::string attemptText =
           "Attempt " + std::to_string(downloadAttempt_) + "/" + std::to_string(downloadAttemptTotal_);
-      renderer.drawCenteredText(SMALL_FONT_ID, centerY, attemptText.c_str());
+      UITheme::drawCenteredText(renderer, safe, SMALL_FONT_ID, centerY, attemptText.c_str());
     }
 
     float progress = 0;
@@ -1281,10 +1265,10 @@ void FontDownloadActivity::render(RenderLock&&) {
     }
 
     int barY = centerY + (downloadAttemptTotal_ > 1 ? lineHeight : metrics.verticalSpacing);
-    GUI.drawProgressBar(
-        renderer,
-        Rect{metrics.contentSidePadding, barY, pageWidth - metrics.contentSidePadding * 2, metrics.progressBarHeight},
-        static_cast<int>(progress * 100), 100);
+    GUI.drawProgressBar(renderer,
+                        Rect{safe.x + metrics.contentSidePadding, barY, pageWidth - metrics.contentSidePadding * 2,
+                             metrics.progressBarHeight},
+                        static_cast<int>(progress * 100), 100);
 
     if (mappedInput.hasTouchHardware()) {
       const Rect cancelButton = downloadCancelButtonRect(renderer, metrics, downloadAttemptTotal_);
@@ -1292,19 +1276,21 @@ void FontDownloadActivity::render(RenderLock&&) {
                                Color::White);
       renderer.drawRoundedRect(cancelButton.x, cancelButton.y, cancelButton.width, cancelButton.height, 1, 6, true);
       const int textY = cancelButton.y + (cancelButton.height - renderer.getLineHeight(UI_10_FONT_ID)) / 2;
-      renderer.drawCenteredText(UI_10_FONT_ID, textY, tr(STR_CANCEL));
+      UITheme::drawCenteredText(renderer, safe, UI_10_FONT_ID, textY, tr(STR_CANCEL));
     }
 
     const auto labels = mappedInput.mapLabels(tr(STR_CANCEL), "", "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   } else if (state_ == COMPLETE) {
-    renderer.drawCenteredText(UI_10_FONT_ID, centerY, tr(STR_FONT_INSTALLED), true, EpdFontFamily::BOLD);
+    UITheme::drawCenteredText(renderer, safe, UI_10_FONT_ID, centerY, tr(STR_FONT_INSTALLED), true,
+                              EpdFontFamily::BOLD);
     const auto labels = mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), "", "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   } else if (state_ == ERROR) {
-    renderer.drawCenteredText(UI_10_FONT_ID, centerY - lineHeight, tr(STR_FONT_INSTALL_FAILED), true,
+    UITheme::drawCenteredText(renderer, safe, UI_10_FONT_ID, centerY - lineHeight, tr(STR_FONT_INSTALL_FAILED), true,
                               EpdFontFamily::BOLD);
-    const Rect textArea{metrics.contentSidePadding, 0, pageWidth - metrics.contentSidePadding * 2, pageHeight};
+    const Rect textArea{safe.x + metrics.contentSidePadding, safe.y, pageWidth - metrics.contentSidePadding * 2,
+                        pageHeight};
     int messageY = centerY + metrics.verticalSpacing;
     if (!errorMessage_.empty()) {
       messageY += UITheme::drawCenteredWrappedText(renderer, textArea, SMALL_FONT_ID, messageY, errorMessage_.c_str(),

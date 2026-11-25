@@ -3,11 +3,11 @@
 #include <algorithm>
 
 // Keeps the status-bar tap region independent from reader layout and input so
-// it can be host-tested. The 32 px minimum is large enough for a deliberate
-// e-ink touch target while leaving the vast majority of the page for turns.
+// it can be host-tested. Reserve a finger-sized strip plus the bezel margin
+// at each enabled bar, including while the bars are temporarily hidden.
 class ReaderStatusBarTapTarget {
  public:
-  static constexpr int MIN_HEIGHT_PX = 32;
+  static constexpr int MIN_HEIGHT_PX = 64;
 
   static bool containsBottom(const int y, const int screenHeight, const int orientedBottomMargin,
                              const int statusBarHeight) {
@@ -20,7 +20,7 @@ class ReaderStatusBarTapTarget {
       return false;
     }
     const int height = std::min(bottom, std::max(MIN_HEIGHT_PX, statusBarHeight));
-    return y >= bottom - height && y < bottom;
+    return y >= bottom - height && y < screenHeight;
   }
 
   static bool containsTop(const int y, const int screenHeight, const int orientedTopMargin, const int statusBarHeight) {
@@ -29,6 +29,6 @@ class ReaderStatusBarTapTarget {
     }
 
     const int height = std::min(screenHeight - orientedTopMargin, std::max(MIN_HEIGHT_PX, statusBarHeight));
-    return y >= orientedTopMargin && y < orientedTopMargin + height;
+    return y >= 0 && y < orientedTopMargin + height;
   }
 };

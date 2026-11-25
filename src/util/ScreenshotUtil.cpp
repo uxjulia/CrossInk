@@ -2,16 +2,42 @@
 
 #include <Arduino.h>
 #include <BitmapHelpers.h>
+#include <FilePublication.h>
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
 #include <HalStorage.h>
 #include <Logging.h>
+#include <Memory.h>
 
 #include <cstring>
+#include <mutex>
 #include <string>
 
 #include "Bitmap.h"  // Required for BmpHeader struct definition
 #include "activities/Activity.h"
+
+namespace {
+std::mutex screenshotSaveMutex;
+
+std::string unusedScreenshotPath(const char* filename) {
+  const std::string path(filename);
+  const size_t extension = path.find_last_of('.');
+  if (extension == std::string::npos || path.find_last_of('/') > extension) return path;
+
+  const std::string stem = path.substr(0, extension);
+  const std::string suffix = path.substr(extension);
+  for (unsigned int number = 1;; ++number) {
+    const std::string candidate = stem + "-" + std::to_string(number) + suffix;
+    if (candidate.size() < 256) {
+      if (!Storage.exists(candidate.c_str())) return candidate;
+      continue;
+    }
+    const std::string fallback =
+        "/screenshots/screenshot-" + std::to_string(millis()) + "-" + std::to_string(number) + ".bmp";
+    if (!Storage.exists(fallback.c_str())) return fallback;
+  }
+}
+}  // namespace
 
 void ScreenshotUtil::buildFilename(const ScreenshotInfo& info, char* buf, size_t bufSize) {
   const unsigned long ts = millis();
@@ -75,12 +101,13 @@ void ScreenshotUtil::takeScreenshot(GfxRenderer& renderer) {
   }
 
   ScreenshotInfo info = activityManager.getScreenshotInfo();
-  char filename[256];
-  buildFilename(info, filename, sizeof(filename));
+  char initialFilename[256];
+  buildFilename(info, initialFilename, sizeof(initialFilename));
+  const std::string filename = unusedScreenshotPath(initialFilename);
 
-  bool saved = saveFramebufferAsBmp(filename, fb, renderer.getDisplayWidth(), renderer.getDisplayHeight());
+  bool saved = saveFramebufferAsBmp(filename.c_str(), fb, renderer.getDisplayWidth(), renderer.getDisplayHeight());
   if (saved) {
-    LOG_DBG("SCR", "Screenshot saved to %s", filename);
+    LOG_DBG("SCR", "Screenshot saved to %s", filename.c_str());
   } else {
     LOG_ERR("SCR", "Failed to save screenshot");
     return;
@@ -109,6 +136,7 @@ void ScreenshotUtil::takeScreenshot(GfxRenderer& renderer) {
 }
 
 bool ScreenshotUtil::saveFramebufferAsBmp(const char* filename, const uint8_t* framebuffer, int width, int height) {
+  std::lock_guard<std::mutex> lock(screenshotSaveMutex);
   if (!framebuffer) {
     return false;
   }
@@ -117,19 +145,27 @@ bool ScreenshotUtil::saveFramebufferAsBmp(const char* filename, const uint8_t* f
   int phyWidth = height;
   int phyHeight = width;
 
+  // Runtime panel dimensions include A4's taller framebuffer. Allocate one
+  // small row (72 bytes on A4), rather than a second framebuffer or a VLA.
+  const uint32_t rowSizePadded = (phyWidth + 31) / 32 * 4;
+  auto rowBuffer = makeUniqueNoThrow<uint8_t[]>(rowSizePadded);
+  if (!rowBuffer) {
+    LOG_ERR("SCR", "Failed to allocate %u-byte screenshot row", rowSizePadded);
+    return false;
+  }
+
   std::string path(filename);
   size_t last_slash = path.find_last_of('/');
   if (last_slash != std::string::npos) {
     std::string dir = path.substr(0, last_slash);
-    if (!Storage.exists(dir.c_str())) {
-      if (!Storage.mkdir(dir.c_str())) {
-        return false;
-      }
-    }
+    if (!Storage.ensureDirectoryExists(dir.c_str())) return false;
   }
 
+  std::string stagedPath;
+  if (!FilePublication::stagePath(path, "screenshot", stagedPath)) return false;
+
   HalFile file;
-  if (!Storage.openFileForWrite("SCR", filename, file)) {
+  if (!Storage.openFileForWrite("SCR", stagedPath, file)) {
     LOG_ERR("SCR", "Failed to save screenshot");
     return false;
   }
@@ -146,25 +182,11 @@ bool ScreenshotUtil::saveFramebufferAsBmp(const char* filename, const uint8_t* f
   if (write_error) {
     // Explicitly close() file before calling Storage.remove()
     file.close();
-    Storage.remove(filename);
+    Storage.remove(stagedPath.c_str());
     return false;
   }
 
-  const uint32_t rowSizePadded = (phyWidth + 31) / 32 * 4;
-  // Max row size for 528px height (X3) after rotation = 68 bytes; use fixed buffer to avoid VLA
-  constexpr size_t kMaxRowSize = 68;
-  if (rowSizePadded > kMaxRowSize) {
-    LOG_ERR("SCR", "Row size %u exceeds buffer capacity", rowSizePadded);
-    // Explicitly close() file before calling Storage.remove()
-    file.close();
-    Storage.remove(filename);
-    return false;
-  }
-
-  // rotate the image 90d counter-clockwise on-the-fly while writing to save memory
-  uint8_t rowBuffer[kMaxRowSize];
-  memset(rowBuffer, 0, rowSizePadded);
-
+  // Rotate 90 degrees counter-clockwise while writing, using one row.
   for (int outY = 0; outY < phyHeight; outY++) {
     for (int outX = 0; outX < phyWidth; outX++) {
       // 90d counter-clockwise: source (srcX, srcY)
@@ -175,18 +197,24 @@ bool ScreenshotUtil::saveFramebufferAsBmp(const char* filename, const uint8_t* f
       uint8_t pixel = (framebuffer[fbIndex] >> (7 - (srcX % 8))) & 0x01;
       rowBuffer[outX / 8] |= pixel << (7 - (outX % 8));
     }
-    if (file.write(rowBuffer, rowSizePadded) != rowSizePadded) {
+    if (file.write(rowBuffer.get(), rowSizePadded) != rowSizePadded) {
       write_error = true;
       break;
     }
-    memset(rowBuffer, 0, rowSizePadded);  // Clear the buffer for the next row
+    memset(rowBuffer.get(), 0, rowSizePadded);  // Clear the buffer for the next row
   }
 
   // Explicitly close() file before calling Storage.remove()
-  file.close();
+  const bool synced = !write_error && file.sync();
+  const bool closed = file.close();
 
-  if (write_error) {
-    Storage.remove(filename);
+  if (!synced || !closed || write_error) {
+    Storage.remove(stagedPath.c_str());
+    return false;
+  }
+
+  if (!FilePublication::publish(stagedPath.c_str(), filename, false)) {
+    Storage.remove(stagedPath.c_str());
     return false;
   }
 

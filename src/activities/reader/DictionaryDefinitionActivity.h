@@ -17,8 +17,16 @@
 #include "util/LookupHistory.h"
 #include "util/WordSelectNavigator.h"
 
+struct Rect;
+
 class DictionaryDefinitionActivity final : public Activity {
+#ifdef SIMULATOR
+  friend struct ScreenCalibrationSmokeTest;
+  friend struct DictionaryPagingSmokeTest;
+  friend struct ClippingSelectionSmokeTest;
+#endif
  public:
+  bool usesMenuButtonOrientation() const override { return false; }
   using BackgroundRenderFn = void (*)(void* context);
 
   // showLookupButton=true:
@@ -137,6 +145,7 @@ class DictionaryDefinitionActivity final : public Activity {
   int currentPage = 0;
   int linesPerPage = 0;
   int totalPages = 0;
+  DictionaryDefinitionSource definitionSource_;
   uint32_t definitionOffset_ = 0;
   uint32_t definitionSize_ = 0;
   bool definitionIsHtml_ = false;
@@ -211,12 +220,17 @@ class DictionaryDefinitionActivity final : public Activity {
   void collectDefinitionAdvanceText(const char* text, EpdFontFamily::Style style);
   static void collectSpanForAdvances(void* ctx, const StyledSpan& span);
   void extractWordsFromLayout();
-  void openDictionarySwitch();
+  void openDictionarySwitch(const std::string& displayedDictionary = {});
 #if CROSSINK_APP_CAP_TOUCH
   bool showTouchDictionarySwitch() const;
   bool dictionarySwitchButtonContains(int x, int y) const;
   bool dictionaryCreateClippingButtonContains(int x, int y) const;
   bool modalContains(int x, int y) const;
+#endif
+  int dictionaryTitleHeight() const;
+  Rect definitionHeaderRect() const;
+#if CROSSINK_APP_CAP_TOUCH
+  Rect closeButtonRect() const;
 #endif
   int dictionaryFooterHeight() const;
   bool hasModalBackground() const { return backgroundContext_ && backgroundRender_; }

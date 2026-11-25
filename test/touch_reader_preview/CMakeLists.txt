@@ -1,11 +1,14 @@
 add_executable(TouchReaderPreviewModelTest
   TouchReaderPreviewModelTest.cpp
+  ${REPO_ROOT}/lib/Epub/Epub/RuledLineLayout.cpp
+  ${REPO_ROOT}/lib/Epub/Epub/hyphenation/HyphenationCommon.cpp
 )
 
 target_include_directories(TouchReaderPreviewModelTest PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/stubs
   ${REPO_ROOT}/src/activities/reader
   ${REPO_ROOT}/include
+  ${REPO_ROOT}/lib/Epub
 )
 
 target_link_libraries(TouchReaderPreviewModelTest PRIVATE

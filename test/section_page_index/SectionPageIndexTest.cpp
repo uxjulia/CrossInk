@@ -51,6 +51,7 @@ SectionPageIndexEntry entryFor(const size_t index) {
       static_cast<uint16_t>((index * 3U) & UINT16_MAX),
       static_cast<uint16_t>((index * 5U) & UINT16_MAX),
       static_cast<uint32_t>(index * 11U),
+      static_cast<uint32_t>(index * 9U),
   };
 }
 
@@ -60,6 +61,7 @@ void expectEntry(const SectionPageIndexEntry& actual, const size_t index) {
   EXPECT_EQ(actual.paragraphIndex, expected.paragraphIndex);
   EXPECT_EQ(actual.listItemIndex, expected.listItemIndex);
   EXPECT_EQ(actual.visibleTextOffset, expected.visibleTextOffset);
+  EXPECT_EQ(actual.referenceTextOffset, expected.referenceTextOffset);
 }
 
 void append(TestIndex& index, const size_t entryNumber) {

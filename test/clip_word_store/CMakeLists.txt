@@ -13,6 +13,7 @@ target_include_directories(ClipWordStoreTest PRIVATE
   ${REPO_ROOT}/src
   ${REPO_ROOT}/src/clippings
   ${REPO_ROOT}/lib/EpdFont
+  ${REPO_ROOT}/lib/Memory
 )
 
 gtest_discover_tests(ClipWordStoreTest)

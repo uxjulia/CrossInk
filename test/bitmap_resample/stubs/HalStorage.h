@@ -23,6 +23,7 @@ class HalFile : public Print {
     const size_t count = std::min(size, available);
     std::memcpy(buffer, data_.data() + position_, count);
     position_ += count;
+    bytesRead_ += count;
     return static_cast<int>(count);
   }
 
@@ -33,6 +34,7 @@ class HalFile : public Print {
   }
 
   bool seekCur(int64_t offset) {
+    if (failSeekCur_) return false;
     if (offset < 0 && static_cast<size_t>(-offset) > position_) return false;
     const size_t next = offset < 0 ? position_ - static_cast<size_t>(-offset) : position_ + static_cast<size_t>(offset);
     return seek(next);
@@ -40,9 +42,16 @@ class HalFile : public Print {
 
   explicit operator bool() const { return true; }
 
+  // Test hooks: bytes delivered through read(), and a way to force the
+  // sequential-read fallback by failing relative seeks.
+  size_t bytesRead() const { return bytesRead_; }
+  void setFailSeekCur(const bool fail) { failSeekCur_ = fail; }
+
   size_t write(uint8_t) override { return 0; }
 
  private:
   std::vector<uint8_t> data_;
   size_t position_ = 0;
+  size_t bytesRead_ = 0;
+  bool failSeekCur_ = false;
 };

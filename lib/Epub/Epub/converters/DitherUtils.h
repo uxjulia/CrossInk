@@ -10,6 +10,12 @@ inline const uint8_t bayer4x4[4][4] = {
     {15, 7, 13, 5},
 };
 
+// Final monochrome pixels use the cache's black/white endpoints, not shades.
+inline uint8_t quantizeGrayToMono(uint8_t gray, int x, int y, bool dither) {
+  const int threshold = dither ? bayer4x4[y & 3][x & 3] * 16 + 8 : 128;
+  return gray < threshold ? 0 : 3;
+}
+
 // Divide the full 8-bit range into four equally sized display levels.
 inline uint8_t quantizeGrayTo4Level(uint8_t gray) { return gray >> 6; }
 

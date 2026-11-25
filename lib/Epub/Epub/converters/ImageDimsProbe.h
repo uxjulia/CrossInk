@@ -4,7 +4,7 @@
 
 #include "ImageToFramebufferDecoder.h"
 
-// Streaming JPEG/PNG header parser. Feed bytes through Print; write() returns
+// Streaming JPEG/PNG/GIF header parser. Feed bytes through Print; write() returns
 // short once dimensions are known or the stream is unusable, allowing ZIP
 // inflation to stop without extracting the complete image.
 class ImageDimsProbe final : public Print {
@@ -20,6 +20,7 @@ class ImageDimsProbe final : public Print {
   enum class State : uint8_t {
     Sniff,
     PngHeader,
+    GifHeader,
     JpegSoi,
     JpegFf,
     JpegMarker,

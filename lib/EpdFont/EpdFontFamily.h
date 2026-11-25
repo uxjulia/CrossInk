@@ -26,6 +26,22 @@ class EpdFontFamily {
                          const EpdFont* boldItalic = nullptr, const EpdFont* fallback = nullptr)
       : regular(regular), bold(bold), italic(italic), boldItalic(boldItalic), fallback(fallback) {}
   ~EpdFontFamily() = default;
+  // Bitmap size identity belongs to the registration, leaving generated font data unchanged.
+  EpdFontFamily withSize(int familyId, uint8_t points) const {
+    auto family = *this;
+    family.sizeFamilyId_ = familyId;
+    family.pointSize_ = points;
+    return family;
+  }
+  int sizeFamilyId() const { return sizeFamilyId_; }
+  uint8_t pointSize() const { return pointSize_; }
+  // Missing glyphs retain their own font data and share the primary baseline.
+  EpdFontFamily withFallbackFonts(const EpdFont* regularFont, const EpdFont* boldFont = nullptr) const {
+    auto family = *this;
+    family.fallbackRegular = regularFont;
+    family.fallbackBold = boldFont;
+    return family;
+  }
   // Optional ink bounds use font coordinates, increasing upward from the baseline.
   void getTextDimensions(const char* string, int* w, int* h, Style style = REGULAR, int* inkMinY = nullptr,
                          int* inkMaxY = nullptr) const;
@@ -33,7 +49,11 @@ class EpdFontFamily {
   GlyphData findGlyphData(uint32_t cp, Style style = REGULAR) const;
   GlyphData getGlyphData(uint32_t cp, Style style = REGULAR) const;
   const EpdGlyph* getGlyph(uint32_t cp, Style style = REGULAR) const;
-  uint32_t getFallbackCodepoint(uint32_t cp, Style style = REGULAR) const;
+  // Blank spacing metrics, without replacement-glyph lookup or bitmap allocation.
+  uint16_t getSpaceAdvanceX(uint32_t cp, Style style = REGULAR) const;
+  // If requested, return glyph metrics for the resolved codepoint as well.
+  // Use the result before another lookup, which may replace an on-demand slot.
+  uint32_t getFallbackCodepoint(uint32_t cp, Style style = REGULAR, const EpdGlyph** glyph = nullptr) const;
   /// Returns true if the resolved style or shared fallback can render `cp`
   /// (interval coverage only — see EpdFont::hasCodepoint).
   bool hasCodepoint(uint32_t cp, Style style = REGULAR) const;
@@ -41,6 +61,8 @@ class EpdFontFamily {
   uint32_t applyLigatures(uint32_t cp, const char*& text, Style style = REGULAR) const;
 
  private:
+  int sizeFamilyId_ = 0;
+  uint8_t pointSize_ = 0;
   const EpdFont* regular;
   const EpdFont* bold;
   const EpdFont* italic;
@@ -48,5 +70,10 @@ class EpdFontFamily {
   // Optional shared glyphs keep their own bitmap size across font sizes/styles.
   const EpdFont* fallback;
 
+  const EpdFont* fallbackRegular = nullptr;
+  const EpdFont* fallbackBold = nullptr;
+  const EpdFont* getFallbackFont(Style style) const {
+    return (style & BOLD) && fallbackBold ? fallbackBold : fallbackRegular;
+  }
   const EpdFont* getFont(Style style) const;
 };

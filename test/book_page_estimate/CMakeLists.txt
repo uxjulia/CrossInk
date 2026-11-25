@@ -1,0 +1,4 @@
+add_executable(BookPageEstimateTest BookPageEstimateTest.cpp StableReadingPaceTest.cpp)
+target_link_libraries(BookPageEstimateTest PRIVATE crosspoint_test_common GTest::gtest_main)
+target_include_directories(BookPageEstimateTest PRIVATE ${REPO_ROOT}/src/activities/reader)
+gtest_discover_tests(BookPageEstimateTest)

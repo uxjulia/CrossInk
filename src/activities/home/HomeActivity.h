@@ -1,5 +1,6 @@
 #pragma once
 #include <HalDisplay.h>
+#include <ScreenInsets.h>
 
 #include <array>
 #include <functional>
@@ -29,6 +30,11 @@ class HomeActivity final : public Activity {
   static constexpr int kMaxCachedBooks = 3;
 
  private:
+#ifdef SIMULATOR
+  friend struct BookmarkListSmokeTest;
+  friend struct PluginCatalogSmokeTest;
+  friend struct ScreenCalibrationSmokeTest;
+#endif
   ButtonNavigator buttonNavigator;
   std::unique_ptr<CoverGridHomeUi> coverGridUi;
   bool gridHasContinueReading = false;
@@ -41,14 +47,13 @@ class HomeActivity final : public Activity {
   int carouselMenuTouchDownIndex = -1;
   bool recentsLoading = false;
   bool recentsLoaded = false;
-  bool firstRenderDone = false;
   // Silent restarts keep the panel's previous frame. The first Home paint may
   // need a clean waveform so X4 panels do not diff against a WiFi screen.
   HalDisplay::RefreshMode initialRefreshMode = HalDisplay::FAST_REFRESH;
   bool hasReadingStats = false;
   bool hasBookmarks = false;
   bool hasClippings = false;
-  bool hasOpdsServers = false;
+  bool hasPlugins = false;
   bool minimalMenuOpen = false;
   bool minimalSuppressInitialFrontRelease = false;
   bool homeBookSwapLongPressHandled = false;
@@ -89,8 +94,11 @@ class HomeActivity final : public Activity {
   bool carouselFramesReady = false;
   bool carouselFramesInverted = false;
   bool carouselWarmupPending = false;
+  ScreenInsets insetsBeforeFrontlightPanel;
   uint8_t themeBeforeFrontlightPanel = 0;
   uint8_t scaleBeforeFrontlightPanel = 0;
+  uint32_t filenameFontBeforeFrontlightPanel = 0;
+  uint8_t statusSizeBeforeFrontlightPanel = 0;
 
   std::vector<RecentBook> recentBooks;
   const HomeMenuItem initialMenuItem;
@@ -103,7 +111,7 @@ class HomeActivity final : public Activity {
   void onLibraryOpen();
   void onSettingsOpen();
   void onFileTransferOpen();
-  void onOpdsBrowserOpen();
+  void onPluginsOpen();
   void onReadingStatsOpen();
   void onSavedItemsOpen();
 
@@ -128,7 +136,8 @@ class HomeActivity final : public Activity {
   void showNextRecentBookOnHome();
   void updateHighlightedBookContext(bool allowChapterTitleRead = true);
   void loadRecentBooks(int maxBooks);
-  void loadCoverGridThumbnails();
+  // Returns true when Home needs a repaint for new artwork or to clear progress.
+  bool loadCoverGridThumbnails();
   void activateCoverGridSelection();
   void loadAllBookStats();
   void loadRecentCovers(int coverHeight);

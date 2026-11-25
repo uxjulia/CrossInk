@@ -26,6 +26,51 @@ inline freeink::ui::GfxRendererTarget makeUiTarget(const GfxRenderer& renderer) 
   return target;
 }
 
+// Legacy metadata slots share the same per-glyph fallbacks as the base UI
+// families. Keep their aliases stable for existing screens and cached layouts.
+class FilenameUiFontScope {
+ public:
+  FilenameUiFontScope(freeink::ui::GfxRendererTarget& target, const GfxRenderer& renderer) : target_(target) {
+    const auto spec = uiScaleSpec();
+    target_.setFont(freeink::ui::GfxRendererTarget::FONT_SMALL, renderer.filenameFontId(spec.smallFontId));
+    target_.setFont(freeink::ui::GfxRendererTarget::FONT_BODY, renderer.filenameFontId(spec.bodyFontId));
+    target_.setFont(freeink::ui::GfxRendererTarget::FONT_TITLE, renderer.filenameFontId(spec.titleFontId));
+  }
+  ~FilenameUiFontScope() {
+    const auto spec = uiScaleSpec();
+    target_.setFont(freeink::ui::GfxRendererTarget::FONT_SMALL, spec.smallFontId);
+    target_.setFont(freeink::ui::GfxRendererTarget::FONT_BODY, spec.bodyFontId);
+    target_.setFont(freeink::ui::GfxRendererTarget::FONT_TITLE, spec.titleFontId);
+  }
+  FilenameUiFontScope(const FilenameUiFontScope&) = delete;
+  FilenameUiFontScope& operator=(const FilenameUiFontScope&) = delete;
+
+ private:
+  freeink::ui::GfxRendererTarget& target_;
+};
+// Absolute content bounds always include calibration. Existing edge reserves
+// are minimum distances from the screen, so count each physical edge only once.
+template <size_t MaxInteractions>
+inline void setUiContentMargin(freeink::ui::Screen<MaxInteractions>& screen, const GfxRenderer& renderer,
+                               freeink::ui::Insets margins) {
+  const auto safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
+  margins.top = std::max<int>(margins.top, safe.y);
+  margins.right = std::max<int>(margins.right, renderer.getScreenWidth() - safe.x - safe.width);
+  margins.bottom = std::max<int>(margins.bottom, renderer.getScreenHeight() - safe.y - safe.height);
+  margins.left = std::max<int>(margins.left, safe.x);
+  screen.setContentMarginFromScreen(margins);
+}
+
+// A child Settings screen can change calibration while this activity remains
+// suspended. Refresh the standard renderer-backed device bounds on every render.
+// Fixed-safe calibration contexts intentionally render directly instead.
+template <size_t MaxInteractions, size_t MaxHandlers>
+inline void renderUiApp(freeink::ui::FreeInkApp<MaxInteractions, MaxHandlers>& app,
+                        const freeink::ui::GfxRendererTarget& target) {
+  app.setDevice(target.deviceContext());
+  app.render();
+}
+
 // Activities share two static token generations rather than each retaining an
 // identical ~1.5KB copy. A render task always reads the published generation;
 // live configuration changes build the other generation before swapping the
@@ -94,6 +139,8 @@ inline freeink::ui::BitmapRef listIconFor(const UIIcon icon, const int size = 24
         return freeink::ui::bitmapFromIcon(icon_image_32);
       case UIIcon::Book:
         return freeink::ui::bitmapFromIcon(icon_book_32);
+      case UIIcon::BookCheck:
+        return freeink::ui::bitmapFromIcon(icon_book_check_32);
       case UIIcon::File:
         return freeink::ui::bitmapFromIcon(icon_file_32);
       case UIIcon::Wifi:
@@ -117,6 +164,8 @@ inline freeink::ui::BitmapRef listIconFor(const UIIcon icon, const int size = 24
       return freeink::ui::bitmapFromIcon(icon_image_24);
     case UIIcon::Book:
       return freeink::ui::bitmapFromIcon(icon_book_24);
+    case UIIcon::BookCheck:
+      return freeink::ui::bitmapFromIcon(icon_book_check_24);
     case UIIcon::File:
       return freeink::ui::bitmapFromIcon(icon_file_24);
     case UIIcon::Wifi:

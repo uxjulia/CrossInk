@@ -14,4 +14,7 @@ constexpr size_t kDefaultMaxFilenameBytes = 150;
  */
 std::string sanitizeFilename(const std::string& name, size_t maxBytes = kDefaultMaxFilenameBytes);
 
+/** Format a byte count as "123 B", "45 KB" or "1.2 MB". */
+void formatByteSize(size_t bytes, char* buffer, size_t bufferSize);
+
 }  // namespace StringUtils

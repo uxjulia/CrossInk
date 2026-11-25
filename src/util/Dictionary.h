@@ -19,6 +19,7 @@ struct DictPaths {
   std::string idxOftCspt() const { return folder + ".idx.oft.cspt"; }
   std::string synOftCspt() const { return folder + ".syn.oft.cspt"; }
   std::string quickIdx() const { return folder + ".qidx"; }
+  std::string synQuickIdx() const { return folder + ".syn.qidx"; }
   std::string dictDz() const { return folder + ".dict.dz"; }
   std::string synDz() const { return folder + ".syn.dz"; }
 };
@@ -60,6 +61,28 @@ struct DictLocation {
   bool readError = false;
 };
 
+// Owns a definition's readable backing. Compressed entries are extracted once
+// to an activity-owned SD temporary file, then reused by the streaming renderer.
+class DictionaryDefinitionSource {
+ public:
+  DictionaryDefinitionSource() = default;
+  ~DictionaryDefinitionSource() { reset(); }
+  DictionaryDefinitionSource(const DictionaryDefinitionSource&) = delete;
+  DictionaryDefinitionSource& operator=(const DictionaryDefinitionSource&) = delete;
+  bool open(const DictLocation& location);
+  void reset();
+  const std::string& path() const { return path_; }
+  uint32_t offset() const { return offset_; }
+
+ private:
+  std::string path_;
+  std::string dictionaryPath_;
+  uint32_t entryOffset_ = 0;
+  uint32_t entrySize_ = 0;
+  uint32_t offset_ = 0;
+  bool temporary_ = false;
+};
+
 struct DictDefinitionSlice {
   std::string folderPath;
   uint32_t offset = 0;
@@ -87,7 +110,7 @@ class Dictionary {
   static void setLookupDictPathOverride(const char* folderPath);
   static void clearLookupDictPathOverride();
 
-  // Writes folderPath to /.crosspoint/dictionary.bin (global setting).
+  // Store the global dictionary selection as a dictionary base path.
   // Pass empty string to clear the global dictionary.
   static void saveGlobalDictPath(const char* folderPath);
 
@@ -97,10 +120,11 @@ class Dictionary {
 
   // Returns true if a dictionary is configured and all required files exist.
   static bool exists(const char* cachePath = nullptr);
+  static bool existsAt(const std::string& folderPath);
 
   // Returns true if a .syn file exists for the active dictionary.
   // Gates all alternate-form UI — checked at runtime against the physical file.
-  static bool hasAltForms(const char* cachePath = nullptr);
+  static bool hasAltFormsAt(const std::string& path);
 
   // Validates the dictionary path stored in /.crosspoint/dictionary.bin against the SD card.
   // If the path is missing or the required files are gone, clears the file. Returns true if valid.
@@ -110,12 +134,12 @@ class Dictionary {
   // Also checks for .syn and .dict.dz presence.
   static DictInfo readInfo(const char* folderPath);
 
-  // Build a small sampled .qidx sidecar when the active dictionary has no
-  // desktop-generated .cspt/.oft accelerator. Failure is recoverable: callers
-  // can continue to locate(), which falls back to scanning the full .idx.
+  // Prepare sampled offsets for headwords and synonyms that lack a desktop index.
+  // Lookups can fall back to sequential scans if writing an index fails.
   static bool prepareQuickIndex(const DictLookupCallbacks& cbs = {}, const char* cachePath = nullptr);
 
-  // Search .idx via .cspt, .oft, or .qidx when present. Returns file location without reading content.
+  // Search .idx via .cspt, .oft, or .qidx, trying the supplied spelling first,
+  // then a Hebrew/Arabic vowel-stripped query on a miss. Index ordering is unchanged.
   static DictLocation locate(const std::string& word, const DictLookupCallbacks& cbs = {},
                              const char* cachePath = nullptr);
 
@@ -123,6 +147,10 @@ class Dictionary {
   // index/accelerator session. matchedStem is set only when a variant matched.
   static DictLocation locateWithStemVariants(const std::string& word, bool* matchedStem,
                                              const DictLookupCallbacks& cbs = {}, const char* cachePath = nullptr);
+
+  static DictLocation locateWithStemVariantsIn(const std::string& folderPath, const std::string& word,
+                                               bool* matchedStem, const DictLookupCallbacks& cbs);
+  static bool prepareQuickIndexIn(const std::string& folderPath, const DictLookupCallbacks& cbs);
 
   // Look up word in .idx (via .idx.oft if present). Returns definition or empty string.
   static std::string lookup(const std::string& word, const DictLookupCallbacks& cbs = {},
@@ -132,11 +160,15 @@ class Dictionary {
   // dictionaries store typed multi-field entries, so the raw .idx byte range can
   // include type bytes, null terminators, or binary resources that must not be
   // rendered as text.
-  static DictDefinitionSlice resolveDefinitionSlice(const DictLocation& location, const DictInfo& info);
+  static DictDefinitionSlice resolveDefinitionSlice(const DictLocation& location, const DictInfo& info,
+                                                    const DictionaryDefinitionSource& source);
 
   // Look up word in .syn (via .syn.oft if present).
-  // Returns the canonical headword from .idx, or empty string if not found.
-  static std::string resolveAltForm(const std::string& word, const char* cachePath = nullptr);
+  // Returns the headword and definition range at the exact .idx ordinal.
+  static DictLocation resolveAltForm(const std::string& word, const char* cachePath = nullptr);
+
+  static DictLocation resolveAltFormIn(const std::string& path, const std::string& word,
+                                       const DictLookupCallbacks& cbs);
 
   static std::string cleanWord(const std::string& word);
   static std::vector<std::string> getStemVariants(const std::string& word);
@@ -167,7 +199,12 @@ class Dictionary {
     LookupAccelerator acceleratorKind = LookupAccelerator::None;
   };
 
-  static bool openLookupSession(LookupSession& session, const char* cachePath);
+  static DictLocation resolveExactAltForm(const std::string& word, const std::string& folderPath,
+                                          const DictLookupCallbacks& cbs);
+  static DictLocation locateExactInSession(LookupSession& session, const std::string& word,
+                                           const DictLookupCallbacks& cbs);
+
+  static bool openLookupSession(LookupSession& session, const std::string& folderPath);
   static void closeLookupSession(LookupSession& session);
   static DictLocation locateInSession(LookupSession& session, const std::string& word, const DictLookupCallbacks& cbs);
 
@@ -177,9 +214,9 @@ class Dictionary {
 
   // Read the word at ordinal `ordinal` in .idx.
   // folderPath is the dictionary base path (e.g. /dictionary/dict-en-en/dict-data).
-  static std::string wordAtOrdinal(const std::string& folderPath, uint32_t ordinal);
+  static DictLocation locateByOrdinal(const std::string& folderPath, uint32_t ordinal, const DictLookupCallbacks& cbs);
 
-  static std::string readDefinition(const std::string& folderPath, uint32_t offset, uint32_t size);
+  static std::string readDefinition(const std::string& path, uint32_t offset, uint32_t size);
 
   // Binary search .oft to find the page boundary bytes in src containing target.
   // On return, *startByte and *endByte delimit the 32-word page to scan linearly.
@@ -189,14 +226,16 @@ class Dictionary {
 
   // Binary search .idx.oft.cspt to find the scan range in .idx containing target.
   // Returns true if .cspt was valid and bounds were set, false to fall back to .oft.
-  static bool binarySearchCspt(HalFile& cspt, const char* target, uint32_t idxFileSize, uint32_t* startByte,
-                               uint32_t* endByte, bool startBeforeCaseMatches);
+  static bool binarySearchCspt(HalFile& cspt, HalFile& source, const char* target, uint32_t idxFileSize,
+                               uint32_t* startByte, uint32_t* endByte, bool startBeforeCaseMatches);
 
   // Binary search a device-generated sampled .qidx sidecar.
   static bool binarySearchQuickIndex(HalFile& qidx, HalFile& idx, uint32_t sampleCount, const char* target,
                                      uint32_t idxFileSize, uint32_t* startByte, uint32_t* endByte,
                                      uint32_t* matchedSample = nullptr);
 
+  static bool ensureQuickIndex(const std::string& sourcePath, const std::string& indexPath, uint8_t suffixBytes,
+                               const DictLookupCallbacks& cbs);
   static bool buildQuickIndex(HalFile& idx, uint32_t idxFileSize, uint8_t suffixBytes, const char* qidxPath,
                               const DictLookupCallbacks& cbs);
 

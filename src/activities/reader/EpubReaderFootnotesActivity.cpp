@@ -65,8 +65,7 @@ void EpubReaderFootnotesActivity::loop() {
 
   const auto& metrics = UITheme::getInstance().getMetrics();
   const Rect safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
-  const Rect header{safe.x, safe.y + metrics.topPadding, safe.width,
-                    TouchHeaderBackButton::height(metrics, mappedInput)};
+  const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput, safe);
   if (TouchHeaderBackButton::wasTapped(mappedInput, header) ||
       mappedInput.wasReleased(MappedInputManager::Button::Back)) {
     ActivityResult result;
@@ -115,10 +114,11 @@ void EpubReaderFootnotesActivity::listScreen(UiApp::ScreenType& screen, void* us
 void EpubReaderFootnotesActivity::buildListScreen(UiApp::ScreenType& screen) {
   const auto& metrics = UITheme::getInstance().getMetrics();
   const Rect safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
-  screen.setContentMargin(fui::Insets{
-      static_cast<int16_t>(safe.y + metrics.topPadding + TouchHeaderBackButton::height(metrics, mappedInput)),
-      static_cast<int16_t>(renderer.getScreenWidth() - safe.x - safe.width),
-      static_cast<int16_t>(renderer.getScreenHeight() - safe.y - safe.height), static_cast<int16_t>(safe.x)});
+  setUiContentMargin(screen, renderer,
+                     fui::Insets{static_cast<int16_t>(TouchHeaderBackButton::contentTop(renderer, mappedInput, safe.y)),
+                                 static_cast<int16_t>(renderer.getScreenWidth() - safe.x - safe.width),
+                                 static_cast<int16_t>(renderer.getScreenHeight() - safe.y - safe.height),
+                                 static_cast<int16_t>(safe.x)});
   screen.spacer(static_cast<int16_t>(metrics.verticalSpacing));
   if (footnotes.empty()) {
     screen.centeredText(tr(STR_NO_FOOTNOTES), screen.theme().bodyText);
@@ -150,15 +150,14 @@ void EpubReaderFootnotesActivity::render(RenderLock&&) {
   renderer.clearScreen();
   const auto& metrics = UITheme::getInstance().getMetrics();
   const Rect safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
-  const Rect header{safe.x, safe.y + metrics.topPadding, safe.width,
-                    TouchHeaderBackButton::height(metrics, mappedInput)};
+  const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput, safe);
   if (mappedInput.hasTouchHardware()) {
     TouchHeaderBackButton::draw(renderer, uiTarget, header, tr(STR_FOOTNOTES), true);
   } else {
     GUI.drawHeader(renderer, header, tr(STR_FOOTNOTES), nullptr, true);
   }
   uiReady = false;
-  app.render();
+  renderUiApp(app, uiTarget);
   uiReady = true;
   const auto labels =
       mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), footnotes.empty() ? "" : tr(STR_SELECT), "", "");

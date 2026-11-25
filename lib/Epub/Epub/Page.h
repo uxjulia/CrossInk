@@ -18,6 +18,8 @@ enum PageElementTag : uint8_t {
   TAG_PageImage = 2,  // New tag
   TAG_PageTableFragment = 3,
   TAG_PageHorizontalRule = 4,
+  TAG_PageDropCap = 5,
+  TAG_PageBorderBox = 6,
 };
 
 // represents something that has been added to a page
@@ -28,7 +30,7 @@ class PageElement {
   explicit PageElement(const int16_t xPos, const int16_t yPos) : xPos(xPos), yPos(yPos) {}
   virtual ~PageElement() = default;
   virtual void render(GfxRenderer& renderer, int fontId, int xOffset, int yOffset, bool foregroundBlack = true) = 0;
-  virtual bool serialize(FsFile& file) = 0;
+  virtual bool serialize(Print& file) = 0;
   virtual PageElementTag getTag() const = 0;  // Add type identification
 };
 
@@ -41,7 +43,7 @@ class PageLine final : public PageElement {
       : PageElement(xPos, yPos), block(std::move(block)) {}
   const std::shared_ptr<TextBlock>& getBlock() const { return block; }
   void render(GfxRenderer& renderer, int fontId, int xOffset, int yOffset, bool foregroundBlack = true) override;
-  bool serialize(FsFile& file) override;
+  bool serialize(Print& file) override;
   PageElementTag getTag() const override { return TAG_PageLine; }
   static std::unique_ptr<PageLine> deserialize(FsFile& file);
 };
@@ -55,8 +57,9 @@ class PageImage final : public PageElement {
   PageImage(std::unique_ptr<ImageBlock> block, const int16_t xPos, const int16_t yPos, const bool inlineImage = false)
       : PageElement(xPos, yPos), imageBlock(std::move(block)), inlineImage(inlineImage) {}
   void render(GfxRenderer& renderer, int fontId, int xOffset, int yOffset, bool foregroundBlack = true) override;
+  bool render(GfxRenderer& renderer, int fontId, int xOffset, int yOffset, bool foregroundBlack, bool imageGrayscale);
   void renderPlaceholder(GfxRenderer& renderer, int xOffset, int yOffset, bool foregroundBlack) const;
-  bool serialize(FsFile& file) override;
+  bool serialize(Print& file) override;
   PageElementTag getTag() const override { return TAG_PageImage; }
   static std::unique_ptr<PageImage> deserialize(FsFile& file);
   const ImageBlock& getImageBlock() const { return *imageBlock; }
@@ -72,9 +75,55 @@ class PageHorizontalRule final : public PageElement {
       : PageElement(xPos, yPos), width(width), thickness(thickness) {}
 
   void render(GfxRenderer& renderer, int fontId, int xOffset, int yOffset, bool foregroundBlack = true) override;
-  bool serialize(FsFile& file) override;
+  bool serialize(Print& file) override;
   PageElementTag getTag() const override { return TAG_PageHorizontalRule; }
   static std::unique_ptr<PageHorizontalRule> deserialize(FsFile& file);
+};
+
+// An initial letter spanning several lines, drawn scaled up from a font's glyph.
+// yPos is the baseline of the last spanned line.
+class PageDropCap final : public PageElement {
+ public:
+  static constexpr size_t MAX_TEXT_BYTES = 12;  // leading punctuation plus the letter
+
+ private:
+  uint8_t fontSize;
+  uint32_t fontFamily = 0;
+  uint16_t scale256;
+  EpdFontFamily::Style style;
+  char text[MAX_TEXT_BYTES + 1] = {};
+
+ public:
+  PageDropCap(uint8_t fontSize, uint16_t scale256, EpdFontFamily::Style style, const char* utf8, int16_t xPos,
+              int16_t yPos, uint32_t fontFamily = 0);
+  const char* getText() const { return text; }
+  uint8_t getFontSize() const { return fontSize; }
+  void render(GfxRenderer& renderer, int fontId, int xOffset, int yOffset, bool foregroundBlack = true) override;
+  bool serialize(Print& file) override;
+  PageElementTag getTag() const override { return TAG_PageDropCap; }
+  static std::unique_ptr<PageDropCap> deserialize(FsFile& file);
+};
+
+// A CSS border and/or background shade around a block element's slice on this page.
+// Sides split off by a page break have zero width.
+class PageBorderBox final : public PageElement {
+  uint16_t width;
+  uint16_t height;
+  CssBorderSide sides[4];  // top, right, bottom, left
+  bool shaded;
+
+ public:
+  PageBorderBox(uint16_t width, uint16_t height, const CssBorderSide (&sides)[4], bool shaded, int16_t xPos,
+                int16_t yPos)
+      : PageElement(xPos, yPos),
+        width(width),
+        height(height),
+        sides{sides[0], sides[1], sides[2], sides[3]},
+        shaded(shaded) {}
+  void render(GfxRenderer& renderer, int fontId, int xOffset, int yOffset, bool foregroundBlack = true) override;
+  bool serialize(Print& file) override;
+  PageElementTag getTag() const override { return TAG_PageBorderBox; }
+  static std::unique_ptr<PageBorderBox> deserialize(FsFile& file);
 };
 
 struct TableFragmentCell {
@@ -83,7 +132,7 @@ struct TableFragmentCell {
   uint8_t colSpan = 1;
   std::vector<std::shared_ptr<TextBlock>> lines;
 
-  bool serialize(FsFile& file) const;
+  bool serialize(Print& file) const;
   static bool deserialize(FsFile& file, TableFragmentCell& outCell);
 };
 
@@ -93,7 +142,7 @@ struct TableFragmentRow {
   bool headerSeparator = false;
   std::vector<TableFragmentCell> cells;
 
-  bool serialize(FsFile& file) const;
+  bool serialize(Print& file) const;
   static bool deserialize(FsFile& file, TableFragmentRow& outRow);
 };
 
@@ -139,7 +188,7 @@ class PageTableFragment final : public PageElement {
         rows(std::move(rows)) {}
 
   void render(GfxRenderer& renderer, int fontId, int xOffset, int yOffset, bool foregroundBlack = true) override;
-  bool serialize(FsFile& file) override;
+  bool serialize(Print& file) override;
   PageElementTag getTag() const override { return TAG_PageTableFragment; }
   static std::unique_ptr<PageTableFragment> deserialize(FsFile& file);
   uint16_t getHeight() const;
@@ -193,15 +242,20 @@ class Page {
     publisherPageMarkers.push_back(marker);
   }
 
-  void render(GfxRenderer& renderer, int fontId, int xOffset, int yOffset, bool foregroundBlack = true) const;
-  void renderText(GfxRenderer& renderer, int fontId, int xOffset, int yOffset, bool foregroundBlack = true) const;
-  void renderImages(GfxRenderer& renderer, int fontId, int xOffset, int yOffset, bool foregroundBlack = true) const;
+  void render(GfxRenderer& renderer, int fontId, int xOffset, int yOffset, bool foregroundBlack = true,
+              bool imageGrayscale = true) const;
+  // Optional cancellation is checked between elements; used only by idle font scans.
+  bool renderText(GfxRenderer& renderer, int fontId, int xOffset, int yOffset, bool foregroundBlack = true,
+                  bool (*shouldStop)(void*) = nullptr, void* context = nullptr) const;
+  bool renderImages(GfxRenderer& renderer, int fontId, int xOffset, int yOffset, bool foregroundBlack = true,
+                    bool imageGrayscale = true) const;
   // When renderCachedImages is false, draw placeholders without checking or
   // reading image caches. This keeps transient queued pages free of image I/O.
-  void renderWithImagePlaceholders(GfxRenderer& renderer, int fontId, int xOffset, int yOffset,
-                                   bool foregroundBlack = true, bool renderCachedImages = true) const;
+  void renderImagesWithPlaceholders(GfxRenderer& renderer, int fontId, int xOffset, int yOffset,
+                                    bool foregroundBlack = true, bool renderCachedImages = true,
+                                    bool imageGrayscale = true) const;
   bool forEachTextLine(PageTextLineVisitor visitor, void* context) const;
-  bool serialize(FsFile& file) const;
+  bool serialize(Print& file) const;
   static std::unique_ptr<Page> deserialize(FsFile& file);
 
   // Return the fixed-point page units protected by images on this page. Text
@@ -215,12 +269,18 @@ class Page {
                        [](const std::unique_ptr<PageElement>& el) { return el->getTag() == TAG_PageImage; });
   }
 
-  void prepareImageCaches() const;
-
-  bool hasImagesNeedingDecode() const {
+  bool hasText() const {
     return std::any_of(elements.begin(), elements.end(), [](const std::unique_ptr<PageElement>& element) {
+      return element->getTag() == TAG_PageLine || element->getTag() == TAG_PageTableFragment;
+    });
+  }
+
+  void prepareImageCaches(bool grayscale) const;
+
+  bool hasImagesNeedingDecode(const bool grayscale) const {
+    return std::any_of(elements.begin(), elements.end(), [grayscale](const std::unique_ptr<PageElement>& element) {
       return element->getTag() == TAG_PageImage &&
-             static_cast<const PageImage&>(*element).getImageBlock().needsDecode();
+             static_cast<const PageImage&>(*element).getImageBlock().needsDecode(grayscale);
     });
   }
 

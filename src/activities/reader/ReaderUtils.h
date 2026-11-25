@@ -12,12 +12,14 @@
 
 #include "GlobalActions.h"
 #include "MappedInputManager.h"
+#include "ReaderGrayscale.h"
 #include "ReaderStatusBarTapTarget.h"
+#include "ReaderTiltPageTurn.h"
 #include "components/UITheme.h"
 
 namespace ReaderUtils {
 
-constexpr unsigned long SKIP_HOLD_MS = 700;
+constexpr unsigned long SKIP_HOLD_MS = 600;
 constexpr unsigned long GO_HOME_MS = 1000;
 // Hold duration to delete a row in the bookmark and clipping lists. Shared so the
 // same gesture cannot drift apart between the two lists.
@@ -25,6 +27,19 @@ constexpr unsigned long DELETE_HOLD_MS = 1000;
 constexpr uint8_t STATUS_BAR_TEXT_PADDING = 3;
 // Gap between the top reader bar and the first line of book text.
 constexpr int8_t TOP_STATUS_BAR_TEXT_PADDING = 0;
+
+inline bool isNavigationLongPressAction(const uint8_t action) {
+  return action == CrossPointSettings::LONG_MENU_HOME_READER || action == CrossPointSettings::LONG_MENU_BACK_HOME ||
+         action == CrossPointSettings::LONG_MENU_TOGGLE_PAGE_TURN_GESTURES;
+}
+
+inline bool dispatchNavigationLongPressAction(const uint8_t action) {
+  if (action == CrossPointSettings::LONG_MENU_TOGGLE_PAGE_TURN_GESTURES)
+    return dispatchShortcutAction(CrossPointSettings::TOGGLE_PAGE_TURN_GESTURES);
+  if (!isNavigationLongPressAction(action)) return false;
+  return dispatchShortcutAction(action == CrossPointSettings::LONG_MENU_HOME_READER ? CrossPointSettings::HOME_READER
+                                                                                    : CrossPointSettings::BACK_HOME);
+}
 
 inline bool isRtlBookLanguage(std::string_view tag) {
   if (tag.size() < 2 || (tag.size() > 2 && tag[2] != '-' && tag[2] != '_')) return false;
@@ -58,7 +73,9 @@ inline void applyOrientation(GfxRenderer& renderer, const uint8_t orientation) {
 // stays centered in every orientation instead of sitting at a fixed portrait offset.
 inline int messageCenterY(const GfxRenderer& renderer) { return renderer.getScreenHeight() / 2; }
 
-inline bool shouldShowTopStatusBar() { return UITheme::getReaderStatusBarHeight(ReaderStatusBarPosition::Top) > 0; }
+inline bool shouldShowTopStatusBar(const GfxRenderer& renderer) {
+  return UITheme::getReaderStatusBarHeight(ReaderStatusBarPosition::Top, renderer) > 0;
+}
 
 // Night Mode is applied by the display after normal-polarity reader content is
 // rendered. Keep this compatibility helper for existing reader call sites.
@@ -69,7 +86,7 @@ inline uint8_t readerBackgroundColor() { return readerDarkModeEnabled() ? 0x00 :
 inline bool readerForegroundBlack() { return true; }
 
 inline int getTopStatusBarReservedHeight(const GfxRenderer& renderer) {
-  const int statusBarHeight = UITheme::getReaderStatusBarHeight(ReaderStatusBarPosition::Top);
+  const int statusBarHeight = UITheme::getReaderStatusBarHeight(ReaderStatusBarPosition::Top, renderer);
   if (statusBarHeight <= 0) {
     return 0;
   }
@@ -81,15 +98,17 @@ inline int getTopStatusBarReservedHeight(const GfxRenderer& renderer) {
 }
 
 inline bool bottomStatusBarHasTextLane() {
-  return SETTINGS.readerStatusBar(ReaderStatusBarPosition::Bottom).hasTextItems(halClock.isAvailable());
+  const auto bar = SETTINGS.readerStatusBar(ReaderStatusBarPosition::Bottom);
+  return !bar.hidden && bar.hasTextItems(halClock.isAvailable());
 }
 
-inline int getReaderFooterReservedHeight(const bool automaticPageTurnActive) {
-  const int statusBarHeight = UITheme::getInstance().getStatusBarHeight();
+inline int getReaderFooterReservedHeight(const GfxRenderer& renderer, const bool automaticPageTurnActive) {
+  if (SETTINGS.readerStatusBar(ReaderStatusBarPosition::Bottom).hidden) return SETTINGS.screenMarginVertical;
+  const int statusBarHeight = UITheme::getInstance().getStatusBarHeight(renderer);
   if (automaticPageTurnActive && !bottomStatusBarHasTextLane()) {
     const int autoTurnBarHeight =
         readerStatusBarTotalHeight(ReaderStatusBarPosition::Bottom, true, UITheme::getProgressBarHeight(),
-                                   UITheme::getInstance().getMetrics().statusBarVerticalMargin);
+                                   UITheme::getReaderStatusBarTextHeight(renderer));
     return std::max(static_cast<int>(SETTINGS.screenMarginVertical),
                     std::max(statusBarHeight, autoTurnBarHeight) + STATUS_BAR_TEXT_PADDING);
   }
@@ -131,7 +150,7 @@ inline TouchPageTurn detectTouchPageTurn(const GfxRenderer& renderer, const Mapp
   return {false, false, false, 0, 0, 0};
 #else
   TouchPageTurn result{false, false, false, 0, 0, 0};
-  if (!SETTINGS.touchReaderControls || !input.hasTouch()) {
+  if (!input.hasTouch()) {
     return result;
   }
 
@@ -150,6 +169,7 @@ inline TouchPageTurn detectTouchPageTurn(const GfxRenderer& renderer, const Mapp
 
   const auto swipe = input.wasSwipe();
   if (swipe != MappedInputManager::SwipeDir::None) {
+    if (SETTINGS.disablePageTurnGestures) return result;
     result.prev = swipe == (rtlBook ? MappedInputManager::SwipeDir::Left : MappedInputManager::SwipeDir::Right) &&
                   allowsSwipe(SETTINGS.previousPageGesture);
     result.next = swipe == (rtlBook ? MappedInputManager::SwipeDir::Right : MappedInputManager::SwipeDir::Left) &&
@@ -166,14 +186,12 @@ inline TouchPageTurn detectTouchPageTurn(const GfxRenderer& renderer, const Mapp
   result.x = x;
   result.y = y;
   result.heldMs = input.getHeldTime();
-  // Reserve the top/bottom gesture bands for vertical edge swipes. If the touch
-  // controller loses part of a short edge swipe, do not reinterpret it as a page tap.
-  if (input.isInVerticalEdgeGestureZone(y)) {
-    return result;
-  }
+  // wasScreenTapped() already rejects swipe motion. Stationary edge taps stay
+  // available for page turns; readers reserve only enabled status-bar targets.
 
   // Give the entire page tap area to the sole tap-enabled direction. When
   // both accept taps, RTL books and Inverted Tap each swap their shared zones.
+  if (SETTINGS.disablePageTurnGestures) return result;
   const bool nextTaps = allowsTap(SETTINGS.pageTurnGesture);
   const bool previousTaps = allowsTap(SETTINGS.previousPageGesture);
   const bool invertedTaps = (SETTINGS.pageTurnGesture == CrossPointSettings::INVERTED_TAP ||
@@ -197,25 +215,23 @@ inline bool isTopStatusBarTap(const GfxRenderer& renderer, const int y, const in
                                                statusBarHeight);
 }
 
-// Reader menu opens on its board-specific vertical swipe anywhere on the open
+// Reader menu opens on an upward swipe anywhere on the open
 // page, or a long press of the capacitive home key (a short home tap still goes home).
 inline bool isTouchMenuGesture(const MappedInputManager& input) {
   // The capacitive Home key is independent from screen touch. Its configured
   // long-press reader-menu action must still work when screen touch is disabled.
-  return input.wasReaderMenuHold() ||
-         (SETTINGS.touchReaderControls && input.hasTouch() && input.wasReaderMenuGesture());
+  return input.wasReaderMenuHold() || (input.hasTouch() && input.wasReaderMenuGesture());
 }
 
 // X4 Pro opens the reader menu with an upward swipe. Its top-edge downward
 // swipe is the opposite gesture and dismisses the menu instead of opening the
 // frontlight panel. Other touch boards retain their existing menu behavior.
 inline bool isTouchMenuDismissGesture(const MappedInputManager& input) {
-  return SETTINGS.touchReaderControls && input.hasTouch() && input.hasHomeKey() && input.wasLightPanelGesture();
+  return input.hasTouch() && input.hasHomeKey() && input.wasLightPanelGesture();
 }
 
 inline PageTurnResult detectPageTurn(const MappedInputManager& input) {
-  const bool tiltNext = SETTINGS.tiltPageTurn && halTiltSensor.wasTiltedForward();
-  const bool tiltPrev = SETTINGS.tiltPageTurn && halTiltSensor.wasTiltedBack();
+  const auto tilt = detectReaderTiltPageTurn(halTiltSensor, SETTINGS.tiltPageTurn, SETTINGS.tiltNextPageOnly);
 
   const bool frontPrev = input.wasReleased(MappedInputManager::Button::Left);
   const bool powerReleased = input.wasReleased(MappedInputManager::Button::Power);
@@ -226,24 +242,29 @@ inline PageTurnResult detectPageTurn(const MappedInputManager& input) {
   const bool powerTurn = shortPowerTurn || longPowerTurn;
   const bool frontNext = input.wasReleased(MappedInputManager::Button::Right) || powerTurn;
 
-  // Side-button actions are resolved by SideButtonShortcuts in each reader.
-  return {tiltPrev || frontPrev, tiltNext || frontNext, false, tiltPrev || tiltNext};
+  // Side-button actions are resolved by ReaderButtonShortcuts in each reader.
+  return {tilt.prev || frontPrev, tilt.next || frontNext, false, tilt.prev || tilt.next};
 }
+
+enum class PageRefresh { Blocking, Async, GrayscaleBase };
 
 // One helper, blocking or deferred: the async form starts the refresh and
 // returns so the caller can overlap CPU work with the panel's refresh time.
 // Async callers must not touch the framebuffer until
 // renderer.waitRefreshComplete() and must rebuild the differential baseline
 // before the next page turn (the tiled grayscale cleanup does).
-inline void displayWithRefreshCycle(const GfxRenderer& renderer, int& pagesUntilFullRefresh, bool async = false) {
+inline void displayWithRefreshCycle(const GfxRenderer& renderer, int& pagesUntilFullRefresh,
+                                    PageRefresh request = PageRefresh::Blocking) {
   // A negative countdown is reserved for the explicit Refresh Screen shortcut.
   // Regular cadence cleanup remains a HALF refresh at 1. The X4 retains its
   // prior clean HALF waveform; other panels use their full waveform.
   const auto mode = pagesUntilFullRefresh < 0    ? manualScreenRefreshMode()
                     : pagesUntilFullRefresh <= 1 ? HalDisplay::HALF_REFRESH
                                                  : HalDisplay::FAST_REFRESH;
-  if (async) {
+  if (request == PageRefresh::Async) {
     renderer.displayBufferAsync(mode);
+  } else if (request == PageRefresh::GrayscaleBase) {
+    renderer.displayGrayscaleBase(mode);
   } else {
     renderer.displayBuffer(mode);
   }
@@ -252,33 +273,6 @@ inline void displayWithRefreshCycle(const GfxRenderer& renderer, int& pagesUntil
   } else {
     pagesUntilFullRefresh--;
   }
-}
-
-// Grayscale anti-aliasing pass. Renders content twice (LSB + MSB) to build
-// the grayscale buffer. Only the content callback is re-rendered — status bars
-// and other overlays should be drawn before calling this.
-// Kept as a template to avoid std::function overhead; instantiated once per reader type.
-template <typename RenderFn>
-void renderAntiAliased(GfxRenderer& renderer, RenderFn&& renderFn) {
-  if (!renderer.storeBwBuffer()) {
-    LOG_ERR("READER", "Failed to store BW buffer for anti-aliasing");
-    return;
-  }
-
-  renderer.clearScreen(0x00);
-  renderer.setRenderMode(GfxRenderer::GRAYSCALE_LSB);
-  renderFn();
-  renderer.copyGrayscaleLsbBuffers();
-
-  renderer.clearScreen(0x00);
-  renderer.setRenderMode(GfxRenderer::GRAYSCALE_MSB);
-  renderFn();
-  renderer.copyGrayscaleMsbBuffers();
-
-  renderer.displayGrayBuffer();
-  renderer.setRenderMode(GfxRenderer::BW);
-
-  renderer.restoreBwBuffer();
 }
 
 }  // namespace ReaderUtils

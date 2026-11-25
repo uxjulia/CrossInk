@@ -19,7 +19,7 @@ FootnoteLinkTargets buildFootnoteLinkTargets(const Page& page, const std::vector
     const auto& block = *line.getBlock();
     const int lineFontId = block.resolvedFontId(renderer, fontId);
     const int lineHeight =
-        block.getBlockStyle().lineHeight ? block.getBlockStyle().lineHeight : renderer.getLineHeight(lineFontId);
+        block.getBlockStyle().lineHeight ? block.getBlockStyle().lineHeight : block.maxLineHeight(renderer, lineFontId);
     for (uint16_t wordIndex = 0; wordIndex < block.wordCount(); ++wordIndex) {
       const uint8_t linkId = block.wordLinkId(wordIndex);
       if (linkId == 0) continue;
@@ -32,13 +32,10 @@ FootnoteLinkTargets buildFootnoteLinkTargets(const Page& page, const std::vector
 
       const auto style = static_cast<EpdFontFamily::Style>(block.wordStyle(wordIndex) & ~EpdFontFamily::UNDERLINE);
       const int wordX = marginLeft + line.xPos + block.wordXpos(wordIndex);
-      int wordY = marginTop + line.yPos;
-      if ((style & EpdFontFamily::SUP) != 0) {
-        wordY -= renderer.getFontAscenderSize(lineFontId) * 2 / 5;
-      } else if ((style & EpdFontFamily::SUB) != 0) {
-        wordY += renderer.getFontAscenderSize(lineFontId) / 4;
-      }
-      int wordWidth = renderer.getTextAdvanceX(lineFontId, block.wordText(wordIndex), style);
+      const int wordY = marginTop + line.yPos + block.wordYOffset(renderer, lineFontId, wordIndex);
+      const int wordFontId = block.wordFontId(renderer, lineFontId, wordIndex);
+      int wordWidth =
+          renderer.getTextAdvanceX(wordFontId, block.visibleWordText(wordIndex), style, 0, block.getCharacterSpacing());
       if (wordIndex + 1 < block.wordCount() && block.wordXpos(wordIndex + 1) > block.wordXpos(wordIndex)) {
         wordWidth = std::min(wordWidth, static_cast<int>(block.wordXpos(wordIndex + 1) - block.wordXpos(wordIndex)));
       }

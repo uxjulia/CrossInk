@@ -11,8 +11,10 @@
 #include <string>
 #include <vector>
 
+#include "FinishedBookCache.h"
 #include "RecentBooksStore.h"
 #include "activities/Activity.h"
+#include "components/SwipeDeleteRow.h"
 #include "util/ButtonNavigator.h"
 
 class FileBrowserActivity final : public Activity {
@@ -39,6 +41,7 @@ class FileBrowserActivity final : public Activity {
   void pinBootFavorite(const std::string& fullPath);
   void unpinBootFavorite();
   bool isPinnedBootFavorite(const std::string& fullPath) const;
+  PendingOverlayResume syncReturnResume() const;
   void showFileActionMenu(const std::string& entry, bool ignoreInitialConfirmRelease = false);
   void startRenameFile(const std::string& fullPath, const std::string& entry);
   void renameFile(const std::string& oldPath, const std::string& oldEntry, const std::string& newStem,
@@ -64,6 +67,9 @@ class FileBrowserActivity final : public Activity {
   // Files state
   static constexpr size_t INDEX_ROW_CACHE_SIZE = 32;
   std::string basepath = "/";
+#ifdef SIMULATOR
+  freeink::ui::Rect directorySelectRect;
+#endif
   std::vector<std::string> files;
   std::unique_ptr<char[]> fileNameBuffer;
   std::unique_ptr<FileIndex> fileIndex;
@@ -76,6 +82,7 @@ class FileBrowserActivity final : public Activity {
 
   freeink::ui::GfxRendererTarget uiTarget;  // must precede `app`: the app holds a reference to it
   UiApp app;
+  SwipeDeleteRow swipeDelete;
   // render() rebuilds the app's interaction table; loop() only routes touch
   // snapshots against it while this is true (the two run on different tasks).
   std::atomic<bool> uiReady{false};
@@ -85,11 +92,20 @@ class FileBrowserActivity final : public Activity {
   // renderer supplies a local row number and this records its absolute base.
   size_t actionWindowFirst = 0;
   freeink::ui::ListNav listNav;
+  // Finished state of drawn books, owned by the render task. Actions that may
+  // change a book's status run on the main loop and only raise the stale flag.
+  FinishedBookCache finishedCache;
+  std::atomic<bool> finishedRowsStale{false};
+  void markFinishedRowsStale() { finishedRowsStale.store(true, std::memory_order_release); }
+  bool isFinishedBook(const std::string& entry, const std::string& fullPath);
 
   static void listScreen(UiApp::ScreenType& screen, void* user);
+  static void onDeleteEvent(const freeink::ui::ActionEvent& event, void* user);
   static void onRowEvent(const freeink::ui::ActionEvent& event, void* user);
   static void onSettingsEvent(const freeink::ui::ActionEvent& event, void* user);
+  static void onSelectDirectoryEvent(const freeink::ui::ActionEvent& event, void* user);
   void buildListScreen(UiApp::ScreenType& screen);
+  void selectDirectory();
   void activateSelected();
   void navigateBack();
   void openSettings();
@@ -107,8 +123,20 @@ class FileBrowserActivity final : public Activity {
   size_t findEntry(const std::string& name);
 
  public:
+#ifdef SIMULATOR
+  freeink::ui::Rect simulatorSafeRect() const { return app.device().safeRect(); }
+  const std::string& simulatorFolderPath() const { return basepath; }
+  size_t simulatorSelectedIndex() const { return selectorIndex; }
+  int simulatorTopIndex() const { return topIndex; }
+  bool simulatorDeleteRevealed() const { return swipeDelete.index >= 0; }
+  bool simulatorTouchActive() const { return app.touchActive(); }
+  void simulatorOpenContextMenu() { showFileActionMenu(entryNameAt(selectorIndex)); }
+  freeink::ui::Rect simulatorDirectorySelectRect() const { return directorySelectRect; }
+#endif
   explicit FileBrowserActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::string initialPath = "/",
                                Mode mode = Mode::Books);
+  bool handleFrontlightPanelResult(const FrontlightPanelResult& result) override;
+  void onFrontlightPanelClosed() override;
   void onEnter() override;
   void onExit() override;
   void loop() override;

@@ -33,4 +33,11 @@ std::string encodeUnsafeUrlChars(const std::string& url);
  */
 std::string buildUrl(const std::string& serverUrl, const std::string& path);
 
+// Resolve an HTTP document link (including query-only and parent references).
+// Unlike buildUrl's directory join, a relative link replaces the base filename.
+std::string resolveReference(const std::string& baseUrl, const std::string& reference);
+
+// Captive-portal checks use a foreign DNS host; IP, .local and single-label hosts stay local.
+bool isForeignHost(const char* hostHeader);
+
 }  // namespace UrlUtils

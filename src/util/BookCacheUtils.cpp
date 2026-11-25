@@ -9,7 +9,11 @@
 #include <algorithm>
 #include <cstring>
 #include <iterator>
+#include <limits>
+#include <string_view>
 #include <vector>
+
+#include "sync/BookSyncFile.h"
 
 namespace {
 
@@ -19,21 +23,36 @@ struct PreservedCacheFile {
 };
 
 constexpr PreservedCacheFile EPUB_USER_STATE_FILES[] = {
+    {"progress-path.bin", "upload_preserve_progress-path.bin"},
+    {"progress-path.bin.bak", "upload_preserve_progress-path.bin.bak"},
+    {"progress-path.bin.tmp", "upload_preserve_progress-path.bin.tmp"},
     {"progress.bin", "upload_preserve_progress.bin"},
     {"progress.bin.bak", "upload_preserve_progress.bin.bak"},
     {"reader_settings.bin", "upload_preserve_reader_settings.bin"},
     {"dictionary_history.txt", "upload_preserve_dictionary_history.txt"},
+    {"dictionary_history.txt.bak", "upload_preserve_dictionary_history.txt.bak"},
     {"reading_stats_off", "upload_preserve_reading_stats_off"},
+    {"sync.bin", "upload_preserve_sync.bin"},
+    {"sync.bin.bak", "upload_preserve_sync.bin.bak"},
+    {"sync.bin.tmp", "upload_preserve_sync.bin.tmp"},
 };
 
 constexpr PreservedCacheFile PAGE_PROGRESS_FILES[] = {
-    {"progress.bin", "upload_preserve_progress.bin"},
-    {"reading_stats_off", "upload_preserve_reading_stats_off"},
+    {"progress.bin.bak", "upload_preserve_progress.bin.bak"},   {"progress.bin", "upload_preserve_progress.bin"},
+    {"reading_stats_off", "upload_preserve_reading_stats_off"}, {"sync.bin", "upload_preserve_sync.bin"},
+    {"sync.bin.bak", "upload_preserve_sync.bin.bak"},           {"sync.bin.tmp", "upload_preserve_sync.bin.tmp"},
 };
 
 constexpr PreservedCacheFile CACHE_CLEAR_USER_STATE_FILES[] = {
+    {"progress-path.bin", "clear_preserve_progress-path.bin"},
+    {"progress-path.bin.bak", "clear_preserve_progress-path.bin.bak"},
+    {"progress-path.bin.tmp", "clear_preserve_progress-path.bin.tmp"},
     {"dictionary_history.txt", "clear_preserve_dictionary_history.txt"},
+    {"dictionary_history.txt.bak", "clear_preserve_dictionary_history.txt.bak"},
     {"reading_stats_off", "clear_preserve_reading_stats_off"},
+    {"sync.bin", "clear_preserve_sync.bin"},
+    {"sync.bin.bak", "clear_preserve_sync.bin.bak"},
+    {"sync.bin.tmp", "clear_preserve_sync.bin.tmp"},
 };
 
 struct ResolvedPreservedCacheFile {
@@ -49,7 +68,8 @@ struct StatsFileCandidate {
 constexpr size_t MAX_PRESERVED_CACHE_FILES = std::size(EPUB_USER_STATE_FILES) > std::size(PAGE_PROGRESS_FILES)
                                                  ? std::size(EPUB_USER_STATE_FILES)
                                                  : std::size(PAGE_PROGRESS_FILES);
-constexpr size_t MAX_STATS_FILES_TO_PRESERVE = 8;
+// Keep both save slots and legacy interrupted saves for up to eight versions.
+constexpr size_t MAX_STATS_FILES_TO_PRESERVE = 8 * 3;
 constexpr char STATS_PREFIX[] = "stats";
 constexpr char STATS_SUFFIX[] = ".bin";
 
@@ -79,37 +99,34 @@ const PreservedCacheFile* preservedFilesForPath(const std::string& path, size_t&
   return nullptr;
 }
 
+std::string_view statsPayloadName(const char* name) {
+  std::string_view value = name ? name : "";
+  if (value.ends_with(".bak") || value.ends_with(".tmp")) value.remove_suffix(4);
+  return value;
+}
+
 bool isStatsFileName(const char* name) {
-  if (!name) {
-    return false;
-  }
-  const size_t nameLen = strlen(name);
-  constexpr size_t prefixLen = std::size(STATS_PREFIX) - 1;
-  constexpr size_t suffixLen = std::size(STATS_SUFFIX) - 1;
-  return nameLen >= prefixLen + suffixLen && strncmp(name, STATS_PREFIX, prefixLen) == 0 &&
-         strcmp(name + nameLen - suffixLen, STATS_SUFFIX) == 0;
+  const auto payload = statsPayloadName(name);
+  return payload.size() >= sizeof(STATS_PREFIX) + sizeof(STATS_SUFFIX) - 2 && payload.starts_with(STATS_PREFIX) &&
+         payload.ends_with(STATS_SUFFIX);
 }
 
 int statsFileVersion(const char* name) {
-  if (!name || strcmp(name, "stats.bin") == 0) {
-    return 0;
-  }
-
-  constexpr char VERSION_PREFIX[] = "stats_v";
-  constexpr size_t versionPrefixLen = std::size(VERSION_PREFIX) - 1;
-  constexpr size_t suffixLen = std::size(STATS_SUFFIX) - 1;
-  const size_t nameLen = strlen(name);
-  if (nameLen <= versionPrefixLen + suffixLen || strncmp(name, VERSION_PREFIX, versionPrefixLen) != 0 ||
-      strcmp(name + nameLen - suffixLen, STATS_SUFFIX) != 0) {
+  const auto payload = statsPayloadName(name);
+  if (payload == "stats.bin") return 0;
+  constexpr std::string_view prefix = "stats_v";
+  constexpr size_t suffixLength = sizeof(STATS_SUFFIX) - 1;
+  if (!payload.starts_with(prefix) || !payload.ends_with(STATS_SUFFIX) ||
+      payload.size() <= prefix.size() + suffixLength)
     return -1;
-  }
-
   int version = 0;
-  for (size_t i = versionPrefixLen; i < nameLen - suffixLen; ++i) {
-    if (name[i] < '0' || name[i] > '9') {
-      return -1;
-    }
-    version = version * 10 + (name[i] - '0');
+  for (size_t i = prefix.size(); i < payload.size() - suffixLength; ++i) {
+    // Device-qualified names keep the version before the origin suffix.
+    if (payload[i] == '_') break;
+    if (payload[i] < '0' || payload[i] > '9') return -1;
+    const int digit = payload[i] - '0';
+    if (version > (std::numeric_limits<int>::max() - digit) / 10) return -1;
+    version = version * 10 + digit;
   }
   return version;
 }
@@ -152,6 +169,11 @@ bool appendStatsPreservedFiles(const std::string& cachePath, std::vector<Resolve
     if (isDirectory || nameLen == 0 || !isStatsFileName(name)) {
       continue;
     }
+    if (candidates.size() == MAX_STATS_FILES_TO_PRESERVE) {
+      dir.close();
+      LOG_ERR("BookCache", "Too many stats files to preserve safely: %s", cachePath.c_str());
+      return false;
+    }
     candidates.push_back({name, statsFileVersion(name)});
   }
   dir.close();
@@ -164,10 +186,6 @@ bool appendStatsPreservedFiles(const std::string& cachePath, std::vector<Resolve
   });
 
   for (size_t i = 0; i < candidates.size(); ++i) {
-    if (i >= MAX_STATS_FILES_TO_PRESERVE) {
-      LOG_DBG("BookCache", "Dropping older stats file during cache preservation: %s", candidates[i].name.c_str());
-      continue;
-    }
     files.push_back({candidates[i].name, std::string(tmpPrefix) + candidates[i].name});
   }
   return true;
@@ -424,11 +442,12 @@ bool isBookCacheDirectoryName(const char* name) {
 
 void clearBookCache(const std::string& path) { clearBookCachePreservingUserState(path); }
 
-bool clearBookCachePreservingUserState(const std::string& path) {
+bool clearBookCachePreservingUserState(const std::string& path, const bool sourceChanged) {
   size_t preservedCount = 0;
   const PreservedCacheFile* preservedFiles = preservedFilesForPath(path, preservedCount);
   if (!preservedFiles || preservedCount == 0) {
-    return clearBookCacheForPath(path);
+    // Non-book uploads have no reader cache or sync identity to invalidate.
+    return sourceChanged || clearBookCacheForPath(path);
   }
 
   const std::string cachePath = getBookCachePath(path);
@@ -439,6 +458,7 @@ bool clearBookCachePreservingUserState(const std::string& path) {
   const bool includeStatsFiles = FsHelpers::hasEpubExtension(path) || FsHelpers::hasXtcExtension(path);
   if (!recoverInterruptedPreservation(cachePath, preservedFiles, preservedCount, includeStatsFiles, "upload_preserve_"))
     return false;
+  if (sourceChanged && !BookSyncFile::onFileChanged(path)) return false;
 
   std::vector<ResolvedPreservedCacheFile> resolvedFiles;
   if (!resolvePreservedFiles(cachePath, preservedFiles, preservedCount, includeStatsFiles, "upload_preserve_",

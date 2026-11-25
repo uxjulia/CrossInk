@@ -5,6 +5,7 @@
 #include <Logging.h>
 #include <Memory.h>
 #include <NaturalSort.h>
+#include <OwnedFileSwap.h>
 
 #include <algorithm>
 #include <cstring>
@@ -148,6 +149,7 @@ bool FileIndex::scanDirectory(const char* dirPath, AcceptFn accept, uint32_t& si
 bool FileIndex::loadExisting(const char* dirPath, uint32_t signature, uint32_t dirs, uint32_t files) {
   snprintf(idxPath, sizeof(idxPath), "%s/%016llx.idx", INDEX_DIR, static_cast<unsigned long long>(fnv1a64(dirPath)));
 
+  if (!OwnedFileSwap::recover(idxPath)) return false;
   auto file = Storage.open(idxPath);
   if (!file) return false;
 
@@ -243,6 +245,8 @@ bool FileIndex::build(const char* dirPath, AcceptFn accept, uint32_t signature, 
   bs.runsOut = Storage.open(bs.runsPathA, O_RDWR | O_CREAT | O_TRUNC);
   if (!bs.idxTmp || !bs.runsOut) {
     LOG_ERR("FIDX", "cannot open scratch files");
+    if (bs.idxTmp) bs.idxTmp.close();
+    if (bs.runsOut) bs.runsOut.close();
     cleanupScratch();
     return false;
   }
@@ -312,8 +316,9 @@ bool FileIndex::build(const char* dirPath, AcceptFn accept, uint32_t signature, 
   }
   ok = ok && sig == signature && dirCount == dirs && fileCount == files;
   ok = ok && flushChunk(bs);
-  bs.runsOut.flush();
-  bs.runsOut.close();
+  const bool runsSynced = bs.runsOut.sync();
+  const bool runsClosed = bs.runsOut.close();
+  ok = ok && runsSynced && runsClosed;
 
   const uint32_t recordCount = dirCount + fileCount;
   ok = ok && mergeRuns(bs, recordCount);
@@ -330,18 +335,17 @@ bool FileIndex::build(const char* dirPath, AcceptFn accept, uint32_t signature, 
     newHdr.blobLen = bs.blobLen;
     newHdr.offsetsStart = blobStart + bs.blobLen;
     ok = bs.idxTmp.seek(0) && bs.idxTmp.write(&newHdr, sizeof(newHdr)) == sizeof(newHdr);
-    bs.idxTmp.flush();
+    ok = ok && bs.idxTmp.sync();
   }
-  bs.idxTmp.close();
+  const bool closed = bs.idxTmp.close();
 
-  if (!ok) {
+  if (!ok || !closed) {
     LOG_ERR("FIDX", "index build failed for %s", dirPath);
     cleanupScratch();
     return false;
   }
 
-  Storage.remove(idxPath);
-  if (!Storage.rename(bs.tmpPath, idxPath)) {
+  if (!OwnedFileSwap::publish(idxPath, bs.tmpPath)) {
     LOG_ERR("FIDX", "rename to %s failed", idxPath);
     cleanupScratch();
     return false;
@@ -511,7 +515,7 @@ bool FileIndex::writeOffsets(BuildState& bs, uint32_t recordCount) {
   };
 
   auto sortSegmentByName = [&](size_t segmentLen) {
-    bs.idxTmp.flush();
+    ok = ok && bs.idxTmp.sync();
     for (size_t i = 1; ok && i < segmentLen; i++) {
       const uint32_t candidate = segment[i];
       ok = readNameAt(bs.idxTmp, candidate, bs.nameA.get(), NAME_BUF_SIZE);

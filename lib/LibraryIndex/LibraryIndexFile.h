@@ -2,14 +2,14 @@
 
 // Read side of the CLX1 index.
 //
-// Holds one open file handle and a few hundred bytes; nothing that scales with
-// the library stays resident. A page of rows is a handful of seeks, which is
-// what the fixed 128-byte record stride buys — record k is always at
-// recordStart + 128k, so no offset table has to be loaded to find it.
+// Holds one open file handle. Browsers can opt into a bounded single-row cache;
+// nothing proportional to the library stays resident. The fixed record stride
+// locates record k at recordStart + 128k without a resident offset table.
 
 #include <HalStorage.h>
 
 #include <cstdint>
+#include <memory>
 #include <string>
 
 #include "LibraryFormat.h"
@@ -44,7 +44,7 @@ struct BookIdentity {
 
 class LibraryIndexFile {
  public:
-  LibraryIndexFile() = default;
+  explicit LibraryIndexFile(bool cacheDisplayRow = false) : cacheDisplayRow(cacheDisplayRow) {}
   ~LibraryIndexFile();
   LibraryIndexFile(const LibraryIndexFile&) = delete;
   LibraryIndexFile& operator=(const LibraryIndexFile&) = delete;
@@ -117,6 +117,25 @@ class LibraryIndexFile {
   bool readAt(uint32_t offset, void* dst, size_t len);
   bool readBlobField(const ClixRecord& record, uint8_t field, std::string& out);
 
+  // Optional browser scratch: one record and at most one serialized row, never
+  // proportional to book count. Heap-owned to keep scan callers' stacks small.
+  struct DisplayRowCache {
+    static constexpr size_t MAX_BLOB_BYTES = sizeof(uint64_t) + UINT8_MAX + 5 * (1 + UINT8_MAX) + sizeof(uint32_t);
+    ClixRecord record{};
+    uint16_t ordinal = UINT16_MAX;
+    uint8_t bytes[MAX_BLOB_BYTES];
+    uint32_t nameOff = UINT32_MAX;
+    uint8_t nameLen = 0;
+    uint16_t fieldOffsets[5]{};
+    uint8_t fieldCount = 0;
+  };
+  static_assert(sizeof(DisplayRowCache) <= 1800);
+  bool ensureDisplayRowCache();
+  bool cacheBlob(const ClixRecord& record);
+  bool cachedBlobMatches(const ClixRecord& record) const;
+  const bool cacheDisplayRow;
+  bool cacheAllocationAttempted = false;
+  std::unique_ptr<DisplayRowCache> displayRowCache;
   HalFile file;
   ClixHeader head{};
   bool opened = false;

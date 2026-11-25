@@ -2,6 +2,7 @@
 
 #include <Arduino.h>
 #include <Imu.h>
+#include <TiltSensitivity.h>
 
 // TODO: Move enums into new header and share with CrossPointSettings.h
 namespace CrossPointOrientation {
@@ -67,7 +68,8 @@ class HalTiltSensor {
   bool isAvailable() const { return _available; }
 
   // Poll the accelerometer and update tilt gesture state.
-  void update(const uint8_t enabled, const uint8_t direction, const uint8_t orientation, const bool inReader);
+  void update(const uint8_t enabled, const uint8_t direction, const uint8_t orientation, const bool inReader,
+              const uint8_t sensitivity = TiltSensitivity::NORMAL);
 
   // Returns true once per tilt-forward gesture (next page direction).
   // Consumed on read — subsequent calls return false until next gesture.

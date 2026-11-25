@@ -1,0 +1,36 @@
+name: Set up PlatformIO
+description: Install the pinned pioarduino core and cache PlatformIO packages
+inputs:
+  cache-scope:
+    description: Firmware environment or analysis job name
+    required: true
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v6
+      with:
+        python-version: "3.14"
+
+    - uses: astral-sh/setup-uv@v7
+      with:
+        version: "latest"
+        enable-cache: true
+
+    - name: Cache PlatformIO packages
+      uses: actions/cache@v5
+      with:
+        # The penv is tied to the runner's Python, so recreate it on each job.
+        path: |
+          ~/.platformio/packages
+          ~/.platformio/platforms
+        key: ${{ runner.os }}-platformio-py3.14-core6.1.19-penv-v2-${{ inputs.cache-scope }}-${{ hashFiles('platformio.ini', 'platformio.local.example.ini') }}
+
+    - name: Install PlatformIO Core
+      shell: bash
+      run: |
+        # The ESP platform uses this penv for its second pass. Use the same
+        # pinned core for the first pass so SCons cannot change mid-build.
+        uv venv --python "$pythonLocation/bin/python" "$HOME/.platformio/penv"
+        uv pip install --python "$HOME/.platformio/penv/bin/python" "pioarduino==6.1.19"
+        echo "$HOME/.platformio/penv/bin" >> "$GITHUB_PATH"
+        "$HOME/.platformio/penv/bin/pio" --version

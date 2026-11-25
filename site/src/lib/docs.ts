@@ -32,6 +32,7 @@ const HIDDEN_SLUGS = new Set([
   "simulator",
   "dictionary-development",
   "file-formats",
+  "x4pro-local-testing",
 ]);
 
 const publicModules = Object.fromEntries(
@@ -93,7 +94,7 @@ export function getDocs(): Promise<DocEntry[]> {
 }
 
 export function getRoutableDocs(): Promise<DocEntry[]> {
-  return getEntries(publicModules);
+  return getEntries(modules);
 }
 
 export async function getDocBySlug(slug: string) {

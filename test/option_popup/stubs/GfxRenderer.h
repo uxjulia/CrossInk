@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <string>
 #include <vector>
 
@@ -7,6 +8,7 @@
 
 class GfxRenderer {
  public:
+  std::array<int, 4> insets{};
   int getScreenWidth() const { return 800; }
   int getScreenHeight() const { return 480; }
   int getLineHeight(int) const { return 20; }

@@ -2,6 +2,7 @@
 
 #include <BoardConfig.h>
 #include <GfxRenderer.h>
+#include <HalScreenCalibration.h>
 #include <I18n.h>
 
 #include <algorithm>
@@ -21,9 +22,10 @@ constexpr int16_t COVER_CELL_INSET = 6;
 CoverGridHomeUi::CoverGridHomeUi(GfxRenderer& renderer)
     : UiAppHost(renderer), coverCache(renderer), renderer(renderer) {}
 
-void CoverGridHomeUi::begin(const std::vector<RecentBook>& recent, bool opds, bool continuing, float featuredProgress) {
+void CoverGridHomeUi::begin(const std::vector<RecentBook>& recent, bool plugins, bool continuing,
+                            float featuredProgress) {
   books = &recent;
-  hasOpds = opds;
+  hasPlugins = plugins;
   if (!recent.empty()) coverCache.begin();
   reset();
   app.on(SELECT, &CoverGridHomeUi::onAction, this);
@@ -87,11 +89,16 @@ void CoverGridHomeUi::draw(UiScreen& screen) {
   coverCache.prepare();
   const auto& theme = screen.theme();
   const auto safe = UITheme::getInstance().getScreenSafeArea(renderer, !BoardConfig::hasTouch());
-  screen.setContentMarginFromScreen(fui::Insets{
-      static_cast<int16_t>(safe.y), static_cast<int16_t>(renderer.getScreenWidth() - safe.x - safe.width),
-      static_cast<int16_t>(renderer.getScreenHeight() - safe.y - safe.height), static_cast<int16_t>(safe.x)});
+  const auto panel = HalScreenCalibration::panelLayout();
+  const auto corners = renderer.getViewableInsets().corners(static_cast<unsigned>(renderer.getOrientation()));
+  // Corner clearance belongs to the header and bottom tabs, not the book rows between them.
+  const auto left = static_cast<int16_t>(safe.x);
+  const auto right = static_cast<int16_t>(renderer.getScreenWidth() - safe.x - safe.width);
+  screen.setContentMarginFromScreen(fui::Insets{static_cast<int16_t>(safe.y), right,
+                                                static_cast<int16_t>(renderer.getScreenHeight() - safe.y - safe.height),
+                                                left});
   const int16_t hInset = std::max<int16_t>(
-      0, static_cast<int16_t>(UITheme::getInstance().getMetrics().headerSidePadding - COVER_CELL_INSET - safe.x));
+      0, static_cast<int16_t>(UITheme::getInstance().getMetrics().headerSidePadding - COVER_CELL_INSET - left));
   const int16_t topInset =
       BoardConfig::hasTouch() ? static_cast<int16_t>(theme.spaceLg) : static_cast<int16_t>(theme.spaceSm + 4);
   screen.insetContent(fui::Insets{topInset, hInset, theme.spaceSm, hInset});
@@ -99,8 +106,15 @@ void CoverGridHomeUi::draw(UiScreen& screen) {
   screen.takeTop(UITheme::getInstance().getMetrics().batteryBarHeight, theme.spaceSm);
   const int16_t tabGap = BoardConfig::hasTouch() ? theme.spaceSm : static_cast<int16_t>(4);
   auto tabRect = screen.takeBottom(72, tabGap);
+  const auto fitTabs = [&](const fui::Rect& rect) {
+    const auto fitted = panel.tabs(rect.x, rect.y, rect.width, rect.height, safe.y + safe.height);
+    const int tabLeft = std::max(fitted[0], corners[3]);
+    const int tabRight = std::min(fitted[0] + fitted[2], renderer.getScreenWidth() - corners[2]);
+    return fui::Rect{static_cast<int16_t>(tabLeft), static_cast<int16_t>(fitted[1]),
+                     static_cast<int16_t>(std::max(0, tabRight - tabLeft)), static_cast<int16_t>(fitted[3])};
+  };
   if (books->empty()) {
-    drawTabs(screen, tabRect.inset(fui::Insets{0, COVER_CELL_INSET, 0, COVER_CELL_INSET}));
+    drawTabs(screen, fitTabs(tabRect.inset(fui::Insets{0, COVER_CELL_INSET, 0, COVER_CELL_INSET})));
     drawEmpty(screen);
     drawHeaderBand();
     return;
@@ -118,13 +132,13 @@ void CoverGridHomeUi::draw(UiScreen& screen) {
   drawGrid(screen);
   tabRect.x = gridBounds.x + grid.cellInset.left;
   tabRect.width = gridBounds.width - grid.cellInset.left - grid.cellInset.right;
-  drawTabs(screen, tabRect);
+  drawTabs(screen, fitTabs(tabRect));
   drawHeaderBand();
 }
 
 void CoverGridHomeUi::drawHeaderBand() {
   const auto& metrics = UITheme::getInstance().getMetrics();
-  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, renderer.getScreenWidth(), metrics.homeTopPadding}, nullptr);
+  GUI.drawHeader(renderer, UITheme::getHeaderRect(renderer, metrics.homeTopPadding), nullptr);
 }
 
 void CoverGridHomeUi::drawEmpty(UiScreen& screen) {
@@ -183,7 +197,10 @@ void CoverGridHomeUi::drawCurrent(UiScreen& screen, fui::Rect rect, const int co
   card.coverPainter = [](fui::DrawTarget& target, fui::Rect cover, const fui::BookCardProps&, void* user) {
     return static_cast<CoverGridHomeUi*>(user)->paintFramedCover(target, cover, 0);
   };
-  fui::bookCard(screen.frame(), rect, card);
+  {
+    FilenameUiFontScope fonts(target, renderer);
+    fui::bookCard(screen.frame(), rect, card);
+  }
 
   if (selected == 0 && !BoardConfig::hasTouch()) {
     const int16_t barHeight = card.coverSize.height;
@@ -227,11 +244,11 @@ void CoverGridHomeUi::drawGrid(UiScreen& screen) {
 }
 
 void CoverGridHomeUi::drawTabs(UiScreen& screen, fui::Rect rect) {
-  static constexpr const freeink::Icon* ICONS[] = {&icon_folder_32, &icon_landmark_32, &icon_lyra_library_32,
+  static constexpr const freeink::Icon* ICONS[] = {&icon_folder_32, &icon_landmark_32, &icon_puzzle_32,
                                                    &icon_lyra_transfer_32, &icon_lyra_settings_32};
   int count = 0;
   for (int i = 0; i < 5; ++i) {
-    if (i == 2 && !hasOpds) continue;
+    if (i == 2 && !hasPlugins) continue;
     auto& tab = tabItems[count];
     tab.value = books->size() + count;
     tab.selected = selected == tab.value;
@@ -248,7 +265,7 @@ void CoverGridHomeUi::drawTabs(UiScreen& screen, fui::Rect rect) {
   tabs.iconPainter = [](fui::DrawTarget&, fui::Rect iconRect, const fui::TabItem& tab, uint8_t, void* user) {
     const auto& self = *static_cast<CoverGridHomeUi*>(user);
     const int index = tab.value - static_cast<int>(self.books->size());
-    const int icon = !self.hasOpds && index >= 2 ? index + 1 : index;
+    const int icon = !self.hasPlugins && index >= 2 ? index + 1 : index;
     drawLucideIcon(self.renderer, *ICONS[icon], iconRect.x, iconRect.y);
     return true;
   };

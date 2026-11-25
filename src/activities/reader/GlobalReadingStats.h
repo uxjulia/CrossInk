@@ -3,9 +3,10 @@
 #include <cstdint>
 
 #include "ReadingStatsUtils.h"
+#include "StatsCounterId.h"
 
 // Cumulative reading statistics across all books, persisted to
-// /.crosspoint/global_stats.bin.
+// /.crosspoint/global_stats_<reader>.bin.
 struct GlobalReadingStats {
   uint32_t totalSessions = 0;        // Total book-open events across all books
   uint32_t totalReadingSeconds = 0;  // Accumulated reading time across all books
@@ -16,14 +17,24 @@ struct GlobalReadingStats {
   uint32_t readingHistoryAnchorDay = 0;
   std::array<uint8_t, READING_HISTORY_BYTES> readingHistoryBits{};
   uint16_t longestReadingStreak = 0;
+  StatsCounterId counterId;
 
-  static constexpr uint8_t CURRENT_FILE_VERSION = 3;
-  static constexpr size_t CURRENT_FILE_SIZE = 159;
+  static constexpr uint8_t CURRENT_FILE_VERSION = 4;
+  static constexpr size_t CURRENT_FILE_SIZE = 175;
   static constexpr size_t MIN_SUPPORTED_FILE_SIZE = 13;
 
-  // Loads stats from /.crosspoint/global_stats.bin. Returns default-constructed
-  // stats if the file is missing or the version byte does not match.
+  // Loads this reader's device-qualified stats. Only a genuinely new history
+  // receives a fresh identity; unreadable existing slots protect future saves.
   static GlobalReadingStats load();
+
+  // Checked local export, never includes nearby-device snapshots.
+  static bool exportLocal(uint8_t* data, size_t capacity);
+  static bool loadForUpload(GlobalReadingStats& stats);
+  // A failed read is not an empty history. Only explicit backup recovery (or
+  // restarting after repairing storage) may clear this write protection.
+  static bool recoveryRequired();
+  static bool readBackup(const char* path, GlobalReadingStats& stats);
+  static bool restoreBackup(const char* path);
 
   // Returns true when the optional synced stats directory exists.
   static bool hasSyncedStats();
@@ -37,11 +48,10 @@ struct GlobalReadingStats {
   // when the local stats may include in-memory changes that are not saved yet.
   static GlobalReadingStats loadAggregated(const GlobalReadingStats& localStats);
 
-  // Saves stats to /.crosspoint/global_stats.bin.
-  void save() const;
+  // Saves global and pending daily stats. False means either save needs retrying.
+  bool save() const;
 
-  // Replaces /.crosspoint/global_stats.bin with a fresh empty file without
-  // rotating or deleting any backup files.
+  // Saves an empty newest snapshot through the same alternating-slot policy.
   static bool resetLocal();
   // Advances after each successful resetLocal(), so an open reader knows its
   // in-memory copy was replaced on disk. Any new path that replaces the file
@@ -51,4 +61,7 @@ struct GlobalReadingStats {
   void recordReadingSpan(const ReadingStatsDateTime& localStart, uint32_t seconds);
   uint16_t currentReadingStreak(const ReadingStatsDate* today) const;
   uint16_t displayLongestReadingStreak() const;
+
+  // Separate server calendar; never included in loadForUpload() or nearby exports.
+  static bool saveServerStreak(const GlobalReadingStats& streak);
 };

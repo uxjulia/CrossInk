@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -19,10 +20,22 @@ class SdCardFontManager {
   SdCardFontManager(const SdCardFontManager&) = delete;
   SdCardFontManager& operator=(const SdCardFontManager&) = delete;
 
-  // Load the file physically closest to targetPointSize. Only one .cpfont
-  // file is loaded; other sizes remain on disk. This keeps resident interval
-  // + kern/ligature tables to one size's worth of memory.
+  // Load the closest body file, plus up to two budgeted content sizes for bitmap fonts.
   bool loadFamilyClosest(const SdCardFontFamilyInfo& family, GfxRenderer& renderer, uint8_t targetPointSize);
+  // Shared by registry loads and bounded dictionary-return discovery. Zero skips a file lookup.
+  static std::array<uint8_t, 2> contentSizeTargets(uint8_t bodySize, std::array<uint16_t, 2> scales = {512, 192});
+  bool setContentSizeScales(std::array<uint16_t, 2> scales) {
+    if (contentSizeScales_ == scales) return false;
+    contentSizeScales_ = scales;
+    return true;
+  }
+  // Equivalent hints can select the same physical files in a different order.
+  // Compare the requested set, including candidates skipped for low memory,
+  // so an unchanged request never retries admission behind a live layout.
+  bool matchesContentSizeRequests(const SdCardFontFamilyInfo& family) const;
+  std::array<uint8_t, 2> contentSizeTargetsForBody(uint8_t bodySize) const {
+    return contentSizeTargets(bodySize, contentSizeScales_);
+  }
 #if CROSSINK_SCALABLE_FONTS
   bool loadFamilyClosest(const SdCardFontFamilyInfo& family, GfxRenderer& renderer, uint8_t targetPointSize,
                          const freeink::font::FtFont::RenderOptions& renderOptions);
@@ -47,7 +60,7 @@ class SdCardFontManager {
   bool loadFamilyFile(const char* path, const char* familyName, uint8_t pointSize, GfxRenderer& renderer);
 
   // Additively load the .cpfont of `family` at the exact physical `pointSize`
-  // (used for size-matched CJK UI fallback alongside the reader-size font).
+  // for temporary text surfaces such as dictionary lookup.
   // Does not unload anything. If a font of that size is already loaded its id
   // is reused. Returns the font id, or 0 if the family has no file at that size
   // or loading failed.
@@ -112,6 +125,8 @@ class SdCardFontManager {
   int registerScalableSize(GfxRenderer& renderer, uint8_t size);
   bool registerScalableContentSizes(GfxRenderer& renderer);
 #endif
+  void loadContentSizes(const SdCardFontFamilyInfo& family, GfxRenderer& renderer);
+  std::array<const SdCardFontFileInfo*, 2> selectContentFiles(const SdCardFontFamilyInfo& family) const;
   struct LoadedFont {
     SdCardFont* font;  // heap-allocated, owned
     int fontId;
@@ -122,8 +137,11 @@ class SdCardFontManager {
   // Load+register a single .cpfont file and append it to loaded_.
   // Returns the font id, or 0 on failure (allocation, read, or id collision).
   int loadFile(const SdCardFontFileInfo& file, const char* familyName, GfxRenderer& renderer);
-  int loadFilePath(const char* path, const char* familyName, uint8_t pointSize, GfxRenderer& renderer);
+  int loadFilePath(const char* path, const char* familyName, uint8_t pointSize, GfxRenderer& renderer,
+                   size_t residentLimit = 0, size_t freeHeapReserve = 0, size_t maxAllocHeapReserve = 0);
 
+  std::array<uint16_t, 2> contentSizeScales_{512, 192};
+  std::array<uint8_t, 2> requestedContentSizes_{};
   std::string loadedFamilyName_;
   uint8_t loadedPointSize_ = 0;
   std::vector<LoadedFont> loaded_;

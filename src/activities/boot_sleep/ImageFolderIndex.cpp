@@ -6,6 +6,7 @@
 #include <HalStorage.h>
 #include <Logging.h>
 #include <Memory.h>
+#include <OwnedFileSwap.h>
 
 #include <algorithm>
 #include <array>
@@ -16,6 +17,7 @@
 #include <string_view>
 
 #include "CrossPointState.h"
+#include "SleepImageDeck.h"
 
 namespace ImageFolderIndex {
 namespace {
@@ -26,7 +28,7 @@ namespace {
 // the boot-screen use and is kept to avoid orphaning existing sleep caches.
 constexpr char INDEX_DIR[] = "/.crosspoint/sleep-image-index";
 constexpr char INDEX_MAGIC[] = {'C', 'S', 'I', 'X'};
-constexpr uint8_t INDEX_VERSION = 1;
+constexpr uint8_t INDEX_VERSION = 2;
 constexpr uint8_t FLAG_INCLUDE_PNG = 1 << 0;
 constexpr uint8_t FLAG_VALIDATED = 1 << 1;
 constexpr size_t MAX_FILENAME_LENGTH = 255;
@@ -46,6 +48,7 @@ struct IndexHeader {
   uint16_t recordCount;
   uint16_t recordSize;
   uint32_t recordsOffset;
+  uint64_t fingerprint;
 };
 
 // A fixed-size record keeps the cache seekable without retaining a directory
@@ -67,6 +70,46 @@ uint64_t fnv1a64(std::string_view value) {
     hash *= 1099511628211ULL;
   }
   return hash;
+}
+
+bool isCandidate(const FsFile& file, const std::string_view name, const bool includePng) {
+  return !file.isDirectory() && !name.empty() && name.front() != '.' &&
+         (FsHelpers::hasBmpExtension(name) || (includePng && FsHelpers::hasPngExtension(name)));
+}
+
+void fingerprintEntry(uint64_t& fingerprint, FsFile& file, const std::string_view name) {
+  // Order matters: deck bits refer to positions in the index. Include metadata
+  // so replacing a previously invalid image also refreshes a validated index.
+  fingerprint ^= fnv1a64(name);
+  fingerprint *= 1099511628211ULL;
+  fingerprint ^= file.fileSize64();
+  fingerprint *= 1099511628211ULL;
+  fingerprint ^= file.modificationTime();
+  fingerprint *= 1099511628211ULL;
+}
+
+bool folderFingerprint(const std::string& directory, const bool includePng, uint64_t& fingerprint) {
+  FsFile dir = Storage.open(directory.c_str());
+  if (!dir || !dir.isDirectory()) {
+    dir.close();
+    LOG_ERR("IMGIDX", "Cannot scan sleep folder: %s", directory.c_str());
+    return false;
+  }
+  char name[NAME_BUFFER_SIZE];
+  fingerprint = 1469598103934665603ULL;
+  uint32_t scanned = 0;
+  for (auto file = dir.openNextFile(); file; file = dir.openNextFile()) {
+    const size_t length = file.getName(name, sizeof(name));
+    if (length > 0 && length <= MAX_FILENAME_LENGTH && isCandidate(file, std::string_view(name, length), includePng)) {
+      fingerprintEntry(fingerprint, file, std::string_view(name, length));
+    }
+    file.close();
+    if ((++scanned & 0xFF) == 0) delay(1);
+  }
+  const bool failed = FsHelpers::directoryIterationFailed(dir);
+  dir.close();
+  if (failed) LOG_ERR("IMGIDX", "Sleep folder scan failed before EOF: %s", directory.c_str());
+  return !failed;
 }
 
 bool pathHasPrefix(std::string_view path, std::string_view folder, const bool ignoreCase = false) {
@@ -123,6 +166,7 @@ bool headerMatches(const IndexHeader& header, const std::string& directory, cons
 bool openValidIndex(const std::string& directory, const bool includePng, const bool requireValidated, HalFile& file,
                     IndexHeader& header, char* cachePath, const size_t cachePathSize) {
   if (!makeCachePath(directory, includePng, cachePath, cachePathSize)) return false;
+  if (!OwnedFileSwap::recover(cachePath)) return false;
   file = Storage.open(cachePath);
   if (!file) return false;
 
@@ -241,6 +285,7 @@ bool buildIndex(const std::string& directory, const bool includePng, const bool 
   header.pathLength = static_cast<uint16_t>(directory.size());
   header.recordSize = sizeof(IndexRecord);
   header.recordsOffset = sizeof(IndexHeader) + header.pathLength;
+  header.fingerprint = 1469598103934665603ULL;
   if (directory.size() > MAX_FILENAME_LENGTH || !writeExact(output, &header, sizeof(header)) ||
       !writeExact(output, directory.data(), directory.size())) {
     output.close();
@@ -261,8 +306,8 @@ bool buildIndex(const std::string& directory, const bool includePng, const bool 
     const std::string_view name(nameBuffer.get(), std::min(nameLength, MAX_FILENAME_LENGTH));
     const bool isBmp = FsHelpers::hasBmpExtension(name);
     const bool isPng = includePng && FsHelpers::hasPngExtension(name);
-    bool valid = nameLength > 0 && nameLength <= MAX_FILENAME_LENGTH && !name.empty() && name.front() != '.' &&
-                 !file.isDirectory() && (isBmp || isPng);
+    bool valid = nameLength > 0 && nameLength <= MAX_FILENAME_LENGTH && isCandidate(file, name, includePng);
+    if (valid) fingerprintEntry(header.fingerprint, file, name);
 
     if (valid && validateBmpHeaders && isBmp) {
       Bitmap bitmap(file);
@@ -303,8 +348,7 @@ bool buildIndex(const std::string& directory, const bool includePng, const bool 
     return false;
   }
 
-  Storage.remove(cachePath);
-  if (!Storage.rename(tempPath, cachePath)) {
+  if (!OwnedFileSwap::publish(cachePath, tempPath)) {
     Storage.remove(tempPath);
     return false;
   }
@@ -406,10 +450,141 @@ bool select(const std::string& directory, const bool includePng, const bool vali
   return false;
 }
 
-void invalidate() {
-  if (Storage.exists(INDEX_DIR)) {
-    if (!Storage.removeDir(INDEX_DIR)) LOG_ERR("IMGIDX", "Failed to remove image index cache");
+bool selectShuffled(const std::string& directory, const bool includePng, const bool validateBmpHeaders,
+                    Selection& selection, const bool bmpOnly) {
+  selection = Selection{};
+  if (directory.empty() || directory.size() > MAX_FILENAME_LENGTH) return false;
+
+  uint64_t fingerprint = 0;
+  // There is no reliable FAT notification for external writes. Walk metadata
+  // on each sleep so direct card copies are visible on the very next pick;
+  // image contents/headers are still read only on rebuild or render failure.
+  if (!folderFingerprint(directory, includePng, fingerprint)) return false;
+  char cachePath[MAX_CACHE_PATH] = {};
+  IndexHeader header{};
+  HalFile cache;
+  const bool loaded = openValidIndex(directory, includePng, false, cache, header, cachePath, sizeof(cachePath));
+  // Sleep retries filter the same stable collection instead of rebuilding a
+  // smaller validated/BMP-only index and forgetting already displayed cards.
+  if (!loaded || header.fingerprint != fingerprint || (header.flags & FLAG_VALIDATED) != 0) {
+    cache.close();
+    if (!buildIndex(directory, includePng, false, cachePath, sizeof(cachePath)) ||
+        !openValidIndex(directory, includePng, false, cache, header, cachePath, sizeof(cachePath))) {
+      LOG_ERR("IMGIDX", "Cannot refresh sleep image index: %s", directory.c_str());
+      return false;
+    }
   }
+  if (header.recordCount == 0) {
+    cache.close();
+    selection.noEligibleRemaining = true;
+    return false;
+  }
+  std::unique_ptr<uint8_t[]> eligible;
+  std::string filename;
+  if (validateBmpHeaders || bmpOnly) {
+    // Error-path filter only, one extra bit per image (max 8192 bytes), rather
+    // than a filename vector or a large task-stack buffer. Reuse it for the draw.
+    const size_t bytes = (static_cast<size_t>(header.recordCount) + 7) / 8;
+    eligible = makeUniqueNoThrow<uint8_t[]>(bytes);
+    if (!eligible) {
+      LOG_ERR("IMGIDX", "Cannot allocate %u bytes for sleep retry filter", static_cast<unsigned>(bytes));
+      cache.close();
+      return false;
+    }
+    std::string imagePath = directory + '/';
+    const size_t prefix = imagePath.size();
+    imagePath.reserve(prefix + MAX_FILENAME_LENGTH);
+    filename.reserve(NAME_BUFFER_SIZE);
+    for (uint32_t i = 0; i < header.recordCount; ++i) {
+      bool isPng = false;
+      if (!readRecordName(cache, header, static_cast<uint16_t>(i), filename, isPng)) {
+        cache.close();
+        LOG_ERR("IMGIDX", "Cannot read sleep retry candidate");
+        invalidate();
+        return false;
+      }
+      bool valid = validateBmpHeaders || !bmpOnly || !isPng;
+      if (valid && validateBmpHeaders && !isPng) {
+        imagePath.resize(prefix);
+        imagePath += filename;
+        FsFile image = Storage.open(imagePath.c_str());
+        if (image) {
+          Bitmap bitmap(image);
+          valid = bitmap.parseHeaders() == BmpReaderError::Ok;
+        } else {
+          valid = false;
+        }
+        image.close();
+      }
+      if (valid) eligible[i / 8] |= 1u << (i % 8);
+    }
+    // Skip only known-malformed BMPs. A BMP-only retry must leave untried PNGs
+    // available for subsequent draws in the normal overlay collection.
+    if (validateBmpHeaders &&
+        !SleepImageDeck::skipInvalid(cachePath, header.fingerprint, header.recordCount, eligible.get())) {
+      cache.close();
+      return false;
+    }
+    if (validateBmpHeaders && bmpOnly) {
+      for (uint32_t i = 0; i < header.recordCount; ++i) {
+        bool isPng = false;
+        if (!readRecordName(cache, header, static_cast<uint16_t>(i), filename, isPng)) {
+          cache.close();
+          LOG_ERR("IMGIDX", "Cannot read sleep retry candidate");
+          invalidate();
+          return false;
+        }
+        if (isPng) eligible[i / 8] &= ~(1u << (i % 8));
+      }
+    }
+  }
+  const auto result =
+      SleepImageDeck::select(cachePath, header.fingerprint, header.recordCount, selection.index, eligible.get());
+  if (result != SleepImageDeck::Result::Selected) {
+    cache.close();
+    selection.noEligibleRemaining = result == SleepImageDeck::Result::NoEligible;
+    return false;
+  }
+  const bool read = readRecordName(cache, header, selection.index, filename, selection.isPng);
+  cache.close();
+  if (!read || !cacheRecordExists(directory, filename)) {
+    LOG_ERR("IMGIDX", "Sleep image index entry is unavailable: %s", directory.c_str());
+    invalidate();
+    return false;
+  }
+  selection.path = directory;
+  if (selection.path.back() != '/') selection.path += '/';
+  selection.path += filename;
+  selection.indexPath = cachePath;
+  selection.fingerprint = header.fingerprint;
+  selection.count = header.recordCount;
+  return true;
+}
+
+bool recordSleepAttempt(const Selection& selection, const bool displayed) {
+  if (selection.indexPath.empty()) return true;
+  return SleepImageDeck::recordAttempt(selection.indexPath.c_str(), selection.fingerprint, selection.count,
+                                       selection.index, displayed);
+}
+
+void invalidate() {
+  FsFile dir = Storage.open(INDEX_DIR);
+  if (!dir) return;
+  char name[NAME_BUFFER_SIZE];
+  for (auto file = dir.openNextFile(); file; file = dir.openNextFile()) {
+    const size_t length = file.getName(name, sizeof(name));
+    const bool remove = !file.isDirectory() && length > 0 && length <= MAX_FILENAME_LENGTH &&
+                        FsHelpers::checkFileExtension(std::string_view(name, length), ".idx");
+    file.close();
+    // Keep deck checkpoints: an unchanged folder resumes its rotation after
+    // USB Drive, and a changed folder is rejected by the deck fingerprint.
+    if (remove) {
+      const std::string path = std::string(INDEX_DIR) + '/' + name;
+      if (!Storage.remove(path.c_str())) LOG_ERR("IMGIDX", "Failed to remove image index: %s", path.c_str());
+    }
+  }
+  if (FsHelpers::directoryIterationFailed(dir)) LOG_ERR("IMGIDX", "Image index invalidation failed before EOF");
+  dir.close();
 }
 
 void invalidateForPath(const char* path) {

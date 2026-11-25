@@ -1,5 +1,6 @@
 #include "JpegToBmpConverter.h"
 
+#include <Arduino.h>
 #include <Arena.h>
 #include <HalDisplay.h>
 #include <HalStorage.h>
@@ -219,6 +220,7 @@ struct BmpConvertCtx {
   // Accumulates one MCU row (up to MAX_MCU_HEIGHT source rows × srcWidth pixels)
   // Filled column-by-column as JPEGDEC callbacks arrive for the same MCU row
   uint8_t* mcuBuf;
+  BmpConvertCtx* second = nullptr;  // Optional carousel output sharing these source rows.
 
   // Y-axis area averaging accumulators (needsScaling only)
   int currentOutY;
@@ -361,7 +363,7 @@ static void writeOutputRow(BmpConvertCtx* ctx, const uint8_t* srcRow, int outY) 
       ctx->fsDitherer->nextRow();
   }
 
-  ctx->bmpOut->write(ctx->bmpRow, ctx->bytesPerRow);
+  if (ctx->bmpOut->write(ctx->bmpRow, ctx->bytesPerRow) != static_cast<size_t>(ctx->bytesPerRow)) ctx->error = true;
 }
 
 static void scaleRowLinear(BmpConvertCtx* ctx, const uint8_t* srcRow, uint8_t* dstRow) {
@@ -471,8 +473,53 @@ static void flushScaledRow(BmpConvertCtx* ctx) {
       ctx->fsDitherer->nextRow();
   }
 
-  ctx->bmpOut->write(ctx->bmpRow, ctx->bytesPerRow);
+  if (ctx->bmpOut->write(ctx->bmpRow, ctx->bytesPerRow) != static_cast<size_t>(ctx->bytesPerRow)) ctx->error = true;
   ctx->currentOutY++;
+}
+
+static void processSourceRow(BmpConvertCtx* ctx, const uint8_t* srcRow, int y) {
+  if (ctx->smoothUpscale) {
+    processSmoothSourceRow(ctx, srcRow, y);
+  } else if (!ctx->needsScaling) {
+    // 1:1 — outWidth == srcWidth, write directly
+    writeOutputRow(ctx, srcRow, y);
+    ++ctx->currentOutY;
+  } else {
+    const uint64_t srcY_fp = static_cast<uint64_t>(y + 1) << 16;
+    if (srcY_fp <= ctx->srcYOffset_fp) return;
+
+    // Fixed-point area averaging on X axis
+    for (int outX = 0; outX < ctx->outWidth; outX++) {
+      const uint64_t srcXStart_fp =
+          static_cast<uint64_t>(ctx->srcXOffset_fp) + static_cast<uint64_t>(outX) * ctx->scaleX_fp;
+      const uint64_t srcXEnd_fp =
+          static_cast<uint64_t>(ctx->srcXOffset_fp) + static_cast<uint64_t>(outX + 1) * ctx->scaleX_fp;
+      const int srcXStart = std::min(ctx->srcWidth - 1, static_cast<int>(srcXStart_fp >> 16));
+      const int srcXEnd = std::min(ctx->srcWidth, static_cast<int>(srcXEnd_fp >> 16));
+      int sum = 0;
+      int count = 0;
+      for (int srcX = srcXStart; srcX < srcXEnd && srcX < ctx->srcWidth; srcX++) {
+        sum += srcRow[srcX];
+        count++;
+      }
+      if (count == 0 && srcXStart < ctx->srcWidth) {
+        sum = srcRow[srcXStart];
+        count = 1;
+      }
+      ctx->rowAccum[outX] += sum;
+      ctx->rowCount[outX] += count;
+    }
+
+    // Flush output row(s) whose Y boundary we've crossed
+    while (srcY_fp >= ctx->nextOutY_srcStart && ctx->currentOutY < ctx->outHeight) {
+      flushScaledRow(ctx);
+      ctx->nextOutY_srcStart = static_cast<uint32_t>(static_cast<uint64_t>(ctx->srcYOffset_fp) +
+                                                     static_cast<uint64_t>(ctx->currentOutY + 1) * ctx->scaleY_fp);
+      if (srcY_fp >= ctx->nextOutY_srcStart) continue;
+      memset(ctx->rowAccum, 0, ctx->outWidth * sizeof(uint32_t));
+      memset(ctx->rowCount, 0, ctx->outWidth * sizeof(uint32_t));
+    }
+  }
 }
 
 // JPEGDEC draw callback — receives one MCU-width × MCU-height block at a time,
@@ -507,50 +554,11 @@ int bmpDrawCallback(JPEGDRAW* pDraw) {
   for (int y = blockY; y < safeEndRow && y < ctx->srcHeight; y++) {
     const uint8_t* srcRow = ctx->mcuBuf + (y - blockY) * ctx->srcWidth;
 
-    if (ctx->smoothUpscale) {
-      processSmoothSourceRow(ctx, srcRow, y);
-    } else if (!ctx->needsScaling) {
-      // 1:1 — outWidth == srcWidth, write directly
-      writeOutputRow(ctx, srcRow, y);
-    } else {
-      const uint64_t srcY_fp = static_cast<uint64_t>(y + 1) << 16;
-      if (srcY_fp <= ctx->srcYOffset_fp) continue;
-
-      // Fixed-point area averaging on X axis
-      for (int outX = 0; outX < ctx->outWidth; outX++) {
-        const uint64_t srcXStart_fp =
-            static_cast<uint64_t>(ctx->srcXOffset_fp) + static_cast<uint64_t>(outX) * ctx->scaleX_fp;
-        const uint64_t srcXEnd_fp =
-            static_cast<uint64_t>(ctx->srcXOffset_fp) + static_cast<uint64_t>(outX + 1) * ctx->scaleX_fp;
-        const int srcXStart = std::min(ctx->srcWidth - 1, static_cast<int>(srcXStart_fp >> 16));
-        const int srcXEnd = std::min(ctx->srcWidth, static_cast<int>(srcXEnd_fp >> 16));
-        int sum = 0;
-        int count = 0;
-        for (int srcX = srcXStart; srcX < srcXEnd && srcX < ctx->srcWidth; srcX++) {
-          sum += srcRow[srcX];
-          count++;
-        }
-        if (count == 0 && srcXStart < ctx->srcWidth) {
-          sum = srcRow[srcXStart];
-          count = 1;
-        }
-        ctx->rowAccum[outX] += sum;
-        ctx->rowCount[outX] += count;
-      }
-
-      // Flush output row(s) whose Y boundary we've crossed
-      while (srcY_fp >= ctx->nextOutY_srcStart && ctx->currentOutY < ctx->outHeight) {
-        flushScaledRow(ctx);
-        ctx->nextOutY_srcStart = static_cast<uint32_t>(static_cast<uint64_t>(ctx->srcYOffset_fp) +
-                                                       static_cast<uint64_t>(ctx->currentOutY + 1) * ctx->scaleY_fp);
-        if (srcY_fp >= ctx->nextOutY_srcStart) continue;
-        memset(ctx->rowAccum, 0, ctx->outWidth * sizeof(uint32_t));
-        memset(ctx->rowCount, 0, ctx->outWidth * sizeof(uint32_t));
-      }
-    }
+    processSourceRow(ctx, srcRow, y);
+    if (ctx->second) processSourceRow(ctx->second, srcRow, y);
   }
 
-  return ctx->error ? 0 : 1;
+  return !ctx->error && (!ctx->second || !ctx->second->error);
 }
 
 // Scans JPEG markers for SOF2 (progressive DCT) — JPEGDEC only handles baseline/sequential.
@@ -590,11 +598,146 @@ static bool isProgressiveJpeg(FsFile& file) {
   return false;
 }
 
+bool initializeOutput(BmpConvertCtx& ctx, Arena& scratchArena, Print& bmpOut, int targetWidth, int targetHeight,
+                      int effectiveSrcW, int effectiveSrcH, bool progressive, bool oneBit, bool crop,
+                      bool adaptiveContain, ImageToneProfile toneProfile, bool primary) {
+  // Calculate output dimensions. Crop mode behaves like CSS object-fit: cover:
+  // scale to fill the requested box, then sample a centered source crop before dithering.
+  const bool containInsteadOfCrop =
+      crop && adaptiveContain && shouldContainAdaptive(effectiveSrcW, effectiveSrcH, targetWidth, targetHeight);
+  const bool cropOutput = crop && !containInsteadOfCrop;
+  const OutputGeometry geometry =
+      calculateOutputGeometry(effectiveSrcW, effectiveSrcH, targetWidth, targetHeight, cropOutput);
+  const int outWidth = geometry.outWidth;
+  const int outHeight = geometry.outHeight;
+  const bool needsScaling = geometry.needsScaling;
+  const bool smoothUpscale = progressive && needsScaling && geometry.scaleX_fp <= FP_ONE &&
+                             geometry.scaleY_fp <= FP_ONE &&
+                             (geometry.scaleX_fp < FP_ONE || geometry.scaleY_fp < FP_ONE);
+
+  // Write BMP header with output dimensions
+  int bytesPerRow;
+  if (USE_8BIT_OUTPUT && !oneBit) {
+    writeBmpHeader8bit(bmpOut, outWidth, outHeight);
+    bytesPerRow = (outWidth + 3) / 4 * 4;
+  } else if (oneBit) {
+    writeBmpHeader1bit(bmpOut, outWidth, outHeight);
+    bytesPerRow = (outWidth + 31) / 32 * 4;
+  } else {
+    writeBmpHeader2bit(bmpOut, outWidth, outHeight);
+    bytesPerRow = (outWidth * 2 + 31) / 32 * 4;
+  }
+
+  ctx.bmpOut = &bmpOut;
+  ctx.srcWidth = effectiveSrcW;
+  ctx.srcHeight = effectiveSrcH;
+  ctx.outWidth = outWidth;
+  ctx.outHeight = outHeight;
+  ctx.oneBit = oneBit;
+  ctx.bytesPerRow = bytesPerRow;
+  ctx.needsScaling = needsScaling;
+  ctx.scaleX_fp = geometry.scaleX_fp;
+  ctx.scaleY_fp = geometry.scaleY_fp;
+  ctx.srcXOffset_fp = geometry.srcXOffset_fp;
+  ctx.srcYOffset_fp = geometry.srcYOffset_fp;
+  ctx.smoothUpscale = smoothUpscale;
+  ctx.smoothNextOutY = 0;
+  ctx.smoothPrevY = -1;
+  ctx.error = false;
+
+  const size_t mcuBufBytes = primary ? static_cast<size_t>(MAX_MCU_HEIGHT) * effectiveSrcW : 0;
+  size_t scratchBytes = mcuBufBytes + static_cast<size_t>(bytesPerRow);
+  if (smoothUpscale) {
+    scratchBytes += static_cast<size_t>(outWidth) * 3;
+  } else if (needsScaling) {
+    scratchBytes += static_cast<size_t>(outWidth) * sizeof(uint32_t) * 2;
+  }
+  // Keep the conversion in one arena slab. Growing would request another full slab,
+  // which can fail on a fragmented heap even when the next buffer is tiny.
+  scratchBytes += 128;
+
+  if (!scratchArena.init(scratchBytes)) {
+    LOG_ERR("JPG", "OOM: JPEG BMP scratch arena (%u bytes)", static_cast<unsigned>(scratchBytes));
+    return false;
+  }
+
+  // MCU row buffer: MAX_MCU_HEIGHT rows × ctx.srcWidth columns of grayscale.
+  if (primary) {
+    ctx.mcuBuf = arenaNewArray<uint8_t>(scratchArena, mcuBufBytes);
+    if (!ctx.mcuBuf) {
+      LOG_ERR("JPG", "OOM: MCU buffer (%u bytes)", static_cast<unsigned>(mcuBufBytes));
+      return false;
+    }
+    memset(ctx.mcuBuf, 0, mcuBufBytes);
+  }
+
+  ctx.bmpRow = arenaNewArray<uint8_t>(scratchArena, bytesPerRow);
+  if (!ctx.bmpRow) {
+    LOG_ERR("JPG", "OOM: BMP row buffer");
+    return false;
+  }
+
+  if (smoothUpscale) {
+    const size_t smoothRowsBytes = static_cast<size_t>(outWidth) * 3;
+    ctx.smoothRows = arenaNewArray<uint8_t>(scratchArena, smoothRowsBytes);
+    if (!ctx.smoothRows) {
+      LOG_ERR("JPG", "OOM: progressive smoothing buffers");
+      return false;
+    }
+    ctx.smoothPrevRow = ctx.smoothRows;
+    ctx.smoothCurrRow = ctx.smoothPrevRow + outWidth;
+    ctx.smoothOutRow = ctx.smoothCurrRow + outWidth;
+    LOG_DBG("JPG", "Progressive smoothing: %dx%d -> %dx%d, buffers=%u bytes", ctx.srcWidth, ctx.srcHeight, outWidth,
+            outHeight, static_cast<unsigned>(smoothRowsBytes));
+  } else if (needsScaling) {
+    ctx.rowAccum = arenaNewArray<uint32_t>(scratchArena, outWidth);
+    ctx.rowCount = arenaNewArray<uint32_t>(scratchArena, outWidth);
+    if (!ctx.rowAccum || !ctx.rowCount) {
+      LOG_ERR("JPG", "OOM: scaling buffers");
+      return false;
+    }
+    ctx.nextOutY_srcStart = geometry.srcYOffset_fp + geometry.scaleY_fp;
+  }
+
+  if (oneBit) {
+    ctx.atkinson1BitDitherer = makeUniqueNoThrow<Atkinson1BitDitherer>(outWidth);
+    if (!ctx.atkinson1BitDitherer || !ctx.atkinson1BitDitherer->isValid()) {
+      LOG_ERR("JPG", "OOM: Atkinson1BitDitherer");
+      return false;
+    }
+  } else if (!USE_8BIT_OUTPUT) {
+    if (USE_ATKINSON) {
+      ctx.atkinsonDitherer = makeUniqueNoThrow<AtkinsonDitherer>(outWidth, toneProfile);
+      if (!ctx.atkinsonDitherer || !ctx.atkinsonDitherer->isValid()) {
+        LOG_ERR("JPG", "OOM: AtkinsonDitherer");
+        return false;
+      }
+    } else if (USE_FLOYD_STEINBERG) {
+      ctx.fsDitherer = makeUniqueNoThrow<FloydSteinbergDitherer>(outWidth, toneProfile);
+      if (!ctx.fsDitherer || !ctx.fsDitherer->isValid()) {
+        LOG_ERR("JPG", "OOM: FloydSteinbergDitherer");
+        return false;
+      }
+    }
+  }
+
+  return true;
+}
+
+bool finishOutput(BmpConvertCtx& ctx) {
+  if (ctx.smoothUpscale && !ctx.error) finishSmoothUpscale(&ctx);
+  if (ctx.error || ctx.currentOutY != ctx.outHeight) {
+    LOG_ERR("JPG", "JPEG output incomplete: %d/%d rows", ctx.currentOutY, ctx.outHeight);
+    return false;
+  }
+  return true;
+}
 }  // namespace
 
 // Internal implementation with configurable target size and bit depth
 bool JpegToBmpConverter::jpegFileToBmpStreamInternal(FsFile& jpegFile, Print& bmpOut, int targetWidth, int targetHeight,
-                                                     bool oneBit, bool crop, bool adaptiveContain, bool imageLevels) {
+                                                     bool oneBit, bool crop, bool adaptiveContain,
+                                                     ImageToneProfile toneProfile, const JpegThumbnailTarget* second) {
   if (ESP.getFreeHeap() < MIN_FREE_HEAP) {
     LOG_ERR("JPG", "Not enough heap for JPEG decoder (%u free, need %u)", ESP.getFreeHeap(), MIN_FREE_HEAP);
     return false;
@@ -636,124 +779,28 @@ bool JpegToBmpConverter::jpegFileToBmpStreamInternal(FsFile& jpegFile, Print& bm
   const int effectiveSrcH = progressive ? (srcHeight + 7) / 8 : srcHeight;
   const int decodeFlags = progressive ? JPEG_SCALE_EIGHTH : 0;
 
-  // Calculate output dimensions. Crop mode behaves like CSS object-fit: cover:
-  // scale to fill the requested box, then sample a centered source crop before dithering.
-  const bool containInsteadOfCrop =
-      crop && adaptiveContain && shouldContainAdaptive(effectiveSrcW, effectiveSrcH, targetWidth, targetHeight);
-  const bool cropOutput = crop && !containInsteadOfCrop;
-  const OutputGeometry geometry =
-      calculateOutputGeometry(effectiveSrcW, effectiveSrcH, targetWidth, targetHeight, cropOutput);
-  const int outWidth = geometry.outWidth;
-  const int outHeight = geometry.outHeight;
-  const bool needsScaling = geometry.needsScaling;
-  const bool smoothUpscale = progressive && needsScaling && geometry.scaleX_fp <= FP_ONE &&
-                             geometry.scaleY_fp <= FP_ONE &&
-                             (geometry.scaleX_fp < FP_ONE || geometry.scaleY_fp < FP_ONE);
-
-  // Write BMP header with output dimensions
-  int bytesPerRow;
-  if (USE_8BIT_OUTPUT && !oneBit) {
-    writeBmpHeader8bit(bmpOut, outWidth, outHeight);
-    bytesPerRow = (outWidth + 3) / 4 * 4;
-  } else if (oneBit) {
-    writeBmpHeader1bit(bmpOut, outWidth, outHeight);
-    bytesPerRow = (outWidth + 31) / 32 * 4;
-  } else {
-    writeBmpHeader2bit(bmpOut, outWidth, outHeight);
-    bytesPerRow = (outWidth * 2 + 31) / 32 * 4;
-  }
-
-  BmpConvertCtx ctx = {};
-  ctx.bmpOut = &bmpOut;
-  ctx.srcWidth = effectiveSrcW;
-  ctx.srcHeight = effectiveSrcH;
-  ctx.outWidth = outWidth;
-  ctx.outHeight = outHeight;
-  ctx.oneBit = oneBit;
-  ctx.bytesPerRow = bytesPerRow;
-  ctx.needsScaling = needsScaling;
-  ctx.scaleX_fp = geometry.scaleX_fp;
-  ctx.scaleY_fp = geometry.scaleY_fp;
-  ctx.srcXOffset_fp = geometry.srcXOffset_fp;
-  ctx.srcYOffset_fp = geometry.srcYOffset_fp;
-  ctx.smoothUpscale = smoothUpscale;
-  ctx.smoothNextOutY = 0;
-  ctx.smoothPrevY = -1;
-  ctx.error = false;
-
-  const size_t mcuBufBytes = static_cast<size_t>(MAX_MCU_HEIGHT) * effectiveSrcW;
-  size_t scratchBytes = mcuBufBytes + static_cast<size_t>(bytesPerRow);
-  if (smoothUpscale) {
-    scratchBytes += static_cast<size_t>(outWidth) * 3;
-  } else if (needsScaling) {
-    scratchBytes += static_cast<size_t>(outWidth) * sizeof(uint32_t) * 2;
-  }
-  // Keep the conversion in one arena slab. Growing would request another full slab,
-  // which can fail on a fragmented heap even when the next buffer is tiny.
-  scratchBytes += 128;
-
-  Arena scratchArena;
-  if (!scratchArena.init(std::max<size_t>(4096, scratchBytes))) {
-    LOG_ERR("JPG", "OOM: JPEG BMP scratch arena (%u bytes)", static_cast<unsigned>(scratchBytes));
+  Arena scratch;
+  BmpConvertCtx ctx{};
+  if (!initializeOutput(ctx, scratch, bmpOut, targetWidth, targetHeight, effectiveSrcW, effectiveSrcH, progressive,
+                        oneBit, crop, adaptiveContain, toneProfile, true))
     return false;
-  }
 
-  // MCU row buffer: MAX_MCU_HEIGHT rows × ctx.srcWidth columns of grayscale.
-  ctx.mcuBuf = arenaNewArray<uint8_t>(scratchArena, mcuBufBytes);
-  if (!ctx.mcuBuf) {
-    LOG_ERR("JPG", "OOM: MCU buffer (%u bytes)", static_cast<unsigned>(mcuBufBytes));
-    return false;
-  }
-  memset(ctx.mcuBuf, 0, mcuBufBytes);
-
-  ctx.bmpRow = arenaNewArray<uint8_t>(scratchArena, bytesPerRow);
-  if (!ctx.bmpRow) {
-    LOG_ERR("JPG", "OOM: BMP row buffer");
-    return false;
-  }
-
-  if (smoothUpscale) {
-    const size_t smoothRowsBytes = static_cast<size_t>(outWidth) * 3;
-    ctx.smoothRows = arenaNewArray<uint8_t>(scratchArena, smoothRowsBytes);
-    if (!ctx.smoothRows) {
-      LOG_ERR("JPG", "OOM: progressive smoothing buffers");
+  // Only paired thumbnails need the extra scaler and dither state. Keep it off the C3 stack.
+  struct SecondOutput {
+    Arena scratch;
+    BmpConvertCtx ctx{};
+  };
+  std::unique_ptr<SecondOutput> other;
+  if (second) {
+    other = makeUniqueNoThrow<SecondOutput>();
+    if (!other) {
+      LOG_ERR("JPG", "OOM: second thumbnail output");
       return false;
     }
-    ctx.smoothPrevRow = ctx.smoothRows;
-    ctx.smoothCurrRow = ctx.smoothPrevRow + outWidth;
-    ctx.smoothOutRow = ctx.smoothCurrRow + outWidth;
-    LOG_DBG("JPG", "Progressive smoothing: %dx%d -> %dx%d, buffers=%u bytes", ctx.srcWidth, ctx.srcHeight, outWidth,
-            outHeight, static_cast<unsigned>(smoothRowsBytes));
-  } else if (needsScaling) {
-    ctx.rowAccum = arenaNewArray<uint32_t>(scratchArena, outWidth);
-    ctx.rowCount = arenaNewArray<uint32_t>(scratchArena, outWidth);
-    if (!ctx.rowAccum || !ctx.rowCount) {
-      LOG_ERR("JPG", "OOM: scaling buffers");
+    if (!initializeOutput(other->ctx, other->scratch, second->output, second->width, second->height, effectiveSrcW,
+                          effectiveSrcH, progressive, true, true, false, toneProfile, false))
       return false;
-    }
-    ctx.nextOutY_srcStart = geometry.srcYOffset_fp + geometry.scaleY_fp;
-  }
-
-  if (oneBit) {
-    ctx.atkinson1BitDitherer = makeUniqueNoThrow<Atkinson1BitDitherer>(outWidth);
-    if (!ctx.atkinson1BitDitherer || !ctx.atkinson1BitDitherer->isValid()) {
-      LOG_ERR("JPG", "OOM: Atkinson1BitDitherer");
-      return false;
-    }
-  } else if (!USE_8BIT_OUTPUT) {
-    if (USE_ATKINSON) {
-      ctx.atkinsonDitherer = makeUniqueNoThrow<AtkinsonDitherer>(outWidth, imageLevels);
-      if (!ctx.atkinsonDitherer || !ctx.atkinsonDitherer->isValid()) {
-        LOG_ERR("JPG", "OOM: AtkinsonDitherer");
-        return false;
-      }
-    } else if (USE_FLOYD_STEINBERG) {
-      ctx.fsDitherer = makeUniqueNoThrow<FloydSteinbergDitherer>(outWidth, imageLevels);
-      if (!ctx.fsDitherer || !ctx.fsDitherer->isValid()) {
-        LOG_ERR("JPG", "OOM: FloydSteinbergDitherer");
-        return false;
-      }
-    }
+    ctx.second = &other->ctx;
   }
 
   jpeg->setPixelType(EIGHT_BIT_GRAYSCALE);
@@ -761,11 +808,7 @@ bool JpegToBmpConverter::jpegFileToBmpStreamInternal(FsFile& jpegFile, Print& bm
 
   rc = jpeg->decode(0, 0, decodeFlags);
 
-  if (rc == 1 && ctx.smoothUpscale && !ctx.error) {
-    finishSmoothUpscale(&ctx);
-  }
-
-  if (rc != 1 || ctx.error) {
+  if (rc != 1) {
     // Include the image shape so a one-off decode failure can be triaged from
     // serial without pulling the file: progressive vs baseline distinguishes a
     // 1/8-scale progressive-path failure from a baseline/MCU-skip one, and the
@@ -775,20 +818,21 @@ bool JpegToBmpConverter::jpegFileToBmpStreamInternal(FsFile& jpegFile, Print& bm
     return false;
   }
 
-  if (ctx.needsScaling && ctx.currentOutY < ctx.outHeight) {
-    LOG_ERR("JPG", "JPEG decode incomplete: %d/%d output rows written", ctx.currentOutY, ctx.outHeight);
-    return false;
-  }
+  return finishOutput(ctx) && (!other || finishOutput(other->ctx));
+}
 
-  return true;
+bool JpegToBmpConverter::jpegFileToThumbnailPair(FsFile& jpegFile, const JpegThumbnailTarget& first,
+                                                 const JpegThumbnailTarget& second) {
+  return jpegFileToBmpStreamInternal(jpegFile, first.output, first.width, first.height, true, true, false,
+                                     ImageToneProfile::Legacy, &second);
 }
 
 // Core function: Convert JPEG file to 2-bit BMP (uses default target size)
-bool JpegToBmpConverter::jpegFileToBmpStream(FsFile& jpegFile, Print& bmpOut, bool crop, bool imageLevels) {
+bool JpegToBmpConverter::jpegFileToBmpStream(FsFile& jpegFile, Print& bmpOut, bool crop, ImageToneProfile toneProfile) {
   // Use runtime display dimensions (swapped for portrait cover sizing)
   const int targetWidth = display.getDisplayHeight();
   const int targetHeight = display.getDisplayWidth();
-  return jpegFileToBmpStreamInternal(jpegFile, bmpOut, targetWidth, targetHeight, false, crop, false, imageLevels);
+  return jpegFileToBmpStreamInternal(jpegFile, bmpOut, targetWidth, targetHeight, false, crop, false, toneProfile);
 }
 
 // Convert to 1-bit BMP (black and white only, no grays) for fast home screen rendering

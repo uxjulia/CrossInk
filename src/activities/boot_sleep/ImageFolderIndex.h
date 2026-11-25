@@ -9,6 +9,11 @@ struct Selection {
   std::string path;
   bool isPng = false;
   uint16_t index = 0;
+  // Sleep-only checkpoint identity; empty for the older boot/scan paths.
+  std::string indexPath;
+  uint64_t fingerprint = 0;
+  uint16_t count = 0;
+  bool noEligibleRemaining = false;
 };
 
 // Finds the configured root-level boot-screen folder regardless of ASCII case.
@@ -28,7 +33,13 @@ bool resolveBootScreenDirectory(std::string& directory);
 bool select(const std::string& directory, bool includePng, bool validateBmpHeaders, const uint16_t* recentIndices,
             uint8_t recentCapacity, uint8_t recentPos, uint8_t recentFill, uint8_t recentWindow, Selection& selection);
 
-// Drop all indexes. This only removes files owned by this module.
+// Sleep rotation: discover external folder changes on every pick and persist
+// draws without replacement. A changed collection starts a new shuffled deck.
+bool selectShuffled(const std::string& directory, bool includePng, bool validateBmpHeaders, Selection& selection,
+                    bool bmpOnly = false);
+bool recordSleepAttempt(const Selection& selection, bool displayed);
+
+// Drop all indexes, preserving deck checkpoints for unchanged collections.
 void invalidate();
 
 // Invalidate only when a successful file mutation can affect a folder this

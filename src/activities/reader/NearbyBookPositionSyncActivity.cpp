@@ -5,6 +5,7 @@
 
 #include <algorithm>
 
+#include "components/ProgressSyncComparison.h"
 #include "components/TouchActionButtons.h"
 #include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
@@ -120,10 +121,8 @@ void NearbyBookPositionSyncActivity::onExit() { Activity::onExit(); }
 void NearbyBookPositionSyncActivity::loop() {
   if (consumeInitialInputRelease()) return;
 
-  const auto& headerMetrics = UITheme::getInstance().getMetrics();
   const Rect headerScreen = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
-  const Rect header{headerScreen.x, headerScreen.y + headerMetrics.topPadding, headerScreen.width,
-                    TouchHeaderBackButton::height(headerMetrics, mappedInput)};
+  const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput, headerScreen);
   if (TouchHeaderBackButton::wasTapped(mappedInput, header)) {
     returnToReader(true);
     return;
@@ -136,7 +135,9 @@ void NearbyBookPositionSyncActivity::loop() {
     const auto& metrics = UITheme::getInstance().getMetrics();
     const Rect screen = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
     const uint8_t actionCount = senderSynced ? 1 : 2;
-    const auto actions = touchActionLayout(screen, metrics, actionCount);
+    const auto actions = canApplyReceivedPosition
+                             ? ProgressSyncComparison::actionLayout(renderer, screen, metrics, true, actionCount)
+                             : touchActionLayout(screen, metrics, actionCount);
     int touchedAction = -1;
     const auto touch = mappedInput.rowTouch(
         touchedAction, actions.buttons[0].y, TouchActionButtons::kDefaultHeight + TouchActionButtons::kDefaultGap,
@@ -180,8 +181,7 @@ void NearbyBookPositionSyncActivity::render(RenderLock&&) {
   Rect screen = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
 
   renderer.clearScreen();
-  const Rect header{screen.x, screen.y + metrics.topPadding, screen.width,
-                    TouchHeaderBackButton::height(metrics, mappedInput)};
+  const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput, screen);
   if (mappedInput.hasTouchHardware()) {
     TouchHeaderBackButton::draw(renderer, header, tr(STR_NEARBY_POSITION_SYNC), true);
   } else {
@@ -199,7 +199,7 @@ void NearbyBookPositionSyncActivity::render(RenderLock&&) {
   std::string detailSecondary;
   switch (state_) {
     case State::STARTING:
-      primary = tr(STR_LOADING_POPUP);
+      primary = tr(STR_LOADING);
       break;
     case State::READY:
       primary = tr(STR_NEARBY_POSITION_READY);
@@ -371,7 +371,7 @@ void NearbyBookPositionSyncActivity::renderReady(const std::string& primary, con
   Rect screen = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
   const Rect textArea{screen.x + metrics.contentSidePadding, screen.y, screen.width - metrics.contentSidePadding * 2,
                       screen.height};
-  int y = screen.y + metrics.topPadding + TouchHeaderBackButton::height(metrics, mappedInput) + 70;
+  int y = TouchHeaderBackButton::contentTop(renderer, mappedInput, screen.y) + 70;
 
   y += UITheme::drawCenteredWrappedText(renderer, textArea, UI_10_FONT_ID, y, primary.c_str(), 2, true,
                                         EpdFontFamily::BOLD) +
@@ -386,59 +386,6 @@ void NearbyBookPositionSyncActivity::renderReady(const std::string& primary, con
   }
   if (state_ == State::READY) {
     UITheme::drawCenteredWrappedText(renderer, textArea, SMALL_FONT_ID, y, tr(STR_NEARBY_POSITION_READY_HINT), 2);
-  }
-}
-void NearbyBookPositionSyncActivity::renderComparison() const {
-  const auto& metrics = UITheme::getInstance().getMetrics();
-  Rect screen = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
-  int top =
-      screen.y + metrics.topPadding + TouchHeaderBackButton::height(metrics, mappedInput) + metrics.verticalSpacing;
-
-  renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_NEARBY_POSITION_FOUND), true, EpdFontFamily::BOLD);
-
-  const int peerTocIndex = epub_ ? epub_->getTocIndexForSpineIndex(peerCrossPoint_.spineIndex) : -1;
-  const std::string peerChapter =
-      (epub_ && peerTocIndex >= 0)
-          ? epub_->getTocItem(peerTocIndex).title
-          : (std::string(tr(STR_SECTION_PREFIX)) + std::to_string(peerCrossPoint_.spineIndex + 1));
-  const std::string localChapter = !localChapterName_.empty()
-                                       ? localChapterName_
-                                       : (std::string(tr(STR_SECTION_PREFIX)) + std::to_string(currentSpineIndex_ + 1));
-
-  renderer.drawText(UI_10_FONT_ID, screen.x + metrics.contentSidePadding, top + 40, tr(STR_NEARBY_LABEL), true);
-  char peerChapterStr[128];
-  snprintf(peerChapterStr, sizeof(peerChapterStr), "  %s", peerChapter.c_str());
-  renderer.drawText(UI_10_FONT_ID, screen.x + metrics.contentSidePadding, top + 65, peerChapterStr);
-  char peerPageStr[64];
-  snprintf(peerPageStr, sizeof(peerPageStr), tr(STR_PAGE_OVERALL_FORMAT), peerCrossPoint_.pageNumber + 1,
-           qToPercentage(peerPosition_.percentageQ) * 100.0f);
-  renderer.drawText(UI_10_FONT_ID, screen.x + metrics.contentSidePadding, top + 90, peerPageStr);
-  if (!peerName_.empty()) {
-    char deviceStr[64];
-    snprintf(deviceStr, sizeof(deviceStr), tr(STR_DEVICE_FROM_FORMAT), peerName_.c_str());
-    renderer.drawText(UI_10_FONT_ID, screen.x + metrics.contentSidePadding, top + 115, deviceStr);
-  }
-
-  renderer.drawText(UI_10_FONT_ID, screen.x + metrics.contentSidePadding, top + 150, tr(STR_LOCAL_LABEL), true);
-  char localChapterStr[128];
-  snprintf(localChapterStr, sizeof(localChapterStr), "  %s", localChapter.c_str());
-  renderer.drawText(UI_10_FONT_ID, screen.x + metrics.contentSidePadding, top + 175, localChapterStr);
-  char localPageStr[64];
-  snprintf(localPageStr, sizeof(localPageStr), tr(STR_PAGE_TOTAL_OVERALL_FORMAT), currentPage_ + 1, totalPagesInSpine_,
-           qToPercentage(localPosition_.percentageQ) * 100.0f);
-  renderer.drawText(UI_10_FONT_ID, screen.x + metrics.contentSidePadding, top + 200, localPageStr);
-
-  const int optionY = top + 230;
-  const int optionHeight = 30;
-  renderer.fillRect(screen.x, optionY - 2, screen.width - 1, optionHeight);
-  renderer.drawText(UI_10_FONT_ID, screen.x + metrics.contentSidePadding, optionY, tr(STR_APPLY_NEARBY_POSITION),
-                    false);
-
-  if (mappedInput.hasTouch() && !sourceMode_) {
-    drawTouchActionButtons(renderer, screen, metrics, tr(STR_CONFIRM));
-  } else {
-    const auto labels = mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), tr(STR_SELECT), "", "");
-    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4, true);
   }
 }
 
@@ -461,7 +408,9 @@ void NearbyBookPositionSyncActivity::renderComparison() const {
 #include <string>
 
 #include "CrossPointSettings.h"
+#include "Epub/EpubRenderMode.h"
 #include "Epub/Section.h"
+#include "EpubReaderActivity.h"
 #include "EpubReaderUtils.h"
 #include "KOReaderCredentialStore.h"
 #include "KOReaderDocumentId.h"
@@ -775,10 +724,8 @@ void NearbyBookPositionSyncActivity::loop() {
 
   processEvents();
 
-  const auto& headerMetrics = UITheme::getInstance().getMetrics();
   const Rect headerScreen = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
-  const Rect header{headerScreen.x, headerScreen.y + headerMetrics.topPadding, headerScreen.width,
-                    TouchHeaderBackButton::height(headerMetrics, mappedInput)};
+  const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput, headerScreen);
   if (TouchHeaderBackButton::wasTapped(mappedInput, header)) {
     returnToReader(true);
     return;
@@ -791,7 +738,9 @@ void NearbyBookPositionSyncActivity::loop() {
     const auto& metrics = UITheme::getInstance().getMetrics();
     const Rect screen = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
     const uint8_t actionCount = senderSynced ? 1 : 2;
-    const auto actions = touchActionLayout(screen, metrics, actionCount);
+    const auto actions = canApplyReceivedPosition
+                             ? ProgressSyncComparison::actionLayout(renderer, screen, metrics, true, actionCount)
+                             : touchActionLayout(screen, metrics, actionCount);
     int touchedAction = -1;
     const auto touch = mappedInput.rowTouch(
         touchedAction, actions.buttons[0].y, TouchActionButtons::kDefaultHeight + TouchActionButtons::kDefaultGap,
@@ -1179,7 +1128,8 @@ bool NearbyBookPositionSyncActivity::mapPeerPosition() {
   }
 
   if (peerCrossPoint_.hasLiIndex || peerCrossPoint_.xpathAnchorId[0] != '\0' || peerCrossPoint_.hasParagraphIndex) {
-    Section tempSection(epub_, peerCrossPoint_.spineIndex, renderer);
+    const auto renderMode = static_cast<EpubRenderMode>(EpubReaderActivity::loadBookRenderMode(*epub_));
+    Section tempSection(epub_, peerCrossPoint_.spineIndex, renderer, sectionCacheSuffixForRenderMode(renderMode));
     bool refined = false;
     if (peerCrossPoint_.hasLiIndex) {
       const auto liPage = tempSection.getPageForListItemIndex(peerCrossPoint_.liIndex);
@@ -1278,8 +1228,7 @@ void NearbyBookPositionSyncActivity::render(RenderLock&&) {
 
   const auto& metrics = UITheme::getInstance().getMetrics();
   Rect screen = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
-  const Rect header{screen.x, screen.y + metrics.topPadding, screen.width,
-                    TouchHeaderBackButton::height(metrics, mappedInput)};
+  const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput, screen);
   if (mappedInput.hasTouchHardware()) {
     TouchHeaderBackButton::draw(renderer, header, tr(STR_NEARBY_POSITION_SYNC), true);
   } else {
@@ -1297,7 +1246,7 @@ void NearbyBookPositionSyncActivity::render(RenderLock&&) {
   std::string detailSecondary;
   switch (state_) {
     case State::STARTING:
-      primary = tr(STR_LOADING_POPUP);
+      primary = tr(STR_LOADING);
       break;
     case State::READY:
       primary = tr(STR_NEARBY_POSITION_READY);
@@ -1359,7 +1308,7 @@ void NearbyBookPositionSyncActivity::renderReady(const std::string& primary, con
   Rect screen = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
   const Rect textArea{screen.x + metrics.contentSidePadding, screen.y, screen.width - metrics.contentSidePadding * 2,
                       screen.height};
-  int y = screen.y + metrics.topPadding + TouchHeaderBackButton::height(metrics, mappedInput) + 70;
+  int y = TouchHeaderBackButton::contentTop(renderer, mappedInput, screen.y) + 70;
 
   y += UITheme::drawCenteredWrappedText(renderer, textArea, UI_10_FONT_ID, y, primary.c_str(), 2, true,
                                         EpdFontFamily::BOLD) +
@@ -1377,13 +1326,17 @@ void NearbyBookPositionSyncActivity::renderReady(const std::string& primary, con
   }
 }
 
+#endif
+
 void NearbyBookPositionSyncActivity::renderComparison() const {
   const auto& metrics = UITheme::getInstance().getMetrics();
-  Rect screen = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
-  int top =
-      screen.y + metrics.topPadding + TouchHeaderBackButton::height(metrics, mappedInput) + metrics.verticalSpacing;
-
-  renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_NEARBY_POSITION_FOUND), true, EpdFontFamily::BOLD);
+  const Rect screen = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
+  const Rect textArea{screen.x + metrics.contentSidePadding, screen.y,
+                      std::max(1, screen.width - metrics.contentSidePadding * 2), screen.height};
+  int top = TouchHeaderBackButton::contentTop(renderer, mappedInput, screen.y) + metrics.verticalSpacing;
+  top += UITheme::drawCenteredWrappedText(renderer, textArea, UI_10_FONT_ID, top, tr(STR_NEARBY_POSITION_FOUND), 2,
+                                          true, EpdFontFamily::BOLD, 4) +
+         metrics.verticalSpacing;
 
   const int peerTocIndex = epub_ ? epub_->getTocIndexForSpineIndex(peerCrossPoint_.spineIndex) : -1;
   const std::string peerChapter =
@@ -1394,41 +1347,25 @@ void NearbyBookPositionSyncActivity::renderComparison() const {
                                        ? localChapterName_
                                        : (std::string(tr(STR_SECTION_PREFIX)) + std::to_string(currentSpineIndex_ + 1));
 
-  renderer.drawText(UI_10_FONT_ID, screen.x + metrics.contentSidePadding, top + 40, tr(STR_NEARBY_LABEL), true);
-  char peerChapterStr[128];
-  snprintf(peerChapterStr, sizeof(peerChapterStr), "  %s", peerChapter.c_str());
-  renderer.drawText(UI_10_FONT_ID, screen.x + metrics.contentSidePadding, top + 65, peerChapterStr);
-  char peerPageStr[64];
-  snprintf(peerPageStr, sizeof(peerPageStr), tr(STR_PAGE_OVERALL_FORMAT), peerCrossPoint_.pageNumber + 1,
-           qToPercentage(peerPosition_.percentageQ) * 100.0f);
-  renderer.drawText(UI_10_FONT_ID, screen.x + metrics.contentSidePadding, top + 90, peerPageStr);
-  if (!peerName_.empty()) {
-    char deviceStr[64];
-    snprintf(deviceStr, sizeof(deviceStr), tr(STR_DEVICE_FROM_FORMAT), peerName_.c_str());
-    renderer.drawText(UI_10_FONT_ID, screen.x + metrics.contentSidePadding, top + 115, deviceStr);
-  }
+  char peerPageStr[48];
+  snprintf(peerPageStr, sizeof(peerPageStr), tr(STR_SYNC_PAGE_FORMAT), peerCrossPoint_.pageNumber + 1);
+  char localPageStr[48];
+  snprintf(localPageStr, sizeof(localPageStr), tr(STR_SYNC_PAGE_TOTAL_FORMAT), currentPage_ + 1, totalPagesInSpine_);
+  const float peerPercentage = qToPercentage(peerPosition_.percentageQ);
+  const float localPercentage = qToPercentage(localPosition_.percentageQ);
+  const long peerTenths = ProgressSyncComparison::displayedTenths(peerPercentage);
+  const long localTenths = ProgressSyncComparison::displayedTenths(localPercentage);
+  const ProgressSyncComparison::Card peer{tr(STR_NEARBY_LABEL), peerName_.c_str(), peerPageStr,
+                                          peerChapter.c_str(),  peerPercentage,    peerTenths > localTenths};
+  const ProgressSyncComparison::Card local{
+      tr(STR_STATS_THIS_DEVICE_SCREEN), nullptr, localPageStr, localChapter.c_str(), localPercentage,
+      localTenths > peerTenths};
+  ProgressSyncComparison::drawCards(renderer, screen, metrics, top, peer, local);
 
-  renderer.drawText(UI_10_FONT_ID, screen.x + metrics.contentSidePadding, top + 150, tr(STR_LOCAL_LABEL), true);
-  char localChapterStr[128];
-  snprintf(localChapterStr, sizeof(localChapterStr), "  %s", localChapter.c_str());
-  renderer.drawText(UI_10_FONT_ID, screen.x + metrics.contentSidePadding, top + 175, localChapterStr);
-  char localPageStr[64];
-  snprintf(localPageStr, sizeof(localPageStr), tr(STR_PAGE_TOTAL_OVERALL_FORMAT), currentPage_ + 1, totalPagesInSpine_,
-           qToPercentage(localPosition_.percentageQ) * 100.0f);
-  renderer.drawText(UI_10_FONT_ID, screen.x + metrics.contentSidePadding, top + 200, localPageStr);
-
-  const int optionY = top + 230;
-  const int optionHeight = 30;
-  renderer.fillRect(screen.x, optionY - 2, screen.width - 1, optionHeight);
-  renderer.drawText(UI_10_FONT_ID, screen.x + metrics.contentSidePadding, optionY, tr(STR_APPLY_NEARBY_POSITION),
-                    false);
-
-  if (mappedInput.hasTouch() && !sourceMode_) {
-    drawTouchActionButtons(renderer, screen, metrics, tr(STR_CONFIRM));
-  } else {
-    const auto labels = mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), tr(STR_SELECT), "", "");
-    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4, true);
-  }
+  const bool hasTouch = mappedInput.hasTouchHardware();
+  const auto actions = ProgressSyncComparison::actionLayout(renderer, screen, metrics, hasTouch, hasTouch ? 2 : 1);
+  const char* labels[] = {tr(STR_APPLY_NEARBY_POSITION), tr(STR_CANCEL)};
+  TouchActionButtons::draw(renderer, actions, labels, 0, hasTouch ? -1 : 0, UI_10_FONT_ID);
+  const auto hints = mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), tr(STR_SELECT), "", "");
+  GUI.drawButtonHints(renderer, hints.btn1, hints.btn2, hints.btn3, hints.btn4, true);
 }
-
-#endif

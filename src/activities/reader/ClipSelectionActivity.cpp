@@ -5,12 +5,14 @@
 #include <GfxRenderer.h>
 #include <I18n.h>
 #include <Logging.h>
+#include <MemoryBudget.h>
 
 #include <algorithm>
 #include <cstring>
 
 #include "ClipSelectionPaging.h"
 #include "MappedInputManager.h"
+#include "ReaderRuling.h"
 #include "ReaderUtils.h"
 #include "activities/ActivityResult.h"
 #include "clippings/ClipTextBuilder.h"
@@ -31,7 +33,7 @@ bool pageUsesButtonHintBand(GfxRenderer& renderer) {
   renderer.setOrientation(GfxRenderer::Portrait);
   const int screenWidth = renderer.getScreenWidth();
   const int screenHeight = renderer.getScreenHeight();
-  const int hintTop = std::max(0, screenHeight - UITheme::getInstance().getMetrics().buttonHintsHeight);
+  const int hintTop = std::max(0, screenHeight - UITheme::getButtonHintsReserve(renderer));
   const bool foregroundBlack = ReaderUtils::readerForegroundBlack();
   bool hasInk = false;
   for (int y = hintTop; y < screenHeight && !hasInk; ++y) {
@@ -95,7 +97,13 @@ void ClipSelectionActivity::onEnter() {
   if (hasDictionaryRequest) {
     if (!finishDictionarySelection()) {
       ActivityResult result;
-      result.isCancelled = true;
+      if (textBuildMemoryError) {
+        ClippingResult failure;
+        failure.memoryError = true;
+        result = ActivityResult{std::move(failure)};
+      } else {
+        result.isCancelled = true;
+      }
       setResult(std::move(result));
       finish();
     }
@@ -271,6 +279,16 @@ void ClipSelectionActivity::loop() {
     return;
   }
 
+  if (textBuildMemoryError) {
+    int x = 0, y = 0;
+    if (mappedInput.wasReleased(Button::Back) || mappedInput.wasReleased(Button::Confirm) ||
+        mappedInput.wasScreenTapped(x, y)) {
+      textBuildMemoryError = false;
+      requestUpdate();
+    }
+    return;
+  }
+
   const int total = static_cast<int>(readingOrderSize);
 
   auto moveCursor = [this](const int nextOrderIdx) {
@@ -291,7 +309,8 @@ void ClipSelectionActivity::loop() {
           touchDragHasMoved || ClipSelectionPaging::hasDraggedFrom(touchDragStartX, touchDragStartY, touchX, touchY);
       // Keep timing through a small capacitive-touch jitter margin around the
       // selected final word, but reset when the finger genuinely drags away.
-      const bool touchedWord = selectWordAtPoint(touchX, touchY);
+      const bool keepPageEnd = touchDragPageEndIdx == cursorIdx && isWithinCurrentPageEndDwellSlop(touchX, touchY);
+      const bool touchedWord = !keepPageEnd && selectWordAtPoint(touchX, touchY);
       // Releasing on the final word finishes there. Holding it for a moment
       // is the explicit intent to continue the clipping onto the next page.
       const int nextPageStart = ClipSelectionPaging::nextPageStartIndexForTouchDrag(
@@ -410,6 +429,15 @@ uint16_t ClipSelectionActivity::tableSelectionForRange(const int from, const int
   return first.tableSelection;
 }
 
+bool ClipSelectionActivity::hasTextBuildMemory(const int from, const int to, const uint16_t tableSelection) const {
+  const auto budget = ClipTextBuilder::allocationBudget(wordStore, readingOrder.data(), from, to, tableSelection);
+  const auto heap = MemoryBudget::snapshot();
+  if (budget.fits(heap.freeHeap, heap.maxAllocHeap)) return true;
+  LOG_ERR("CLIP", "Low heap assembling selection (%u free, %u largest; %u text)", heap.freeHeap, heap.maxAllocHeap,
+          static_cast<unsigned>(budget.textCapacity));
+  return false;
+}
+
 void ClipSelectionActivity::confirmSelection() {
   if (startMarkIdx == -1) {
     startMarkIdx = cursorIdx;
@@ -420,6 +448,11 @@ void ClipSelectionActivity::confirmSelection() {
   const int from = std::min(startMarkIdx, cursorIdx);
   const int to = std::max(startMarkIdx, cursorIdx);
   const uint16_t tableSelection = tableSelectionForRange(from, to);
+  if (!hasTextBuildMemory(from, to, tableSelection)) {
+    textBuildMemoryError = true;
+    requestUpdate();
+    return;
+  }
   auto result = ClipTextBuilder::build(wordStore, readingOrder.data(), from, to, startPageInSection, section.pageCount,
                                        nullptr, tableSelection);
   if (const auto paragraphIndex = section.getParagraphIndexForPage(result.sectionPage)) {
@@ -487,6 +520,10 @@ bool ClipSelectionActivity::finishDictionarySelection() {
       dictionaryRequest.firstPageOffset,     dictionaryRequest.firstPageWordOrdinal,
       dictionaryRequest.firstWordByteOffset, dictionaryRequest.lastPageOffset,
       dictionaryRequest.lastPageWordOrdinal, dictionaryRequest.lastWordByteEndOffset};
+  if (!hasTextBuildMemory(from, to)) {
+    textBuildMemoryError = true;
+    return false;
+  }
   auto result = ClipTextBuilder::build(wordStore, readingOrder.data(), from, to, startPageInSection, section.pageCount,
                                        &selectionBounds);
   if (const auto paragraphIndex = section.getParagraphIndexForPage(result.sectionPage)) {
@@ -516,6 +553,11 @@ void ClipSelectionActivity::render(RenderLock&&) {
   }
 
   drawHighlights();
+  if (textBuildMemoryError) {
+    GUI.drawPopup(renderer, tr(STR_MEMORY_ERROR));
+    renderer.displayBuffer();
+    return;
+  }
 
   const auto confirmLabel = startMarkIdx == -1 ? tr(STR_SELECT) : tr(STR_DONE);
   const auto labels =
@@ -544,9 +586,15 @@ bool ClipSelectionActivity::switchToPage(const int pageIdx) {
 
   if (page->hasImages()) {
     GfxRenderer::FrameBufferLoan loan(renderer);
-    page->prepareImageCaches();
+    page->prepareImageCaches(/*grayscale=*/false);
   }
 
+  const auto drawPage = [&]() {
+    renderer.clearScreen(ReaderUtils::readerBackgroundColor());
+    page->renderText(renderer, renderFontId, marginLeft, marginTop, ReaderUtils::readerForegroundBlack());
+    ReaderRuling::drawSelectionPage(renderer, *page, renderFontId, marginLeft, marginTop);
+    page->renderImages(renderer, renderFontId, marginLeft, marginTop, ReaderUtils::readerForegroundBlack(), false);
+  };
   if (auto* fcm = renderer.getFontCacheManager()) {
     bool renderWithFallback = false;
     {
@@ -556,20 +604,17 @@ bool ClipSelectionActivity::switchToPage(const int pageIdx) {
         useFallbackFont("page prewarm");
         renderWithFallback = true;
       } else {
-        renderer.clearScreen(ReaderUtils::readerBackgroundColor());
-        page->render(renderer, renderFontId, marginLeft, marginTop, ReaderUtils::readerForegroundBlack());
+        drawPage();
       }
     }
     if (renderWithFallback) {
       auto fallbackScope = fcm->createPrewarmScope();
       page->renderText(renderer, renderFontId, marginLeft, marginTop, ReaderUtils::readerForegroundBlack());
       fallbackScope.endScanAndPrewarm();
-      renderer.clearScreen(ReaderUtils::readerBackgroundColor());
-      page->render(renderer, renderFontId, marginLeft, marginTop, ReaderUtils::readerForegroundBlack());
+      drawPage();
     }
   } else {
-    renderer.clearScreen(ReaderUtils::readerBackgroundColor());
-    page->render(renderer, renderFontId, marginLeft, marginTop, ReaderUtils::readerForegroundBlack());
+    drawPage();
   }
 
   // The rendered page is now in the framebuffer, so its deserialized objects
@@ -581,26 +626,29 @@ bool ClipSelectionActivity::switchToPage(const int pageIdx) {
   return true;
 }
 
-void ClipSelectionActivity::applyWordStyle(const WordRef& word, const ClipWordStyle& style) const {
+ClippingHighlightGeometry::WordRect ClipSelectionActivity::wordHighlightRect(const WordRef& word) const {
   const auto textStyle = static_cast<EpdFontFamily::Style>(word.style & ~EpdFontFamily::UNDERLINE);
   const int skipX =
       hasEmSpace(wordStore.text(word)) ? renderer.getTextAdvanceX(renderFontId, "\xe2\x80\x83", textStyle) : 0;
-  const int drawX = word.x + skipX;
-  const int drawW = word.w - skipX;
-  if (drawW <= 0) return;
+  return {word.pageWordIndex, word.x + skipX, word.y, word.w - skipX, word.h};
+}
+
+void ClipSelectionActivity::applyHighlightStyle(const ClippingHighlightGeometry::WordRect& rect,
+                                                const ClipWordStyle& style) const {
+  if (rect.width <= 0) return;
   const bool fill = (style.flags & ClipWordStyle::FILL) != 0;
   if (fill) {
     // Build the highlight from the existing framebuffer instead of redrawing
     // the word, which avoids font-cache work on every selection step.
-    for (int y = word.y; y < word.y + word.h; y += 2) {
-      for (int x = drawX; x < drawX + drawW; x += 2) {
+    for (int y = rect.y; y < rect.y + rect.height; y += 2) {
+      for (int x = rect.x; x < rect.x + rect.width; x += 2) {
         renderer.drawPixel(x, y, true);
       }
     }
   }
 
   if ((style.flags & ClipWordStyle::BORDER) != 0) {
-    renderer.drawRect(drawX, word.y, drawW, word.h, true);
+    renderer.drawRect(rect.x, rect.y, rect.width, rect.height, true);
   }
 }
 
@@ -624,11 +672,29 @@ void ClipSelectionActivity::drawHighlights() {
     const int from = std::min(startMarkIdx, cursorIdx);
     const int to = std::max(startMarkIdx, cursorIdx);
     const uint16_t tableSelection = tableSelectionForRange(from, to);
+    ClippingHighlightGeometry::WordRect previousRect;
+    uint16_t previousTableSelection = UINT16_MAX;
+    bool hasPreviousRect = false;
     for (int i = from; i <= to; i++) {
       const WordRef& word = wordStore.words[readingOrder[i]];
       if (word.pageIdx == currentDisplayPage &&
           (tableSelection == UINT16_MAX || word.tableSelection == tableSelection)) {
-        applyWordStyle(word, selectionStyle);
+        const auto rect = wordHighlightRect(word);
+        ClippingHighlightGeometry::GapRect gap;
+        // Reading order can run backwards for RTL lines. Geometry expects
+        // ascending page-word indexes, and table cells must stay separate.
+        const auto& first = previousRect.pageWordIndex < rect.pageWordIndex ? previousRect : rect;
+        const auto& second = previousRect.pageWordIndex < rect.pageWordIndex ? rect : previousRect;
+        if (hasPreviousRect && previousTableSelection == word.tableSelection &&
+            ClippingHighlightGeometry::gapBetweenAdjacentWords(first, second, gap)) {
+          applyHighlightStyle({0, gap.x, gap.y, gap.width, gap.height}, selectionStyle);
+        }
+        applyHighlightStyle(rect, selectionStyle);
+        previousRect = rect;
+        previousTableSelection = word.tableSelection;
+        hasPreviousRect = rect.width > 0;
+      } else {
+        hasPreviousRect = false;
       }
     }
   }
@@ -637,7 +703,7 @@ void ClipSelectionActivity::drawHighlights() {
   if (cursorWord.pageIdx == currentDisplayPage) {
     // Before the first endpoint, the cursor supplies its own fill. Afterwards
     // selectionStyle has already filled it, so only add the active border.
-    applyWordStyle(cursorWord, startMarkIdx == -1 ? initialCursorStyle : selectedCursorStyle);
+    applyHighlightStyle(wordHighlightRect(cursorWord), startMarkIdx == -1 ? initialCursorStyle : selectedCursorStyle);
   }
 }
 

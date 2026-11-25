@@ -4,6 +4,7 @@
 #include <GfxRenderer.h>
 #include <HalClock.h>
 #include <HalGPIO.h>
+#include <HalScreenCalibration.h>
 #include <HalStorage.h>
 #include <Logging.h>
 #include <Memory.h>
@@ -15,6 +16,7 @@
 #include <string>
 #include <vector>
 
+#include "DeviceCapabilities.h"
 #include "MappedInputManager.h"
 #include "RecentBooksStore.h"
 #include "components/themes/BaseTheme.h"
@@ -24,12 +26,27 @@
 #include "components/themes/lyra/LyraTheme.h"
 #include "components/themes/minimal/MinimalTheme.h"
 #include "components/themes/roundedraff/RoundedRaffTheme.h"
+#include "fontIds.h"
 
 namespace {
 constexpr char kWidthPlaceholder[] = "[WIDTH]";
 constexpr char kHeightPlaceholder[] = "[HEIGHT]";
 constexpr size_t kWidthPlaceholderLength = sizeof(kWidthPlaceholder) - 1;
 constexpr size_t kHeightPlaceholderLength = sizeof(kHeightPlaceholder) - 1;
+
+int displayStatusBarHeightIncrease(const uint8_t textSize) {
+  // Built-in Inter advances are 20/25/30px. Enlarged lanes add the same 4px
+  // padding as reader lanes, compared with the existing 19px Small lane.
+  // Keep metric consumers independent of renderer initialization and reader size.
+  switch (textSize) {
+    case 1:
+      return 25 + 4 - 19;
+    case 2:
+      return 30 + 4 - 19;
+    default:
+      return 0;
+  }
+}
 
 int drawCenteredTextLines(const GfxRenderer& renderer, const Rect screen, const int fontId, int y,
                           const std::vector<std::string>& lines, const bool black, const EpdFontFamily::Style style,
@@ -60,6 +77,7 @@ UITheme UITheme::instance;
 UITheme::UITheme() : currentMetrics(&LyraMetrics::values), currentTheme(std::make_unique<LyraTheme>()) {
   // Static construction must not log or depend on cross-TU serial initialization;
   // main.cpp reloads the saved theme after setup.
+  rebuildMetricVariants();
 }
 
 void UITheme::reload() {
@@ -131,81 +149,91 @@ void UITheme::setTheme(CrossPointSettings::UI_THEME type) {
       currentMetrics = &BaseMetrics::values;
       break;
   }
-  metricsValid = false;
+  rebuildMetricVariants();
+}
+
+void UITheme::rebuildMetricVariants() {
+  for (size_t index = 0; index < metricVariants.size(); ++index) {
+    auto& metrics = metricVariants[index];
+    metrics = *currentMetrics;
+    if (index >= 3) metrics.buttonHintsHeight = 0;
+    const int increase = displayStatusBarHeightIncrease(index % 3);
+    metrics.batteryBarHeight += increase;
+    metrics.headerHeight += increase;
+    metrics.homeTopPadding += increase;
+  }
 }
 
 const ThemeMetrics& UITheme::getMetrics() const {
+  const uint8_t setting = SETTINGS.displayStatusBarTextSize;
+  const size_t size = setting < 3 ? setting : 0;
 #if CROSSINK_APP_CAP_TOUCH
-  // hasTouch() can flip once touch init completes after static construction, so the
-  // cached copy is refreshed when the flag differs instead of copying the struct per call.
-  const bool touch = gpio.hasTouch();
-  if (!metricsValid || touch != metricsForTouch) {
-    adjustedMetrics = *currentMetrics;
-    if (touch) {
-      adjustedMetrics.buttonHintsHeight = 0;
-    }
-    metricsForTouch = touch;
-    metricsValid = true;
-  }
+  // Touch initializes after static construction on some profiles. Both sets
+  // already exist, so this lookup never mutates a published metric object.
+  return metricVariants[size + (gpio.hasTouch() ? 3 : 0)];
 #else
-  if (!metricsValid) {
-    adjustedMetrics = *currentMetrics;
-    metricsValid = true;
-  }
+  return metricVariants[size];
 #endif
-  return adjustedMetrics;
 }
 
 int UITheme::getNumberOfItemsPerPage(const GfxRenderer& renderer, bool hasHeader, bool hasTabBar, bool hasButtonHints,
                                      bool hasSubtitle, int extraReservedHeight) {
   const ThemeMetrics& metrics = UITheme::getInstance().getMetrics();
-  auto orientation = renderer.getOrientation();
-  int reservedHeight = metrics.topPadding;
+  const auto safe = getInstance().getScreenSafeArea(renderer, hasButtonHints, false);
+  int contentTop = std::max(safe.y, static_cast<int>(metrics.topPadding));
   if (hasHeader) {
-    reservedHeight += metrics.headerHeight + metrics.verticalSpacing;
+    const auto header = getHeaderRect(renderer, metrics.headerHeight, safe);
+    contentTop = header.y + header.height + metrics.verticalSpacing;
   }
-  if (hasTabBar) {
-    reservedHeight += metrics.tabBarHeight;
-  }
-  if (hasButtonHints && orientation != GfxRenderer::Orientation::LandscapeClockwise &&
-      orientation != GfxRenderer::Orientation::LandscapeCounterClockwise) {
-    reservedHeight += metrics.verticalSpacing + metrics.buttonHintsHeight;
-  }
-  const int availableHeight = renderer.getScreenHeight() - reservedHeight - extraReservedHeight;
+  if (hasTabBar) contentTop += metrics.tabBarHeight;
+  const int availableHeight = std::max(0, safe.y + safe.height - contentTop - extraReservedHeight);
   return UITheme::getInstance().getTheme().getListPageItems(availableHeight, hasSubtitle);
 }
 
 // Screen area excluding the button hints
 Rect UITheme::getScreenSafeArea(const GfxRenderer& renderer, bool hasFrontButtonHints, bool hasSideButtonHints) {
-  (void)hasSideButtonHints;
   auto orientation = renderer.getOrientation();
   const int screenWidth = renderer.getScreenWidth();
   const int screenHeight = renderer.getScreenHeight();
   Rect safeArea = Rect{0, 0, screenWidth, screenHeight};
+  const int hintReserve = getButtonHintsReserve(renderer);
   switch (orientation) {
     case GfxRenderer::Orientation::Portrait:
       if (hasFrontButtonHints) {
-        safeArea.height -= currentMetrics->buttonHintsHeight;
+        safeArea.height -= hintReserve;
       }
       break;
     case GfxRenderer::Orientation::LandscapeClockwise:
       if (hasFrontButtonHints) {
-        safeArea.x += currentMetrics->buttonHintsHeight;
-        safeArea.width -= currentMetrics->buttonHintsHeight;
+        safeArea.x += hintReserve;
+        safeArea.width -= hintReserve;
       }
       break;
     case GfxRenderer::Orientation::PortraitInverted:
       if (hasFrontButtonHints) {
-        safeArea.y += currentMetrics->buttonHintsHeight;
-        safeArea.height -= currentMetrics->buttonHintsHeight;
+        safeArea.y += hintReserve;
+        safeArea.height -= hintReserve;
       }
       break;
     case GfxRenderer::Orientation::LandscapeCounterClockwise:
       if (hasFrontButtonHints) {
-        safeArea.width -= currentMetrics->buttonHintsHeight;
+        safeArea.width -= hintReserve;
       }
       break;
   }
+  int top, right, bottom, left;
+  renderer.getOrientedViewableTRBL(&top, &right, &bottom, &left);
+  // Touch capability is fixed per build; the shared layout covers both targets.
+  // cppcheck-suppress knownConditionTrueFalse
+  if (hasSideButtonHints && !gpio.hasTouch()) {
+    if (deviceHasEdgeSideButtons(gpio)) left += getMetrics().sideButtonHintsWidth;
+    right += getMetrics().sideButtonHintsWidth;
+  }
+  const int x = std::max(safeArea.x, left);
+  const int y = std::max(safeArea.y, top);
+  const int endX = std::min(safeArea.x + safeArea.width, screenWidth - right);
+  const int endY = std::min(safeArea.y + safeArea.height, screenHeight - bottom);
+  safeArea = Rect{x, y, std::max(0, endX - x), std::max(0, endY - y)};
   return safeArea;
 }
 
@@ -278,16 +306,61 @@ UIIcon UITheme::getFileIcon(const std::string& filename) {
   return File;
 }
 
-int UITheme::getStatusBarHeight() { return getReaderStatusBarHeight(ReaderStatusBarPosition::Bottom); }
+int UITheme::getDisplayStatusBarFontId() {
+  switch (SETTINGS.displayStatusBarTextSize) {
+    case 1:
+      return UI_10_FONT_ID;
+    case 2:
+      return UI_12_FONT_ID;
+    default:
+      return SMALL_FONT_ID;
+  }
+}
 
-int UITheme::getReaderStatusBarHeight(const ReaderStatusBarPosition position) {
+int UITheme::getDisplayStatusBarHeightIncrease() {
+  return displayStatusBarHeightIncrease(SETTINGS.displayStatusBarTextSize);
+}
+
+int UITheme::getDisplayStatusBarTextHeight(const GfxRenderer& renderer) {
+  const int baseline = getInstance().getMetrics().statusBarVerticalMargin;
+  const int fontId = getDisplayStatusBarFontId();
+  return fontId == SMALL_FONT_ID ? baseline : std::max(baseline, renderer.getLineHeight(fontId) + 4);
+}
+
+int UITheme::getReaderStatusBarFontId() {
+  switch (SETTINGS.statusBarTextSize) {
+    case 1:
+      return UI_10_FONT_ID;
+    case 2:
+      return UI_12_FONT_ID;
+    default:
+      return SMALL_FONT_ID;
+  }
+}
+
+int UITheme::getReaderStatusBarTextHeight(const GfxRenderer& renderer) {
+  const int defaultHeight = getInstance().getMetrics().statusBarVerticalMargin;
+  const int fontId = getReaderStatusBarFontId();
+  if (fontId == SMALL_FONT_ID) return defaultHeight;
+  // Include ascenders and descenders, with room to center the line in the bar.
+  constexpr int textPadding = 4;
+  return std::max(defaultHeight, renderer.getLineHeight(fontId) + textPadding);
+}
+
+int UITheme::getStatusBarHeight(const GfxRenderer& renderer) {
+  return getReaderStatusBarHeight(ReaderStatusBarPosition::Bottom, renderer);
+}
+
+int UITheme::getReaderStatusBarHeight(const ReaderStatusBarPosition position, const GfxRenderer& renderer,
+                                      const ReaderStatusBarConfig* overrideConfig) {
   const ThemeMetrics& metrics = UITheme::getInstance().getMetrics();
-  const auto config = SETTINGS.readerStatusBar(position);
+  const auto config = overrideConfig ? *overrideConfig : SETTINGS.readerStatusBar(position);
+  if (config.hidden) return 0;
   const bool hasText = config.hasTextItems(halClock.isAvailable());
   const int progressSpace = config.progressBar != CrossPointSettings::HIDE_PROGRESS
                                 ? static_cast<int>((config.progressBarThickness + 1) * 2) + metrics.progressBarMarginTop
                                 : 0;
-  return readerStatusBarTotalHeight(position, hasText, progressSpace, metrics.statusBarVerticalMargin);
+  return readerStatusBarTotalHeight(position, hasText, progressSpace, getReaderStatusBarTextHeight(renderer));
 }
 
 int UITheme::getProgressBarHeight() { return getReaderProgressBarHeight(ReaderStatusBarPosition::Bottom); }
@@ -295,13 +368,49 @@ int UITheme::getProgressBarHeight() { return getReaderProgressBarHeight(ReaderSt
 int UITheme::getReaderProgressBarHeight(const ReaderStatusBarPosition position) {
   const ThemeMetrics& metrics = UITheme::getInstance().getMetrics();
   const auto config = SETTINGS.readerStatusBar(position);
-  return config.progressBar != CrossPointSettings::HIDE_PROGRESS
+  return !config.hidden && config.progressBar != CrossPointSettings::HIDE_PROGRESS
              ? static_cast<int>((config.progressBarThickness + 1) * 2) + metrics.progressBarMarginTop
              : 0;
 }
 
+int UITheme::getButtonHintsBottomInset(const GfxRenderer& renderer) { return renderer.getViewableInsets().edges[2]; }
+
+int UITheme::getButtonHintsReserve(const GfxRenderer& renderer) {
+  const int height = getInstance().getMetrics().buttonHintsHeight;
+  return height > 0 ? height + getButtonHintsBottomInset(renderer) : 0;
+}
+
+int UITheme::getHintSafeX(const GfxRenderer& renderer, const int x, const int width) {
+  const auto edges = renderer.getViewableInsets().rotated(static_cast<unsigned>(renderer.getOrientation())).edges;
+  return std::clamp(x, static_cast<int>(edges[3]),
+                    std::max(static_cast<int>(edges[3]), renderer.getScreenWidth() - edges[1] - width));
+}
+
 int UITheme::getTopStatusBarY(const GfxRenderer& renderer) {
-  return getInstance().getMetrics().topPadding + getTopStatusBarInset(renderer);
+  const int legacyY = getInstance().getMetrics().topPadding + getTopStatusBarInset(renderer);
+  return HalScreenCalibration::panelLayout().topStatusBarY(renderer.getViewableInsets(),
+                                                           static_cast<unsigned>(renderer.getOrientation()), legacyY);
+}
+
+Rect UITheme::getHeaderRect(const GfxRenderer& renderer, const int height) {
+  const auto insets = renderer.getViewableInsets().rotated(static_cast<unsigned>(renderer.getOrientation()));
+  // drawDisplayStatusBar adds the existing board offset exactly once.
+  const int y =
+      std::max(static_cast<int>(insets.edges[0]), getTopStatusBarY(renderer) - getTopStatusBarInset(renderer));
+  const auto panel = HalScreenCalibration::panelLayout();
+  const auto corners = renderer.getViewableInsets().corners(static_cast<unsigned>(renderer.getOrientation()));
+  const int left = std::max<int>(insets.edges[3], corners[0]);
+  const int right = std::max<int>(insets.edges[1], corners[1]);
+  return Rect{left, y + panel.headerOffsetY, renderer.getScreenWidth() - left - right, height};
+}
+
+Rect UITheme::getHeaderRect(const GfxRenderer& renderer, const int height, const Rect& area) {
+  auto header = getHeaderRect(renderer, height);
+  const int right = std::min(header.x + header.width, area.x + area.width);
+  header.x = std::max(header.x, area.x);
+  header.width = std::max(0, right - header.x);
+  header.y = std::max(header.y, area.y);
+  return header;
 }
 
 int UITheme::getTopStatusBarInset(const GfxRenderer& renderer) {
@@ -317,14 +426,41 @@ int UITheme::getTopStatusBarInset(const GfxRenderer& renderer) {
   return renderer.getOrientation() == GfxRenderer::Orientation::Portrait ? 5 : 0;
 #endif
 
-  return 0;
+  return HalScreenCalibration::panelLayout().statusBarOffsetY;
 }
 
 // Centered text implementation that takes the safe area into account
 void UITheme::drawCenteredText(const GfxRenderer& renderer, Rect screen, int fontId, int y, const char* text,
                                bool black, EpdFontFamily::Style style) {
-  const int x = screen.x + (screen.width - renderer.getTextWidth(fontId, text, style)) / 2;
+  const int width = renderer.getTextWidth(fontId, text, style);
+  if (width > screen.width) {
+    const auto visible = renderer.truncatedText(fontId, text, screen.width, style);
+    const int x = screen.x + (screen.width - renderer.getTextWidth(fontId, visible.c_str(), style)) / 2;
+    renderer.drawText(fontId, x, y, visible.c_str(), black, style);
+    return;
+  }
+  const int x = screen.x + (screen.width - width) / 2;
   renderer.drawText(fontId, x, y, text, black, style);
+}
+
+int UITheme::drawCenteredStatusRow(const GfxRenderer& renderer, const Rect screen, const int fontId, const int y,
+                                   const char* label, const char* value) {
+  const int labelWidth = renderer.getTextWidth(fontId, label, EpdFontFamily::BOLD);
+  const int separatorWidth = renderer.getTextWidth(fontId, ":", EpdFontFamily::BOLD) + renderer.getSpaceWidth(fontId);
+  const int width = labelWidth + separatorWidth + renderer.getTextWidth(fontId, value);
+  if (width > screen.width) {
+    // Long translations still keep this result separate from the next status.
+    const int labelHeight =
+        drawCenteredWrappedText(renderer, screen, fontId, y, label, 2, true, EpdFontFamily::BOLD, 4);
+    return labelHeight + 4 +
+           drawCenteredWrappedText(renderer, screen, fontId, y + labelHeight + 4, value, 2, true,
+                                   EpdFontFamily::REGULAR, 4);
+  }
+  const int x = screen.x + (screen.width - width) / 2;
+  renderer.drawText(fontId, x, y, label, true, EpdFontFamily::BOLD);
+  renderer.drawText(fontId, x + labelWidth, y, ":", true, EpdFontFamily::BOLD);
+  renderer.drawText(fontId, x + labelWidth + separatorWidth, y, value);
+  return renderer.getLineHeight(fontId);
 }
 
 int UITheme::drawCenteredWrappedText(const GfxRenderer& renderer, const Rect screen, const int fontId, int y,

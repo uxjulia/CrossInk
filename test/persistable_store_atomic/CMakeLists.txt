@@ -1,6 +1,7 @@
 add_executable(PersistableStoreAtomicTest
   PersistableStoreAtomicTest.cpp
   ${REPO_ROOT}/lib/Serialization/PersistableStore.cpp
+  ${REPO_ROOT}/lib/Serialization/AtomicFile.cpp
 )
 
 target_include_directories(PersistableStoreAtomicTest PRIVATE
@@ -20,6 +21,7 @@ add_executable(CrossPointStateTest
   CrossPointStateTest.cpp
   ${REPO_ROOT}/src/CrossPointState.cpp
   ${REPO_ROOT}/lib/Serialization/PersistableStore.cpp
+  ${REPO_ROOT}/lib/Serialization/AtomicFile.cpp
   ${REPO_ROOT}/lib/uzlib/src/uzlib_checksums.c
 )
 target_include_directories(CrossPointStateTest PRIVATE

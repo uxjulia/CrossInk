@@ -2,6 +2,11 @@ name: Compile Release Candidate
 
 on:
   workflow_dispatch:
+    inputs:
+      source_commit:
+        description: "Optional full firmware source SHA for a workflow-only rebuild"
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -10,6 +15,9 @@ jobs:
   build-release-candidate:
     if: startsWith(github.ref_name, 'release/')
     runs-on: ubuntu-latest
+    # Every matrix member builds the same source and computes the same tag.
+    outputs:
+      rc_tag: ${{ steps.metadata.outputs.rc_tag }}
     strategy:
       fail-fast: false
       matrix:
@@ -22,61 +30,54 @@ jobs:
             firmware: firmware-x4-pro
           - environment: x4-classic
             firmware: firmware-x4-classic
+          - environment: picco
+            firmware: firmware-picco
+          - environment: eego_a4
+            firmware: firmware-eego_a4
     env:
       RC_BRANCH: ${{ github.ref_name }}
-      RC_HASH: ${{ github.sha }}
+      RC_HASH: ${{ inputs.source_commit || github.sha }}
     steps:
       - uses: actions/checkout@v6
         with:
+          ref: ${{ inputs.source_commit || github.sha }}
           submodules: recursive
 
-      - uses: actions/setup-python@v6
+      # Resolve the action from this workflow's commit, even for older firmware sources.
+      - uses: $/.github/actions/setup-platformio
         with:
-          python-version: "3.14"
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v7
-        with:
-          version: "latest"
-          enable-cache: true
-
-      - name: Cache PlatformIO packages
-        uses: actions/cache@v4
-        with:
-          # Do not cache PlatformIO's Python virtual environment. It is tied to
-          # the runner's Python and can become invalid when restored elsewhere.
-          path: |
-            ~/.platformio/packages
-            ~/.platformio/platforms
-          key: ${{ runner.os }}-platformio-py3.14-core6.1.19-${{ matrix.environment }}-${{ hashFiles('platformio.ini', 'platformio.local.example.ini') }}
-
-      - name: Install PlatformIO Core
-        run: uv pip install --system -U https://github.com/pioarduino/platformio-core/archive/refs/tags/v6.1.19.zip
+          cache-scope: ${{ matrix.environment }}
 
       - name: Resolve release-candidate metadata
+        id: metadata
         shell: bash
         run: |
+          [[ "$RC_HASH" =~ ^[0-9a-f]{40}$ && "$(git rev-parse HEAD)" == "$RC_HASH" ]] || {
+            echo "Firmware checkout must match the exact source commit"
+            exit 1
+          }
           branch_without_prefix="${RC_BRANCH#release/}"
           branch_safe=$(printf '%s\n' "$branch_without_prefix" | sed -E 's/[^A-Za-z0-9._-]+/-/g; s/^-+//; s/-+$//')
           hash_short="${RC_HASH::7}"
           rc_tag="rc-${branch_safe}-${hash_short}"
+          echo "rc_tag=$rc_tag" >> "$GITHUB_OUTPUT"
           echo "RC_BRANCH_RAW=$branch_without_prefix" >> "$GITHUB_ENV"
           echo "RC_BRANCH_SAFE=$branch_safe" >> "$GITHUB_ENV"
           echo "RC_HASH_SHORT=$hash_short" >> "$GITHUB_ENV"
           echo "RC_TAG=$rc_tag" >> "$GITHUB_ENV"
-          echo "VERSION=${branch_safe}-RC" >> "$GITHUB_ENV"
 
       - name: Set version from branch
         shell: bash
         run: |
-          VERSION="${RC_BRANCH_RAW}-RC"
-          escaped_version=$(printf '%s\n' "$VERSION" | sed 's/[&|]/\\&/g')
-          sed -i "/^\[crossink\]$/,/^\[/s|^version = .*|version = ${escaped_version}|" platformio.ini
+          # Use the ignored PlatformIO override so About reports the checkout's Git state.
+          printf '[crossink]\nversion = %s-RC\n' "$RC_BRANCH_RAW" > platformio.local.ini
 
       - name: Build CrossInk
         shell: bash
         env:
           CROSSINK_RELEASE_VERSION: "1"
+          CROSSINK_ASSET_BASE_URL: ${{ vars.CROSSINK_ASSET_BASE_URL }}
+          CROSSINK_FONT_BASE_URL: ${{ vars.CROSSINK_FONT_BASE_URL }}
           CROSSINK_RC_BRANCH: ${{ env.RC_BRANCH_RAW }}
           CROSSINK_RC_HASH: ${{ env.RC_HASH_SHORT }}
         run: pio run -j1 -e ${{ matrix.environment }}
@@ -88,17 +89,56 @@ jobs:
           path: .pio/build/${{ matrix.environment }}/${{ matrix.firmware }}-${{ env.RC_BRANCH_SAFE }}-${{ env.RC_HASH_SHORT }}-RC.bin
           if-no-files-found: error
 
+      - name: Upload matching symbols and configuration
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-candidate-symbols-${{ matrix.environment }}
+          path: |
+            .pio/build/${{ matrix.environment }}/firmware.elf
+            .pio/build/${{ matrix.environment }}/firmware.map
+            sdkconfig.${{ matrix.environment }}
+          if-no-files-found: error
+
+  prepare-language-assets:
+    needs: build-release-candidate
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      RELEASE_TAG: ${{ needs.build-release-candidate.outputs.rc_tag }}
+      SOURCE_COMMIT: ${{ inputs.source_commit || github.sha }}
+      GH_TOKEN: ${{ secrets.RELEASE_PAT }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.source_commit || github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Prepare and wait for release downloads
+        run: python3 scripts/prepare_release_downloads.py --tag "$RELEASE_TAG" --source-commit "$SOURCE_COMMIT"
+
   publish-release-candidate:
     if: startsWith(github.ref_name, 'release/')
-    needs: build-release-candidate
+    needs:
+      - build-release-candidate
+      - prepare-language-assets
     runs-on: ubuntu-latest
     env:
       RC_BRANCH: ${{ github.ref_name }}
-      RC_HASH: ${{ github.sha }}
+      RC_HASH: ${{ inputs.source_commit || github.sha }}
     steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.source_commit || github.sha }}
+
       - name: Resolve release-candidate metadata
         shell: bash
         run: |
+          [[ "$RC_HASH" =~ ^[0-9a-f]{40}$ && "$(git rev-parse HEAD)" == "$RC_HASH" ]] || {
+            echo "Firmware checkout must match the exact source commit"
+            exit 1
+          }
           branch_without_prefix="${RC_BRANCH#release/}"
           branch_safe=$(printf '%s\n' "$branch_without_prefix" | sed -E 's/[^A-Za-z0-9._-]+/-/g; s/^-+//; s/-+$//')
           hash_short="${RC_HASH::7}"
@@ -115,19 +155,32 @@ jobs:
           merge-multiple: true
           path: release-candidate-firmware
 
+      - name: Package SD language files
+        run: |
+          python3 scripts/package_languages.py \
+            --version "${{ env.RC_TAG }}" \
+            --source-commit "$RC_HASH" --status release-build \
+            --output "release-candidate-firmware/crossink-languages-${{ env.RC_TAG }}.zip" \
+            --template-output-dir "release-candidate-firmware/language-template"
+
       - name: Create GitHub RC Prerelease
         uses: softprops/action-gh-release@v3
         with:
           token: ${{ secrets.RELEASE_PAT }}
           tag_name: ${{ env.RC_TAG }}
-          target_commitish: ${{ github.sha }}
+          target_commitish: ${{ inputs.source_commit || github.sha }}
           name: RC ${{ env.RC_BRANCH_SAFE }} ${{ env.RC_HASH_SHORT }}
           body: |
             Draft release candidate build from `release/${{ env.RC_BRANCH_RAW }}` at `${{ env.RC_HASH_SHORT }}`.
           draft: true
           prerelease: true
           files: |
+            release-candidate-firmware/crossink-languages-${{ env.RC_TAG }}.zip
+            release-candidate-firmware/language-template/english_template.yaml
+            release-candidate-firmware/language-template/language-template.json
             release-candidate-firmware/firmware-x3-x4-${{ env.RC_BRANCH_SAFE }}-${{ env.RC_HASH_SHORT }}-RC.bin
             release-candidate-firmware/firmware-sticky-${{ env.RC_BRANCH_SAFE }}-${{ env.RC_HASH_SHORT }}-RC.bin
             release-candidate-firmware/firmware-x4-pro-${{ env.RC_BRANCH_SAFE }}-${{ env.RC_HASH_SHORT }}-RC.bin
             release-candidate-firmware/firmware-x4-classic-${{ env.RC_BRANCH_SAFE }}-${{ env.RC_HASH_SHORT }}-RC.bin
+            release-candidate-firmware/firmware-picco-${{ env.RC_BRANCH_SAFE }}-${{ env.RC_HASH_SHORT }}-RC.bin
+            release-candidate-firmware/firmware-eego_a4-${{ env.RC_BRANCH_SAFE }}-${{ env.RC_HASH_SHORT }}-RC.bin

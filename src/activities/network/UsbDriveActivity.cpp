@@ -6,13 +6,14 @@
 #include <LibraryBuilder.h>
 #include <SdCardFontSystem.h>
 
+#include "FilenameFontSystem.h"
 #include "MappedInputManager.h"
 #include "SilentRestart.h"
+#include "activities/boot_sleep/ImageFolderIndex.h"
 #include "components/CompactHeader.h"
 #include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
-#include "platform/UsbSerialJtagHandoff.h"
 
 void UsbDriveActivity::onEnter() {
   Activity::onEnter();
@@ -21,18 +22,23 @@ void UsbDriveActivity::onEnter() {
   startFailed = false;
   restartRequested = false;
   forcedDisconnectRequested = false;
-  hostSuspendPending = false;
   hostWaitStartedAt = 0;
   startFailureStartedAt = 0;
   forcedDisconnectRequestedAt = 0;
-  hostSuspendStartedAt = 0;
 
   // Paint the instruction screen before detaching the filesystem and exposing
   // its block device to the host. The two operations must never overlap.
   requestUpdateAndWait();
+  {
+    RenderLock lock(*this);
+    filenameFontSystem.suspend(renderer);
+  }
 #ifndef SIMULATOR
   // The host can replace fonts without going through firmware file APIs.
   sdFontSystem.markRegistryDirty();
+  // Invalidate while FAT is still mounted. USB writes bypass firmware hooks,
+  // and endUsbDrive() leaves the filesystem detached until the reboot.
+  ImageFolderIndex::invalidate();
   if (!Storage.beginUsbDrive()) {
     LOG_ERR("USB", "Unable to start USB Drive");
     preparing = false;
@@ -55,6 +61,7 @@ void UsbDriveActivity::onExit() {
 #ifndef SIMULATOR
   if (!restartRequested) Storage.endUsbDrive();
 #endif
+  filenameFontSystem.resume();
   Activity::onExit();
 }
 
@@ -71,23 +78,8 @@ void UsbDriveActivity::loop() {
   }
 #endif
 
-// The simulator HAL does not expose TinyUSB's host-suspend signal.
-#if !defined(SIMULATOR)
-  // Cable removal can leave a battery-powered USB device mounted but
-  // suspended. A sleeping host intentionally follows the same timeout policy.
-  if ((state == State::Connected || state == State::Accessed) && Storage.usbDriveHostSuspended()) {
-    if (!hostSuspendPending) {
-      hostSuspendPending = true;
-      hostSuspendStartedAt = millis();
-    } else if (millis() - hostSuspendStartedAt >= HOST_SUSPEND_TIMEOUT_MS) {
-      LOG_INF("USB", "USB Drive host suspend timed out; ending session");
-      restartToHome();
-      return;
-    }
-  } else {
-    hostSuspendPending = false;
-  }
-#endif
+  // USB suspend also occurs while a computer sleeps with the card mounted.
+  // Keep ownership with that host until eject or a confirmed disconnect.
 
   if (state == State::WaitingForHost && millis() - hostWaitStartedAt >= HOST_WAIT_TIMEOUT_MS) {
     LOG_INF("USB", "USB Drive host wait timed out");
@@ -103,7 +95,7 @@ void UsbDriveActivity::loop() {
 
   if (forcedDisconnectRequested) {
     if (millis() - forcedDisconnectRequestedAt >= FORCED_DISCONNECT_TIMEOUT_MS) {
-      LOG_ERR("USB", "USB Drive host disconnect grace period ended; forcing restart");
+      LOG_ERR("USB", "USB Drive host disconnect grace period ended; draining storage");
       restartToHome();
     }
     return;
@@ -178,9 +170,10 @@ void UsbDriveActivity::render(RenderLock&&) {
 
 void UsbDriveActivity::renderMessage(const char* message, const char* detail) const {
   const auto& metrics = UITheme::getInstance().getMetrics();
-  const Rect textArea{metrics.contentSidePadding, 0, renderer.getScreenWidth() - metrics.contentSidePadding * 2,
-                      renderer.getScreenHeight()};
-  int y = renderer.getScreenHeight() / 2 - renderer.getLineHeight(UI_10_FONT_ID);
+  const auto safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
+  const Rect textArea{safe.x + metrics.contentSidePadding, safe.y, safe.width - metrics.contentSidePadding * 2,
+                      safe.height};
+  int y = safe.y + safe.height / 2 - renderer.getLineHeight(UI_10_FONT_ID);
   y += UITheme::drawCenteredWrappedText(renderer, textArea, UI_10_FONT_ID, y, message, 2, true, EpdFontFamily::BOLD);
   if (detail) {
     y += metrics.verticalSpacing;
@@ -192,13 +185,25 @@ void UsbDriveActivity::restartToHome() {
   if (restartRequested) return;
   restartRequested = true;
 #ifndef SIMULATOR
-  Storage.endUsbDrive();
+  if (startFailed && Storage.ready()) {
+    // A failed pre-handoff flush still belongs to the firmware. Keep that
+    // mount alive and leave normally instead of resetting around the failure.
+    activityManager.goHome();
+    return;
+  }
+  if (!Storage.endUsbDrive()) {
+    LOG_ERR("USB", "USB Drive flush failed; retaining storage for retry");
+    restartRequested = false;
+    forcedDisconnectRequestedAt = millis();
+    state = State::IoError;
+    requestUpdate();
+    return;
+  }
 #endif
 #ifdef SIMULATOR
   activityManager.goHome();
 #else
   delay(20);
-  handoffUsbOtgToSerialJtag();
   restartToHomeAfterStorageHandoff();
 #endif
 }

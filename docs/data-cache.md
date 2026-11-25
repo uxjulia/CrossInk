@@ -5,134 +5,71 @@ nav_order: 16
 
 # Data Cache
 
-CrossInk caches data aggressively on the SD card to minimize RAM use. The ESP32-C3 has about 380 KB of usable RAM, so rebuilding every book structure in memory on every open would be too expensive.
+A cache is a saved copy of work the reader has already done, so it does not have to repeat it. When you open a book for the first time, CrossInk works out where every page break goes and saves the result on the SD card. The next time, the book opens much faster.
 
-The main data directory is `.crosspoint` on the SD card. It stores render caches and persistent user/device data.
-
-## Directory Layout
-
-```text
-.crosspoint/
-├── global_stats.bin        # All-time reading stats, including total books read
-├── global_stats.bin.bak    # Backup used if the main global stats file is corrupt
-├── synced_stats/           # Stats snapshots received from other readers
-├── crossink-settings.json  # CrossInk device settings
-├── settings.json           # Legacy settings fallback, if present
-├── settings.bin.bak        # Legacy binary settings file after migration, if present
-├── state.json              # Last-opened book and sleep/session state
-├── state.bin.bak           # Legacy binary state file after migration, if present
-├── recent.json             # Reading history for Home and Library
-├── library.idx             # Library titles, authors, paths and sort indexes
-├── library.meta            # Library EPUB metadata cache: slot table
-├── library.metd            # Library EPUB metadata cache: parsed metadata records
-├── recent.bin.bak          # Legacy binary recent-books file after migration, if present
-├── wifi.json               # Saved Wi-Fi networks
-├── opds.json               # Saved OPDS servers
-├── koreader.json           # KOReader sync credentials
-├── bookmarks/              # Bookmark files, one per book
-├── clippings/              # EPUB clipping/highlight files, one per book
-├── home_carousel_cache_<index>.bin # Lyra Carousel artwork cache for each book position
-├── sleep_frame.bin         # Temporary sleep overlay framebuffer, when used
-├── epub_12471232/          # Each EPUB is cached to epub_<hash>
-│   ├── progress.bin        # Reading position (chapter, page, etc.)
-│   ├── stats.bin           # Legacy per-book reading stats
-│   ├── stats_v5.bin        # Version 5 per-book reading stats
-│   ├── reading_stats_off   # Present when stats tracking is disabled for this book
-│   ├── reader_settings.bin # Per-book reader settings, render mode, and auto-page-turn interval
-│   ├── cover.bmp           # Book cover image, once generated
-│   ├── cover_absolute.bmp  # Four-tone image-mode cover (generated separately)
-│   ├── cover_crop_absolute.bmp # Cropped four-tone image-mode cover
-│   ├── thumb_*.bmp         # Home/recent-books thumbnail images
-│   ├── book.bin            # Book metadata, spine, table of contents, etc.
-│   ├── css_rules.cache     # Parsed CSS rules
-│   └── sections/           # Pre-rendered chapter/page layout data
-│       ├── 0.bin
-│       ├── 1.bin
-│       └── ...
-├── xtc_12471232/           # XTC progress and generated cover/thumb images
-└── txt_12471232/           # TXT progress, page index, and generated cover image
-```
-
-Four-tone sleep covers use separate `_absolute.bmp` files so older cover shading is not reused. These are generated on demand for supported displays; TXT/Markdown JPG covers also use a separate `cover_absolute.bmp`. Existing cover and thumbnail caches remain available, and no manual cache reset is needed.
+Everything is kept in a hidden folder called `.crosspoint` on the SD card. It holds the caches and also your personal data: settings, reading progress, bookmarks, clippings, reading stats, and saved Wi-Fi networks. CrossInk does not change the contents of your book files.
 
 ## Clearing Cache Data
 
-Deleting the entire `.crosspoint` directory resets caches, settings, saved network/server data, bookmarks, recent books, reading progress, and reading stats.
+Deleting the whole `.crosspoint` folder resets everything in it: caches, settings, saved Wi-Fi and server details, bookmarks, recently opened books, reading progress, and reading stats. Only do this if you want a completely fresh start.
 
-To clear EPUB/XTC render caches from the device UI without deleting settings or global stats, use:
+If a book looks wrong after an update, or you want to free up space, you can clear just the book caches without touching your settings or all-time stats:
 
 **Settings > System > Files & Cache > Clear Reading Cache**
 
-## Book Moves And Cache Identity
+Books are laid out again the next time you open them, so the first open is slower.
 
-Cache folders are path-based. Moving a book file can create a new cache directory, so the moved copy may start with fresh reading progress unless the firmware migrates the cache for that move. CrossInk migrates cache and bookmark data for the built-in move-to-Read flow and related file-browser move actions.
+## Moving books
 
-EPUB reader font, page layout, styling, and reading-aid settings normally come from the global Reader settings. Changes made inside an EPUB override only the fields whose values differ from the global defaults; the other fields continue to inherit later global changes. EPUB render mode is stored separately per book so a problematic title can be switched to Balanced or Light rendering from the File Browser or Library long-press menus before opening it. Older full-snapshot book overrides retain their original behavior until reset or edited again.
+Each book's cache is tied to the book's location on the SD card. If you move or rename a book on a computer, CrossInk sees it as a new book and it may start with fresh reading progress. Moving a book inside CrossInk (for example, to the Read folder or with the File Browser move actions) keeps its cache and bookmarks.
 
-EPUB clippings and highlights live outside the EPUB render-cache folder in
-`/.crosspoint/clippings/`. Each book gets a binary clipping file named from the
-book type and the CRC32 of the book path. The same clipping record powers the
-in-reader highlight, the clipping list, and jump-back behavior. CrossInk also
-appends a Kindle-style text export to `/My Clippings.txt` on the SD-card root;
-that export is human-readable and append-only, so deleting a clipping in the UI
-removes the in-app saved clipping but does not rewrite old text already exported
-to `/My Clippings.txt`.
+Reader settings such as font, layout, and reading aids normally come from the global Reader settings. If you change a setting while reading a book, only that setting is saved for that book. Every other setting still follows your global choices. A book's render mode is also saved per book, so a troublesome book can be switched to Balanced or Light rendering from the File Browser or Library long-press menu before you open it.
 
-Cache data is cleared by supported CrossInk delete/move flows. If you remove or rename books outside CrossInk by editing the SD card directly, old cache folders may remain until you clear reading cache.
+Clippings (highlights) are saved separately from the book cache, in `/.crosspoint/clippings/`, so clearing the reading cache does not remove them. CrossInk also adds each clipping to a readable text file, `/My Clippings.txt`, in the top folder of the SD card. That file only ever grows. If you delete a clipping on the reader, it is removed from the reader but stays in `/My Clippings.txt` until you edit that file yourself.
 
-All-time reading stats can also be backed up outside `.crosspoint` in:
+Deleting a book inside CrossInk also removes its cache. If you delete books from a computer, their old cache folders stay behind until you run **Clear Reading Cache**.
+
+Backups of your all-time reading stats are kept outside `.crosspoint`, in:
 
 ```text
 /.crossink-stats-backup/
 ```
 
-For binary file layout details, see [File Formats](./file-formats.md).
+With an updated CrossPoint Sync server, replacing a card or resetting local
+reading stats keeps previously synced cloud history. New reading is added to
+that history. Resetting local stats does not clear your account's history;
+explicit account-data deletion in Sync remains separate. Reading that was never
+synced cannot be recovered from the server.
+
+Update CrossPoint Sync before installing firmware with this protection. Older
+servers report stats as unsupported and the reader keeps pending uploads.
+Full SD backups must include both stats save slots and the daily directory's
+`counter_id.bin` file. Restoring them keeps their original counter identities,
+so resending the restored totals does not count them twice. An older restored
+snapshot resumes the same counters: until they exceed the server's saved totals,
+that counter set's cloud totals stay at the previously reached values.
 
 ## Library
 
-Library replaces the Recent Books screen.
+The Library screen lists the books on your SD card. See the [User Guide](./user-guide.md#34-library-screen) for how to search, sort, and use it. This section covers what it saves.
 
-The Library reconciles its index with the SD card on the first visit after a cold boot,
-after file changes in File Browser, and after leaving a download or file-transfer
-screen. Ordinary return visits and deep-sleep wakes reuse a successfully scanned
-index. Failed or memory-limited scans are retried on the next visit. The Library's
-refresh action always scans again; use it
-if files were changed externally while the firmware stayed running or the reader
-was asleep.
-Unchanged books reuse their cached metadata. Each EPUB's parsed metadata is also
-saved to `library.meta`/`library.metd` as soon as it is read, so a scan that is
-cancelled, fails, or loses power picks up where it stopped next time instead of
-parsing every book again. Deleting both files is safe; they are rebuilt as books
-are parsed.
-**Library > Settings > Use Book Metadata** selects embedded EPUB titles and
-authors; disabling it uses filenames. TXT, Markdown and XTC files use filename
-fallbacks. CLX1 version 2 adds a first-name author permutation; older Library
-indexes rebuild automatically when Library opens.
+To make the Library fast, CrossInk keeps an index of your books (titles, authors, file locations, and sort order) in `.crosspoint`. It checks the index against the SD card on the first visit after the reader starts, after you change files in the File Browser, and after a download or file transfer. Other visits reuse the saved index. If you changed files from a computer while the reader stayed on or asleep, choose **Refresh Library** to scan the card again.
 
-**Date Added** uses the file creation time captured by the index. Its
-first-seen sequence breaks ties and orders books without a creation time among
-themselves; those books appear before dated books in ascending order.
-The creation time is the filesystem's best available estimate of when a file
-arrived on the card; some copy tools may preserve the original timestamp.
-**Recently Opened** shows only books in the
-saved reading history (up to 18 books), newest first. Reversing that sort shows
-the same books oldest first. Marking a book unfinished does not add it to
-reading history; opening it does.
-Search matches words in the title and author and retains the selected sort.
-The sort method and direction are saved when changed. The Library Settings icon
-opens a compact/expanded list toggle and independent visibility switches for
-EPUB, XTC/XTCH, TXT, and Markdown files. Expanded Title and Author sorts show
-alphabetic headings; hidden file types remain indexed and can be shown again
-without a rescan. Markdown books open as plain text in the TXT reader.
-Expanded is the default for new Library preferences; a saved Compact choice remains respected.
-Author (Last Name) sorts by the final word of the displayed author, while
-Author (First Name) sorts by the displayed name from its beginning.
-Series metadata and series sorting are not part of this UI change.
+- If a Library refresh is interrupted, run **Refresh Library** again to finish updating the list.
+- **Library Settings > Use Book Metadata** chooses between the title and author inside each EPUB and the filename. TXT, Markdown, and XTC files always use the filename.
+- **Date Added** uses the time the file arrived on the card. Some copy tools keep the original file's date, which can change the order.
+- **Recently Opened** shows only books in your reading history (up to 18), newest first. Marking a book unfinished does not add it to the history. Opening it does.
 
-On button devices, Up from the first book reaches sort direction, sort method,
-settings, search, and refresh. Confirm activates the selected control; holding Confirm on
-a book opens its actions. On touch devices, tap the header icons or sort controls
-directly and hold a book row for its actions. The sort method opens a modal list.
+## Copying a card to another reader
 
-The Lyra Carousel snapshot cache advances to version 7 so cached home menus
-regenerate with the Library label and landmark icon. No manual EPUB cache reset is required.
+Reading stats belong to the reader that recorded them. Copying an SD card or a
+book's cache folder keeps those stats on the card, but another reader starts its
+own local counters and does not upload the copied history as new reading. Moving
+the card back lets the original reader resume its counters. Book files and saved
+reading positions can still be copied as usual.
+
+Before copying a card from older firmware, update the original reader and open a
+book once so CrossInk can record where the existing stats came from. Files copied
+before that step have no origin information; the first updated reader to use them
+will claim them. This change prevents future duplicates and does not automatically
+correct totals already duplicated on the sync server.

@@ -6,6 +6,16 @@
 
 namespace EpubNavigation {
 
+inline bool resolveReferenceTextProgress(uint32_t start, uint32_t count, uint32_t total, uint32_t textOffset,
+                                         uint32_t textLength, bool characters, double& completed) {
+  completed = 0;
+  if (total == 0 || start > total || count > total - start || (!characters && textLength == 0)) return false;
+  const double inSpine =
+      characters ? static_cast<double>(textOffset) : static_cast<double>(textOffset) * count / textLength;
+  completed = start + std::min(inSpine, static_cast<double>(count));
+  return true;
+}
+
 template <typename Entry>
 bool hasResolvableReferencePageRanges(const uint32_t totalUnits, const Entry* entries, const size_t entryCount) {
   if (!entries || entryCount == 0 || totalUnits == 0) return false;

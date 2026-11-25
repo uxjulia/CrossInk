@@ -14,6 +14,8 @@
 #include "OpdsServerStore.h"
 #include "activities/Activity.h"
 #include "activities/ScreenTransitionRefresh.h"
+#include "network/HttpDownloader.h"
+#include "network/OpdsCatalogClient.h"
 #include "util/ButtonNavigator.h"
 
 /**
@@ -22,7 +24,16 @@
  */
 class OpdsBookBrowserActivity final : public Activity {
  public:
-  enum class BrowserState { CHECK_WIFI, WIFI_SELECTION, LOADING, BROWSING, DOWNLOADING, ERROR, SEARCH_INPUT };
+  enum class BrowserState {
+    CHECK_WIFI,
+    WIFI_SELECTION,
+    LOADING,
+    BROWSING,
+    DESCRIPTION,
+    DOWNLOADING,
+    ERROR,
+    SEARCH_INPUT
+  };
 
   explicit OpdsBookBrowserActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, OpdsServer server);
 
@@ -32,11 +43,24 @@ class OpdsBookBrowserActivity final : public Activity {
   void render(RenderLock&&) override;
 
  private:
+#ifdef SIMULATOR
+  friend struct OpdsCatalogSmokeTest;
+#endif
+
+  // Own only the selected book metadata while the full catalog is released.
+  // The extra title copy is parser-bounded to 160 bytes and must outlive an
+  // overwrite callback; URL/filename storage was already needed for downloads.
+  struct DownloadRequest {
+    std::string url;
+    std::string title;
+    std::string filename;
+  };
+
   // FreeInkUI app runtime for the browsing screen: owns the interaction table,
   // routes touch snapshots, and dispatches row/search actions to the static
   // handlers below. 24 interaction slots cover the densest page (Small scale,
   // ~12 rows) plus the header's search button, with headroom.
-  using UiApp = freeink::ui::FreeInkApp<24, 4>;
+  using UiApp = freeink::ui::FreeInkApp<24, 6>;
 
   ButtonNavigator buttonNavigator;
   BrowserState state = BrowserState::LOADING;
@@ -51,12 +75,14 @@ class OpdsBookBrowserActivity final : public Activity {
   std::vector<std::string> navigationHistory;
   std::string currentPath;
   std::string searchTemplate;
+  std::string searchBaseUrl;  // Final feed/descriptor URL; templates remain unencoded until expansion.
   int selectorIndex = 0;
   std::string errorMessage;
   std::string statusMessage;
   size_t downloadProgress = 0;
   size_t downloadTotal = 0;
 
+  OpdsCatalogClient catalogClient;
   OpdsServer server;  // Copied at construction — safe even if the store changes during browsing
 
   freeink::ui::GfxRendererTarget uiTarget;  // must precede `app`: the app holds a reference to it
@@ -65,13 +91,21 @@ class OpdsBookBrowserActivity final : public Activity {
   // snapshots against it while this is true (the two run on different tasks).
   std::atomic<bool> uiReady{false};
   int visibleRows = 1;  // rows per page at the current scale; set by the screen builder
-  int topIndex = 0;     // viewport scroll position, decoupled from the selection
+  // Wrapped only when a preview opens or its available width changes.
+  std::vector<std::string> descriptionLines;
+  int descriptionWidth = 0;
+  int descriptionTop = 0;
+  int descriptionRows = 1;
+  int topIndex = 0;  // viewport scroll position, decoupled from the selection
   // Read by HttpDownloader between chunks; set by the Cancel button handler or
   // a Back press, both pumped from the download's progress callback.
   bool cancelDownload = false;
   // A blocking downloader consumes the one-shot Home event itself. Defer the
   // activity exit until HttpDownloader has unwound and closed the partial file.
   bool goHomeAfterCancel = false;
+  bool catalogReleasedForDownload = false;
+  int downloadSelectorIndex = 0;
+  int downloadTopIndex = 0;
 
   // Single screen fn dispatching on `state`: every state shares the themed
   // header and gets built through FreeInkUI.
@@ -81,6 +115,10 @@ class OpdsBookBrowserActivity final : public Activity {
   static void onCancelEvent(const freeink::ui::ActionEvent& event, void* user);
   void screenHeader(UiApp::ScreenType& screen, bool withSearch);
   void buildBrowsingScreen(UiApp::ScreenType& screen);
+  static void provideRow(void* user, uint16_t index, freeink::ui::ListItem& item);
+  static void onDescriptionEvent(const freeink::ui::ActionEvent& event, void* user);
+  void scrollDescription(int direction);
+  void buildDescriptionScreen(UiApp::ScreenType& screen);
   void buildDownloadScreen(UiApp::ScreenType& screen);
   void buildStatusScreen(UiApp::ScreenType& screen);
   void activateSelected();
@@ -95,8 +133,13 @@ class OpdsBookBrowserActivity final : public Activity {
   bool appendEntry(OpdsEntry&& entry);
   void navigateToEntry(const OpdsEntry& entry, bool pageLink);
   void navigateBack();
+  bool loadPublication(OpdsEntry& book, const std::string& url);
+  void openPublication(OpdsEntry& book);
   void requestDownload(const OpdsEntry& book);
-  void downloadBook(const OpdsEntry& book, const std::string& filename);
+  void confirmDownload(DownloadRequest request, const std::string& destination);
+  void downloadBook(DownloadRequest request, const std::string& approvedPath = "");
+  void finishDownload(DownloadRequest request, HttpDownloader::DownloadError result, const std::string& resolvedPath);
+  void restoreCatalogAfterDownload();
   void launchSearch();
   void performSearch(const std::string& query);
   bool preventAutoSleep() override;

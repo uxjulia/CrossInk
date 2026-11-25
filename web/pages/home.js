@@ -8,7 +8,7 @@ async function fetchStatus() {
         document.getElementById('version').textContent = data.version || 'N/A';
         document.getElementById('serial').textContent = data.serial || 'N/A';
         document.getElementById('ip-address').textContent = data.ip || 'N/A';
-        document.getElementById('free-heap').textContent = data.freeHeap
+        document.getElementById('free-heap').textContent = Number.isFinite(data.freeHeap)
           ? data.freeHeap.toLocaleString() + ' bytes'
           : 'N/A';
       } catch (error) {
@@ -17,4 +17,4 @@ async function fetchStatus() {
     }
 
     // Fetch status on page load
-    window.onload = fetchStatus;
+    fetchStatus();

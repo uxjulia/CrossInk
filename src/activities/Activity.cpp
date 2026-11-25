@@ -2,11 +2,17 @@
 
 #include "ActivityManager.h"
 #include "CrossPointState.h"
+#include "FilenameFontSystem.h"
 #include "GlobalActions.h"
 #include "KOReaderCredentialStore.h"
 #include "reader/EpubReaderMenuModel.h"
 
-void Activity::onEnter() { LOG_DBG("ACT", "Entering activity: %s", name.c_str()); }
+void Activity::onEnter() {
+  LOG_DBG("ACT", "Entering activity: %s", name.c_str());
+  // Load on the main task before the screen measures or renders translated
+  // labels. The service is cache-first and refuses loads during SD handoff.
+  filenameFontSystem.ensureLoaded(renderer);
+}
 
 void Activity::onExit() { LOG_DBG("ACT", "Exiting activity: %s", name.c_str()); }
 
@@ -40,8 +46,8 @@ bool Activity::handleFrontlightPanelResult(const FrontlightPanelResult& result) 
     return false;
   }
 
-  // Only Home has a persisted drawer return route. Other screens use the
-  // normal external-book flow, which returns sync to the book reader.
+  // Home restores its drawer; File Browser captures its list return route
+  // in its override. Other screens use the external-book reader flow.
   const bool restoreHomeDrawer = isHomeActivity();
   PendingOverlayResume resume;
   resume.origin = PendingOverlayOrigin::Home;

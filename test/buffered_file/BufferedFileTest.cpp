@@ -1,4 +1,5 @@
 #include <BufferedFile.h>
+#include <PrintSerialization.h>
 #include <Serialization.h>
 #include <gtest/gtest.h>
 
@@ -179,3 +180,57 @@ TEST(Serialization, CheckedStringWriteStopsAfterShortLengthWrite) {
   EXPECT_EQ(file.writes, 1U);
 }
 }  // namespace
+
+TEST(BufferedFilePrint, StagedPrintWritesMatchDirectWritesWithFewerDeviceCalls) {
+  const auto serializeFields = [](Print& out) {
+    EXPECT_TRUE(serialization::tryWritePod(out, uint16_t{0x0102}));
+    EXPECT_TRUE(serialization::tryWritePod(out, uint8_t{7}));
+    EXPECT_TRUE(serialization::tryWriteString(out, "ruby"));
+    const std::string arena(40, 'q');
+    EXPECT_EQ(out.write(reinterpret_cast<const uint8_t*>(arena.data()), arena.size()), arena.size());
+    for (int16_t i = 0; i < 20; ++i) EXPECT_TRUE(serialization::tryWritePod(out, i));
+  };
+
+  class FilePrint : public Print {
+   public:
+    explicit FilePrint(HalFile& file) : file(file) {}
+    size_t write(uint8_t value) override { return file.write(&value, 1); }
+    size_t write(const uint8_t* data, size_t length) override { return file.write(data, length); }
+    HalFile& file;
+  };
+
+  HalFile direct;
+  FilePrint directOut(direct);
+  serializeFields(directOut);
+
+  std::array<uint8_t, 16> stage{};
+  HalFile staged;
+  serialization::BufferedFilePrint stagedOut(staged, stage.data(), stage.size());
+  serializeFields(stagedOut);
+  ASSERT_TRUE(stagedOut.commit());
+
+  EXPECT_EQ(staged.bytes, direct.bytes);
+  EXPECT_LT(staged.writes, direct.writes / 2);
+}
+
+TEST(BufferedFilePrint, NullBufferPassesThrough) {
+  HalFile file;
+  serialization::BufferedFilePrint out(file, nullptr, 64);
+  EXPECT_TRUE(serialization::tryWritePod(out, uint32_t{0xA1B2C3D4}));
+  EXPECT_EQ(file.writes, 1U);
+  EXPECT_TRUE(out.commit());
+  const std::vector<uint8_t> expected = {0xD4, 0xC3, 0xB2, 0xA1};
+  EXPECT_EQ(file.bytes, expected);
+}
+
+TEST(BufferedFilePrint, ShortDeviceWriteIsReportedByCommitAndStopsLaterWrites) {
+  HalFile file;
+  file.writeLimit = 3;
+  std::array<uint8_t, 8> stage{};
+  serialization::BufferedFilePrint out(file, stage.data(), stage.size());
+  EXPECT_TRUE(serialization::tryWritePod(out, uint32_t{1}));
+  EXPECT_TRUE(serialization::tryWritePod(out, uint32_t{2}));
+  // The staged bytes flush when the buffer fills; the device accepts only 3.
+  EXPECT_FALSE(serialization::tryWritePod(out, uint32_t{3}));
+  EXPECT_FALSE(out.commit());
+}

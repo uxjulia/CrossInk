@@ -32,6 +32,8 @@ class OpdsServerListActivity final : public Activity {
   ButtonNavigator buttonNavigator;
   int selectedIndex = 0;
   bool pickerMode = false;
+  bool showFolderError = false;
+  bool showSaveError = false;
   OptionPopup optionPopup;
 
   freeink::ui::GfxRendererTarget uiTarget;  // must precede `app`: the app holds a reference to it

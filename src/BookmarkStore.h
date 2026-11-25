@@ -1,5 +1,9 @@
 #pragma once
+#include <Memory.h>
+
+#include <algorithm>
 #include <cstdint>
+#include <cstring>
 #include <string>
 #include <vector>
 
@@ -18,6 +22,68 @@ struct Bookmark {
   char snippet[BOOKMARK_SNIPPET_MAX] = {};
 };
 
+// Owned record storage with explicit allocation failure. std::vector::reserve
+// aborts on ESP32 when its allocation fails because exceptions are disabled.
+class BookmarkRecords {
+ public:
+  BookmarkRecords() = default;
+  BookmarkRecords(BookmarkRecords&& other) noexcept { *this = std::move(other); }
+  BookmarkRecords& operator=(BookmarkRecords&& other) noexcept {
+    if (this != &other) {
+      records = std::move(other.records);
+      count = std::exchange(other.count, 0);
+      reserved = std::exchange(other.reserved, 0);
+    }
+    return *this;
+  }
+
+  bool reserve(size_t capacity) {
+    if (capacity <= reserved) return true;
+    if (capacity > SIZE_MAX / sizeof(Bookmark)) return false;
+    // Up to 1024 records (128 KiB). Runtime-sized, too large for stack/static
+    // storage; retain the old buffer until the fallible replacement succeeds.
+    auto next = makeUniqueNoThrow<Bookmark[]>(capacity);
+    if (!next) return false;
+    if (count > 0) std::copy_n(records.get(), count, next.get());
+    records = std::move(next);
+    reserved = capacity;
+    return true;
+  }
+  bool push_back(const Bookmark& bookmark) {
+    if (count == reserved && !reserve(count + 1)) return false;
+    records[count++] = bookmark;
+    return true;
+  }
+  void erase(const Bookmark* position) {
+    Bookmark* first = records.get();
+    const size_t index = position - first;
+    if (index >= count) return;
+    std::move(first + index + 1, first + count, first + index);
+    --count;
+  }
+  void clear() { count = 0; }
+  void release() {
+    records.reset();
+    count = reserved = 0;
+  }
+  bool empty() const { return count == 0; }
+  size_t size() const { return count; }
+  size_t capacity() const { return reserved; }
+  Bookmark* data() { return records.get(); }
+  const Bookmark* data() const { return records.get(); }
+  Bookmark* begin() { return data(); }
+  const Bookmark* begin() const { return data(); }
+  Bookmark* end() { return count ? data() + count : data(); }
+  const Bookmark* end() const { return count ? data() + count : data(); }
+  Bookmark& operator[](size_t index) { return records[index]; }
+  const Bookmark& operator[](size_t index) const { return records[index]; }
+
+ private:
+  std::unique_ptr<Bookmark[]> records;
+  size_t count = 0;
+  size_t reserved = 0;
+};
+
 struct BookmarkedBookEntry {
   std::string bookTitle;
   std::string bookAuthor;
@@ -31,6 +97,7 @@ class BookmarkStore {
   enum class AddResult : uint8_t {
     Added,
     LimitReached,
+    Unavailable,
   };
 
   struct RenameMigration {
@@ -58,7 +125,7 @@ class BookmarkStore {
   void removeBookmarkForPage(uint16_t spineIndex, float pageProgress, int pageCount);
   bool removeBookmarkAt(size_t index);
   bool hasBookmarkForPage(uint16_t spineIndex, float pageProgress, int pageCount);
-  const std::vector<Bookmark>& getBookmarks() const { return bookmarks; }
+  const BookmarkRecords& getBookmarks() const { return bookmarks; }
 
   // Flush to disk if dirty. Called automatically by add/remove; also call from reader onExit().
   void saveToFile();
@@ -96,15 +163,17 @@ class BookmarkStore {
  private:
   static BookmarkStore instance;
 
-  std::vector<Bookmark> bookmarks;
+  BookmarkRecords bookmarks;
   std::string bookFilePath;
   std::string bookTitle;
   std::string bookAuthor;
   std::string storeFilePath;
   bool dirty = false;
+  // Never allow an incomplete/failed load to overwrite the source file.
+  bool writable = false;
 
   bool readFromFile();
-  bool readFromFile(const std::string& path, std::vector<Bookmark>& out, bool& needsRewrite) const;
+  bool readFromFile(const std::string& path, BookmarkRecords& out, bool& needsRewrite) const;
   bool writeToFile() const;
 };
 

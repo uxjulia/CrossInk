@@ -54,45 +54,18 @@ jobs:
             firmware: firmware-x4-pro
           - environment: x4-classic
             firmware: firmware-x4-classic
+          - environment: picco
+            firmware: firmware-picco
+          - environment: eego_a4
+            firmware: firmware-eego_a4
     steps:
       - uses: actions/checkout@v6
         with:
           submodules: recursive
 
-      - uses: actions/setup-python@v6
+      - uses: $/.github/actions/setup-platformio
         with:
-          python-version: "3.14"
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v7
-        with:
-          version: "latest"
-          enable-cache: true
-
-      - name: Cache PlatformIO packages
-        uses: actions/cache@v4
-        with:
-          # Do not cache PlatformIO's Python virtual environment. It is tied to
-          # the runner's Python and can become invalid when restored elsewhere.
-          path: |
-            ~/.platformio/packages
-            ~/.platformio/platforms
-          key: ${{ runner.os }}-platformio-py3.14-core6.1.19-${{ hashFiles('platformio.ini', 'platformio.local.example.ini') }}
-
-      - name: Install PlatformIO Core
-        run: uv pip install --system -U https://github.com/pioarduino/platformio-core/archive/refs/tags/v6.1.19.zip
-
-      - name: Pin pioarduino core inside the platform penv
-        env:
-          PIO_ENV: ${{ matrix.environment }}
-        run: |
-          set -euo pipefail
-          # custom_sdkconfig runs a nested `pio run` from ~/.platformio/penv.
-          # Keep that core on the same version as the outer core.
-          # See https://github.com/pioarduino/platform-espressif32/issues/529
-          pio pkg install -e "$PIO_ENV"
-          uv pip install --python ~/.platformio/penv/bin/python "pioarduino==6.1.19"
-          ~/.platformio/penv/bin/pio --version
+          cache-scope: ${{ matrix.environment }}
 
       - name: Configure release version
         env:
@@ -103,6 +76,8 @@ jobs:
       - name: Build CrossInk
         env:
           CROSSINK_RELEASE_VERSION: ${{ needs.prepare-release.outputs.release_version }}
+          CROSSINK_ASSET_BASE_URL: ${{ vars.CROSSINK_ASSET_BASE_URL }}
+          CROSSINK_FONT_BASE_URL: ${{ vars.CROSSINK_FONT_BASE_URL }}
         run: pio run -j1 -e ${{ matrix.environment }}
 
       - name: Upload firmware artifact
@@ -112,10 +87,33 @@ jobs:
           path: .pio/build/${{ matrix.environment }}/${{ matrix.firmware }}-v${{ needs.prepare-release.outputs.release_version }}.bin
           if-no-files-found: error
 
+  prepare-language-assets:
+    needs:
+      - prepare-release
+      - build-release
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      RELEASE_TAG: v${{ needs.prepare-release.outputs.release_version }}
+      SOURCE_COMMIT: ${{ github.sha }}
+      GH_TOKEN: ${{ secrets.RELEASE_PAT }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      # Run on the release tag so the language-assets environment retains its
+      # existing tag/branch deployment restrictions, including for main builds.
+      - name: Prepare and wait for release downloads
+        run: python3 scripts/prepare_release_downloads.py --tag "$RELEASE_TAG" --source-commit "$SOURCE_COMMIT"
+
   publish-release:
     needs:
       - prepare-release
       - build-release
+      - prepare-language-assets
     runs-on: ubuntu-latest
     env:
       RELEASE_VERSION: ${{ needs.prepare-release.outputs.release_version }}
@@ -145,9 +143,19 @@ jobs:
             --firmware "release-firmware/firmware-sticky-v${{ env.RELEASE_VERSION }}.bin" \
             --firmware "release-firmware/firmware-x4-pro-v${{ env.RELEASE_VERSION }}.bin" \
             --firmware "release-firmware/firmware-x4-classic-v${{ env.RELEASE_VERSION }}.bin" \
+            --firmware "release-firmware/firmware-picco-v${{ env.RELEASE_VERSION }}.bin" \
+            --firmware "release-firmware/firmware-eego_a4-v${{ env.RELEASE_VERSION }}.bin" \
             --output ".pio/build/catalog"
 
-      - name: Publish catalog to GitHub Pages source
+      - name: Package SD language files and editor template
+        run: |
+          python3 scripts/package_languages.py \
+            --version "${{ env.RELEASE_VERSION }}" \
+            --source-commit "${{ github.sha }}" --status release-build \
+            --output "release-firmware/crossink-languages-${{ env.RELEASE_VERSION }}.zip" \
+            --template-output-dir "release-firmware/language-template"
+
+      - name: Publish catalog and language template to GitHub Pages source
         env:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           CROSSINK_SIGNING_SSH_KEY: ${{ secrets.CROSSINK_SIGNING_SSH_KEY }}
@@ -170,12 +178,15 @@ jobs:
           git fetch origin "$DEFAULT_BRANCH"
           git worktree add ../crossink-pages "origin/$DEFAULT_BRANCH"
           cp ".pio/build/catalog" "../crossink-pages/docs/catalog"
+          mkdir -p "../crossink-pages/docs/languages/template"
+          # Additive immutable translation paths keep older editor snapshots usable.
+          cp -R release-firmware/language-template/. "../crossink-pages/docs/languages/template/"
           cd ../crossink-pages
-          if git diff --quiet -- docs/catalog; then
-            echo "docs/catalog is already current"
+          if git diff --quiet -- docs/catalog docs/languages/template && [ -z "$(git ls-files --others --exclude-standard docs/languages/template)" ]; then
+            echo "Catalog and language template are already current"
             exit 0
           fi
-          git add docs/catalog
+          git add docs/catalog docs/languages/template
           git commit -S -m "Update release manifests for v${RELEASE_VERSION}"
           git push origin "HEAD:$DEFAULT_BRANCH"
 
@@ -187,7 +198,12 @@ jobs:
           target_commitish: ${{ github.sha }}
           draft: true
           files: |
+            release-firmware/crossink-languages-${{ env.RELEASE_VERSION }}.zip
+            release-firmware/language-template/english_template.yaml
+            release-firmware/language-template/language-template.json
             release-firmware/firmware-x3-x4-v${{ env.RELEASE_VERSION }}.bin
             release-firmware/firmware-sticky-v${{ env.RELEASE_VERSION }}.bin
             release-firmware/firmware-x4-pro-v${{ env.RELEASE_VERSION }}.bin
             release-firmware/firmware-x4-classic-v${{ env.RELEASE_VERSION }}.bin
+            release-firmware/firmware-picco-v${{ env.RELEASE_VERSION }}.bin
+            release-firmware/firmware-eego_a4-v${{ env.RELEASE_VERSION }}.bin

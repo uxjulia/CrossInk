@@ -6,20 +6,20 @@ nav_order: 5
 # Dictionary
 
 > [!TIP]
-> For the best experience, prepare your dictionary using CrossInk's web companion tool [Inky](https://inky.crossink.dev/#dictionary-tools), which creates `.oft` and `.oft.cspt` accelerator files. An unprepared dictionary with uncompressed `.dict` and `.idx` files also works: on its first lookup, CrossInk creates a smaller on-device `.qidx` quick index automatically.
+> For the best experience, prepare your dictionary on a computer using CrossInk's web companion tool [Inky](https://inky.crossink.dev/#dictionary-tools). It prepares the files for faster lookups. A dictionary you have not prepared also works if its `.idx` file is uncompressed: the first lookup may take longer while the reader prepares it.
 
 ## Supported Format
 
-The reader supports **StarDict** dictionaries. When searching for dictionaries online, look for "StarDict format" or files with `.dict`, `.idx`, and `.ifo` extensions.
+The reader supports **StarDict** dictionaries. When searching for dictionaries online, look for "StarDict format" or files ending in `.dict`, `.idx`, and `.ifo`.
 
 A dictionary folder typically contains:
 
-- `.dict` -- definition data (required; compressed `.dict.dz` files must be prepared on a computer first)
+- `.dict` or `.dict.dz` -- definition data (required; dictzip-compressed `.dict.dz` works directly)
 - `.idx` -- word index (required)
-- `.ifo` -- metadata such as dictionary name and word count (recommended)
+- `.ifo` -- dictionary name and word count (recommended)
 - `.syn` -- alternate forms and synonyms (optional, enhances lookup coverage)
 
-Minimum requirement: one `.dict` and one `.idx` file in the same folder. Their filename stems should match. Without `.ifo`, the dictionary will still work but metadata and HTML definition rendering may be limited.
+Minimum requirement: one `.dict` or `.dict.dz` and one uncompressed `.idx` file in the same folder. Use matching names, such as `english.dict` and `english.idx`. Keep `.ifo` too when it is supplied so the dictionary name and formatting display correctly.
 
 ---
 
@@ -27,22 +27,27 @@ Minimum requirement: one `.dict` and one `.idx` file in the same folder. Their f
 
 Example folder structure: `SDCARD/.dictionaries/Cambridge/*.dict`. Make sure the dictionary folder is **NOT** nested like `/Cambridge/Cambridge/*.dict`
 
-1. Copy your dictionary folder(s) to one of these directories on the SD card:
-   - `/.dictionaries/` (checked first)
-   - `/dictionaries/`
+1. Copy your dictionary folder(s) to the SD card, inside `/.dictionaries/` or `/dictionaries/`. The reader uses only one of these: if both exist, `/.dictionaries/` is used and `/dictionaries/` is ignored.
 2. If no dictionary has been selected before, the first dictionary in the alphabetical device list is selected automatically.
-3. To choose between multiple dictionaries, open **Settings -> Reader -> Dictionary** on the device and select one from the list.
-4. Per book dictionaries can be set from within the in-reader menu **Reader Menu > Settings (gear) > Book Dictionary**
+3. To choose between multiple dictionaries, open **Settings > Reader > Dictionary** on the device and select one from the list.
+4. To use a different dictionary for one book, open the Reader Menu, go to the Settings tab (gear icon), and choose **Book Dictionary**. See [Per-Book Dictionary](#per-book-dictionary).
 
 ### Preparing Compressed or Large Dictionaries
 
-CrossInk does not decompress dictionaries on the device. If a download contains `.dict.dz` or `.syn.dz`, run the bundled preparation tool on a computer before copying the folder to the SD card (see [Dictionary Tools](#dictionary-tools)).
+Dictzip-compressed `.dict.dz` files work directly. Keep the matching uncompressed
+`.idx` alongside them. CrossInk decompresses only the selected entry to a temporary
+SD file, then reuses it for paging. The file is removed when changing definitions
+or leaving the viewer. If both `.dict` and `.dict.dz` exist, `.dict` is preferred.
 
-An uncompressed dictionary with only `.dict` and `.idx` files is usable without desktop preparation. During the first lookup, if neither `*.idx.oft` nor `*.idx.oft.cspt` is present, CrossInk creates `*.qidx` beside the dictionary files. It records a sample every 256 index entries, letting later direct and stemmed lookups jump near the requested word before scanning a small part of the original `.idx`.
+Decompress `.idx.gz` on a computer first. Use
+[Inky](https://inky.crossink.dev/#dictionary-tools) to prepare `.syn.dz` files.
+Preparation is also recommended
+for large dictionaries to make lookups faster. If compressed lookup fails because
+memory is tight, prepare the dictionary with Inky or decompress `.dict.dz` on a computer.
 
-`.qidx` is a disposable device cache: it is rebuilt when it is missing, invalid, or belongs to a differently sized `.idx` file, and it can be deleted safely. If the lookup is cancelled or the SD card cannot create the cache, the lookup still works by scanning the full `.idx`; CrossInk will try to create the quick index again on a later lookup.
-
-Desktop preparation remains recommended for large dictionaries. `*.idx.oft.cspt` is the preferred direct-lookup accelerator, with `*.idx.oft` as its fallback; either one prevents CrossInk from creating `.qidx`. The desktop files also speed up synonym resolution and ordinal lookups. The smaller `.qidx` accelerates direct lookup and bounds spelling-suggestion searches, but it does not accelerate synonyms or ordinal lookups.
+Both `.dict` and `.dict.dz` dictionaries can be used without preparation. The first lookup
+may take longer; later lookups should be quicker. If you cancel that first
+lookup, the reader can try preparing it again next time.
 
 ---
 
@@ -60,12 +65,19 @@ The **Look Up Word** option in the reader menu is only visible when a dictionary
 
 ### Touchscreen
 
-In an EPUB reader with **Touch Reader Controls** enabled, touch and hold a
-word for about one second. CrossInk opens word selection on that word; lift
-your finger to look it up. To look up a phrase, keep holding after the
-selection opens, drag to the last word, then lift your finger. This is a
-direct shortcut from the reading page, so you do not need to open the reader
-menu first.
+In an EPUB with the touchscreen enabled, touch and hold a
+word for about one second, then lift your finger to open its definition.
+Under **Settings > Controls > Taps & Gestures > Long-press Text**, choose
+**Clip** to save the word immediately or **Ask** to show the floating
+**Look Up** and **Clip** toolbar. Dragging across words opens the toolbar
+in all three modes.
+Drag either selection handle to adjust the highlighted range. To select a phrase,
+keep holding after selection opens, drag to the last word, then lift your
+finger. Hold on the page's final word for about one second to continue onto
+the next page. You do not need to open the reader menu first. **Clip**
+is available without a dictionary; **Look Up** is disabled until one is active.
+The toolbar sits near the selection and hides while you drag. Press **Back** to clear the range,
+or tap outside the selection and toolbar to return to reading.
 
 From a definition, touch and hold a word for about one second to start another
 lookup. Keep holding and drag to select a phrase, then lift your finger to look
@@ -74,17 +86,18 @@ immediately.
 
 ### Quick Lookup
 
-Set a shortcut to **Look Up Word** in **Settings -> Controls**. Holding that shortcut in the EPUB reader then enters word-select directly, skipping the reader menu. Release and navigate to a word as usual.
+Set a shortcut to **Look Up Word** in **Settings > Controls**. Holding that shortcut in the EPUB reader then enters word-select directly, skipping the reader menu. Release and navigate to a word as usual.
 
 ### How Lookup Works
 
 When you select a word, the reader searches for it in this order:
 
-1. **Direct match** - the word is found as-is in the dictionary index.
+1. **Direct match** - the cleaned word is searched first, preserving pointed headwords, capitalization preference, and existing NFC normalization. If it is absent, Hebrew niqqud and cantillation marks and basic Arabic vowel marks (U+064B–U+0650, U+0652, U+0670) are removed from the query and it is retried. Arabic shaddah, hamza, and maddah remain significant. Exact pointed spellings win when both pointed and unpointed headwords exist. Dictionary indexes and their sort order are unchanged; this fallback does not merge differently pointed headwords.
 2. **Stemming** - the reader automatically tries common word forms (plurals, verb conjugations, comparatives). For example, "running" finds "run".
-3. **Alternate forms** - if the dictionary includes a synonym/alternate forms file and no match was found yet, a prompt appears. Press **Confirm** to search alternate forms, or **Back** to skip.
-4. **Suggestions** - if nothing matched, a list of similar words from the dictionary is shown. Select one to view its definition.
-5. **Not found** - if no matches or suggestions exist, a not-found message appears. Press **Back** to return to word-select, or **Confirm** to exit to the reader.
+3. **Other installed dictionaries** - if the selected dictionary has no match, CrossInk searches the remaining dictionaries one at a time in alphabetical order by folder name. The first match opens and its dictionary name appears below the definition. Using **Switch Dictionary** limits that lookup to the dictionary you choose.
+4. **Alternate forms** - if any searched dictionary includes a synonym file and no match was found, a prompt appears. Press **Confirm** to search alternate forms, or **Back** to skip. Alternate forms also try the supplied spelling before the vowel-stripped fallback.
+5. **Suggestions** - if nothing matched, a list of similar words from the dictionary is shown. Select one to view its definition.
+6. **Not found** - if no matches or suggestions exist, a not-found message appears. Press **Back** to return to word-select, or **Confirm** to exit to the reader.
 
 ---
 
@@ -132,12 +145,16 @@ In word-select mode, you can select a sequence of words to look up as a phrase.
 Multi-word select works in both the reader word-select and the definition word-select (chained lookup).
 
 On a touchscreen, use a press-and-drag selection instead of the button
-sequence: touch the first word, drag to the last word, and lift your finger to
-look up the selected phrase. The first long hold on the reading page is only
-needed to enter lookup; once word selection is open, touching a word starts
-the range immediately.
+sequence: touch the first word, drag to the last word, and lift your finger.
+In the EPUB reader, adjust the handles if needed and choose **Look Up** from
+the floating toolbar. Inside a definition, lifting your finger starts the
+lookup immediately. The first long hold on the reading page is only needed
+to enter selection; once word selection is open, touching a word starts the
+range immediately.
 
-**Limitation:** Multi-word selection cannot span a page boundary. If a phrase crosses from one page to the next, only the words on the current page are available for selection. As a workaround, reduce the reader font size so more words fit on a single page, perform the lookup, then restore the original font size.
+Touch selection in the EPUB reader can continue onto the next page in the
+same chapter: drag to the final word and hold there for about one second.
+Button selection and selection inside definitions stay on the current page.
 
 ---
 
@@ -169,30 +186,28 @@ Each book maintains its own lookup history, accessible from the reader menu.
 3. Select any entry and press **Confirm** to look it up again. Press **Back** from the definition to return to the history screen.
 4. To delete an entry, long-press **Confirm** on it. A confirmation popup appears -- press **Confirm** to delete, or **Back** to cancel.
 
-The history screen shows the 50 most recent entries. The on-disk history is append-only, so older entries remain stored but are not shown. The visible window also bounds how deep a chained lookup can go back (see Chaining Lookups).
+The history screen shows the 50 most recent entries. You can go back through up to 50 linked lookups.
 
 ---
 
 ## IPA Phonetic Characters
 
-Dictionary definitions use the active reader font and size by default. If at least one dictionary is installed, you can set the default dictionary font and size in **Settings > Reader > Font Options**. Books inherit those defaults unless you choose a different font or size in **Reader Menu > Font > Dictionary Font**. Choose **Use Global** there to return a book to the global dictionary font
+Dictionary definitions use the active reader font and size by default. If at least one dictionary is installed, you can set the default dictionary font and size in **Settings > Reader > Font Options**. Books inherit those defaults unless you choose a different font or size in the reader menu's **Dictionary Font** option. Choose **Use Global** there to return a book to the global dictionary font
 and size defaults. When the reader uses an SD-card font, you can choose a different dictionary size while keeping that same family; built-in reader fonts continue to use their active size. A saved size with no matching file uses the closest available size from the dictionary family.
 
-Only one SD-card font family is loaded at a time: CrossInk temporarily swaps to the dictionary font while a definition is open, then restores the reader font when you close it. If a book's selected dictionary font is missing, the definition temporarily uses the global dictionary font. If that is also unavailable, it falls back to the reader font. The per-book selection is kept so it resumes automatically if you reinstall the family.
+The dictionary font is used while a definition is open. Closing it returns to your reading font. If a book's selected dictionary font is missing, the definition temporarily uses the global dictionary font. If that is also unavailable, it falls back to the reader font. The per-book selection is kept so it resumes automatically if you reinstall the family.
 
-Built-in fonts keep the glyphs they contain and approximate only unsupported pronunciation symbols. If you see a filled diamond, choose an SD-card font that includes that character.
+Built-in fonts can show some pronunciation symbols only approximately. If you see a filled diamond, choose an SD-card font that includes that character.
 
-You can download CrossInk's SD card catalog of fonts with IPA glyphs built-in from [Inky](https://inky.crossink.dev/#downloads).
-
-See the [dictionary font builder](dictionary-development.md#generating-dictionary-fonts) if you want to build your own dictionary fonts via the CLI.
+You can download CrossInk's SD card catalog of fonts with pronunciation symbols included from [Inky](https://inky.crossink.dev/#downloads).
 
 ---
 
 ## Dictionary Tools
 
-## Inky
+### Inky
 
-CrossInk's companion app, [Inky](https://inky.crossink.dev/#dictionary-tools), prepares one StarDict dictionary at a time and generates the accelerator indexes used for fast lookups. It accepts either:
+CrossInk's companion app, [Inky](https://inky.crossink.dev/#dictionary-tools), prepares one StarDict dictionary at a time and prepares its files for fast lookups. It accepts either:
 
 - an uncompressed dictionary folder; or
 - a `.zip`, `.tar.zst`, or `.rar` archive containing that folder or its dictionary files.
@@ -202,48 +217,8 @@ CrossInk's companion app, [Inky](https://inky.crossink.dev/#dictionary-tools), p
 3. Select **Prepare Dictionary**. The input must include matching `.ifo`, `.idx`, and `.dict` or `.dict.dz` files. `.syn` and `.syn.dz` are optional.
 4. Download the prepared ZIP when the job finishes, then unzip it into `/.dictionaries/` or `/dictionaries/` on the SD card. Keep the resulting dictionary folder intact.
 
-Inky decompresses `.dict.dz` and `.syn.dz` when needed, creates `.idx.oft`, `.idx.oft.cspt`, `.syn.oft`, and `.syn.oft.cspt`, and packages the prepared dictionary for you. The prepared download is available for 10 minutes.
-
-### Command Line
-
-A command-line tool is included for working with StarDict dictionaries on your computer, without the device. It requires Python 3 and has no external dependencies.
-
-#### Pre-processing
-
-Decompress dictionary data and generate accelerator indexes on your computer:
-
-```bash
-python3 scripts/dictionary_tools.py prep /path/to/dictionary-folder
-```
-
-Run this before copying compressed dictionaries to the SD card. It is also recommended for large uncompressed dictionaries because it makes lookups much faster.
-
-The command produces, when applicable, `.dict`, `.syn`, `.idx.oft`, `.syn.oft`, `.idx.oft.cspt`, and `.syn.oft.cspt`. Copy these alongside the original `.idx` and optional `.ifo`. CrossInk uses `.idx.oft.cspt` first, then `.idx.oft`; when neither exists, it creates and uses `.qidx` on the device. If a quick index cannot be created, CrossInk scans the original index instead.
-
-### Looking Up a Word
-
-Look up a word from the command line:
-
-```bash
-python3 scripts/dictionary_tools.py lookup /path/to/dictionary-folder apple
-```
-
-Prints the definition to stdout. Compressed dictionary data must be prepared with `prep` first.
-
-### Merging Dictionaries
-
-Combine two or more StarDict dictionaries into a single monolithic dictionary:
-
-```bash
-python3 scripts/dictionary_tools.py merge \
-  --source /path/to/dict-a \
-  --source /path/to/dict-b \
-  --output /path/to/merged-dict
-```
-
-Specify `--source` once per dictionary to include. The merged output contains the full union of all headwords and synonyms. When the same word appears in multiple sources, definitions are concatenated in source order.
-
-Source dictionaries must be prepared (decompressed `.dict` files) before merging. The output is a complete, ready-to-use StarDict dictionary that can be copied directly to the SD card.
+Keep all files from the prepared ZIP together. The prepared download is available
+for 10 minutes.
 
 ## Where to find dictionaries
 

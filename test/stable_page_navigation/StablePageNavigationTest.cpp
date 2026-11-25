@@ -1,7 +1,10 @@
+#include <Epub/SpineSizeLookup.h>
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
+#include <vector>
 
 #include "Epub/ReferencePageNavigation.h"
 #include "StablePageSelectionModel.h"
@@ -115,3 +118,53 @@ TEST(StablePageNavigation, UsesSourceOffsetsForUnevenRenderedPages) {
   EXPECT_EQ(EpubNavigation::resolveReferenceTargetToRenderedPage(55, 100, 100, pageStarts), 1);
 }
 }  // namespace
+
+TEST(SpineSizeLookup, PreservesBoundariesAndEmptyChapters) {
+  const std::vector<size_t> ends{0, 0, 10, 10, 25, 26, 26, 90};
+  for (size_t target = 0; target <= 100; ++target) {
+    const auto found = std::lower_bound(ends.begin(), ends.end(), target);
+    const int expected = found == ends.end() ? ends.size() - 1 : found - ends.begin();
+    EXPECT_EQ(findSpineForSize(ends.size(), target, [&](int i) { return ends.at(i); }), expected);
+  }
+  EXPECT_EQ(findSpineForSize(0, 0,
+                             [](int) -> size_t {
+                               ADD_FAILURE();
+                               return 0;
+                             }),
+            -1);
+}
+
+TEST(SpineSizeLookup, LargeBookNeedsOnlyLogarithmicSdLookups) {
+  constexpr int count = 32767;
+  for (size_t target : {size_t(0), size_t(100), size_t(3243933), size_t(count) * 100}) {
+    int reads = 0;
+    const auto read = [&](int i) {
+      ++reads;
+      EXPECT_GE(i, 0);
+      EXPECT_LT(i, count);
+      return size_t(i + 1) * 100;
+    };
+    const int expected = target == 0 ? 0 : (target - 1) / 100;
+    EXPECT_EQ(findSpineForSize(count, target, read), expected);
+    EXPECT_LE(reads, 15);
+  }
+}
+
+TEST(StablePageNavigation, TextProgressUsesSourceCharactersEvenWhileSectionTotalIsUnknown) {
+  double progress = 0;
+  ASSERT_TRUE(EpubNavigation::resolveReferenceTextProgress(10000, 20000, 100000, 250, 0, true, progress));
+  EXPECT_DOUBLE_EQ(progress, 10250);
+  ASSERT_TRUE(EpubNavigation::resolveReferenceTextProgress(10000, 20000, 100000, 1250, 0, true, progress));
+  EXPECT_DOUBLE_EQ(progress, 11250);
+  ASSERT_TRUE(EpubNavigation::resolveReferenceTextProgress(10000, 20000, 100000, UINT32_MAX, 0, true, progress));
+  EXPECT_DOUBLE_EQ(progress, 30000);
+}
+
+TEST(StablePageNavigation, LegacyWordProgressRequiresKnownTextLengthAndPreservesFractions) {
+  double progress = 0;
+  EXPECT_FALSE(EpubNavigation::resolveReferenceTextProgress(100, 1000, 5000, 1, 0, false, progress));
+  ASSERT_TRUE(EpubNavigation::resolveReferenceTextProgress(100, 1000, 5000, 1, 4000, false, progress));
+  EXPECT_DOUBLE_EQ(progress, 100.25);
+  EXPECT_FALSE(EpubNavigation::resolveReferenceTextProgress(UINT32_MAX, 1000, 5000, 1, 4000, false, progress));
+  EXPECT_FALSE(EpubNavigation::resolveReferenceTextProgress(100, UINT32_MAX, 5000, 1, 4000, false, progress));
+}

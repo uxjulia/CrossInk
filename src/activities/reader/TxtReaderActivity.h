@@ -1,12 +1,16 @@
 #pragma once
-
+#include <Epub/RuledLineLayout.h>
 #include <Txt.h>
 
+#include <optional>
 #include <vector>
 
+#include "BookLoadingFeedback.h"
 #include "CrossPointSettings.h"
+#include "DeferredGrayscale.h"
+#include "PluginReaderEvents.h"
+#include "ReaderButtonShortcuts.h"
 #include "ReaderProgressSaveDebouncer.h"
-#include "SideButtonShortcuts.h"
 #include "activities/Activity.h"
 #include "components/OptionPopup.h"
 #if CROSSINK_APP_CAP_TOUCH
@@ -14,6 +18,13 @@
 #endif
 
 class TxtReaderActivity final : public Activity {
+  PluginReaderEvents pluginEvents;
+  ReaderUtils::DeferredGrayscalePlanes deferredGrayscalePlanes;
+#ifdef SIMULATOR
+  friend struct ReaderMenuOrientationSmokeTest;
+  friend struct StatusBarFeatureSmokeTest;
+  friend struct ScreenCalibrationSmokeTest;
+#endif
   OptionPopup quickActionsPopup;
   std::unique_ptr<Txt> txt;
 
@@ -22,8 +33,7 @@ class TxtReaderActivity final : public Activity {
   int pagesUntilFullRefresh = 0;
   // Session-only display toggle; cached page layout remains unchanged.
   bool statusBarVisible = true;
-  SideButtonShortcuts sideButtonShortcuts;
-  bool frontButtonLongPressHandled = false;
+  ReaderButtonShortcuts readerButtonShortcuts;
   bool longPowerButtonHandled = false;
   bool longPressBackHandled = false;
   bool longPressMenuHandled = false;
@@ -35,28 +45,44 @@ class TxtReaderActivity final : public Activity {
 
   // Streaming text reader - stores file offsets for each page
   std::vector<size_t> pageOffsets;  // File offset for start of each page
-  std::vector<std::string> currentPageLines;
+  struct PageLine {
+    std::string text;
+    RuledLineLayout row;
+  };
+  std::vector<PageLine> currentPageLines;
   int linesPerPage = 0;
   int viewportWidth = 0;
   bool initialized = false;
 
   // Cached settings for cache validation (different fonts/margins require re-indexing)
+  int8_t cachedCharacterSpacing = 0;
+  int cachedRuledViewport = -1;
+  int cachedRowHeight = 0;
   int cachedFontId = 0;
   uint8_t cachedVerticalMargin = 0;
   uint8_t cachedHorizontalMargin = 0;
   uint8_t cachedParagraphAlignment = CrossPointSettings::LEFT_ALIGN;
   int cachedTopStatusBarHeight = 0;
-  int cachedBottomStatusBarHeight = 0;
+  int cachedFooterReservedHeight = 0;
+  ScreenInsets cachedViewableInsets;
   int cachedOrientedMarginTop = 0;
   int cachedOrientedMarginRight = 0;
   int cachedOrientedMarginBottom = 0;
   int cachedOrientedMarginLeft = 0;
+  // Keep one content anchor through repeated bar edits until the reader turns a page.
+  std::optional<size_t> statusBarRelayoutOffset;
+  int statusBarRelayoutPage = -1;
 
   void renderPage();
   void renderStatusBar() const;
+  void requestPageTurn(bool previous, bool next);
 
   void initializeReader();
-  bool loadPageAtOffset(size_t offset, std::vector<std::string>& outLines, size_t& nextOffset);
+  static size_t parseAndWrapLines(const uint8_t* buffer, size_t chunkSize, size_t fileOffset, size_t fileSize,
+                                  int linesPerPage, const GfxRenderer& renderer, int fontId, int vw,
+                                  std::vector<PageLine>* outLines, int8_t characterSpacing, int ruledViewportHeight,
+                                  int requestedHeight);
+  bool loadPageAtOffset(size_t offset, std::vector<PageLine>* outLines, size_t& nextOffset, uint8_t* scratch = nullptr);
   void buildPageIndex();
   bool loadPageIndexCache();
   void savePageIndexCache() const;
@@ -75,23 +101,37 @@ class TxtReaderActivity final : public Activity {
   bool executeLongPressBackAction();
   bool changeReaderFontSize(bool larger, FontSizeStepMode mode = FontSizeStepMode::Wrap);
   void cycleReaderFont();
+  // Font changes and layout invalidation share the caller's RenderLock.
   void rebuildTextLayout();
-  void openReaderMenu();
   bool applyReaderOrientation(uint8_t orientation);
 #if CROSSINK_APP_CAP_TOUCH
   bool handlePinchFontResize();
   void resetPinchFontGesture();
 #endif
 
+  BookLoadingFeedback openingFeedback;
+  bool showOpeningFeedback() {
+    if (!openingFeedback.showIfPending(renderer)) return false;
+    pagesUntilFullRefresh = 0;
+    return true;
+  }
+
  public:
   explicit TxtReaderActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::unique_ptr<Txt> txt,
-                             int initialRefreshCountdown, bool skipRecentBookUpdateOnEntry = false)
+                             int initialRefreshCountdown, bool skipRecentBookUpdateOnEntry = false,
+                             BookLoadingFeedback openingFeedback = {})
       : Activity("TxtReader", renderer, mappedInput),
         txt(std::move(txt)),
         pagesUntilFullRefresh(initialRefreshCountdown),
-        skipRecentBookUpdateOnEntry(skipRecentBookUpdateOnEntry) {}
+        skipRecentBookUpdateOnEntry(skipRecentBookUpdateOnEntry),
+        openingFeedback(openingFeedback) {}
   void onEnter() override;
   void onExit() override;
+  void prepareForSleep() override {
+    if (!flushQueuedProgress()) LOG_ERR("PEVT", "Reader progress save failed before sleep");
+    pluginEvents.poll(getCurrentBookPath());
+    pluginEvents.flush(getCurrentBookPath());
+  }
   void loop() override;
   void render(RenderLock&&) override;
   bool handleTwoFingerSwipeAction(CrossPointSettings::TWO_FINGER_SWIPE_ACTION action) override;
@@ -102,12 +142,9 @@ class TxtReaderActivity final : public Activity {
   }
   bool isReaderActivity() const override { return true; }
   bool isBookReaderActivity() const override { return true; }
+  bool usesMenuButtonOrientation() const override { return quickActionsPopup.isActive(); }
   bool usesFullScreenReaderVerticalSwipes() const override {
-#if defined(FREEINK_DEVICE_STICKY) && FREEINK_DEVICE_STICKY
-    return true;
-#else
-    return false;
-#endif
+    return mappedInput.hasTouchHardware() && !mappedInput.hasHomeKey();
   }
   bool canSnapshotForSleepOverlay() const override { return true; }
   bool allowPowerAsConfirmInReaderMode() const override { return quickActionsPopup.isActive(); }

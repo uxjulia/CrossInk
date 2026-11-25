@@ -15,6 +15,8 @@ class XtcReaderChapterSelectionActivity final : public Activity {
 
   std::shared_ptr<Xtc> xtc;
   ButtonNavigator buttonNavigator;
+  bool ignoreInitialUpRelease = false;
+  bool ignoreInitialDownRelease = false;
   uint32_t currentPage = 0;
   int selectorIndex = 0;
   freeink::ui::GfxRendererTarget uiTarget;

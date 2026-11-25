@@ -23,6 +23,10 @@
 #include "Memory.h"
 #include "SdCardFontSystem.h"
 #include "components/UITheme.h"
+#if CROSSINK_APP_CAP_TOUCH
+#include "components/UiAppHelpers.h"
+#include "components/icons/touchHeaderIcons.h"
+#endif
 #include "fontIds.h"
 #include "util/Dictionary.h"
 #include "util/DictionaryActivityUtils.h"
@@ -30,11 +34,21 @@
 #include "util/LookupHistory.h"
 #include "util/TextPool.h"
 
+namespace {
+Rect dictionaryHeaderRect(const GfxRenderer& renderer, const int contentX, const int gutterWidth,
+                          const int gutterHeight) {
+  return UITheme::getHeaderRect(
+      renderer, UITheme::getInstance().getMetrics().headerHeight,
+      Rect{contentX, gutterHeight, renderer.getScreenWidth() - gutterWidth, renderer.getScreenHeight() - gutterHeight});
+}
+}  // namespace
+
 static constexpr char kBullet[] = "- ";
 static constexpr const char kEtymologyTreeMarker[] = "Etymology tree";
 static constexpr int kDictionarySwitchTouchHeight = 56;
 #if CROSSINK_APP_CAP_TOUCH
 static constexpr unsigned long kTouchDefinitionLookupHoldMs = 1000;
+static constexpr int kDictionaryCloseTouchSize = 48;
 #endif
 
 class DictionaryDefinitionActivity;
@@ -357,6 +371,7 @@ void DictionaryDefinitionActivity::onEnter() {
 
 void DictionaryDefinitionActivity::onExit() {
   controller.onExit();
+  definitionSource_.reset();
   Dictionary::clearLookupDictPathOverride();
   if (renderer.isSdCardFont(definitionFontId_)) {
     // The dictionary can reuse the reader's family and size, in which case
@@ -488,8 +503,35 @@ bool DictionaryDefinitionActivity::showTouchDictionarySwitch() const {
 }
 #endif
 
+int DictionaryDefinitionActivity::dictionaryTitleHeight() const {
+  const int lineHeight = renderer.getLineHeight(getDefinitionFontId());
+#if CROSSINK_APP_CAP_TOUCH
+  return mappedInput.hasTouchHardware() ? std::max(kDictionaryCloseTouchSize, lineHeight) : lineHeight;
+#else
+  return lineHeight;
+#endif
+}
+
+Rect DictionaryDefinitionActivity::definitionHeaderRect() const {
+  if (!hasModalBackground()) return dictionaryHeaderRect(renderer, contentX, hintGutterWidth, hintGutterHeight);
+  const int padding = UITheme::getInstance().getMetrics().optionPopupInnerPadding;
+  return Rect{modalX_ + padding, modalY_ + padding, modalWidth_ - padding * 2, dictionaryTitleHeight()};
+}
+
+#if CROSSINK_APP_CAP_TOUCH
+Rect DictionaryDefinitionActivity::closeButtonRect() const {
+  const Rect header = definitionHeaderRect();
+  const int size = std::min(kDictionaryCloseTouchSize, std::min(header.width, header.height));
+  if (hasModalBackground()) {
+    // Anchor the close control to the frame, above and right of the headword row.
+    return Rect{modalX_ + modalWidth_ - size, modalY_, size, size};
+  }
+  return Rect{header.x + header.width - size, header.y + header.height - size, size, size};
+}
+#endif
+
 int DictionaryDefinitionActivity::dictionaryFooterHeight() const {
-  if (!hasModalBackground()) return 0;
+  if (!hasModalBackground()) return renderer.getLineHeight(SMALL_FONT_ID);
 
   const auto metrics = UITheme::getInstance().getMetrics();
   const int dictionaryNameHeight = renderer.getLineHeight(UI_10_FONT_ID) + metrics.optionPopupTitleGap;
@@ -546,41 +588,44 @@ void DictionaryDefinitionActivity::wrapText() {
   const bool isLandscapeCw = orient == GfxRenderer::Orientation::LandscapeClockwise;
   const bool isLandscapeCcw = orient == GfxRenderer::Orientation::LandscapeCounterClockwise;
   const bool isInverted = orient == GfxRenderer::Orientation::PortraitInverted;
-  hintGutterWidth = (isLandscapeCw || isLandscapeCcw) ? metrics.buttonHintsHeight : 0;
-  hintGutterHeight = isInverted ? (metrics.buttonHintsHeight + metrics.verticalSpacing) : 0;
+  hintGutterWidth = (isLandscapeCw || isLandscapeCcw) ? UITheme::getButtonHintsReserve(renderer) : 0;
+  hintGutterHeight = isInverted ? (UITheme::getButtonHintsReserve(renderer) + metrics.verticalSpacing) : 0;
   contentX = isLandscapeCw ? hintGutterWidth : 0;
-  const int bottomArea = metrics.buttonHintsHeight + metrics.verticalSpacing;
+  const auto safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
 
   if (hasModalBackground()) {
     const int dialogMargin = metrics.optionPopupDialogSideMargin;
-    // Reserve the orientation hint gutter on both sides. The controls only
-    // occupy one side, but symmetrical gutters keep the modal centered.
-    modalX_ = hintGutterWidth + dialogMargin;
-    modalWidth_ = renderer.getScreenWidth() - modalX_ * 2;
-    modalHeight_ = renderer.getScreenHeight() - bottomArea - dialogMargin * 2;
-    modalY_ = (renderer.getScreenHeight() - modalHeight_) / 2;
+    // Keep the modal margin inside the calibrated area and rotated hint gutter.
+    modalX_ = safe.x + dialogMargin;
+    modalWidth_ = safe.width - dialogMargin * 2;
+    modalHeight_ = safe.height - metrics.verticalSpacing - dialogMargin * 2;
+    modalY_ = safe.y + (safe.height - modalHeight_) / 2;
 
     const int innerPadding = metrics.optionPopupInnerPadding;
     leftPadding = modalX_ + innerPadding;
     rightPadding = renderer.getScreenWidth() - (modalX_ + modalWidth_ - innerPadding);
-    bodyStartY = modalY_ + innerPadding + renderer.getLineHeight(getDefinitionFontId()) + metrics.optionPopupTitleGap;
+    bodyStartY = modalY_ + innerPadding + dictionaryTitleHeight() + metrics.optionPopupTitleGap;
   } else {
     const int sidePadding = metrics.contentSidePadding + SETTINGS.screenMarginHorizontal;
-    leftPadding = contentX + sidePadding;
-    rightPadding = (isLandscapeCcw ? hintGutterWidth : 0) + sidePadding;
-    bodyStartY = hintGutterHeight + metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
+    leftPadding = safe.x + sidePadding;
+    rightPadding = renderer.getScreenWidth() - safe.x - safe.width + sidePadding;
+    const Rect header = dictionaryHeaderRect(renderer, contentX, hintGutterWidth, hintGutterHeight);
+    bodyStartY = header.y + header.height + metrics.verticalSpacing;
   }
 
   const int footerHeight = dictionaryFooterHeight();
   const int bodyBottom = hasModalBackground() ? modalY_ + modalHeight_ - metrics.optionPopupInnerPadding - footerHeight
-                                              : renderer.getScreenHeight() - bottomArea;
+                                              : safe.y + safe.height - metrics.verticalSpacing - footerHeight;
   linesPerPage = (bodyBottom - bodyStartY) / getLineHeight();
   if (linesPerPage < 1) linesPerPage = 1;
 
   // Resolve the immutable definition slice once. Page turns reuse it instead
   // of reopening the dictionary metadata files before every layout pass.
   const DictInfo info = Dictionary::readInfo(foundLocation.folderPath.c_str());
-  const DictDefinitionSlice slice = Dictionary::resolveDefinitionSlice(foundLocation, info);
+  DictDefinitionSlice slice;
+  if (definitionSource_.open(foundLocation)) {
+    slice = Dictionary::resolveDefinitionSlice(foundLocation, info, definitionSource_);
+  }
   definitionReadFailed_ = !slice.found;
   if (definitionReadFailed_) {
     LOG_ERR("DICT", "Failed to resolve definition slice for %s", foundLocation.folderPath.c_str());
@@ -694,7 +739,7 @@ void DictionaryDefinitionActivity::prepareDefinitionFontAdvances() {
   collectDefinitionAdvanceText(headword.c_str(), EpdFontFamily::BOLD);
   collectDefinitionAdvanceText(kBullet, EpdFontFamily::REGULAR);
 
-  const std::string dictPath = foundLocation.folderPath + ".dict";
+  const std::string& dictPath = definitionSource_.path();
   if (definitionIsHtml_) {
     const DictHtmlRenderer::SpanSink sink{this, &DictionaryDefinitionActivity::collectSpanForAdvances};
     if (!htmlRenderer_.renderFromFileStreaming(dictPath.c_str(), definitionOffset_, definitionSize_, sink)) {
@@ -759,10 +804,10 @@ void DictionaryDefinitionActivity::prepareDefinitionFontAdvances() {
 void DictionaryDefinitionActivity::sizeModalForCurrentPage() {
   const auto metrics = UITheme::getInstance().getMetrics();
   const int dialogMargin = metrics.optionPopupDialogSideMargin;
-  const int maxHeight =
-      renderer.getScreenHeight() - metrics.buttonHintsHeight - metrics.verticalSpacing - dialogMargin * 2;
+  const auto safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
+  const int maxHeight = safe.height - metrics.verticalSpacing - dialogMargin * 2;
   const int visibleLines = std::max(1, static_cast<int>(layoutLines.size()));
-  const int titleLineHeight = renderer.getLineHeight(getDefinitionFontId());
+  const int titleLineHeight = dictionaryTitleHeight();
   const int footerHeight = dictionaryFooterHeight();
   const int contentHeight = metrics.optionPopupInnerPadding * 2 + titleLineHeight + metrics.optionPopupTitleGap +
                             visibleLines * getLineHeight() + footerHeight;
@@ -774,9 +819,9 @@ void DictionaryDefinitionActivity::sizeModalForCurrentPage() {
     // that erased border from appearing as a second modal on the physical panel.
     modalCleanRefreshNeeded_ = true;
   }
-  modalSessionHeight_ = std::max(retainedHeight, desiredHeight);
+  modalSessionHeight_ = std::min(maxHeight, std::max(retainedHeight, desiredHeight));
   modalHeight_ = modalSessionHeight_;
-  modalY_ = (renderer.getScreenHeight() - modalHeight_) / 2;
+  modalY_ = safe.y + (safe.height - modalHeight_) / 2;
   bodyStartY = modalY_ + metrics.optionPopupInnerPadding + titleLineHeight + metrics.optionPopupTitleGap;
   LOG_DBG("DICT", "Modal height desired=%d retained=%d final=%d", desiredHeight, retainedHeight, modalHeight_);
 }
@@ -842,7 +887,7 @@ void DictionaryDefinitionActivity::wrapHtml() {
   // Wrapper emits completed lines to the page collector, and the collector keeps
   // only the current page. Neither the whole-definition span/textBuf (renderer)
   // nor all pages of lines (here) is ever materialized.
-  const std::string dictPath = foundLocation.folderPath + ".dict";
+  const std::string& dictPath = definitionSource_.path();
   const auto streamIntoLayout = [&](const bool plainTextFallback) {
     DictLayout::Measurer measure{this, &DictionaryDefinitionActivity::measureWidthAdapter};
     DictLayout::LineSink lineSink{this, &DictionaryDefinitionActivity::collectLineSink};
@@ -937,7 +982,7 @@ void DictionaryDefinitionActivity::wrapPlain() {
   const StyledSpan space{.text = " "};
 
   // Stream from .dict file — the full definition is never held in RAM.
-  const std::string dictPath = foundLocation.folderPath + ".dict";
+  const std::string& dictPath = definitionSource_.path();
   HalFile dictFile;
   if (!Storage.openFileForRead("DICT", dictPath.c_str(), dictFile)) {
     LOG_ERR("DICT", "Failed to open definition %s", dictPath.c_str());
@@ -1055,7 +1100,7 @@ void DictionaryDefinitionActivity::extractWordsFromLayout() {
   navigator.load(std::move(words), std::move(rows), std::move(textPool));
 }
 
-void DictionaryDefinitionActivity::openDictionarySwitch() {
+void DictionaryDefinitionActivity::openDictionarySwitch(const std::string& displayedDictionary) {
   if (hasModalBackground()) {
     // Capture the exact frame currently on the panel before the picker covers
     // it. This is the hard lower bound for every replacement definition, even
@@ -1063,7 +1108,8 @@ void DictionaryDefinitionActivity::openDictionarySwitch() {
     modalSessionHeight_ = std::max(modalSessionHeight_, modalHeight_);
     LOG_DBG("DICT", "Dictionary switch retaining modal height=%d", modalSessionHeight_);
   }
-  auto picker = makeUniqueNoThrow<DictionarySelectActivity>(renderer, mappedInput, cachePath, true, true);
+  auto picker =
+      makeUniqueNoThrow<DictionarySelectActivity>(renderer, mappedInput, cachePath, true, true, displayedDictionary);
   if (!picker) {
     LOG_ERR("DICT", "OOM: DictionarySelectActivity");
     return;
@@ -1088,7 +1134,7 @@ void DictionaryDefinitionActivity::openDictionarySwitch() {
     Dictionary::setLookupDictPathOverride(selection->path.c_str());
     dictionaryName_ = dictionaryNameFromPath(selection->path);
     dictionarySwitchLookupInProgress = true;
-    controller.startLookup(headword, false);
+    controller.startLookup(headword, false, false);
   });
 }
 
@@ -1203,6 +1249,15 @@ void DictionaryDefinitionActivity::loop() {
   if (handleLongPressExitAll(showLookupButton)) return;
 
 #if CROSSINK_APP_CAP_TOUCH
+  if (mappedInput.hasTouch() && (hasModalBackground() || !controller.isActive() || controller.isLookingUp()) &&
+      !controller.requiresBackgroundRedrawAfterOverlay() &&
+      !(dictionarySwitchLookupInProgress && controller.isLookingUp())) {
+    const Rect close = closeButtonRect();
+    if (mappedInput.wasTapInRect(close.x, close.y, close.width, close.height)) {
+      DictUtils::cancelAndFinish(*this);
+      return;
+    }
+  }
   int modalTouchX = 0;
   int modalTouchY = 0;
   if (hasModalBackground() && mappedInput.hasTouch() && !controller.requiresBackgroundRedrawAfterOverlay() &&
@@ -1353,13 +1408,13 @@ void DictionaryDefinitionActivity::loop() {
   }
   if (showTouchDictionarySwitch() && mappedInput.wasScreenTapped(touchX, touchY) &&
       dictionarySwitchButtonContains(touchX, touchY)) {
-    openDictionarySwitch();
+    openDictionarySwitch(foundLocation.folderPath);
     return;
   }
 #endif
 
   if (showLookupButton && mappedInput.wasReleased(MappedInputManager::Button::Left)) {
-    openDictionarySwitch();
+    openDictionarySwitch(foundLocation.folderPath);
     return;
   }
 
@@ -1375,11 +1430,18 @@ void DictionaryDefinitionActivity::loop() {
   if (handleTouchDictionaryLookup()) return;
 #endif
 
+  // Power is not part of the logical side-button mapping. Handle its page
+  // assignment here before it can fall back to Confirm on this screen.
+  const auto powerAction = mappedInput.getHeldTime() < SETTINGS.getPowerButtonLongPressDuration() ? SETTINGS.shortPwrBtn
+                                                                                                  : SETTINGS.longPwrBtn;
+  const bool powerReleased = mappedInput.wasReleased(MappedInputManager::Button::Power);
+  const bool powerPrevious = powerReleased && powerAction == CrossPointSettings::PREVIOUS_PAGE;
+  const bool powerNext = powerReleased && powerAction == CrossPointSettings::PAGE_TURN;
   const auto swipe = mappedInput.wasSwipe();
-  const bool prevPage =
-      DictUtils::dictionaryPageButtonTriggered(mappedInput, true) || swipe == MappedInputManager::SwipeDir::Down;
-  const bool nextPage =
-      DictUtils::dictionaryPageButtonTriggered(mappedInput, false) || swipe == MappedInputManager::SwipeDir::Up;
+  const bool prevPage = powerPrevious || DictUtils::dictionaryPageButtonTriggered(mappedInput, true) ||
+                        swipe == MappedInputManager::SwipeDir::Down;
+  const bool nextPage = powerNext || DictUtils::dictionaryPageButtonTriggered(mappedInput, false) ||
+                        swipe == MappedInputManager::SwipeDir::Up;
 
   if (prevPage && currentPage > 0) {
     currentPage--;
@@ -1392,6 +1454,9 @@ void DictionaryDefinitionActivity::loop() {
     loadPage(currentPage);
     requestUpdate();
   }
+
+  // Also consume page actions at the first/last page instead of confirming.
+  if (powerPrevious || powerNext) return;
 
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
     if (showLookupButton) {
@@ -1503,12 +1568,9 @@ void DictionaryDefinitionActivity::render(RenderLock&&) {
 
   // Header chrome stays in the built-in UI font; the looked-up word uses the
   // active reader font and is drawn with the definition body after prewarming.
-  Rect headerRect{contentX, hintGutterHeight + metrics.topPadding, renderer.getScreenWidth() - hintGutterWidth,
-                  metrics.headerHeight};
+  const Rect headerRect = definitionHeaderRect();
   if (hasModalBackground()) {
     drawModalFrame();
-    const int innerPadding = metrics.optionPopupInnerPadding;
-    headerRect = Rect{modalX_ + innerPadding, modalY_ + innerPadding, modalWidth_ - innerPadding * 2, titleLineHeight};
     if (metrics.optionPopupTitleSeparator) {
       const int separatorY = headerRect.y + headerRect.height + metrics.optionPopupTitleGap / 2;
       renderer.drawLine(headerRect.x, separatorY, headerRect.x + headerRect.width, separatorY, true);
@@ -1518,22 +1580,17 @@ void DictionaryDefinitionActivity::render(RenderLock&&) {
   }
 
   int titleRight = headerRect.x + headerRect.width;
-  if (!isWordSelectMode && totalPages > 1) {
-    char pageInfo[16];
-    snprintf(pageInfo, sizeof(pageInfo), "%d/%d", currentPage + 1, totalPages);
-    const int textWidth = renderer.getTextWidth(SMALL_FONT_ID, pageInfo);
-    const int pageInfoY =
-        hasModalBackground()
-            ? headerRect.y + (headerRect.height - renderer.getLineHeight(SMALL_FONT_ID)) / 2
-            : headerRect.y + headerRect.height - renderer.getLineHeight(SMALL_FONT_ID) - metrics.verticalSpacing / 2;
-    const int pageInfoX = hasModalBackground() ? headerRect.x + headerRect.width - textWidth
-                                               : renderer.getScreenWidth() - rightPadding - textWidth;
-    renderer.drawText(SMALL_FONT_ID, pageInfoX, pageInfoY, pageInfo);
-    titleRight = pageInfoX - metrics.optionPopupInnerPadding;
+#if CROSSINK_APP_CAP_TOUCH
+  if (mappedInput.hasTouch()) {
+    const Rect close = closeButtonRect();
+    drawLucideIcon(renderer, icon_close_32, close.x + (close.width - icon_close_32.w) / 2,
+                   close.y + (close.height - icon_close_32.h) / 2);
+    titleRight = close.x - metrics.optionPopupInnerPadding;
   }
+#endif
 
   const int titleX = hasModalBackground() ? headerRect.x : headerRect.x + metrics.contentSidePadding;
-  const int titleY = hasModalBackground() ? headerRect.y : headerRect.y + (headerRect.height - titleLineHeight) / 2;
+  const int titleY = headerRect.y + (headerRect.height - titleLineHeight) / 2;
   const int titleMaxWidth = std::max(0, titleRight - titleX);
   const std::string visibleHeadword =
       renderer.truncatedText(titleFontId, headword.c_str(), titleMaxWidth, EpdFontFamily::BOLD);
@@ -1632,7 +1689,12 @@ void DictionaryDefinitionActivity::render(RenderLock&&) {
 
   if (!hasModalBackground() && definitionReadFailed_) GUI.drawPopup(renderer, tr(STR_DICT_READ_FAILED));
 
-  if (hasModalBackground() && !dictionaryName_.empty()) {
+  char pageInfo[16] = {};
+  if (!isWordSelectMode && totalPages > 1) {
+    snprintf(pageInfo, sizeof(pageInfo), "%d/%d", currentPage + 1, totalPages);
+  }
+
+  if (hasModalBackground()) {
     const int innerPadding = metrics.optionPopupInnerPadding;
     const int footerLineHeight = renderer.getLineHeight(UI_10_FONT_ID);
 #if CROSSINK_APP_CAP_TOUCH
@@ -1646,9 +1708,17 @@ void DictionaryDefinitionActivity::render(RenderLock&&) {
     const int footerBottom = modalY_ + modalHeight_ - switchButtonHeight;
     const int dictionaryNameY = separatorY + (footerBottom - separatorY - footerLineHeight) / 2;
     renderer.drawLine(modalX_, separatorY, modalX_ + modalWidth_, separatorY, true);
-    const auto visibleName =
-        renderer.truncatedText(UI_10_FONT_ID, dictionaryName_.c_str(), modalWidth_ - innerPadding * 2);
+    const int pageWidth = renderer.getTextWidth(UI_10_FONT_ID, pageInfo);
+    const int pageReserve = pageWidth > 0 ? pageWidth + innerPadding : 0;
+    const auto visibleName = renderer.truncatedText(UI_10_FONT_ID, dictionaryName_.c_str(),
+                                                    std::max(0, modalWidth_ - innerPadding * 2 - pageReserve));
     renderer.drawText(UI_10_FONT_ID, modalX_ + innerPadding, dictionaryNameY, visibleName.c_str());
+    renderer.drawText(UI_10_FONT_ID, modalX_ + modalWidth_ - innerPadding - pageWidth, dictionaryNameY, pageInfo);
+  } else if (pageInfo[0]) {
+    const auto safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
+    renderer.drawText(SMALL_FONT_ID,
+                      renderer.getScreenWidth() - rightPadding - renderer.getTextWidth(SMALL_FONT_ID, pageInfo),
+                      safe.y + safe.height - metrics.verticalSpacing - renderer.getLineHeight(SMALL_FONT_ID), pageInfo);
   }
 
 #if CROSSINK_APP_CAP_TOUCH

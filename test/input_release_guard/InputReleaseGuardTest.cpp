@@ -11,6 +11,10 @@ TEST_P(InputReleaseGuardTest, HeldLaunchConsumesOnlyItsRelease) {
   const auto button = GetParam();
   bool pending = true;
 
+  input.setPressed(button, true);
+  EXPECT_TRUE(InputReleaseGuard::consumeInitialRelease(input, button, pending));
+  EXPECT_TRUE(pending);
+
   input.setPressed(button, false);
   input.setReleased(button, true);
   EXPECT_TRUE(InputReleaseGuard::consumeInitialRelease(input, button, pending));
@@ -32,6 +36,7 @@ TEST_P(InputReleaseGuardTest, ReleaseFirstLaunchLeavesTheNextReleaseUntouched) {
 
 INSTANTIATE_TEST_SUITE_P(ShortcutButtons, InputReleaseGuardTest,
                          testing::Values(MappedInputManager::Button::Back, MappedInputManager::Button::Confirm,
-                                         MappedInputManager::Button::Power));
+                                         MappedInputManager::Button::Power, MappedInputManager::Button::Up,
+                                         MappedInputManager::Button::Down));
 
 }  // namespace

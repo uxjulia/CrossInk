@@ -49,7 +49,10 @@ TEST_F(EpubProgressPersistenceTest, MissingOrTruncatedFilesAreRecreated) {
   Storage.put("/cache/progress.bin", {1, 0, 2, 0});
   ASSERT_TRUE(EpubReaderUtils::saveProgress(epub, 1, 2, 10, 123));
   EXPECT_EQ(Storage.writeOpens, 3U);
-  EXPECT_EQ(Storage.bytes("/cache/progress.bin").size(), 10U);
+  EXPECT_EQ(Storage.bytes("/cache/progress.bin.bak").size(), 20U);
+  EpubReaderUtils::Progress progress;
+  ASSERT_TRUE(EpubReaderUtils::loadProgress(epub, progress));
+  EXPECT_EQ(progress.visibleTextOffset, 123U);
 }
 
 TEST_F(EpubProgressPersistenceTest, FailedWritesKeepTheOldPositionAndRemainRetryable) {
@@ -59,16 +62,20 @@ TEST_F(EpubProgressPersistenceTest, FailedWritesKeepTheOldPositionAndRemainRetry
   EXPECT_FALSE(EpubReaderUtils::saveProgress(epub, 1, 3, 10));
   EXPECT_EQ(Storage.bytes("/cache/progress.bin"), original);
   ASSERT_TRUE(EpubReaderUtils::saveProgress(epub, 1, 3, 10));
-  EXPECT_NE(Storage.bytes("/cache/progress.bin"), original);
+  EpubReaderUtils::Progress progress;
+  ASSERT_TRUE(EpubReaderUtils::loadProgress(epub, progress));
+  EXPECT_EQ(progress.pageNumber, 3);
 }
 
-TEST_F(EpubProgressPersistenceTest, FailedReplacementRestoresOldPositionAndRemainsRetryable) {
+TEST_F(EpubProgressPersistenceTest, SavesDoNotDependOnRenameOrRemove) {
   ASSERT_TRUE(EpubReaderUtils::saveProgress(epub, 1, 2, 10));
-  const auto original = Storage.bytes("/cache/progress.bin");
   Storage.failRenameFrom = "/cache/progress.bin.tmp";
-  EXPECT_FALSE(EpubReaderUtils::saveProgress(epub, 1, 3, 10));
-  EXPECT_EQ(Storage.bytes("/cache/progress.bin"), original);
   ASSERT_TRUE(EpubReaderUtils::saveProgress(epub, 1, 3, 10));
-  EXPECT_NE(Storage.bytes("/cache/progress.bin"), original);
+  ASSERT_TRUE(EpubReaderUtils::saveProgress(epub, 1, 4, 10));
+  EXPECT_EQ(Storage.renames, 0U);
+  EXPECT_EQ(Storage.removes, 0U);
+  EpubReaderUtils::Progress progress;
+  ASSERT_TRUE(EpubReaderUtils::loadProgress(epub, progress));
+  EXPECT_EQ(progress.pageNumber, 4);
 }
 }  // namespace

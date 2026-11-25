@@ -8,6 +8,7 @@
 #include <utility>
 
 #include "CrossPointSettings.h"
+#include "FilenameFontSystem.h"
 #include "MappedInputManager.h"
 #include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
@@ -41,10 +42,11 @@ std::vector<XtcReaderMenuActivity::MenuItem> XtcReaderMenuActivity::buildMenuIte
                                                                                    const bool globalStatsEnabled,
                                                                                    const bool bookStatsEnabled) {
   std::vector<MenuItem> menuItems;
-  menuItems.reserve(7 + (hasTouch ? 1u : 0u));
+  menuItems.reserve(kMaxMenuItems);
   if (hasChapters) {
     menuItems.push_back({MenuAction::SELECT_CHAPTER, StrId::STR_SELECT_CHAPTER});
   }
+  menuItems.push_back({MenuAction::GO_TO_PERCENT, StrId::STR_GO_TO_PERCENT});
   if (globalStatsEnabled) {
     menuItems.push_back({MenuAction::TOGGLE_BOOK_STATS_TRACKING, StrId::STR_TRACK_READING_STATS});
     if (bookStatsEnabled) menuItems.push_back({MenuAction::READING_STATS, StrId::STR_READING_STATS});
@@ -63,6 +65,10 @@ std::vector<XtcReaderMenuActivity::MenuItem> XtcReaderMenuActivity::buildMenuIte
 
 void XtcReaderMenuActivity::onEnter() {
   Activity::onEnter();
+  {
+    RenderLock lock(*this);
+    filenameFontSystem.ensureLoaded(renderer);
+  }
   mappedInput.setReaderTouchscreenOverride(true);
   selectedIndex = 0;
   topIndex = 0;
@@ -160,10 +166,12 @@ void XtcReaderMenuActivity::listScreen(UiApp::ScreenType& screen, void* user) {
 
 void XtcReaderMenuActivity::buildListScreen(UiApp::ScreenType& screen) {
   const auto& metrics = UITheme::getInstance().getMetrics();
-  const int contentTop = metrics.topPadding + listHeaderHeight + metrics.verticalSpacing;
-  screen.setContentMargin(fui::Insets{static_cast<int16_t>(contentTop), 0,
-                                      static_cast<int16_t>(metrics.buttonHintsHeight + metrics.verticalSpacing * 2),
-                                      0});
+  const auto header = UITheme::getHeaderRect(renderer, listHeaderHeight);
+  const int contentTop = header.y + header.height + metrics.verticalSpacing;
+  setUiContentMargin(
+      screen, renderer,
+      fui::Insets{static_cast<int16_t>(contentTop), 0,
+                  static_cast<int16_t>(UITheme::getButtonHintsReserve(renderer) + metrics.verticalSpacing * 2), 0});
 
   refreshListItems();
   fui::ListProps props;
@@ -202,27 +210,41 @@ void XtcReaderMenuActivity::render(RenderLock&&) {
   const auto& metrics = UITheme::getInstance().getMetrics();
   const auto pageWidth = renderer.getScreenWidth();
   const auto pageHeight = renderer.getScreenHeight();
-  const Rect standardHeader{0, metrics.topPadding, pageWidth, metrics.headerHeight};
-  const int titleX = mappedInput.hasTouchHardware() ? TouchHeaderBackButton::layout(standardHeader).titleX
-                                                    : metrics.contentSidePadding;
-  const int titleMaxWidth = std::max(0, pageWidth - titleX - metrics.contentSidePadding - kBatteryTextReserveWidth);
+  const bool touchHeader = mappedInput.hasTouchHardware();
+  const Rect standardHeader = touchHeader ? TouchHeaderBackButton::headerRect(renderer, mappedInput)
+                                          : UITheme::getHeaderRect(renderer, metrics.headerHeight);
+  const auto navigation = TouchHeaderBackButton::layout(standardHeader);
+  const int titleX = touchHeader ? navigation.titleX : standardHeader.x + metrics.contentSidePadding;
+  const int titleMaxWidth = std::max(
+      0, standardHeader.x + standardHeader.width - titleX - metrics.contentSidePadding - kBatteryTextReserveWidth);
+  int titleFontId = renderer.filenameFontId(kTitleFontId);
+  // A custom filename font must not grow the shared navigation bar or cover its divider.
+  if (touchHeader && renderer.getLineHeight(titleFontId) > navigation.iconRect.height) titleFontId = kTitleFontId;
+  const int titleLineHeight = renderer.getLineHeight(titleFontId);
+  const int maxTitleLines =
+      touchHeader ? std::clamp((navigation.iconRect.height + kTitleLineGap) / (titleLineHeight + kTitleLineGap), 1,
+                               kTitleMaxLines)
+                  : kTitleMaxLines;
   const auto titleLines =
-      renderer.wrappedText(kTitleFontId, title.c_str(), titleMaxWidth, kTitleMaxLines, EpdFontFamily::BOLD);
-  const int titleLineHeight = renderer.getLineHeight(kTitleFontId);
+      renderer.wrappedText(titleFontId, title.c_str(), titleMaxWidth, maxTitleLines, EpdFontFamily::BOLD);
   const int titleBlockHeight = static_cast<int>(titleLines.size()) * titleLineHeight +
                                std::max(0, static_cast<int>(titleLines.size()) - 1) * kTitleLineGap;
-  const int headerHeight = std::max(metrics.headerHeight, metrics.batteryBarHeight + titleBlockHeight + 16);
+  const int headerHeight = touchHeader
+                               ? standardHeader.height
+                               : std::max(metrics.headerHeight, metrics.batteryBarHeight + titleBlockHeight + 16);
   listHeaderHeight = headerHeight;
-  const Rect header{0, metrics.topPadding, pageWidth, headerHeight};
-  if (mappedInput.hasTouchHardware()) {
-    TouchHeaderBackButton::draw(renderer, header, "", true, 0, nullptr, 0);
+  const Rect header = UITheme::getHeaderRect(renderer, headerHeight);
+  if (touchHeader) {
+    TouchHeaderBackButton::draw(renderer, header, "", true);
   } else {
     GUI.drawHeader(renderer, header, "");
   }
 
-  const int titleY = metrics.topPadding + metrics.batteryBarHeight + 3;
+  const int titleY = touchHeader ? navigation.iconRect.y + TouchHeaderBackButton::TITLE_VERTICAL_OFFSET +
+                                       std::max(0, (navigation.iconRect.height - titleBlockHeight) / 2)
+                                 : header.y + metrics.batteryBarHeight + 3;
   for (int i = 0; i < static_cast<int>(titleLines.size()); ++i) {
-    renderer.drawText(kTitleFontId, titleX, titleY + i * (titleLineHeight + kTitleLineGap), titleLines[i].c_str(), true,
+    renderer.drawText(titleFontId, titleX, titleY + i * (titleLineHeight + kTitleLineGap), titleLines[i].c_str(), true,
                       EpdFontFamily::BOLD);
   }
 

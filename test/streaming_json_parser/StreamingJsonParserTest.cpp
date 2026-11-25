@@ -1,10 +1,9 @@
+#include <StreamingJsonParser.h>
 #include <gtest/gtest.h>
 
 #include <cstring>
 #include <string>
 #include <vector>
-
-#include "lib/JsonParser/StreamingJsonParser.h"
 
 namespace {
 
@@ -150,13 +149,13 @@ TEST(StreamingJsonParser, StringEscapes) {
   EXPECT_EQ(events[2].value, std::string("a\"b\\c/d\ne\tf"));
 }
 
-TEST(StreamingJsonParser, UnicodeEscapePassthrough) {
-  auto events = parse(R"({"u": "\u0041\u0042"})");
+TEST(StreamingJsonParser, UnicodeEscapesDecodeToUtf8) {
+  auto events = parse(R"({"u": "\u0041\u00E9\uD83D\uDE00"})");
 
   ASSERT_EQ(events.size(), 4u);
   EXPECT_EQ(events[2].type, EventType::STRING);
-  // \uXXXX passed through as literal \u followed by the hex digits
-  EXPECT_EQ(events[2].value, "\\u0041\\u0042");
+  // The shared SDK parser decodes escaped code points, including surrogate pairs.
+  EXPECT_EQ(events[2].value, "Aé😀");
 }
 
 TEST(StreamingJsonParser, Numbers) {

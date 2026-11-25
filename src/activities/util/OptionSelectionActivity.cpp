@@ -21,12 +21,12 @@ Rect optionListRect(const GfxRenderer& renderer, const MappedInputManager& mappe
   const auto orientation = renderer.getOrientation();
   const bool isLandscape = readerMode && (orientation == GfxRenderer::Orientation::LandscapeClockwise ||
                                           orientation == GfxRenderer::Orientation::LandscapeCounterClockwise);
-  const int hintGutterWidth = isLandscape ? metrics.buttonHintsHeight : 0;
+  const int hintGutterWidth = isLandscape ? UITheme::getButtonHintsReserve(renderer) : 0;
   const int contentX = orientation == GfxRenderer::Orientation::LandscapeClockwise ? hintGutterWidth : 0;
-  const int contentTop =
-      metrics.topPadding + TouchHeaderBackButton::height(metrics, mappedInput) + metrics.verticalSpacing;
-  return Rect{contentX, contentTop, renderer.getScreenWidth() - hintGutterWidth,
-              renderer.getScreenHeight() - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing};
+  const int contentTop = TouchHeaderBackButton::contentTop(renderer, mappedInput) + metrics.verticalSpacing;
+  return Rect{
+      contentX, contentTop, renderer.getScreenWidth() - hintGutterWidth,
+      renderer.getScreenHeight() - contentTop - UITheme::getButtonHintsReserve(renderer) - metrics.verticalSpacing};
 }
 }  // namespace
 
@@ -135,9 +135,11 @@ void OptionSelectionActivity::optionsScreen(UiApp::ScreenType& screen, void* use
 
 void OptionSelectionActivity::buildOptionsScreen(UiApp::ScreenType& screen) {
   const Rect bounds = optionListRect(renderer, mappedInput, readerMode_);
-  screen.setContentMargin(fui::Insets{
-      static_cast<int16_t>(bounds.y), static_cast<int16_t>(renderer.getScreenWidth() - bounds.x - bounds.width),
-      static_cast<int16_t>(renderer.getScreenHeight() - bounds.y - bounds.height), static_cast<int16_t>(bounds.x)});
+  setUiContentMargin(screen, renderer,
+                     fui::Insets{static_cast<int16_t>(bounds.y),
+                                 static_cast<int16_t>(renderer.getScreenWidth() - bounds.x - bounds.width),
+                                 static_cast<int16_t>(renderer.getScreenHeight() - bounds.y - bounds.height),
+                                 static_cast<int16_t>(bounds.x)});
   std::vector<fui::ListItem> items;
   items.reserve(options_.size());
   for (size_t i = 0; i < options_.size(); ++i) {
@@ -171,17 +173,17 @@ void OptionSelectionActivity::render(RenderLock&&) {
   const auto orientation = renderer.getOrientation();
   const bool landscape = readerMode_ && (orientation == GfxRenderer::Orientation::LandscapeClockwise ||
                                          orientation == GfxRenderer::Orientation::LandscapeCounterClockwise);
-  const int gutter = landscape ? metrics.buttonHintsHeight : 0;
+  const int gutter = landscape ? UITheme::getButtonHintsReserve(renderer) : 0;
   const int contentX = orientation == GfxRenderer::Orientation::LandscapeClockwise ? gutter : 0;
-  const Rect header{contentX, metrics.topPadding, renderer.getScreenWidth() - gutter,
-                    TouchHeaderBackButton::height(metrics, mappedInput)};
+  const Rect header = TouchHeaderBackButton::headerRect(
+      renderer, mappedInput, Rect{contentX, 0, renderer.getScreenWidth() - gutter, renderer.getScreenHeight()});
   if (showTouchHeaderBackButton_ && mappedInput.hasTouchHardware()) {
     TouchHeaderBackButton::draw(renderer, uiTarget_, header, I18N.get(titleId_), readerMode_);
   } else {
     GUI.drawHeader(renderer, header, I18N.get(titleId_), nullptr, readerMode_);
   }
   uiReady_ = false;
-  app_.render();
+  renderUiApp(app_, uiTarget_);
   uiReady_ = true;
   const auto labels =
       mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));

@@ -1,7 +1,9 @@
 #pragma once
 
+#include <AppCapabilities.h>
 #include <EpdFontFamily.h>
 
+#include <array>
 #include <functional>
 #include <memory>
 
@@ -22,6 +24,9 @@ class UITheme {
                          bool hasSideButtonHints = false);
   static void drawCenteredText(const GfxRenderer& renderer, Rect screen, int fontId, int y, const char* text,
                                bool black = true, EpdFontFamily::Style style = EpdFontFamily::REGULAR);
+  // Draw one status row with a bold label and regular value. Returns its rendered height.
+  static int drawCenteredStatusRow(const GfxRenderer& renderer, Rect screen, int fontId, int y, const char* label,
+                                   const char* value);
   // Draw a word-wrapped text block centered within screen. Returns its rendered height.
   static int drawCenteredWrappedText(const GfxRenderer& renderer, Rect screen, int fontId, int y, const char* text,
                                      int maxLines, bool black = true,
@@ -50,21 +55,34 @@ class UITheme {
   static std::string getCoverThumbPath(const std::string& coverBmpPath, int width, int height,
                                        bool allowLegacyFallback = true);
   static UIIcon getFileIcon(const std::string& filename);
-  static int getStatusBarHeight();
+  static int getStatusBarHeight(const GfxRenderer& renderer);
+  static int getDisplayStatusBarFontId();
+  static int getDisplayStatusBarTextHeight(const GfxRenderer& renderer);
+  static int getDisplayStatusBarHeightIncrease();
+  static int getReaderStatusBarFontId();
+  static int getReaderStatusBarTextHeight(const GfxRenderer& renderer);
   static int getProgressBarHeight();
-  static int getReaderStatusBarHeight(ReaderStatusBarPosition position);
+  static int getReaderStatusBarHeight(ReaderStatusBarPosition position, const GfxRenderer& renderer,
+                                      const ReaderStatusBarConfig* overrideConfig = nullptr);
   static int getReaderProgressBarHeight(ReaderStatusBarPosition position);
   // Device-specific top offset for the clock, battery, and reserved status-bar lane.
   static int getTopStatusBarInset(const GfxRenderer& renderer);
   // Absolute screen origin shared by Home, menu headers, and the reader.
   static int getTopStatusBarY(const GfxRenderer& renderer);
+  static int getButtonHintsReserve(const GfxRenderer& renderer);
+  static int getButtonHintsBottomInset(const GfxRenderer& renderer);
+  static int getHintSafeX(const GfxRenderer& renderer, int x, int width);
+  static Rect getHeaderRect(const GfxRenderer& renderer, int height);
+  static Rect getHeaderRect(const GfxRenderer& renderer, int height, const Rect& area);
 
  private:
+  // Global text-size changes select an immutable variant, rather than rewriting
+  // shared metrics or putting a ~300-byte copy on each nested render stack.
+  // Theme replacement already runs under the activity render lock.
+  std::array<ThemeMetrics, CROSSINK_APP_CAP_TOUCH ? 6 : 3> metricVariants{};
+  void rebuildMetricVariants();
   const ThemeMetrics* currentMetrics;
   std::unique_ptr<BaseTheme> currentTheme;
-  mutable ThemeMetrics adjustedMetrics;
-  mutable bool metricsValid = false;
-  mutable bool metricsForTouch = false;
 };
 
 // Helper macro to access current theme

@@ -38,6 +38,7 @@ class WordSelectNavigator {
     // exposed as independent selectable fragments while retaining this link to
     // the canonical reader word for clipping.
     uint16_t sourceWordByteOffset = 0;
+    uint8_t sourcePrefixBytes = 0;  // logical initial letter omitted from highlight display
     int16_t screenX = 0;
     int16_t screenY = 0;
     int16_t width = 0;
@@ -46,9 +47,11 @@ class WordSelectNavigator {
     int continuationOf = -1;     // index of hyphenated first half (EPUB only)
     EpdFontFamily::Style style = EpdFontFamily::REGULAR;
     bool isIpa = false;
+    // Use the two padding bytes before fontId; C3 word records do not grow.
+    uint16_t lineHeight = 0;
     int fontId = 0;  // resolved at extraction time; used by renderHighlight()
     // Pack display and compound-separator metadata into the byte that already
-    // preceded focusBoundary so WordInfo remains 36 bytes on 32-bit targets.
+    // preceded focusBoundary without separate boolean storage.
     uint8_t isRtl : 1;
     // The source layout placed this token directly beside the previous
     // selectable token without whitespace (for example adjacent CJK glyphs).
@@ -59,22 +62,8 @@ class WordSelectNavigator {
     uint8_t compoundSeparatorBefore : 2;
     uint8_t focusBoundary = 0;
     uint16_t focusSuffixX = 0;
-#if CROSSINK_SCALABLE_FONTS
-    uint16_t lineHeight = 0;
-#endif
-    int heightOr(const int fallback) const {
-#if CROSSINK_SCALABLE_FONTS
-      if (lineHeight) return lineHeight;
-#endif
-      return fallback;
-    }
-    void setLineHeight(const uint16_t height) {
-#if CROSSINK_SCALABLE_FONTS
-      lineHeight = height;
-#else
-      (void)height;
-#endif
-    }
+    int heightOr(const int fallback) const { return lineHeight ? lineHeight : fallback; }
+    void setLineHeight(const uint16_t height) { lineHeight = height; }
 
     WordInfo() : isRtl(0), joinWithoutSpaceBefore(0), isTableText(0), compoundSeparatorBefore(0) {}
   };
@@ -130,6 +119,16 @@ class WordSelectNavigator {
   // highlighted word changed.
   bool selectWordAtPoint(int x, int y, int lineHeight, bool* hit = nullptr);
 
+  // Endpoint editing keeps the opposite endpoint fixed. Nearest-word dragging
+  // prioritizes the row, so crossing a line gap cannot jump to a distant column.
+  bool selectIndex(int index);
+  bool selectNearestWord(int x, int y, int lineHeight);
+  bool setTouchSelection(int anchor, int cursor);
+  void clearTouchSelection() {
+    inMultiSelectMode = false;
+    clearCompletedSelection();
+  }
+
   // Currently highlighted word. nullptr if the word list is empty.
   const WordInfo* getSelected() const;
 
@@ -141,6 +140,8 @@ class WordSelectNavigator {
   // Range selected for the current lookup. A completed multi-select remains
   // available until its caller consumes it, even though the visual mode exits.
   bool getLookupSelectionRange(int& fromIdx, int& toIdx) const;
+  // Normalized visual bounds include both fragments of a wrapped word.
+  bool getExpandedSelectionRange(int& fromIdx, int& toIdx) const;
   size_t getLookupSelectionWordCount() const;
   void clearCompletedSelection() {
     completedSelectionStart = -1;

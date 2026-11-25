@@ -25,7 +25,10 @@ class Epub {
  public:
   Epub(const std::string& path, const char*) : path(path) {}
 
-  std::string getCachePath() const { return "/.crosspoint/cache_" + path.substr(1); }
+  static std::string resolveCachePathForFilePath(const std::string& path, const char*) {
+    return "/.crosspoint/cache_" + path.substr(1);
+  }
+  std::string getCachePath() const { return resolveCachePathForFilePath(path, "/.crosspoint"); }
   bool clearCache() const {
     const std::string cachePath = getCachePath();
     return !Storage.exists(cachePath.c_str()) || Storage.removeDir(cachePath.c_str());

@@ -1,29 +1,55 @@
 #include "WebDAVHandler.h"
 
 #include <Arduino.h>
+#include <BookKey.h>
 #include <Epub.h>
+#include <FilePublication.h>
 #include <FsHelpers.h>
 #include <HalStorage.h>
 #include <Logging.h>
 #include <SdCardFontSystem.h>
+#include <TransferWriteCheckpoint.h>
 
 #include <algorithm>
 #include <cstring>
 #include <memory>
 #include <new>
+#include <string_view>
 
 #include "CrossPointSettings.h"
+#include "ProtectedPaths.h"
 #include "activities/boot_sleep/ImageFolderIndex.h"
 #include "util/BookCacheUtils.h"
 
 namespace {
+constexpr const auto& PUT_STAGE = FilePublication::DAV_STAGE;
+
 constexpr const char* HIDDEN_ITEMS[] = {"System Volume Information", "XTCache"};
 constexpr size_t HIDDEN_ITEM_COUNT = sizeof(HIDDEN_ITEMS) / sizeof(HIDDEN_ITEMS[0]);
 
-bool isProtectedPathSegment(const char* name) {
-  return (!SETTINGS.showHiddenFiles && name[0] == '.') ||
+// SdFat ignores leading spaces and trailing dots/spaces, and compares ASCII
+// case-insensitively. Use views so checks do not allocate per directory entry.
+std::string_view fatName(std::string_view name) {
+  while (!name.empty() && name.front() == ' ') name.remove_prefix(1);
+  while (!name.empty() && (name.back() == '.' || name.back() == ' ')) name.remove_suffix(1);
+  return name;
+}
+
+bool sameFatName(std::string_view name, std::string_view expected) {
+  if (name.size() != expected.size()) return false;
+  for (size_t i = 0; i < name.size(); ++i) {
+    const char c = name[i] >= 'A' && name[i] <= 'Z' ? name[i] + ('a' - 'A') : name[i];
+    const char e = expected[i] >= 'A' && expected[i] <= 'Z' ? expected[i] + ('a' - 'A') : expected[i];
+    if (c != e) return false;
+  }
+  return true;
+}
+
+bool isProtectedPathSegment(std::string_view name) {
+  name = fatName(name);
+  return name.empty() || (!SETTINGS.showHiddenFiles && name.front() == '.') ||
          std::any_of(HIDDEN_ITEMS, HIDDEN_ITEMS + HIDDEN_ITEM_COUNT,
-                     [name](const char* item) { return strcmp(name, item) == 0; });
+                     [name](const char* item) { return sameFatName(name, item); });
 }
 
 // RFC 1123 date format helper: "Sun, 06 Nov 1994 08:49:37 GMT"
@@ -63,6 +89,20 @@ bool WebDAVHandler::canRaw(WebServer& server, const String& uri) {
 void WebDAVHandler::raw(WebServer& server, const String& uri, HTTPRaw& raw) {
   (void)uri;
   if (raw.status == RAW_START) {
+    _putErrorStatus = 0;
+    if (_putFile && !_putFile.close()) LOG_ERR("DAV", "Could not close previous PUT stage");
+    if (webtransfer::isWebSocketUploadInProgress()) {
+      _putErrorStatus = 423;
+      _putOk = false;
+      return;
+    }
+    if (!FilePublication::recover()) {
+      _putErrorStatus = 500;
+      _putOk = false;
+      return;
+    }
+    _putOk = false;
+    _putBytes = 0;
     _putPath = getRequestPath(server);
     if (isProtectedPath(_putPath)) {
       _putOk = false;
@@ -79,7 +119,6 @@ void WebDAVHandler::raw(WebServer& server, const String& uri, HTTPRaw& raw) {
       }
     }
 
-    if (_putFile) _putFile.close();
     _putExisted = Storage.exists(_putPath.c_str());
 
     if (_putExisted) {
@@ -93,46 +132,58 @@ void WebDAVHandler::raw(WebServer& server, const String& uri, HTTPRaw& raw) {
     }
 
     // Write to a temp file to avoid destroying the original on failed upload
-    String tempPath = _putPath + ".davtmp";
-    Storage.remove(tempPath.c_str());
-    _putOk = Storage.openFileForWrite("DAV", tempPath, _putFile);
+    _putOk = FilePublication::prepare() && Storage.openFileForWrite("DAV", PUT_STAGE, _putFile);
     LOG_DBG("DAV", "PUT START: %s", _putPath.c_str());
 
   } else if (raw.status == RAW_WRITE) {
+    if (webtransfer::isWebSocketUploadInProgress()) {
+      if (_putFile && !_putFile.close()) LOG_ERR("DAV", "Could not close PUT blocked by WebSocket upload");
+      Storage.remove(PUT_STAGE);
+      _putErrorStatus = 423;
+      _putOk = false;
+      return;
+    }
     if (_putFile && _putOk) {
-      size_t written = _putFile.write(raw.buf, raw.currentSize);
-      if (written != raw.currentSize) {
+      if (!FsHelpers::writeAndCheckpoint(_putFile, raw.buf, raw.currentSize)) {
         _putOk = false;
+      } else {
+        _putBytes += raw.currentSize;
       }
     }
 
   } else if (raw.status == RAW_END) {
-    if (_putFile) _putFile.close();
-    if (_putOk) {
-      String tempPath = _putPath + ".davtmp";
-      sdFontSystem.markRegistryDirtyForPath(_putPath.c_str());
-      if (_putExisted) Storage.remove(_putPath.c_str());
-      HalFile tmp = Storage.open(tempPath.c_str());
-      if (tmp) {
-        _putOk = tmp.rename(_putPath.c_str());
-        tmp.close();
-      } else {
-        _putOk = false;
-      }
-      if (!_putOk) Storage.remove(tempPath.c_str());
+    if (webtransfer::isWebSocketUploadInProgress()) {
+      if (_putFile && !_putFile.close()) LOG_ERR("DAV", "Could not close PUT blocked by WebSocket upload");
+      Storage.remove(PUT_STAGE);
+      _putErrorStatus = 423;
+      _putOk = false;
+      return;
     }
-    LOG_DBG("DAV", "PUT END: %u bytes, ok=%d", raw.totalSize, _putOk);
+    if (_putFile) {
+      const bool synced = _putFile.sync();
+      const bool closed = _putFile.close();
+      _putOk = synced && closed && _putOk && _putBytes == raw.totalSize;
+      if (!_putOk) LOG_ERR("DAV", "Failed to finish PUT: %s", _putPath.c_str());
+    }
+    if (_putOk) {
+      sdFontSystem.markRegistryDirtyForPath(_putPath.c_str());
+      _putOk = FilePublication::publish(PUT_STAGE, _putPath.c_str(), true, false);
+      if (!_putOk) Storage.remove(PUT_STAGE);
+    }
+    LOG_DBG("DAV", "PUT END: %zu bytes, ok=%d", raw.totalSize, _putOk);
 
   } else if (raw.status == RAW_ABORTED) {
-    if (_putFile) _putFile.close();
-    String tempPath = _putPath + ".davtmp";
-    Storage.remove(tempPath.c_str());
+    if (_putFile && !_putFile.close()) LOG_ERR("DAV", "Could not close aborted PUT stage");
+    if (!isProtectedPath(_putPath)) Storage.remove(PUT_STAGE);
     _putOk = false;
   }
 }
 
 bool WebDAVHandler::handle(WebServer& server, HTTPMethod method, const String& uri) {
   (void)uri;
+  if (method != HTTP_OPTIONS && method != HTTP_PROPFIND && method != HTTP_GET && method != HTTP_HEAD &&
+      webtransfer::rejectMutationDuringWebSocketUpload(server))
+    return true;
   switch (method) {
     case HTTP_OPTIONS:
       handleOptions(server);
@@ -190,6 +241,10 @@ void WebDAVHandler::handlePropfind(WebServer& s) {
   String path = getRequestPath(s);
   int depth = getDepth(s);
 
+  if (isProtectedPath(path)) {
+    s.send(403, "text/plain", "Forbidden");
+    return;
+  }
   LOG_DBG("DAV", "PROPFIND %s depth=%d", path.c_str(), depth);
 
   // Check if path exists
@@ -286,6 +341,7 @@ void WebDAVHandler::handlePropfind(WebServer& s) {
 
 void WebDAVHandler::sendPropEntry(WebServer& s, const String& path, bool isDir, size_t size,
                                   const String& lastModified) const {
+  if (protectedpaths::isSensitivePath(path.c_str())) return;
   String href;
   urlEncodePath(path, href);
   // Ensure directory hrefs end with /
@@ -346,12 +402,18 @@ void WebDAVHandler::handleGet(WebServer& s) {
   }
 
   String contentType = getMimeType(path);
-  s.setContentLength(file.size());
+  const size_t fileSize = file.size();
+  file.close();  // The storage helper opens its own reader.
+  s.setContentLength(fileSize);
   s.send(200, contentType.c_str(), "");
 
+  // HalFile is a Print, not a Stream: client.write(file) converts it to bool
+  // and sends 0x01. The helper handles partial writes and watchdog yielding.
   NetworkClient client = s.client();
-  client.write(file);
-  file.close();
+  if (!Storage.readFileToStream(path.c_str(), client)) {
+    LOG_ERR("DAV", "GET %s: failed to stream file", path.c_str());
+    client.stop();  // Headers are already sent; terminate the incomplete body.
+  }
 }
 
 // ── HEAD ─────────────────────────────────────────────────────────────────────
@@ -400,14 +462,25 @@ void WebDAVHandler::handlePut(WebServer& s) {
     return;
   }
 
+  if (_putErrorStatus == 423) {
+    s.send(423, "text/plain", "A file transfer is in progress");
+    return;
+  }
+  if (_putErrorStatus) {
+    s.send(_putErrorStatus, "text/plain", "Could not recover previous file transfer");
+    return;
+  }
   if (!_putOk) {
-    String tempPath = path + ".davtmp";
-    Storage.remove(tempPath.c_str());
+    Storage.remove(PUT_STAGE);
     s.send(500, "text/plain", "Write failed - incomplete upload or disk full");
     return;
   }
 
-  clearBookCachePreservingUserState(path.c_str());
+  if (!clearBookCachePreservingUserState(path.c_str(), true)) {
+    LOG_ERR("DAV", "File saved but cache refresh failed: %s", path.c_str());
+    s.send(500, "text/plain", "File saved, but could not refresh cached reading/sync data");
+    return;
+  }
   ImageFolderIndex::invalidateForPath(path.c_str());
   sdFontSystem.markRegistryDirtyForPath(path.c_str());
   s.send(_putExisted ? 204 : 201);
@@ -424,7 +497,7 @@ void WebDAVHandler::handleDelete(WebServer& s) {
     return;
   }
 
-  if (isProtectedPath(path)) {
+  if (isProtectedPath(path) || protectedpaths::isSensitivePath(path.c_str(), true)) {
     s.send(403, "text/plain", "Forbidden");
     return;
   }
@@ -534,13 +607,18 @@ void WebDAVHandler::handleMove(WebServer& s) {
     return;
   }
 
-  if (isProtectedPath(srcPath) || isProtectedPath(dstPath)) {
+  if (isProtectedPath(srcPath) || isProtectedPath(dstPath) || protectedpaths::isSensitivePath(srcPath.c_str(), true) ||
+      protectedpaths::isSensitivePath(dstPath.c_str(), true)) {
     s.send(403, "text/plain", "Forbidden");
     return;
   }
 
   if (dstPath.isEmpty()) {
     s.send(400, "text/plain", "Missing Destination header");
+    return;
+  }
+  if (!FilePublication::recover()) {
+    s.send(500, "text/plain", "Could not recover previous file transfer");
     return;
   }
 
@@ -570,22 +648,45 @@ void WebDAVHandler::handleMove(WebServer& s) {
     return;
   }
 
-  sdFontSystem.markRegistryDirtyForPath(dstPath.c_str());
-  if (dstExists) {
-    Storage.remove(dstPath.c_str());
-  }
-
-  HalFile file = Storage.open(srcPath.c_str());
-  if (!file) {
+  bool sourceIsDirectory = false;
+  HalFile source = Storage.open(srcPath.c_str());
+  if (!source) {
     s.send(500, "text/plain", "Failed to open source");
     return;
   }
+  sourceIsDirectory = source.isDirectory();
+  if (!source.close()) {
+    s.send(500, "text/plain", "Failed to close source");
+    return;
+  }
 
-  clearBookCache(srcPath.c_str());
-  bool success = file.rename(dstPath.c_str());
-  file.close();
+  // Directory replacement needs recursive WebDAV semantics. A directory may
+  // still move to an unused name without creating a replacement transaction.
+  if (dstExists) {
+    HalFile destination = Storage.open(dstPath.c_str());
+    const bool isFile = destination && !destination.isDirectory();
+    const bool closed = !destination || destination.close();
+    if (sourceIsDirectory || !isFile || !closed) {
+      s.send(409, "text/plain", "Cannot replace a file with a directory");
+      return;
+    }
+  }
+
+  sdFontSystem.markRegistryDirtyForPath(dstPath.c_str());
+  if (dstExists && (bookkey::hasSidecar(srcPath.c_str()) || bookkey::hasSidecar(dstPath.c_str()))) {
+    s.send(409, "text/plain", "Move a protected book to an unused filename");
+    return;
+  }
+  const bool success = dstExists ? FilePublication::publish(srcPath.c_str(), dstPath.c_str(), true, false)
+                                 : bookkey::moveFile(srcPath.c_str(), dstPath.c_str());
 
   if (success) {
+    clearBookCache(srcPath.c_str());
+    if (!clearBookCachePreservingUserState(dstPath.c_str(), true)) {
+      LOG_ERR("DAV", "File moved but cache refresh failed: %s", dstPath.c_str());
+      s.send(500, "text/plain", "File moved, but could not refresh cached reading/sync data");
+      return;
+    }
     ImageFolderIndex::invalidateForPath(srcPath.c_str());
     sdFontSystem.markRegistryDirtyForPath(srcPath.c_str());
     ImageFolderIndex::invalidateForPath(dstPath.c_str());
@@ -605,13 +706,18 @@ void WebDAVHandler::handleCopy(WebServer& s) {
 
   LOG_DBG("DAV", "COPY %s -> %s (overwrite=%d)", srcPath.c_str(), dstPath.c_str(), overwrite);
 
-  if (isProtectedPath(srcPath) || isProtectedPath(dstPath)) {
+  if (isProtectedPath(srcPath) || isProtectedPath(dstPath) || protectedpaths::isSensitivePath(srcPath.c_str(), true) ||
+      protectedpaths::isSensitivePath(dstPath.c_str(), true)) {
     s.send(403, "text/plain", "Forbidden");
     return;
   }
 
   if (dstPath.isEmpty()) {
     s.send(400, "text/plain", "Missing Destination header");
+    return;
+  }
+  if (!FilePublication::recover()) {
+    s.send(500, "text/plain", "Could not recover previous file transfer");
     return;
   }
 
@@ -654,14 +760,27 @@ void WebDAVHandler::handleCopy(WebServer& s) {
     s.send(412, "text/plain", "Destination exists and Overwrite is F");
     return;
   }
-
-  sdFontSystem.markRegistryDirtyForPath(dstPath.c_str());
   if (dstExists) {
-    Storage.remove(dstPath.c_str());
+    HalFile existing = Storage.open(dstPath.c_str());
+    const bool isFile = existing && !existing.isDirectory();
+    const bool closed = !existing || existing.close();
+    if (!isFile || !closed) {
+      srcFile.close();
+      s.send(409, "text/plain", "Cannot replace destination directory");
+      return;
+    }
   }
 
+  std::string stagedPath;
+  if (!FilePublication::stagePath(dstPath.c_str(), "dav-copy", stagedPath)) {
+    srcFile.close();
+    s.send(500, "text/plain", "Failed to prepare destination");
+    return;
+  }
+  sdFontSystem.markRegistryDirtyForPath(dstPath.c_str());
+
   HalFile dstFile;
-  if (!Storage.openFileForWrite("DAV", dstPath, dstFile)) {
+  if (!Storage.openFileForWrite("DAV", stagedPath, dstFile)) {
     srcFile.close();
     s.send(500, "text/plain", "Failed to create destination");
     return;
@@ -670,34 +789,48 @@ void WebDAVHandler::handleCopy(WebServer& s) {
   constexpr size_t COPY_BUFFER_SIZE = 4096;
   auto buf = std::unique_ptr<uint8_t[]>(new (std::nothrow) uint8_t[COPY_BUFFER_SIZE]);
   if (!buf) {
-    srcFile.close();
-    dstFile.close();
-    Storage.remove(dstPath.c_str());
+    const bool sourceClosed = srcFile.close();
+    const bool destinationClosed = dstFile.close();
+    Storage.remove(stagedPath.c_str());
+    if (!sourceClosed || !destinationClosed) LOG_ERR("DAV", "Could not close failed COPY handles");
     s.send(500, "text/plain", "Copy failed - out of memory");
     return;
   }
 
+  const size_t sourceSize = srcFile.size();
+  size_t bytesCopied = 0;
   bool copyOk = true;
   while (srcFile.available()) {
     int bytesRead = srcFile.read(buf.get(), COPY_BUFFER_SIZE);
-    if (bytesRead <= 0) break;
-    size_t written = dstFile.write(buf.get(), bytesRead);
-    if (written != (size_t)bytesRead) {
+    if (bytesRead <= 0) {
+      copyOk = false;
+      LOG_ERR("DAV", "Source read failed during COPY");
+      break;
+    }
+    if (!FsHelpers::writeAndCheckpoint(dstFile, buf.get(), static_cast<size_t>(bytesRead))) {
       copyOk = false;
       break;
     }
+    bytesCopied += static_cast<size_t>(bytesRead);
   }
+  copyOk = copyOk && bytesCopied == sourceSize;
+  const bool synced = dstFile.sync();
+  const bool sourceClosed = srcFile.close();
+  const bool destinationClosed = dstFile.close();
+  copyOk = copyOk && synced && sourceClosed && destinationClosed;
 
-  srcFile.close();
-  dstFile.close();
-
-  if (copyOk) {
+  if (copyOk && FilePublication::publish(stagedPath.c_str(), dstPath.c_str(), true, false)) {
+    if (!clearBookCachePreservingUserState(dstPath.c_str(), true)) {
+      LOG_ERR("DAV", "File copied but cache refresh failed: %s", dstPath.c_str());
+      s.send(500, "text/plain", "File copied, but could not refresh cached reading/sync data");
+      return;
+    }
     ImageFolderIndex::invalidateForPath(dstPath.c_str());
     sdFontSystem.markRegistryDirtyForPath(dstPath.c_str());
     s.send(dstExists ? 204 : 201);
   } else {
-    Storage.remove(dstPath.c_str());
-    s.send(500, "text/plain", "Copy failed - disk full?");
+    if (!Storage.remove(stagedPath.c_str())) LOG_ERR("DAV", "Could not remove incomplete COPY: %s", stagedPath.c_str());
+    s.send(500, "text/plain", "Copy failed - disk full or incomplete source");
   }
 }
 
@@ -811,6 +944,7 @@ void WebDAVHandler::urlEncodePath(const String& path, String& out) const {
 }
 
 bool WebDAVHandler::isProtectedPath(const String& path) const {
+  if (protectedpaths::isSensitivePath(path.c_str())) return true;
   // Check every segment of the path, not just the last one.
   // This prevents access to e.g. /.hidden/somefile or /System Volume Information/foo
   int start = 0;
@@ -822,9 +956,8 @@ bool WebDAVHandler::isProtectedPath(const String& path) const {
     int end = path.indexOf('/', start);
     if (end == -1) end = path.length();
 
-    String segment = path.substring(start, end);
-
-    if (isProtectedPathSegment(segment.c_str())) return true;
+    const std::string_view segment(path.c_str() + start, end - start);
+    if (isProtectedPathSegment(segment)) return true;
 
     start = end + 1;
   }

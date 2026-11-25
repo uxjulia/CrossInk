@@ -2,6 +2,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <utility>
 
 #include "lib/EpdFont/EpdFont.h"
 #include "lib/EpdFont/EpdFontData.h"
@@ -149,6 +150,49 @@ void testFp4Basics() {
   ASSERT_EQ(fp4::toPixel(137 + (-1)), 9);  // 136 = 8.5 (half rounds up)
 
   printf("  All fp4 basics passed\n");
+  PASS();
+}
+
+void testTtfAdvancesDoNotRoundUpBeforePixelSnapping() {
+  // SDK 26.6 advances for Caecilia LT i/l (16pt), x (13pt), & (14pt), K/X (16pt), taken directly from the TTF
+  for (const auto [advance26_6, pixels] : {std::pair{670, 10}, {1054, 16}, {1438, 22}, {1502, 23}}) {
+    ASSERT_EQ(fp4::toPixel(fp4::truncate26_6_to_4(advance26_6)), pixels);
+    ASSERT_EQ(fp4::toPixel((advance26_6 + 2) >> 2), pixels + 1);
+  }
+  PASS();
+}
+
+void testTtfConversionPreservesPixelAndHalfPixelBoundaries() {
+  for (int pixels = 0; pixels < 256; ++pixels) {
+    ASSERT_EQ(fp4::toPixel(fp4::truncate26_6_to_4(pixels * 64 + 31)), pixels);
+    ASSERT_EQ(fp4::toPixel(fp4::truncate26_6_to_4(pixels * 64 + 32)), pixels + 1);
+    ASSERT_EQ(fp4::truncate26_6_to_4(pixels * 64), fp4::fromPixel(pixels));
+  }
+  PASS();
+}
+
+void testTtfConversionMatchesSingleSnapWithEveryFp4Kern() {
+  // Test [0, 64) pixels at 64 fixed-point steps per pixel; 64px is a chosen range, not a font limit.
+  for (int advance26_6 = 0; advance26_6 < 64 * 64; ++advance26_6) {
+    for (int kern = -128; kern <= 127; ++kern) {
+      const int singleSnap = (advance26_6 + kern * 4 + 32) >> 6;
+      ASSERT_EQ(fp4::toPixel(fp4::truncate26_6_to_4(advance26_6) + kern), singleSnap);
+    }
+  }
+  PASS();
+}
+
+void testTtfConvertedAdvancesDriveTextBounds() {
+  const uint16_t advance = static_cast<uint16_t>(fp4::truncate26_6_to_4(670));
+  const EpdGlyph glyphs[] = {{7, 8, advance, 0, 8, 0, 0}, {7, 8, advance, 0, 8, 0, 0}};
+  const EpdUnicodeInterval intervals[] = {{'i', 'i', 0}, {'l', 'l', 1}};
+  const EpdFontData data = {.glyph = glyphs, .intervals = intervals, .intervalCount = 2};
+  const EpdFont font(&data);
+  int width = 0, height = 0;
+  font.getTextDimensions("il", &width, &height);
+  ASSERT_EQ(width, 17);  // second glyph starts at 10, not 11
+  font.getTextDimensions("illi", &width, &height);
+  ASSERT_EQ(width, 37);
   PASS();
 }
 
@@ -452,21 +496,19 @@ void testFamilyMissingGlyphUsesReplacementFallback() {
 void testFamilySpaceGlyphsStayBlank() {
   printf("testFamilySpaceGlyphsStayBlank...\n");
 
-  // EPUB paragraph indentation uses U+2003 EM SPACE. If the selected reading font
-  // lacks that exact glyph, it should stay blank/null like upstream, not become the
-  // visible missing-glyph marker or an ASCII space with its own extra width.
+  // Missing em spaces retain a font-relative blank advance, with no visible box.
   ASSERT_EQ(testFontFamily.getFallbackCodepoint(0x2003), 0x2003);
 
   int w = 0, h = 0;
   testFontFamily.getTextDimensions("\xE2\x80\x83", &w, &h);
   printf("  family dimensions(U+2003) = %d x %d\n", w, h);
 
-  ASSERT_EQ(w, 0);
+  ASSERT_EQ(w, 0);  // No ink in a space by itself.
   ASSERT_EQ(h, 0);
 
   testFontFamily.getTextDimensions("o\xE2\x80\x83o", &w, &h);
   printf("  family width(\"o U+2003 o\") = %d\n", w);
-  ASSERT_EQ(w, textWidth("oo"));
+  ASSERT_EQ(w, 26);  // o advance (9) + synthetic em (9) + o ink (8).
 
   printf("  Unicode space fallbacks stay blank\n");
   PASS();
@@ -524,6 +566,10 @@ int main() {
 
   // Part 1: Pure fp4 math
   testFp4Basics();
+  testTtfAdvancesDoNotRoundUpBeforePixelSnapping();
+  testTtfConversionPreservesPixelAndHalfPixelBoundaries();
+  testTtfConversionMatchesSingleSnapWithEveryFp4Kern();
+  testTtfConvertedAdvancesDriveTextBounds();
   testOldApproachInconsistency();
   testExhaustiveKernRange();
 

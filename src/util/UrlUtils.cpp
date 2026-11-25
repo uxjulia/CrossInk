@@ -1,6 +1,10 @@
 #include "UrlUtils.h"
 
+#include <strings.h>
+
+#include <cctype>
 #include <cstdio>
+#include <cstring>
 
 namespace UrlUtils {
 namespace {
@@ -91,6 +95,77 @@ std::string buildUrl(const std::string& serverUrl, const std::string& path) {
     return encodeUnsafeUrlChars(base + path);
   }
   return encodeUnsafeUrlChars(base + "/" + path);
+}
+
+std::string resolveReference(const std::string& baseUrl, const std::string& reference) {
+  const size_t scheme = reference.find("://");
+  if (scheme != std::string::npos && scheme < reference.find_first_of("/?#")) return encodeUnsafeUrlChars(reference);
+  const std::string base = ensureProtocol(baseUrl);
+  const std::string cleanBase = base.substr(0, base.find_first_of("?#"));
+  const std::string origin = extractHost(cleanBase);
+  if (reference.rfind("//", 0) == 0) return encodeUnsafeUrlChars(base.substr(0, base.find(':') + 1) + reference);
+  const std::string withoutFragment = base.substr(0, base.find('#'));
+  if (reference.empty()) return encodeUnsafeUrlChars(withoutFragment);
+  if (reference[0] == '#') return encodeUnsafeUrlChars(withoutFragment + reference);
+  if (reference[0] == '?') return encodeUnsafeUrlChars(cleanBase + reference);
+
+  const size_t suffix = reference.find_first_of("?#");
+  std::string path = reference.substr(0, suffix);
+  if (path[0] != '/') {
+    const std::string basePath = cleanBase.substr(origin.size());
+    const size_t slash = basePath.rfind('/');
+    path = (slash == std::string::npos ? "/" : basePath.substr(0, slash + 1)) + path;
+  }
+
+  // RFC 3986 dot-segment removal, retaining meaningful duplicate slashes.
+  std::string normalized;
+  normalized.reserve(path.size());
+  size_t pos = 0;
+  const auto removeLast = [&]() {
+    const size_t slash = normalized.rfind('/');
+    normalized.resize(slash == std::string::npos ? 0 : slash);
+  };
+  while (pos < path.size()) {
+    if (path.compare(pos, 3, "/./") == 0) {
+      pos += 2;
+    } else if (path.compare(pos, 4, "/../") == 0) {
+      pos += 3;
+      removeLast();
+    } else if (path.compare(pos, std::string::npos, "/.") == 0) {
+      normalized += '/';
+      break;
+    } else if (path.compare(pos, std::string::npos, "/..") == 0) {
+      removeLast();
+      normalized += '/';
+      break;
+    } else {
+      const size_t next = path.find('/', pos + 1);
+      normalized.append(path, pos, next == std::string::npos ? next : next - pos);
+      if (next == std::string::npos) break;
+      pos = next;
+    }
+  }
+  return encodeUnsafeUrlChars(origin + normalized + (suffix == std::string::npos ? "" : reference.substr(suffix)));
+}
+
+bool isForeignHost(const char* hostHeader) {
+  if (hostHeader == nullptr) return false;  // a String whose allocation failed
+  const size_t len = strcspn(hostHeader, ":");
+  if (len == 0 || hostHeader[0] == '[') return false;  // no host, or an IPv6 literal
+  constexpr char LOCAL_SUFFIX[] = ".local";
+  constexpr size_t SUFFIX_LEN = sizeof(LOCAL_SUFFIX) - 1;
+  if (len >= SUFFIX_LEN && strncasecmp(hostHeader + len - SUFFIX_LEN, LOCAL_SUFFIX, SUFFIX_LEN) == 0) return false;
+  bool hasDot = false;
+  bool allDigits = true;
+  for (size_t i = 0; i < len; i++) {
+    const char c = hostHeader[i];
+    if (c == '.') {
+      hasDot = true;
+    } else if (!isdigit(static_cast<unsigned char>(c))) {
+      allDigits = false;
+    }
+  }
+  return hasDot && !allDigits;
 }
 
 }  // namespace UrlUtils

@@ -195,6 +195,13 @@ int jpegDrawCallback(JPEGDRAW* pDraw) {
   if (stride <= 0 || blockH <= 0 || validW <= 0) return 1;
 
   const bool useDithering = ctx->config->useDithering;
+  const bool finalMonochrome = ctx->config->finalMonochrome;
+  const auto quantize = [useDithering, finalMonochrome, ctx](uint8_t gray, int outX, int outY) -> uint8_t {
+    if (finalMonochrome) {
+      return quantizeGrayToMono(gray, outX - ctx->config->x, outY - ctx->config->y, useDithering);
+    }
+    return useDithering ? applyBayerDither4Level(gray, outX, outY) : gray / 85;
+  };
   bool caching = ctx->caching;
   const int32_t fineScaleFPX = ctx->fineScaleFPX;
   const int32_t invScaleFPX = ctx->invScaleFPX;
@@ -230,7 +237,7 @@ int jpegDrawCallback(JPEGDRAW* pDraw) {
 
   // Pre-compute orientation and render-mode state once per callback invocation
   DirectPixelWriter pw;
-  pw.init(renderer);
+  pw.init(renderer, ctx->config->useGrayscale, ctx->config->finalMonochrome);
 
   // The cache streams to disk one MCU-row band at a time. Flushing rows below
   // this block (raster order guarantees they are final) repositions the band;
@@ -259,13 +266,7 @@ int jpegDrawCallback(JPEGDRAW* pDraw) {
       for (int dstX = dstXStart; dstX < dstXEnd; dstX++) {
         const int outX = cfgX + dstX;
         uint8_t gray = row[dstX - blockX];
-        uint8_t dithered;
-        if (useDithering) {
-          dithered = applyBayerDither4Level(gray, outX, outY);
-        } else {
-          dithered = gray / 85;
-          if (dithered > 3) dithered = 3;
-        }
+        const uint8_t dithered = quantize(gray, outX, outY);
         pw.writePixel(outX, dithered);
         if (caching) cw.writePixel(outX, dithered);
       }
@@ -318,13 +319,7 @@ int jpegDrawCallback(JPEGDRAW* pDraw) {
         int bot = ((int)row1[lx0] * fxInv + (int)row1[lx1] * fx) >> FP_SHIFT;
         uint8_t gray = (uint8_t)((top * fyInv + bot * fy) >> FP_SHIFT);
 
-        uint8_t dithered;
-        if (useDithering) {
-          dithered = applyBayerDither4Level(gray, outX, outY);
-        } else {
-          dithered = gray / 85;
-          if (dithered > 3) dithered = 3;
-        }
+        const uint8_t dithered = quantize(gray, outX, outY);
         pw.writePixel(outX, dithered);
         if (caching) cw.writePixel(outX, dithered);
       }
@@ -341,13 +336,7 @@ int jpegDrawCallback(JPEGDRAW* pDraw) {
         int bot = ((int)row1[lx0] * fxInv + (int)row1[lx0 + 1] * fx) >> FP_SHIFT;
         uint8_t gray = (uint8_t)((top * fyInv + bot * fy) >> FP_SHIFT);
 
-        uint8_t dithered;
-        if (useDithering) {
-          dithered = applyBayerDither4Level(gray, outX, outY);
-        } else {
-          dithered = gray / 85;
-          if (dithered > 3) dithered = 3;
-        }
+        const uint8_t dithered = quantize(gray, outX, outY);
         pw.writePixel(outX, dithered);
         if (caching) cw.writePixel(outX, dithered);
       }
@@ -367,13 +356,7 @@ int jpegDrawCallback(JPEGDRAW* pDraw) {
         int bot = ((int)row1[lx0] * fxInv + (int)row1[lx1] * fx) >> FP_SHIFT;
         uint8_t gray = (uint8_t)((top * fyInv + bot * fy) >> FP_SHIFT);
 
-        uint8_t dithered;
-        if (useDithering) {
-          dithered = applyBayerDither4Level(gray, outX, outY);
-        } else {
-          dithered = gray / 85;
-          if (dithered > 3) dithered = 3;
-        }
+        const uint8_t dithered = quantize(gray, outX, outY);
         pw.writePixel(outX, dithered);
         if (caching) cw.writePixel(outX, dithered);
       }
@@ -400,13 +383,7 @@ int jpegDrawCallback(JPEGDRAW* pDraw) {
       if (lx >= validW) lx = validW - 1;
       uint8_t gray = row[lx];
 
-      uint8_t dithered;
-      if (useDithering) {
-        dithered = applyBayerDither4Level(gray, outX, outY);
-      } else {
-        dithered = gray / 85;
-        if (dithered > 3) dithered = 3;
-      }
+      const uint8_t dithered = quantize(gray, outX, outY);
       pw.writePixel(outX, dithered);
       if (caching) cw.writePixel(outX, dithered);
     }
@@ -456,7 +433,9 @@ bool JpegToFramebufferConverter::decodeToFramebuffer(const std::string& imagePat
   // Keep exactly one close after every attempted open, including malformed
   // JPEGs where JPEGDEC returns from JPEGInit without closing its file handle.
   const auto closeJpeg = ScopedCleanup{[&jpeg] { jpeg->close(); }};
-  int rc = jpeg->open(imagePath.c_str(), jpegOpen, jpegClose, jpegRead, jpegSeek, jpegDrawCallback);
+  int rc = config.sourceData ? jpeg->openRAM(const_cast<uint8_t*>(config.sourceData),
+                                             static_cast<int>(config.sourceSize), jpegDrawCallback)
+                             : jpeg->open(imagePath.c_str(), jpegOpen, jpegClose, jpegRead, jpegSeek, jpegDrawCallback);
   if (rc != 1) {
     LOG_ERR("JPG", "Failed to open JPEG (err=%d): %s", jpeg->getLastError(), imagePath.c_str());
     return false;

@@ -3,6 +3,8 @@
 #include <GfxRenderer.h>
 #include <I18n.h>
 
+#include <algorithm>
+
 #include "CrossPointState.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
@@ -32,16 +34,18 @@ void AlertActivity::render(RenderLock&&) {
   renderer.clearScreen();
 
   const auto& metrics = UITheme::getInstance().getMetrics();
-  const auto pageWidth = renderer.getScreenWidth();
-  const auto contentWidth = pageWidth - 2 * metrics.contentSidePadding;
-  const auto x = metrics.contentSidePadding;
+  const auto safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
+  const int x = safe.x + metrics.contentSidePadding;
+  const int contentWidth = safe.width - 2 * metrics.contentSidePadding;
   const auto lineHeight = renderer.getLineHeight(UI_10_FONT_ID);
 
-  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, title.c_str());
+  const Rect header = UITheme::getHeaderRect(renderer, metrics.headerHeight);
+  GUI.drawHeader(renderer, header, title.c_str());
 
-  int y = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
+  int y = header.y + header.height + metrics.verticalSpacing;
 
-  auto bodyLines = renderer.wrappedText(UI_10_FONT_ID, body.c_str(), contentWidth, 10);
+  const int maxLines = std::max(0, std::min(10, (safe.y + safe.height - y) / lineHeight));
+  auto bodyLines = renderer.wrappedText(UI_10_FONT_ID, body.c_str(), contentWidth, maxLines);
   for (const auto& line : bodyLines) {
     renderer.drawText(UI_10_FONT_ID, x, y, line.c_str());
     y += lineHeight;

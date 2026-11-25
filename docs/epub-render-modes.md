@@ -5,153 +5,67 @@ nav_order: 9
 
 # EPUB Render Modes
 
-CrossInk normally tries to render EPUBs with the full CrossInk renderer. Some
-EPUBs contain complex publisher styling, tables, or image rules that can use too
-much memory for the reader. Render modes let you keep reading those books by
-asking CrossInk to simplify the layout work for that book.
+You almost never need to touch this. CrossInk shows each book with
+all of its styling. If a book is too complicated for the reader's memory,
+CrossInk automatically switches that book to a simpler look and remembers it. You
+only need this page if a book will not open or is very slow, and you want to
+pick a lighter mode yourself.
 
-Render mode is saved per book. Changing it for one EPUB does not change the
-default behavior for your other books.
+## What is a render mode?
 
-## Which Mode Should I Use?
+EPUBs carry their own design: fonts, spacing, tables, decorations, and image
+sizes. Handling all of that takes memory, and a few books are too heavy for an
+e-reader. A render mode tells CrossInk how much of that design to keep. Lighter
+modes drop some of the fancy parts so the book can still be read.
 
-| Mode             | Best for                                                                                         | What it keeps                                                                                                  | What it simplifies                                                                            |
-| ---------------- | ------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| CrossInk Default | Most books                                                                                       | Full CrossInk styling, detailed CSS, table layout, image sizing, publisher spacing, Focus Reading, Guide Dots | Nothing by default                                                                            |
-| Balanced         | Books where CrossInk has fallen back automatically, or books you want to start in a lighter mode | Publisher spacing, image sizing, decorations, Focus Reading, Guide Dots                                       | Complex CSS lookups and table layout                                                          |
-| Light            | Books where Balanced is still too heavy, or books you want to start in the safest mode           | Text content, hidden-content rules, basic formatting, Focus Reading, Guide Dots                               | Complex CSS lookups, table layout, publisher spacing, image sizing, and decorative separators |
-| Safe Mode        | Final automatic fallback for books that still run out of memory in Light                         | Text content, hidden-content rules, basic formatting                                                           | Light-mode simplifications plus embedded styles, Focus Reading, and Guide Dots               |
+The mode is saved per book. Changing it for one book does not affect your other
+books.
 
-Most users can leave books on **CrossInk Default**. If a book runs out of memory
-while building a section, CrossInk will automatically try **Balanced** and then
-**Light**. Manual mode changes are mainly for choosing a lighter mode before
-opening a known-problem book, or for changing the saved mode after CrossInk has
-already fallen back.
+## Which mode should I use?
 
-## CrossInk Default
+| Mode | Use it when | What you get |
+| ---- | ----------- | ------------ |
+| **CrossInk Default** | Almost always. | The book as the publisher designed it, as far as CrossInk supports. |
+| **Balanced** | A book is slow or runs out of memory in the default mode. | Nearly the same look, but complicated style rules are simplified and tables become plain text blocks. |
+| **Light** | Balanced is still too heavy. | Plain, readable text with basic bold and italic. Publisher spacing, image sizing, and decorations are dropped. |
 
-CrossInk Default is the normal renderer.
+There is also **Safe Mode**, which CrossInk uses automatically as a last resort.
+It shows simpler text and turns off publisher styling, Focus Reading, and Guide
+Dots for that book. It cannot be selected manually.
 
-It tries to preserve the book's layout and publisher styling as much as
-CrossInk supports, including:
+If a book runs out of memory while CrossInk is preparing a chapter, CrossInk
+tries **Balanced**, then **Light**, then **Safe Mode** by itself. When one works,
+it saves that mode for the book, so it opens the same way next time. You will see
+a brief **Balanced Mode** or **Light Mode** message over the page. It goes away
+on its own and does not change your layout or your place in the book.
 
-- CSS rules that depend on surrounding elements
-- Tables rendered as tables when possible
-- Publisher margins, padding, and paragraph indents
-- Publisher image sizing
-- Horizontal rules and other visual separators
-- Publisher page number markers, if enabled
-- Focus Reading and Guide Dots, if enabled
+## How to change a book's render mode
 
-Use this unless a specific book is causing memory errors, very slow indexing, or
-rendering problems.
+Usually you do not need to. But if you already know a book is difficult, you can
+start it in a lighter mode.
 
-## Balanced
+Before opening the book:
 
-Balanced keeps most publisher styling, but avoids the most expensive layout
-work.
+1. Long-press the EPUB in **Browse Files** or **Library** (touch and hold on a
+   touchscreen).
+2. Choose **EPUB Render Mode**.
+3. Pick a mode.
 
-It keeps:
+While reading:
 
-- Publisher margins, padding, and paragraph indents
-- Publisher image sizing
-- Horizontal rules and other visual separators
-- Publisher page number markers, if enabled
-- `display: none` hidden-content rules
-- Focus Reading and Guide Dots, if enabled
-
-It simplifies:
-
-- Complex CSS rules that depend on surrounding elements
-- Tables, which are flattened into readable text blocks
-
-Use Balanced when CrossInk has already fallen back to it, or when you want a
-known-problem book to start with lighter rendering immediately. The page may not
-match the publisher layout exactly, but it should still keep more of the book's
-visual styling than Light.
-
-## Light
-
-Light is the safest mode for difficult EPUBs.
-
-It keeps:
-
-- Text content
-- Basic bold, italic, underline, superscript, and subscript handling
-- `display: none` hidden-content rules, so intentionally hidden content stays hidden
-- Focus Reading and Guide Dots, if enabled
-
-It simplifies or removes:
-
-- Complex CSS rules that depend on surrounding elements
-- Tables, which are flattened into readable text blocks
-- Publisher margins, padding, and paragraph indents
-- Publisher image sizing
-- Horizontal rules and decorative separators
-- Publisher page number markers
-
-Use Light when CrossInk has already fallen back to it, or when you want a
-known-problem book to start in the safest mode immediately. Light may look less
-like the publisher's original layout, but it gives CrossInk the best chance of
-rendering the book on limited memory.
-
-## Safe Mode
-
-Safe Mode is an automatic final fallback, not a selectable render mode.
-
-If CrossInk cannot build a section in Light because memory is still too tight,
-it tries Safe Mode once. Safe Mode uses Light rendering and also turns off:
-
-- Embedded styles
-- Focus Reading
-- Guide Dots
-
-When Safe Mode succeeds, CrossInk saves those settings for that book. The reader
-briefly shows **Safe Mode** over the current page. Your other books keep their
-own reader settings.
-
-## Automatic Fallback
-
-If a book starts in CrossInk Default and a section runs out of memory while
-building, CrossInk automatically retries in this order:
-
-1. CrossInk Default
-2. Balanced
-3. Light
-4. Safe Mode
-
-If the book starts in Balanced, CrossInk can fall back to Light and then Safe
-Mode. If the book starts in Light, CrossInk can still try Safe Mode.
-
-When a fallback succeeds, CrossInk saves that successful mode for the book. The
-next time you open the same book, it starts in the saved mode.
-
-When a book opens in Balanced or Light, the reader briefly shows **Balanced
-Mode** or **Light Mode** over the current page. The message disappears
-automatically and does not change page layout, margins, or reading position.
-
-If Safe Mode also cannot open the book, long-press the book in **File Browser**
-or **Library** and choose **Reset Book Reader Settings**. This clears only
-that book's reader settings, including a saved Safe Mode or render-mode
-override. It preserves reading progress, bookmarks, clippings, and reading
-stats.
-
-## Changing A Book's Render Mode
-
-You can change a book's render mode before opening it. This is optional because
-CrossInk already falls back automatically, but it is useful when you know a book
-is difficult and want it to start in a specific mode:
-
-- Long-press an EPUB in **File Browser**
-- Long-press an EPUB in **Library**
-- Choose **EPUB Render Mode**
-
-You can also change it while reading:
-
-1. Open the reader menu.
+1. Open the Reader Menu.
 2. Choose the **Settings** tab.
 3. Choose **EPUB Render Mode**.
 
-Changing render mode rebuilds the affected book layout cache. Your reading
-progress, bookmarks, clippings, reading stats, Focus Reading setting, and Guide
-Dots setting are preserved.
+Changing the mode rebuilds that book's saved layout, so give it a moment. Your
+reading progress, bookmarks, clippings, reading stats, and your Focus Reading
+and Guide Dots settings are kept.
+
+## If a book still will not open
+
+If even Safe Mode cannot open the book, long-press it in **Browse Files** or
+**Library** and choose **Reset Book Reader Settings**. This clears only that
+book's reader settings, including a saved Safe Mode or render mode. It keeps
+your reading progress, bookmarks, clippings, and reading stats. Then try
+[optimizing](https://inky.crossink.dev) the EPUB or choosing a different
+[Indexing Method](./epub-indexing.md).

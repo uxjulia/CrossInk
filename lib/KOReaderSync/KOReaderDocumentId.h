@@ -1,4 +1,5 @@
 #pragma once
+#include <cstdint>
 #include <string>
 
 /**
@@ -22,7 +23,7 @@ class KOReaderDocumentId {
    * @param filePath Path to the file (typically an EPUB)
    * @return 32-character lowercase hex string, or empty string on failure
    */
-  static std::string calculate(const std::string& filePath);
+  static std::string calculate(const std::string& filePath, uint32_t* sampledSize = nullptr);
 
   /**
    * Calculate document hash from filename only (filename-based sync mode).

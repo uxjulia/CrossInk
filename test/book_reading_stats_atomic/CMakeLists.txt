@@ -2,6 +2,7 @@ add_executable(BookReadingStatsAtomicTest
   BookReadingStatsAtomicTest.cpp
   ReadingStatsLinkStubs.cpp
   ${REPO_ROOT}/src/activities/reader/BookReadingStats.cpp
+  ${REPO_ROOT}/src/activities/reader/StatsCounterId.cpp
 )
 
 target_include_directories(BookReadingStatsAtomicTest PRIVATE
@@ -16,3 +17,4 @@ target_link_libraries(BookReadingStatsAtomicTest PRIVATE
 )
 
 gtest_discover_tests(BookReadingStatsAtomicTest)
+target_compile_definitions(BookReadingStatsAtomicTest PRIVATE SIMULATOR)

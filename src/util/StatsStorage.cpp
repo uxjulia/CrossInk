@@ -1,0 +1,271 @@
+#include "StatsStorage.h"
+
+#include <FsHelpers.h>
+#include <HalStorage.h>
+#include <KOReaderSyncClient.h>
+#include <Logging.h>
+#include <strings.h>
+
+#include <algorithm>
+#include <cstdio>
+#include <cstring>
+
+#include "sync/SyncFiles.h"
+
+namespace {
+constexpr const char* ROOT = "/.crosspoint";
+constexpr const char* OWNER = "/stats_origin.bin";
+
+bool validId(const char* id) {
+  if (strcmp(id, "crossink-simulator") == 0) return true;
+  if (strncmp(id, "crossink-", 9) != 0 || strlen(id) != 21) return false;
+  for (size_t i = 9; i < 21; ++i)
+    if (!((id[i] >= '0' && id[i] <= '9') || (id[i] >= 'a' && id[i] <= 'f'))) return false;
+  return true;
+}
+
+bool readOwner(const std::string& path, char* out, bool& unreadable) {
+  FsFile file;
+  if (!Storage.openFileForRead("StatsOrigin", path, file)) {
+    unreadable = true;
+    return false;
+  }
+  uint8_t data[37]{};
+  const size_t size = file.fileSize();
+  const int bytes = file.read(data, sizeof(data));
+  const bool closed = file.close();
+  if (bytes < 0 || static_cast<size_t>(bytes) != (size < sizeof(data) ? size : sizeof(data)) || !closed) {
+    unreadable = true;
+    return false;
+  }
+  const bool complete = size == sizeof(data);
+  uint32_t checksum = 0;
+  for (size_t i = 0; i < 4; ++i) checksum |= uint32_t(data[33 + i]) << (8 * i);
+  // A newer format is uncertain data, even in .tmp; older firmware must not
+  // replace a complete claim it does not understand. An empty temp is a known
+  // interruption between opening the first claim and writing its version.
+  if (size > sizeof(data) || (size && data[0] != 1)) {
+    unreadable = true;
+    return false;
+  }
+  if (!complete || SyncFiles::crc(data, 33, 0) != checksum) return false;
+  if (data[32] != 0) {
+    unreadable = true;
+    return false;
+  }
+  memcpy(out, data + 1, 32);
+  if (validId(out)) return true;
+  unreadable = true;
+  return false;
+}
+
+bool owner(const std::string& path, const char* fallback, char* out, bool create) {
+  bool exists = false;
+  bool unreadable = false;
+  // Origin claims are immutable. Validate recovery files without promoting
+  // them: library completion peeks must never rename or write any files.
+  for (const char* suffix : {"", ".tmp", ".bak"}) {
+    const std::string candidate = path + suffix;
+    if (!Storage.exists(candidate.c_str())) continue;
+    exists = true;
+    if (readOwner(candidate, out, unreadable)) return true;
+  }
+  // With neither a published claim nor a backup, an invalid temp can only
+  // precede the first commit. No legacy move has started, so retry that claim.
+  // A read error is not proof of a torn write and must never permit deletion.
+  const bool interrupted =
+      exists && !unreadable && !Storage.exists(path.c_str()) && !Storage.exists((path + ".bak").c_str());
+  if (exists && !interrupted) {
+    LOG_ERR("StatsOrigin", "Cannot read stats origin: %s", path.c_str());
+    return false;
+  }
+  snprintf(out, 32, "%s", fallback);
+  if (!create) return true;
+  if (interrupted && !Storage.remove((path + ".tmp").c_str())) {
+    LOG_ERR("StatsOrigin", "Cannot retry interrupted stats origin: %s", path.c_str());
+    return false;
+  }
+  SyncFiles::Writer writer(path.c_str());
+  // Fixed-size, zero-padded ID; the existing CRC/transaction protects the claim
+  // before any legacy file is moved. An interrupted migration can safely retry.
+  char stored[32]{};
+  snprintf(stored, sizeof(stored), "%s", fallback);
+  if (writer.open() && writer.pod(uint8_t{1}) && writer.write(stored, sizeof(stored)) && writer.commit()) return true;
+  LOG_ERR("StatsOrigin", "Cannot preserve stats origin: %s", path.c_str());
+  return false;
+}
+}  // namespace
+
+// Any slot establishes a family. Usually the primary alone answers the question.
+static bool familyExists(const std::string& path, bool directory) {
+  return Storage.exists(path.c_str()) ||
+         (!directory && (Storage.exists((path + ".bak").c_str()) || Storage.exists((path + ".tmp").c_str())));
+}
+
+static std::string resolvePath(const std::string& legacyPath, bool directory, bool readOnly, bool* splitRecovery) {
+  char id[32]{};
+  if (!KOReaderSyncClient::readerId(id, sizeof(id)) || !validId(id)) {
+    LOG_ERR("StatsOrigin", "Cannot read device identity");
+    return {};
+  }
+  const size_t extension = directory ? legacyPath.size() : legacyPath.rfind(".bin");
+  if (extension == std::string::npos) return {};
+  // Paths are cold storage/checkpoint work, not render/page-turn allocations.
+  const std::string local = legacyPath.substr(0, extension) + "_" + id + legacyPath.substr(extension);
+  if (!readOnly && !Storage.exists(ROOT) && !Storage.mkdir(ROOT)) {
+    LOG_ERR("StatsOrigin", "Cannot create stats root");
+    return {};
+  }
+  char rootOwner[32];
+  if (!owner(std::string(ROOT) + OWNER, id, rootOwner, !readOnly)) return {};
+  if (!familyExists(legacyPath, directory)) return local;
+
+  // A per-book claim also travels with a partial cache-folder copy. The root
+  // claim covers old book files not opened yet when a whole card is copied.
+  const std::string parent = legacyPath.substr(0, legacyPath.find_last_of('/'));
+  char legacyOwner[32];
+  if (!owner(parent + OWNER, rootOwner, legacyOwner, !readOnly)) return {};
+  if (strcmp(legacyOwner, id) != 0) return local;
+  // Older firmware can recreate legacy stats after migration. Keep using the
+  // established local family without mixing its slots or totals with that copy.
+  // A remaining legacy primary identifies a separate family: migration moves
+  // it first. If only legacy recovery slots remain, finish that interrupted move.
+  const bool localExists = familyExists(local, directory);
+  if (readOnly) {
+    if (splitRecovery && localExists) *splitRecovery = !Storage.exists(legacyPath.c_str());
+    return localExists ? local : legacyPath;
+  }
+  if (localExists && Storage.exists(legacyPath.c_str())) return local;
+  for (const char* suffix : {"", ".bak", ".tmp"}) {
+    if (directory && *suffix) break;
+    const std::string from = legacyPath + suffix;
+    const std::string to = local + suffix;
+    if (!Storage.exists(from.c_str())) continue;
+    if (Storage.exists(to.c_str())) continue;
+    if (!Storage.rename(from.c_str(), to.c_str())) {
+      LOG_ERR("StatsOrigin", "Cannot migrate stats: %s", from.c_str());
+      return {};
+    }
+  }
+  return local;
+}
+
+namespace {
+bool blocked = false;
+}
+static std::string checkedPath(const std::string& path, bool directory, bool readOnly, bool* splitRecovery) {
+  if (blocked) return {};
+  std::string local = resolvePath(path, directory, readOnly, splitRecovery);
+  // load() returns empty counters on failure. Do not later save those empty
+  // counters over recovered history after a transient migration failure.
+  if (local.empty()) blocked = true;
+  return local;
+}
+
+std::string StatsStorage::localPath(const std::string& path, bool directory, bool readOnly) {
+  return checkedPath(path, directory, readOnly, nullptr);
+}
+
+std::string StatsStorage::bookReadPath(const std::string& legacyPath, bool& splitRecovery) {
+  splitRecovery = false;
+  return checkedPath(legacyPath, false, true, &splitRecovery);
+}
+
+StatsStorage::BookFiles StatsStorage::bookFiles(const std::string& cachePath) {
+  BookFiles result;
+  auto dir = Storage.open(cachePath.c_str());
+  bool complete = false;
+  if (dir && dir.isDirectory()) {
+    // Image-heavy EPUBs can have hundreds of cached files. Bound the walk,
+    // then fall back to looking up the known names directly.
+    for (int i = 0; i < 32; ++i) {
+      auto entry = dir.openNextFile();
+      if (!entry) {
+        complete = !FsHelpers::directoryIterationFailed(dir);
+        break;
+      }
+      char name[64]{};
+      const size_t len = entry.getName(name, sizeof(name));
+      if (!entry.close() || !len) break;
+      if (strncasecmp(name, "stats", 5) != 0) continue;
+      const char* tail = name + 5;
+      unsigned version = 0;  // Unversioned stats.bin.
+      if (strncasecmp(tail, "_v", 2) == 0) {
+        if (tail[2] < '0' || tail[2] > '9') continue;
+        version = tail[2] - '0';
+        if (!version || version >= std::size(result.slots)) continue;
+        tail += 3;
+      }
+      // Device-qualified filenames carry an origin between the stem and .bin.
+      if (*tail == '_') tail = strchr(tail, '.');
+      if (!tail) continue;
+      if (strcasecmp(tail, ".bin") == 0) result.slots[version] |= BookFiles::Primary;
+      if (strcasecmp(tail, ".bin.bak") == 0) result.slots[version] |= BookFiles::Backup;
+      if (strcasecmp(tail, ".bin.tmp") == 0) result.slots[version] |= BookFiles::Temp;
+    }
+  }
+  if (!dir.close() || !complete) {
+    std::fill(std::begin(result.slots), std::end(result.slots), BookFiles::All);
+  }
+  return result;
+}
+
+bool StatsStorage::directoryCounterId(const std::string& directory, StatsCounterId& id) {
+  const std::string path = directory + "/counter_id.bin";
+  bool exists = false;
+  for (const char* suffix : {"", ".tmp", ".bak"}) exists |= Storage.exists((path + suffix).c_str());
+  if (exists) {
+    for (const char* suffix : {"", ".tmp"}) {
+      const auto candidate = path + suffix;
+      SyncFiles::Reader reader(candidate.c_str());
+      if (reader.open() == SyncFiles::Reader::Source::None) {
+        reader.close();
+        continue;
+      }
+      uint8_t version = 0;
+      const bool ok =
+          reader.pod(version) && version == 1 && reader.read(id.bytes.data(), id.bytes.size()) && reader.atEnd();
+      reader.close();
+      if (!ok) break;  // A complete unknown format must not be replaced.
+      if (*suffix && !Storage.exists(path.c_str()) && !Storage.rename(candidate.c_str(), path.c_str())) {
+        LOG_ERR("StatsOrigin", "Cannot publish recovered daily counter identity");
+        return false;
+      }
+      return true;
+    }
+    LOG_ERR("StatsOrigin", "Cannot read daily counter identity: %s", path.c_str());
+    return false;
+  }
+  // Publish the identity before the first daily file. An old nonempty directory
+  // is adopted as legacy so upgrading does not add the same reading twice.
+  bool legacy = false;
+  if (Storage.exists(directory.c_str())) {
+    FsFile dir = Storage.open(directory.c_str());
+    if (!dir || !dir.isDirectory()) {
+      dir.close();
+      LOG_ERR("StatsOrigin", "Cannot inspect daily counter directory");
+      return false;
+    }
+    FsFile entry = dir.openNextFile();
+    legacy = static_cast<bool>(entry);
+    const bool entryClosed = entry.close();
+    const bool scanned = !FsHelpers::directoryIterationFailed(dir);
+    const bool dirClosed = dir.close();
+    if (!entryClosed || !scanned || !dirClosed) {
+      LOG_ERR("StatsOrigin", "Cannot inspect existing daily counters");
+      return false;
+    }
+  } else if (!Storage.mkdir(directory.c_str())) {
+    LOG_ERR("StatsOrigin", "Cannot create daily counter directory");
+    return false;
+  }
+  id = legacy ? StatsCounterId{} : StatsCounterId::create();
+  SyncFiles::Writer writer(path.c_str());
+  if (writer.open() && writer.pod(uint8_t{1}) && writer.write(id.bytes.data(), id.bytes.size()) && writer.commit())
+    return true;
+  LOG_ERR("StatsOrigin", "Cannot preserve daily counter identity");
+  return false;
+}
+#ifdef STATS_STORAGE_TEST
+void resetStatsStorageForTest() { blocked = false; }
+#endif

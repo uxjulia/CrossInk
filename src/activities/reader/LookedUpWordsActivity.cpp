@@ -99,10 +99,11 @@ void LookedUpWordsActivity::historyScreen(UiApp::ScreenType& screen, void* user)
 
 void LookedUpWordsActivity::buildHistoryScreen(UiApp::ScreenType& screen) {
   const auto& metrics = UITheme::getInstance().getMetrics();
-  screen.setContentMargin(
-      fui::Insets{static_cast<int16_t>(metrics.topPadding + TouchHeaderBackButton::height(metrics, mappedInput) +
-                                       metrics.verticalSpacing),
-                  0, static_cast<int16_t>(metrics.buttonHintsHeight + metrics.verticalSpacing), 0});
+  setUiContentMargin(
+      screen, renderer,
+      fui::Insets{
+          static_cast<int16_t>(TouchHeaderBackButton::contentTop(renderer, mappedInput) + metrics.verticalSpacing), 0,
+          static_cast<int16_t>(UITheme::getButtonHintsReserve(renderer) + metrics.verticalSpacing), 0});
 
   fui::ListProps props;
   props.items = uiItems.data();
@@ -230,7 +231,7 @@ void LookedUpWordsActivity::loop() {
   }
 
   const int totalItems = static_cast<int>(entries.size());
-  const int pageItems = UITheme::getNumberOfItemsPerPage(renderer, true, false, true, false);
+  const int pageItems = visibleRows;
 
   buttonNavigator.onNextRelease([this, totalItems] {
     selectedIndex = ButtonNavigator::nextIndex(selectedIndex, totalItems);
@@ -268,22 +269,20 @@ void LookedUpWordsActivity::render(RenderLock&&) {
   renderer.clearScreen();
   if (controller.render()) return;
 
-  const int pageWidth = renderer.getScreenWidth();
   const int pageHeight = renderer.getScreenHeight();
   const auto& metrics = UITheme::getInstance().getMetrics();
 
-  const Rect header{0, metrics.topPadding, pageWidth, TouchHeaderBackButton::height(metrics, mappedInput)};
+  const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput);
   if (mappedInput.hasTouchHardware()) {
     TouchHeaderBackButton::draw(renderer, uiTarget, header, tr(STR_LOOKUP_HISTORY), true);
   } else {
     GUI.drawHeader(renderer, header, tr(STR_LOOKUP_HISTORY));
   }
 
-  const int contentTop =
-      metrics.topPadding + TouchHeaderBackButton::height(metrics, mappedInput) + metrics.verticalSpacing;
+  const int contentTop = TouchHeaderBackButton::contentTop(renderer, mappedInput) + metrics.verticalSpacing;
 
   if (entries.empty()) {
-    const int midY = contentTop + (pageHeight - contentTop - metrics.buttonHintsHeight) / 2;
+    const int midY = contentTop + (pageHeight - contentTop - UITheme::getButtonHintsReserve(renderer)) / 2;
     renderer.drawCenteredText(UI_10_FONT_ID, midY, tr(STR_LOOKUP_HISTORY_EMPTY));
     const auto buttonLabels = mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), "", "", "");
     GUI.drawButtonHints(renderer, buttonLabels.btn1, buttonLabels.btn2, buttonLabels.btn3, buttonLabels.btn4);
@@ -292,7 +291,7 @@ void LookedUpWordsActivity::render(RenderLock&&) {
   }
 
   uiReady = false;
-  app.render();
+  renderUiApp(app, uiTarget);
   uiReady = true;
 
   const auto buttonLabels =

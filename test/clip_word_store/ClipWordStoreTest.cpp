@@ -112,6 +112,123 @@ TEST(ClipTextBuilder, JoinsInsertedHyphenAcrossParagraphBoundary) {
   EXPECT_EQ(result.text, "hyphenated");
 }
 
+TEST(ClipTextBuilder, RespectsAuthoredSpacesAfterHyphensAtLineWraps) {
+  const struct {
+    const char* prefix;
+    const char* suffix;
+    bool spaceBeforeSuffix;
+    bool insertedHyphen;
+    const char* expected;
+  } cases[] = {
+      {"short-", "and long-term plans.", true, false, "short- and long-term plans."},
+      {"short-", "term", false, false, "short-term"},
+      {"hyphen-", "ated", false, true, "hyphenated"},
+  };
+  for (const auto& test : cases) {
+    SCOPED_TRACE(test.expected);
+    ClipWordStore store;
+    WordRef prefix;
+    prefix.x = 100;
+    prefix.y = 10;
+    prefix.w = 40;
+    prefix.h = 20;
+    prefix.endsWithInsertedHyphen = test.insertedHyphen;
+    ASSERT_TRUE(store.appendText(prefix, test.prefix));
+    store.words.push_back(prefix);
+
+    WordRef suffix;
+    suffix.y = 30;
+    suffix.h = 20;
+    suffix.pageWordIndex = 1;
+    suffix.hasSpaceBefore = test.spaceBeforeSuffix;
+    ASSERT_TRUE(store.appendText(suffix, test.suffix));
+    store.words.push_back(suffix);
+
+    const uint16_t order[] = {0, 1};
+    EXPECT_EQ(ClipTextBuilder::build(store, order, 0, 1, 0, 1).text, test.expected);
+  }
+}
+
+TEST(ClipTextBuilder, PreservesNarrowSpacesAndAttachedFragmentsInEitherLineOrder) {
+  ClipWordStore store;
+  const char* texts[] = {"master", "’s", "tools"};
+  for (uint16_t i = 0; i < 3; ++i) {
+    WordRef word;
+    word.x = 12 * i;
+    word.w = 10;
+    word.pageWordIndex = i;
+    word.hasSpaceBefore = i == 2;
+    ASSERT_TRUE(store.appendText(word, texts[i]));
+    store.words.push_back(word);
+  }
+
+  const uint16_t forward[] = {0, 1, 2};
+  EXPECT_EQ(ClipTextBuilder::build(store, forward, 0, 2, 0, 1).text, "master’s tools");
+
+  // An RTL line is visited in reverse layout order. The space still belongs to the same pair.
+  const uint16_t reverse[] = {2, 1, 0};
+  EXPECT_EQ(ClipTextBuilder::build(store, reverse, 0, 2, 0, 1).text, "tools ’smaster");
+}
+
+TEST(ClipTextBuilder, JoinsMaxTrackingStyleFragmentsWithoutLosingExplicitSpaces) {
+  ClipWordStore store;
+  const char* texts[] = {"master", "’s", "tools", "next"};
+  for (uint16_t i = 0; i < 4; ++i) {
+    WordRef word;
+    word.x = 15 * i;
+    word.w = 10;
+    word.pageWordIndex = i;
+    word.followsWordInBlock = i == 1 || i == 2;
+    word.trackingJoinSlack = 3;
+    word.hasSpaceBefore = i == 2;
+    ASSERT_TRUE(store.appendText(word, texts[i]));
+    store.words.push_back(word);
+  }
+
+  const uint16_t forward[] = {0, 1, 2, 3};
+  EXPECT_EQ(ClipTextBuilder::build(store, forward, 0, 3, 0, 1).text, "master’s tools next");
+  const uint16_t reverse[] = {3, 2, 1, 0};
+  EXPECT_EQ(ClipTextBuilder::build(store, reverse, 0, 3, 0, 1).text, "next tools ’smaster");
+
+  store.words[1].trackingJoinSlack = 0;
+  EXPECT_EQ(ClipTextBuilder::build(store, forward, 0, 1, 0, 1).text, "master ’s");
+}
+
+TEST(ClipTextBuilder, KeepsAnAuthoredHyphenInAPartialSelectionOfALayoutHyphenatedWord) {
+  ClipWordStore store;
+  WordRef word;
+  word.sourceStart = 90;
+  word.sourceEnd = 98;
+  word.endsWithInsertedHyphen = true;
+  ASSERT_TRUE(store.appendText(word, "wëll-kno-"));
+  store.words.push_back(word);
+  const uint16_t order[] = {0};
+  const ClipTextBuilder::SelectionBounds bounds{0, 0, 0, 0, 0, 6};
+  const auto result = ClipTextBuilder::build(store, order, 0, 0, 0, 1, &bounds);
+  EXPECT_EQ(result.text, "wëll-");
+  EXPECT_EQ(result.sourceStart, 90U);
+  EXPECT_EQ(result.sourceEnd, 95U);
+
+  const ClipTextBuilder::SelectionBounds completeBounds{0, 0, 0, 0, 0, word.textLength};
+  EXPECT_EQ(ClipTextBuilder::build(store, order, 0, 0, 0, 1, &completeBounds).text, "wëll-kno");
+}
+
+TEST(ClipTextBuilder, DoesNotJoinAfterAnAuthoredHyphenSelectedFirstInReverseOrder) {
+  ClipWordStore store;
+  WordRef leading;
+  leading.paragraphStart = true;
+  ASSERT_TRUE(store.appendText(leading, "other"));
+  store.words.push_back(leading);
+  WordRef trailing;
+  trailing.pageWordIndex = 1;
+  trailing.endsWithInsertedHyphen = true;
+  ASSERT_TRUE(store.appendText(trailing, "well-kno-"));
+  store.words.push_back(trailing);
+  const uint16_t reverse[] = {1, 0};
+  const ClipTextBuilder::SelectionBounds bounds{0, 0, 0, 0, 1, 5};
+  EXPECT_EQ(ClipTextBuilder::build(store, reverse, 0, 1, 0, 1, &bounds).text, "well-\nother");
+}
+
 TEST(ClipTextBuilder, AppliesDictionaryFragmentBoundsToTheirOwnPages) {
   ClipWordStore store;
   WordRef first;
@@ -231,6 +348,35 @@ TEST(ClippingTextMatcher, MatchesNonBreakingSpaceBeforeAdjacentEllipsisFragment)
       "\xC2\xA0\xE2\x80\xA6", false, token, sizeof(token) - 1, firstFragment.tokenBytes);
   EXPECT_EQ(ellipsisFragment.match, ClippingTextMatcher::TokenFragmentMatch::COMPLETES_TOKEN);
   EXPECT_EQ(ellipsisFragment.tokenBytes, 4);
+}
+
+TEST(ClippingHighlightGeometry, TightSpacingUsesAdjacentNonOverlappingBands) {
+  const auto first = ClippingHighlightGeometry::lineBand(100, 35, 0, 70);
+  const auto next = ClippingHighlightGeometry::lineBand(125, 35, 0, 70);
+  EXPECT_EQ(first.y, 105);
+  EXPECT_EQ(first.height, 25);
+  EXPECT_EQ(first.y + first.height, next.y);
+}
+
+TEST(ClippingHighlightGeometry, NormalAndLooseSpacingFollowLayoutRounding) {
+  const auto normal = ClippingHighlightGeometry::lineBand(100, 35, 0, 100);
+  EXPECT_EQ(normal.y, 100);
+  EXPECT_EQ(normal.height, 35);
+  const auto loose = ClippingHighlightGeometry::lineBand(100, 35, 0, 200);
+  EXPECT_EQ(loose.y, 100);
+  EXPECT_EQ(loose.height, 70);
+}
+
+TEST(ClippingHighlightGeometry, ExplicitMixedFontAndTableHeightsTakePrecedence) {
+  const auto mixed = ClippingHighlightGeometry::lineBand(100, 50, 38, 70);
+  EXPECT_EQ(mixed.y, 106);
+  EXPECT_EQ(mixed.height, 38);
+  const auto table = ClippingHighlightGeometry::lineBand(100, 35, 24, 70);
+  EXPECT_EQ(table.y, 105);
+  EXPECT_EQ(table.height, 24);
+  const auto ruby = ClippingHighlightGeometry::lineBand(100, 35, 42, 70);
+  EXPECT_EQ(ruby.y, 100);
+  EXPECT_EQ(ruby.height, 42);
 }
 
 TEST(ClippingHighlightGeometry, BridgesVisibleWordsSeparatedByHiddenLayoutSpace) {
@@ -356,7 +502,19 @@ TEST(ClippingLayout, RejectsStoredRangeWhenFontChangesWithoutChangingPageCount) 
       clippingStoredRangeMatchesLayout(clipping, 20, clippingWordLayoutSignature(readerRenderSpecSignature(changed))));
 }
 
-TEST(ClippingLayout, RejectsUnsignedLegacyRangesAndUsesSavedTextInstead) {
+TEST(ClippingLayout, PreservesExactCoordinatesAcrossPaginationAndCacheRebuilds) {
+  Clipping clipping;
+  clipping.pageCount = 3;
+  clipping.layoutSignature = clippingWordLayoutSignature(123);
+
+  EXPECT_TRUE(clippingStoredRangeMatchesLayout(clipping, 3, clipping.layoutSignature));
+  EXPECT_TRUE(clippingStoredRangeMatchesLayout(clipping, 4, clipping.layoutSignature));
+  EXPECT_TRUE(clippingStoredRangeMatchesLayout(clipping, 2, clipping.layoutSignature));
+  EXPECT_FALSE(clippingStoredRangeMatchesLayout(clipping, 0, clipping.layoutSignature));
+  EXPECT_FALSE(clippingStoredRangeMatchesLayout(clipping, 4, clippingWordLayoutSignature(456)));
+}
+
+TEST(ClippingLayout, RejectsUnsignedLegacyRanges) {
   Clipping clipping;
   clipping.pageCount = 20;
   clipping.layoutSignature = 0;
@@ -392,7 +550,7 @@ TEST(ClippingLayout, CachesLegacyBoundaryRangesWithoutAHeapAllocation) {
   clipping.pageCount = 10;
   clipping.layoutSignature = 123;
 
-  EXPECT_EQ(sizeof(Clipping), 84U);
+  EXPECT_EQ(sizeof(Clipping), 92U);
   EXPECT_FALSE(clippingCachedRangeReadyOnPage(clipping, 2));
   EXPECT_TRUE(clippingCachedRangeReadyOnPage(clipping, 3));
   EXPECT_FALSE(clippingCachedRangeReadyOnPage(clipping, 4));
@@ -460,4 +618,102 @@ TEST(ClippingTextMatcher, PreservesCompleteShortClippingsAndLongerRelayoutRuns) 
   EXPECT_TRUE(ClippingTextMatcher::isReliableRun(4, true, 3, 3));
   EXPECT_TRUE(ClippingTextMatcher::isReliableRun(4, false, 3, 3));
   EXPECT_FALSE(ClippingTextMatcher::isReliableRun(0, false, 0, 3));
+}
+
+TEST(ClipTextBuilder, BudgetsTheCompleteSelectionWithSingleBuffer) {
+  ClipWordStore store;
+  WordRef first;
+  first.tableSelection = 1;
+  ASSERT_TRUE(store.appendText(first, "first"));
+  store.words.push_back(first);
+  WordRef second;
+  second.tableSelection = 2;
+  ASSERT_TRUE(store.appendText(second, "second"));
+  store.words.push_back(second);
+  const uint16_t order[] = {0, 1};
+  const auto budget = ClipTextBuilder::allocationBudget(store, order, 0, 1);
+  EXPECT_EQ(budget.textCapacity, 13);
+  EXPECT_FALSE(budget.fits(100000, 13));
+  EXPECT_FALSE(budget.fits(1037, 100000));
+  EXPECT_TRUE(budget.fits(1038, 14));
+  EXPECT_EQ(ClipTextBuilder::allocationBudget(store, order, 0, 1, 1).textCapacity, 6);
+  EXPECT_LE(ClipTextBuilder::build(store, order, 0, 1, 0, 1).text.size(), budget.textCapacity);
+}
+
+TEST(ClipTextBuilder, SingleBufferPreservesWhitespaceAndHyphenJoinState) {
+  ClipWordStore store;
+  const char* words[] = {"   café  \tend  ",
+                         "\xe2\x80\x83"
+                         "re-",
+                         "\xc2\xa0\r\n",
+                         "open",
+                         "one \xe2\x80\xaf  two",
+                         "a\r\n\tb"};
+  for (uint16_t i = 0; i < std::size(words); ++i) {
+    WordRef word;
+    word.x = 100 * i;
+    word.w = 10;
+    word.pageWordIndex = i;
+    word.endsWithInsertedHyphen = i == 1;
+    ASSERT_TRUE(store.appendText(word, words[i]));
+    store.words.push_back(word);
+  }
+  const uint16_t order[] = {0, 1, 2, 3, 4, 5};
+  const auto budget = ClipTextBuilder::allocationBudget(store, order, 0, 5);
+  const auto clip = ClipTextBuilder::build(store, order, 0, 5, 0, 1);
+  // A whitespace-only token emits nothing but still resets previous-word
+  // state, as before. Authored internal ASCII spaces keep their count.
+  EXPECT_EQ(clip.text, "café  end\nre open one   two a b");
+  EXPECT_LE(clip.text.size(), budget.textCapacity);
+}
+
+TEST(ClipTextBuilder, CapturesSourceRangeAcrossPagesAndRejectsMissingMetadata) {
+  ClipWordStore store;
+  store.words.reserve(2);
+  for (uint16_t i = 0; i < 2; ++i) {
+    WordRef word;
+    word.pageIdx = i;
+    word.sourceStart = 50 + i * 10;
+    word.sourceEnd = word.sourceStart + 4;
+    ASSERT_TRUE(store.appendText(word, "same"));
+    store.words.push_back(word);
+  }
+  const uint16_t order[] = {0, 1};
+  auto result = ClipTextBuilder::build(store, order, 0, 1, 0, 2);
+  EXPECT_EQ(result.sourceStart, 50U);
+  EXPECT_EQ(result.sourceEnd, 64U);
+  store.words[1].sourceStart = store.words[1].sourceEnd = UINT32_MAX;
+  result = ClipTextBuilder::build(store, order, 0, 1, 0, 2);
+  EXPECT_EQ(result.sourceStart, UINT32_MAX);
+  EXPECT_EQ(result.sourceEnd, UINT32_MAX);
+}
+
+TEST(ClipTextBuilder, SubwordBoundsMapToTheSelectedSourceCharacters) {
+  ClipWordStore store;
+  WordRef word;
+  word.sourceStart = 50;
+  word.sourceEnd = 62;
+  ASSERT_TRUE(store.appendText(word, "before.after"));
+  store.words.push_back(word);
+  const uint16_t order[] = {0};
+  const ClipTextBuilder::SelectionBounds bounds{0, 0, 7, 0, 0, 12};
+  const auto result = ClipTextBuilder::build(store, order, 0, 0, 0, 1, &bounds);
+  EXPECT_EQ(result.text, "after");
+  EXPECT_EQ(result.sourceStart, 57U);
+  EXPECT_EQ(result.sourceEnd, 62U);
+}
+
+TEST(ClipTextBuilder, AmbiguousNormalizedSubwordsCannotMigrateToTheirWholeOuterWord) {
+  ClipWordStore store;
+  WordRef word;
+  word.sourceStart = 50;
+  word.sourceEnd = 61;  // Source has a separate combining accent; display is NFC.
+  ASSERT_TRUE(store.appendText(word, "café.after"));
+  store.words.push_back(word);
+  const uint16_t order[] = {0};
+  const ClipTextBuilder::SelectionBounds bounds{0, 0, 6, 0, 0, 11};
+  const auto result = ClipTextBuilder::build(store, order, 0, 0, 0, 1, &bounds);
+  EXPECT_EQ(result.text, "after");
+  EXPECT_EQ(result.sourceStart, UINT32_MAX);
+  EXPECT_EQ(result.sourceEnd, 0U);
 }

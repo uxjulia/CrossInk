@@ -14,6 +14,7 @@
 #include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
+#include "network/StatsUploadClient.h"
 #include "network/WifiUtils.h"
 
 void KOReaderAuthActivity::onWifiSelectionComplete(const bool success) {
@@ -21,7 +22,7 @@ void KOReaderAuthActivity::onWifiSelectionComplete(const bool success) {
     {
       RenderLock lock(*this);
       state = FAILED;
-      errorMessage = tr(STR_WIFI_CONN_FAILED);
+      errorMessage = tr(STR_CONNECTION_FAILED);
     }
     requestUpdate();
     return;
@@ -47,6 +48,11 @@ void KOReaderAuthActivity::onWifiSelectionComplete(const bool success) {
 
 void KOReaderAuthActivity::performAuthentication() {
   const auto result = mode == Mode::SIGN_UP ? KOReaderSyncClient::createUser() : KOReaderSyncClient::authenticate();
+  if (result == KOReaderSyncClient::OK && !KOREADER_STORE.usesCrossPointSyncServer()) {
+    // Re-check on every sign-in so a server upgrade or URL change is noticed.
+    StatsUploadClient client;
+    client.probe(true);  // Credentials were just accepted, so this is the real server.
+  }
 
   {
     RenderLock lock(*this);
@@ -93,12 +99,11 @@ void KOReaderAuthActivity::render(RenderLock&&) {
   renderer.clearScreen();
 
   const auto& metrics = UITheme::getInstance().getMetrics();
-  const auto pageWidth = renderer.getScreenWidth();
   const auto pageHeight = renderer.getScreenHeight();
   const Rect screen = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
 
-  const Rect header{0, metrics.topPadding, pageWidth, TouchHeaderBackButton::height(metrics, mappedInput)};
-  const char* title = mode == Mode::SIGN_UP ? tr(STR_SIGN_UP) : tr(STR_KOREADER_AUTH);
+  const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput);
+  const char* title = mode == Mode::SIGN_UP ? tr(STR_SIGN_UP) : tr(STR_AUTHENTICATE);
   if ((state == SUCCESS || state == FAILED) && mappedInput.hasTouchHardware()) {
     TouchHeaderBackButton::draw(renderer, header, title, false);
   } else {
@@ -114,6 +119,16 @@ void KOReaderAuthActivity::render(RenderLock&&) {
                               mode == Mode::SIGN_UP ? tr(STR_ACCOUNT_CREATED) : tr(STR_AUTH_SUCCESS), true,
                               EpdFontFamily::BOLD);
     renderer.drawCenteredText(UI_10_FONT_ID, top + height + 10, tr(STR_SYNC_READY));
+    // Tell the user up front what this server can receive besides progress.
+    const auto support = KOREADER_STORE.getServerSupport();
+    if (support != SyncServerSupport::UNKNOWN) {
+      const Rect textArea{screen.x + metrics.contentSidePadding, screen.y,
+                          screen.width - metrics.contentSidePadding * 2, screen.height};
+      UITheme::drawCenteredWrappedText(
+          renderer, textArea, UI_10_FONT_ID, top + (height + 10) * 2,
+          support == SyncServerSupport::SUPPORTED ? tr(STR_SERVER_EXTRAS_AVAILABLE) : tr(STR_SERVER_PROGRESS_ONLY), 2,
+          true, EpdFontFamily::REGULAR, 4);
+    }
   } else if (state == FAILED) {
     renderer.drawCenteredText(UI_10_FONT_ID, top, mode == Mode::SIGN_UP ? tr(STR_SIGNUP_FAILED) : tr(STR_AUTH_FAILED),
                               true, EpdFontFamily::BOLD);

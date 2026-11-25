@@ -1,0 +1,3 @@
+add_executable(SlideSwitchToggleTest SlideSwitchToggleTest.cpp)
+target_link_libraries(SlideSwitchToggleTest PRIVATE crosspoint_test_common GTest::gtest_main)
+gtest_discover_tests(SlideSwitchToggleTest)

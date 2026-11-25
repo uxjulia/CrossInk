@@ -39,6 +39,7 @@ class Activity {
   virtual ~Activity() = default;
   virtual void onEnter();
   virtual void onExit();
+  virtual void prepareForSleep() {}
   virtual void loop() {}
 
   virtual void render(RenderLock&&) {}
@@ -74,6 +75,8 @@ class Activity {
   // Reader-mode child screens may also report isReaderActivity(); only the
   // activity owning the open book should be the Home/Reader unwind target.
   virtual bool isBookReaderActivity() const { return false; }
+  // Lists use spatial menu directions; text-selection/keyboard screens keep their own navigation rules.
+  virtual bool usesMenuButtonOrientation() const { return !isBookReaderActivity(); }
   virtual bool isHomeActivity() const { return false; }
   // The open book uses its vertical swipe actions across the entire page;
   // dialogs and lists retain their normal edge or scroll gestures.

@@ -8,6 +8,17 @@
 
 namespace ClipTextBuilder {
 
+struct AllocationBudget {
+  size_t textCapacity = 0;
+
+  bool fits(size_t freeBytes, size_t largestBlockBytes) const {
+    return largestBlockBytes > textCapacity && freeBytes > textCapacity + 1024;
+  }
+};
+
+AllocationBudget allocationBudget(const ClipWordStore& wordStore, const uint16_t* wordOrder, int fromOrder, int toOrder,
+                                  uint16_t tableSelection = UINT16_MAX);
+
 struct SelectionBounds {
   uint8_t firstPageIdx = 0;
   uint16_t firstPageWordOrdinal = 0;

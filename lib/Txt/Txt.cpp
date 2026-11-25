@@ -92,13 +92,23 @@ std::string Txt::findCoverImage() const {
   return "";
 }
 
-std::string Txt::getCoverBmpPath(bool imageLevels) const {
-  return cachePath + (imageLevels ? "/cover_absolute.bmp" : "/cover.bmp");
+std::string Txt::getCoverBmpPath(ImageToneProfile toneProfile, bool* sourceBitmap) const {
+  if (sourceBitmap) *sourceBitmap = false;
+  if (toneProfile == ImageToneProfile::PiccoCover) {
+    // A copied sidecar still needs tone conversion. A JPEG-derived cache already has it.
+    auto sourcePath = piccoSourceCoverPath();
+    if (Storage.exists(sourcePath.c_str())) {
+      if (sourceBitmap) *sourceBitmap = true;
+      return sourcePath;
+    }
+  }
+  return cachePath + "/cover" + coverToneSuffix(toneProfile) + ".bmp";
 }
 
-bool Txt::generateCoverBmp(bool imageLevels) const {
+bool Txt::generateCoverBmp(ImageToneProfile toneProfile) const {
   // Already generated, return true
-  if (Storage.exists(getCoverBmpPath(imageLevels).c_str())) {
+  std::string destination = getCoverBmpPath(toneProfile);
+  if (Storage.exists(destination.c_str())) {
     return true;
   }
 
@@ -111,12 +121,13 @@ bool Txt::generateCoverBmp(bool imageLevels) const {
   setupCacheDir();
 
   if (FsHelpers::hasBmpExtension(coverImagePath)) {
+    if (toneProfile == ImageToneProfile::PiccoCover) destination = piccoSourceCoverPath();
     // Copy BMP file to cache
     HalFile src, dst;
     if (!Storage.openFileForRead("TXT", coverImagePath, src)) {
       return false;
     }
-    if (!Storage.openFileForWrite("TXT", getCoverBmpPath(imageLevels), dst)) {
+    if (!Storage.openFileForWrite("TXT", destination, dst)) {
       src.close();
       return false;
     }
@@ -132,7 +143,7 @@ bool Txt::generateCoverBmp(bool imageLevels) const {
     }
     src.close();
     dst.close();
-    if (!success) Storage.remove(getCoverBmpPath(imageLevels).c_str());
+    if (!success) Storage.remove(destination.c_str());
     return success;
   } else if (FsHelpers::hasJpgExtension(coverImagePath)) {
     // Convert JPG/JPEG to BMP (same approach as Epub)
@@ -140,17 +151,17 @@ bool Txt::generateCoverBmp(bool imageLevels) const {
     if (!Storage.openFileForRead("TXT", coverImagePath, coverJpg)) {
       return false;
     }
-    if (!Storage.openFileForWrite("TXT", getCoverBmpPath(imageLevels), coverBmp)) {
+    if (!Storage.openFileForWrite("TXT", destination, coverBmp)) {
       coverJpg.close();
       return false;
     }
-    const bool success = JpegToBmpConverter::jpegFileToBmpStream(coverJpg, coverBmp, true, imageLevels);
+    const bool success = JpegToBmpConverter::jpegFileToBmpStream(coverJpg, coverBmp, true, toneProfile);
 
     coverJpg.close();
     coverBmp.close();
     if (!success) {
       LOG_ERR("TXT", "Failed to generate BMP from JPG cover image");
-      Storage.remove(getCoverBmpPath(imageLevels).c_str());
+      Storage.remove(destination.c_str());
     }
     return success;
   }

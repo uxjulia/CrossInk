@@ -40,7 +40,7 @@ size_t KOReaderDocumentId::getOffset(int i) {
   return CHUNK_SIZE << (2 * i);
 }
 
-std::string KOReaderDocumentId::calculate(const std::string& filePath) {
+std::string KOReaderDocumentId::calculate(const std::string& filePath, uint32_t* sampledSize) {
   HalFile file;
   if (!Storage.openFileForRead("KODoc", filePath, file)) {
     LOG_DBG("KODoc", "Failed to open file: %s", filePath.c_str());
@@ -55,7 +55,6 @@ std::string KOReaderDocumentId::calculate(const std::string& filePath) {
 
   // Buffer for reading chunks
   uint8_t buffer[CHUNK_SIZE];
-  size_t totalBytesRead = 0;
 
   // Read from each offset (i = -1 to 10)
   for (int i = -1; i < OFFSET_COUNT - 1; i++) {
@@ -69,18 +68,24 @@ std::string KOReaderDocumentId::calculate(const std::string& filePath) {
     // Seek to offset
     if (!file.seekSet(offset)) {
       LOG_DBG("KODoc", "Failed to seek to offset %zu", offset);
-      continue;
+      file.close();
+      return {};
     }
 
     // Read up to CHUNK_SIZE bytes
     const size_t bytesToRead = std::min(CHUNK_SIZE, fileSize - offset);
     const size_t bytesRead = file.read(buffer, bytesToRead);
 
-    if (bytesRead > 0) {
-      md5.add(buffer, bytesRead);
-      totalBytesRead += bytesRead;
+    if (bytesRead != bytesToRead) {
+      LOG_ERR("KODoc", "Incomplete hash read at offset %zu", offset);
+      file.close();
+      return {};
     }
+    md5.add(buffer, bytesRead);
   }
+
+  file.close();
+  if (sampledSize) *sampledSize = static_cast<uint32_t>(fileSize);
 
   // Calculate final hash
   md5.calculate();

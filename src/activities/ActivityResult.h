@@ -84,6 +84,21 @@ struct WordResult {
   std::string word;
 };
 
+struct ProgressSyncResult {
+  bool success = false;
+  bool progressSucceeded = false;
+  bool statsUploaded = false;
+  bool clippingsUploaded = false;
+  bool statsFailed = false;
+  bool clippingsFailed = false;
+  bool skipped = false;  // Bulk sync: the user chose Skip book for this one.
+  // Background bulk sync only: a conflict kept (parked) for the end of the run.
+  bool deferred = false;
+  bool progressFailed = false;  // the progress step itself failed
+  std::string reason;           // why it failed, for the run's summary
+  std::string title;            // the book's title, when its metadata was loaded
+};
+
 struct ReadingStatsResult {
   bool changed = false;
 };
@@ -102,6 +117,9 @@ struct ClippingResult {
   uint16_t paragraphIndex = UINT16_MAX;
   uint16_t tableSelection = UINT16_MAX;
   uint16_t wordCount = 0;
+  bool memoryError = false;
+  uint32_t sourceStart = UINT32_MAX;
+  uint32_t sourceEnd = UINT32_MAX;
 };
 
 // A dictionary lookup retains the selected page-word range and exact byte
@@ -128,11 +146,11 @@ struct ClippingJumpResult {
   bool settingsChanged = false;
 };
 
-using ResultVariant =
-    std::variant<std::monostate, WifiResult, KeyboardResult, MenuResult, ChapterResult, PercentResult, IntervalResult,
-                 OptionSelectionResult, PageResult, NetworkModeResult, FootnoteResult, BookmarkResult,
-                 FileBrowserActionResult, FilePathResult, WordResult, ReadingStatsResult, ClippingResult,
-                 TtfRenderOptionsResult, DictionaryClippingRequest, ClippingJumpResult, FrontlightPanelResult>;
+using ResultVariant = std::variant<std::monostate, WifiResult, KeyboardResult, MenuResult, ChapterResult, PercentResult,
+                                   IntervalResult, OptionSelectionResult, PageResult, NetworkModeResult, FootnoteResult,
+                                   BookmarkResult, FileBrowserActionResult, FilePathResult, WordResult,
+                                   ReadingStatsResult, ProgressSyncResult, ClippingResult, TtfRenderOptionsResult,
+                                   DictionaryClippingRequest, ClippingJumpResult, FrontlightPanelResult>;
 
 struct ActivityResult {
   bool isCancelled = false;

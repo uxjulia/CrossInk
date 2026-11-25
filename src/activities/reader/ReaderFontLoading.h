@@ -28,7 +28,7 @@ inline bool changeReaderFontSizeWithFeedback(GfxRenderer& renderer, const bool l
     const auto* summary = registry.findSummary(SETTINGS.sdFontFamilyName);
     showLoading = registry.needsRefresh() || !summary || summary->files.empty();
   }
-  if (showLoading) GUI.drawPopup(renderer, tr(STR_LOADING_POPUP), true);
+  if (showLoading) GUI.drawPopup(renderer, tr(STR_LOADING), true);
   const bool changed = sdFontSystem.changeReaderFontSize(larger, mode);
   // A clamped step or discovery failure has no subsequent reflow to clear the
   // physical popup. Its backing pixels have already been restored.

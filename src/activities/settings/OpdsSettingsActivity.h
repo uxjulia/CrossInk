@@ -11,7 +11,7 @@
 
 /**
  * Edit screen for a single OPDS server.
- * Shows Name, URL, Username, Password, Filename fields and a Delete option.
+ * Shows server credentials, filename options, download folder and Delete.
  * Used for both adding new servers and editing existing ones.
  */
 class OpdsSettingsActivity final : public Activity {
@@ -27,6 +27,9 @@ class OpdsSettingsActivity final : public Activity {
   void render(RenderLock&&) override;
 
  private:
+#ifdef SIMULATOR
+  friend struct OpdsCatalogSmokeTest;
+#endif
   // FreeInkApp hosts the field list (themed rows, touch routing); the header
   // stays on GUI.drawHeader for the battery indicator.
   using UiApp = freeink::ui::FreeInkApp<12, 4>;
@@ -38,6 +41,8 @@ class OpdsSettingsActivity final : public Activity {
   OpdsServer editServer;
   bool isNewServer = false;
   bool showSaveError = false;
+  bool showFolderError = false;
+  std::string downloadFolderLabel;  // Built on edit, reused by render().
 
   freeink::ui::GfxRendererTarget uiTarget;  // must precede `app`: the app holds a reference to it
   UiApp app;
@@ -54,4 +59,7 @@ class OpdsSettingsActivity final : public Activity {
   int getMenuItemCount() const;
   void handleSelection();
   bool saveServer();
+  void editDownloadFolder();
+  void setDownloadFolder(std::string folder);
+  void updateDownloadFolderLabel();
 };

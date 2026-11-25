@@ -11,3 +11,14 @@ enum class EpubRenderMode : uint8_t {
 constexpr uint8_t EPUB_RENDER_MODE_COUNT = 3;
 
 inline bool isValidEpubRenderMode(const uint8_t mode) { return mode < EPUB_RENDER_MODE_COUNT; }
+
+inline const char* sectionCacheSuffixForRenderMode(const EpubRenderMode mode) {
+  switch (mode) {
+    case EpubRenderMode::Balanced:
+      return "_balanced";
+    case EpubRenderMode::Light:
+      return "_light";
+    default:
+      return "";
+  }
+}

@@ -27,6 +27,7 @@ class ChapterXPathResolver {
 
   /**
    * Resolve intra-spine progress to a real XHTML ancestry path plus text offset.
+   * Counts all visible body text, excluding trailing XML formatting whitespace.
    *
    * Returns a KOReader-compatible path like:
    * /body/DocFragment[8]/body/div[2]/section[1]/p[4]/text().96
@@ -40,6 +41,9 @@ class ChapterXPathResolver {
   // selecting the next child (or the last content character at the end).
   // Resolve a zero-based visible Unicode codepoint offset. This is the stable
   // page position stored in CrossInk's section cache, independent of layout.
+  // Text may live directly in body or in any visible element. XML whitespace
+  // targets advance to the next non-whitespace codepoint without renumbering
+  // text nodes. With no following text, return empty (or the split-book fallback).
   static std::string findXPathForVisibleTextOffset(const std::shared_ptr<Epub>& epub, int spineIndex,
                                                    uint32_t visibleTextOffset, uint8_t minimumPathDepth = 0);
 };

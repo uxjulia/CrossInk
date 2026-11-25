@@ -30,8 +30,9 @@ TouchActionButtons::Layout getOtaActionLayout(const GfxRenderer& renderer) {
   constexpr int sideMargin = 24;
   constexpr int bottomMargin = 12;
   constexpr int totalHeight = TouchActionButtons::kDefaultHeight * 2 + TouchActionButtons::kDefaultGap;
-  return TouchActionButtons::vertical(Rect{sideMargin, renderer.getScreenHeight() - bottomMargin - totalHeight,
-                                           std::max(1, renderer.getScreenWidth() - sideMargin * 2), totalHeight},
+  const auto safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
+  return TouchActionButtons::vertical(Rect{safe.x + sideMargin, safe.y + safe.height - bottomMargin - totalHeight,
+                                           std::max(1, safe.width - sideMargin * 2), totalHeight},
                                       2);
 }
 }  // namespace
@@ -118,12 +119,13 @@ void OtaUpdateActivity::onExit() {
 
 void OtaUpdateActivity::render(RenderLock&&) {
   const auto& metrics = UITheme::getInstance().getMetrics();
-  const auto pageWidth = renderer.getScreenWidth();
-  const auto pageHeight = renderer.getScreenHeight();
+  const auto safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
+  const int pageWidth = safe.width;
+  const int pageHeight = safe.height;
 
   renderer.clearScreen();
 
-  const Rect header{0, metrics.topPadding, pageWidth, TouchHeaderBackButton::height(metrics, mappedInput)};
+  const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput);
   const bool canGoBack = state == WAITING_CONFIRMATION || state == FAILED || state == NO_UPDATE;
   if (mappedInput.hasTouchHardware()) {
     if (canGoBack) {
@@ -135,7 +137,7 @@ void OtaUpdateActivity::render(RenderLock&&) {
     GUI.drawHeader(renderer, header, tr(STR_UPDATE));
   }
   const auto height = renderer.getLineHeight(UI_10_FONT_ID);
-  const auto top = (pageHeight - height) / 2;
+  const auto top = safe.y + (pageHeight - height) / 2;
 
   float updaterProgress = 0;
   if (state == UPDATE_IN_PROGRESS) {
@@ -148,12 +150,13 @@ void OtaUpdateActivity::render(RenderLock&&) {
   }
 
   if (state == CHECKING_FOR_UPDATE) {
-    renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_CHECKING_UPDATE));
+    UITheme::drawCenteredText(renderer, safe, UI_10_FONT_ID, top, tr(STR_CHECKING_UPDATE));
   } else if (state == WAITING_CONFIRMATION) {
-    renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_NEW_UPDATE), true, EpdFontFamily::BOLD);
-    renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding, top + height + metrics.verticalSpacing,
+    UITheme::drawCenteredText(renderer, safe, UI_10_FONT_ID, top, tr(STR_NEW_UPDATE), true, EpdFontFamily::BOLD);
+    renderer.drawText(UI_10_FONT_ID, safe.x + metrics.contentSidePadding, top + height + metrics.verticalSpacing,
                       (std::string(tr(STR_CURRENT_VERSION)) + AppVersion::version()).c_str());
-    renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding, top + height * 2 + metrics.verticalSpacing * 2,
+    renderer.drawText(UI_10_FONT_ID, safe.x + metrics.contentSidePadding,
+                      top + height * 2 + metrics.verticalSpacing * 2,
                       (std::string(tr(STR_NEW_VERSION)) + updater.getLatestVersion()).c_str());
 
     if (mappedInput.hasTouch()) {
@@ -165,34 +168,35 @@ void OtaUpdateActivity::render(RenderLock&&) {
     const auto labels = mappedInput.mapLabels(tr(STR_CANCEL), tr(STR_UPDATE), "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   } else if (state == UPDATE_IN_PROGRESS) {
-    renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_UPDATING));
+    UITheme::drawCenteredText(renderer, safe, UI_10_FONT_ID, top, tr(STR_UPDATING));
 
     int y = top + height + metrics.verticalSpacing;
-    GUI.drawProgressBar(
-        renderer,
-        Rect{metrics.contentSidePadding, y, pageWidth - metrics.contentSidePadding * 2, metrics.progressBarHeight},
-        static_cast<int>(updaterProgress * 100), 100);
+    GUI.drawProgressBar(renderer,
+                        Rect{safe.x + metrics.contentSidePadding, y, pageWidth - metrics.contentSidePadding * 2,
+                             metrics.progressBarHeight},
+                        static_cast<int>(updaterProgress * 100), 100);
 
     y += metrics.progressBarHeight + metrics.verticalSpacing;
     // BaseTheme::drawProgressBar draws the percentage. This line shows the
     // monotonic combined staging-and-flashing work instead.
     y += height + metrics.verticalSpacing;
-    renderer.drawCenteredText(
-        UI_10_FONT_ID, y,
+    UITheme::drawCenteredText(
+        renderer, safe, UI_10_FONT_ID, y,
         (std::to_string(updater.getProcessedSize()) + " / " + std::to_string(updater.getTotalSize())).c_str());
   } else if (state == NO_UPDATE) {
-    renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_NO_UPDATE), true, EpdFontFamily::BOLD);
+    UITheme::drawCenteredText(renderer, safe, UI_10_FONT_ID, top, tr(STR_NO_UPDATE), true, EpdFontFamily::BOLD);
     const auto labels = mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), "", "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   } else if (state == FAILED) {
-    renderer.drawCenteredText(UI_10_FONT_ID, top, I18n::getInstance().get(failureMessage), true, EpdFontFamily::BOLD);
+    UITheme::drawCenteredText(renderer, safe, UI_10_FONT_ID, top, I18n::getInstance().get(failureMessage), true,
+                              EpdFontFamily::BOLD);
     const auto labels = mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), "", "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   } else if (state == FINISHED) {
-    renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_UPDATE_COMPLETE), true, EpdFontFamily::BOLD);
+    UITheme::drawCenteredText(renderer, safe, UI_10_FONT_ID, top, tr(STR_UPDATE_COMPLETE), true, EpdFontFamily::BOLD);
     const int hintY = top + height + metrics.verticalSpacing;
-    const Rect hintBounds{metrics.contentSidePadding, hintY, pageWidth - metrics.contentSidePadding * 2,
-                          pageHeight - hintY};
+    const Rect hintBounds{safe.x + metrics.contentSidePadding, hintY, pageWidth - metrics.contentSidePadding * 2,
+                          safe.y + pageHeight - hintY};
     UITheme::drawCenteredWrappedText(renderer, hintBounds, UI_10_FONT_ID, hintY, tr(STR_POWER_ON_HINT), 3);
   }
 

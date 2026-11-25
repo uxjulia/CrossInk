@@ -31,9 +31,10 @@ JS_OUT = os.path.join(OUT, "js")
 
 # slug -> (generated identifier, <title>, active nav, extra <head> markup)
 PAGES = {
+    "runner": ("RunnerPageHtml", "Plugins - CrossInk", "settings", '<script src="/plugin-host.js"></script>'),
     "home":     ("HomePageHtml",     "CrossInk",                   "home",     ""),
-    "files":    ("FilesPageHtml",    "Files - CrossInk",           "files",    '  <script src="/js/jszip.min.js"></script>'),
-    "settings": ("SettingsPageHtml", "Settings - CrossInk Reader", "settings", ""),
+    "files":    ("FilesPageHtml",    "Files - CrossInk",           "files",    '  <script src="/js/jszip.min.js"></script><script src="/plugin-host.js"></script>'),
+    "settings": ("SettingsPageHtml", "Settings - CrossInk Reader", "settings", '<script src="/plugin-host.js"></script>'),
     "fonts":    ("FontsPageHtml",    "Fonts - CrossInk",           "fonts",    ""),
 }
 
@@ -157,3 +158,5 @@ print(f"{'LogoPng':18} {len(logo_png):>7}B raw")
 jszip = read(JS_OUT, "jszip.min.js")
 orig, comp = emit_gzip(os.path.join(JS_OUT, "jszip_minJs.generated.h"), "jszip_minJs", jszip)
 print(f"{'jszip_minJs':18} {orig:>7}B -> {comp:>6}B gz")
+
+orig, comp = emit_gzip(os.path.join(OUT, "PluginHostJs.generated.h"), "PluginHostJs", read(WEB, "assets", "plugin-host.js"))

@@ -6,17 +6,18 @@ This guide describes the dictionary implementation currently shipped on this bra
 
 | File | Required | Purpose |
 |------|----------|---------|
-| `.dict` | Yes | Uncompressed definition data |
+| `.dict` or `.dict.dz` | Yes | Plain or dictzip-compressed definition data |
 | `.idx` | Yes | Sorted headwords and offsets into `.dict` |
 | `.ifo` | Recommended | Metadata and `sametypesequence` used to interpret definition fields |
 | `.syn` | Optional | Alternate forms mapped to `.idx` ordinals |
 | `.idx.oft` / `.syn.oft` | Optional | Coarse page offsets used to narrow a scan |
 | `.idx.oft.cspt` / `.syn.oft.cspt` | Optional | CrossInk prefix indexes used as the fastest lookup path |
+| `.syn.qidx` | Generated | Sampled offsets for unprepared synonym lists |
 | `.qidx` | Generated | Disposable sampled index built by the device when `.idx` has no prepared accelerator |
 
-The device requires an uncompressed `.dict`; it does not read `.dict.dz` or `.syn.dz` directly. Use `scripts/dictionary_tools.py prep` on a computer when decompression is needed or to generate the fastest `.oft`/`.cspt` accelerators. For an uncompressed dictionary without those accelerators, the device automatically generates `.qidx` on first lookup.
+The device reads `.dict.dz` directly; `.idx` and `.syn` must be uncompressed. Use `scripts/dictionary_tools.py prep` on a computer when decompression is needed or to generate the fastest `.oft`/`.cspt` accelerators. For a dictionary without those accelerators, the device automatically generates `.qidx` on first lookup.
 
-Dictionary discovery is implemented by `DictionaryRegistry`. It checks `/.dictionaries` first and `/dictionaries` second, using only the first root directory found. Each child folder must contain exactly one `.idx`, no more than one `.ifo`, and a `.dict` file. Hidden folders and ambiguous folders are skipped.
+Dictionary discovery is implemented by `DictionaryRegistry`. It checks `/.dictionaries` first and `/dictionaries` second, using only the first root directory found. Each child folder must contain exactly one `.idx`, no more than one `.ifo`, and a matching `.dict` or `.dict.dz` file. Hidden folders and ambiguous folders are skipped.
 
 ## Lookup Paths
 
@@ -27,15 +28,27 @@ Dictionary discovery is implemented by `DictionaryRegistry`. It checks `/.dictio
 3. Fall back to the device-generated `.qidx` sampled index.
 4. Fall back to scanning `.idx` from the beginning if the sidecar cannot be read or written.
 
-`Dictionary::resolveAltForm` uses `.syn.oft.cspt`, then `.syn.oft`, then a full `.syn` scan. `Dictionary::findSimilar` uses `.idx.oft` when available and otherwise uses `.qidx` to scan a bounded neighborhood. If neither index accelerator is usable, spelling suggestions are skipped so a large dictionary cannot block the reader UI; direct lookup still works with the uncompressed `.dict` and `.idx` files.
+`Dictionary::resolveAltForm` uses `.syn.oft.cspt`, then `.syn.oft`, then a device-generated `.syn.qidx`. Without a usable index it can still scan the synonym list. The matched synonym names an exact entry number in `.idx`. CrossInk seeks to the nearest `.idx.oft` or `.qidx` sample and reads that entry’s headword and definition range together. `Dictionary::findSimilar` uses `.idx.oft` when available and otherwise uses `.qidx` to scan a bounded neighborhood. If neither index accelerator is usable, spelling suggestions are skipped so a large dictionary cannot block the reader UI; direct lookup still works with the uncompressed `.dict` and `.idx` files.
 
-`.qidx` uses a 20-byte little-endian header containing `QIDX`, format version, sample interval, sample count, and source `.idx` size, followed by the byte offset of every 256th `.idx` entry. It is written through a temporary file and installed only after the complete scan succeeds. A size mismatch or invalid header causes it to be rebuilt.
+`.qidx` uses a 20-byte little-endian header containing `QIDX`, format version, sample interval, sample count, and source `.idx` size, followed by the byte offset of every 256th `.idx` entry. It is written through a temporary file and installed only after the complete scan succeeds. The sibling `.syn.qidx` uses the same format and samples its own `.syn` source. Each is rebuilt independently when its header is invalid or its source size changes.
 
 StarDict files with `idxoffsetbits=64` are parsed, but entries whose definition offset exceeds the device's supported 32-bit range fail safely.
 
 ## Definition Rendering
 
 `DictionaryDefinitionActivity` resolves the selected `.dict` byte range and renders one page at a time. `DictHtmlRenderer` streams HTML input, while `DictLayout::Wrapper` wraps styled spans into page lines. Keeping only the current page bounds peak RAM and avoids materializing a large definition as one in-memory document. Definition body text uses the active reader font; headers and controls keep built-in UI fonts. SD-font text is passed through unchanged. Built-in coverage uses the audited, fixed Lexend Deca/Bitter glyph set (including the renderer's `Γ`, `ε`, and `ω` fallbacks), while unsupported IPA, Greek, combining-mark, and punctuation codepoints use the existing approximations.
+
+For `.dict.dz`, `DictZip` reads the embedded random-access chunk table and extracts
+only the requested entry. `DictionaryDefinitionSource` owns an SD scratch file
+under `/.crosspoint/dict-entry-*.tmp`; page turns and SD-font preparation reuse
+that file, including font fallback and modal reflow without reinflating. It is removed on definition replacement, activity exit, or extraction
+failure. No permanent uncompressed dictionary or new index format is created.
+The decompressor uses four separately allocated 8KB history segments, about 4KB
+of state/input/output storage, and a fallible chunk-offset table capped at 32KB
+plus 4 bytes. Those allocations are released before layout. Plain `.dict` takes
+priority when both formats exist. Ordinary gzip without a dictzip RA table is
+unsupported. Abrupt power loss may leave an unused scratch file on SD; it is safe
+to delete when the reader is stopped.
 
 Paging re-parses the definition from its start. This trades extra sequential reads for predictable memory usage on the ESP32-C3.
 
@@ -131,13 +144,13 @@ Both `.idx.oft.cspt` and `.syn.oft.cspt` use the same format:
 | 8 | 4 | Entry count (little-endian) |
 | 12... | 20 each | 16-byte, zero-padded prefix plus 4-byte source offset |
 
-The reader performs a case-insensitive binary search for the last prefix less than or equal to the target, then scans only until the next recorded source offset. Invalid or missing `.cspt` data falls back to `.oft`, then to a full scan.
+The reader binary-searches the samples, comparing the full source headword when the stored prefix cannot distinguish it from the query. It starts before case-equivalent matches so it can select the exact spelling even across a sample boundary. Invalid or missing `.cspt` data falls back to `.oft`, then to a full scan.
 
 The header's stride field is currently informational. Producers must continue to emit `16` until the format version and readers are updated together.
 
 ## Verification
 
-There is no dictionary-specific host fixture suite in this branch. For changes:
+Run the native `DictionaryLookupTest` suite. For device and tool validation:
 
 1. Run `python3 scripts/dictionary_tools.py prep` and `lookup` against a representative StarDict dictionary.
 2. Build the simulator with `pio run -e simulator` for reader/UI integration.

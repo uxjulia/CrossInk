@@ -1,14 +1,14 @@
 add_executable(EpubGrayscaleTest EpubGrayscaleTest.cpp
   ${REPO_ROOT}/src/activities/reader/EpubGrayscale.cpp)
 target_include_directories(EpubGrayscaleTest PRIVATE stubs ../memory_policy/stubs
-  ${REPO_ROOT}/lib/Epub ${REPO_ROOT}/lib/Memory ${REPO_ROOT}/lib/MemoryBudget
+  ${REPO_ROOT}/lib/Epub ${REPO_ROOT}/lib/GfxRenderer ${REPO_ROOT}/lib/Memory ${REPO_ROOT}/lib/MemoryBudget
   ${REPO_ROOT}/lib/Serialization ${REPO_ROOT}/src/activities/reader)
 target_compile_definitions(EpubGrayscaleTest PRIVATE ARDUINO_ARCH_ESP32=1 CROSSINK_MEMORY_TEST=1)
 target_link_libraries(EpubGrayscaleTest PRIVATE crosspoint_test_common GTest::gtest_main)
 gtest_discover_tests(EpubGrayscaleTest PROPERTIES ENVIRONMENT "UBSAN_OPTIONS=halt_on_error=1")
 
 # Real text/glyph rasterization with a memory-only display and storage backend.
-add_executable(EpubTextGrayscaleTest EpubTextGrayscaleTest.cpp
+add_executable(EpubTextGrayscaleTest EpubTextGrayscaleTest.cpp FontRenderingTest.cpp
   ${REPO_ROOT}/lib/GfxRenderer/GfxRenderer.cpp
   ${REPO_ROOT}/lib/GfxRenderer/Bitmap.cpp
   ${REPO_ROOT}/lib/GfxRenderer/BitmapHelpers.cpp
@@ -19,6 +19,8 @@ add_executable(EpubTextGrayscaleTest EpubTextGrayscaleTest.cpp
   ${REPO_ROOT}/lib/EpdFont/FontDecompressor.cpp
   ${REPO_ROOT}/lib/EpdFont/SdCardFont.cpp
   ${REPO_ROOT}/lib/Epub/Epub/blocks/TextBlock.cpp
+  ${REPO_ROOT}/lib/Epub/Epub/RuledLineLayout.cpp
+  ${REPO_ROOT}/lib/Epub/Epub/hyphenation/HyphenationCommon.cpp
   ${REPO_ROOT}/lib/Memory/BuildScratch.cpp
   ${REPO_ROOT}/lib/Utf8/Utf8.cpp
   ${REPO_ROOT}/lib/MiniBidi/BidiUtils.cpp
@@ -28,7 +30,7 @@ add_executable(EpubTextGrayscaleTest EpubTextGrayscaleTest.cpp
 target_include_directories(EpubTextGrayscaleTest PRIVATE raster_stubs
   ${REPO_ROOT}/include ${REPO_ROOT}/src/activities/reader
   ${REPO_ROOT}/freeink-sdk/libs/display/FreeInkDisplay/include
-  ${REPO_ROOT}/lib/GfxRenderer ../memory_policy/stubs
+  ${REPO_ROOT}/lib/GfxRenderer ${REPO_ROOT}/lib/ScreenCalibration ../memory_policy/stubs
   ${REPO_ROOT}/lib/Epub ${REPO_ROOT}/lib/EpdFont ${REPO_ROOT}/lib/Memory
   ${REPO_ROOT}/lib/Serialization ${REPO_ROOT}/lib/Utf8 ${REPO_ROOT}/lib/MiniBidi
   ${REPO_ROOT}/lib/miniz/src ${REPO_ROOT}/lib/InflateReader ${REPO_ROOT}/lib/uzlib/src)
@@ -40,8 +42,32 @@ gtest_discover_tests(EpubTextGrayscaleTest PROPERTIES ENVIRONMENT "UBSAN_OPTIONS
 add_executable(RetainedPxcCacheTest RetainedPxcCacheTest.cpp
   ${REPO_ROOT}/src/activities/reader/EpubGrayscale.cpp)
 target_include_directories(RetainedPxcCacheTest PRIVATE stubs ../memory_policy/stubs
-  ${REPO_ROOT}/lib/Epub ${REPO_ROOT}/lib/Memory ${REPO_ROOT}/lib/MemoryBudget
+  ${REPO_ROOT}/lib/Epub ${REPO_ROOT}/lib/GfxRenderer ${REPO_ROOT}/lib/Memory ${REPO_ROOT}/lib/MemoryBudget
   ${REPO_ROOT}/lib/Serialization ${REPO_ROOT}/src/activities/reader)
 target_compile_definitions(RetainedPxcCacheTest PRIVATE ARDUINO_ARCH_ESP32=1 CROSSINK_MEMORY_TEST=1)
 target_link_libraries(RetainedPxcCacheTest PRIVATE crosspoint_test_common GTest::gtest_main)
 gtest_discover_tests(RetainedPxcCacheTest PROPERTIES ENVIRONMENT "UBSAN_OPTIONS=halt_on_error=1")
+
+add_executable(DeferredGrayscaleTest DeferredGrayscaleTest.cpp)
+target_include_directories(DeferredGrayscaleTest PRIVATE stubs ../memory_policy/stubs
+  ${REPO_ROOT}/lib/Memory ${REPO_ROOT}/src/activities/reader)
+target_compile_definitions(DeferredGrayscaleTest PRIVATE ARDUINO_ARCH_ESP32=1 CROSSINK_MEMORY_TEST=1)
+target_link_libraries(DeferredGrayscaleTest PRIVATE crosspoint_test_common GTest::gtest_main)
+gtest_discover_tests(DeferredGrayscaleTest)
+
+add_executable(ImageViewerGrayscaleTest ImageViewerGrayscaleTest.cpp)
+target_include_directories(ImageViewerGrayscaleTest PRIVATE stubs ../memory_policy/stubs
+  ${REPO_ROOT}/src/activities/util)
+target_link_libraries(ImageViewerGrayscaleTest PRIVATE crosspoint_test_common GTest::gtest_main)
+gtest_discover_tests(ImageViewerGrayscaleTest)
+
+# Exercise real text/renderer scan paths with instrumented scalable glyph hooks.
+get_target_property(idle_text_sources EpubTextGrayscaleTest SOURCES)
+list(REMOVE_ITEM idle_text_sources EpubTextGrayscaleTest.cpp)
+get_target_property(idle_text_includes EpubTextGrayscaleTest INCLUDE_DIRECTORIES)
+get_target_property(idle_text_definitions EpubTextGrayscaleTest COMPILE_DEFINITIONS)
+add_executable(IdleTextScanTest IdleTextScanTest.cpp ${idle_text_sources})
+target_include_directories(IdleTextScanTest PRIVATE scalable_stubs ${idle_text_includes})
+target_compile_definitions(IdleTextScanTest PRIVATE ${idle_text_definitions} CROSSINK_SCALABLE_FONTS=1)
+target_link_libraries(IdleTextScanTest PRIVATE crosspoint_test_common GTest::gtest_main)
+gtest_discover_tests(IdleTextScanTest)

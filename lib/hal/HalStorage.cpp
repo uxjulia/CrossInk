@@ -6,6 +6,7 @@
 #include <HalClock.h>
 #include <Logging.h>
 #include <SDCardManager.h>
+#include <esp_heap_caps.h>
 #if FREEINK_CAP_USB_MSC
 #include <UsbMassStorage.h>
 #endif
@@ -14,6 +15,7 @@
 #include <cstdlib>
 #include <new>
 
+#include "HalFileWriteAnchor.h"
 #include "HalSpiBus.h"
 
 #define SDCard SDCardManager::getInstance()
@@ -128,6 +130,15 @@ HalStorage::HalStorage()
 
 HalStorage::~HalStorage() = default;
 
+class HalStorage::StorageLock {
+ public:
+  StorageLock() : spiLock() { xSemaphoreTake(HalStorage::getInstance().storageMutex, portMAX_DELAY); }
+  ~StorageLock() { xSemaphoreGive(HalStorage::getInstance().storageMutex); }
+
+ private:
+  HalSpiBus::Lock spiLock;
+};
+
 // begin() and ready() are only called from setup, no need to acquire mutex for them
 
 bool HalStorage::begin() {
@@ -135,17 +146,34 @@ bool HalStorage::begin() {
   return SDCard.begin();
 }
 
+HalStorage::StartupError HalStorage::startupError() const {
+  switch (SDCard.startupError()) {
+    case SDCardManager::StartupError::None:
+      return StartupError::None;
+    case SDCardManager::StartupError::CardNotDetected:
+      return StartupError::CardNotDetected;
+    case SDCardManager::StartupError::CardCommunicationFailure:
+      return StartupError::CardCommunicationFailure;
+    case SDCardManager::StartupError::VolumeMountFailed:
+      return StartupError::VolumeMountFailed;
+    case SDCardManager::StartupError::Unknown:
+    default:
+      return StartupError::Unknown;
+  }
+}
+
 bool HalStorage::ready() const { return SDCard.ready(); }
 
 bool HalStorage::beginUsbDrive() {
-#if FREEINK_CAP_USB_MSC && FREEINK_SD_SDMMC
+#if FREEINK_CAP_USB_MSC
+  StorageLock lock;
   if (!usbDriveContext) {
     LOG_ERR("USB", "USB Drive context allocation failed");
     return false;
   }
   auto* const blockDevice = SDCard.detachFilesystemForRawAccess();
   if (!blockDevice) {
-    LOG_ERR("USB", "USB Drive requires a mounted SDMMC filesystem");
+    LOG_ERR("USB", "USB Drive requires a mounted SD filesystem");
     return false;
   }
   if (!usbDriveContext->massStorage.begin(blockDevice)) {
@@ -165,6 +193,7 @@ bool HalStorage::beginUsbDrive() {
 
 bool HalStorage::disconnectUsbDriveHost() {
 #if FREEINK_CAP_USB_MSC
+  StorageLock lock;
   return usbDriveContext && usbDriveContext->massStorage.disconnectHost();
 #else
   return false;
@@ -173,20 +202,25 @@ bool HalStorage::disconnectUsbDriveHost() {
 
 bool HalStorage::usbDriveHostSuspended() const {
 #if FREEINK_CAP_USB_MSC
+  StorageLock lock;
   return usbDriveContext && usbDriveContext->massStorage.hostSuspended();
 #else
   return false;
 #endif
 }
 
-void HalStorage::endUsbDrive() {
+bool HalStorage::endUsbDrive() {
 #if FREEINK_CAP_USB_MSC
-  if (usbDriveContext) usbDriveContext->massStorage.end();
+  StorageLock lock;
+  return !usbDriveContext || usbDriveContext->massStorage.end();
+#else
+  return true;
 #endif
 }
 
 UsbDriveState HalStorage::usbDriveState() const {
 #if FREEINK_CAP_USB_MSC
+  StorageLock lock;
   if (!usbDriveContext) return UsbDriveState::Unsupported;
   switch (usbDriveContext->massStorage.state()) {
     case freeink::UsbMassStorageState::WaitingForHost:
@@ -210,22 +244,18 @@ UsbDriveState HalStorage::usbDriveState() const {
 
 // For the rest of the methods, we acquire the mutex to ensure thread safety
 
-class HalStorage::StorageLock {
- public:
-  StorageLock() : spiLock() { xSemaphoreTake(HalStorage::getInstance().storageMutex, portMAX_DELAY); }
-  ~StorageLock() { xSemaphoreGive(HalStorage::getInstance().storageMutex); }
-
- private:
-  HalSpiBus::Lock spiLock;
-};
-
 #define HAL_STORAGE_WRAPPED_CALL(method, ...) \
   HalStorage::StorageLock lock;               \
   return SDCard.method(__VA_ARGS__);
 
-void HalStorage::shutdown() {
+bool HalStorage::shutdown() {
   StorageLock lock;
-  SDCard.shutdown();
+  return SDCard.shutdown();
+}
+
+bool HalStorage::syncFilesystem() {
+  StorageLock lock;
+  return SDCard.syncFilesystem();
 }
 
 uint64_t HalStorage::totalBytes() const { return SDCard.sdTotalBytes(); }
@@ -246,6 +276,27 @@ size_t HalStorage::readFileToBuffer(const char* path, char* buffer, size_t buffe
   HAL_STORAGE_WRAPPED_CALL(readFileToBuffer, path, buffer, bufferSize, maxBytes);
 }
 
+bool HalStorage::readFileToString(const char* moduleName, const std::string& path, size_t cap, std::string& out) {
+  out.clear();
+  HalFile file;
+  if (!openFileForRead(moduleName, path, file)) return false;
+  const size_t size = file.fileSize();
+  if (file.isDirectory() || size > cap || heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) < size + 512) {
+    LOG_ERR(moduleName, "File too large or unreadable: %s", path.c_str());
+    file.close();
+    return false;
+  }
+  out.resize(size);
+  const bool readOk = size == 0 || file.read(out.data(), size) == static_cast<int>(size);
+  const bool closeOk = file.close();
+  if (!readOk || !closeOk) {
+    LOG_ERR(moduleName, "Could not read file: %s", path.c_str());
+    out.clear();
+    return false;
+  }
+  return true;
+}
+
 bool HalStorage::writeFile(const char* path, const String& content) {
   HAL_STORAGE_WRAPPED_CALL(writeFile, path, content);
 }
@@ -261,8 +312,18 @@ void HalStorage::installDateTimeCallback(const uint8_t* utcOffsetQuarterHoursBia
 
 class HalFile::Impl {
  public:
-  Impl(FsFile&& fsFile) : file(std::move(fsFile)) {}
+  Impl(FsFile&& fsFile, const bool anchorFirstWrite = false)
+      : file(std::move(fsFile)),
+        firstWriteAnchorPending(anchorFirstWrite),
+        growthCheckpointsEnabled(anchorFirstWrite) {}
   FsFile file;
+  // Persist the first allocation before a bulk writer can extend the chain.
+  bool firstWriteAnchorPending = false;
+  // Bound later uncommitted chain growth for new files, without syncing each byte.
+  bool growthCheckpointsEnabled = false;
+  // Never let a later retry or close make a failed checkpoint look successful.
+  bool writeCheckpointFailed = false;
+  size_t bytesSinceSync = 0;
 };
 
 void HalFile::ImplDeleter::operator()(Impl* const impl) const {
@@ -300,15 +361,20 @@ HalFile& HalFile::operator=(HalFile&& other) {
 
 HalFile HalStorage::open(const char* path, const oflag_t oflag) {
   FsFile fsFile;
+  bool anchorFirstWrite = false;
   {
     StorageLock lock;  // ensure thread safety for the duration of this function
     fsFile = SDCard.open(path, oflag);
+    if (fsFile) {
+      const bool writable = (oflag & (O_WRONLY | O_RDWR)) != 0;
+      anchorFirstWrite = hal_file_write_anchor::required(writable, fsFile.size());
+    }
   }
   if (!fsFile) {
     return HalFile();
   }
   void* const storage = HalFile::allocateImplStorage();
-  HalFile::ImplPtr impl(storage ? ::new (storage) HalFile::Impl(std::move(fsFile)) : nullptr);
+  HalFile::ImplPtr impl(storage ? ::new (storage) HalFile::Impl(std::move(fsFile), anchorFirstWrite) : nullptr);
   if (!impl) {
     LOG_ERR("SD", "OOM: HalFile wrapper for %s (%u free, %u max alloc)", path, ESP.getFreeHeap(),
             ESP.getMaxAllocHeap());
@@ -376,7 +442,7 @@ bool HalStorage::openFileForWrite(const char* moduleName, const char* path, HalF
     return false;
   }
   void* const storage = HalFile::allocateImplStorage();
-  HalFile::ImplPtr impl(storage ? ::new (storage) HalFile::Impl(std::move(fsFile)) : nullptr);
+  HalFile::ImplPtr impl(storage ? ::new (storage) HalFile::Impl(std::move(fsFile), true) : nullptr);
   if (!impl) {
     LOG_ERR(moduleName, "OOM: HalFile write wrapper for %s (%u free, %u max alloc)", path, ESP.getFreeHeap(),
             ESP.getMaxAllocHeap());
@@ -476,11 +542,49 @@ bool HalFile::seekCur(int64_t offset) { HAL_FILE_WRAPPED_CALL(seekCur, offset); 
 bool HalFile::seekSet(size_t offset) { HAL_FILE_WRAPPED_CALL(seekSet, offset); }
 int HalFile::available() const { HAL_FILE_WRAPPED_CALL(available, ); }
 size_t HalFile::position() const { HAL_FILE_WRAPPED_CALL(position, ); }
+HalFile::DirectoryPosition HalFile::directoryPosition() const {
+  HalStorage::StorageLock lock;
+  assert(impl != nullptr && impl->file.isDir());
+  fspos_t position{};
+  impl->file.fgetpos(&position);
+  return {position.position, position.cluster, impl->file.firstCluster()};
+}
+bool HalFile::seekDirectoryPosition(const DirectoryPosition& position) {
+  HalStorage::StorageLock lock;
+  if (!impl || !impl->file.isDir() || impl->file.firstCluster() != position.firstCluster) return false;
+  fspos_t saved{};
+  saved.position = position.offset;
+  saved.cluster = position.cluster;
+  impl->file.fsetpos(&saved);
+  return true;
+}
 int HalFile::read(void* buf, size_t count) { HAL_FILE_WRAPPED_CALL(read, buf, count); }
 int HalFile::read() { HAL_FILE_WRAPPED_CALL(read, ); }
-size_t HalFile::write(const void* buf, size_t count) { HAL_FILE_WRAPPED_CALL(write, buf, count); }
-size_t HalFile::write(uint8_t b) { HAL_FILE_WRAPPED_CALL(write, b); }
-bool HalFile::sync() { HAL_FILE_WRAPPED_CALL(sync, ); }
+size_t HalFile::write(const void* buf, size_t count) {
+  HalStorage::StorageLock lock;
+  assert(impl != nullptr);
+  const bool alreadyFailed = impl->writeCheckpointFailed;
+  const size_t written =
+      hal_file_write_anchor::write(impl->file, impl->firstWriteAnchorPending, impl->growthCheckpointsEnabled,
+                                   impl->writeCheckpointFailed, impl->bytesSinceSync, buf, count);
+  if (!alreadyFailed && impl->writeCheckpointFailed) {
+    LOG_ERR("SD", "Could not checkpoint initial file allocation");
+  }
+  return written;
+}
+size_t HalFile::write(const uint8_t b) { return write(static_cast<const void*>(&b), 1); }
+bool HalFile::sync() {
+  HalStorage::StorageLock lock;
+  assert(impl != nullptr);
+  if (impl->writeCheckpointFailed) return false;
+  const bool synced = impl->file.sync();
+  if (synced) {
+    impl->bytesSinceSync = 0;
+  } else if (impl->growthCheckpointsEnabled) {
+    impl->writeCheckpointFailed = true;
+  }
+  return synced;
+}
 bool HalFile::rename(const char* newPath) { HAL_FILE_WRAPPED_CALL(rename, newPath); }
 bool HalFile::isDirectory() const { HAL_FILE_FORWARD_CALL(isDirectory, ); }  // already thread-safe, no need to wrap
 void HalFile::rewindDirectory() {
@@ -495,7 +599,9 @@ void HalFile::rewindDirectory() {
 bool HalFile::close() {
   if (!impl) return true;
   HalStorage::StorageLock lock;
-  const bool ok = impl->file.close();
+  const bool writeOk = !impl->writeCheckpointFailed;
+  const bool fileClosed = impl->file.close();
+  const bool ok = writeOk && fileClosed;
   impl.reset();
   allocationFailed_ = false;
   iterationFailed_ = false;

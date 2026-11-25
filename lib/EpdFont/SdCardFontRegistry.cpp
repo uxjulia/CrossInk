@@ -16,10 +16,11 @@
 #include <cstring>
 
 #include "FontCatalogIndex.h"
+#include "FontFileTypes.h"
 
 namespace {
 std::atomic<uint32_t> indexGeneration{0};
-}
+}  // namespace
 
 // --- SdCardFontFamilyInfo helpers ---
 
@@ -130,10 +131,9 @@ bool scanFamilySummary(const char* dirPath, SdCardFontFamilyInfo& family) {
     uint8_t size = 0, style = 0;
     if (!SdCardFontRegistry::parseFilename(name, size, style)) {
 #if CROSSINK_SCALABLE_FONTS
-      const size_t nameLength = std::strlen(name);
-      // A family is either bitmap or scalable. Once the first TTF selects the
+      // A family is either bitmap or scalable. Once the first outline face selects the
       // scalable path, continue counting its other unique style files.
-      if ((!scalable && count != 0) || nameLength < 5 || strcasecmp(name + nameLength - 4, ".ttf") != 0) continue;
+      if ((!scalable && count != 0) || !fontfiles::isScalable(name)) continue;
       const int length = std::snprintf(path, sizeof(path), "%s/%s", dirPath, name);
       if (length <= 0 || static_cast<size_t>(length) >= sizeof(path)) continue;
       HalScalableFont::Info info;
@@ -265,8 +265,7 @@ bool writeFamilyDetails(HalFile& index, const char* dirPath, const uint16_t expe
     uint8_t size = 0, style = 0;
     if (summary.scalable) {
 #if CROSSINK_SCALABLE_FONTS
-      const size_t nameLength = std::strlen(name);
-      if (nameLength < 5 || strcasecmp(name + nameLength - 4, ".ttf") != 0) continue;
+      if (!fontfiles::isScalable(name)) continue;
       const int length = std::snprintf(path, sizeof(path), "%s/%s", dirPath, name);
       if (length <= 0 || static_cast<size_t>(length) >= sizeof(path)) continue;
       HalScalableFont::Info info;

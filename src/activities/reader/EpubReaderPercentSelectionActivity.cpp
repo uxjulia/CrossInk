@@ -2,7 +2,6 @@
 
 #include <FreeInkUIIcon.h>
 #include <GfxRenderer.h>
-#include <HalGPIO.h>
 #include <I18n.h>
 
 #include <algorithm>
@@ -11,9 +10,9 @@
 #include <cstdlib>
 #include <cstring>
 
-#include "DeviceCapabilities.h"
 #include "MappedInputManager.h"
 #include "StablePageSelectionModel.h"
+#include "components/ReaderSliderHints.h"
 #include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
 #include "components/UIThemeTokens.h"
@@ -61,6 +60,8 @@ EpubReaderPercentSelectionActivity::EpubReaderPercentSelectionActivity(GfxRender
 
 void EpubReaderPercentSelectionActivity::onEnter() {
   Activity::onEnter();
+  mappedInput.setReaderTouchscreenOverride(true);
+  ReaderSliderHints::bindFont(uiTarget);
   uiReady = false;
   applySharedUiTheme(app, uiTarget);
   app.on(ACTION_KEYPAD_KEY, &EpubReaderPercentSelectionActivity::onKeypadKeyEvent, this);
@@ -72,7 +73,10 @@ void EpubReaderPercentSelectionActivity::onEnter() {
   requestUpdate();
 }
 
-void EpubReaderPercentSelectionActivity::onExit() { Activity::onExit(); }
+void EpubReaderPercentSelectionActivity::onExit() {
+  mappedInput.setReaderTouchscreenOverride(false);
+  Activity::onExit();
+}
 
 int EpubReaderPercentSelectionActivity::deltaForDisplayStep(const int displaySteps) const {
   // StablePage steps by whole pages; Percent stores centipercent, so a "1" or "10"
@@ -284,8 +288,7 @@ void EpubReaderPercentSelectionActivity::loop() {
 
   const auto& metrics = UITheme::getInstance().getMetrics();
   const Rect screen = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
-  const Rect header{screen.x, screen.y + metrics.topPadding, screen.width,
-                    TouchHeaderBackButton::height(metrics, mappedInput)};
+  const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput, screen);
   if (TouchHeaderBackButton::wasTapped(mappedInput, header)) {
     cancel();
     return;
@@ -356,15 +359,10 @@ void EpubReaderPercentSelectionActivity::loop() {
   buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Right},
                                        [this] { adjustValue(deltaForDisplayStep(kSmallStep)); });
 
-  // On edge-button boards (X3, X4 Pro) the side buttons sit on the left/right edges of the screen rather
-  // than as a vertical up/down rocker (X4), so BTN_UP is physically the left button and BTN_DOWN the right
-  // one. Flip the large-step direction there so the left button decreases and the right button increases.
-  const int upDelta = deviceHasEdgeSideButtons(gpio) ? -kLargeStep : kLargeStep;
-  const int downDelta = deviceHasEdgeSideButtons(gpio) ? kLargeStep : -kLargeStep;
-  buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Up},
-                                       [this, upDelta] { adjustValue(deltaForDisplayStep(upDelta)); });
-  buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Down},
-                                       [this, downDelta] { adjustValue(deltaForDisplayStep(downDelta)); });
+  buttonNavigator.onPressAndContinuous({mappedInput.sliderIncreaseButton()},
+                                       [this] { adjustValue(deltaForDisplayStep(kLargeStep)); });
+  buttonNavigator.onPressAndContinuous({mappedInput.sliderDecreaseButton()},
+                                       [this] { adjustValue(deltaForDisplayStep(-kLargeStep)); });
 }
 
 void EpubReaderPercentSelectionActivity::percentScreen(UiApp::ScreenType& screen, void* user) {
@@ -377,11 +375,12 @@ void EpubReaderPercentSelectionActivity::buildPercentScreen(UiApp::ScreenType& s
   const Rect safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
   // Start below CrossInk's shared back header; its touch-device height differs from
   // the legacy theme header height.
-  screen.setContentMargin(fui::Insets{
-      static_cast<int16_t>(safe.y + metrics.topPadding + TouchHeaderBackButton::height(metrics, mappedInput) +
-                           metrics.verticalSpacing * 4),
-      static_cast<int16_t>(renderer.getScreenWidth() - (safe.x + safe.width)),
-      static_cast<int16_t>(renderer.getScreenHeight() - (safe.y + safe.height)), static_cast<int16_t>(safe.x)});
+  setUiContentMargin(screen, renderer,
+                     fui::Insets{static_cast<int16_t>(TouchHeaderBackButton::contentTop(renderer, mappedInput, safe.y) +
+                                                      metrics.verticalSpacing * 4),
+                                 static_cast<int16_t>(renderer.getScreenWidth() - (safe.x + safe.width)),
+                                 static_cast<int16_t>(renderer.getScreenHeight() - (safe.y + safe.height)),
+                                 static_cast<int16_t>(safe.x)});
 
   char line[64];
 
@@ -416,20 +415,20 @@ void EpubReaderPercentSelectionActivity::buildPercentScreen(UiApp::ScreenType& s
 
   // Two-line step hint built from separate label + value strings (front buttons = fine step, side
   // buttons = coarse step), so the layout doesn't depend on a separator hidden in translated text.
-  fui::TextStyle hint = theme.smallText;
-  hint.align = fui::TextAlign::Center;
+  fui::TextStyle hint = ReaderSliderHints::style(theme);
   const int16_t hintLh = screen.target().lineHeight(hint.font);
-  snprintf(line, sizeof(line), mode == Mode::StablePage ? "%s %d" : "%s %d%%", I18N.get(StrId::STR_STEP_HINT_FRONT),
+  snprintf(line, sizeof(line), mode == Mode::StablePage ? "%s: %d" : "%s: %d%%", I18N.get(StrId::STR_FRONT_BUTTONS),
            kSmallStep);
   screen.target().text(screen.takeTop(hintLh, theme.spaceSm), line, hint);
-  snprintf(line, sizeof(line), mode == Mode::StablePage ? "%s %d" : "%s %d%%", I18N.get(StrId::STR_STEP_HINT_SIDE),
+  snprintf(line, sizeof(line), mode == Mode::StablePage ? "%s: %d" : "%s: %d%%", I18N.get(StrId::STR_SIDE_BUTTONS),
            kLargeStep);
   screen.target().text(screen.takeTop(hintLh, theme.spaceSm), line, hint);
 
   // Discoverability for the keypad escape hatch: names the actual on-screen label for
   // Confirm on this screen (STR_SELECT), so the hint always matches what's shown below.
   snprintf(line, sizeof(line), I18N.get(StrId::STR_HOLD_FOR_KEYBOARD), tr(STR_SELECT));
-  screen.target().text(screen.takeTop(hintLh), line, hint);
+  hint.font = theme.smallText.font;
+  screen.target().text(screen.takeTop(screen.target().lineHeight(hint.font)), line, hint);
 }
 
 void EpubReaderPercentSelectionActivity::buildKeypadScreen(UiApp::ScreenType& screen, char* line, size_t lineSize) {
@@ -448,15 +447,15 @@ void EpubReaderPercentSelectionActivity::buildKeypadScreen(UiApp::ScreenType& sc
   readout.align = fui::TextAlign::Center;
   const int16_t readoutLh = screen.target().lineHeight(readout.font);
   const int16_t rowH = std::max<int16_t>(theme.rowHeight, static_cast<int16_t>(readoutLh + 16));
-  const fui::Rect readoutRow = screen.takeTop(rowH, theme.spaceLg);
-  const int16_t iconSize = readoutRow.height;
-  const fui::Rect iconRect{static_cast<int16_t>(readoutRow.right() - iconSize), readoutRow.y, iconSize,
-                           readoutRow.height};
+  const bool beside = renderer.getScreenWidth() > renderer.getScreenHeight();
+  const auto layout = fui::keyGridReadoutLayout(
+      screen.contentRect(), rowH, static_cast<int16_t>(screen.target().measureText(readout.font, line, readout).width),
+      theme.spaceLg, theme.spaceLg, beside);
+  const fui::Rect readoutRow = layout.readout;
+  const fui::Rect iconRect = layout.backspace;
 
   if (mappedInput.hasTouch()) {
-    // A backspace icon sits at the row's right edge; the grid itself has no room for a
-    // 13th key without breaking the 1-9/0/./OK layout. It overlays the full-width
-    // readout so the destination stays centered while editing.
+    // Backspace stays outside the familiar 1-9/0/./OK grid.
     screen.target().text(readoutRow, line, readout);
 
     fui::ButtonProps backspaceBtn;
@@ -480,7 +479,7 @@ void EpubReaderPercentSelectionActivity::buildKeypadScreen(UiApp::ScreenType& sc
     screen.button(backspaceBtn, iconRect);
   }
 
-  const fui::Rect gridArea = screen.contentRect().inset(fui::Insets{0, theme.spaceLg, theme.spaceLg, theme.spaceLg});
+  const fui::Rect gridArea = layout.grid;
 
   static const char* const kDigitLabels[10] = {"0", "1", "2", "3", "4", "5", "6", "7", "8", "9"};
   fui::KeyGridKey keys[12];
@@ -505,7 +504,9 @@ void EpubReaderPercentSelectionActivity::buildKeypadScreen(UiApp::ScreenType& sc
   gridProps.labelText = theme.bodyText;
   gridProps.labelText.align = fui::TextAlign::Center;
   gridProps.gap = theme.spaceSm;
-  gridProps.minTouchSize = theme.minTouchSize;
+  const int16_t cellH = static_cast<int16_t>((gridArea.height - gridProps.gap * 3) / 4);
+  const int16_t cellW = static_cast<int16_t>((gridArea.width - gridProps.gap * 2) / 3);
+  gridProps.minTouchSize = std::min<int16_t>(theme.minTouchSize, std::max<int16_t>(1, std::min(cellH, cellW)));
   gridProps.radius = 3;
   // Non-touch shows which key directional nav is on; touch has no such focus concept.
   gridProps.selectedIndex =
@@ -520,8 +521,7 @@ void EpubReaderPercentSelectionActivity::render(RenderLock&&) {
   auto metrics = theme.getMetrics();
   Rect screen = theme.getScreenSafeArea(renderer, true, false);
 
-  const Rect header{screen.x, screen.y + metrics.topPadding, screen.width,
-                    TouchHeaderBackButton::height(metrics, mappedInput)};
+  const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput, screen);
   if (mappedInput.hasTouchHardware()) {
     TouchHeaderBackButton::draw(renderer, header,
                                 mode == Mode::StablePage ? tr(STR_GO_TO_STABLE_PAGE) : tr(STR_GO_TO_PERCENT), true);
@@ -532,15 +532,14 @@ void EpubReaderPercentSelectionActivity::render(RenderLock&&) {
 
   // Percent/page readout, keypad or slider, and step controls render through the app.
   uiReady = false;
-  app.setDevice(uiTarget.deviceContext());
-  app.render();
+  renderUiApp(app, uiTarget);
   uiReady = true;
 
   // Button hints follow the current front button layout and auto-hide on touch devices.
-  const bool percentSlider = mode == Mode::Percent && !isKeypadVisible();
+  const bool sliderVisible = !isKeypadVisible();
   const auto labels =
       mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), tr(STR_SELECT),
-                            percentSlider ? "-1" : tr(STR_DIR_LEFT), percentSlider ? "+1" : tr(STR_DIR_RIGHT));
+                            sliderVisible ? "-1" : tr(STR_DIR_LEFT), sliderVisible ? "+1" : tr(STR_DIR_RIGHT));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4, true);
 
   renderer.displayBuffer();

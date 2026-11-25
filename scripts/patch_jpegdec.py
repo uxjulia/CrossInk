@@ -3,7 +3,8 @@ PlatformIO pre-build script: apply CrossPoint's JPEGDEC patches via `git apply`.
 
 The upstream JPEGDEC pin still has progressive grayscale bugs in
 JPEGDecodeMCU_P, including unsafe MCU_SKIP writes and attempts to consume
-chroma components that are absent from the current scan.
+chroma components that are absent from the current scan. Non-interleaved
+luma scans also need their own block grid to avoid shifted image rows.
 The patches in `scripts/jpegdec_patches/` carry the fix; this script applies
 each one against the libdep working tree.
 
@@ -17,13 +18,17 @@ Patches live in `scripts/jpegdec_patches/` as one-commit-per-fix files
 (see the file headers for context). Applied in lexical order.
 """
 
-Import("env")  # noqa: F821 (SCons-injected global)
+try:
+    Import("env")  # noqa: F821 (SCons-injected global)
+except NameError:
+    env = None
 import os
 import subprocess
 import sys
 
 
-PATCH_DIR = os.path.join(env["PROJECT_DIR"], "scripts", "jpegdec_patches")  # noqa: F821
+PROJECT_DIR = env["PROJECT_DIR"] if env is not None else os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+PATCH_DIR = os.path.join(PROJECT_DIR, "scripts", "jpegdec_patches")
 
 
 def patch_jpegdec(env):
@@ -120,4 +125,13 @@ def _git_apply_succeeds(jpeg_dir, patch_path, *, reverse):
     ).returncode == 0
 
 
-patch_jpegdec(env)  # noqa: F821
+if env is not None:
+    patch_jpegdec(env)
+elif __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("jpeg_dir", help="Pinned JPEGDEC checkout to patch for host tests")
+    args = parser.parse_args()
+    for patch in _patch_files():
+        _apply_one(args.jpeg_dir, patch)

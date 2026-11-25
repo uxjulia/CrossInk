@@ -47,6 +47,7 @@ std::vector<uint8_t> baselineBytes(const std::vector<uint8_t>& prefix, const Sec
   for (size_t i = 0; i < index.size(); ++i) appendPod(output, index[i].paragraphIndex);
   for (size_t i = 0; i < index.size(); ++i) appendPod(output, index[i].listItemIndex);
   for (size_t i = 0; i < index.size(); ++i) appendPod(output, index[i].visibleTextOffset);
+  for (size_t i = 0; i < index.size(); ++i) appendPod(output, index[i].referenceTextOffset);
   return output;
 }
 

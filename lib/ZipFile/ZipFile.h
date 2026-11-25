@@ -7,6 +7,8 @@
 #include <string_view>
 #include <unordered_map>
 
+#include "ZipDirectoryCache.h"
+
 enum class ZipStreamStatus {
   More,
   Done,
@@ -28,7 +30,8 @@ class ZipFileStreamReader {
   ZipFileStreamReader(const ZipFileStreamReader&) = delete;
   ZipFileStreamReader& operator=(const ZipFileStreamReader&) = delete;
 
-  bool begin(const std::string& zipPath, const char* filename, size_t chunkSize);
+  bool begin(const std::string& zipPath, const char* filename, size_t chunkSize,
+             ZipDirectoryCache* directoryCache = nullptr);
   ZipStreamStatus pump(Print& out, size_t maxOutputBytes = 0);
   void abort();
   size_t produced() const { return totalProduced; }
@@ -61,6 +64,8 @@ class ZipFile {
 
   struct ZipDetails {
     uint32_t centralDirOffset;
+    uint32_t centralDirSize;
+    size_t eocdOffset;
     uint16_t totalEntries;
     bool isSet;
   };
@@ -102,7 +107,9 @@ class ZipFile {
  private:
   const std::string& filePath;
   HalFile file;
-  ZipDetails zipDetails = {0, 0, false};
+  ZipDetails zipDetails = {};
+  ZipDirectoryCache* directoryCache = nullptr;
+  bool prepareDirectoryCache();
   std::unordered_map<std::string, FileStatSlim> fileStatSlimCache;
 
   // Cursor for sequential central-dir scanning optimization
@@ -112,9 +119,11 @@ class ZipFile {
   bool loadFileStatSlim(const char* filename, FileStatSlim* fileStat);
   long getDataOffset(const FileStatSlim& fileStat);
   bool loadZipDetails();
+  bool enumerateFilePathsImpl(void* context, void (*callback)(void*, std::string_view));
 
  public:
-  explicit ZipFile(const std::string& filePath) : filePath(filePath) {}
+  explicit ZipFile(const std::string& filePath, ZipDirectoryCache* cache = nullptr)
+      : filePath(filePath), directoryCache(cache) {}
   ~ZipFile() = default;
   // Zip file can be opened and closed by hand in order to allow for quick calculation of inflated file size
   // It is NOT recommended to pre-open it for any kind of inflation due to memory constraints
@@ -129,8 +138,12 @@ class ZipFile {
   int fillUncompressedSizes(const SizeTarget* targets, size_t targetCount, uint32_t* sizes, size_t sizeCount);
   // Batch lookup for duplicate detection. Targets must be sorted by (hash,
   // len); identities[target.index] receives the ZIP entry's CRC and sizes.
+  // Returns matches, or -1 on open/header/directory read failure. For callers
+  // that must preserve the cursor's duplicate-name behavior, a nonzero
+  // exactScanEntryLimit requires a complete bounded scan and rejects duplicate
+  // matches or embedded-NUL names.
   int fillEntryIdentities(const EntryTarget* targets, size_t targetCount, EntryIdentity* identities,
-                          size_t identityCount);
+                          size_t identityCount, size_t exactScanEntryLimit = 0);
   // Due to the memory required to run each of these, it is recommended to not preopen the zip file for multiple
   // These functions will open and close the zip as needed
   uint8_t* readFileToMemory(const char* filename, size_t* size = nullptr, bool trailingNullByte = false);
@@ -140,57 +153,10 @@ class ZipFile {
 
   template <typename F>
   bool enumerateFilePaths(F&& callback) {
-    if (!fileStatSlimCache.empty()) {
-      for (const auto& entry : fileStatSlimCache) {
-        callback(std::string_view{entry.first});
-      }
-      return true;
-    }
-
-    const bool wasOpen = isOpen();
-    if (!wasOpen && !open()) {
-      return false;
-    }
-
-    if (!loadZipDetails()) {
-      if (!wasOpen) {
-        close();
-      }
-      return false;
-    }
-
-    file.seek(zipDetails.centralDirOffset);
-
-    uint32_t sig;
-    char itemName[256];
-
-    while (file.available()) {
-      file.read(&sig, 4);
-      if (sig != 0x02014b50) {
-        break;
-      }
-
-      file.seekCur(24);
-      uint16_t nameLen, m, k;
-      file.read(&nameLen, 2);
-      file.read(&m, 2);
-      file.read(&k, 2);
-      file.seekCur(12);
-
-      if (nameLen < sizeof(itemName)) {
-        file.read(itemName, nameLen);
-        itemName[nameLen] = '\0';
-        callback(std::string_view{itemName, nameLen});
-      } else {
-        file.seekCur(nameLen);
-      }
-
-      file.seekCur(m + k);
-    }
-
-    if (!wasOpen) {
-      close();
-    }
-    return true;
+    // Stack-only adapter preserves capturing and const callbacks without
+    // std::function or another copy of the central-directory parser.
+    auto visit = [&callback](std::string_view path) { callback(path); };
+    return enumerateFilePathsImpl(
+        &visit, [](void* context, std::string_view path) { (*static_cast<decltype(visit)*>(context))(path); });
   }
 };

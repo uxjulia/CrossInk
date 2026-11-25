@@ -19,6 +19,11 @@ class ArenaVector;
 
 class ParsedText {
  public:
+  struct SourceGap {
+    uint16_t beforeCharacter;
+    uint32_t length;
+  };
+  void setInitialLetter(const char* prefix);
   struct InlineImagePlacement {
     uint16_t id;
     int16_t x;
@@ -35,8 +40,12 @@ class ParsedText {
   // (largest contiguous alloc stays ~2 KB regardless of token count), so it never
   // triggers that. The per-token parallel arrays below stay vectors: 1 byte / 1 bit
   // each, they never approach the contiguous-block ceiling.
+  char initialLetter[13] = {};
   std::deque<std::string> words;
   std::vector<EpdFontFamily::Style> wordStyles;
+  std::vector<uint32_t> wordFontFamilies;  // allocated only for publisher fonts
+  std::vector<uint8_t> wordFontSizes;      // empty for ordinary paragraphs; one byte per token otherwise
+  int wordFontId(const GfxRenderer& renderer, int base, size_t index) const;
   std::vector<bool> wordContinues;         // true = word attaches to previous (no space before it)
   std::vector<bool> wordNoSpaceBefore;     // true = may break before token, but no synthetic space when joined
   std::vector<uint8_t> wordFocusBoundary;  // UTF-8 byte offset where the regular suffix starts; 0 = no split
@@ -49,13 +58,28 @@ class ParsedText {
     int16_t pixels;
   };
   std::deque<InlinePadding> inlinePaddings;
-  // Layout-only text coordinates. The rendered page never retains these; use
-  // compact deltas while a paragraph is pending to protect C3 heap headroom.
+  // Source character coordinates use compact deltas while a paragraph is
+  // pending, then travel with rendered words for layout-independent anchors.
   struct VisibleOffsetRebase {
     size_t wordIndex;
     uint32_t base;
   };
   std::vector<uint16_t> wordVisibleOffsetDeltas;
+  std::vector<bool> wordHasSourceText;
+  std::vector<uint32_t> wordSourceOffsets;
+  // Sparse corrections preserve raw source positions across NFC composition,
+  // removed soft hyphens, and hidden text inside a visible word.
+  struct SourceCorrection {
+    size_t wordIndex;
+    uint16_t normalizedIndex;
+    uint32_t extra;
+  };
+  std::vector<SourceCorrection> sourceCorrections;
+  std::vector<SourceCorrection> sourceCorrectionScratch;
+  uint32_t sourceLengthAt(size_t wordIndex, uint32_t characters) const;
+  void splitSourceCorrections(size_t wordIndex, uint32_t characters);
+  void stripSourceSoftHyphens(size_t wordIndex);
+  std::vector<TextBlock::SourceRange> lineSourceRangesScratch;
   uint32_t visibleOffsetBase = 0;
   std::vector<VisibleOffsetRebase> visibleOffsetRebases;
   // Populated only during a stable-page jump build. Chunked storage avoids a
@@ -68,6 +92,7 @@ class ParsedText {
   bool focusReadingEnabled;
   bool guideReadingEnabled;
   uint8_t wordSpacing;
+  int8_t characterSpacing;
   BlockStyle blockStyle;
   bool hasRtlWord;
   bool trackReferenceOffsets;
@@ -104,7 +129,8 @@ class ParsedText {
                          ArenaVector<uint8_t>& gapSlots, ArenaVector<size_t>& lineBreakIndices);
   bool computeHyphenatedLineBreaks(const GfxRenderer& renderer, int fontId, int pageWidth,
                                    ArenaVector<uint16_t>& wordWidths, std::vector<bool>& continuesVec,
-                                   std::vector<bool>& noSpaceBeforeVec, ArenaVector<size_t>& lineBreakIndices);
+                                   std::vector<bool>& noSpaceBeforeVec, ArenaVector<size_t>& lineBreakIndices,
+                                   size_t maxLines);
   bool hyphenateWordAtIndex(size_t wordIndex, int availableWidth, const GfxRenderer& renderer, int fontId,
                             ArenaVector<uint16_t>& wordWidths, bool allowFallbackBreaks);
   bool splitTokenAtCodepointBoundary(size_t wordIndex, int availableWidth, const GfxRenderer& renderer, int fontId,
@@ -132,13 +158,15 @@ class ParsedText {
   explicit ParsedText(const bool extraParagraphSpacing, const bool forceParagraphIndents = false,
                       const bool hyphenationEnabled = false, const bool focusReadingEnabled = false,
                       const bool guideReadingEnabled = false, const uint8_t wordSpacing = 0,
-                      const BlockStyle& blockStyle = BlockStyle(), const bool trackReferenceOffsets = false)
+                      const BlockStyle& blockStyle = BlockStyle(), const bool trackReferenceOffsets = false,
+                      const int8_t characterSpacing = 0)
       : extraParagraphSpacing(extraParagraphSpacing),
         forceParagraphIndents(forceParagraphIndents),
         hyphenationEnabled(hyphenationEnabled),
         focusReadingEnabled(focusReadingEnabled),
         guideReadingEnabled(guideReadingEnabled),
         wordSpacing(wordSpacing),
+        characterSpacing(characterSpacing),
         blockStyle(blockStyle),
         hasRtlWord(false),
         trackReferenceOffsets(trackReferenceOffsets) {}
@@ -146,7 +174,9 @@ class ParsedText {
 
   void addWord(std::string word, EpdFontFamily::Style fontStyle, bool underline = false, bool attachToPrevious = false,
                bool backgroundBlack = false, uint8_t linkId = 0, uint32_t visibleTextOffset = 0,
-               uint32_t referenceTextOffset = 0, int16_t leadingPadding = 0);
+               uint32_t referenceTextOffset = 0, int16_t leadingPadding = 0, bool noSpaceBefore = false,
+               uint8_t pointSize = 0, uint32_t fontFamily = 0, bool hasSourceText = true,
+               uint32_t sourceTextOffset = UINT32_MAX, const std::vector<SourceGap>& sourceGaps = {});
   void addInlineImage(uint16_t id, uint16_t width, uint16_t height, bool attachToPrevious, uint32_t visibleTextOffset,
                       uint32_t referenceTextOffset);
   const std::vector<InlineImagePlacement>& currentLineImages() const { return lineImagesScratch; }
@@ -165,7 +195,7 @@ class ParsedText {
   void setContinuation(bool continuation) { isContinuation_ = continuation; }
   bool layoutAndExtractLines(const GfxRenderer& renderer, int fontId, uint16_t viewportWidth,
                              const std::function<void(std::shared_ptr<TextBlock>, uint32_t, uint32_t)>& processLine,
-                             bool includeLastLine = true);
+                             bool includeLastLine = true, size_t maxLines = SIZE_MAX);
   bool layoutAndExtractLinesPreservingSource(const GfxRenderer& renderer, int fontId, uint16_t viewportWidth,
                                              const std::function<void(std::shared_ptr<TextBlock>)>& processLine,
                                              bool allowCharacterBreaks = false) const;

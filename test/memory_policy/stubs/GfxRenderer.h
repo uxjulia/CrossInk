@@ -1,5 +1,5 @@
 #pragma once
-
+#include <BidiUtils.h>
 #include <EpdFontFamily.h>
 
 #include <deque>
@@ -12,8 +12,38 @@ enum class BidiBaseDir : signed char { AUTO = -1, LTR = 0, RTL = 1 };
 
 class GfxRenderer {
  public:
-  int getFontIdForSize(int id, uint8_t) const { return id; }
-  int getFontAscenderSize(int id) const { return 12 + id; }
+  enum RenderMode { BW };
+  RenderMode getRenderMode() const { return BW; }
+  uint64_t textCullGeneration() const { return 0; }
+  int getWriteOriginY() const { return 0; }
+  int getWriteRows() const { return 480; }
+  int getDisplayHeight() const { return 480; }
+  void beginTextBounds(int*) const {}
+  void endTextBounds() const {}
+  bool getCodepointMetrics(int, uint32_t, EpdFontFamily::Style, int32_t&, int&) const { return false; }
+  bool scalable = false;
+  int publisherFont = 0;
+  mutable unsigned ascenderCalls = 0;
+  int getFontIdForSize(int id, uint8_t size) const { return scalable && size ? size : id; }
+  int resolveBookFont(int id, uint32_t family, uint8_t size = 0) const {
+    return family && publisherFont ? publisherFont : getFontIdForSize(id, size);
+  }
+  struct TextVerticalBounds {
+    int top;
+    int bottom;
+  };
+  bool getLatinBodyBounds(int font, TextVerticalBounds& body, TextVerticalBounds& extent) const {
+    body = extent = {0, getFontAscenderSize(font)};
+    return true;
+  }
+  template <class... Args>
+  TextVerticalBounds getTextVerticalBounds(int font, const char*, Args...) const {
+    return {0, getFontAscenderSize(font)};
+  }
+  int getFontAscenderSize(int id) const {
+    ++ascenderCalls;
+    return 12 + id;
+  }
   int getLineHeight(int id) const { return 16 + id; }
   static int characters(const char* text) {
     int n = 0;
@@ -22,14 +52,14 @@ class GfxRenderer {
     return n;
   }
   int getTextWidth(int id, const char* text, EpdFontFamily::Style = EpdFontFamily::REGULAR,
-                   BidiUtils::BidiBaseDir = BidiUtils::BidiBaseDir::AUTO) const {
+                   BidiUtils::BidiBaseDir = BidiUtils::BidiBaseDir::AUTO, int8_t = 0) const {
     return characters(text) * (6 + id);
   }
-  int getTextAdvanceX(int id, const char* text, EpdFontFamily::Style style, uint32_t = 0) const {
+  int getTextAdvanceX(int id, const char* text, EpdFontFamily::Style style, uint32_t = 0, int8_t = 0) const {
     return getTextWidth(id, text, style);
   }
   int getSpaceWidth(int id, EpdFontFamily::Style) const { return 3 + id; }
-  int getKerning(int, uint32_t, uint32_t, EpdFontFamily::Style) const { return 0; }
+  int getKerning(int, uint32_t, uint32_t, EpdFontFamily::Style, int8_t = 0) const { return 0; }
   int getSpaceAdvance(int id, uint32_t, uint32_t, EpdFontFamily::Style) const { return 3 + id; }
   bool isFontCacheScanning() const { return false; }
   template <class... Args>

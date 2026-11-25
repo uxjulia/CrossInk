@@ -6,6 +6,7 @@
 #include <HalStorage.h>
 #include <Logging.h>
 
+#include <atomic>
 #include <cstdio>
 #include <cstring>
 
@@ -16,10 +17,12 @@ namespace BatteryDiagnosticLog {
 namespace {
 
 constexpr char LOG_PATH[] = "/battery_log.csv";
-constexpr char LEGACY_LOG_PATH[] = "/battery_log_v1.csv";
-constexpr char LEGACY_LOG_PATH_PATTERN[] = "/battery_log_v1_%u.csv";
 constexpr char LEGACY_LOG_HEADER[] = "timestamp,uptime_ms,soc,mv,charging,event\n";
-constexpr char LOG_HEADER[] = "timestamp,uptime_ms,soc,mv,charging,event,version,git_sha,git_dirty,device,wake_route\n";
+constexpr char V2_LOG_HEADER[] =
+    "timestamp,uptime_ms,soc,mv,charging,event,version,git_sha,git_dirty,device,wake_route\n";
+constexpr char LOG_HEADER[] =
+    "timestamp,uptime_ms,soc,mv,charging,event,version,git_sha,git_dirty,device,wake_route,"
+    "display_soc,usb,charge_done,charger_status,estimate_state,settle_ms,sample_age_ms,resumed\n";
 
 // A runaway guard, not an expected operating point: a wake/sleep pair costs
 // only a few hundred bytes, so a device cycled 20 times a day takes months to get
@@ -41,13 +44,17 @@ constexpr size_t VERSION_LEN = 64;
 constexpr size_t LEGACY_LOG_PATH_LEN = 32;
 constexpr size_t HEADER_PROBE_LEN = sizeof(LOG_HEADER) > sizeof(LEGACY_LOG_HEADER) ? sizeof(LOG_HEADER)
                                                                                    : sizeof(LEGACY_LOG_HEADER);
-constexpr size_t ROW_LEN = 192;
+// Main-loop wake/sleep events only. Keep the larger row off the task stack;
+// this buffer exists only in explicitly enabled diagnostic builds.
+char row[320];
 constexpr unsigned MAX_LEGACY_ARCHIVES = 100;
 
 const char* eventName(const Event event) {
   switch (event) {
     case Event::Wake:
       return "wake";
+    case Event::ChargeComplete:
+      return "charge_complete";
     case Event::Sleep:
       return "sleep";
   }
@@ -84,11 +91,12 @@ bool hasHeader(HalFile& file, const char* expectedHeader, const size_t expectedL
   return read == static_cast<int>(expectedLen) && memcmp(header, expectedHeader, expectedLen) == 0;
 }
 
-bool preserveLegacyLog() {
+bool preserveLegacyLog(unsigned version) {
   char archivedPath[LEGACY_LOG_PATH_LEN];
   for (unsigned index = 0; index < MAX_LEGACY_ARCHIVES; ++index) {
-    const int pathLen = index == 0 ? snprintf(archivedPath, sizeof(archivedPath), "%s", LEGACY_LOG_PATH)
-                                   : snprintf(archivedPath, sizeof(archivedPath), LEGACY_LOG_PATH_PATTERN, index);
+    const int pathLen = index == 0
+                            ? snprintf(archivedPath, sizeof(archivedPath), "/battery_log_v%u.csv", version)
+                            : snprintf(archivedPath, sizeof(archivedPath), "/battery_log_v%u_%u.csv", version, index);
     if (pathLen <= 0 || static_cast<size_t>(pathLen) >= sizeof(archivedPath)) {
       LOG_ERR("BATLOG", "Legacy archive path did not fit");
       return false;
@@ -107,7 +115,7 @@ bool preserveLegacyLog() {
 
 // Do not append expanded rows to an old header: spreadsheet importers would
 // silently put the new values in unlabeled columns. Preserve the original
-// diagnostic evidence and begin a clean v2 log instead.
+// diagnostic evidence and begin a clean v3 log instead.
 bool prepareLogSchema() {
   if (!Storage.exists(LOG_PATH)) return true;
 
@@ -122,34 +130,34 @@ bool prepareLogSchema() {
   }
 
   const bool currentSchema = hasHeader(file, LOG_HEADER, sizeof(LOG_HEADER) - 1);
-  bool legacySchema = false;
+  unsigned legacyVersion = 0;
   if (!currentSchema) {
     file.seekSet(0);
-    legacySchema = hasHeader(file, LEGACY_LOG_HEADER, sizeof(LEGACY_LOG_HEADER) - 1);
+    if (hasHeader(file, LEGACY_LOG_HEADER, sizeof(LEGACY_LOG_HEADER) - 1)) {
+      legacyVersion = 1;
+    } else {
+      file.seekSet(0);
+      if (hasHeader(file, V2_LOG_HEADER, sizeof(V2_LOG_HEADER) - 1)) legacyVersion = 2;
+    }
   }
   file.close();
 
   if (currentSchema) return true;
-  if (!legacySchema) {
+  if (legacyVersion == 0) {
     LOG_ERR("BATLOG", "%s has an unknown header; refusing to append", LOG_PATH);
     return false;
   }
-  return preserveLegacyLog();
+  return preserveLegacyLog(legacyVersion);
 }
 
-}  // namespace
-
-void record(const Event event, const char* const deviceName, const char* const wakeRoute) {
-  HalPowerManager::BatteryDiagnostics battery;
-  if (!powerManager.getBatteryDiagnostics(battery)) {
-    return;  // getBatteryDiagnostics() already logged the reason
-  }
-  if (!prepareLogSchema()) return;
+bool append(Event event, const char* deviceName, const char* wakeRoute,
+            const HalPowerManager::BatteryDiagnostics& battery, const int* painted = nullptr) {
+  if (!prepareLogSchema()) return false;
 
   HalFile file = Storage.open(LOG_PATH, O_WRONLY | O_CREAT | O_APPEND);
   if (!file) {
     LOG_ERR("BATLOG", "Failed to open %s for append", LOG_PATH);
-    return;
+    return false;
   }
 
   const size_t existingBytes = file.size();
@@ -162,7 +170,7 @@ void record(const Event event, const char* const deviceName, const char* const w
       capReported = true;
       LOG_ERR("BATLOG", "%s hit the %u byte cap; no longer appending", LOG_PATH, static_cast<unsigned>(MAX_LOG_BYTES));
     }
-    return;
+    return false;
   }
 
   bool ok = true;
@@ -182,15 +190,26 @@ void record(const Event event, const char* const deviceName, const char* const w
   formatOptional(charging, sizeof(charging), battery.chargingKnown, battery.charging ? 1u : 0u);
   formatText(version, sizeof(version), AppVersion::version());
 
-  char row[ROW_LEN];
-  const int rowLen =
-      snprintf(row, sizeof(row), "%s,%lu,%s,%s,%s,%s,%s,%s,%s,%s,%s\n", timestamp, static_cast<unsigned long>(millis()),
-               soc, millivolts, charging, eventName(event), version, AppVersion::gitSha(), AppVersion::gitDirtyFlag(),
-               deviceName ? deviceName : "", wakeRoute ? wakeRoute : "");
+  char extra[8][11];  // uint32 maximum plus terminator, including optional fields.
+  const int displayed = painted ? *painted : (battery.displayedKnown ? static_cast<int>(battery.displayedPercent) : -1);
+  formatOptional(extra[0], sizeof(extra[0]), displayed >= 0, displayed);
+  formatOptional(extra[1], sizeof(extra[1]), battery.externalPowerKnown, battery.externalPower);
+  formatOptional(extra[2], sizeof(extra[2]), battery.chargeCompleteKnown, battery.chargeComplete);
+  formatOptional(extra[3], sizeof(extra[3]), battery.chargerStatus >= 0, battery.chargerStatus);
+  formatOptional(extra[4], sizeof(extra[4]), battery.estimateState >= 0 && battery.displayedKnown,
+                 battery.estimateState);
+  formatOptional(extra[5], sizeof(extra[5]), battery.estimateState >= 0 && battery.displayedKnown, battery.settlingMs);
+  formatOptional(extra[6], sizeof(extra[6]), battery.displayedKnown, battery.sampleAgeMs);
+  formatOptional(extra[7], sizeof(extra[7]), battery.estimateState >= 0, battery.resumed);
+  const int rowLen = snprintf(row, sizeof(row), "%s,%lu,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n",
+                              timestamp, static_cast<unsigned long>(millis()), soc, millivolts, charging,
+                              eventName(event), version, AppVersion::gitSha(), AppVersion::gitDirtyFlag(),
+                              deviceName ? deviceName : "", wakeRoute ? wakeRoute : "", extra[0], extra[1], extra[2],
+                              extra[3], extra[4], extra[5], extra[6], extra[7]);
   if (rowLen <= 0 || static_cast<size_t>(rowLen) >= sizeof(row)) {
     file.close();
     LOG_ERR("BATLOG", "Battery sample did not fit the row buffer");
-    return;
+    return false;
   }
   if (ok) {
     ok = file.write(row, static_cast<size_t>(rowLen)) == static_cast<size_t>(rowLen);
@@ -204,7 +223,54 @@ void record(const Event event, const char* const deviceName, const char* const w
   if (!ok) {
     LOG_ERR("BATLOG", "Failed to append battery sample to %s", LOG_PATH);
   }
+  return ok;
 }
+
+#if FREEINK_DEVICE_PICCO
+bool completionLogged = false;
+struct DisplayReading {
+  int16_t percent = -1;
+  int16_t bottom = -1;
+};
+std::atomic<DisplayReading> frameReading{DisplayReading{}};
+std::atomic<DisplayReading> paintedReading{DisplayReading{}};
+#endif
+}  // namespace
+
+void record(const Event event, const char* deviceName, const char* wakeRoute) {
+  HalPowerManager::BatteryDiagnostics sample;
+  if (powerManager.getBatteryDiagnostics(sample)) append(event, deviceName, wakeRoute, sample);
+}
+
+#if FREEINK_DEVICE_PICCO
+void noteUsbDisconnected() { completionLogged = false; }
+
+void beginDisplayFrame() { frameReading.store(DisplayReading{}); }
+void noteDisplayPercent(uint16_t percent, int labelBottom) {
+  // If both bars show a percentage, keep the upper label, clear of bottom button hints.
+  const auto current = frameReading.load();
+  if (current.percent < 0 || labelBottom <= current.bottom)
+    frameReading.store({static_cast<int16_t>(percent), static_cast<int16_t>(labelBottom)});
+}
+void retainDisplayAbove(int popupTop) {
+  const auto previous = paintedReading.load();
+  if (previous.percent >= 0 && previous.bottom <= popupTop) frameReading.store(previous);
+}
+void finishDisplayFrame() { paintedReading.store(frameReading.load()); }
+
+void pollChargeComplete(const char* deviceName, const int* sleepDisplayPercent,
+                        const HalPowerManager::ChargerStatus* observed) {
+  HalPowerManager::BatteryDiagnostics sample;
+  if (!powerManager.getBatteryDiagnostics(sample, observed) || !sample.chargeCompleteKnown) return;
+  if (!sample.chargeComplete) {
+    completionLogged = false;
+    return;
+  }
+  if (completionLogged) return;
+  const int percent = sleepDisplayPercent ? *sleepDisplayPercent : paintedReading.load().percent;
+  completionLogged = append(Event::ChargeComplete, deviceName, nullptr, sample, &percent);
+}
+#endif
 
 }  // namespace BatteryDiagnosticLog
 

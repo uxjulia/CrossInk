@@ -63,6 +63,10 @@ class HalClock {
   bool formatDate(char* buf, size_t bufSize, uint8_t utcOffsetQuarterHoursBiased = 48,
                   DateFormat dateFormat = MONTH_DAY_YEAR_LONG, char numericSeparator = '/') const;
 
+  // Uncached UTC wall time for dated reading spans. No stale RTC fallback.
+  bool getReadingDateTime(uint16_t& year, uint8_t& month, uint8_t& day, uint8_t& hour, uint8_t& minute,
+                          uint8_t& second) const;
+
   // Sync the RTC from an NTP server. Requires WiFi to be connected.
   // Blocks for up to ~5s while waiting for SNTP response.
   // Returns true if the RTC was successfully updated.

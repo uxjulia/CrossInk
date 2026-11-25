@@ -3,6 +3,7 @@
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
 #include <HalStorage.h>
+#include <ImageToneMapper.h>
 #include <Logging.h>
 #include <Memory.h>
 #include <MemoryBudget.h>
@@ -14,6 +15,7 @@
 #include "DirectPixelWriter.h"
 #include "DitherUtils.h"
 #include "PixelCache.h"
+#include "PngToneMapperPolicy.h"
 
 namespace {
 
@@ -37,6 +39,8 @@ struct PngContext {
   PixelCache cache;
   bool caching{false};
 
+  freeink::ImageToneMapper* toneMapper{nullptr};
+  int nextSourceY{0};
   uint8_t* grayLineBuffer{nullptr};
   uint32_t lastYieldMs{0};
 };
@@ -166,7 +170,7 @@ void convertLineToGray(const uint8_t* pPixels, uint8_t* grayLine, int width, int
             uint8_t* p = &palette[idx * 3];
             uint8_t gray = (uint8_t)((p[0] * 77 + p[1] * 150 + p[2] * 29) >> 8);
             uint8_t alpha = palette[768 + idx];
-            grayLine[x] = (uint8_t)((gray * alpha + 255 * (255 - alpha)) / 255);
+            grayLine[x] = PngToneMapperPolicy::blendWhite(gray, alpha);
           }
         } else {
           for (int x = 0; x < width; x++) {
@@ -186,7 +190,7 @@ void convertLineToGray(const uint8_t* pPixels, uint8_t* grayLine, int width, int
       for (int x = 0; x < width; x++) {
         uint8_t gray = pPixels[x * 2];
         uint8_t alpha = pPixels[x * 2 + 1];
-        grayLine[x] = (uint8_t)((gray * alpha + 255 * (255 - alpha)) / 255);
+        grayLine[x] = PngToneMapperPolicy::blendWhite(gray, alpha);
       }
       break;
 
@@ -195,13 +199,41 @@ void convertLineToGray(const uint8_t* pPixels, uint8_t* grayLine, int width, int
         const uint8_t* p = &pPixels[x * 4];
         uint8_t gray = (uint8_t)((p[0] * 77 + p[1] * 150 + p[2] * 29) >> 8);
         uint8_t alpha = p[3];
-        grayLine[x] = (uint8_t)((gray * alpha + 255 * (255 - alpha)) / 255);
+        grayLine[x] = PngToneMapperPolicy::blendWhite(gray, alpha);
       }
       break;
 
     default:
       memset(grayLine, 128, width);
       break;
+  }
+}
+
+// Both the live framebuffer and PXC receive the exact same four levels. The
+// mapper owns its row buffers; this sink never allocates or re-dithers output.
+void mappedPngRow(void* user, int dstY, const uint8_t* levels, int width) {
+  auto* ctx = static_cast<PngContext*>(user);
+  const int outY = ctx->config->y + dstY;
+  DirectPixelWriter pw;
+  pw.init(*ctx->renderer, ctx->config->useGrayscale, ctx->config->finalMonochrome);
+  pw.beginRow(outY);
+  DirectCacheWriter cw;
+  if (ctx->caching) {
+    if (!ctx->cache.advanceTo(dstY)) {
+      ctx->caching = false;
+    } else {
+      cw.init(ctx->cache.buffer, ctx->cache.bytesPerRow, ctx->cache.bandRows, ctx->cache.originX);
+      cw.beginRow(outY, ctx->config->y + ctx->cache.bandStart);
+    }
+  }
+  for (int x = 0; x < width; ++x) {
+    const int outX = ctx->config->x + x;
+    const uint8_t value = ctx->config->finalMonochrome ? levels[x] * 3 : levels[x];
+    if (outX >= 0 && outX < ctx->screenWidth && outY >= 0 && outY < ctx->screenHeight) {
+      pw.writePixel(outX, value);
+    }
+    // Cache all image pixels even when the live framebuffer clips the row.
+    if (ctx->caching) cw.writePixel(outX, value);
   }
 }
 
@@ -213,6 +245,20 @@ int pngDrawCallback(PNGDRAW* pDraw) {
 
   int srcY = pDraw->y;
   int srcWidth = ctx->srcWidth;
+
+  if (ctx->toneMapper) {
+    // Never feed interlaced/out-of-order or incomplete rows into stateful error
+    // diffusion. PNGdec rejects interlace, but keep the boundary explicit.
+    if (srcY != ctx->nextSourceY || pDraw->iWidth != srcWidth) {
+      LOG_ERR("PNG", "Unexpected scanline order or width in tone mapper");
+      return 0;
+    }
+    convertLineToGray(pDraw->pPixels, ctx->grayLineBuffer, srcWidth, pDraw->iPixelType, pDraw->iBpp, pDraw->pPalette,
+                      pDraw->iHasAlpha);
+    ctx->toneMapper->addSourceRow(ctx->grayLineBuffer);
+    ++ctx->nextSourceY;
+    return 1;
+  }
 
   // Map source rows with the exact output-height ratio. During downscaling,
   // multiple source rows can select the same output row; during upscaling, one
@@ -241,7 +287,7 @@ int pngDrawCallback(PNGDRAW* pDraw) {
 
   // Pre-compute orientation and render-mode state once per callback.
   DirectPixelWriter pw;
-  pw.init(*ctx->renderer);
+  pw.init(*ctx->renderer, ctx->config->useGrayscale, ctx->config->finalMonochrome);
 
   for (int dstY = firstDstY; dstY < endDstY; dstY++) {
     ctx->lastDstY = dstY;
@@ -274,12 +320,9 @@ int pngDrawCallback(PNGDRAW* pDraw) {
       if (outX >= 0 && outX < screenWidth) {
         uint8_t gray = ctx->grayLineBuffer[srcX];
 
-        uint8_t ditheredGray;
-        if (useDithering) {
-          ditheredGray = applyBayerDither4Level(gray, outX, outY);
-        } else {
-          ditheredGray = quantizeGrayTo4Level(gray);
-        }
+        const uint8_t ditheredGray = ctx->config->finalMonochrome ? quantizeGrayToMono(gray, dstX, dstY, useDithering)
+                                     : useDithering               ? applyBayerDither4Level(gray, outX, outY)
+                                                                  : quantizeGrayTo4Level(gray);
         pw.writePixel(outX, ditheredGray);
         if (caching) cw.writePixel(outX, ditheredGray);
       }
@@ -345,8 +388,10 @@ bool PngToFramebufferConverter::decodeToFramebuffer(const std::string& imagePath
   ctx.screenWidth = renderer.getScreenWidth();
   ctx.screenHeight = renderer.getScreenHeight();
 
-  int rc = png->open(imagePath.c_str(), pngOpenWithHandle, pngCloseWithHandle, pngReadWithHandle, pngSeekWithHandle,
-                     pngDrawCallback);
+  int rc = config.sourceData ? png->openRAM(const_cast<uint8_t*>(config.sourceData),
+                                            static_cast<int>(config.sourceSize), pngDrawCallback)
+                             : png->open(imagePath.c_str(), pngOpenWithHandle, pngCloseWithHandle, pngReadWithHandle,
+                                         pngSeekWithHandle, pngDrawCallback);
   if (rc != PNG_SUCCESS) {
     LOG_ERR("PNG", "Failed to open PNG: %d", rc);
     delete png;
@@ -377,6 +422,12 @@ bool PngToFramebufferConverter::decodeToFramebuffer(const std::string& imagePath
 
     ctx.dstWidth = (int)(ctx.srcWidth * ctx.scale);
     ctx.dstHeight = (int)(ctx.srcHeight * ctx.scale);
+  }
+  if (ctx.dstWidth <= 0 || ctx.dstHeight <= 0) {
+    LOG_ERR("PNG", "Invalid output dimensions: %dx%d", ctx.dstWidth, ctx.dstHeight);
+    png->close();
+    delete png;
+    return false;
   }
   ctx.lastDstY = -1;  // Reset row tracking
 
@@ -439,9 +490,34 @@ bool PngToFramebufferConverter::decodeToFramebuffer(const std::string& imagePath
     }
   }
 
+  // SDK scratch is O(width), not an image-sized buffer: 2*src + 17*dst
+  // bytes plus 16 bytes and allocator overhead. Allocate once per decode after
+  // decoder, gray row, and cache allocations, retaining internal heap headroom.
+  // The SDK owns/frees its fallible row allocations, including partial OOM.
+  freeink::ImageToneMapper toneMapper;
+  const auto heap = MemoryBudget::snapshot();
+  if (PngToneMapperPolicy::mayMap(config.useDithering, renderer.getRenderMode() == GfxRenderer::BW, ctx.caching) &&
+      PngToneMapperPolicy::admits(ctx.srcWidth, ctx.srcHeight, ctx.dstWidth, ctx.dstHeight, heap.freeHeap,
+                                  heap.maxAllocHeap)) {
+    if (toneMapper.begin(ctx.srcWidth, ctx.srcHeight, ctx.dstWidth, ctx.dstHeight, config.finalMonochrome ? 2 : 4,
+                         mappedPngRow, &ctx)) {
+      ctx.toneMapper = &toneMapper;
+    } else {
+      LOG_ERR("PNG", "Tone mapper OOM; using nearest-neighbor scaling");
+    }
+  }
+
   ctx.lastYieldMs = millis();
   rc = png->decode(&ctx, 0);
 
+  if (rc == PNG_SUCCESS && ctx.toneMapper) {
+    if (ctx.nextSourceY == ctx.srcHeight) {
+      toneMapper.finish();
+    } else {
+      // Do not cache a partially accumulated image if a decoder ends early.
+      rc = -1;
+    }
+  }
   ctx.grayLineBuffer = nullptr;
 
   if (rc != PNG_SUCCESS) {
@@ -455,9 +531,13 @@ bool PngToFramebufferConverter::decodeToFramebuffer(const std::string& imagePath
   png->close();
   delete png;
 
-  // Finalize the streamed cache (caching may have been cleared on a flush error).
-  if (ctx.caching) {
-    ctx.cache.finalize();
+  // Mapped BW must have a complete cache: later planes must replay these exact
+  // levels, never choose another quantizer based on changed heap admission.
+  const bool cacheComplete = ctx.caching && ctx.cache.finalize();
+  if (ctx.toneMapper && !cacheComplete) {
+    LOG_ERR("PNG", "Mapped image cache failed; dropping incomplete image");
+    ctx.cache.abort();
+    return false;
   }
 
   return true;

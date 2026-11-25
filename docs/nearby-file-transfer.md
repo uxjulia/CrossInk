@@ -6,18 +6,18 @@ nav_order: 7.5
 # Nearby File Transfer
 
 Nearby File Transfer sends one supported file directly between two nearby
-CrossInk readers. It uses ESP-NOW, so it does not need a Wi-Fi network,
-internet connection, account, or computer.
+CrossInk readers. It connects the two readers directly, so it does not need a Wi-Fi network, internet connection, account, or
+computer.
 
 ## Requirements
 
-- Both readers must run compatible CrossInk builds and be nearby.
+- Both readers must run compatible CrossInk versions and be nearby.
 - The receiving reader needs enough free SD-card space for the complete file.
 - Supported file types are EPUB, TXT, XTC, XTCH, PNG, and BMP.
 
 ## Receive a File
 
-1. On the receiving reader, open **File Transfer > Receive File**.
+1. On the receiving reader, open **File Transfer** and select **Receive File** (in the **Nearby Device** section).
 2. Select **Start receiving**. The screen stays open while it waits for a
    sender.
 3. To change where received files are saved, select **Change folder** before
@@ -35,8 +35,9 @@ creates a separate copy with a numbered suffix.
 
 1. On the receiving reader, start **Receive File** as described above.
 2. On the sending reader, find a supported file in **Browse Files** or
-   **Library**.
-3. Open the file action menu and select **Send to Nearby Device**.
+   **Library**. (You can also send the book you are reading: open the Reader Menu
+   and choose **Send to Nearby Device**, where your reader offers it.)
+3. Open the file's action menu and select **Send to Nearby Device**.
 4. Wait for the receiving reader to appear, select it, and wait for approval.
 5. Keep both readers on their transfer screens until the sender reports
    **File sent** and the receiver reports **File received**.
@@ -46,17 +47,15 @@ The receiver must accept the offer before the file starts sending. Press
 
 ## Transfer Safety
 
-CrossInk writes incoming data to a temporary file and verifies its size and
-contents before making it available at the chosen destination. A cancelled or
-failed transfer does not replace an existing file and does not leave a usable
-partial book or image behind.
+The new file becomes available only after the transfer has finished and been
+checked. Cancelling or losing the connection keeps any existing file intact.
 
 ## Troubleshooting
 
 **No receiving device appears**
 
 Make sure the receiver has selected **Start receiving**, both readers are close
-together, and both run compatible CrossInk builds. Exit and reopen the transfer
+together, and both run compatible CrossInk versions. Exit and reopen the transfer
 screens on both readers, then try again.
 
 **Unsupported file type**

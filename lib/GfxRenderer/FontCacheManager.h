@@ -10,7 +10,7 @@ class SdCardFont;
 
 class FontCacheManager {
  public:
-  enum class PreparationPolicy : uint8_t { Normal, DictionaryLean };
+  enum class PreparationPolicy : uint8_t { Normal, DictionaryLean, IdleScalable };
 
   FontCacheManager(const std::map<int, EpdFontFamily>& fontMap, const std::map<int, SdCardFont*>& sdCardFonts);
 
@@ -18,6 +18,9 @@ class FontCacheManager {
 
   void clearCache();
   void releaseSdFontCaches();
+  // Call only between render/layout operations with the render lock held.
+  // Keep all caches of the active SD font (including aliases) warm for layout.
+  void releaseInactiveSdFontCaches(int activeFontId);
   bool prewarmCache(int fontId, const char* utf8Text, uint8_t styleMask = 0x0F,
                     PreparationPolicy policy = PreparationPolicy::Normal);
   void logStats(const char* label = "render");
@@ -30,12 +33,30 @@ class FontCacheManager {
   // The FontDecompressor pointer, needed by GfxRenderer::getGlyphBitmap()
   FontDecompressor* getDecompressor() const { return fontDecompressor_; }
 
+#if CROSSINK_SCALABLE_FONTS
+  // Fixed scratch owned by the reader, not the stack. No page/font pointers survive a tick.
+  struct IdleScalableJob {
+    uint32_t codepoints[512] = {};
+    int fontIds[4] = {};
+    uint16_t count = 0;
+    uint16_t cursor = 0;
+    void reset() { count = cursor = 0; }
+  };
+  enum class IdleResult : uint8_t { Complete, Yielded, Failed };
+  bool isScalableFont(int fontId) const;
+  IdleResult prewarmIdleSlice(IdleScalableJob& job, bool (*shouldYield)(void*), void* context, uint16_t maxGlyphs = 16,
+                              bool (*cancelled)(void*) = nullptr);
+#endif
+
   // RAII scope for two-pass prewarm pattern
   class PrewarmScope {
    public:
     explicit PrewarmScope(FontCacheManager& manager, PreparationPolicy policy);
     ~PrewarmScope();
     bool endScanAndPrewarm();
+#if CROSSINK_SCALABLE_FONTS
+    void endScanForIdle(IdleScalableJob& job);
+#endif
     PrewarmScope(PrewarmScope&& other) noexcept;
     PrewarmScope& operator=(PrewarmScope&&) = delete;
     PrewarmScope(const PrewarmScope&) = delete;
@@ -69,6 +90,7 @@ class FontCacheManager {
   int scanFontIds_[MAX_SCAN_FONTS] = {};
   uint32_t scanCodepoints_[MAX_SCAN_CODEPOINTS + 1] = {};
   uint16_t scanGroupCounts_[SCAN_GROUP_COUNT] = {};
+  uint16_t scanGroupUses_[SCAN_GROUP_COUNT] = {};  // Saturated occurrence counts; 32 bytes, no glyph storage.
   uint16_t scanCodepointCount_ = 0;
   uint8_t scanFontCount_ = 0;
   bool scanOverflowWarned_ = false;

@@ -4,6 +4,7 @@
 #include <FsHelpers.h>
 #include <HalStorage.h>
 #include <Logging.h>
+#include <OwnedFileSwap.h>
 #include <Serialization.h>
 #include <Txt.h>
 #include <Xtc.h>
@@ -23,7 +24,7 @@ constexpr uint32_t EPUB_PERCENT_CACHE_MAGIC = 0x45505250;  // "EPRP"
 constexpr uint8_t EPUB_PERCENT_CACHE_VERSION = 1;
 constexpr char EPUB_PERCENT_CACHE_FILE[] = "/progress_percent.bin";
 constexpr uint32_t TXT_CACHE_MAGIC = 0x54585449;  // "TXTI"
-constexpr uint8_t TXT_CACHE_VERSION = 4;
+constexpr uint8_t TXT_CACHE_VERSION = 9;
 
 float clampProgressPercent(const float progress) { return std::clamp(progress, 0.0f, 100.0f); }
 
@@ -84,8 +85,7 @@ void saveCachedEpubPercentToCachePath(const std::string& cachePath, const float 
 
 float loadEpubSizeProgressPercentFromCachePath(const std::string& cachePath) {
   EpubReaderUtils::Progress progress;
-  if (!EpubReaderUtils::readProgressFile("RBPR", cachePath + "/progress.bin", progress) &&
-      !EpubReaderUtils::readProgressFile("RBPR", cachePath + "/progress.bin.bak", progress)) {
+  if (!EpubReaderUtils::loadProgressPath(cachePath + "/progress.bin", progress, "RBPR")) {
     return -1.0f;
   }
   if (!progress.hasPageCount || progress.pageCount <= 0) {
@@ -116,7 +116,7 @@ float loadEpubSizeProgressPercentFromCachePath(const std::string& cachePath) {
         static_cast<float>(prevChapterSize) + (static_cast<float>(currentChapterSize) * chapterProgress);
     progressPercent = clampProgressPercent((totalProgress / static_cast<float>(bookSize)) * 100.0f);
   }
-  saveCachedEpubPercentToCachePath(cachePath, progressPercent);
+  // Browsing computes a missing percentage in memory; the reader persists it on save.
   return progressPercent;
 }
 
@@ -138,7 +138,7 @@ float loadEpubProgressPercent(const RecentBook& book) {
   const float chapterProgress = static_cast<float>(progress.pageNumber + 1) / static_cast<float>(progress.pageCount);
   const float progressPercent =
       clampProgressPercent(epub.calculateProgress(progress.spineIndex, chapterProgress) * 100.0f);
-  saveCachedEpubPercentToCachePath(epub.getCachePath(), progressPercent);
+  // Leave percentage-cache writes to the reader.
   return progressPercent;
 }
 
@@ -149,7 +149,8 @@ float loadXtcProgressPercent(const RecentBook& book) {
   }
 
   FsFile file;
-  if (!Storage.openFileForRead("RBPR", xtc.getCachePath() + "/progress.bin", file)) {
+  if (!OwnedFileSwap::recover(xtc.getCachePath() + "/progress.bin") ||
+      !Storage.openFileForRead("RBPR", xtc.getCachePath() + "/progress.bin", file)) {
     return -1.0f;
   }
 
@@ -172,7 +173,8 @@ float loadTxtProgressPercent(const RecentBook& book) {
   }
 
   FsFile progressFile;
-  if (!Storage.openFileForRead("RBPR", txt.getCachePath() + "/progress.bin", progressFile)) {
+  if (!OwnedFileSwap::recover(txt.getCachePath() + "/progress.bin") ||
+      !Storage.openFileForRead("RBPR", txt.getCachePath() + "/progress.bin", progressFile)) {
     return -1.0f;
   }
 
@@ -197,6 +199,7 @@ float loadTxtProgressPercent(const RecentBook& book) {
   uint32_t magic = 0;
   uint8_t version = 0;
   uint32_t fileSize = 0;
+  int8_t characterSpacing = 0;
   int32_t cachedWidth = 0;
   int32_t cachedLines = 0;
   int32_t fontId = 0;
@@ -206,14 +209,16 @@ float loadTxtProgressPercent(const RecentBook& book) {
   uint32_t totalPages = 0;
   const bool readOk =
       serialization::tryReadPod(indexFile, magic) && serialization::tryReadPod(indexFile, version) &&
-      serialization::tryReadPod(indexFile, fileSize) && serialization::tryReadPod(indexFile, cachedWidth) &&
-      serialization::tryReadPod(indexFile, cachedLines) && serialization::tryReadPod(indexFile, fontId) &&
-      serialization::tryReadPod(indexFile, verticalMargin) && serialization::tryReadPod(indexFile, horizontalMargin) &&
-      serialization::tryReadPod(indexFile, alignment) && serialization::tryReadPod(indexFile, totalPages);
+      serialization::tryReadPod(indexFile, fileSize) && serialization::tryReadPod(indexFile, characterSpacing) &&
+      serialization::tryReadPod(indexFile, cachedWidth) && serialization::tryReadPod(indexFile, cachedLines) &&
+      serialization::tryReadPod(indexFile, fontId) && serialization::tryReadPod(indexFile, verticalMargin) &&
+      serialization::tryReadPod(indexFile, horizontalMargin) && serialization::tryReadPod(indexFile, alignment) &&
+      serialization::tryReadPod(indexFile, totalPages);
   indexFile.close();
   if (!readOk) {
     return -1.0f;
   }
+  (void)characterSpacing;
   (void)cachedWidth;
   (void)cachedLines;
   (void)fontId;
@@ -221,7 +226,8 @@ float loadTxtProgressPercent(const RecentBook& book) {
   (void)horizontalMargin;
   (void)alignment;
 
-  if (magic != TXT_CACHE_MAGIC || version != TXT_CACHE_VERSION || fileSize != txt.getFileSize() || totalPages == 0) {
+  if (magic != TXT_CACHE_MAGIC || (version < 5 || version > TXT_CACHE_VERSION) || fileSize != txt.getFileSize() ||
+      totalPages == 0) {
     return -1.0f;
   }
 

@@ -8,7 +8,7 @@ namespace fontcatalog {
 inline constexpr char Path[] = "/.crosspoint/font-catalog.bin";
 inline constexpr char TempPath[] = "/.crosspoint/font-catalog.tmp";
 inline constexpr uint32_t Magic = 0x46434931;
-inline constexpr uint32_t Version = 1;
+inline constexpr uint32_t Version = 2;
 #if CROSSINK_SCALABLE_FONTS
 inline constexpr uint32_t Mode = 1;
 #else

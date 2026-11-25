@@ -1,15 +1,33 @@
 #include <HalDisplay.h>
 #include <HalGPIO.h>
+#include <Logging.h>
+#include <XteinkDetect.h>
 
 #include "HalSpiBus.h"
 
 namespace {
+// Some SDK revisions omit the optional Quick Resume baseline restore API.
+// Keep this check dependent on the display type so those revisions still build.
 template <typename Display>
 bool restoreVisibleFrameIfSupported(Display& display) {
   if constexpr (requires { display.restoreVisibleFrame(); }) {
     return display.restoreVisibleFrame();
   }
   // Older SDK revisions rely on the normal wake refresh instead.
+  return false;
+}
+
+template <typename Display>
+void setReaderRefreshIfSupported(Display& display, bool reading) {
+  if constexpr (requires { display.setReaderRefresh(reading); }) display.setReaderRefresh(reading);
+}
+
+template <typename Display>
+bool retainedGrayscaleOverlayIfSupported(Display& display, uint16_t x, uint16_t y, uint16_t width, uint16_t height,
+                                         bool restore) {
+  if constexpr (requires { display.displayRetainedGrayscaleOverlay(x, y, width, height, restore); }) {
+    return display.displayRetainedGrayscaleOverlay(x, y, width, height, restore);
+  }
   return false;
 }
 }  // namespace
@@ -23,16 +41,44 @@ HalDisplay::HalDisplay() : einkDisplay(EPD_SCLK, EPD_MOSI, EPD_CS, EPD_DC, EPD_R
 
 HalDisplay::~HalDisplay() {}
 
-void HalDisplay::begin(bool seamless) {
-  HalSpiBus::Lock spiLock;
-
-  // Set X3-specific panel mode before initializing.
-  if (gpio.deviceIsX3()) {
-    einkDisplay.setDisplayX3();
+void HalDisplay::startBegin() {
+#if !defined(SIMULATOR) && FREEINK_DEVICE_X4PRO
+  if (hardwareReady || beginDone) return;
+  beginDone = xSemaphoreCreateBinaryStatic(&beginDoneStorage);
+  // Initialization uses a temporary 6 KiB stack; it is returned before rendering.
+  if (xTaskCreate(
+          [](void* context) {
+            auto* self = static_cast<HalDisplay*>(context);
+            self->beginHardware();
+            xSemaphoreGive(self->beginDone);
+            vTaskDelete(nullptr);
+          },
+          "displayInit", 6144, this, 1, nullptr) != pdPASS) {
+    beginDone = nullptr;
+    LOG_ERR("HAL", "Display init task unavailable; using synchronous startup");
   }
+#endif
+}
 
+void HalDisplay::beginHardware() {
+  HalSpiBus::Lock spiLock;
+#if !defined(SIMULATOR) && !FREEINK_MCU_C3
+  freeink::applyXteinkDisplayController();
+#endif
+  if (gpio.deviceIsX3()) einkDisplay.setDisplayX3();
   einkDisplay.begin();
+  hardwareReady = true;
+}
 
+void HalDisplay::begin(bool seamless) {
+#ifndef SIMULATOR
+  if (beginDone) {
+    xSemaphoreTake(beginDone, portMAX_DELAY);
+    beginDone = nullptr;
+  }
+#endif
+  if (!hardwareReady) beginHardware();
+  HalSpiBus::Lock spiLock;
   if (seamless) {
     // Defuse the SDK's X3 _x3InitialFullSyncsRemaining counter (no-op on X4)
     // so the first paint isn't promoted to FULL (~770ms). Skips the wakeup-
@@ -105,6 +151,9 @@ void HalDisplay::displayBufferAsync(HalDisplay::RefreshMode mode) {
 }
 
 void HalDisplay::waitRefreshComplete() { einkDisplay.waitRefreshComplete(); }
+#if FREEINK_DEVICE_PICCO
+void HalDisplay::powerOffBetweenFrames() { einkDisplay.powerOffBetweenFrames(); }
+#endif
 
 bool HalDisplay::supportsAsyncRefresh() const { return einkDisplay.supportsAsyncRefresh(); }
 
@@ -128,6 +177,23 @@ void HalDisplay::refreshDisplay(HalDisplay::RefreshMode mode, bool turnOffScreen
   }
 
   einkDisplay.refreshDisplay(convertRefreshMode(mode), turnOffScreen);
+}
+
+void HalDisplay::setReaderRefresh(bool reading) {
+#ifndef SIMULATOR
+  // Drivers without reader-specific waveforms ignore the hint.
+  setReaderRefreshIfSupported(einkDisplay, reading);
+#else
+  (void)reading;
+#endif
+}
+
+void HalDisplay::setOverlayFullTone(bool fullTone) { einkDisplay.setOverlayFullTone(fullTone); }
+
+bool HalDisplay::displayRetainedGrayscaleOverlay(uint16_t x, uint16_t y, uint16_t width, uint16_t height,
+                                                 bool restore) {
+  HalSpiBus::Lock spiLock;
+  return retainedGrayscaleOverlayIfSupported(einkDisplay, x, y, width, height, restore);
 }
 
 bool HalDisplay::isInverted() const { return einkDisplay.isInverted(); }
@@ -194,6 +260,10 @@ bool HalDisplay::shouldSkipImageBlanking() const {
 
 bool HalDisplay::supportsStripGrayscale() const { return einkDisplay.supportsStripGrayscale(); }
 
+const char* HalDisplay::getControllerName() const { return einkDisplay.getControllerName(); }
+
+const char* HalDisplay::getPanelName() const { return einkDisplay.getPanelName(); }
+
 uint16_t HalDisplay::getDisplayWidth() const { return einkDisplay.getDisplayWidth(); }
 
 uint16_t HalDisplay::getDisplayHeight() const { return einkDisplay.getDisplayHeight(); }
@@ -201,3 +271,28 @@ uint16_t HalDisplay::getDisplayHeight() const { return einkDisplay.getDisplayHei
 uint16_t HalDisplay::getDisplayWidthBytes() const { return einkDisplay.getDisplayWidthBytes(); }
 
 uint32_t HalDisplay::getBufferSize() const { return einkDisplay.getBufferSize(); }
+
+bool HalDisplay::supportsDeferredGrayscaleBase() const {
+#ifdef SIMULATOR
+  return false;
+#else
+  return einkDisplay.supportsDeferredGrayscaleBase();
+#endif
+}
+
+bool HalDisplay::displayGrayscaleBaseAsync(RefreshMode fallback) {
+#ifdef SIMULATOR
+  displayGrayscaleBase(fallback);
+  return false;
+#else
+  HalSpiBus::Lock spiLock;
+  return einkDisplay.displayGrayscaleBaseAsync(convertRefreshMode(fallback));
+#endif
+}
+
+void HalDisplay::controllerIdle() {
+#ifndef SIMULATOR
+  HalSpiBus::Lock spiLock;
+  einkDisplay.controllerIdle();
+#endif
+}

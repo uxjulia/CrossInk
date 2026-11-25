@@ -1,3 +1,4 @@
+#include <Memory.h>
 #include <gtest/gtest.h>
 
 #include <cstring>
@@ -298,4 +299,109 @@ TEST(LibraryIndexFile, DisplayTextAcceptsMissingMetadataAndRejectsMalformedField
   Storage.setFile("/library.clx", std::move(bytes));
   ASSERT_TRUE(index.open("/library.clx"));
   EXPECT_FALSE(index.readDisplayText(record, title, author));
+}
+
+TEST(LibraryIndexFile, BrowserRowDecodesOnceAndInvalidatesOnReopen) {
+  library::ClixHeader header{};
+  std::memcpy(header.magic, library::CLIX_MAGIC, sizeof(header.magic));
+  header.formatVersion = library::CLIX_FORMAT_VERSION;
+  header.foldVersion = library::CLIX_FOLD_VERSION;
+  header.bookCount = 1;
+  auto blob = makeBlob(123, {'x', 1, 'a', 1, 't', 0, 1, 's', 1, 'g'});
+  library::layoutSections(header, 0, blob.size());
+  std::vector<uint8_t> bytes(header.selfSize, 0);
+  std::memcpy(bytes.data(), &header, sizeof(header));
+  std::memcpy(bytes.data() + header.nameStart, blob.data(), blob.size());
+  library::ClixRecord record{};
+  record.nameLen = 1;
+  std::memcpy(bytes.data() + library::recordOffset(header, 0), &record, sizeof(record));
+  Storage.setFile("/row.clx", bytes);
+  library::LibraryIndexFile index(true);
+  ASSERT_TRUE(index.open("/row.clx"));
+  const auto before = HalFile::reads;
+  ASSERT_TRUE(index.readRecord(0, record));
+  std::string title, author, field;
+  ASSERT_TRUE(index.readDisplayText(record, title, author));
+  EXPECT_EQ(title, "t");
+  EXPECT_EQ(author, "a");
+  ASSERT_TRUE(index.readRecord(0, record));
+  ASSERT_TRUE(index.readName(record, field));
+  EXPECT_EQ(field, "x");
+  ASSERT_TRUE(index.readSeries(record, field));
+  EXPECT_EQ(field, "s");
+  ASSERT_TRUE(index.readGenre(record, field));
+  EXPECT_EQ(field, "g");
+  uint64_t hash = 0;
+  ASSERT_TRUE(index.readPathHash(record, hash));
+  EXPECT_EQ(hash, 123u);
+  EXPECT_EQ(HalFile::reads - before, 2u);  // One record read, one blob read.
+  index.close();
+  ASSERT_TRUE(index.open("/row.clx"));
+  failNextObjectAllocation = true;
+  const auto allocations = objectAllocationAttempts;
+  ASSERT_TRUE(index.readRecord(0, record));
+  ASSERT_TRUE(index.readDisplayText(record, title, author));
+  ASSERT_TRUE(index.readSeries(record, field));
+  EXPECT_EQ(title, "t");
+  EXPECT_EQ(author, "a");
+  EXPECT_EQ(field, "s");
+  EXPECT_EQ(objectAllocationAttempts - allocations, 1u);  // No allocation retry loop under pressure.
+  index.close();
+  bytes[header.nameStart + 12] = 'u';
+  Storage.setFile("/row.clx", bytes);
+  ASSERT_TRUE(index.open("/row.clx"));
+  ASSERT_TRUE(index.readDisplayText(record, title, author));
+  EXPECT_EQ(title, "u");
+  index.close();
+  bytes[header.nameStart + 14] = 255;  // Invalid series length must not leak cached strings.
+  Storage.setFile("/row.clx", bytes);
+  ASSERT_TRUE(index.open("/row.clx"));
+  ASSERT_TRUE(index.readDisplayText(record, title, author));
+  EXPECT_FALSE(index.readSeries(record, field));
+  EXPECT_TRUE(field.empty());
+}
+
+TEST(LibraryIndexFile, BrowserCacheHandlesMaximumFieldsAndSwitchingRows) {
+  library::ClixHeader header{};
+  std::memcpy(header.magic, library::CLIX_MAGIC, sizeof(header.magic));
+  header.formatVersion = library::CLIX_FORMAT_VERSION;
+  header.foldVersion = library::CLIX_FOLD_VERSION;
+  header.bookCount = 2;
+  std::vector<uint8_t> blob;
+  std::vector<library::ClixRecord> records(2);
+  for (size_t row = 0; row < records.size(); ++row) {
+    records[row].nameOff = blob.size();
+    records[row].nameLen = 255;
+    blob.insert(blob.end(), 8, 0);
+    blob.insert(blob.end(), 255, 'n' + row);
+    for (uint8_t field = 0; field < 5; ++field) {
+      blob.push_back(255);
+      blob.insert(blob.end(), 255, 'a' + field + row);
+    }
+    blob.insert(blob.end(), 4, 0);  // Series position.
+  }
+  library::layoutSections(header, 0, blob.size());
+  std::vector<uint8_t> bytes(header.selfSize, 0);
+  std::memcpy(bytes.data(), &header, sizeof(header));
+  std::memcpy(bytes.data() + header.nameStart, blob.data(), blob.size());
+  std::memcpy(bytes.data() + library::recordOffset(header, 0), records.data(), records.size() * sizeof(records[0]));
+  Storage.setFile("/max.clx", std::move(bytes));
+  library::LibraryIndexFile index(true);
+  ASSERT_TRUE(index.open("/max.clx"));
+  for (uint16_t row : {0, 1, 0}) {
+    library::ClixRecord record{};
+    ASSERT_TRUE(index.readRecord(row, record));
+    std::string title, author, field;
+    ASSERT_TRUE(index.readDisplayText(record, title, author));
+    EXPECT_EQ(title, std::string(255, 'b' + row));
+    EXPECT_EQ(author, std::string(255, 'a' + row));
+    ASSERT_TRUE(index.readSourceAuthor(record, field));
+    EXPECT_EQ(field, std::string(255, 'c' + row));
+    ASSERT_TRUE(index.readSeries(record, field));
+    EXPECT_EQ(field, std::string(255, 'd' + row));
+    ASSERT_TRUE(index.readGenre(record, field));
+    EXPECT_EQ(field, std::string(255, 'e' + row));
+    ASSERT_TRUE(index.readName(record, field));
+    EXPECT_EQ(field, std::string(255, 'n' + row));
+  }
 }

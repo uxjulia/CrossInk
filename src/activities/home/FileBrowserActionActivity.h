@@ -31,6 +31,8 @@ enum class FileBrowserAction : int {
   Rename = 18,
   ReadingStats = 19,
   ToggleBookStatsTracking = 20,
+  UploadFolderProgress = 21,
+  SyncProgress = 22,
 };
 
 class FileBrowserActionActivity final : public Activity {

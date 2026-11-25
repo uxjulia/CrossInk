@@ -28,9 +28,10 @@ struct CrossPointPosition {
  * KOReader position representation.
  */
 struct KOReaderPosition {
-  std::string xpath;  // XPath-like progress string
-  float percentage;   // Progress percentage (0.0 to 1.0)
-  bool valid = true;  // False when an exact requested coordinate mapping is unavailable
+  std::string xpath;                 // XPath-like progress string
+  float percentage;                  // Progress percentage (0.0 to 1.0)
+  bool valid = true;                 // False when an exact requested coordinate mapping is unavailable
+  bool needsReoptimization = false;  // Source-document mapping is missing or unusable
 };
 
 enum class PositionCoordinateSpace : uint8_t {
@@ -44,9 +45,8 @@ enum class PositionCoordinateSpace : uint8_t {
  * CrossPoint tracks position as (spineIndex, pageNumber).
  * KOReader uses XPath-like strings + percentage.
  *
- * Since CrossPoint discards HTML structure during parsing, we generate
- * synthetic XPath strings based on spine index, using percentage as the
- * primary sync mechanism.
+ * Outgoing positions retain the chapter's HTML ancestry. If structural
+ * resolution fails, the position is invalid and must not be uploaded.
  */
 class ProgressMapper {
  public:
@@ -90,14 +90,6 @@ class ProgressMapper {
    *         should fall back to toCrossPoint().
    */
   static std::optional<CrossPointPosition> fromRichPosition(const std::shared_ptr<Epub>& epub,
-                                                            const KOReaderRichPosition& rich, GfxRenderer& renderer);
-
- private:
-  /**
-   * Generate a fallback XPath by streaming the spine item's XHTML and resolving
-   * a paragraph/text position from intra-spine progress.
-   * Produces a full ancestry path such as
-   * /body/DocFragment[3]/body/p[42]/text().17.
-   */
-  static std::string generateXPath(const std::shared_ptr<Epub>& epub, int spineIndex, float intraSpineProgress);
+                                                            const KOReaderRichPosition& rich, GfxRenderer& renderer,
+                                                            const char* sectionCacheSuffix);
 };

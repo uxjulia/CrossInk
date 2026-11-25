@@ -14,10 +14,10 @@ inline void formatReaderBookProgress(char* buffer, size_t size, uint32_t chapter
   if (size == 0) return;
   const int percent = std::clamp(bookPercent, 0, 100);
   if (chapterPageCount > 0) {
-    std::snprintf(buffer, size, "%s%s%lu/%lu%s%s%d%%", tr(STR_CHAPTER_PREFIX), chapterPageCountEstimated ? "~" : "",
+    std::snprintf(buffer, size, "%s: %s%lu/%lu%s%s: %d%%", tr(STR_CHAPTER), chapterPageCountEstimated ? "~" : "",
                   static_cast<unsigned long>(std::min(chapterPage, chapterPageCount)),
-                  static_cast<unsigned long>(chapterPageCount), tr(STR_PAGES_SEPARATOR), tr(STR_BOOK_PREFIX), percent);
+                  static_cast<unsigned long>(chapterPageCount), tr(STR_PAGES_SEPARATOR), tr(STR_BOOK), percent);
   } else {
-    std::snprintf(buffer, size, "%s%d%%", tr(STR_BOOK_PREFIX), percent);
+    std::snprintf(buffer, size, "%s: %d%%", tr(STR_BOOK), percent);
   }
 }

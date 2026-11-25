@@ -2,6 +2,7 @@
 
 #include <AppCapabilities.h>
 #include <Epub/Page.h>
+#include <Epub/WordSpacing.h>
 #include <GfxRenderer.h>
 #include <Utf8.h>
 
@@ -10,6 +11,9 @@
 #include <cstdint>
 #include <cstring>
 #include <limits>
+#include <optional>
+
+#include "ReaderRuling.h"
 
 template <size_t TextCapacity, size_t WordCapacity, size_t LineCapacity, bool KeepSourceBlocks>
 class ReaderPreviewModel {
@@ -24,8 +28,7 @@ class ReaderPreviewModel {
     clear();
     sourceXOffset = xOffset;
     sourceYOffset = yOffset;
-    sourceLineHeightPixels =
-        static_cast<int16_t>(std::max(1, (renderer.getLineHeight(fontId) * lineHeightPercent + 50) / 100));
+    sourceLineHeightPixels = std::max(1, (renderer.getLineHeight(fontId) * lineHeightPercent + 50) / 100);
     bool previousElementWasLine = false;
     bool previousLineEndedWithInsertedHyphen = false;
     uint16_t previousLineLastWord = 0;
@@ -39,6 +42,7 @@ class ReaderPreviewModel {
       const auto& pageLine = static_cast<const PageLine&>(*element);
       const auto& block = pageLine.getBlock();
       if (!block) continue;
+      characterSpacing = block->getCharacterSpacing();
       if (wordCount + block->wordCount() > words.size()) break;
 
       size_t blockTextSize = 0;
@@ -49,7 +53,7 @@ class ReaderPreviewModel {
 
       Line& line = lines[lineCount++];
       line.x = pageLine.xPos;
-      line.y = pageLine.yPos;
+      line.y = pageLine.yPos - block->getBlockStyle().ruledTextOffset;
       if constexpr (KeepSourceBlocks) line.sourceBlock = block;
       line.firstWord = wordCount;
       line.wordCount = block->wordCount();
@@ -68,6 +72,9 @@ class ReaderPreviewModel {
         word.textOffset = textSize;
         word.x = block->wordXpos(i);
         word.style = block->wordStyle(i);
+        word.hidden = block->wordHidden(i);
+        word.blackBackground = (block->wordFlags(i) & TextBlock::WORD_FLAG_BACKGROUND_BLACK) != 0;
+        word.backgroundSpace = block->wordBackgroundSpace(i);
         word.focusBoundary = block->focusBoundary(i);
         word.hasSpaceBefore = block->wordHasSpaceBefore(i);
         word.mayBreakBefore = word.hasSpaceBefore;
@@ -89,7 +96,7 @@ class ReaderPreviewModel {
           const Word& previous = words[wordCount - 2];
           const int attachedX = previous.x + wordAdvance(renderer, fontId, previous, previous.focusBoundary != 0) +
                                 renderer.getKerning(fontId, lastCodepoint(wordText(previous)),
-                                                    firstCodepoint(wordText(word)), previous.style);
+                                                    firstCodepoint(wordText(word)), previous.style, characterSpacing);
           // Some blocks do not report every visible word gap. Recover one
           // only when the rendered source positions prove it was present.
           word.hasSpaceBefore = word.x > attachedX || block->guideDotXOffset(i - 1) > 0;
@@ -143,7 +150,9 @@ class ReaderPreviewModel {
   void renderText(const GfxRenderer& renderer, const int fontId, const int xOffset, const int yOffset,
                   const int contentWidth, const uint8_t lineHeightPercent, const uint8_t wordSpacing,
                   const uint8_t paragraphAlignment, const bool focusReadingEnabled, const bool guideReadingEnabled,
-                  const bool foregroundBlack, const int bottom = std::numeric_limits<int>::max()) const {
+                  const bool foregroundBlack, const int bottom = std::numeric_limits<int>::max(),
+                  const int8_t spacing = 0, const uint8_t ruledLines = 0) const {
+    characterSpacing = spacing;
     if (!valid()) return;
     if constexpr (!KeepSourceBlocks) {
       if (renderer.isFontCacheScanning()) {
@@ -153,14 +162,23 @@ class ReaderPreviewModel {
           drawWord(renderer, fontId, xOffset, yOffset, words[index], focusReadingEnabled, foregroundBlack);
         }
         // Spaces are measured between words even though they are not drawn.
-        renderer.drawText(fontId, xOffset, yOffset, " ", foregroundBlack, EpdFontFamily::REGULAR);
+        renderer.drawText(fontId, xOffset, yOffset, " ", foregroundBlack, EpdFontFamily::REGULAR,
+                          BidiUtils::BidiBaseDir::AUTO, characterSpacing);
         if (guideReadingEnabled) {
-          renderer.drawText(fontId, xOffset, yOffset, GUIDE_DOT_UTF8, foregroundBlack, EpdFontFamily::REGULAR);
+          renderer.drawText(fontId, xOffset, yOffset, GUIDE_DOT_UTF8, foregroundBlack, EpdFontFamily::REGULAR,
+                            BidiUtils::BidiBaseDir::AUTO, characterSpacing);
         }
         return;
       }
     }
-    const int currentLineHeight = std::max(1, (renderer.getLineHeight(fontId) * lineHeightPercent + 50) / 100);
+    const int fontHeight = renderer.getLineHeight(fontId);
+    const int currentLineHeight = std::max(1, (fontHeight * lineHeightPercent + 50) / 100);
+    const ReaderRuling ruling{ruledLines, xOffset, contentWidth, bottom, lineHeightPercent};
+    const bool drawRules = ruling.enabled(renderer);
+    std::optional<int> pendingRule;
+    const auto flushRule = [&]() {
+      if (pendingRule) ruling.draw(renderer, *pendingRule);
+    };
     int y = firstLineY + yOffset;
     for (size_t paragraphStart = 0; paragraphStart < lineCount;) {
       size_t paragraphEnd = paragraphStart + 1;
@@ -184,23 +202,55 @@ class ReaderPreviewModel {
                      guideReadingEnabled);
       prepareLineBreaks(firstWord, paragraphWordEnd, availableWidth, previewFirstLineIndent(line, alignment));
       while (wordIndex < paragraphWordEnd) {
-        if (bottom != std::numeric_limits<int>::max() && y + renderer.getTextHeight(fontId) > bottom) return;
+        if (!ruledLines && bottom != std::numeric_limits<int>::max() && y + renderer.getTextHeight(fontId) > bottom) {
+          flushRule();
+          return;
+        }
         const int firstLineIndent = firstPreviewLine ? previewFirstLineIndent(line, alignment) : 0;
         const uint16_t lineEnd = nextBreak[wordIndex];
-        renderReflowedLine(renderer, fontId, wordIndex, lineEnd, y, availableLeft, availableWidth, firstLineIndent,
-                           alignment, lineEnd == paragraphWordEnd, wordSpacing, focusReadingEnabled,
+        RuledLineLayout row{currentLineHeight, 0};
+        if (ruledLines) {
+          RuledLineLayout::Ink ink;
+          for (uint16_t i = wordIndex; i < lineEnd; ++i) {
+            drawWord(renderer, fontId, 0, 0, words[i], focusReadingEnabled, foregroundBlack, &ink);
+          }
+          const auto& lastWord = words[lineEnd - 1];
+          if (lineEnd < paragraphWordEnd && lastWord.insertedHyphenAfter) {
+            const auto hyphen = renderer.getTextVerticalBounds(fontId, "-", lastWord.style);
+            ink.include(hyphen.top, hyphen.bottom);
+          }
+          if (guideReadingEnabled && std::any_of(words.begin() + wordIndex + 1, words.begin() + lineEnd,
+                                                 [](const Word& word) { return word.hasSpaceBefore; })) {
+            const auto dot = renderer.getTextVerticalBounds(fontId, GUIDE_DOT_UTF8);
+            ink.include(dot.top, dot.bottom);
+          }
+          row = RuledLineLayout::center(renderer, fontId, currentLineHeight, ink);
+          if (y + row.height > bottom) {
+            flushRule();
+            return;
+          }
+        }
+        renderReflowedLine(renderer, fontId, wordIndex, lineEnd, y + row.offset, availableLeft, availableWidth,
+                           firstLineIndent, alignment, lineEnd == paragraphWordEnd, wordSpacing, focusReadingEnabled,
                            guideReadingEnabled, foregroundBlack);
+        if (drawRules) {
+          flushRule();
+          pendingRule = y + row.height;
+        }
         wordIndex = lineEnd;
         firstPreviewLine = false;
-        y += currentLineHeight;
+        y += row.height;
       }
 
       if (paragraphEnd < lineCount) {
-        const int sourceGap = lines[paragraphEnd].y - lines[paragraphEnd - 1].y - sourceLineHeightPixels;
+        const int sourceGap = lines[paragraphEnd].y - lines[paragraphEnd - 1].y -
+                              (lines[paragraphEnd - 1].style.lineHeight ? lines[paragraphEnd - 1].style.lineHeight
+                                                                        : sourceLineHeightPixels);
         if (sourceGap > 0) y += sourceGap * currentLineHeight / std::max(1, static_cast<int>(sourceLineHeightPixels));
       }
       paragraphStart = paragraphEnd;
     }
+    flushRule();
   }
 
   // Keep the source blocks alive so unchanged settings use the reader's exact
@@ -208,19 +258,30 @@ class ReaderPreviewModel {
   // TextBlock::render writes pixels through the renderer, so this must remain
   // a mutable reference despite cppcheck not seeing that dependency.
   // cppcheck-suppress constParameterReference
-  void renderSource(GfxRenderer& renderer, const int fontId, const bool foregroundBlack) const {
+  void renderSource(GfxRenderer& renderer, const int fontId, const bool foregroundBlack,
+                    const ReaderRuling& ruling = {}) const {
     if (!valid()) return;
     if constexpr (KeepSourceBlocks) {
       for (size_t i = 0; i < lineCount; ++i) {
         const auto& line = lines[i];
-        line.sourceBlock->render(renderer, fontId, sourceXOffset + line.x, sourceYOffset + line.y, foregroundBlack);
+        line.sourceBlock->render(renderer, fontId, sourceXOffset + line.x,
+                                 sourceYOffset + line.y + line.style.ruledTextOffset, foregroundBlack);
+      }
+      if (ruling.enabled(renderer)) {
+        for (size_t i = 0; i < lineCount; ++i) {
+          const auto& line = lines[i];
+          ruling.drawBlock(renderer, *line.sourceBlock, fontId, sourceYOffset + line.y + line.style.ruledTextOffset);
+        }
       }
     }
   }
 
+  int sourceLeft() const { return sourceXOffset; }
+
   bool valid() const { return hasBaseline && lineCount > 0 && wordCount > 0; }
 
  private:
+  mutable int8_t characterSpacing = 0;
   struct Word {
     uint16_t textOffset = 0;
     int16_t x = 0;
@@ -228,7 +289,10 @@ class ReaderPreviewModel {
     uint8_t focusBoundary = 0;
     bool hasSpaceBefore = false;
     bool mayBreakBefore = false;
-    bool insertedHyphenAfter = false;
+    bool insertedHyphenAfter : 1 = false;
+    bool hidden : 1 = false;
+    bool blackBackground : 1 = false;
+    bool backgroundSpace : 1 = false;
   };
 
   struct Line {
@@ -265,7 +329,8 @@ class ReaderPreviewModel {
   const char* wordText(const Word& word) const { return text.data() + word.textOffset; }
 
   bool startsNewParagraph(const Line& previous, const Line& current, const TextBlock& currentBlock) const {
-    if (current.y <= previous.y || current.y - previous.y > sourceLineHeightPixels + 1) {
+    if (current.y <= previous.y ||
+        current.y - previous.y > (previous.style.lineHeight ? previous.style.lineHeight : sourceLineHeightPixels) + 1) {
       return true;
     }
     const bool naturallyAligned = current.style.alignment == CssTextAlign::None ||
@@ -306,7 +371,8 @@ class ReaderPreviewModel {
       insertedHyphenExtra[index] =
           words[index].insertedHyphenAfter
               ? boundedMetric(wordAdvance(renderer, fontId, words[index], focusEnabled, '-') +
-                              renderer.getTextAdvanceX(fontId, "-", words[index].style) - measuredAdvance[index])
+                              renderer.getTextAdvanceX(fontId, "-", words[index].style, 0, characterSpacing) -
+                              measuredAdvance[index])
               : 0;
     }
   }
@@ -380,21 +446,27 @@ class ReaderPreviewModel {
       if (wordIndex > firstWord) {
         const Word& previous = words[wordIndex - 1];
         const int gap = measuredGap[wordIndex];
-        if (guideReadingEnabled && word.hasSpaceBefore) {
-          const int extra = wordSpacingExtra(wordSpacing);
+        const int fullGap = gap + wordJustifySlots(word, guideReadingEnabled) * justifyExtra;
+        if (word.backgroundSpace && previous.blackBackground && word.blackBackground &&
+            renderer.getRenderMode() == GfxRenderer::BW && !renderer.isFontCacheScanning())
+          renderer.fillRect(wordX, y, fullGap, renderer.getLineHeight(fontId), foregroundBlack);
+        if (guideReadingEnabled && word.hasSpaceBefore && !word.hidden) {
+          const int extra = WordSpacing::extra(renderer.getSpaceAdvance(fontId, lastCodepoint(wordText(previous)),
+                                                                        firstCodepoint(wordText(word)), previous.style),
+                                               wordSpacing);
           const int firstGap =
               renderer.getSpaceAdvance(fontId, lastCodepoint(wordText(previous)), GUIDE_DOT_CODEPOINT, previous.style);
           renderer.drawText(fontId, wordX + firstGap + extra / 2, y, GUIDE_DOT_UTF8, foregroundBlack,
-                            EpdFontFamily::REGULAR);
+                            EpdFontFamily::REGULAR, BidiUtils::BidiBaseDir::AUTO, characterSpacing);
         }
-        wordX += gap + wordJustifySlots(word, guideReadingEnabled) * justifyExtra;
+        wordX += fullGap;
       }
       drawWord(renderer, fontId, wordX, y, word, focusEnabled, foregroundBlack);
       wordX += measuredAdvance[wordIndex];
-      if (wordIndex + 1 == lineEnd && !isLastLine && word.insertedHyphenAfter) {
+      if (wordIndex + 1 == lineEnd && !isLastLine && word.insertedHyphenAfter && !word.hidden) {
         renderer.drawText(fontId,
                           wordX + wordAdvance(renderer, fontId, word, focusEnabled, '-') - measuredAdvance[wordIndex],
-                          y, "-", foregroundBlack, word.style);
+                          y, "-", foregroundBlack, word.style, BidiUtils::BidiBaseDir::AUTO, characterSpacing);
         wordX += insertedHyphenExtra[wordIndex];
       }
     }
@@ -452,17 +524,15 @@ class ReaderPreviewModel {
     const char* value = wordText(word);
     const uint8_t boundary = resolvedFocusBoundary(word, focusEnabled);
     if (boundary == 0 || boundary >= std::strlen(value))
-      return renderer.getTextAdvanceX(fontId, value, word.style, nextCodepoint);
+      return renderer.getTextAdvanceX(fontId, value, word.style, nextCodepoint, characterSpacing);
     char prefix[40];
     const size_t length = std::min<size_t>({static_cast<size_t>(boundary), sizeof(prefix) - 1, std::strlen(value)});
     std::memcpy(prefix, value, length);
     prefix[length] = '\0';
     const auto boldStyle = static_cast<EpdFontFamily::Style>(word.style | EpdFontFamily::BOLD);
-    return renderer.getTextAdvanceX(fontId, prefix, boldStyle, firstCodepoint(value + length)) +
-           renderer.getTextAdvanceX(fontId, value + length, word.style, nextCodepoint);
+    return renderer.getTextAdvanceX(fontId, prefix, boldStyle, firstCodepoint(value + length), characterSpacing) +
+           renderer.getTextAdvanceX(fontId, value + length, word.style, nextCodepoint, characterSpacing);
   }
-
-  static int wordSpacingExtra(const uint8_t wordSpacing) { return std::min<uint8_t>(wordSpacing, 4) * 10; }
 
   static bool isClosingPunctuation(const uint32_t codepoint) {
     switch (codepoint) {
@@ -546,22 +616,44 @@ class ReaderPreviewModel {
               const uint8_t wordSpacing, const bool guideReadingEnabled) const {
     const uint32_t leftCodepoint = lastCodepoint(wordText(left));
     const uint32_t rightCodepoint = firstCodepoint(wordText(right));
-    if (!right.hasSpaceBefore) return renderer.getKerning(fontId, leftCodepoint, rightCodepoint, left.style);
-    const int extra = wordSpacingExtra(wordSpacing);
+    if (!right.hasSpaceBefore)
+      return renderer.getKerning(fontId, leftCodepoint, rightCodepoint, left.style, characterSpacing);
+    const int extra =
+        WordSpacing::extra(renderer.getSpaceAdvance(fontId, leftCodepoint, rightCodepoint, left.style), wordSpacing);
     if (!guideReadingEnabled) {
       return renderer.getSpaceAdvance(fontId, leftCodepoint, rightCodepoint, left.style) + extra;
     }
     return renderer.getSpaceAdvance(fontId, leftCodepoint, GUIDE_DOT_CODEPOINT, left.style) +
-           renderer.getTextAdvanceX(fontId, GUIDE_DOT_UTF8, EpdFontFamily::REGULAR) +
+           renderer.getTextAdvanceX(fontId, GUIDE_DOT_UTF8, EpdFontFamily::REGULAR, 0, characterSpacing) +
            renderer.getSpaceAdvance(fontId, GUIDE_DOT_CODEPOINT, rightCodepoint, EpdFontFamily::REGULAR) + extra;
   }
 
   void drawWord(const GfxRenderer& renderer, const int fontId, const int x, const int y, const Word& word,
-                const bool focusEnabled, const bool foregroundBlack) const {
+                const bool focusEnabled, const bool foregroundBlack, RuledLineLayout::Ink* ink = nullptr) const {
+    const auto draw = [&](int id, int left, int top, const char* text, bool black, EpdFontFamily::Style style,
+                          BidiUtils::BidiBaseDir dir, int8_t spacing) {
+      if (ink) {
+        const auto bounds = renderer.getTextVerticalBounds(id, text, style, dir, spacing);
+        ink->include(bounds.top, bounds.bottom);
+        ink->observeText(text);
+      } else
+        renderer.drawText(id, left, top, text, black, style, dir, spacing);
+    };
+    if (word.blackBackground && !renderer.isFontCacheScanning()) {
+      if (ink)
+        ink->include(0, renderer.getLineHeight(fontId));
+      else if (renderer.getRenderMode() == GfxRenderer::BW)
+        renderer.fillRect(x, y, wordAdvance(renderer, fontId, word, focusEnabled), renderer.getLineHeight(fontId),
+                          foregroundBlack);
+      else
+        return;
+    }
+    if (word.hidden && !renderer.isFontCacheScanning()) return;
+    const bool textBlack = word.blackBackground ? !foregroundBlack : foregroundBlack;
     const char* value = wordText(word);
     const uint8_t boundary = resolvedFocusBoundary(word, focusEnabled);
     if (boundary == 0 || boundary >= std::strlen(value)) {
-      renderer.drawText(fontId, x, y, value, foregroundBlack, word.style);
+      draw(fontId, x, y, value, textBlack, word.style, BidiUtils::BidiBaseDir::AUTO, characterSpacing);
       return;
     }
     char prefix[40];
@@ -569,9 +661,10 @@ class ReaderPreviewModel {
     std::memcpy(prefix, value, length);
     prefix[length] = '\0';
     const auto boldStyle = static_cast<EpdFontFamily::Style>(word.style | EpdFontFamily::BOLD);
-    renderer.drawText(fontId, x, y, prefix, foregroundBlack, boldStyle);
-    renderer.drawText(fontId, x + renderer.getTextAdvanceX(fontId, prefix, boldStyle, firstCodepoint(value + length)),
-                      y, value + length, foregroundBlack, word.style);
+    draw(fontId, x, y, prefix, textBlack, boldStyle, BidiUtils::BidiBaseDir::AUTO, characterSpacing);
+    draw(fontId,
+         x + renderer.getTextAdvanceX(fontId, prefix, boldStyle, firstCodepoint(value + length), characterSpacing), y,
+         value + length, textBlack, word.style, BidiUtils::BidiBaseDir::AUTO, characterSpacing);
   }
 
   void clear() {

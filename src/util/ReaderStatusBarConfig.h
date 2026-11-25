@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <numeric>
 
 enum class ReaderStatusBarPosition : uint8_t { Top, Bottom };
 
@@ -24,6 +25,7 @@ enum class ReaderStatusBarItem : uint8_t {
   TitleBook,
   TitleChapter,
   Date,
+  ChapterProgressPercentage,
   Count,
 };
 
@@ -32,6 +34,19 @@ constexpr bool validReaderStatusBarItemValue(const int value, const bool clockAv
          ((value != static_cast<int>(ReaderStatusBarItem::Clock) &&
            value != static_cast<int>(ReaderStatusBarItem::Date)) ||
           clockAvailable);
+}
+
+// How a Battery slot renders. Values are persisted; keep them stable.
+enum class ReaderStatusBarBatteryStyle : uint8_t { IconAndPercent = 0, IconOnly, PercentOnly, Count };
+
+// Glyph joining items when a bar is centered. Values are persisted; keep them stable.
+enum class ReaderStatusBarSeparator : uint8_t { Bullet = 0, Dash, Pipe, MiddleDot, Count };
+
+// Flash-resident glyphs: bullet U+2022, en dash U+2013, vertical bar, middle dot U+00B7.
+inline const char* readerStatusBarSeparatorGlyph(const ReaderStatusBarSeparator separator) {
+  static const char* const GLYPHS[] = {"\xE2\x80\xA2", "\xE2\x80\x93", "|", "\xC2\xB7"};
+  const auto index = static_cast<unsigned>(separator);
+  return index < sizeof(GLYPHS) / sizeof(GLYPHS[0]) ? GLYPHS[index] : GLYPHS[0];
 }
 
 constexpr bool validReaderStatusBarChoice(const int value, const int optionCount) {
@@ -55,6 +70,10 @@ struct ReaderStatusBarConfig {
   uint8_t percentageFormat = 0;
   uint8_t progressBar = 2;
   uint8_t progressBarThickness = 1;
+  ReaderStatusBarBatteryStyle batteryStyle = ReaderStatusBarBatteryStyle::IconAndPercent;
+  bool hidden = false;
+  bool centered = false;
+  ReaderStatusBarSeparator separator = ReaderStatusBarSeparator::Bullet;
 
   constexpr bool contains(ReaderStatusBarItem item) const {
     return std::any_of(slots.begin(), slots.end(), [item](const auto slot) { return slot == item; });
@@ -68,6 +87,16 @@ struct ReaderStatusBarConfig {
   }
 };
 
+inline ReaderStatusBarConfig xtcStatusBarConfigForDisplay(const ReaderStatusBarPosition displayed,
+                                                          const bool legacyTopUsesBottom,
+                                                          const ReaderStatusBarConfig& top,
+                                                          const ReaderStatusBarConfig& bottom) {
+  auto config =
+      xtcStatusBarConfigPosition(displayed, legacyTopUsesBottom) == ReaderStatusBarPosition::Top ? top : bottom;
+  config.hidden = displayed == ReaderStatusBarPosition::Top ? top.hidden : bottom.hidden;
+  return config;
+}
+
 constexpr bool validDisplayStatusBarItemValue(const int value, const bool clockAvailable) {
   return value == static_cast<int>(ReaderStatusBarItem::Empty) ||
          (clockAvailable && (value == static_cast<int>(ReaderStatusBarItem::Clock) ||
@@ -78,10 +107,12 @@ constexpr bool validDisplayStatusBarItemValue(const int value, const bool clockA
 struct DisplayStatusBarConfig {
   std::array<ReaderStatusBarItem, 3> slots{ReaderStatusBarItem::Empty, ReaderStatusBarItem::Empty,
                                            ReaderStatusBarItem::Battery};
+  ReaderStatusBarBatteryStyle batteryStyle = ReaderStatusBarBatteryStyle::IconAndPercent;
 
   ReaderStatusBarConfig asReaderConfig() const {
     ReaderStatusBarConfig config;
     config.progressBar = 2;
+    config.batteryStyle = batteryStyle;
     config.slots[ReaderStatusBarConfig::LEFT_FIRST] = slots[0];
     config.slots[ReaderStatusBarConfig::CENTER] = slots[1];
     config.slots[ReaderStatusBarConfig::RIGHT_FIRST] = slots[2];
@@ -205,5 +236,71 @@ inline ReaderStatusBarGeometry layoutReaderStatusBarItems(
   }
   result.centerLeft = std::clamp(leftX + (hasLeft ? gap : 0), leftEdge, rightEdge);
   result.centerRight = std::clamp(rightEdge - rightWidth - (rightWidth > 0 ? gap : 0), result.centerLeft, rightEdge);
+  return result;
+}
+
+struct CenteredReaderStatusBarGeometry {
+  std::array<int, ReaderStatusBarConfig::SLOT_COUNT> x{};
+  std::array<int, ReaderStatusBarConfig::SLOT_COUNT> widths{};  // Trimmed widths.
+  // Separator i sits between the i-th and (i+1)-th drawn items, in slot order.
+  std::array<int, ReaderStatusBarConfig::SLOT_COUNT - 1> separatorX{};
+  int separatorCount = 0;
+  int totalWidth = 0;
+};
+
+// Lays out every non-empty slot as one group centered on centerX, with a separator
+// between consecutive items. Overflow trims the widest items first.
+inline CenteredReaderStatusBarGeometry layoutCenteredReaderStatusBarItems(
+    const int leftEdge, const int rightEdge, const int centerX,
+    const std::array<int, ReaderStatusBarConfig::SLOT_COUNT>& widths, const int separatorWidth,
+    const int bookmarkReserve = 0, const int separatorGap = 6) {
+  CenteredReaderStatusBarGeometry result;
+  result.widths = widths;
+  int count = 0;
+  int sum = 0;
+  for (auto& w : result.widths) {
+    if (w < 0) w = 0;
+    if (w > 0) ++count;
+    sum += w;
+  }
+  if (count == 0) return result;
+
+  const int joinCost = separatorWidth + 2 * separatorGap;
+  const int minX = leftEdge + std::max(0, bookmarkReserve);
+  const int available = std::max(0, rightEdge - minX);
+  const int budget = std::max(0, available - (count - 1) * joinCost);
+  if (sum > budget) {
+    int low = 0;
+    int high = budget;
+    while (low < high) {
+      const int cap = low + (high - low + 1) / 2;
+      const int used = std::accumulate(result.widths.begin(), result.widths.end(), 0,
+                                       [cap](int total, int width) { return total + std::min(width, cap); });
+      if (used <= budget)
+        low = cap;
+      else
+        high = cap - 1;
+    }
+    sum = 0;
+    for (auto& w : result.widths) {
+      w = std::min(w, low);
+      sum += w;
+    }
+  }
+
+  const int total = (count - 1) * joinCost + sum;
+  result.totalWidth = total;
+  int cursor = std::max(minX, std::min(centerX - total / 2, rightEdge - total));
+  bool placedAny = false;
+  for (unsigned i = 0; i < ReaderStatusBarConfig::SLOT_COUNT; ++i) {
+    if (result.widths[i] <= 0) continue;
+    if (placedAny) {
+      result.separatorX[result.separatorCount++] = cursor + separatorGap;
+      cursor += joinCost;
+    }
+    result.x[i] = cursor;
+    cursor += result.widths[i];
+    placedAny = true;
+  }
   return result;
 }

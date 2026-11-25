@@ -18,7 +18,11 @@ def function(text, signature):
     return text[start:end] + '\n'
 
 
-parts = [function(source, signature) for signature in (
+validation = (ROOT / 'src/FontFileValidation.cpp').read_text()
+checkpoint = '\n'.join(line for line in (ROOT / 'lib/FsHelpers/TransferWriteCheckpoint.h').read_text().splitlines()
+                        if not line.startswith('#include ') and line != '#pragma once')
+parts = [checkpoint, function(validation, 'bool FontInstaller::finishUpload(')]
+parts += [function(source, signature) for signature in (
     'bool CrossPointWebServer::dropUploadIfCancelled()',
     'void CrossPointWebServer::abortUpload(',
     'void CrossPointWebServer::abortFontUpload()',
@@ -44,4 +48,4 @@ with tempfile.TemporaryDirectory(prefix='crossink-upload-cancel-') as tmp:
                     '-fsanitize=address,undefined', '-I' + str(root),
                     str(ROOT / 'test/upload_cancellation/UploadCancellationTest.cpp'), '-o', str(executable)], check=True)
     subprocess.run([str(executable)], check=True)
-print('PASS: book/font uploads, chunk/final cancellation, late END/ABORTED, cleanup and latched exit input')
+print('PASS: book/font uploads, chunk/final cancellation, late END/ABORTED, cleanup, write/sync/close failures and latched exit input')

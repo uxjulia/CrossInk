@@ -36,6 +36,8 @@ h2 {
     }
 .status-bar-preview-items span:nth-child(2) { text-align: center; }
 .status-bar-preview-items span:nth-child(3) { text-align: right; }
+.status-bar-preview-centered { display: block; text-align: center; }
+.status-bar-preview-centered span { text-overflow: clip; }
 .status-bar-preview-progress {
       height: 3px;
       margin: 3px 0;
@@ -253,3 +255,14 @@ h2 {
         width: unset;
       }
     }
+
+/* OPDS folder controls also fit narrow mobile screens. */
+#opds-container [hidden] { display: none !important; }
+.opds-destination { overflow-wrap: anywhere; margin: 10px 0; }
+.opds-folder-hint { color: var(--label-color); margin: 8px 0 20px; }
+@media (max-width: 540px) {
+  #opds-container .setting-row { flex-direction: column; align-items: stretch; gap: 6px; }
+  #opds-container .setting-control { min-width: 0; }
+  #opds-container .setting-control input,
+  #opds-container .setting-control select { box-sizing: border-box; width: 100%; max-width: 100%; }
+}

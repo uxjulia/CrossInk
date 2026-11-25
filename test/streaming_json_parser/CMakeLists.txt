@@ -1,9 +1,10 @@
 add_executable(StreamingJsonParserTest
   StreamingJsonParserTest.cpp
-  ${REPO_ROOT}/lib/JsonParser/StreamingJsonParser.cpp
+  ${REPO_ROOT}/freeink-sdk/libs/network/JsonSax/src/StreamingJsonParser.cpp
 )
 
 target_include_directories(StreamingJsonParserTest PRIVATE
+  ${REPO_ROOT}/freeink-sdk/libs/network/JsonSax/include
   ${REPO_ROOT}/lib/JsonParser
 )
 

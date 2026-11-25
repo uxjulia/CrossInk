@@ -70,6 +70,10 @@ bool CrossPointState::saveToFile() const {
   std::lock_guard<std::mutex> stateLock(_mutex);
   JsonDocument doc;
   toJson(doc);
+  if (doc.overflowed()) {
+    LOG_ERR("CPS", "Incomplete state snapshot");
+    return false;
+  }
   StateCrcWriter checksum;
   serializeJson(doc, checksum);
   if (lastSavedCrcValid && checksum.crc == lastSavedCrc && Storage.exists(STATE_FILE_JSON)) return true;
@@ -88,13 +92,12 @@ bool CrossPointState::loadFromFile() {
     std::lock_guard<std::mutex> storeLock(storeMutex);
     lastSavedCrcValid = false;
     // Try JSON first. A reload invalidates the remembered on-disk snapshot.
-    if (Storage.exists(STATE_FILE_JSON)) {
-      JsonDocument doc;
-      if (PersistableStoreBase::readDocFromFile(STATE_FILE_JSON, doc)) {
-        std::lock_guard<std::mutex> stateLock(_mutex);
-        return fromJson(doc.as<JsonVariantConst>());
-      }
+    JsonDocument doc;
+    if (PersistableStoreBase::readDocFromFile(STATE_FILE_JSON, doc)) {
+      std::lock_guard<std::mutex> stateLock(_mutex);
+      return fromJson(doc.as<JsonVariantConst>());
     }
+    if (hasStoreFile(STATE_FILE_JSON)) return false;
   }
 
   // Fall back to binary migration
@@ -136,6 +139,8 @@ void CrossPointState::toJson(JsonDocument& doc) const {
   doc["showBootScreen"] = showBootScreen;
   doc["quickLockResumePending"] = quickLockResumePending;
   doc["quickLockRestoreFrontlight"] = quickLockRestoreFrontlight;
+  doc["releaseNotesSeen"] = releaseNotesSeen;
+  doc["releaseNotesUpdateTried"] = releaseNotesUpdateTried;
   doc["pendingOverlayOrigin"] = static_cast<uint8_t>(pendingOverlayResume.origin);
   doc["pendingOverlayType"] = static_cast<uint8_t>(pendingOverlayResume.overlay);
   doc["pendingOverlayTab"] = pendingOverlayResume.tab;
@@ -143,6 +148,8 @@ void CrossPointState::toJson(JsonDocument& doc) const {
   doc["pendingOverlaySelection"] = pendingOverlayResume.selectedIndex;
   doc["pendingOverlayScroll"] = pendingOverlayResume.scrollPosition;
   doc["pendingOverlayBookPath"] = pendingOverlayResume.bookPath;
+  doc["pendingOverlayFileBrowserPath"] = pendingOverlayResume.fileBrowserPath;
+  doc["pendingOverlayLibraryQuery"] = pendingOverlayResume.libraryQuery;
   doc["pendingOverlayReturnHome"] = pendingOverlayResume.returnHomeAfterReaderFlow;
   doc["pendingOverlayReaderOrientation"] = pendingOverlayResume.readerOrientation;
   doc["pendingOverlayPreserveReaderOrientation"] = pendingOverlayResume.preserveReaderOrientation;
@@ -189,14 +196,18 @@ bool CrossPointState::fromJson(JsonVariantConst doc) {
   showBootScreen = doc["showBootScreen"] | true;
   quickLockResumePending = doc["quickLockResumePending"] | false;
   quickLockRestoreFrontlight = doc["quickLockRestoreFrontlight"] | false;
+  releaseNotesSeen = doc["releaseNotesSeen"] | static_cast<uint16_t>(0);
+  releaseNotesUpdateTried = doc["releaseNotesUpdateTried"] | static_cast<uint16_t>(0);
   pendingOverlayResume.origin =
       static_cast<PendingOverlayOrigin>(doc["pendingOverlayOrigin"] | static_cast<uint8_t>(0));
   pendingOverlayResume.overlay = static_cast<PendingOverlayType>(doc["pendingOverlayType"] | static_cast<uint8_t>(0));
   pendingOverlayResume.tab = doc["pendingOverlayTab"] | static_cast<uint8_t>(0);
   pendingOverlayResume.pane = doc["pendingOverlayPane"] | static_cast<uint8_t>(0);
-  pendingOverlayResume.selectedIndex = doc["pendingOverlaySelection"] | static_cast<int16_t>(0);
-  pendingOverlayResume.scrollPosition = doc["pendingOverlayScroll"] | static_cast<int16_t>(0);
+  pendingOverlayResume.selectedIndex = doc["pendingOverlaySelection"] | static_cast<int32_t>(0);
+  pendingOverlayResume.scrollPosition = doc["pendingOverlayScroll"] | static_cast<int32_t>(0);
   pendingOverlayResume.bookPath = doc["pendingOverlayBookPath"] | "";
+  pendingOverlayResume.fileBrowserPath = doc["pendingOverlayFileBrowserPath"] | "";
+  pendingOverlayResume.libraryQuery = doc["pendingOverlayLibraryQuery"] | "";
   pendingOverlayResume.returnHomeAfterReaderFlow = doc["pendingOverlayReturnHome"] | false;
   pendingOverlayResume.readerOrientation = doc["pendingOverlayReaderOrientation"] | static_cast<uint8_t>(0);
   pendingOverlayResume.preserveReaderOrientation = doc["pendingOverlayPreserveReaderOrientation"] | false;

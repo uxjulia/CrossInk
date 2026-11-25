@@ -240,11 +240,15 @@ class HalStorage {
     }
     HalFile file = open(path);
     if (file && (oflag & O_TRUNC) != 0) file.node->bytes.clear();
+    if (file && (oflag & O_APPEND) != 0) file.pos = file.fileSize();
     return file;
   }
   bool openFileForRead(const char*, const char* path, HalFile& file) {
     file = open(path);
     return bool(file);
+  }
+  bool openFileForRead(const char* module, const std::string& path, HalFile& file) {
+    return openFileForRead(module, path.c_str(), file);
   }
   bool openFileForWrite(const char*, const char* path, HalFile& file) {
     fake::add(path, "");

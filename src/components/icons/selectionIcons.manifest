@@ -1,0 +1,7 @@
+# Text selection toolbar icons. Regenerate with:
+#   python3 scripts/generate_icons.py --library lucide \
+#     --manifest src/components/icons/selectionIcons.manifest \
+#     --sizes 24 --stroke-width 2.5 --out src/components/icons/selectionIcons.h
+# then clang-format -i the output.
+selection-lookup = book-open
+selection-clip = scissors

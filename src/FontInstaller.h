@@ -22,7 +22,7 @@ class FontInstaller {
   /// Validate a family name: safe filename chars only, no path traversal.
   static bool isValidFamilyName(const char* name);
 
-  /// Validate a .cpfont filename: ends with ".cpfont", no path separators or
+  /// Validate .cpfont, or .ttf/.otf on scalable-capable devices; no path separators or
   /// traversal sequences, basename uses only safe filename chars. Rejects
   /// "../foo.cpfont" and "evil/foo.cpfont".
   static bool isValidCpfontFilename(const char* name);
@@ -32,8 +32,11 @@ class FontInstaller {
   /// creates it under SdCardFontRegistry::defaultWriteRoot().
   bool ensureFamilyDir(const char* familyName);
 
-  /// Validate a .cpfont file on disk (check magic bytes).
+  /// Validate bitmap magic or a supported static TrueType or CFF face on disk.
   static bool validateCpfontFile(const char* path);
+
+  /// Validate a closed upload; remove failed or partial files.
+  static bool finishUpload(const char* path, bool writesOk);
 
   /// Build the full SD path for a font file.
   /// Writes "/<root>/<family>/<filename>" to outBuf, choosing <root> the same

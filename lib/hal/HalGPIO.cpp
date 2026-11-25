@@ -10,6 +10,8 @@
 
 #include <algorithm>
 
+#include "InputWake.h"
+
 #if FREEINK_MCU_S3
 #include <soc/usb_serial_jtag_reg.h>
 #endif
@@ -172,16 +174,44 @@ void HalGPIO::begin() {
   }
 #endif
   inputMgr.begin();
+  InputWake::begin();
 }
 
+bool HalGPIO::waitForInput(const uint32_t timeoutMs) { return InputWake::wait(timeoutMs, inputMgr); }
+void HalGPIO::startButtonCapture() { InputWake::startCapture(); }
+void HalGPIO::stopButtonCapture() { InputWake::stopCapture(); }
+uint32_t HalGPIO::buttonSampleTime() const { return InputWake::capturing() ? buttonFrame.timestamp : millis(); }
+
+bool HalGPIO::hasPendingButtonInput() const { return InputWake::hasPendingButtons() || inputMgr.isDebouncePending(); }
+
+bool HalGPIO::prepareForDeepSleep() { return inputMgr.prepareForDeepSleep(); }
+
+bool HalGPIO::hasToggleSwitch() const { return inputMgr.hasToggleSwitch(); }
+
+bool HalGPIO::isToggleSwitchOn() const { return inputMgr.isToggleSwitchOn(); }
+
 void HalGPIO::update() {
-  inputMgr.update();
-  if (inputMgr.isDebouncePending()) {
-    // The SDK commits a state change after it remains stable for more than
-    // 5 ms. Re-poll before the low-power loop's next ~100 ms sample so short
-    // physical button presses are not discarded.
-    delay(BUTTON_DEBOUNCE_REPOLL_MS);
+  if (InputWake::capturing()) {
+#if CROSSINK_APP_CAP_TOUCH
+    // Touch remains owned by the main thread. Physical buttons come from the
+    // independent sampler; on C3 this also avoids a second ADC reader.
     inputMgr.update();
+#endif
+    buttonFrame = InputWake::takeFrame();
+    if (buttonFrame.pressed || buttonFrame.released) {
+      LOG_DBG("INPUT", "Buttons @%lu: state=%02x press=%02x release=%02x held=%lu",
+              static_cast<unsigned long>(buttonFrame.timestamp), buttonFrame.state, buttonFrame.pressed,
+              buttonFrame.released, static_cast<unsigned long>(buttonFrame.heldMs));
+    }
+  } else {
+    inputMgr.update();
+    if (inputMgr.isDebouncePending()) {
+      // The SDK commits a state change after it remains stable for more than
+      // 5 ms. Re-poll before the low-power loop's next ~100 ms sample so short
+      // physical button presses are not discarded.
+      delay(BUTTON_DEBOUNCE_REPOLL_MS);
+      inputMgr.update();
+    }
   }
 
   usbStateChanged = false;
@@ -199,19 +229,33 @@ void HalGPIO::update() {
 
 bool HalGPIO::wasUsbStateChanged() const { return usbStateChanged; }
 
-bool HalGPIO::isPressed(uint8_t buttonIndex) const { return inputMgr.isPressed(buttonIndex); }
+bool HalGPIO::isPressed(uint8_t buttonIndex) const {
+  return InputWake::capturing() ? buttonFrame.state & (1u << buttonIndex) : inputMgr.isPressed(buttonIndex);
+}
 
-bool HalGPIO::wasPressed(uint8_t buttonIndex) const { return inputMgr.wasPressed(buttonIndex); }
+bool HalGPIO::wasPressed(uint8_t buttonIndex) const {
+  return InputWake::capturing() ? buttonFrame.pressed & (1u << buttonIndex) : inputMgr.wasPressed(buttonIndex);
+}
 
-bool HalGPIO::wasAnyPressed() const { return inputMgr.wasAnyPressed(); }
+bool HalGPIO::wasAnyPressed() const {
+  return InputWake::capturing() ? buttonFrame.pressed != 0 : inputMgr.wasAnyPressed();
+}
 
-bool HalGPIO::wasReleased(uint8_t buttonIndex) const { return inputMgr.wasReleased(buttonIndex); }
+bool HalGPIO::wasReleased(uint8_t buttonIndex) const {
+  return InputWake::capturing() ? buttonFrame.released & (1u << buttonIndex) : inputMgr.wasReleased(buttonIndex);
+}
 
-bool HalGPIO::wasAnyReleased() const { return inputMgr.wasAnyReleased(); }
+bool HalGPIO::wasAnyReleased() const {
+  return InputWake::capturing() ? buttonFrame.released != 0 : inputMgr.wasAnyReleased();
+}
 
-unsigned long HalGPIO::getHeldTime() const { return inputMgr.getHeldTime(); }
+unsigned long HalGPIO::getHeldTime() const {
+  return InputWake::capturing() ? buttonFrame.heldMs : inputMgr.getHeldTime();
+}
 
-unsigned long HalGPIO::getPowerButtonHeldTime() const { return inputMgr.getPowerButtonHeldTime(); }
+unsigned long HalGPIO::getPowerButtonHeldTime() const {
+  return InputWake::capturing() ? buttonFrame.powerHeldMs : inputMgr.getPowerButtonHeldTime();
+}
 
 #if CROSSINK_APP_CAP_TOUCH
 bool HalGPIO::hasTouch() const { return inputMgr.hasTouch(); }
@@ -282,7 +326,7 @@ bool HalGPIO::wasTouchActivity() const { return inputMgr.wasTouchActivity(); }
 #endif
 
 void HalGPIO::setSharedConfirmPowerShortPressEmitsPower(const bool enabled) {
-  InputManager::setSharedConfirmPowerShortPressEmitsPower(enabled);
+  InputWake::setSharedConfirmPowerShortPressEmitsPower(enabled);
 }
 
 bool HalGPIO::isXteinkDevice() const {
@@ -377,21 +421,29 @@ bool HalGPIO::isUsbConnected() const {
     return digitalRead(BoardConfig::ACTIVE.usbDetect) == HIGH;
   }
 #if FREEINK_MCU_S3
-  // Without a VBUS pin, prefer native-USB host traffic, then use charging as a
-  // fallback for power-only adapters that do not emit USB frames. Charge
-  // termination at 100% can still report disconnected.
+#if !FREEINK_DEVICE_PICCO
+  // Native-USB host traffic is cheap to sample; charging is the fallback for
+  // power-only adapters on boards without input-rail telemetry.
   if (usbHostSofActive()) return true;
+#endif
   static const BatteryMonitor battery;
   static bool sampled = false;
-  static bool charging = false;
+  static bool powerPresent = false;
   static unsigned long lastSampleMs = 0;
   const unsigned long now = millis();
   if (!sampled || now - lastSampleMs >= 500) {
-    charging = battery.isCharging();
+#if FREEINK_DEVICE_PICCO
+    // Rate-limit shared-I2C charger reads, including when the battery is full.
+    bool known = false;
+    powerPresent = battery.isExternalPowerPresent(&known);
+    if (!known) powerPresent = usbHostSofActive() || battery.isCharging();
+#else
+    powerPresent = battery.isCharging();
+#endif
     lastSampleMs = now;
     sampled = true;
   }
-  return charging;
+  return powerPresent;
 #else
   return false;
 #endif

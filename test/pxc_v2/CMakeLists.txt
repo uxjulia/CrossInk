@@ -29,6 +29,17 @@ target_link_libraries(pixel_cache_test PRIVATE gtest_main crosspoint_test_common
 gtest_discover_tests(pixel_cache_test)
 
 add_executable(download_file_swap_test DownloadFileSwapTest.cpp)
-target_include_directories(download_file_swap_test PRIVATE stubs ${REPO_ROOT}/src/network)
+target_include_directories(download_file_swap_test PRIVATE stubs ${REPO_ROOT}/src/network ${REPO_ROOT}/lib/FsHelpers)
 target_link_libraries(download_file_swap_test PRIVATE gtest_main crosspoint_test_common)
 gtest_discover_tests(download_file_swap_test)
+
+add_executable(ZipCentralDirectoryTest ZipCentralDirectoryTest.cpp ${PXC_ROOT}/lib/ZipFile/ZipFile.cpp)
+target_compile_definitions(ZipCentralDirectoryTest PRIVATE ARDUINO_ARCH_ESP32=1 CROSSINK_MEMORY_TEST=1)
+target_include_directories(ZipCentralDirectoryTest PRIVATE stubs ../memory_policy/stubs ${PXC_ROOT}/lib/ZipFile ${PXC_ROOT}/lib/Memory)
+target_link_libraries(ZipCentralDirectoryTest PRIVATE gtest_main crosspoint_test_common)
+gtest_discover_tests(ZipCentralDirectoryTest)
+
+add_executable(PxcHeaderSinkTest PxcHeaderSinkTest.cpp)
+target_include_directories(PxcHeaderSinkTest PRIVATE stubs)
+target_link_libraries(PxcHeaderSinkTest PRIVATE gtest_main crosspoint_test_common)
+gtest_discover_tests(PxcHeaderSinkTest)

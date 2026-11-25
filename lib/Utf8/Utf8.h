@@ -16,6 +16,8 @@ void utf8TruncateChars(std::string& str, size_t numChars);
 // Hangul jamo. Needed because the device fonts have no combining-mark positioning
 // or decomposed Hangul glyphs, so NFD text otherwise renders broken or blank.
 std::string utf8ComposeNfc(const std::string& in);
+// Returns the composed codepoint, or zero when the pair does not compose.
+uint32_t utf8ComposePair(uint32_t base, uint32_t mark);
 
 // Compose a null-terminated display buffer without allocating or growing it.
 // Uncomposed bytes (including malformed UTF-8) are preserved unchanged.
@@ -121,6 +123,26 @@ inline bool utf8IsCjkWordCharacter(const uint32_t cp) {
          || (cp >= 0x20000 && cp <= 0x2EBEF)   // CJK Extensions B-F
          || (cp >= 0x2F800 && cp <= 0x2FA1F)   // CJK Compatibility Ideographs Supplement
          || (cp >= 0x30000 && cp <= 0x323AF);  // CJK Extensions G-H
+}
+
+// Writes cp as UTF-8 (1-4 bytes, no terminator) and returns the position after it.
+inline char* utf8AppendCodepoint(char* output, const uint32_t codepoint) {
+  if (codepoint < 0x80) {
+    *output++ = static_cast<char>(codepoint);
+  } else if (codepoint < 0x800) {
+    *output++ = static_cast<char>(0xC0 | (codepoint >> 6));
+    *output++ = static_cast<char>(0x80 | (codepoint & 0x3F));
+  } else if (codepoint < 0x10000) {
+    *output++ = static_cast<char>(0xE0 | (codepoint >> 12));
+    *output++ = static_cast<char>(0x80 | ((codepoint >> 6) & 0x3F));
+    *output++ = static_cast<char>(0x80 | (codepoint & 0x3F));
+  } else {
+    *output++ = static_cast<char>(0xF0 | (codepoint >> 18));
+    *output++ = static_cast<char>(0x80 | ((codepoint >> 12) & 0x3F));
+    *output++ = static_cast<char>(0x80 | ((codepoint >> 6) & 0x3F));
+    *output++ = static_cast<char>(0x80 | (codepoint & 0x3F));
+  }
+  return output;
 }
 
 // Returns true for Unicode combining diacritical marks that should not advance the cursor.

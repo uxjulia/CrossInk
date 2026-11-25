@@ -41,6 +41,10 @@ class ButtonShortcutController {
     NearbyPositionSync = 30,
     Library = 31,
     HomeReader = 32,
+    BackHome = 33,
+    SelectChapter = 34,
+    RotateFlip = 35,
+    TogglePageTurnGestures = 36,
   };
 
   enum class Event : uint8_t { None, QuickLockChanged, Screenshot, PageTurn, ConfiguredAction, TouchscreenEscapeHatch };
@@ -126,11 +130,23 @@ class ButtonShortcutController {
   bool tryUnlockSide(uint32_t nowMs, bool upPressed, bool upPressEdge, bool upReleaseEdge, bool upHasLongAction,
                      bool downPressed, bool downPressEdge, bool downReleaseEdge, bool downHasLongAction,
                      uint32_t longPressMs) {
-    if (!quickLockState_.isLocked()) return false;
+    if (!quickLockState_.isLocked() || quickLockTrigger_ == QuickLockTrigger::FrontLeftLong ||
+        quickLockTrigger_ == QuickLockTrigger::FrontRightLong)
+      return false;
     return tryUnlockOneSide(nowMs, upPressed, upPressEdge, upReleaseEdge, upHasLongAction, longPressMs,
                             QuickLockTrigger::SideUpShort, QuickLockTrigger::SideUpLong, sideUpUnlock_) ||
            tryUnlockOneSide(nowMs, downPressed, downPressEdge, downReleaseEdge, downHasLongAction, longPressMs,
                             QuickLockTrigger::SideDownShort, QuickLockTrigger::SideDownLong, sideDownUnlock_);
+  }
+  bool tryUnlockFront(uint32_t nowMs, bool leftPressed, bool leftEdge, bool leftReleased, bool rightPressed,
+                      bool rightEdge, bool rightReleased, uint32_t longPressMs) {
+    if (!quickLockState_.isLocked() ||
+        (quickLockTrigger_ != QuickLockTrigger::FrontLeftLong && quickLockTrigger_ != QuickLockTrigger::FrontRightLong))
+      return false;
+    return tryUnlockOneSide(nowMs, leftPressed, leftEdge, leftReleased, true, longPressMs, QuickLockTrigger::None,
+                            QuickLockTrigger::FrontLeftLong, sideUpUnlock_) ||
+           tryUnlockOneSide(nowMs, rightPressed, rightEdge, rightReleased, true, longPressMs, QuickLockTrigger::None,
+                            QuickLockTrigger::FrontRightLong, sideDownUnlock_);
   }
   bool tryUnlockLongPower(uint32_t nowMs, bool longPowerPressed) {
     if (!quickLockState_.isLocked() || quickLockTrigger_ != QuickLockTrigger::LongPower) return false;

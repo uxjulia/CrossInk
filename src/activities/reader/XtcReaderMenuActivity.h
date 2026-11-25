@@ -22,6 +22,7 @@ class XtcReaderMenuActivity final : public Activity {
     DELETE_CACHE,
     SEND_NEARBY_BOOK,
     DISABLE_TOUCHSCREEN,
+    GO_TO_PERCENT,
   };
 
   XtcReaderMenuActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::string title, bool hasChapters,
@@ -38,7 +39,7 @@ class XtcReaderMenuActivity final : public Activity {
  private:
   using UiHost = UiAppHost<9, 2>;
   using UiApp = UiHost::App;
-  static constexpr size_t kMaxMenuItems = 8;
+  static constexpr size_t kMaxMenuItems = 9;
 
   struct MenuItem {
     MenuAction action;

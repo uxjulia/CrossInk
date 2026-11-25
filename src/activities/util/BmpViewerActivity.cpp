@@ -5,6 +5,7 @@
 #include <GfxRenderer.h>
 #include <HalStorage.h>
 #include <I18n.h>
+#include <Memory.h>
 #include <SdCardFontSystem.h>
 
 #include <algorithm>
@@ -12,6 +13,7 @@
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
 #include "Epub/converters/PngToFramebufferConverter.h"
+#include "ImageViewerGrayscale.h"
 #include "activities/boot_sleep/ImageFolderIndex.h"
 #include "activities/home/BookActions.h"
 #include "activities/home/FileBrowserActionActivity.h"
@@ -118,22 +120,25 @@ bool BmpViewerActivity::renderPngImage() {
   config.performanceMode = false;
   config.useExactDimensions = true;
 
-  PngToFramebufferConverter converter;
-  renderer.clearScreen();
-  if (!converter.decodeToFramebuffer(filePath, renderer, config)) {
-    drawImageError(renderer, mappedInput, "Invalid PNG File");
-    return false;
-  }
-  renderer.preserveImagePolarity(x, y, drawWidth, drawHeight);
-
   bool hasPrevious = (siblingImages.size() > 1 && currentImageIndex > 0);
   bool hasNext = (siblingImages.size() > 1 && currentImageIndex != -1 &&
                   currentImageIndex < static_cast<int>(siblingImages.size()) - 1);
 
   const auto labels = mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), tr(STR_SET_SLEEP_COVER),
                                             (hasPrevious ? "<" : nullptr), (hasNext ? ">" : nullptr));
-  GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
-  renderer.displayBuffer(HalDisplay::FAST_REFRESH);
+  PngToFramebufferConverter converter;
+  const bool success = renderImageViewerGrayscale(renderer, [&](bool grayscale, bool completeFrame) {
+    config.useGrayscale = grayscale;
+    if (!converter.decodeToFramebuffer(filePath, renderer, config)) return false;
+    if (renderer.getRenderMode() == GfxRenderer::BW) renderer.preserveImagePolarity(x, y, drawWidth, drawHeight);
+    if (completeFrame) GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+    return true;
+  });
+  if (!success) {
+    renderer.setRenderMode(GfxRenderer::BW);
+    drawImageError(renderer, mappedInput, "Invalid PNG File");
+    return false;
+  }
   return true;
 }
 
@@ -166,7 +171,7 @@ void BmpViewerActivity::drawImage() {
 
   const auto pageWidth = renderer.getScreenWidth();
   const auto pageHeight = renderer.getScreenHeight();
-  Rect popupRect = GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
+  Rect popupRect = GUI.drawPopup(renderer, tr(STR_LOADING));
   GUI.fillPopupProgress(renderer, popupRect, 20);  // Initial 20% progress
 
   if (FsHelpers::hasPngExtension(filePath)) {
@@ -176,7 +181,7 @@ void BmpViewerActivity::drawImage() {
 
   // 1. Open the file
   if (Storage.openFileForRead("BMP", filePath, file)) {
-    Bitmap bitmap(file, true, renderer.supportsAbsoluteGrayscale());
+    Bitmap bitmap(file, true, imageToneProfile(renderer.supportsAbsoluteGrayscale()));
 
     // 2. Parse headers to get dimensions
     if (bitmap.parseHeaders() == BmpReaderError::Ok) {
@@ -219,7 +224,10 @@ void BmpViewerActivity::drawImage() {
       renderer.clearScreen();
       bool success = drawFrame();
       if (success && bitmap.hasGreyscale() && renderer.supportsAbsoluteGrayscale()) {
-        success = renderer.displayAbsoluteGrayscaleBase();
+        // Direct is an advertised complete-plane upgrade; rejected starts retain
+        // the established Absolute sequence without guessing a board identity.
+        success = (renderer.supportsDirectGrayscale() && renderer.displayDirectGrayscaleBase()) ||
+                  renderer.displayAbsoluteGrayscaleBase();
         for (const auto mode : {GfxRenderer::GRAYSCALE_LSB, GfxRenderer::GRAYSCALE_MSB}) {
           if (!success) break;
           success = bitmap.rewindToData() == BmpReaderError::Ok;
@@ -267,19 +275,42 @@ void BmpViewerActivity::onExit() {
   renderer.displayBuffer(HalDisplay::HALF_REFRESH);
 }
 
+void BmpViewerActivity::confirmSetSleepCover() {
+  std::string subject = imageDisplayName(filePath);
+  if (FsHelpers::hasPngExtension(filePath) && SETTINGS.sleepScreen != CrossPointSettings::OVERLAY &&
+      SETTINGS.sleepScreen != CrossPointSettings::COVER_OVERLAY) {
+    subject += "\n";
+    subject += tr(STR_PIN_PNG_WARNING);
+  }
+  auto confirmation =
+      makeUniqueNoThrow<ConfirmationActivity>(renderer, mappedInput, tr(STR_SET_SLEEP_COVER_CONFIRM), subject);
+  if (!confirmation) {
+    LOG_ERR("BmpViewer", "OOM: sleep image confirmation");
+    return;
+  }
+  needsImageRedraw.store(true, std::memory_order_release);
+  startActivityForResult(std::move(confirmation), [this](const ActivityResult& result) {
+    if (!result.isCancelled)
+      doSetSleepCover();
+    else
+      requestImageRedraw();
+  });
+}
+
 void BmpViewerActivity::doSetSleepCover() {
   // The popups draw from this task; wait for any image redraw on the render task.
   RenderLock lock(*this);
-  GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
+  GUI.drawPopup(renderer, tr(STR_LOADING));
 
   APP_STATE.favoriteSleepImagePath = filePath;
   if (APP_STATE.saveToFile()) {
     LOG_INF("BmpViewer", "Pinned favorite sleep image: %s", filePath.c_str());
 
-    // PNG covers only render in Page Overlay sleep mode; other modes silently skip them (see
+    // PNG covers render in the overlay sleep modes; other modes silently skip them (see
     // selectPinnedSleepImage() in SleepActivity.cpp), so switch the setting for the user.
     if (FsHelpers::hasPngExtension(filePath) &&
-        SETTINGS.sleepScreen != CrossPointSettings::SLEEP_SCREEN_MODE::OVERLAY) {
+        SETTINGS.sleepScreen != CrossPointSettings::SLEEP_SCREEN_MODE::OVERLAY &&
+        SETTINGS.sleepScreen != CrossPointSettings::COVER_OVERLAY) {
       SETTINGS.sleepScreen = CrossPointSettings::SLEEP_SCREEN_MODE::OVERLAY;
       if (SETTINGS.saveToFile()) {
         LOG_INF("BmpViewer", "Switched sleep wallpaper mode to Page Overlay for PNG cover");
@@ -297,24 +328,6 @@ void BmpViewerActivity::doSetSleepCover() {
 
   delay(1000);
   requestImageRedraw();
-}
-
-void BmpViewerActivity::pinSleepFavorite() {
-  APP_STATE.favoriteSleepImagePath = filePath;
-  if (!APP_STATE.saveToFile()) {
-    LOG_ERR("BmpViewer", "Failed to save favorite sleep image path: %s", filePath.c_str());
-    return;
-  }
-  LOG_INF("BmpViewer", "Pinned favorite sleep image: %s", filePath.c_str());
-
-  // Keep the context-menu action consistent with Confirm: PNG sleep images
-  // only render in Page Overlay mode.
-  if (FsHelpers::hasPngExtension(filePath) && SETTINGS.sleepScreen != CrossPointSettings::SLEEP_SCREEN_MODE::OVERLAY) {
-    SETTINGS.sleepScreen = CrossPointSettings::SLEEP_SCREEN_MODE::OVERLAY;
-    if (!SETTINGS.saveToFile()) {
-      LOG_ERR("BmpViewer", "Failed to save Page Overlay mode for PNG sleep image");
-    }
-  }
 }
 
 void BmpViewerActivity::unpinSleepFavorite() {
@@ -401,15 +414,7 @@ void BmpViewerActivity::showContextMenu() {
                                activityManager.goToNearbyBookSend(filePath, false);
                                return;
                              case FileBrowserAction::PinFavorite:
-                               if (FsHelpers::hasPngExtension(filePath)) {
-                                 startActivityForResult(std::make_unique<ConfirmationActivity>(
-                                                            renderer, mappedInput, "", tr(STR_PIN_PNG_WARNING)),
-                                                        [this](const ActivityResult& confirmation) {
-                                                          if (!confirmation.isCancelled) pinSleepFavorite();
-                                                        });
-                               } else {
-                                 pinSleepFavorite();
-                               }
+                               confirmSetSleepCover();
                                return;
                              case FileBrowserAction::UnpinFavorite:
                                unpinSleepFavorite();
@@ -423,6 +428,8 @@ void BmpViewerActivity::showContextMenu() {
                              case FileBrowserAction::DeleteCache:
                              case FileBrowserAction::ReadingStats:
                              case FileBrowserAction::ToggleBookStatsTracking:
+                             case FileBrowserAction::SyncProgress:
+                             case FileBrowserAction::UploadFolderProgress:
                              case FileBrowserAction::SetSleepFolder:
                              case FileBrowserAction::ClearSleepFolder:
                              case FileBrowserAction::ToggleCompleted:
@@ -496,7 +503,7 @@ void BmpViewerActivity::loop() {
 
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
     if (isViewableImageFile(filePath)) {
-      doSetSleepCover();
+      confirmSetSleepCover();
     }
     return;
   }

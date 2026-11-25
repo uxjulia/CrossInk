@@ -16,7 +16,7 @@ constexpr char SLOT_PATH[] = "/.crosspoint/library.meta";
 constexpr char PAYLOAD_PATH[] = "/.crosspoint/library.metd";
 constexpr char CACHE_MAGIC[4] = {'C', 'L', 'M', '1'};
 // Bump when the set of extracted fields changes, so old entries are re-parsed.
-constexpr uint8_t CACHE_VERSION = 1;
+constexpr uint8_t CACHE_VERSION = 2;             // ID-resolved EPUB3 series metadata
 constexpr uint32_t PAYLOAD_MAGIC = 0x504D4C43u;  // "CLMP"
 constexpr uint32_t SLOT_START = 512;
 constexpr size_t ZERO_CHUNK_BYTES = 512;

@@ -15,7 +15,7 @@ struct SectionPageIndexOffsets {
   uint32_t visibleText = 0;
 };
 
-// Writes the existing section-cache layout field by field. The chunked index's
+// Writes section-cache lookup tables field by field. The chunked index's
 // in-memory ownership is deliberately not part of the persisted format.
 template <typename AnchorMapWriter>
 bool writeSectionPageIndex(FsFile& file, const SectionPageIndex& index, AnchorMapWriter&& writeAnchorMap,
@@ -45,6 +45,9 @@ bool writeSectionPageIndex(FsFile& file, const SectionPageIndex& index, AnchorMa
   offsets.visibleText = static_cast<uint32_t>(file.position());
   for (size_t i = 0; i < index.size(); ++i) {
     if (!serialization::tryWritePod(file, index[i].visibleTextOffset)) return false;
+  }
+  for (size_t i = 0; i < index.size(); ++i) {
+    if (!serialization::tryWritePod(file, index[i].referenceTextOffset)) return false;
   }
   return true;
 }

@@ -11,6 +11,9 @@
 
 class EpubReaderPercentSelectionActivity final : public Activity {
  public:
+#ifdef SIMULATOR
+  friend struct SliderOrientationSmokeTest;
+#endif
   // Slider-style percent selector for jumping within a book.
   explicit EpubReaderPercentSelectionActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
                                               float initialPercent);

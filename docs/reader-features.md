@@ -5,39 +5,36 @@ nav_order: 5
 
 # Reader Features
 
-This page covers a subset of CrossInk reader features that go beyond basic page turning. It is not a complete list of every reader setting or action. For a more complete list of features as they were released, see the [releases page](https://github.com/uxjulia/CrossInk/releases).
-
-The sections here focus on larger CrossInk-specific reader features. Small fixes, implementation details, and features that only arrived from upstream CrossPoint are intentionally left out.
+This page covers reader features that go beyond basic page turning. It is not a complete list of every reader setting. For everything that changed in each version, see the [releases page](https://github.com/uxjulia/CrossInk/releases).
 
 ## In-book Reader Options
 
-Reader settings are available directly from the in-book menu without leaving the book.
+You can change how a book looks without leaving it. Open the Reader Menu from
+inside the book (on button devices, press **Confirm**).
 
-EPUB books use five icon tabs on every device. Use **Font** and **Layout**
-to adjust settings such as:
+EPUB books use five icon tabs. The **Font** and **Layout** tabs hold things
+such as:
 
-- Font family
-- Font size
-- Line spacing
-- Word spacing (EPUB)
-- Margins
-- Alignment
-- Image rendering
+- Font family and font size
+- Line spacing, word spacing, and character spacing
+- Margins and alignment
+- Image display and [image grayscale](#images-and-grayscale)
 - [Publisher Page Numbers](#publisher-page-numbers)
-- [Focus Reading](#focus-reading) / Guide Dots
+- [Focus Reading](#focus-reading) and [Guide Dots](#guide-dots)
 
-Changes take effect immediately, with live previews for font, spacing, and
-margin choices. The **More**, **Bookmarks**, and **Settings** tabs contain
-navigation, reading tools, and book settings. See the [Reader Menu](./user-guide.md#5-reader-menu)
-for the tab map and button controls.
+Changes take effect straight away, with a live preview for font, spacing, and
+margin choices. The **More**, **Bookmarks**, and **Settings** tabs hold
+navigation, reading tools, and per-book settings. See the
+[Reader Menu](./user-guide.md#5-reader-menu) for the full tab map and button
+controls.
 
-EPUB layout choices such as font size and margins can be saved for that book
-and take precedence over matching global defaults. Status bar settings are global. See [Global settings and individual
-books](./user-guide.md#362-reader) for how to restore a book's layout choices
-to the global defaults.
+Layout choices such as font size and margins can be saved for just that book,
+and they win over your global defaults. Status bar settings are always global.
+See [Global settings and individual books](./user-guide.md#362-reader) to
+restore a book to your global defaults.
 
-For books that are slow to index or fail because of complex publisher styling,
-see [EPUB Indexing Methods](./epub-indexing.md) and
+If a book is slow to open or will not open because of complex publisher
+styling, see [EPUB Indexing Methods](./epub-indexing.md) and
 [EPUB Render Modes](./epub-render-modes.md).
 
 ## Focus Reading
@@ -50,11 +47,11 @@ stay engaged with the text and reduces mind-wandering.
 ### Enabling Focus Reading
 
 1. Open **Settings > Reader**.
-2. Toggle **Focus Reading** on.
+2. Turn **Focus Reading** on.
 
-Toggling the setting triggers a re-index of the current book, just like changing
-font settings. Once indexing is complete, page turns proceed as normal. No
-changes are made to the EPUB file.
+You can also turn it on from the Reader Menu's **Font** tab. The book is laid
+out again, just as when you change the font, so give it a moment. Your EPUB
+file is not changed.
 
 ### Examples
 
@@ -81,59 +78,78 @@ headings and emphasis, is left unchanged.
 
 ## Font Sizes And Downloadable Font Ranges
 
-CrossInk adds a wider range of reader font-sizes, including smaller and larger point sizes for users who want denser pages or much larger text.
+CrossInk offers a wide range of font sizes, from small for dense pages to very large text.
 
-The reader can also use SD-card font packs with selectable font-size ranges. This lets you keep the installed firmware smaller while still using extra sizes or custom fonts from the SD card.
+The reader can also use font packs stored on the SD card, with a choice of size ranges. This keeps the device's built-in storage free while still giving you extra sizes and custom fonts.
 
 Related docs:
 
 - [SD Card Fonts](./sd-card-fonts.md)
 
-## Custom TTF Fonts
+## Custom Scalable Fonts
 
-On ESP32-S3 readers, you can use your own static TrueType (`.ttf`) fonts. Copy
-the files into `/fonts` on the SD card, either together or in a folder named
-after the font family. Restart the reader or refresh its font list, then choose
-the family from the font picker.
+On X4 Classic, X4 Pro, and Sticky, you can use your own TrueType
+(`.ttf`) or OpenType (`.otf`) fonts. Copy the files into the `/fonts` folder on
+the SD card, either together or in a folder named after the font family. Restart
+the reader or refresh its font list, then choose the family from the font
+picker.
 
 For the full range of text styles, include all four faces: regular, bold,
-italic, and bold italic. A family with fewer faces can still be used, but some
-styles will fall back to another face. Variable fonts are not supported.
+italic, and bold italic. A family with fewer faces still works, but some styles
+fall back to another face. Variable fonts and font collections are not
+supported.
 
 See [Scalable Fonts](./scalable-fonts.md) for installation details and limits.
 
 ## Reader Status Bars
 
-Customize top and bottom status bars separately from **Settings > Reader >
-Status Bars**, or from the EPUB Reader Menu's **Settings > Status Bars**.
-Each bar has three left slots, one center slot, and three right slots. Choose
-items such as titles, page counts, progress, battery, or Time Left, and configure
-a book/chapter progress bar. The editor previews each bar where it appears
-while reading. These settings are global and apply across EPUB, TXT, and XTC
-books; the available information varies by format.
+The status bars are the strips at the top and bottom of the page. You can set
+them up separately from **Settings > Reader > Status Bars**, or from the EPUB
+Reader Menu's **Settings** tab, then **Status Bars**.
+
+- Each bar has three left slots, one center slot, and three right slots. Fill
+  each with an item such as the book or chapter title, chapter page count,
+  book progress percentage, Time Left, clock, date, battery, or
+  [Stable Page Numbers](#stable-page-numbers), or leave it **Empty**.
+- Each bar can show a progress bar for the book or chapter, and you can hide a
+  bar without losing the items you chose for it.
+- **Status Bar Text Size** can be **Small**, **Medium**, or **Large** for the
+  reader bars, with a separate size for the global header strip shown on other
+  screens.
+- **Battery** can be **Icon + %**, **Icon Only**, or **% Only**, set separately
+  for the top bar, the bottom bar, and the global strip.
+- XTC books use their own **XTC Status Bar** option.
+
+The editor previews each bar where it appears while reading. These settings
+apply to every book. On a touchscreen you can also tap the bar while reading to
+hide it for a moment (see [Controls](./controls.md#tap-to-hide-status-bar)).
 
 ## Dark Reader Mode
 
-Dark Mode reverses the display colors so text is shown light-on-dark in the
-reader and menus. Toggle it from **Settings > Display > Dark Mode**.
+Dark Mode reverses the display colors so text is shown light on dark in the
+reader and menus. Turn it on from **Settings > Display > Dark Mode**.
 
-Dark Reader Mode can also be assigned to shortcut actions, so it can be switched without opening the full settings menu.
+You can also give **Dark Mode** to a button or gesture shortcut, to switch it
+without opening Settings. See [Controls](./controls.md).
 
-## Line Spacing
+## Line, Word, And Character Spacing
 
-CrossInk supports adjustable reader line spacing from compact to wide spacing.
+Three sliders change how tight or airy the text feels, without changing the font
+size. Use them when a book looks cramped, or when larger text needs more room.
 
-Use this when a book feels visually cramped, or when larger fonts need more vertical room to stay comfortable.
+- **Line Spacing** sets the space between lines, from compact to wide.
+- **Word Spacing** (EPUB only) ranges from -4 to +4. Positive values add space
+  between words and negative values pull them closer.
+- **Character Spacing** ranges from -5 to +5 and adjusts the space between
+  letters. It works in EPUB and TXT books.
 
-## Word Spacing
+To change them while reading, open the Reader Menu, then use **Font > Line/Word
+Spacing** (for line and word spacing) or **Font > Reader Font > Character
+Spacing**. Each slider shows a live preview. To set defaults for all books, use **Settings > Reader >
+Font Options**.
 
-EPUB readers can choose from five word-spacing levels: **Normal** and levels
-**1** through **4**. Higher levels add more space between words, which can make
-text easier to scan without changing the font size or line height.
-
-Open the reader menu, then select **Font > Line/Word Spacing > Word Spacing**. The current EPUB is laid out again when you change this
-setting, so the number and positions of pages may change. Word Spacing is not available for
-TXT books.
+Changing a spacing setting lays the book out again, so the number and positions
+of pages may change.
 
 ## Publisher Page Numbers
 
@@ -142,74 +158,108 @@ printed page numbers from a physical edition. When the book includes labeled
 page-break markers, CrossInk displays those labels in the reader margin beside
 the matching content.
 
-To enable them, open the reader menu and select **Layout > Publisher Page
-Numbers**. If an EPUB does not contain labeled page-break markers, there
-are no publisher page numbers for CrossInk to display.
+To turn them on, open the Reader Menu and select **Layout > Publisher Page
+Numbers**, or use **Settings > Reader > Publisher Page Numbers**. If the EPUB
+has no labeled page-break markers, there is nothing to show.
 
-Publisher page markers are preserved by **CrossInk Default** and **Balanced**
-render modes. **Light** and **Safe Mode** omit them when simplifying a difficult
-book's layout.
+Publisher page markers are kept by the **CrossInk Default** and **Balanced**
+render modes. **Light** and **Safe Mode** leave them out.
 
 ## Stable Page Numbers
 
-Stable Page Numbers show a consistent reference page number in the reader's
-status bar, such as `120/540`. They are calculated from fixed reference-page
-metadata in the EPUB instead of the current screen layout, so they remain
-consistent when you change fonts, spacing, orientation, or indexing mode.
+Stable Page Numbers show a page number in the status bar, such as `120/540`,
+that does not change when you change the font, spacing, or orientation. This
+makes them handy for saying "I am on page 120" and finding the same place later.
+They come from fixed reference-page information stored in the EPUB, not from
+the current screen layout.
 
-To enable them:
+To turn them on:
 
-1. Open the reader menu and select the **Settings** tab.
+1. Open the Reader Menu and select the **Settings** tab.
 2. Select **Status Bars**.
 3. Select **Top Status Bar** or **Bottom Status Bar**.
 4. Choose a left, center, or right slot, then select **Stable Page Numbers**.
 
-The item shows a page number only when the current EPUB contains valid CrossInk
-reference metadata. To create that metadata, optimize the EPUB in the CrossInk web
-interface or with [Inky](https://inky.crossink.dev) before uploading it to the reader.
-In the optimizer's settings, the **Characters per Page** controls the reference-page size; the default
-is 1,500 characters. Lower values create more reference pages, while higher
-values create fewer.
+You can then jump to a page with **Go to Stable Page** on the Reader Menu's
+**More** tab.
+
+A page number appears only if the EPUB contains this reference information. To
+add it, optimize the EPUB in the CrossInk web interface (see
+[File Transfer](./webserver.md)) or with [Inky](https://inky.crossink.dev)
+before copying it to the reader. In the optimizer's settings,
+**Characters per Page** sets the size of a reference page. The default is 1,500
+characters. Lower values make more, shorter pages, and higher values make fewer,
+longer ones.
 
 Stable Page Numbers are not publisher or printed-edition page numbers. Use
 [Publisher Page Numbers](#publisher-page-numbers) when you want the page labels
 provided by the book itself.
 
+## Images And Grayscale
+
+Choose **Images** in **Settings > Reader**, or on the Reader Menu's **Layout**
+tab for one EPUB book:
+
+- **Display** shows pictures in shades of gray (the default).
+- **Display (B&W)** shows pictures in plain black and white, equivalent to the
+  former **Image Grayscale** setting being off.
+- **Placeholder** replaces pictures with their alternative text.
+- **Suppress** removes pictures.
+
+Gray usually looks better for photos. These options are separate from
+**Text Anti-Aliasing**, which only smooths text. Existing global and per-book
+image preferences are preserved.
+
+## Select Chapter
+
+To jump to a chapter, open the Reader Menu's **More** tab and select **Select
+Chapter**. It works in EPUB and XTC books that have a chapter list. You can also
+give **Select Chapter** to a button, a Quick Actions slot, or a touch gesture to
+open the list directly. See [Controls](./controls.md).
+
 ## Guide Dots
 
 Guide Dots adds small dots between words. The idea comes from speed-reading guidance where focusing on the space between words can help peripheral vision pick up more of the surrounding text.
 
-Toggle it from **Reader settings**.
+Turn it on from **Settings > Reader > Guide Dots**, or from the Reader Menu's
+**Font** tab.
 
 ## Force Paragraph Indents
 
-Some books do not define paragraph indents in a way the firmware understands, which can make the page look like one large wall of text.
+Some books do not show paragraph indents correctly, which can make the page look like one large wall of text.
 
 Force Paragraph Indents adds an indent at each new paragraph regardless of how the book is formatted.
 
-This works when **Reader Paragraph Alignment** is set to:
+This works when **Paragraph Alignment** is set to:
 
-- Left
-- Justify
-- Book's Style
+- **Left**
+- **Justify**
+- **Book's Style**
 
-Toggle it from **Reader settings**.
+Turn it on from **Settings > Reader > Page Layout > Force Paragraph Indents**,
+or from the Reader Menu's **Layout** tab.
 
 ## Auto Page Turn
 
-Auto Page Turn can advance pages on a timer while reading.
+Auto Page Turn advances pages on a timer while you read, which is handy for
+hands-free reading.
 
-CrossInk adds a custom interval picker, so the interval is not limited to the built-in presets. The reader can also remember a different Auto Page Turn interval per book.
-
-Open the reader menu's **More** tab and select **Auto Page Turn** to configure it.
+You can pick any interval from 5 to 120 seconds, and the reader can remember a
+different interval for each book. Open the Reader Menu's **More** tab and select
+**Auto Page Turn** to set it up.
 
 ## Time Left
 
-CrossInk can show estimated time left in the current chapter or book.
+CrossInk can show an estimate of the time left in the current chapter or book.
+Add **Time Left** to a [status bar](#reader-status-bars) to see it.
 
-The estimate is based on your recent forward-page reading pace. Non-linear jumps such as chapter skips, bookmark jumps, and footnote navigation are handled separately so they do not immediately distort the normal reading estimate.
+The estimate is based on how fast you have been reading recently. Jumps such as
+skipping a chapter, going to a bookmark, or following a footnote do not throw it
+off.
 
-Use **Reset Reading Pace** in the EPUB Reader Menu's **Settings** tab if the estimate was trained by unusual reading behavior and you want it to learn again from fresh page turns.
+If the estimate was thrown off by unusual reading (for example, skimming), use
+**Reset Reading Pace** in the EPUB Reader Menu's **Settings** tab to start
+learning again from fresh page turns.
 
 ## Bookmarks
 
@@ -230,11 +280,15 @@ from the reader menu or a configured shortcut, select text, and save it.
 
 On button devices, move the cursor with the direction buttons, press **Select**
 at the first word, move to the last word, then press **Done**. On touchscreen
-devices, a tap saves the single word you touch. To save a range, touch and hold
-the first word until range selection begins, drag to the last word, then lift
-your finger; CrossInk saves the clipping immediately. A touch drag does not
-turn pages, so use the direction buttons if a clipping must extend to another
-page.
+devices in Create Clipping mode, tap the first and last words, or touch and
+hold the first word, drag to the last word, then lift your finger to save.
+Hold on the page's final word for about one second to extend onto the next
+loaded page.
+
+You can also touch and hold text directly on the EPUB reading page with
+**Touch Reader Controls** enabled. Drag to select a phrase if needed, then
+lift your finger and choose **Create Clipping** or **Look Up**. Clipping is
+available even without a dictionary; lookup requires an active dictionary.
 
 A saved clipping is used in three ways:
 
@@ -247,7 +301,7 @@ clipping from CrossInk removes the saved clipping and highlight from the device
 UI, but it does not rewrite old entries that were already appended to
 `/My Clippings.txt`.
 
-Open **Clippings** from the reader menu's bookmarks tab after saving a
+Open **Clippings** from the Reader Menu's **Bookmarks** tab after saving a
 clipping. On touchscreen devices, tap a clipping to read its full text, swipe
 up or down to move through a long clipping, and tap **Open** to return to its
 location in the book. Touch and hold a clipping in the list, or its text in
@@ -257,18 +311,10 @@ clipping and its highlight, not an entry already exported to
 
 ## Reading Stats
 
-CrossInk tracks per-book reading stats automatically and aggregates them into
-global stats for EPUB and XTC files. With tracking enabled for the device and
-book, you can view that book's **Reading Stats** directly from its **Library**
-or **Browse Files** action menu without opening it first.
-
-### Turn tracking on or off
-
-The device-wide switch is in **Settings > System > Reading Stats > Track Reading Stats**. When it is off, CrossInk stops recording new per-book and all-time stats. It does not delete saved stats or saved Time Left pace estimates. Turning tracking back on makes the saved history available again and resumes recording for books whose own tracking is enabled. Reading time and pages from the period when tracking was off are not added later.
-
-While device-wide tracking is off, recorded-stat actions and displays are hidden from the menus and home themes that normally show them. The Dashboard can still show a saved Time Left estimate when one is available. The **Reading Stats** and **Minimal Stats** sleep screens fall back to the regular Minimal sleep screen when tracking is off device-wide or for the recent book. The tracking switch remains available in Settings so it can be turned back on.
-
-You can also pause stats for one EPUB or XTC book while device-wide tracking is on. For an EPUB, use **Track Reading Stats** in the Reader Menu's **Settings** tab; for an XTC book, use **Track Reading Stats** in its Reader Menu. You can also use the book's Library/File Browser action menu when available. This preserves the book's saved stats and stops adding stats for that book, including its contribution to all-time totals. While paused, that book's **Reading Stats** view and book-specific theme display are hidden; its saved Time Left estimate may still appear in the Dashboard. Re-enable tracking to show the saved book history and resume recording.
+CrossInk keeps track of your reading time for each EPUB and XTC book and adds
+it up into all-time totals. To see a book's **Reading Stats** without opening
+it, long-press the book in **Library** or **Browse Files** and choose **Reading
+Stats**.
 
 Tracked stats include:
 
@@ -276,22 +322,47 @@ Tracked stats include:
 - Number of sessions
 - Pages turned
 - Average session time
-- All-time reading stats, including total books read
+- All-time totals, including total books read
+- Reading time for each day, with today's total and a 7-day average on the
+  **This Device** stats page
 
-Recent CrossInk versions expanded this into a larger stats system, including synced totals, richer X3 stats screens, reading-streak and time charts, editable stat dates, idle-time filtering, reset controls, and all-time stats backup options.
+Newer versions add reading-streak and time charts, editable stat dates, idle-time
+filtering, reset controls, and backups. Reading stats can also be shown as a
+sleep screen, including **Minimal Stats**.
 
-**Note**: Date-related stats require a device with a real-time clock (RTC) module. The X4 does not have an RTC module, therefore will not have as detailed stats as the X3.
-
-Reading stats can also be used as a sleep screen, including the Minimal Stats sleep screen on supported builds.
+> [!NOTE]
+> Date-based stats need a device with a real-time clock (RTC). The X4 does not
+> have one, so it shows less detailed stats than the X3.
 
 For two-device syncing, see [Reading Stats Sync](./reading-stats-sync.md).
 
+### Turn tracking on or off
+
+The switch for all books is **Settings > System > Reading Stats > Track Reading
+Stats**. When it is off, CrossInk stops recording new stats. It does not delete
+anything you have saved. Turn it back on and your history returns and recording
+resumes. Reading done while tracking was off is not added afterwards.
+
+While tracking is off, the menus and Home screens that show stats hide them. The
+Dashboard can still show a saved Time Left estimate. The **Reading Stats** and
+**Minimal Stats** sleep screens fall back to the regular **Minimal** sleep
+screen. The switch itself always stays in Settings so you can turn tracking back
+on.
+
+You can also pause stats for a single book while tracking is on. For an EPUB,
+use **Track Reading Stats** in the Reader Menu's **Settings** tab. For an XTC
+book, use it in its Reader Menu. You can also find it in the book's **Library**
+or **Browse Files** menu. Pausing keeps the book's saved stats, stops adding new
+ones (including to the all-time totals), and hides that book's **Reading
+Stats** view. Turn it back on to show the history and resume recording.
+
 ## Nearby Position Sync
 
-CrossInk can copy the current EPUB position from one nearby CrossInk reader to
-another over ESP-NOW. Open the same EPUB on both readers, choose **Nearby
-Position Sync** from the in-book menu on both devices, and press **Share** on
-the reader that is already at the correct page.
+CrossInk can copy your place in an EPUB from one nearby CrossInk reader to
+another, directly and without Wi-Fi or an account. Open the same EPUB on both
+readers, then open **Nearby Position Sync** on both. On button devices it is in
+the Reader Menu's **Bookmarks** tab. You can also give it to a shortcut. Press
+**Share** on the reader that is already at the correct page.
 
 The receiving reader shows the incoming position and only applies it after you
 confirm it.
@@ -300,15 +371,20 @@ For details and troubleshooting, see [Nearby Position Sync](./nearby-position-sy
 
 ## Finished Books And Read Folder
 
-You can manually mark a book as finished from the in-book menu.
+You can mark a book as finished from the Reader Menu's **Settings** tab (the
+same row changes to **Mark as Unfinished** afterwards). At 99% progress,
+CrossInk also asks whether to mark the book as finished.
 
-At 99% book progress, CrossInk also shows a popup asking whether to mark the book as finished.
+Finished EPUB and XTC books show a checkmarked book icon in **Browse Files** and
+in the **Library** list, so you can see at a glance what you have read.
 
-If **Move finished books to Read folder** is enabled, books marked as finished are moved to `/Read/` on the SD card.
+Marking a book as finished also counts toward your total **Books Read** stat.
+You can mark books as finished from **Browse Files** without opening them.
 
-Marking books as finished also contributes to the total **Books Read** reading stat.
-
-The file browser can also mark books as finished without opening them first.
+Two optional settings in **Settings > System > Files & Cache** tidy up after
+finished books: **Move Finished Books to Read Folder** moves them to `/Read/` on
+the SD card, and **Clear Finished Books from History** removes a book from your
+recent books once you reach its end.
 
 ## Reader Controls And Shortcuts
 
@@ -317,10 +393,11 @@ CrossInk adds reader-focused control options beyond the default button mappings.
 Examples include:
 
 - Reader-only front-button actions
-- Front and side button mappings that respect the current orientation
-- X3 tilt shortcuts
-- Power-button reader shortcut actions
-- Quick access to Controls from the in-reader menu
-- Side-button shortcuts for changing font size or font family
+- Front and side button mappings that follow the current orientation
+- Tilt page turns (X3 and Sticky)
+- Shortcut actions on the Power button and button combinations
+- Touch gestures such as pinch to resize the font (touchscreen devices)
+- Side-button shortcuts for changing font size, chapter, or orientation
+- Quick access to Controls from the Reader Menu's **Settings** tab
 
 For the full controls reference, see [Controls](./controls.md).

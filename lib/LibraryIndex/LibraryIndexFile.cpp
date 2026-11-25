@@ -48,6 +48,48 @@ bool LibraryIndexFile::openImpl(const char* path, const bool acceptStaleFold) {
 void LibraryIndexFile::close() {
   if (file.isOpen()) file.close();
   opened = false;
+  displayRowCache.reset();
+  cacheAllocationAttempted = false;
+}
+
+bool LibraryIndexFile::ensureDisplayRowCache() {
+  if (!cacheDisplayRow) return false;
+  if (!displayRowCache && !cacheAllocationAttempted) {
+    cacheAllocationAttempted = true;
+    // Under 1.8 KiB, allocated once per open browser index, freed on close.
+    // A stack object is too large for device tasks; global storage would cost
+    // reader RAM even when the Library is closed.
+    displayRowCache = makeUniqueNoThrow<DisplayRowCache>();
+    if (!displayRowCache) LOG_ERR("LIBIDX", "OOM: display row cache; using direct reads");
+  }
+  return displayRowCache != nullptr;
+}
+
+bool LibraryIndexFile::cachedBlobMatches(const ClixRecord& record) const {
+  return opened && displayRowCache && displayRowCache->nameOff == record.nameOff &&
+         displayRowCache->nameLen == record.nameLen;
+}
+
+bool LibraryIndexFile::cacheBlob(const ClixRecord& record) {
+  if (cachedBlobMatches(record)) return true;
+  if (!opened || record.nameOff > head.nameLen || !ensureDisplayRowCache()) return false;
+  auto& cache = *displayRowCache;
+  cache.nameOff = UINT32_MAX;
+  cache.fieldCount = 0;
+  const size_t bytes = std::min<size_t>(sizeof(cache.bytes), head.nameLen - record.nameOff);
+  if (bytes < sizeof(uint64_t) + record.nameLen || !readAt(head.nameStart + record.nameOff, cache.bytes, bytes))
+    return false;
+  size_t at = sizeof(uint64_t) + record.nameLen;
+  const uint8_t fields = head.formatVersion >= 3 ? 5 : 3;
+  while (cache.fieldCount < fields && at < bytes) {
+    const uint8_t length = cache.bytes[at];
+    if (length > bytes - at - 1) break;
+    cache.fieldOffsets[cache.fieldCount++] = at;
+    at += 1 + length;
+  }
+  cache.nameOff = record.nameOff;
+  cache.nameLen = record.nameLen;
+  return true;
 }
 
 bool LibraryIndexFile::readAt(const uint32_t offset, void* dst, const size_t len) {
@@ -174,6 +216,10 @@ bool LibraryIndexFile::recentRowsFor(const BookIdentity* books, const size_t cou
 
 bool LibraryIndexFile::readRecord(const uint16_t ordinal, ClixRecord& out) {
   if (!opened || ordinal >= head.bookCount) return false;
+  if (displayRowCache && displayRowCache->ordinal == ordinal) {
+    out = displayRowCache->record;
+    return true;
+  }
   if (!readAt(recordOffset(head, ordinal), &out, sizeof(out))) return false;
 
   // Clamp here, at the single point every record enters the program. These
@@ -192,6 +238,10 @@ bool LibraryIndexFile::readRecord(const uint16_t ordinal, ClixRecord& out) {
     out.nameLen = 0;
     out.nameOff = 0;
   }
+  if (ensureDisplayRowCache()) {
+    displayRowCache->record = out;
+    displayRowCache->ordinal = ordinal;
+  }
   return true;
 }
 
@@ -207,6 +257,10 @@ bool LibraryIndexFile::readName(const ClixRecord& record, std::string& out) {
   if (record.nameOff > head.nameLen || sizeof(uint64_t) > head.nameLen - record.nameOff ||
       record.nameLen > head.nameLen - record.nameOff - sizeof(uint64_t))
     return false;
+  if (cachedBlobMatches(record)) {
+    out.assign(reinterpret_cast<const char*>(displayRowCache->bytes + sizeof(uint64_t)), record.nameLen);
+    return true;
+  }
   out.resize(record.nameLen);
   return readAt(head.nameStart + record.nameOff + sizeof(uint64_t), out.data(), record.nameLen);
 }
@@ -218,6 +272,10 @@ bool LibraryIndexFile::readPathHash(const ClixRecord& record, uint64_t& out) {
     readFailed = true;
     return false;
   }
+  if (cachedBlobMatches(record)) {
+    memcpy(&out, displayRowCache->bytes, sizeof(out));
+    return true;
+  }
   return readAt(head.nameStart + record.nameOff, &out, sizeof(out));
 }
 
@@ -227,6 +285,13 @@ bool LibraryIndexFile::readBlobField(const ClixRecord& record, const uint8_t fie
   if (record.nameOff > head.nameLen || sizeof(uint64_t) > head.nameLen - record.nameOff ||
       record.nameLen > head.nameLen - record.nameOff - sizeof(uint64_t))
     return false;
+
+  if (cacheDisplayRow && cacheBlob(record)) {
+    if (field >= displayRowCache->fieldCount) return false;
+    const uint16_t offset = displayRowCache->fieldOffsets[field];
+    out.assign(reinterpret_cast<const char*>(displayRowCache->bytes + offset + 1), displayRowCache->bytes[offset]);
+    return true;
+  }
 
   uint32_t at = record.nameOff + sizeof(uint64_t) + record.nameLen;
   for (uint8_t i = 0; i <= field; i++) {

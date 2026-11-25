@@ -161,3 +161,74 @@ TEST(FontCacheManagerTest, PrewarmScanDoesNotAllocateHeapMemory) {
 
   EXPECT_EQ(0U, heapAllocationCount);
 }
+
+TEST(FontCacheManagerTest, BackgroundReclaimPreservesActiveSdFontAndAliases) {
+  SdCardFont activeFont;
+  SdCardFont inactiveFont;
+  FontDecompressor decompressor;
+  const std::map<int, EpdFontFamily> noBuiltinFonts;
+  const std::map<int, SdCardFont*> sdFonts{{-17, &activeFont}, {23, &inactiveFont}, {42, &activeFont}};
+  FontCacheManager manager(noBuiltinFonts, sdFonts);
+  manager.setFontDecompressor(&decompressor);
+  countHeapAllocations = true;
+  heapAllocationCount = 0;
+  manager.releaseInactiveSdFontCaches(-17);
+  countHeapAllocations = false;
+  EXPECT_EQ(0U, heapAllocationCount);
+  EXPECT_EQ(1, decompressor.clearCacheCallCount);
+  EXPECT_EQ(0, activeFont.releaseForLowMemoryCallCount);
+  EXPECT_EQ(1, inactiveFont.releaseForLowMemoryCallCount);
+  EXPECT_FALSE(inactiveFont.lastPreserveAdvanceTable);
+}
+
+TEST(FontCacheManagerTest, BackgroundReclaimWithBuiltinFontReleasesInactiveSdFonts) {
+  SdCardFont fallbackFont;
+  const std::map<int, EpdFontFamily> noBuiltinFonts;
+  const std::map<int, SdCardFont*> sdFonts{{23, &fallbackFont}};
+  FontCacheManager manager(noBuiltinFonts, sdFonts);
+  manager.releaseInactiveSdFontCaches(7);
+  EXPECT_EQ(1, fallbackFont.releaseForLowMemoryCallCount);
+}
+
+TEST(FontCacheManagerTest, NoSlotContentionKeepsLegacyStylePreparationOrder) {
+  EpdFontData regularData{reinterpret_cast<const void*>(1)};
+  EpdFontData boldData{reinterpret_cast<const void*>(1)};
+  const std::map<int, EpdFontFamily> fonts{{5, EpdFontFamily(&regularData, &boldData, nullptr, nullptr)}};
+  const std::map<int, SdCardFont*> sdFonts;
+  FontDecompressor decoder;
+  FontCacheManager manager(fonts, sdFonts);
+  manager.setFontDecompressor(&decoder);
+  auto scope = manager.createPrewarmScope();
+  manager.recordText("AAAAAAAAAA", 5, EpdFontFamily::REGULAR);
+  manager.recordText("B", 5, EpdFontFamily::BOLD);
+  ASSERT_TRUE(scope.endScanAndPrewarm());
+  ASSERT_EQ(decoder.prewarmCallCount, 2);
+  EXPECT_EQ(decoder.prewarmCalls[0].fontData, &boldData);
+  EXPECT_EQ(decoder.prewarmCalls[1].fontData, &regularData);
+}
+
+TEST(FontCacheManagerTest, CompressedContentionPreservesNoncompressedStyleOrder) {
+  EpdFontData data[5];
+  for (auto& face : data) face.groups = reinterpret_cast<const void*>(1);
+  const std::map<int, EpdFontFamily> fonts{{1, EpdFontFamily(&data[0], &data[1], &data[2], &data[3])},
+                                           {2, EpdFontFamily(&data[4], nullptr, nullptr, nullptr)}};
+  SdCardFont sd;
+  const std::map<int, SdCardFont*> sdFonts{{3, &sd}};
+  FontDecompressor decoder;
+  FontCacheManager manager(fonts, sdFonts);
+  manager.setFontDecompressor(&decoder);
+  auto scope = manager.createPrewarmScope();
+  manager.recordText("AAAAAAAAAAAAAAAA", 3, EpdFontFamily::REGULAR);
+  manager.recordText("B", 3, EpdFontFamily::BOLD);
+  manager.recordText("AAAAAAAAAA", 1, EpdFontFamily::REGULAR);
+  manager.recordText("B", 1, EpdFontFamily::BOLD);
+  manager.recordText("C", 1, EpdFontFamily::ITALIC);
+  manager.recordText("D", 1, EpdFontFamily::BOLD_ITALIC);
+  manager.recordText("E", 2, EpdFontFamily::REGULAR);
+  ASSERT_TRUE(scope.endScanAndPrewarm());
+  ASSERT_EQ(sd.prewarmCallCount, 2);
+  EXPECT_EQ(sd.prewarmCalls[0].styleMask, 2);
+  EXPECT_EQ(sd.prewarmCalls[1].styleMask, 1);
+  ASSERT_EQ(decoder.prewarmCallCount, 5);
+  EXPECT_EQ(decoder.prewarmCalls[0].fontData, &data[0]);
+}

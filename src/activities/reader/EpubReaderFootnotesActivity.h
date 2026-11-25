@@ -25,6 +25,9 @@ class EpubReaderFootnotesActivity final : public Activity {
   bool allowPowerAsConfirmInReaderMode() const override { return true; }
 
  private:
+#ifdef SIMULATOR
+  friend struct ScreenCalibrationSmokeTest;
+#endif
   const std::vector<FootnoteEntry>& footnotes;
   int selectedIndex = 0;
   ButtonNavigator buttonNavigator;

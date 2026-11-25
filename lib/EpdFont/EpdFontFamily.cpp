@@ -63,10 +63,10 @@ void EpdFontFamily::getTextDimensions(const char* string, int* w, int* h, const 
 
     const bool hasRealGlyph = findGlyphData(cp, style).glyph != nullptr;
 
-    if (!isCombining && !hasRealGlyph && syntheticGlyph::isSpaceFallback(cp)) {
+    if (!isCombining && syntheticGlyph::isBlankSpace(cp, hasRealGlyph)) {
       lastBaseX += fp4::toPixel(prevAdvanceFP);
-      prevCp = 0;
-      prevAdvanceFP = 0;
+      prevCp = cp;
+      prevAdvanceFP = getSpaceAdvanceX(cp, style);
       lastBaseLeft = 0;
       lastBaseWidth = 0;
       lastBaseTop = 0;
@@ -212,6 +212,13 @@ EpdFontFamily::GlyphData EpdFontFamily::findGlyphData(const uint32_t cp, const S
       return {fallback->data, glyph};
     }
   }
+  const auto extra = getFallbackFont(style);
+  if (extra) {
+    if (const auto glyph = extra->findGlyph(cp)) return {extra->data, glyph};
+    if (extra != fallbackRegular && fallbackRegular) {
+      if (const auto glyph = fallbackRegular->findGlyph(cp)) return {fallbackRegular->data, glyph};
+    }
+  }
   return {nullptr, nullptr};
 }
 
@@ -230,23 +237,70 @@ const EpdGlyph* EpdFontFamily::getGlyph(const uint32_t cp, const Style style) co
   return getGlyphData(cp, style).glyph;
 }
 
-uint32_t EpdFontFamily::getFallbackCodepoint(const uint32_t cp, const Style style) const {
-  if (findGlyphData(cp, style).glyph) return cp;
+uint16_t EpdFontFamily::getSpaceAdvanceX(const uint32_t cp, const Style style) const {
+  if (syntheticGlyph::isZeroWidthSpace(cp)) return 0;
+  const auto native = findGlyphData(cp, style).glyph;
+  if (native && native->advanceX > 0) return native->advanceX;
+
+  // Copy each metric before the next lookup: dynamic fonts can reuse glyph slots.
+  const auto advance = [&](uint32_t codepoint) -> uint16_t {
+    const auto glyph = findGlyphData(codepoint, style).glyph;
+    return glyph ? glyph->advanceX : 0;
+  };
+  const uint16_t space = advance(' ');
+  uint16_t em = advance('M');
+  if (!em) em = syntheticGlyph::solidAdvanceX(getData(style), nullptr);
+  const uint16_t figure = cp == 0x2007 ? advance('0') : 0;
+  const uint16_t punctuation = cp == 0x2008 ? advance('.') : 0;
+  return syntheticGlyph::spaceAdvanceX(cp, em, space, figure, punctuation);
+}
+
+uint32_t EpdFontFamily::getFallbackCodepoint(const uint32_t cp, const Style style, const EpdGlyph** glyph) const {
+  if (syntheticGlyph::isSpaceFallback(cp)) {
+    if (glyph) *glyph = findGlyphData(cp, style).glyph;
+    return cp;
+  }
+  const auto* matching = findGlyphData(cp, style).glyph;
+  if (matching) {
+    if (glyph) *glyph = matching;
+    return cp;
+  }
   const uint32_t aliasCp = syntheticGlyph::aliasCodepoint(cp);
   if (aliasCp != cp) {
-    return findGlyphData(aliasCp, style).glyph ? aliasCp : REPLACEMENT_GLYPH;
+    matching = findGlyphData(aliasCp, style).glyph;
+    if (matching) {
+      if (glyph) *glyph = matching;
+      return aliasCp;
+    }
+  } else if (syntheticGlyph::isSolid(cp) || syntheticGlyph::isGreekFallback(cp)) {
+    if (glyph) *glyph = nullptr;
+    return cp;
   }
-  if (syntheticGlyph::isSpaceFallback(cp)) return cp;
-  if (syntheticGlyph::isSolid(cp) || syntheticGlyph::isGreekFallback(cp)) return cp;
+  if (glyph) *glyph = cp == REPLACEMENT_GLYPH ? nullptr : findGlyphData(REPLACEMENT_GLYPH, style).glyph;
   return REPLACEMENT_GLYPH;
 }
 
 bool EpdFontFamily::hasCodepoint(const uint32_t cp, const Style style) const {
-  return getFont(style)->hasCodepoint(cp) || (fallback && fallback->hasCodepoint(cp));
+  const auto extra = getFallbackFont(style);
+  return getFont(style)->hasCodepoint(cp) || regular->hasCodepoint(cp) || (fallback && fallback->hasCodepoint(cp)) ||
+         (extra && extra->hasCodepoint(cp)) || (fallbackRegular && fallbackRegular->hasCodepoint(cp));
 }
 
 int8_t EpdFontFamily::getKerning(const uint32_t leftCp, const uint32_t rightCp, const Style style) const {
-  return getFont(style)->getKerning(leftCp, rightCp);
+  if (syntheticGlyph::isSpaceFallback(leftCp) || syntheticGlyph::isSpaceFallback(rightCp)) return 0;
+  const auto primary = getFont(style);
+  if (!fallbackRegular) return primary->getKerning(leftCp, rightCp);
+  // Never apply a kerning pair across different faces in a mixed-script filename.
+  const auto owner = [&](uint32_t cp) -> const EpdFont* {
+    if (primary->hasCodepoint(cp)) return primary;
+    if (regular->hasCodepoint(cp)) return regular;
+    if (fallback && fallback->hasCodepoint(cp)) return fallback;
+    const auto extra = getFallbackFont(style);
+    if (extra && extra->hasCodepoint(cp)) return extra;
+    return fallbackRegular->hasCodepoint(cp) ? fallbackRegular : nullptr;
+  };
+  const auto leftFont = owner(leftCp);
+  return leftFont && leftFont == owner(rightCp) ? leftFont->getKerning(leftCp, rightCp) : 0;
 }
 
 uint32_t EpdFontFamily::applyLigatures(const uint32_t cp, const char*& text, const Style style) const {

@@ -13,6 +13,7 @@
 #include "LibraryFileTypes.h"
 #include "LibraryIndexFile.h"
 #include "LibraryMetadataCache.h"
+#include "LibraryScanPolicy.h"
 #include "LibrarySort.h"
 #include "LibraryText.h"
 #include "Memory.h"
@@ -22,7 +23,8 @@ using namespace library;
 std::vector<std::string> preservedCacheClears;
 bool preserveCacheState = true;
 
-bool clearBookCachePreservingUserState(const std::string& path) {
+bool clearBookCachePreservingUserState(const std::string& path, const bool sourceChanged) {
+  EXPECT_TRUE(sourceChanged);
   preservedCacheClears.push_back(path);
   return preserveCacheState;
 }
@@ -120,6 +122,95 @@ class LibraryBuilderTest : public ::testing::Test {
 };
 
 }  // namespace
+
+TEST_F(LibraryBuilderTest, SkipsOnlyExactSystemDirectoriesInAnyFatCasing) {
+  for (const char* path : {"/XTCache/fontPos.txt", "/Backup/xtcache/epub/language.txt",
+                           "/SYSTEM VOLUME INFORMATION/notes.md", "/Books/System Volume Information/book.epub"})
+    fake::add(path);
+  for (const char* path : {"/fontPos.txt", "/language.txt", "/XTCache.txt", "/System Volume Information.md",
+                           "/XTCacheArchive/book.txt", "/System Volume Information Archive/book.md"})
+    fake::add(path);
+  initial();
+  LibraryIndexFile index;
+  ASSERT_TRUE(index.open(INDEX));
+  EXPECT_EQ(index.bookCount(), 8u);
+  for (const char* path : {"/XTCache/fontPos.txt", "/Backup/xtcache/epub", "/SYSTEM VOLUME INFORMATION/notes.md",
+                           "/Books/System Volume Information/book.epub"})
+    EXPECT_EQ(fake::directoryEntriesByPath[path], 0u) << path;
+  ClixRecord record{};
+  EXPECT_TRUE(recordAtPath(index, "/XTCacheArchive/book.txt", record));
+  EXPECT_TRUE(recordAtPath(index, "/System Volume Information.md", record));
+}
+
+TEST_F(LibraryBuilderTest, PreviousScanPolicyRebuildPreservesArrivalAndSourceFiles) {
+  // Build the old index with an included folder, then give its on-disk folder
+  // entry the system name. V6 and V7 share the same layout.
+  fake::add("/ZTCache/fontPos.txt");
+  initial();
+  LibraryIndexFile index;
+  ASSERT_TRUE(index.open(INDEX));
+  ClixRecord before{};
+  ASSERT_TRUE(recordAtPath(index, "/a.epub", before));
+  index.close();
+  auto& bytes = fake::files[INDEX]->bytes;
+  const std::string oldFolder = "/ZTCache";
+  auto folder = std::search(bytes.begin(), bytes.end(), oldFolder.begin(), oldFolder.end());
+  ASSERT_NE(folder, bytes.end());
+  *(folder + 1) = 'X';
+  bytes[offsetof(ClixHeader, formatVersion)] = 6;
+  for (const char* suffix : {"", "/fontPos.txt"}) {
+    const std::string oldPath = oldFolder + suffix;
+    fake::files[std::string("/XTCache") + suffix] = fake::files[oldPath];
+    fake::files.erase(oldPath);
+  }
+  ASSERT_FALSE(index.open(INDEX));
+  ASSERT_TRUE(index.openForReconciliation(INDEX));
+  index.close();
+  ASSERT_TRUE(buildLibraryIndex("/", stats, true));
+  EXPECT_TRUE(stats.indexReplaced);
+  // Prior release metadata must be refreshed as part of this rebuild.
+  EXPECT_EQ(stats.metadataReused, 0u);
+  ASSERT_TRUE(index.open(INDEX));
+  ClixRecord after{};
+  ASSERT_TRUE(recordAtPath(index, "/a.epub", after));
+  EXPECT_EQ(before.firstSeen, after.firstSeen);
+  EXPECT_EQ(index.bookCount(), 2u);
+  EXPECT_EQ(stats.removed, 1u);
+  EXPECT_TRUE(fake::files.count("/XTCache/fontPos.txt"));
+  EXPECT_TRUE(preservedCacheClears.empty());
+}
+
+TEST_F(LibraryBuilderTest, DevelopmentVersionEightRebuildPreservesArrivalHistory) {
+  initial();
+  auto& bytes = fake::files[INDEX]->bytes;
+  ClixHeader header{};
+  std::memcpy(&header, bytes.data(), sizeof(header));
+  header.formatVersion = 8;
+  header.nextFirstSeen = 100 + header.bookCount;
+  std::memcpy(bytes.data(), &header, sizeof(header));
+  for (uint16_t i = 0; i < header.bookCount; ++i) {
+    const uint16_t firstSeen = 100 + i;
+    std::memcpy(bytes.data() + recordOffset(header, i) + offsetof(ClixRecord, firstSeen), &firstSeen,
+                sizeof(firstSeen));
+  }
+  LibraryIndexFile before;
+  ASSERT_FALSE(before.open(INDEX));
+  ASSERT_TRUE(before.openForReconciliation(INDEX));
+  ClixRecord original{};
+  ASSERT_TRUE(recordAtPath(before, "/a.epub", original));
+  before.close();
+
+  ASSERT_TRUE(buildLibraryIndex("/", stats, true));
+  EXPECT_TRUE(stats.indexReplaced);
+  EXPECT_EQ(stats.metadataReused, 2u);
+  LibraryIndexFile after;
+  ASSERT_TRUE(after.open(INDEX));
+  EXPECT_EQ(after.header().formatVersion, CLIX_FORMAT_VERSION);
+  EXPECT_EQ(after.header().nextFirstSeen, header.nextFirstSeen);
+  ClixRecord rebuilt{};
+  ASSERT_TRUE(recordAtPath(after, "/a.epub", rebuilt));
+  EXPECT_EQ(rebuilt.firstSeen, original.firstSeen);
+}
 
 TEST_F(LibraryBuilderTest, UnchangedRebuildReusesMetadataAndDoesNotReplaceIndex) {
   initial();
@@ -1555,4 +1646,98 @@ TEST_F(LibraryBuilderTest, CancellingWhileCreatingTheMetadataCacheLeavesNoPartia
   }
   ASSERT_TRUE(buildLibraryIndex("/", stats, true));
   EXPECT_EQ(stats.books, 6);
+}
+
+TEST_F(LibraryBuilderTest, VersionSixSeriesMetadataIsReparsedIncludingPersistentCache) {
+  bookMetadata["/a.epub"].series = "Old wrong series";
+  initial();
+  LibraryIndexFile before;
+  ASSERT_TRUE(before.open(INDEX));
+  ClixRecord original{};
+  ASSERT_TRUE(recordAtPath(before, "/a.epub", original));
+  before.close();
+  fake::files[INDEX]->bytes[offsetof(ClixHeader, formatVersion)] = 6;
+  ASSERT_TRUE(fake::files.count(library::LibraryMetadataCache::slotPath()));
+  fake::files[library::LibraryMetadataCache::slotPath()]->bytes[4] = 1;
+  bookMetadata["/a.epub"].series = "Correct series";
+  bookMetadata["/a.epub"].seriesIndex = "2.5";
+  fake::parses = 0;
+  ASSERT_TRUE(buildLibraryIndex("/", stats, true));
+  EXPECT_EQ(fake::parses, 2u);
+  EXPECT_EQ(stats.metadataReused, 0);
+  LibraryIndexFile after;
+  ASSERT_TRUE(after.open(INDEX));
+  EXPECT_EQ(after.header().formatVersion, CLIX_FORMAT_VERSION);
+  ClixRecord rebuilt{};
+  ASSERT_TRUE(recordAtPath(after, "/a.epub", rebuilt));
+  EXPECT_EQ(rebuilt.firstSeen, original.firstSeen);
+  std::string series;
+  ASSERT_TRUE(after.readSeries(rebuilt, series));
+  EXPECT_EQ(series, "Correct series");
+}
+
+TEST_F(LibraryBuilderTest, RootResourceDirectoriesArePrunedButNestedBooksRemain) {
+  for (const char* folder : {"fonts", "Dictionaries", "PLUGINS", "sleep", "Sleep-Overlay"}) {
+    const std::string path = std::string("/") + folder + "/license.txt";
+    fake::add(path);
+    fake::add(std::string("/Books/") + folder + "/book.txt");
+  }
+  fake::add("/fonts-archive/book.txt");
+  fake::add("/sleep.txt");
+  initial();
+  LibraryIndexFile index;
+  ASSERT_TRUE(index.open(INDEX));
+  EXPECT_EQ(index.bookCount(), 9u);
+  ClixRecord record{};
+  for (const char* folder : {"fonts", "Dictionaries", "PLUGINS", "sleep", "Sleep-Overlay"}) {
+    const std::string path = std::string("/") + folder + "/license.txt";
+    EXPECT_FALSE(recordAtPath(index, path, record));
+    EXPECT_TRUE(fake::files.count(path));
+    EXPECT_EQ(fake::directoryEntriesByPath[path], 0u);
+    EXPECT_TRUE(recordAtPath(index, std::string("/Books/") + folder + "/book.txt", record));
+  }
+}
+
+TEST_F(LibraryBuilderTest, PreviousResourceScanPolicyReconcilesWithoutDeletingSources) {
+  fake::add("/xonts/license.txt");
+  initial();
+  auto& bytes = fake::files[INDEX]->bytes;
+  const std::string oldFolder = "/xonts";
+  auto folder = std::search(bytes.begin(), bytes.end(), oldFolder.begin(), oldFolder.end());
+  ASSERT_NE(folder, bytes.end());
+  *(folder + 1) = 'f';
+  bytes[offsetof(ClixHeader, formatVersion)] = 8;
+  for (const char* suffix : {"", "/license.txt"}) {
+    const std::string oldPath = oldFolder + suffix;
+    fake::files[std::string("/fonts") + suffix] = fake::files[oldPath];
+    fake::files.erase(oldPath);
+  }
+  LibraryIndexFile index;
+  ASSERT_FALSE(index.open(INDEX));
+  ASSERT_TRUE(index.openForReconciliation(INDEX));
+  index.close();
+  ASSERT_TRUE(buildLibraryIndex("/", stats, true));
+  EXPECT_TRUE(stats.indexReplaced);
+  EXPECT_EQ(stats.removed, 1u);
+  ASSERT_TRUE(index.open(INDEX));
+  EXPECT_EQ(index.bookCount(), 2u);
+  EXPECT_TRUE(fake::files.count("/fonts/license.txt"));
+  EXPECT_TRUE(preservedCacheClears.empty());
+}
+
+TEST_F(LibraryBuilderTest, ResourcePolicyHandlesRootAliasesAndExplicitSubroots) {
+  for (const char* prefix : {"/", "", "./", "/./", "//", "././"}) {
+    EXPECT_TRUE(isLibraryResourceDirectory(std::string(prefix) + "FoNtS/nested"));
+    EXPECT_FALSE(isLibraryResourceDirectory(std::string(prefix) + "Books/fonts"));
+    EXPECT_FALSE(isLibraryResourceDirectory(std::string(prefix) + "fonts-archive"));
+  }
+  fake::add("/fonts/license.txt");
+  ASSERT_TRUE(buildLibraryIndex("/fonts", stats, false));
+  LibraryIndexFile index;
+  ASSERT_TRUE(index.open(INDEX));
+  EXPECT_EQ(index.bookCount(), 0u);
+  index.close();
+  ASSERT_TRUE(buildLibraryIndex("./", stats, false));
+  ASSERT_TRUE(index.open(INDEX));
+  EXPECT_EQ(index.bookCount(), 2u);
 }

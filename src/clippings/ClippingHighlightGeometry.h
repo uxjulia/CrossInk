@@ -4,6 +4,21 @@
 
 namespace ClippingHighlightGeometry {
 
+struct LineBand {
+  int y = 0;
+  int height = 0;
+};
+
+inline LineBand lineBand(const int y, const int fontLineHeight, const int layoutLineHeight,
+                         const uint8_t lineHeightPercent) {
+  const int scaledHeight = (fontLineHeight * lineHeightPercent + 50) / 100;
+  const int height = layoutLineHeight > 0 ? layoutLineHeight : (scaledHeight > 0 ? scaledHeight : 1);
+  // Compress the marker around the font's line box, keeping it behind the
+  // letters rather than in the leading above a tightly spaced line.
+  const int inset = fontLineHeight > height ? (fontLineHeight - height) / 2 : 0;
+  return {y + inset, height};
+}
+
 struct WordRect {
   uint16_t pageWordIndex = 0;
   int x = 0;

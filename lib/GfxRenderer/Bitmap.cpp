@@ -1,6 +1,7 @@
 #include "Bitmap.h"
 
 #include <Logging.h>
+#include <Memory.h>
 
 #include <algorithm>
 #include <cstdlib>
@@ -185,17 +186,17 @@ BmpReaderError Bitmap::parseHeaders() {
   //  - Native palette → direct mapping, no processing needed
   //  - High-color + dithering enabled → error-diffusion dithering (Atkinson or Floyd-Steinberg)
   //  - High-color + dithering disabled → simple quantization (no error diffusion)
-  const bool highColor = !nativePalette;
-  if (highColor && dithering) {
+  const bool convertSourceLevels = toneProfile == ImageToneProfile::PiccoCover && bpp > 1;
+  if (dithering && (!nativePalette || convertSourceLevels)) {
     if (USE_ATKINSON) {
-      atkinsonDitherer = new (std::nothrow) AtkinsonDitherer(width, imageLevels);
+      atkinsonDitherer = new (std::nothrow) AtkinsonDitherer(width, toneProfile);
       if (!atkinsonDitherer || !atkinsonDitherer->isValid()) {
         delete atkinsonDitherer;
         atkinsonDitherer = nullptr;
         return BmpReaderError::OomRowBuffer;
       }
     } else {
-      fsDitherer = new (std::nothrow) FloydSteinbergDitherer(width, imageLevels);
+      fsDitherer = new (std::nothrow) FloydSteinbergDitherer(width, toneProfile);
       if (!fsDitherer || !fsDitherer->isValid()) {
         delete fsDitherer;
         fsDitherer = nullptr;
@@ -216,17 +217,90 @@ bool Bitmap::setDitheredOutputSize(const int targetWidth, const int targetHeight
 
   // The error buffers must use final-screen coordinates. Recreating this tiny
   // helper costs about 3 KiB for an X3-wide custom sleep image, not a full BMP.
-  auto* resizedDitherer = new (std::nothrow) AtkinsonDitherer(targetWidth, imageLevels);
-  if (!resizedDitherer || !resizedDitherer->isValid()) {
-    delete resizedDitherer;
+  auto resizedDitherer = makeUniqueNoThrow<AtkinsonDitherer>(targetWidth, toneProfile);
+  // One reusable output row, not a framebuffer: 4 * targetWidth bytes (at most
+  // 8192 under the BMP width limit). Dynamic width and task stack limits rule
+  // out stack/static storage. Allocation failure preserves the existing path.
+  auto sums = makeUniqueNoThrow<uint32_t[]>(targetWidth);
+  if (!resizedDitherer || !resizedDitherer->isValid() || !sums) {
+    LOG_ERR("BMP", "Failed to allocate resampler for %d columns", targetWidth);
     return false;
   }
 
   delete atkinsonDitherer;
-  atkinsonDitherer = resizedDitherer;
+  atkinsonDitherer = resizedDitherer.release();
+  resampleSums = std::move(sums);
   outputWidth = targetWidth;
   outputHeight = targetHeight;
   return true;
+}
+
+uint8_t Bitmap::pixelLuminance(const uint8_t* row, const int x) const {
+  switch (bpp) {
+    case 32: {
+      const uint8_t* p = row + x * 4;
+      return (77u * p[2] + 150u * p[1] + 29u * p[0]) >> 8;
+    }
+    case 24: {
+      const uint8_t* p = row + x * 3;
+      return (77u * p[2] + 150u * p[1] + 29u * p[0]) >> 8;
+    }
+    case 8:
+      return paletteLum[row[x]];
+    case 4: {
+      const uint8_t nibble = (x & 1) ? (row[x >> 1] & 0x0F) : (row[x >> 1] >> 4);
+      return paletteLum[nibble];
+    }
+    case 2:
+      return paletteLum[(row[x >> 2] >> (6 - ((x & 3) * 2))) & 0x03];
+    case 1: {
+      const uint8_t palIndex = (row[x >> 3] & (0x80 >> (x & 7))) ? 1 : 0;
+      return paletteLum[palIndex];
+    }
+    default:
+      return 0;
+  }
+}
+
+BmpReaderError Bitmap::readAveragedRow(uint8_t* rowBuffer) const {
+  std::fill_n(resampleSums.get(), outputWidth, 0U);
+  // Integer overlap weights preserve fractional source pixels without floating
+  // point. Each output footprint has area width * height in this coordinate grid.
+  const int top = outputRowsRead * height;
+  const int bottom = top + height;
+  const int firstRow = top / outputHeight;
+  const int endRow = (bottom + outputHeight - 1) / outputHeight;
+  if (sourceRowsRead != firstRow) {
+    // Fractional footprints can share a source row. Re-read it rather than
+    // retaining another row buffer or relying on the caller's scratch contents.
+    if (!file.seek(bfOffBits + static_cast<uint32_t>(firstRow) * rowBytes)) {
+      LOG_ERR("BMP", "Failed to seek resampling row %d", firstRow);
+      return BmpReaderError::SeekPixelDataFailed;
+    }
+    sourceRowsRead = firstRow;
+  }
+  for (int y = firstRow; y < endRow; ++y) {
+    if (file.read(rowBuffer, rowBytes) != rowBytes) {
+      LOG_ERR("BMP", "Incomplete resampling row %d", y);
+      return BmpReaderError::ShortReadRow;
+    }
+    ++sourceRowsRead;
+    const int yWeight = std::min(bottom, (y + 1) * outputHeight) - std::max(top, y * outputHeight);
+    for (int x = 0; x < outputWidth; ++x) {
+      const int left = x * width;
+      const int right = left + width;
+      const int firstColumn = left / outputWidth;
+      const int endColumn = (right + outputWidth - 1) / outputWidth;
+      uint32_t rowSum = 0;
+      for (int sx = firstColumn; sx < endColumn; ++sx) {
+        const int xWeight = std::min(right, (sx + 1) * outputWidth) - std::max(left, sx * outputWidth);
+        rowSum += static_cast<uint32_t>(pixelLuminance(rowBuffer, sx)) * xWeight;
+      }
+      // Max sum is 255 * 2048 * 3072, within uint32_t under parseHeaders limits.
+      resampleSums[x] += rowSum * yWeight;
+    }
+  }
+  return BmpReaderError::Ok;
 }
 
 // packed 2bpp output, 0 = black, 1 = dark gray, 2 = light gray, 3 = white
@@ -234,13 +308,31 @@ BmpReaderError Bitmap::readNextRow(uint8_t* data, uint8_t* rowBuffer) const {
   // Note: rowBuffer should be pre-allocated by the caller to size 'rowBytes'
   if (outputRowsRead >= outputHeight) return BmpReaderError::ShortReadRow;
 
-  // Select source rows before dithering. For example, a 480x800 custom
-  // wallpaper fitted to an X3 becomes 475x792 here, so error diffusion never
-  // has to survive the renderer's later non-integer scale.
-  const int sourceY = std::min(height - 1, (outputRowsRead * height + height / 2) / outputHeight);
-  while (sourceRowsRead <= sourceY) {
+  if (resampleSums) {
+    const auto result = readAveragedRow(rowBuffer);
+    if (result != BmpReaderError::Ok) return result;
+  } else {
     if (file.read(rowBuffer, rowBytes) != rowBytes) return BmpReaderError::ShortReadRow;
-    sourceRowsRead++;
+    ++sourceRowsRead;
+  }
+
+  if (bpp == 1 && outputWidth == width) {
+    // Home thumbnails and monochrome wallpapers already have a native
+    // palette. Expand four pixels together, preserving either palette order
+    // and transparent (undrawn) whites in the renderer. The table lives in
+    // flash; no extra row buffer or framebuffer is needed.
+    static constexpr uint8_t expanded[] = {0x00, 0x03, 0x0C, 0x0F, 0x30, 0x33, 0x3C, 0x3F,
+                                           0xC0, 0xC3, 0xCC, 0xCF, 0xF0, 0xF3, 0xFC, 0xFF};
+    const uint8_t zero = static_cast<uint8_t>((adjustPixel(paletteLum[0]) >> 6) * 0x55);
+    const uint8_t difference = zero ^ static_cast<uint8_t>((adjustPixel(paletteLum[1]) >> 6) * 0x55);
+    const int outputBytes = (width + 3) / 4;
+    for (int i = 0; i < outputBytes; ++i) {
+      const uint8_t nibble = (rowBuffer[i / 2] >> ((i & 1) ? 0 : 4)) & 0x0F;
+      data[i] = zero ^ (expanded[nibble] & difference);
+    }
+    if (width & 3) data[outputBytes - 1] &= static_cast<uint8_t>(0xFF << (2 * (4 - (width & 3))));
+    ++outputRowsRead;
+    return BmpReaderError::Ok;
   }
 
   uint8_t* outPtr = data;
@@ -275,38 +367,9 @@ BmpReaderError Bitmap::readNextRow(uint8_t* data, uint8_t* rowBuffer) const {
   };
 
   for (int outputX = 0; outputX < outputWidth; outputX++) {
-    const int sourceX = std::min(width - 1, (outputX * width + width / 2) / outputWidth);
-    uint8_t lum;
-    switch (bpp) {
-      case 32: {
-        const uint8_t* p = rowBuffer + sourceX * 4;
-        lum = (77u * p[2] + 150u * p[1] + 29u * p[0]) >> 8;
-        break;
-      }
-      case 24: {
-        const uint8_t* p = rowBuffer + sourceX * 3;
-        lum = (77u * p[2] + 150u * p[1] + 29u * p[0]) >> 8;
-        break;
-      }
-      case 8:
-        lum = paletteLum[rowBuffer[sourceX]];
-        break;
-      case 4: {
-        const uint8_t nibble = (sourceX & 1) ? (rowBuffer[sourceX >> 1] & 0x0F) : (rowBuffer[sourceX >> 1] >> 4);
-        lum = paletteLum[nibble];
-        break;
-      }
-      case 2:
-        lum = paletteLum[(rowBuffer[sourceX >> 2] >> (6 - ((sourceX & 3) * 2))) & 0x03];
-        break;
-      case 1: {
-        const uint8_t palIndex = (rowBuffer[sourceX >> 3] & (0x80 >> (sourceX & 7))) ? 1 : 0;
-        lum = paletteLum[palIndex];
-        break;
-      }
-      default:
-        return BmpReaderError::UnsupportedBpp;
-    }
+    const uint32_t area = static_cast<uint32_t>(width) * height;
+    const uint8_t lum = resampleSums ? static_cast<uint8_t>((resampleSums[outputX] + area / 2) / area)
+                                     : pixelLuminance(rowBuffer, outputX);
     packPixel(lum, outputX);
   }
 
@@ -320,6 +383,15 @@ BmpReaderError Bitmap::readNextRow(uint8_t* data, uint8_t* rowBuffer) const {
 
   outputRowsRead++;
 
+  return BmpReaderError::Ok;
+}
+
+BmpReaderError Bitmap::readRowGray(const int y, uint8_t* gray, uint8_t* rowBuffer) const {
+  if (y < 0 || y >= height) return BmpReaderError::BadDimensions;
+  const uint32_t fileRow = topDown ? y : height - 1 - y;
+  if (!file.seek(bfOffBits + fileRow * rowBytes)) return BmpReaderError::SeekPixelDataFailed;
+  if (file.read(rowBuffer, rowBytes) != rowBytes) return BmpReaderError::ShortReadRow;
+  for (int x = 0; x < width; ++x) gray[x] = pixelLuminance(rowBuffer, x);
   return BmpReaderError::Ok;
 }
 

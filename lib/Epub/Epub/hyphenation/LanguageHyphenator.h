@@ -17,6 +17,10 @@ class LanguageHyphenator {
   size_t minPrefix() const { return config_.minPrefix; }
   size_t minSuffix() const { return config_.minSuffix; }
 
+  void configure(bool (*isLetterFn)(uint32_t), uint32_t (*toLowerFn)(uint32_t)) {
+    config_ = LiangWordConfig(isLetterFn, toLowerFn);
+  }
+
  protected:
   const SerializedHyphenationPatterns& patterns_;
   LiangWordConfig config_;

@@ -1,5 +1,6 @@
 #pragma once
 #include <HalStorage.h>
+#include <Memory.h>
 
 #include <memory>
 #include <string>
@@ -15,9 +16,9 @@ class ImageBlock final : public Block {
   int16_t getWidth() const { return width; }
   int16_t getHeight() const { return height; }
 
-  void prepareCache() const;
-  bool hasValidCache() const;
-  bool needsDecode() const;
+  void prepareCache(bool grayscale) const;
+  bool hasValidCache(bool grayscale) const;
+  bool needsDecode(bool grayscale) const;
   void renderPlaceholder(GfxRenderer& renderer, int x, int y, bool foregroundBlack) const;
   static void clearSessionRenderFailures();
   static void releaseSessionPixelCache();
@@ -28,13 +29,14 @@ class ImageBlock final : public Block {
   using ExtractFn = bool (*)(void* context, const char* sourcePath, const char* destinationPath);
   using SeedCacheFn = bool (*)(void* context, const char* sourcePath, int width, int height,
                                const char* destinationPath);
-  static void setExtractor(void* context, ExtractFn extract, SeedCacheFn seedCache);
+  using LoadFn = HeapByteBuffer (*)(void*, const char*, size_t&);
+  static void setExtractor(void* context, ExtractFn extract, SeedCacheFn seedCache, LoadFn load = nullptr);
 
   BlockType getType() override { return IMAGE_BLOCK; }
   bool isEmpty() override { return false; }
 
-  void render(GfxRenderer& renderer, const int x, const int y, const bool foregroundBlack);
-  bool serialize(FsFile& file);
+  bool render(GfxRenderer& renderer, const int x, const int y, const bool foregroundBlack, bool imageGrayscale = true);
+  bool serialize(Print& file);
   static std::unique_ptr<ImageBlock> deserialize(FsFile& file);
 
  private:
@@ -46,4 +48,5 @@ class ImageBlock final : public Block {
   static void* extractContext;
   static ExtractFn extractFn;
   static SeedCacheFn seedCacheFn;
+  static LoadFn loadFn;
 };

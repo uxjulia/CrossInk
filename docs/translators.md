@@ -5,9 +5,10 @@ nav_order: 10
 
 # Translators
 
-Below is a list of translator credits for languages with known contributors.
-Official UI language support is determined by the YAML files in
-`lib/I18n/translations/`; see [i18n.md](./i18n.md) for the current supported
+Thank you to everyone who has translated CrossInk. Below is a list of credits for languages with known contributors. To install a language on your reader, or to make your own translation, see [Languages](./languages.md).
+
+The languages CrossInk offers are determined by the YAML files in
+`lib/I18n/translations/`. See [i18n.md](./i18n.md) for the current supported
 language list.
 
 ## French

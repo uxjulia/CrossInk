@@ -10,6 +10,7 @@
 #include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
 #include "components/UIThemeTokens.h"
+#include "components/UiAppHelpers.h"
 #include "fontIds.h"
 
 namespace {
@@ -147,19 +148,19 @@ void ButtonRemapActivity::render(RenderLock&&) {
     GUI.drawHeader(renderer, headerRect, header, nullptr, headerReaderContext);
   }
   GUI.drawSubHeader(renderer,
-                    Rect{0, metrics.topPadding + TouchHeaderBackButton::height(metrics, mappedInput), pageWidth,
-                         metrics.tabBarHeight},
+                    Rect{0, TouchHeaderBackButton::contentTop(renderer, mappedInput), pageWidth, metrics.tabBarHeight},
                     tr(STR_REMAP_PROMPT));
 
-  const int topOffset = metrics.topPadding + TouchHeaderBackButton::height(metrics, mappedInput) +
-                        metrics.tabBarHeight + metrics.verticalSpacing;
+  const int topOffset =
+      TouchHeaderBackButton::contentTop(renderer, mappedInput) + metrics.tabBarHeight + metrics.verticalSpacing;
   ui.render();
 
   // Temporary warning banner for duplicates.
   if (!errorMessage.empty()) {
-    GUI.drawHelpText(renderer,
-                     Rect{0, pageHeight - metrics.buttonHintsHeight - metrics.contentSidePadding - 15, pageWidth, 20},
-                     errorMessage.c_str());
+    GUI.drawHelpText(
+        renderer,
+        Rect{0, pageHeight - UITheme::getButtonHintsReserve(renderer) - metrics.contentSidePadding - 15, pageWidth, 20},
+        errorMessage.c_str());
   }
 
   // Provide side button actions at the bottom of the screen (split across two lines).
@@ -185,10 +186,12 @@ void ButtonRemapActivity::listScreen(UiApp::ScreenType& screen, void* user) {
 
 void ButtonRemapActivity::buildListScreen(UiApp::ScreenType& screen) {
   const auto& metrics = UITheme::getInstance().getMetrics();
-  const int topOffset = metrics.topPadding + TouchHeaderBackButton::height(metrics, mappedInput) +
-                        metrics.tabBarHeight + metrics.verticalSpacing;
-  screen.setContentMargin(fui::Insets{static_cast<int16_t>(topOffset), 0,
-                                      static_cast<int16_t>(metrics.buttonHintsHeight + metrics.verticalSpacing), 0});
+  const int topOffset =
+      TouchHeaderBackButton::contentTop(renderer, mappedInput) + metrics.tabBarHeight + metrics.verticalSpacing;
+  setUiContentMargin(
+      screen, renderer,
+      fui::Insets{static_cast<int16_t>(topOffset), 0,
+                  static_cast<int16_t>(UITheme::getButtonHintsReserve(renderer) + metrics.verticalSpacing), 0});
 
   refreshListItems();
 

@@ -11,6 +11,7 @@
 #include <optional>
 
 #include "MappedInputManager.h"
+#include "ReaderRuling.h"
 #include "ReaderUtils.h"
 #include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
@@ -179,13 +180,14 @@ void EpubReaderFootnoteSelectActivity::render(RenderLock&&) {
               ESP.getMaxAllocHeap());
       renderer.clearScreen(ReaderUtils::readerBackgroundColor());
       GUI.drawPopup(renderer, tr(STR_MEMORY_ERROR));
-      renderer.displayBuffer(HalDisplay::FAST_REFRESH);
       return;
     }
   }
 
   renderer.clearScreen(ReaderUtils::readerBackgroundColor());
-  page->render(renderer, fontId, marginLeft, marginTop, ReaderUtils::readerForegroundBlack());
+  page->renderText(renderer, fontId, marginLeft, marginTop, ReaderUtils::readerForegroundBlack());
+  ReaderRuling::drawSelectionPage(renderer, *page, fontId, marginLeft, marginTop);
+  page->renderImages(renderer, fontId, marginLeft, marginTop, ReaderUtils::readerForegroundBlack());
   drawHighlightWithSnapshot();
   drawChrome();
   renderer.displayBuffer(HalDisplay::FAST_REFRESH);

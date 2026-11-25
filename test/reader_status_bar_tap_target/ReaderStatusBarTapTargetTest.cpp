@@ -2,26 +2,28 @@
 
 #include "ReaderStatusBarTapTarget.h"
 
-TEST(ReaderStatusBarTapTarget, BottomReservesThirtyTwoPixelsForACompactStatusBar) {
+TEST(ReaderStatusBarTapTarget, BottomReservesAFingerSizedStripIncludingTheBezelMargin) {
   constexpr int screenHeight = 480;
   constexpr int bottomMargin = 5;
 
-  EXPECT_FALSE(ReaderStatusBarTapTarget::containsBottom(442, screenHeight, bottomMargin, 19));
-  EXPECT_TRUE(ReaderStatusBarTapTarget::containsBottom(443, screenHeight, bottomMargin, 19));
+  EXPECT_FALSE(ReaderStatusBarTapTarget::containsBottom(410, screenHeight, bottomMargin, 19));
+  EXPECT_TRUE(ReaderStatusBarTapTarget::containsBottom(411, screenHeight, bottomMargin, 19));
   EXPECT_TRUE(ReaderStatusBarTapTarget::containsBottom(474, screenHeight, bottomMargin, 19));
-  EXPECT_FALSE(ReaderStatusBarTapTarget::containsBottom(475, screenHeight, bottomMargin, 19));
+  EXPECT_TRUE(ReaderStatusBarTapTarget::containsBottom(479, screenHeight, bottomMargin, 19));
+  EXPECT_FALSE(ReaderStatusBarTapTarget::containsBottom(480, screenHeight, bottomMargin, 19));
 }
 
 TEST(ReaderStatusBarTapTarget, BottomUsesTheFullTallerStatusBar) {
-  EXPECT_TRUE(ReaderStatusBarTapTarget::containsBottom(440, 480, 5, 35));
-  EXPECT_FALSE(ReaderStatusBarTapTarget::containsBottom(439, 480, 5, 35));
+  EXPECT_TRUE(ReaderStatusBarTapTarget::containsBottom(395, 480, 5, 80));
+  EXPECT_FALSE(ReaderStatusBarTapTarget::containsBottom(394, 480, 5, 80));
 }
 
 TEST(ReaderStatusBarTapTarget, TopUsesTheSameMinimumTouchTarget) {
-  EXPECT_FALSE(ReaderStatusBarTapTarget::containsTop(7, 480, 8, 19));
+  EXPECT_FALSE(ReaderStatusBarTapTarget::containsTop(-1, 480, 8, 19));
+  EXPECT_TRUE(ReaderStatusBarTapTarget::containsTop(0, 480, 8, 19));
   EXPECT_TRUE(ReaderStatusBarTapTarget::containsTop(8, 480, 8, 19));
-  EXPECT_TRUE(ReaderStatusBarTapTarget::containsTop(39, 480, 8, 19));
-  EXPECT_FALSE(ReaderStatusBarTapTarget::containsTop(40, 480, 8, 19));
+  EXPECT_TRUE(ReaderStatusBarTapTarget::containsTop(71, 480, 8, 19));
+  EXPECT_FALSE(ReaderStatusBarTapTarget::containsTop(72, 480, 8, 19));
 }
 
 TEST(ReaderStatusBarTapTarget, RejectsMissingOrInvalidStatusBarRegions) {

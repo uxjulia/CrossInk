@@ -1,0 +1,7 @@
+# Sync action icons. Regenerate with:
+# python3 scripts/generate_icons.py --library tabler \
+#   --manifest src/components/icons/syncIcons.manifest \
+#   --sizes 32 --out src/components/icons/syncIcons.h
+# then clang-format -i the output.
+cloud-upload = cloud-upload
+blockquote = blockquote

@@ -23,14 +23,25 @@ class SdCardFontSystem {
   SdCardFontSystem() = default;
   SdCardFontSystem(const SdCardFontSystem&) = delete;
   SdCardFontSystem& operator=(const SdCardFontSystem&) = delete;
-  /// Register the font resolver. On scalable-font devices, defer all reader
-  /// font loading until the reader or a font preview requests it.
-  void begin(GfxRenderer& renderer);
+  /// Register the font resolver even on minimal network boots. Set
+  /// loadReaderFont=false to skip font loading and discovery on every device.
+  /// Scalable-font devices always defer loading until the reader requests it.
+  void begin(GfxRenderer& renderer, bool loadReaderFont = true);
 
   /// Ensure the correct SD font family is loaded for the current settings.
   /// Call before entering the reader or after settings change.
   /// Also re-discovers if the registry has been marked dirty (e.g. by web upload).
   void ensureLoaded(GfxRenderer& renderer);
+
+  // Book-level bitmap size preferences, in 1/256 em. Font loading and cache
+  // identities are settled before layout; dictionary return reuses these hints.
+  // Changed hints may still select the same files; ensureLoaded checks that
+  // separately from catalog/file invalidation before replacing a live font.
+  void setContentSizeScales(std::array<uint16_t, 2> scales) {
+    if (manager_.setContentSizeScales(scales) &&
+        !manager_.hasResidentScalableFamily(manager_.currentFamilyName().c_str()))
+      contentSizesPending_ = true;
+  }
 
   /// Prepare the selected built-in family before using it as a reader fallback.
   int ensureBuiltInReaderFont(GfxRenderer& renderer);
@@ -129,20 +140,13 @@ class SdCardFontSystem {
  private:
   void persistSettingsChange() const;
 
-  // Load the active SD family at the built-in UI point sizes and register each
-  // as a size-matched CJK fallback for the corresponding UI font, so CJK book
-  // titles/list rows render at the same size as the surrounding Latin UI text.
-  // No-op when no SD family is loaded. Safe to call repeatedly (sizes already
-  // loaded are reused).
-  void setupUiFallbacks(GfxRenderer& renderer);
-  void setupUiFallbacksDirect(GfxRenderer& renderer, const char* familyName);
-
   SdCardFontRegistry registry_;
   SdCardFontManager manager_;
   std::atomic<bool> registryDirty_{false};
   bool registryLoaded_ = false;
   uint8_t loadedFontPointSize_ = 0;
   bool fontReloadPending_ = false;
+  bool contentSizesPending_ = false;
   uint32_t loadedRegistryRevision_ = 0;
   uint32_t scalableRenderOptionsGeneration_ = 0;
   SettingsPersistenceCallback settingsPersistenceCallback_ = nullptr;

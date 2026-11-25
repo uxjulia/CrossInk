@@ -16,6 +16,9 @@
 
 // Reader status bar configuration activity
 class StatusBarSettingsActivity final : public Activity {
+#ifdef SIMULATOR
+  friend struct StatusBarFeatureSmokeTest;
+#endif
  public:
   explicit StatusBarSettingsActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, bool readerContext = false,
                                      bool stablePageNumbersAvailable = false, bool displayContext = false)
@@ -31,6 +34,7 @@ class StatusBarSettingsActivity final : public Activity {
   void onExit() override;
   void loop() override;
   void render(RenderLock&&) override;
+  bool allowGlobalHomeSwipeGesture() const override { return !optionPopup.isActive(); }
   bool handleHomeGesture() override;
 
  private:
@@ -52,6 +56,9 @@ class StatusBarSettingsActivity final : public Activity {
   freeink::ui::ListNav listNav;
   int visibleRows = 1;
   int topIndex = 0;
+#ifdef SIMULATOR
+  bool simulatorSelectedRowVisible = false;
+#endif
 
   void handleSelection();
   void openOptionPicker();

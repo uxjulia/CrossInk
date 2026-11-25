@@ -10,6 +10,9 @@ class EpdFont {
   ~EpdFont() = default;
   void getTextDimensions(const char* string, int* w, int* h) const;
 
+  // Changes when an on-demand/scalable lookup returns no metadata. A render
+  // bounds collector must stay conservative if a failed lookup could recover.
+  static uint32_t glyphLookupFailureCount();
   const EpdGlyph* findGlyph(uint32_t cp) const;
   const EpdGlyph* getGlyph(uint32_t cp) const;
 

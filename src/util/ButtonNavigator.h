@@ -11,7 +11,9 @@ class ButtonNavigator final {
 
   const uint16_t continuousStartMs;
   const uint16_t continuousIntervalMs;
+  uint32_t lastPressTime = 0;
   uint32_t lastContinuousNavTime = 0;
+  bool hasRepeated = false;
   static const MappedInputManager* mappedInput;
 
   [[nodiscard]] bool shouldNavigateContinuously() const;

@@ -23,6 +23,10 @@ constexpr int32_t HALF = 1 << (FRAC_BITS - 1);  // 8, added before shift for rou
 /// Convert an integer pixel value to 12.4 fixed-point.
 constexpr int32_t fromPixel(int px) { return static_cast<int32_t>(px) << FRAC_BITS; }
 
+/// Discard the two low bits of a 26.6 value, leaving four fractional bits.
+/// This preserves the final pixel snap when combining advances with fp4 kerning.
+constexpr int32_t truncate26_6_to_4(int32_t fp) { return fp >> 2; }
+
 /// Snap a fixed-point value to the nearest integer pixel.
 constexpr int toPixel(int32_t fp) { return static_cast<int>((fp + HALF) >> FRAC_BITS); }
 
@@ -256,9 +260,55 @@ constexpr bool isGreekFallback(uint32_t cp) {
   return cp == GREEK_CAPITAL_GAMMA || cp == GREEK_SMALL_EPSILON || cp == GREEK_SMALL_OMEGA;
 }
 constexpr bool isReplacementFallback(uint32_t cp) { return cp == 0xFFFD; }
+// Unicode White_Space plus invisible spacing/join controls that can survive shaping.
+// Line separators are blank here; paragraph/line breaking belongs to the reader parser.
+constexpr bool isZeroWidthSpace(uint32_t cp) {
+  return cp == 0x180E || (cp >= 0x200B && cp <= 0x200F) || (cp >= 0x2060 && cp <= 0x2064) || cp == 0xFEFF;
+}
 constexpr bool isSpaceFallback(uint32_t cp) {
-  return cp == 0x00A0 || cp == 0x1680 || (cp >= 0x2000 && cp <= 0x200A) || cp == 0x202F ||
-         (cp >= 0x2060 && cp <= 0x2063) || cp == 0x205F || cp == 0x3000;
+  return (cp >= 0x0009 && cp <= 0x000D) || cp == 0x0085 || cp == 0x00A0 || cp == 0x1680 ||
+         (cp >= 0x2000 && cp <= 0x200A) || cp == 0x2028 || cp == 0x2029 || cp == 0x202F || cp == 0x205F ||
+         cp == 0x3000 || isZeroWidthSpace(cp);
+}
+
+// Ogham can carry a stemline in fonts that draw one; preserve that native glyph.
+constexpr bool isBlankSpace(uint32_t cp, bool hasNativeGlyph) {
+  return isSpaceFallback(cp) && (cp != 0x1680 || !hasNativeGlyph);
+}
+
+// Font-relative approximations when the face has no blank glyph for a space.
+inline uint16_t spaceAdvanceX(uint32_t cp, uint16_t em, uint16_t space, uint16_t figure = 0, uint16_t punctuation = 0) {
+  if (isZeroWidthSpace(cp)) return 0;
+  if (em == 0) em = fp4::fromPixel(8);
+  if (space == 0) space = (em + 1) / 3;
+  switch (cp) {
+    case 0x2000:  // en quad
+    case 0x2002:  // en space
+      return (em + 1) / 2;
+    case 0x2001:  // em quad
+    case 0x2003:  // em space
+    case 0x3000:  // ideographic space
+      return em;
+    case 0x2004:
+      return (em + 1) / 3;
+    case 0x2005:
+      return (em + 2) / 4;
+    case 0x2006:
+      return (em + 3) / 6;
+    case 0x2007:
+      return figure ? figure : (em + 1) / 2;
+    case 0x2008:
+      return punctuation ? punctuation : space;
+    case 0x2009:  // thin space
+    case 0x202F:  // narrow no-break space
+      return (em + 2) / 5;
+    case 0x200A:
+      return (em + 5) / 10;
+    case 0x205F:
+      return (em * 4 + 9) / 18;
+    default:
+      return space;
+  }
 }
 constexpr uint32_t aliasCodepoint(uint32_t cp) {
   return cp == MODIFIER_LETTER_TURNED_COMMA ? LEFT_SINGLE_QUOTATION_MARK : cp;

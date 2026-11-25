@@ -15,6 +15,13 @@ namespace {
 constexpr uint8_t RECENT_BOOKS_FILE_VERSION = 3;
 constexpr char RECENT_BOOKS_FILE_BIN[] = "/.crosspoint/recent.bin";
 constexpr char RECENT_BOOKS_FILE_BAK[] = "/.crosspoint/recent.bin.bak";
+
+void refreshEpubCoverPath(RecentBook& book) {
+  if (!book.coverBmpPath.empty() && FsHelpers::hasEpubExtension(book.path)) {
+    // Artwork references are disposable; history and the book path stay intact.
+    book.coverBmpPath = Epub(book.path, "/.crosspoint").getThumbBmpPath();
+  }
+}
 }  // namespace
 
 void RecentBooksStore::toJson(JsonDocument& doc) const {
@@ -46,6 +53,7 @@ bool RecentBooksStore::fromJson(JsonVariantConst doc) {
     if (storedCoverState == static_cast<int>(RecentBook::CoverState::Missing)) {
       book.coverState = RecentBook::CoverState::Missing;
     }
+    refreshEpubCoverPath(book);
     recentBooks.push_back(book);
   }
 
@@ -190,11 +198,10 @@ RecentBook RecentBooksStore::getDataFromBook(std::string path) const {
 }
 
 bool RecentBooksStore::loadFromFile() {
-  const bool hasStoreFile = Storage.exists(getFilePath());
   if (PersistableStore<RecentBooksStore>::loadFromFile()) {
     return true;
   }
-  if (hasStoreFile) {
+  if (hasStoreFile(getFilePath())) {
     return false;
   }
 
@@ -261,7 +268,9 @@ bool RecentBooksStore::loadFromBinaryFile() {
         continue;
       }
 
-      recentBooks.push_back({path, title, author, coverBmpPath});
+      RecentBook book{path, title, author, coverBmpPath};
+      refreshEpubCoverPath(book);
+      recentBooks.push_back(std::move(book));
     }
 
     if (omitted > 0) {

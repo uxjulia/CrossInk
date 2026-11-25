@@ -9,14 +9,42 @@
 #include <vector>
 
 #include "lib/Epub/Epub/hyphenation/HyphenationCommon.h"
+#include "lib/Epub/Epub/hyphenation/Hyphenator.h"
 #include "lib/Epub/Epub/hyphenation/LanguageHyphenator.h"
 #include "lib/Epub/Epub/hyphenation/LanguageRegistry.h"
+#include "lib/Epub/Epub/hyphenation/generated/hyph-de.trie.h"
+#include "lib/Epub/Epub/hyphenation/generated/hyph-es.trie.h"
+#include "lib/Epub/Epub/hyphenation/generated/hyph-fr.trie.h"
+#include "lib/Epub/Epub/hyphenation/generated/hyph-it.trie.h"
+#include "lib/Epub/Epub/hyphenation/generated/hyph-pl.trie.h"
+#include "lib/Epub/Epub/hyphenation/generated/hyph-pt.trie.h"
+#include "lib/Epub/Epub/hyphenation/generated/hyph-ru.trie.h"
+#include "lib/Epub/Epub/hyphenation/generated/hyph-sv.trie.h"
+#include "lib/Epub/Epub/hyphenation/generated/hyph-uk.trie.h"
 
 #ifndef HYPHENATION_RESOURCES_DIR
 #error "HYPHENATION_RESOURCES_DIR must be defined by the build system"
 #endif
 
 namespace {
+
+bool testPackLookup(const char* code, ExternalHyphenationPatterns& out) {
+  struct Pack {
+    const char* code;
+    const SerializedHyphenationPatterns* patterns;
+  };
+  static constexpr Pack packs[] = {{"de", &de_patterns}, {"es", &es_patterns}, {"fr", &fr_patterns},
+                                   {"it", &it_patterns}, {"pl", &pl_patterns}, {"pt", &pt_patterns},
+                                   {"ru", &ru_patterns}, {"sv", &sv_patterns}, {"uk", &uk_patterns}};
+  for (const auto& pack : packs) {
+    if (std::string(code) == pack.code) {
+      out.patterns = *pack.patterns;
+      out.identity = 2;
+      return true;
+    }
+  }
+  return false;
+}
 
 struct TestCase {
   std::string word;
@@ -180,6 +208,7 @@ EvaluationResult evaluateWord(const TestCase& testCase, const std::vector<size_t
 // is at or above `minF1Percent`. Thresholds are set ~1pp below measured
 // baselines so unrelated tweaks don't fail CI but real regressions still trip.
 void runLanguageEval(const char* langName, const char* primaryTag, const char* resourceFile, double minF1Percent) {
+  setExternalHyphenationLookup(testPackLookup);
   const auto* hyphenator = getLanguageHyphenatorForPrimaryTag(primaryTag);
   ASSERT_NE(hyphenator, nullptr) << "No hyphenator registered for tag: " << primaryTag;
 
@@ -233,3 +262,41 @@ TEST(HyphenationEval, Italian) { runLanguageEval("italian", "it", "italian_hyphe
 TEST(HyphenationEval, Polish) { runLanguageEval("polish", "pl", "polish_hyphenation_tests.txt", 98.92); }
 TEST(HyphenationEval, Portuguese) { runLanguageEval("portuguese", "pt", "portuguese_hyphenation_tests.txt", 99.00); }
 TEST(HyphenationEval, Swedish) { runLanguageEval("swedish", "sv", "swedish_hyphenation_tests.txt", 94.01); }
+
+TEST(HyphenationPacks, MissingPackPreservesExplicitAndOverflowBreaks) {
+  setExternalHyphenationLookup(nullptr);
+  Hyphenator::setPreferredLanguage("de-DE");
+  EXPECT_TRUE(Hyphenator::breakOffsets("Satellitensystems", false).empty());
+  auto explicitBreaks = Hyphenator::breakOffsets("US-Satellitensystems", false);
+  ASSERT_EQ(explicitBreaks.size(), 1U);
+  EXPECT_EQ(explicitBreaks[0].byteOffset, 3U);
+  EXPECT_FALSE(explicitBreaks[0].requiresInsertedHyphen);
+  auto soft = Hyphenator::breakOffsets("extra\xc2\xadordinary", false);
+  ASSERT_EQ(soft.size(), 1U);
+  EXPECT_EQ(soft[0].byteOffset, 7U);
+  EXPECT_TRUE(soft[0].requiresInsertedHyphen);
+  EXPECT_FALSE(Hyphenator::breakOffsets("Satellitensystems", true).empty());
+  EXPECT_EQ(Hyphenator::patternIdentity("de"), 0U);
+  EXPECT_NE(Hyphenator::patternIdentity("en-US"), 0U);
+}
+
+TEST(HyphenationPacks, ExternalPatternsFollowBookLanguageAndAliases) {
+  setExternalHyphenationLookup(testPackLookup);
+  for (const auto* tag : {"de-DE", "GER", "deu", "DE_de"}) {
+    Hyphenator::setPreferredLanguage(tag);
+    EXPECT_FALSE(Hyphenator::breakOffsets("Satellitensystems", false).empty()) << tag;
+    EXPECT_EQ(Hyphenator::patternIdentity(tag), 2U);
+  }
+  EXPECT_EQ(Hyphenator::patternIdentity("pol"), 2U);
+  EXPECT_EQ(Hyphenator::patternIdentity("unknown"), 0U);
+  EXPECT_EQ(Hyphenator::patternIdentity("d3"), 0U);
+  setExternalHyphenationLookup(nullptr);
+  Hyphenator::setPreferredLanguage("en");
+}
+
+TEST(HyphenationPacks, InvalidExternalLevelOffsetsAreRejected) {
+  const uint8_t bytes[] = {0x80, 0x00, 0x01};  // levels before the stripped root prefix
+  SerializedHyphenationPatterns patterns{0, bytes, sizeof(bytes)};
+  LanguageHyphenator hyphenator(patterns, isLatinLetter, toLowerLatin);
+  EXPECT_TRUE(hyphenator.breakIndexes(collectCodepoints("example")).empty());
+}

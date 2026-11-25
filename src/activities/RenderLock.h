@@ -16,4 +16,6 @@ class RenderLock {
   void unlock();
   bool ownsLock() const { return isLocked; }
   static bool peek();
+  // For helpers reached both inside a render lock and from main-loop shortcuts.
+  static bool heldByCurrentTask();
 };

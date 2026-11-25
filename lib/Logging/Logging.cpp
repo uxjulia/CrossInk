@@ -3,6 +3,7 @@
 #include <BoardConfig.h>
 #include <esp_rom_sys.h>
 
+#include <atomic>
 #include <cstdio>
 #include <string>
 
@@ -29,8 +30,14 @@ RTC_NOINIT_ATTR size_t logHead = 0;
 // never properly initialized.
 RTC_NOINIT_ATTR uint32_t rtcLogMagic;
 static constexpr uint32_t LOG_RTC_MAGIC = 0xDEADBEEF;
+// Boot code decides whether the RTC ring belongs to a previous panic before
+// allowing any startup log to overwrite it. This costs no second log buffer.
+static std::atomic<bool> logRetentionPaused{true};
+
+void pauseLogRetention(const bool paused) { logRetentionPaused = paused; }
 
 void addToLogRingBuffer(const char* message) {
+  if (logRetentionPaused) return;
   // Add the message to the ring buffer, overwriting old messages if necessary.
   // If the magic is wrong or logHead is out of range (RTC_NOINIT_ATTR garbage
   // on cold boot), clear the entire buffer so subsequent reads are safe.
@@ -81,9 +88,9 @@ void logPrintf(const char* level, const char* origin, const char* format, ...) {
   // otherwise be silently dropped (e.g. Sticky).
   esp_rom_printf("%s", buf);
 #else
-  if (logSerial) {
-    logSerial.print(buf);
-  }
+  // HWCDC can briefly report disconnected at the low-power clock. Writing
+  // still queues the log and re-arms transmission after that transient.
+  logSerial.print(buf);
 #endif
   addToLogRingBuffer(buf);
 }

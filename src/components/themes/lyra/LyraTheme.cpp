@@ -52,6 +52,7 @@ int mainMenuIconYOffset(const UIIcon icon) {
     case UIIcon::Library:
       return -4;
     case UIIcon::Opds:
+    case UIIcon::Plugins:
       return -4;
     default:
       return 0;
@@ -77,6 +78,8 @@ const freeink::Icon* LyraTheme::iconForName(UIIcon icon, uint32_t size) {
         return &icon_landmark_24;
       case UIIcon::Opds:
         return &icon_lyra_library_24;
+      case UIIcon::Plugins:
+        return &icon_puzzle_24;
       default:
         return nullptr;
     }
@@ -98,6 +101,8 @@ const freeink::Icon* LyraTheme::iconForName(UIIcon icon, uint32_t size) {
         return &icon_landmark_32;
       case UIIcon::Opds:
         return &icon_lyra_library_32;
+      case UIIcon::Plugins:
+        return &icon_puzzle_32;
       case UIIcon::Wifi:
         return &icon_wifi_32;
       case UIIcon::Hotspot:
@@ -379,8 +384,9 @@ void LyraTheme::drawButtonHints(GfxRenderer& renderer, const char* btn1, const c
   constexpr int buttonWidth = 80;
   constexpr int smallButtonHeight = 15;
   constexpr int buttonHeight = LyraMetrics::values.buttonHintsHeight;
-  constexpr int buttonY = LyraMetrics::values.buttonHintsHeight;  // Distance from bottom
-  constexpr int textYOffset = 7;                                  // Distance from top of button to text baseline
+  const int buttonY =
+      LyraMetrics::values.buttonHintsHeight + UITheme::getButtonHintsBottomInset(renderer);  // Distance from bottom
+  const int textYOffset = std::max(1, (buttonHeight - renderer.getTextHeight(SMALL_FONT_ID)) / 2);
   // Keyed to the portrait panel width: the 528-wide X3 gets more spacing than
   // the 480-wide boards (X4, X4 Pro, and the other 800x480 panels).
   constexpr int narrowButtonPositions[] = {58, 146, 254, 342};
@@ -389,7 +395,7 @@ void LyraTheme::drawButtonHints(GfxRenderer& renderer, const char* btn1, const c
   const char* labels[] = {btn1, btn2, btn3, btn4};
 
   for (int i = 0; i < 4; i++) {
-    const int x = buttonPositions[i];
+    const int x = UITheme::getHintSafeX(renderer, buttonPositions[i], buttonWidth);
     if (labels[i] != nullptr && labels[i][0] != '\0') {
       TouchRegistry::getInstance().add(Rect{x, pageHeight - buttonY, buttonWidth, buttonHeight}, i,
                                        TouchRegistry::Button);
@@ -398,10 +404,8 @@ void LyraTheme::drawButtonHints(GfxRenderer& renderer, const char* btn1, const c
       renderer.drawRoundedRect(x, pageHeight - buttonY, buttonWidth, buttonHeight, 1, cornerRadius, true, true, false,
                                false, true);
     } else if (labels[i] != nullptr) {
-      // Clear the previous full-sized hint before drawing the inactive marker.
-      // Dictionary chaining can otherwise leave its old label visible.
-      renderer.fillRect(x, pageHeight - buttonY, buttonWidth, buttonHeight, false);
-      const int smallButtonY = pageHeight - smallButtonHeight;
+      // The caller restores the background when hints change; only cover the small marker.
+      const int smallButtonY = pageHeight - smallButtonHeight - UITheme::getButtonHintsBottomInset(renderer);
       renderer.fillRoundedRect(x, smallButtonY, buttonWidth, smallButtonHeight, cornerRadius, Color::White);
       renderer.drawRoundedRect(x, smallButtonY, buttonWidth, smallButtonHeight, 1, cornerRadius, true, true, false,
                                false, true);
@@ -409,13 +413,14 @@ void LyraTheme::drawButtonHints(GfxRenderer& renderer, const char* btn1, const c
   }
 
   renderer.setOrientation(invertText ? GfxRenderer::Orientation::PortraitInverted : GfxRenderer::Orientation::Portrait);
-  const int textY = invertText ? textYOffset : pageHeight - buttonY + textYOffset;
+  const int textY =
+      invertText ? UITheme::getButtonHintsBottomInset(renderer) + textYOffset : pageHeight - buttonY + textYOffset;
 
   for (int i = 0; i < 4; i++) {
     if (labels[i] != nullptr && labels[i][0] != '\0') {
       const int x = buttonPositions[invertText ? 3 - i : i];
       const int textWidth = renderer.getTextWidth(SMALL_FONT_ID, labels[i]);
-      const int textX = x + (buttonWidth - 1 - textWidth) / 2;
+      const int textX = UITheme::getHintSafeX(renderer, x + (buttonWidth - 1 - textWidth) / 2, textWidth);
       renderer.drawText(SMALL_FONT_ID, textX, textY, labels[i]);
     }
   }
@@ -429,7 +434,7 @@ void LyraTheme::drawSideButtonHints(const GfxRenderer& renderer, const char* top
   const int screenWidth = renderer.getScreenWidth();
   constexpr int buttonWidth = LyraMetrics::values.sideButtonHintsWidth;  // Width on screen (height when rotated)
   constexpr int buttonHeight = 78;                                       // Height on screen (width when rotated)
-  constexpr int buttonMargin = 0;
+  const int buttonMargin = UITheme::getHintSafeX(renderer, 0, buttonWidth);
 
   if (deviceHasEdgeSideButtons(gpio)) {
     // Edge-button layout (X3, X4 Pro): Up on left side, Down on right side, positioned higher
@@ -443,7 +448,7 @@ void LyraTheme::drawSideButtonHints(const GfxRenderer& renderer, const char* top
     }
 
     if (bottomBtn != nullptr && bottomBtn[0] != '\0') {
-      const int rightX = screenWidth - buttonWidth;
+      const int rightX = UITheme::getHintSafeX(renderer, screenWidth - buttonWidth, buttonWidth);
       renderer.drawRoundedRect(rightX, x3ButtonY, buttonWidth, buttonHeight, 1, cornerRadius, true, false, true, false,
                                true);
       const int textWidth = renderer.getTextWidth(SMALL_FONT_ID, bottomBtn);
@@ -451,22 +456,25 @@ void LyraTheme::drawSideButtonHints(const GfxRenderer& renderer, const char* top
     }
   } else {
     // X4 layout: Both buttons stacked on right side
+    const auto insets = renderer.getViewableInsets().rotated(static_cast<unsigned>(renderer.getOrientation()));
+    const int stackTop = std::clamp(topHintButtonY, static_cast<int>(insets.edges[0]),
+                                    std::max(static_cast<int>(insets.edges[0]),
+                                             renderer.getScreenHeight() - insets.edges[2] - 2 * buttonHeight - 5));
     const char* labels[] = {topBtn, bottomBtn};
-    const int x = screenWidth - buttonWidth;
+    const int x = UITheme::getHintSafeX(renderer, screenWidth - buttonWidth, buttonWidth);
 
     if (topBtn != nullptr && topBtn[0] != '\0') {
-      renderer.drawRoundedRect(x, topHintButtonY, buttonWidth, buttonHeight, 1, cornerRadius, true, false, true, false,
-                               true);
+      renderer.drawRoundedRect(x, stackTop, buttonWidth, buttonHeight, 1, cornerRadius, true, false, true, false, true);
     }
 
     if (bottomBtn != nullptr && bottomBtn[0] != '\0') {
-      renderer.drawRoundedRect(x, topHintButtonY + buttonHeight + 5, buttonWidth, buttonHeight, 1, cornerRadius, true,
-                               false, true, false, true);
+      renderer.drawRoundedRect(x, stackTop + buttonHeight + 5, buttonWidth, buttonHeight, 1, cornerRadius, true, false,
+                               true, false, true);
     }
 
     for (int i = 0; i < 2; i++) {
       if (labels[i] != nullptr && labels[i][0] != '\0') {
-        const int y = topHintButtonY + (i * buttonHeight) + 5;
+        const int y = stackTop + (i * buttonHeight) + 5;
         const int textWidth = renderer.getTextWidth(SMALL_FONT_ID, labels[i]);
         renderer.drawTextRotated90CW(SMALL_FONT_ID, x, y + (buttonHeight + textWidth) / 2, labels[i]);
       }
@@ -493,7 +501,7 @@ void LyraTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
   // Draw cover image as background if available (inside the box)
   // Only load from SD on first render, then use stored buffer
   if (hasContinueReading) {
-    TouchRegistry::getInstance().add(Rect{LyraMetrics::values.contentSidePadding, tileY, tileWidth,
+    TouchRegistry::getInstance().add(Rect{rect.x + LyraMetrics::values.contentSidePadding, tileY, tileWidth,
                                           LyraMetrics::values.homeCoverHeight + 2 * hPaddingInSelection},
                                      0, TouchRegistry::Cover);
 
@@ -501,7 +509,7 @@ void LyraTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
     if (!coverRendered) {
       std::string coverPath = book.coverBmpPath;
       bool hasCover = true;
-      int tileX = LyraMetrics::values.contentSidePadding;
+      int tileX = rect.x + LyraMetrics::values.contentSidePadding;
       if (coverPath.empty()) {
         hasCover = false;
       } else {
@@ -540,7 +548,7 @@ void LyraTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
 
     bool bookSelected = (selectorIndex == 0);
 
-    int tileX = LyraMetrics::values.contentSidePadding;
+    int tileX = rect.x + LyraMetrics::values.contentSidePadding;
     int textWidth = tileWidth - 2 * hPaddingInSelection - LyraMetrics::values.verticalSpacing - coverWidth;
 
     if (bookSelected) {
@@ -556,14 +564,16 @@ void LyraTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
                                hPaddingInSelection, cornerRadius, false, false, true, true, Color::LightGray);
     }
 
-    auto titleLines = renderer.wrappedText(UI_12_FONT_ID, book.title.c_str(), textWidth, 3, EpdFontFamily::BOLD);
+    auto titleLines = renderer.wrappedText(renderer.filenameFontId(UI_12_FONT_ID), book.title.c_str(), textWidth, 3,
+                                           EpdFontFamily::BOLD);
 
-    auto author = renderer.truncatedText(UI_10_FONT_ID, book.author.c_str(), textWidth);
-    const int titleLineHeight = renderer.getLineHeight(UI_12_FONT_ID);
-    const int statsLineHeight = renderer.getLineHeight(SMALL_FONT_ID);
-    const int progressLineHeight = renderer.getLineHeight(UI_10_FONT_ID);
+    auto author = renderer.truncatedText(renderer.filenameFontId(UI_10_FONT_ID), book.author.c_str(), textWidth);
+    const int titleLineHeight = renderer.getLineHeight(renderer.filenameFontId(UI_12_FONT_ID));
+    const int statsLineHeight = renderer.getLineHeight(renderer.filenameFontId(SMALL_FONT_ID));
+    const int progressLineHeight = renderer.getLineHeight(renderer.filenameFontId(UI_10_FONT_ID));
     const int titleBlockHeight = titleLineHeight * static_cast<int>(titleLines.size());
-    const int authorHeight = book.author.empty() ? 0 : (renderer.getLineHeight(UI_10_FONT_ID) * 3 / 2);
+    const int authorHeight =
+        book.author.empty() ? 0 : (renderer.getLineHeight(renderer.filenameFontId(UI_10_FONT_ID)) * 3 / 2);
     const bool hasStats = (stats != nullptr && stats->sessionCount > 0);
     const bool hasProgress = progressPercent >= 0.0f;
     const int statsBlockHeight = hasStats ? (statsLineHeight * 2 + 6) : 0;
@@ -572,12 +582,12 @@ void LyraTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
     int titleY = tileY + tileHeight / 2 - totalBlockHeight / 2;
     const int textX = tileX + hPaddingInSelection + coverWidth + LyraMetrics::values.verticalSpacing;
     for (const auto& line : titleLines) {
-      renderer.drawText(UI_12_FONT_ID, textX, titleY, line.c_str(), true, EpdFontFamily::BOLD);
+      renderer.drawText(renderer.filenameFontId(UI_12_FONT_ID), textX, titleY, line.c_str(), true, EpdFontFamily::BOLD);
       titleY += titleLineHeight;
     }
     if (!book.author.empty()) {
       titleY += renderer.getLineHeight(UI_10_FONT_ID) / 2;
-      renderer.drawText(UI_10_FONT_ID, textX, titleY, author.c_str(), true);
+      renderer.drawText(renderer.filenameFontId(UI_10_FONT_ID), textX, titleY, author.c_str(), true);
       titleY += renderer.getLineHeight(UI_10_FONT_ID);
     }
     if (hasStats) {
@@ -589,7 +599,7 @@ void LyraTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
       renderer.drawText(SMALL_FONT_ID, textX, titleY, statLine, true);
       titleY += statsLineHeight;
       BookReadingStats::formatDuration(stats->totalReadingSeconds / stats->sessionCount, buf, sizeof(buf));
-      snprintf(statLine, sizeof(statLine), "%s%s", tr(STR_STATS_AVG_SESSION), buf);
+      snprintf(statLine, sizeof(statLine), "%s: %s", tr(STR_STATS_AVG_SESSION_LBL), buf);
       renderer.drawText(SMALL_FONT_ID, textX, titleY, statLine, true);
       titleY += statsLineHeight;
     }
@@ -628,14 +638,14 @@ void LyraTheme::drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount
   const auto& menuMetrics = UITheme::getInstance().getMetrics();
 
   constexpr int maxVisibleItems = 7;
-  const int pageItems = maxVisibleItems;
+  const int rowStep = menuMetrics.menuRowHeight + menuMetrics.menuSpacing;
+  const int pageItems = std::clamp((rect.height + menuMetrics.menuSpacing) / rowStep, 1, maxVisibleItems);
   const int totalPages = (buttonCount + pageItems - 1) / pageItems;
 
   if (totalPages > 1) {
-    const int scrollAreaHeight =
-        maxVisibleItems * (menuMetrics.menuRowHeight + menuMetrics.menuSpacing) - menuMetrics.menuSpacing;
+    const int scrollAreaHeight = pageItems * rowStep - menuMetrics.menuSpacing;
     const int scrollBarHeight = (scrollAreaHeight * pageItems) / buttonCount;
-    const int currentPage = selectedIndex / pageItems;
+    const int currentPage = std::max(0, selectedIndex) / pageItems;
     const int scrollBarY = rect.y + ((scrollAreaHeight - scrollBarHeight) * currentPage) / (totalPages - 1);
     const int scrollBarX = rect.x + rect.width - LyraMetrics::values.scrollBarRightOffset;
     renderer.drawLine(scrollBarX, rect.y, scrollBarX, rect.y + scrollAreaHeight, true);
@@ -643,7 +653,7 @@ void LyraTheme::drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount
                       scrollBarHeight, true);
   }
 
-  const int pageStartIndex = (selectedIndex / pageItems) * pageItems;
+  const int pageStartIndex = (std::max(0, selectedIndex) / pageItems) * pageItems;
 
   for (int i = pageStartIndex; i < buttonCount && i < pageStartIndex + pageItems; ++i) {
     const int displayIndex = i - pageStartIndex;

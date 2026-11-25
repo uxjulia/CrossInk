@@ -24,10 +24,13 @@ Layout vertical(const Rect container, const uint8_t count, const int buttonHeigh
   return result;
 }
 
-int indexAt(const Layout& layout, const int x, const int y) {
+int indexAt(const Layout& layout, const int x, const int y, const int touchPadding) {
+  const int padding = std::max(0, touchPadding);
   for (uint8_t i = 0; i < layout.count; ++i) {
     const Rect& button = layout.buttons[i];
-    if (x >= button.x && x < button.x + button.width && y >= button.y && y < button.y + button.height) {
+    if (button.width <= 0 || button.height <= 0) continue;
+    if (x >= button.x - padding && x < button.x + button.width + padding && y >= button.y - padding &&
+        y < button.y + button.height + padding) {
       return i;
     }
   }

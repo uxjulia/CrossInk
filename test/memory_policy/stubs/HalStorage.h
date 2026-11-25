@@ -20,6 +20,7 @@ inline constexpr oflag_t O_RDWR = 1;
 struct HostFileData {
   std::vector<uint8_t> bytes;
   size_t readCalls = 0, readBytes = 0;
+  uint32_t modified = 1;
   size_t readFailAt = std::numeric_limits<size_t>::max();
   size_t failAt = std::numeric_limits<size_t>::max();
 };
@@ -78,6 +79,7 @@ class HalFile : public Print {
     cursor_ = 0;
     return true;
   }
+  uint32_t modificationTime() const { return data_ ? data_->modified : 0; }
   bool isOpen() const { return static_cast<bool>(data_); }
   explicit operator bool() const { return isOpen(); }
 

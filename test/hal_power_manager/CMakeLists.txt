@@ -1,0 +1,12 @@
+add_executable(HalPowerManagerTest HalPowerManagerTest.cpp ${REPO_ROOT}/lib/hal/HalPowerManager.cpp)
+target_include_directories(HalPowerManagerTest PRIVATE stubs ${REPO_ROOT}/lib/hal ${REPO_ROOT}/include)
+target_compile_definitions(HalPowerManagerTest PRIVATE CROSSINK_APP_CAP_TOUCH=0 CROSSINK_APP_CAP_USB_DRIVE=0)
+target_link_libraries(HalPowerManagerTest PRIVATE crosspoint_test_common GTest::gtest_main)
+gtest_discover_tests(HalPowerManagerTest)
+
+add_executable(PiccoPowerManagerTest PiccoPowerManagerTest.cpp BatteryReadoutTest.cpp BatteryDiagnosticLogTest.cpp ${REPO_ROOT}/src/util/BatteryDiagnosticLog.cpp ${REPO_ROOT}/lib/hal/HalPowerManager.cpp)
+target_include_directories(PiccoPowerManagerTest PRIVATE stubs ${REPO_ROOT}/lib/hal ${REPO_ROOT}/include)
+target_compile_definitions(PiccoPowerManagerTest PRIVATE FREEINK_DEVICE_PICCO=1 CROSSINK_BATTERY_DIAG_LOG=1 CROSSINK_APP_CAP_TOUCH=0 CROSSINK_APP_CAP_USB_DRIVE=0)
+target_include_directories(PiccoPowerManagerTest PRIVATE ${REPO_ROOT}/freeink-sdk/libs/hardware/BatteryMonitor/include ${REPO_ROOT}/src)
+target_link_libraries(PiccoPowerManagerTest PRIVATE crosspoint_test_common GTest::gtest_main)
+gtest_discover_tests(PiccoPowerManagerTest)

@@ -31,6 +31,10 @@ struct GlobalReadingStats;
 
 class MinimalTheme : public LyraTheme {
  public:
+  // Image bounds inside the cover frame, used before thumbnail dithering.
+  static Rect getHomeCoverRect(const GfxRenderer& renderer);
+  static Rect getSleepCoverRect(const GfxRenderer& renderer, bool statsSleep = false);
+
   static void setHomeButtonHintSelection(int selectedIndex);
   static Rect buttonMenuPanelRect(const GfxRenderer& renderer, int buttonCount);
   static int compactFileBrowserRowHeightFor(const GfxRenderer& renderer);
@@ -44,7 +48,7 @@ class MinimalTheme : public LyraTheme {
                                          bool allowTwoLineTitles = true);
 
   void drawHeader(const GfxRenderer& renderer, Rect rect, const char* title, const char* subtitle = nullptr,
-                  bool readerContext = false, bool showStatus = true) const override;
+                  bool readerContext = false, bool showStatus = true, bool filenameTitle = false) const override;
   void drawTabBar(const GfxRenderer& renderer, Rect rect, const std::vector<TabInfo>& tabs,
                   bool selected) const override;
   bool tabIndexFromPoint(const GfxRenderer& renderer, Rect rect, const std::vector<TabInfo>& tabs, int x, int y,

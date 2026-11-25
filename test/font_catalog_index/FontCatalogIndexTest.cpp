@@ -19,7 +19,7 @@ int main() {
   put("/.fonts/Bitmap/Bitmap_14.cpfont", "bitmap14");
   put("/fonts/Bitmap/Bitmap_22.cpfont", "shadowed");
   put("/fonts/Other/Other_12.cpfont", "other");
-  put("/.fonts/Vector/Vector-Regular.ttf", "Vector 0");
+  put("/.fonts/Vector/Vector-Regular.OTF", "Vector 0");
   put("/.fonts/Vector/Vector-Bold.ttf", "Vector 1");
   // An empty/invalid hidden family must not hide a valid visible install.
   std::filesystem::create_directories(testRoot + "/.fonts/Fallback");
@@ -34,12 +34,32 @@ int main() {
   put("/fonts/AfterEmpty/AfterEmpty_18.cpfont", "after-empty");
   SdCardFontRegistry registry;
   assert(registry.loadNames());
+  // Discovery releases its 128-entry scratch reservation before returning.
+  assert(registry.getFamilies().capacity() == registry.getFamilies().size());
   assert(Storage.exists(fontcatalog::Path));
   assert(!registry.needsRefresh());
   const auto steps = directorySteps;
   registry.clear();
   assert(registry.loadNames());
   assert(directorySteps == steps);
+  assert(registry.getFamilies().capacity() == registry.getFamilies().size());
+  // A catalog written before CFF support must be rescanned even when the
+  // directory names and file sizes have not changed.
+  {
+    std::fstream index(testRoot + fontcatalog::Path, std::ios::binary | std::ios::in | std::ios::out);
+    constexpr uint32_t previousVersion = 1;
+    index.seekp(offsetof(fontcatalog::Header, version));
+    index.write(reinterpret_cast<const char*>(&previousVersion), sizeof(previousVersion));
+  }
+  registry.clear();
+  assert(registry.loadNames());
+  assert(directorySteps > steps);
+  {
+    std::ifstream index(testRoot + fontcatalog::Path, std::ios::binary);
+    fontcatalog::Header header;
+    index.read(reinterpret_cast<char*>(&header), sizeof(header));
+    assert(index && header.version == fontcatalog::Version);
+  }
   for (const auto& family : registry.getFamilies()) assert(family.files.empty());
   const auto* bitmap = registry.findFamily("Bitmap");
   assert(bitmap && bitmap->availableSizes() == std::vector<uint8_t>({10, 14}));

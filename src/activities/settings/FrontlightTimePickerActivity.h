@@ -22,6 +22,9 @@ class FrontlightTimePickerActivity final : public Activity {
   void render(RenderLock&&) override;
 
  private:
+#ifdef SIMULATOR
+  friend struct ScreenCalibrationSmokeTest;
+#endif
   enum class Field : uint8_t { Hour, Minute, Period, Count };
 
   StrId titleId;

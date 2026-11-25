@@ -24,6 +24,10 @@ class FontSelectionActivity final : public Activity {
   void render(RenderLock&&) override;
 
  private:
+#ifdef SIMULATOR
+  friend struct ScreenCalibrationSmokeTest;
+#endif
+  void updateLayoutMetrics();
   void handleSelection();
   void activateSelected();
   int getFontIdForPreview(int index) const;

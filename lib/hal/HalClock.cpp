@@ -2,10 +2,8 @@
 
 #include <DateFormatting.h>
 #include <Logging.h>
+#include <TrustedTime.h>
 #include <WiFi.h>
-#include <esp_netif.h>
-#include <esp_netif_sntp.h>
-#include <lwip/dns.h>
 #include <time.h>
 
 #include <cassert>
@@ -14,11 +12,6 @@ HalClock halClock;  // Singleton instance
 
 namespace {
 constexpr uint16_t kBaseYear = 2000;
-
-esp_err_t clearDnsCache(void*) {
-  dns_clear_cache();
-  return ESP_OK;
-}
 
 bool isLeapYear(const uint16_t year) { return (year % 4 == 0 && year % 100 != 0) || year % 400 == 0; }
 
@@ -250,32 +243,32 @@ bool HalClock::syncSystemTimeFromNTP() {
     return false;
   }
 
-  esp_netif_sntp_deinit();
-
   LOG_INF("CLK", "Starting NTP sync...");
-  // esp-netif owns the small temporary SNTP state/semaphore and routes all
-  // lwIP timer changes through its core-lock-safe execution path.
-  esp_sntp_config_t config = ESP_NETIF_SNTP_DEFAULT_CONFIG("pool.ntp.org");
-  const esp_err_t initResult = esp_netif_sntp_init(&config);
-  if (initResult != ESP_OK) {
-    LOG_ERR("CLK", "Failed to start NTP sync: %s", esp_err_to_name(initResult));
-    return false;
-  }
+  return trustedtime::syncNow(5000);
+}
 
-  const esp_err_t syncResult = esp_netif_sntp_sync_wait(pdMS_TO_TICKS(5000));
-  // An SNTP timeout can leave its DNS callback pending. Drain that callback
-  // under lwIP's core lock before stopping SNTP; the next hostname lookup may
-  // otherwise invoke it from the application task while clearing the cache.
-  const esp_err_t clearResult = esp_netif_tcpip_exec(clearDnsCache, nullptr);
-  esp_netif_sntp_deinit();
-  if (clearResult != ESP_OK) {
-    LOG_ERR("CLK", "Failed to clear DNS after NTP sync: %s", esp_err_to_name(clearResult));
-    return false;
+bool HalClock::getReadingDateTime(uint16_t& year, uint8_t& month, uint8_t& day, uint8_t& hour, uint8_t& minute,
+                                  uint8_t& second) const {
+  if (_available) {
+    Rtc::DateTime dt;
+    if (!_sdkRtc.now(dt)) return false;
+    year = dt.year;
+    month = dt.month;
+    day = dt.day;
+    hour = dt.hour;
+    minute = dt.minute;
+    second = dt.second;
+  } else {
+    const time_t now = time(nullptr);
+    if (now < 946684800) return false;
+    struct tm utc;
+    if (!gmtime_r(&now, &utc)) return false;
+    year = utc.tm_year + 1900;
+    month = utc.tm_mon + 1;
+    day = utc.tm_mday;
+    hour = utc.tm_hour;
+    minute = utc.tm_min;
+    second = utc.tm_sec;
   }
-  if (syncResult != ESP_OK) {
-    LOG_ERR("CLK", "NTP sync failed: %s", esp_err_to_name(syncResult));
-    return false;
-  }
-
-  return true;
+  return isValidDate(year, month, day) && hour < 24 && minute < 60 && second < 60;
 }

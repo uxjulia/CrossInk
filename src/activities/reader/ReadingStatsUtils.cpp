@@ -1,6 +1,9 @@
 #include "ReadingStatsUtils.h"
 
 #include <HalClock.h>
+#ifdef SIMULATOR
+#include <ctime>
+#endif
 
 #include "CrossPointSettings.h"
 
@@ -71,7 +74,7 @@ void ReadingStatsDate::clear() {
   day = 0;
 }
 
-bool ReadingStatsDateTime::isValid() const { return date.isValid(); }
+bool ReadingStatsDateTime::isValid() const { return date.isValid() && hour < 24 && minute < 60 && second < 60; }
 
 bool isLeapYear(const uint16_t year) { return (year % 4 == 0 && year % 100 != 0) || year % 400 == 0; }
 
@@ -446,26 +449,75 @@ uint16_t computeReadingHistoryLongestStreak(const uint32_t anchorDay,
 
 uint16_t computeReadingHistoryCurrentStreak(uint32_t anchorDay, const std::array<uint8_t, READING_HISTORY_BYTES>& bits,
                                             const ReadingStatsDate* today) {
-  if (anchorDay == 0 && !isBitSet(bits, 0)) {
-    return 0;
-  }
-  if (!isBitSet(bits, 0)) {
-    return 0;
-  }
-
+  int64_t offset = 0;
   if (today && today->isValid()) {
-    const uint32_t todayDay = readingStatsDayIndex(*today);
-    if (anchorDay + 1u < todayDay) {
-      return 0;
-    }
+    offset = int64_t(anchorDay) - readingStatsDayIndex(*today);
   }
+  // A downloaded calendar is anchored to today even before any reading today.
+  // Start from the actual local day (or yesterday), excluding future bits.
+  if (offset < -1 || offset >= int64_t(READING_HISTORY_DAYS)) return 0;
+  size_t first = offset < 0 ? 0 : size_t(offset);
+  if (offset >= 0 && !isBitSet(bits, first)) ++first;
 
   uint16_t streak = 0;
-  for (size_t bitIndex = 0; bitIndex < READING_HISTORY_DAYS; ++bitIndex) {
+  for (size_t bitIndex = first; bitIndex < READING_HISTORY_DAYS; ++bitIndex) {
     if (!isBitSet(bits, bitIndex)) {
       break;
     }
     streak++;
   }
   return streak;
+}
+
+bool getCurrentLocalDailyReadingDateTime(ReadingStatsDateTime& out) {
+  out = {};
+  if (SETTINGS.clockUtcOffsetQ > 104) return false;
+#ifdef SIMULATOR
+  const time_t now = time(nullptr);
+  struct tm utc;
+  if (now < 946684800 || !gmtime_r(&now, &utc)) return false;
+  out.date = {static_cast<uint16_t>(utc.tm_year + 1900), static_cast<uint8_t>(utc.tm_mon + 1),
+              static_cast<uint8_t>(utc.tm_mday)};
+  out.hour = utc.tm_hour;
+  out.minute = utc.tm_min;
+  out.second = utc.tm_sec;
+#else
+  if (!halClock.getReadingDateTime(out.date.year, out.date.month, out.date.day, out.hour, out.minute, out.second)) {
+    out = {};
+    return false;
+  }
+#endif
+  const int offset = (int(SETTINGS.clockUtcOffsetQ) - 48) * 15;
+  int minute = int(out.hour) * 60 + out.minute + offset;
+  if (minute < 0) {
+    addDaysToReadingStatsDate(out.date, -1);
+    minute += 1440;
+  }
+  if (minute >= 1440) {
+    addDaysToReadingStatsDate(out.date, 1);
+    minute -= 1440;
+  }
+  out.hour = minute / 60;
+  out.minute = minute % 60;
+  return out.isValid();
+}
+
+bool readingStatsIntervalSeconds(uint32_t nowMs, uint32_t shownAtMs, uint32_t idleSeconds, uint32_t& seconds) {
+  seconds = 0;
+  if (!shownAtMs) return false;
+  const uint32_t elapsed = (nowMs - shownAtMs) / 1000u;
+  if (!elapsed || elapsed > idleSeconds) return false;
+  seconds = elapsed;
+  return true;
+}
+
+bool isValidReadingStatsInterval(const ReadingStatsDateTime& start, const ReadingStatsDateTime& end,
+                                 const uint8_t startOffset, const uint8_t endOffset, const uint32_t seconds) {
+  if (!seconds || !start.isValid() || !end.isValid() || startOffset != endOffset || endOffset > 104) return false;
+  const uint64_t first =
+      uint64_t(readingStatsDayIndex(start.date)) * 86400 + start.hour * 3600u + start.minute * 60u + start.second;
+  const uint64_t last =
+      uint64_t(readingStatsDayIndex(end.date)) * 86400 + end.hour * 3600u + end.minute * 60u + end.second;
+  // Match the existing daily counters' allowance for RTC/subsecond rounding.
+  return last >= first && last - first + 2 >= seconds && last - first <= uint64_t(seconds) + 2;
 }

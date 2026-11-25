@@ -1,13 +1,29 @@
 #include "UsbSerialFileTransfer.h"
 
+#include <FilePublication.h>
+#include <Memory.h>
+#include <SyncJsonAllocator.h>
+#include <TransferWriteCheckpoint.h>
+
+#include "ProtectedPaths.h"
+#include "UsbProgressSync.h"
+#include "activities/Activity.h"
+#include "activities/ActivityManager.h"
+#include "activities/RenderLock.h"
+
+extern GfxRenderer renderer;
+
 #include <AppVersion.h>
 #include <Arduino.h>
+#include <BookKey.h>
 #include <FsHelpers.h>
 #include <HalStorage.h>
 #include <LibraryBuilder.h>
 #include <Logging.h>
 #include <SdCardFontSystem.h>
 #include <esp_rom_crc.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 
 #include <algorithm>
 #include <atomic>
@@ -16,6 +32,7 @@
 #include <string>
 
 #include "CrossPointSettings.h"
+#include "CrossPointState.h"
 #include "activities/boot_sleep/ImageFolderIndex.h"
 #include "util/BookCacheUtils.h"
 
@@ -36,9 +53,9 @@ constexpr size_t LINE_BUFFER_SIZE = 80;
 constexpr size_t REMOVE_RECURSIVE_MAX_DEPTH = 8;
 constexpr uint32_t SHORT_TIMEOUT_MS = 1000;
 constexpr uint32_t HEADER_TIMEOUT_MS = 2000;
-constexpr uint32_t CHECKSUM_TIMEOUT_MS = 10000;
 constexpr uint32_t CHUNK_TIMEOUT_MS = 45000;
-constexpr const char* TEMP_UPLOAD_PATH = "/.crosspoint/usb-upload.tmp";
+constexpr uint32_t WRITE_TIMEOUT_MS = 1000;
+constexpr const char* TEMP_UPLOAD_PATH = FilePublication::USB_SERIAL_STAGE;
 constexpr const char* INTERNAL_DIR = "/.crosspoint";
 constexpr const char* HIDDEN_ITEMS[] = {"System Volume Information", "XTCache"};
 
@@ -52,6 +69,9 @@ size_t lineBufferPos = 0;
 uint8_t transferBuffer[SERIAL_CHUNK_SIZE];
 // Set once per process() call from the caller's screen context; read by every command handler.
 bool fileTransferAllowed = false;
+std::string usbResumeBook;
+uint32_t usbBookSession = 0;
+bool usbSessionAtHome = false;
 
 #if defined(CROSSINK_USB_RX_OVERFLOW_ENABLED)
 std::atomic<uint32_t> rxDroppedBytes{0};
@@ -81,21 +101,36 @@ void writeRxOverflowError(const uint32_t snapshot) {
 }
 #endif
 
-void writeLine(const char* line) { logSerial.print(line); }
+bool writeRaw(const uint8_t* data, size_t length) {
+  if (length == 0) return true;
+  size_t sent = 0;
+  const unsigned long started = millis();
+  while (sent < length) {
+    const size_t written = logSerial.write(data + sent, length - sent);
+    serviceSerialTx();
+    if (written > length - sent) break;
+    sent += written;
+    if (sent == length) return true;
+    if (millis() - started >= WRITE_TIMEOUT_MS) break;
+    vTaskDelay(1);
+  }
+  LOG_ERR("USB", "Serial write incomplete: %zu/%zu bytes", sent, length);
+  return false;
+}
 
-void writeRaw(const uint8_t* data, size_t length) { logSerial.write(data, length); }
+bool writeLine(const char* line) { return writeRaw(reinterpret_cast<const uint8_t*>(line), strlen(line)); }
 
-void writeAck() { writeRaw(&ACK, 1); }
+bool writeAck() { return writeRaw(&ACK, 1); }
 
 uint32_t readLe32(const uint8_t* data) {
   return static_cast<uint32_t>(data[0]) | (static_cast<uint32_t>(data[1]) << 8) |
          (static_cast<uint32_t>(data[2]) << 16) | (static_cast<uint32_t>(data[3]) << 24);
 }
 
-void writeLe32(uint32_t value) {
+bool writeLe32(uint32_t value) {
   uint8_t data[4] = {static_cast<uint8_t>(value), static_cast<uint8_t>(value >> 8), static_cast<uint8_t>(value >> 16),
                      static_cast<uint8_t>(value >> 24)};
-  writeRaw(data, sizeof(data));
+  return writeRaw(data, sizeof(data));
 }
 
 bool readExact(uint8_t* buffer, size_t length, uint32_t timeoutMs, size_t* receivedOut = nullptr,
@@ -104,6 +139,9 @@ bool readExact(uint8_t* buffer, size_t length, uint32_t timeoutMs, size_t* recei
   const unsigned long deadline = millis() + timeoutMs;
   unsigned long nextBusyAt = millis() + 3000;
   while (received < length) {
+    // An ACK can still be queued when the host starts waiting for it. Keep
+    // native USB moving instead of relying on the next BUSY message to flush it.
+    serviceSerialTx();
     const int available = logSerial.available();
     if (available > 0) {
       const size_t wanted = std::min(length - received, static_cast<size_t>(available));
@@ -127,8 +165,8 @@ bool readExact(uint8_t* buffer, size_t length, uint32_t timeoutMs, size_t* recei
     }
 
     // USB transfers run on the Arduino loop task, which is intentionally not
-    // subscribed to the task watchdog. Yielding lets the watched idle tasks run.
-    yield();
+    // subscribed to the task watchdog. Block for a tick so priority-0 idle tasks run.
+    vTaskDelay(1);
   }
   if (receivedOut) *receivedOut = received;
   return true;
@@ -192,7 +230,7 @@ bool isProtectedPathSegment(const char* name) {
 }
 
 bool isProtectedPath(const char* path) {
-  if (!path) return true;
+  if (!path || protectedpaths::isSensitivePath(path, false, true)) return true;
 
   int start = 0;
   const int length = strlen(path);
@@ -302,11 +340,16 @@ bool removeRecursive(const char* path, size_t depth = 0) {
   return Storage.rmdir(path);
 }
 
-void handleStatus() {
-  char response[160];
-  snprintf(response, sizeof(response), "STATUS:protocol=1,device=%s,firmware=%s,free=%u,largest=%u\n",
-           CROSSINK_FIRMWARE_DEVICE_TYPE, AppVersion::version(), ESP.getFreeHeap(), ESP.getMaxAllocHeap());
-  writeLine(response);
+bool handleStatus() {
+  char reader[32]{};
+  UsbProgressSync::readerId(reader, sizeof(reader));
+  char response[224];
+  snprintf(response, sizeof(response),
+           "STATUS:protocol=1,progress_sync=1,sync_extras=1,sync_book_scope=1,sync_current=1,sync_reader=%s,device=%s,"
+           "firmware=%s,"
+           "free=%u,largest=%u\n",
+           reader, CROSSINK_FIRMWARE_DEVICE_TYPE, AppVersion::version(), ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+  return writeLine(response);
 }
 
 void handleList() {
@@ -434,7 +477,7 @@ void handleWrite() {
 #endif
 
   if (!ensureFileTransferAllowed()) return;
-  if (strcmp(path, "/") == 0 || isProtectedPath(path)) {
+  if (strcmp(path, "/") == 0 || isProtectedPath(path) || protectedpaths::isSensitivePath(path, true, true)) {
     writeLine("ERR:protected_path\n");
     return;
   }
@@ -477,12 +520,16 @@ void handleWrite() {
     if (fileBufferPos == 0) return true;
     const size_t bytesToWrite = fileBufferPos;
     logSerial.printf("BUSY:write:%lu\n", static_cast<unsigned long>(bytesAccepted));
-    const size_t written = file.write(fileBuffer.get(), bytesToWrite);
+    const bool written = FsHelpers::writeAndCheckpoint(file, fileBuffer.get(), bytesToWrite);
     fileBufferPos = 0;
-    return written == bytesToWrite;
+    return written;
   };
 
-  writeLine("READY\n");
+  if (!writeLine("READY\n")) {
+    file.close();
+    Storage.remove(TEMP_UPLOAD_PATH);
+    return;
+  }
 
   uint32_t crc = 0;
   uint32_t remaining = expectedSize;
@@ -516,14 +563,18 @@ void handleWrite() {
     fileBufferPos += want;
     remaining -= want;
     bytesAccepted += static_cast<uint32_t>(want);
-    if (fileBufferPos >= FILE_BUFFER_SIZE && !flushFileBuffer()) {
+    // The host waits for this chunk's ACK before sending more data, so commit
+    // the bytes before acknowledging them instead of keeping them only in RAM.
+    if (!flushFileBuffer()) {
       file.close();
       Storage.remove(TEMP_UPLOAD_PATH);
       writeLine("ERR:write\n");
       return;
     }
-    if (remaining > 0) {
-      writeAck();
+    if (remaining > 0 && !writeAck()) {
+      file.close();
+      Storage.remove(TEMP_UPLOAD_PATH);
+      return;
     }
     yield();
   }
@@ -534,7 +585,13 @@ void handleWrite() {
     writeLine("ERR:write\n");
     return;
   }
-  file.close();
+  const bool synced = file.sync();
+  const bool closed = file.close();
+  if (!synced || !closed) {
+    Storage.remove(TEMP_UPLOAD_PATH);
+    writeLine("ERR:write\n");
+    return;
+  }
 
 #if defined(CROSSINK_USB_RX_OVERFLOW_ENABLED)
   if (rxOverflowCount() != rxOverflowAtStart) {
@@ -546,12 +603,15 @@ void handleWrite() {
 
   if (expectedSize > 0) {
     // Tell the host the file is saved and ready for its separately written CRC.
-    writeAck();
+    if (!writeAck()) {
+      Storage.remove(TEMP_UPLOAD_PATH);
+      return;
+    }
   }
 
   uint8_t crcBytes[4];
   size_t crcBytesReceived = 0;
-  if (!readExact(crcBytes, sizeof(crcBytes), CHECKSUM_TIMEOUT_MS, &crcBytesReceived)) {
+  if (!readExact(crcBytes, sizeof(crcBytes), CHUNK_TIMEOUT_MS, &crcBytesReceived, "checksum")) {
     LOG_ERR("USB", "CRC read timed out after %zu/%zu bytes", crcBytesReceived, sizeof(crcBytes));
     Storage.remove(TEMP_UPLOAD_PATH);
     writeLine("ERR:crc_missing\n");
@@ -568,16 +628,17 @@ void handleWrite() {
 
   library::invalidateLibraryIndex();
   sdFontSystem.markRegistryDirtyForPath(path);
-  if (Storage.exists(path)) {
-    Storage.remove(path);
-  }
-  if (!Storage.rename(TEMP_UPLOAD_PATH, path)) {
+  if (!FilePublication::publish(TEMP_UPLOAD_PATH, path)) {
     Storage.remove(TEMP_UPLOAD_PATH);
     writeLine("ERR:rename_failed\n");
     return;
   }
 
-  clearCachesForPath(path);
+  if (!clearBookCachePreservingUserState(path, true)) {
+    LOG_ERR("USB", "File saved but cache refresh failed: %s", path);
+    writeLine("ERR:cache_refresh_failed\n");
+    return;
+  }
   ImageFolderIndex::invalidateForPath(path);
   sdFontSystem.markRegistryDirtyForPath(path);
   writeLine("OK\n");
@@ -587,7 +648,7 @@ void handleRemove() {
   char path[PATH_BUFFER_SIZE];
   if (!readNormalizedPath(path, sizeof(path))) return;
   if (!ensureFileTransferAllowed()) return;
-  if (strcmp(path, "/") == 0 || isProtectedPath(path)) {
+  if (strcmp(path, "/") == 0 || isProtectedPath(path) || protectedpaths::isSensitivePath(path, true, true)) {
     writeLine("ERR:protected_path\n");
     return;
   }
@@ -613,7 +674,8 @@ void handleRename() {
   if (!readNormalizedPath(dst, sizeof(dst))) return;
   if (!ensureFileTransferAllowed()) return;
 
-  if (strcmp(src, "/") == 0 || strcmp(dst, "/") == 0 || isProtectedPath(src) || isProtectedPath(dst)) {
+  if (strcmp(src, "/") == 0 || strcmp(dst, "/") == 0 || isProtectedPath(src) ||
+      protectedpaths::isSensitivePath(src, true, true) || isProtectedPath(dst)) {
     writeLine("ERR:protected_path\n");
     return;
   }
@@ -632,10 +694,14 @@ void handleRename() {
     return;
   }
 
-  if (Storage.rename(src, dst)) {
+  if (bookkey::moveFile(src, dst)) {
     library::invalidateLibraryIndex();
     clearCachesForPath(src);
-    clearCachesForPath(dst);
+    if (!clearBookCachePreservingUserState(dst, true)) {
+      LOG_ERR("USB", "File moved but cache refresh failed: %s", dst);
+      writeLine("ERR:cache_refresh_failed\n");
+      return;
+    }
     ImageFolderIndex::invalidateForPath(src);
     sdFontSystem.markRegistryDirtyForPath(src);
     ImageFolderIndex::invalidateForPath(dst);
@@ -650,7 +716,7 @@ void handleRead() {
   char path[PATH_BUFFER_SIZE];
   if (!readNormalizedPath(path, sizeof(path))) return;
   if (!ensureFileTransferAllowed()) return;
-  if (strcmp(path, "/") == 0 || isProtectedPath(path)) {
+  if (strcmp(path, "/") == 0 || isProtectedPath(path) || protectedpaths::isSensitivePath(path, true, true)) {
     writeLine("ERR:protected_path\n");
     return;
   }
@@ -674,8 +740,10 @@ void handleRead() {
     return;
   }
 
-  writeLine("READY\n");
-  writeLe32(static_cast<uint32_t>(fileSize64));
+  if (!writeLine("READY\n") || !writeLe32(static_cast<uint32_t>(fileSize64))) {
+    file.close();
+    return;
+  }
 
   uint32_t crc = 0;
   while (file.available() > 0) {
@@ -687,7 +755,10 @@ void handleRead() {
     }
     if (read == 0) break;
 
-    writeRaw(transferBuffer, static_cast<size_t>(read));
+    if (!writeRaw(transferBuffer, static_cast<size_t>(read))) {
+      file.close();
+      return;
+    }
     crc = esp_rom_crc32_le(crc, transferBuffer, static_cast<uint32_t>(read));
     yield();
   }
@@ -695,16 +766,138 @@ void handleRead() {
   writeLe32(crc);
 }
 
-void handleCommand() {
+// JSON is framed and checksummed; chunk ACKs bound CDC receive-buffer use.
+// The reader checkpoints through the same save path as its pulldown drawer.
+// Closing the activity releases its SD handles before USB sync opens the EPUB.
+void dispatchProgressSync(JsonVariantConst request, JsonDocument& response) {
+  const char* operation = request["op"] | "";
+  const bool starting = strcmp(operation, "begin_current") == 0;
+  const bool gettingPath = strcmp(operation, "current_path") == 0;
+  const bool resuming = strcmp(operation, "resume_current") == 0;
+  if (starting || gettingPath || resuming) {
+    char reader[32];
+    if (!UsbProgressSync::readerId(reader, sizeof(reader)) || strcmp(reader, request["device_id"] | "") != 0) {
+      response["error"] = "reader_changed";
+      return;
+    }
+  }
+  if (starting) {
+    if (!activityManager.canSyncOpenEpubOverUsb()) {
+      response["error"] = "no_open_book";
+      return;
+    }
+    std::string path;
+    if (!activityManager.closeOpenEpubForUsbSync(path)) {
+      response["error"] = "checkpoint_failed";
+      return;
+    }
+    usbResumeBook = std::move(path);
+    usbSessionAtHome = false;
+    if (++usbBookSession == 0) ++usbBookSession;
+    response["session"] = usbBookSession;
+    return;
+  }
+  if (gettingPath || resuming) {
+    if (usbResumeBook.empty() || !fileTransferAllowed || !request["session"].is<uint32_t>() ||
+        request["session"].as<uint32_t>() != usbBookSession) {
+      response["error"] = "reader_changed";
+      return;
+    }
+    if (gettingPath && !Storage.exists(usbResumeBook.c_str()) && FsHelpers::hasEpubExtension(APP_STATE.openEpubPath) &&
+        Storage.exists(APP_STATE.openEpubPath.c_str())) {
+      // The reader can move a newly finished book to Read during teardown.
+      usbResumeBook = APP_STATE.openEpubPath;
+    }
+    if (gettingPath) {
+      response["path"] = usbResumeBook;
+    } else {
+      if (!Storage.exists(usbResumeBook.c_str())) {
+        response["error"] = "invalid_book";
+        return;
+      }
+      activityManager.goToReader(std::move(usbResumeBook));
+      usbResumeBook.clear();
+      response["resumed"] = true;
+    }
+    return;
+  }
+  if (!fileTransferAllowed) {
+    response["error"] = "sync_requires_home";
+    return;
+  }
+  RenderLock lock;
+  UsbProgressSync::handle(request, response, renderer);
+}
+
+bool handleProgressSync() {
+  uint8_t lengthBytes[2];
+  if (!readExact(lengthBytes, sizeof(lengthBytes), SHORT_TIMEOUT_MS)) {
+    writeLine("ERR:sync_header\n");
+    return false;
+  }
+  const size_t length = lengthBytes[0] | (lengthBytes[1] << 8);
+  if (!activityManager.canSyncOpenEpubOverUsb() && !ensureFileTransferAllowed()) return false;
+  if (!length || length > UsbProgressSync::MAX_REQUEST) {
+    writeLine("ERR:sync_size\n");
+    return false;
+  }
+  // Bounded, command-lifetime payloads belong on heap rather than the loop stack.
+  auto input = makeUniqueNoThrow<uint8_t[]>(length + 1);
+  if (!input) {
+    LOG_ERR("USB", "Sync input allocation failed");
+    writeLine("ERR:low_memory\n");
+    return false;
+  }
+  if (!writeLine("READY\n")) return false;
+  for (size_t at = 0; at < length;) {
+    const size_t chunk = std::min(SERIAL_CHUNK_SIZE, length - at);
+    if (!readExact(input.get() + at, chunk, CHUNK_TIMEOUT_MS) || !writeAck()) return false;
+    at += chunk;
+  }
+  uint8_t checksum[4];
+  if (!readExact(checksum, sizeof(checksum), SHORT_TIMEOUT_MS) ||
+      readLe32(checksum) != esp_rom_crc32_le(0, input.get(), length)) {
+    writeLine("ERR:sync_crc\n");
+    return false;
+  }
+  input[length] = 0;
+  SyncJsonAllocator allocator;
+  JsonDocument request(&allocator);
+  JsonDocument response(&allocator);
+  if (deserializeJson(request, input.get(), length) || !request.is<JsonObject>()) {
+    writeLine("ERR:sync_json\n");
+    return false;
+  }
+  dispatchProgressSync(request.as<JsonVariantConst>(), response);
+  const size_t size = measureJson(response);
+  if (response.overflowed() || !size || size > UsbProgressSync::MAX_RESPONSE) {
+    writeLine("ERR:sync_response_size\n");
+    return true;
+  }
+  auto output = makeUniqueNoThrow<uint8_t[]>(size + 1);
+  if (!output) {
+    LOG_ERR("USB", "Sync output allocation failed");
+    writeLine("ERR:low_memory\n");
+    return true;
+  }
+  serializeJson(response, output.get(), size + 1);
+  char header[24];
+  snprintf(header, sizeof(header), "SYNC:%u\n", static_cast<unsigned>(size));
+  if (!writeLine(header) || !writeRaw(output.get(), size)) return true;
+  writeLe32(esp_rom_crc32_le(0, output.get(), size));
+  return true;
+}
+
+ProcessResult handleCommand() {
   uint8_t subCommand = 0;
   if (!readExact(&subCommand, 1, SHORT_TIMEOUT_MS)) {
     writeLine("ERR:cmd\n");
-    return;
+    return ProcessResult::None;
   }
 
   if (subCommand == 'S') {
-    if (ensureFileTransferAllowed()) handleStatus();
-    return;
+    const bool allowed = activityManager.canSyncOpenEpubOverUsb() || ensureFileTransferAllowed();
+    return allowed && handleStatus() ? ProcessResult::SyncActivity : ProcessResult::None;
   }
 
   switch (subCommand) {
@@ -726,10 +919,13 @@ void handleCommand() {
     case 'T':
       handleRead();
       break;
+    case 'P':
+      return handleProgressSync() ? ProcessResult::SyncActivity : ProcessResult::None;
     default:
       writeLine("ERR:unknown_cmd\n");
       break;
   }
+  return ProcessResult::None;
 }
 
 ProcessResult handleLine() {
@@ -744,6 +940,102 @@ ProcessResult handleLine() {
 
 }  // namespace
 
+int relaySyncHttp(void* context, const char* method, const char* endpoint, const char* payload, const char* inputPath,
+                  char* response, const size_t capacity, const char* outputPath) {
+  auto& failed = *static_cast<bool*>(context);
+  if (failed) return 0;
+  const auto exchange = [&]() -> int {
+    constexpr size_t MAX_HTTP_BYTES = 32768;
+    if (!capacity || capacity > MAX_HTTP_BYTES || (response && outputPath)) return 0;
+    FsFile source;
+    ScopedCleanup closeSource{[&] { source.close(); }};
+    if (inputPath && !Storage.openFileForRead("USBSync", inputPath, source)) return 0;
+    const size_t length = inputPath ? source.size() : payload ? strlen(payload) : 0;
+    if (length > MAX_HTTP_BYTES) return 0;
+    SyncJsonAllocator allocator;
+    JsonDocument descriptor(&allocator);
+    descriptor["method"] = method;
+    descriptor["endpoint"] = endpoint;
+    descriptor["bytes"] = length;
+    descriptor["max_response"] = response ? capacity - 1 : capacity;
+    const size_t metaSize = measureJson(descriptor);
+    // Reuse the existing foreground serial chunk buffer for metadata and file IO.
+    if (descriptor.overflowed() || metaSize >= sizeof(transferBuffer)) return 0;
+    serializeJson(descriptor, transferBuffer, sizeof(transferBuffer));
+    char header[24];
+    snprintf(header, sizeof(header), "HTTP:%u\n", static_cast<unsigned>(metaSize));
+    if (!writeLine(header) || !writeRaw(transferBuffer, metaSize)) return 0;
+    uint32_t crc = esp_rom_crc32_le(0, transferBuffer, metaSize);
+    uint8_t ack;
+    if (!readExact(&ack, 1, SHORT_TIMEOUT_MS) || ack != ACK) return 0;
+    descriptor.clear();
+    for (size_t at = 0; at < length;) {
+      const size_t chunk = std::min(sizeof(transferBuffer), length - at);
+      if (inputPath) {
+        if (source.read(transferBuffer, chunk) != static_cast<int>(chunk)) return 0;
+      } else {
+        memcpy(transferBuffer, payload + at, chunk);
+      }
+      crc = esp_rom_crc32_le(crc, transferBuffer, chunk);
+      if (!writeRaw(transferBuffer, chunk) || !readExact(&ack, 1, SHORT_TIMEOUT_MS) || ack != ACK) return 0;
+      at += chunk;
+    }
+    if (inputPath && !source.close()) return 0;
+    if (!writeLe32(crc)) return 0;
+    // Response header: HTTP status (u16 LE), bytes (u32 LE). The CRC covers
+    // both header and body so a damaged status cannot acknowledge an upload.
+    uint8_t reply[6];
+    if (!readExact(reply, sizeof(reply), CHUNK_TIMEOUT_MS)) return 0;
+    const unsigned status = reply[0] | (reply[1] << 8);
+    const size_t size = readLe32(reply + 2);
+    if ((status != 0 && (status < 100 || status > 599)) || size > (response ? capacity - 1 : capacity)) return 0;
+    crc = esp_rom_crc32_le(0, reply, sizeof(reply));
+    FsFile target;
+    std::string outputStagePath;
+    bool outputStagePrepared = false;
+    bool outputPublished = false;
+    bool targetClosed = false;
+    ScopedCleanup closeTarget{[&] {
+      if (target && !targetClosed && !target.close()) LOG_ERR("USBSync", "Could not close relay output stage");
+      if (outputStagePrepared && !outputPublished && !Storage.remove(outputStagePath.c_str()))
+        LOG_ERR("USBSync", "Could not remove incomplete relay output stage");
+    }};
+    if (outputPath && status == 200) {
+      if (!FilePublication::recover() || !FilePublication::stagePath(outputPath, "usb-relay", outputStagePath))
+        return 0;
+      outputStagePrepared = true;
+      if (!Storage.openFileForWrite("USBSync", outputStagePath, target)) return 0;
+    }
+    if (!writeAck()) return 0;
+    for (size_t at = 0; at < size;) {
+      const size_t chunk = std::min(sizeof(transferBuffer), size - at);
+      if (!readExact(transferBuffer, chunk, CHUNK_TIMEOUT_MS)) return 0;
+      crc = esp_rom_crc32_le(crc, transferBuffer, chunk);
+      if (response) memcpy(response + at, transferBuffer, chunk);
+      if (outputPath && status == 200 && !FsHelpers::writeAndCheckpoint(target, transferBuffer, chunk)) return 0;
+      if (!writeAck()) return 0;
+      at += chunk;
+    }
+    uint8_t checksum[4];
+    if (!readExact(checksum, sizeof(checksum), SHORT_TIMEOUT_MS) || readLe32(checksum) != crc) return 0;
+    if (response) response[size] = '\0';
+    if (outputPath && status == 200) {
+      const bool synced = target.sync();
+      const bool closed = target.close();
+      targetClosed = true;
+      if (!synced || !closed || !FilePublication::publish(outputStagePath.c_str(), outputPath, true, false)) return 0;
+      outputPublished = true;
+    }
+    return status;
+  };
+  const int status = exchange();
+  if (!status) {
+    LOG_ERR("USBSync", "HTTP relay interrupted");
+    failed = true;
+  }
+  return status;
+}
+
 void registerUsbCdcOverflowHandler() {
 #if defined(CROSSINK_USB_RX_OVERFLOW_ENABLED)
   logSerial.onEvent(onCdcEvent);
@@ -751,6 +1043,13 @@ void registerUsbCdcOverflowHandler() {
 }
 
 ProcessResult process(bool allowed) {
+  UsbProgressSync::expireBookList(allowed);
+  if (!usbResumeBook.empty()) {
+    if (allowed)
+      usbSessionAtHome = true;
+    else if (usbSessionAtHome)
+      usbResumeBook.clear();
+  }
   if (!logSerial) return ProcessResult::None;
   fileTransferAllowed = allowed;
 
@@ -764,8 +1063,7 @@ ProcessResult process(bool allowed) {
       if (commandMatchPos == sizeof(CMD_MAGIC)) {
         commandMatchPos = 0;
         lineBufferPos = 0;
-        handleCommand();
-        return ProcessResult::None;
+        return handleCommand();
       }
     } else {
       commandMatchPos = byte == CMD_MAGIC[0] ? 1 : 0;

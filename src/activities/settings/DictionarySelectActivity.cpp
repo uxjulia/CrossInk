@@ -25,9 +25,10 @@ constexpr fui::ActionId ACTION_ROW = 1;
 
 DictionarySelectActivity::DictionarySelectActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
                                                    std::string bookCachePath, const bool disableCurrentSelection,
-                                                   const bool temporarySelection)
+                                                   const bool temporarySelection, std::string displayedDictionary)
     : Activity("DictionarySelect", renderer, mappedInput),
       bookCachePath(std::move(bookCachePath)),
+      currentEffectiveDictPath(std::move(displayedDictionary)),
       disableCurrentSelection(disableCurrentSelection),
       temporarySelection(temporarySelection),
       uiTarget(makeUiTarget(renderer)),
@@ -95,7 +96,7 @@ void DictionarySelectActivity::onEnter() {
     const std::string globalPath = Dictionary::readConfiguredDictPath();
     std::string globalFolderName;
     if (globalPath.empty()) {
-      globalFolderName = tr(STR_DICT_NONE);
+      globalFolderName = tr(STR_NONE_OPT);
     } else {
       const size_t lastSlash = globalPath.rfind('/');
       if (lastSlash != std::string::npos && lastSlash > 0) {
@@ -108,7 +109,7 @@ void DictionarySelectActivity::onEnter() {
       }
     }
     useGlobalLabel = std::string(tr(STR_DICT_USE_GLOBAL)) + " (" + globalFolderName + ")";
-    currentEffectiveDictPath = Dictionary::readDictPath(bookCachePath.c_str());
+    if (currentEffectiveDictPath.empty()) currentEffectiveDictPath = Dictionary::readDictPath(bookCachePath.c_str());
   }
 
   totalItems = 1 + static_cast<int>(dictFolders.size());
@@ -192,7 +193,7 @@ int DictionarySelectActivity::firstSelectableIndexFrom(int start) const {
 }
 
 const char* DictionarySelectActivity::nameForIndex(int index) const {
-  if (index == 0) return bookCachePath.empty() ? tr(STR_DICT_NONE) : useGlobalLabel.c_str();
+  if (index == 0) return bookCachePath.empty() ? tr(STR_NONE_OPT) : useGlobalLabel.c_str();
   if (index <= static_cast<int>(dictFolders.size())) return dictFolders[index - 1].c_str();
   return "";
 }
@@ -340,9 +341,9 @@ void DictionarySelectActivity::listScreen(UiApp::ScreenType& screen, void* user)
 
 void DictionarySelectActivity::buildListScreen(UiApp::ScreenType& screen) {
   const auto& metrics = UITheme::getInstance().getMetrics();
-  screen.setContentMargin(
-      fui::Insets{static_cast<int16_t>(metrics.topPadding + TouchHeaderBackButton::height(metrics, mappedInput)), 0,
-                  static_cast<int16_t>(metrics.buttonHintsHeight), 0});
+  setUiContentMargin(screen, renderer,
+                     fui::Insets{static_cast<int16_t>(TouchHeaderBackButton::contentTop(renderer, mappedInput)), 0,
+                                 static_cast<int16_t>(UITheme::getButtonHintsReserve(renderer)), 0});
   screen.spacer(static_cast<int16_t>(metrics.verticalSpacing));
   const std::string activePath = disableCurrentSelection
                                      ? currentEffectiveDictPath
@@ -390,7 +391,7 @@ void DictionarySelectActivity::render(RenderLock&&) {
     GUI.drawHeader(renderer, header, tr(STR_DICTIONARY));
   }
   uiReady = false;
-  app.render();
+  renderUiApp(app, uiTarget);
   uiReady = true;
 
   const auto labels =

@@ -1,0 +1,3 @@
+add_executable(KeyboardTipsTest KeyboardTipsTest.cpp)
+target_link_libraries(KeyboardTipsTest PRIVATE crosspoint_test_common GTest::gtest_main)
+gtest_discover_tests(KeyboardTipsTest)

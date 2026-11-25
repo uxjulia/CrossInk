@@ -1,3 +1,104 @@
+## [v2.0.0] - 2026-11-24
+
+### Added
+
+- Support BOOX Picco and EEGO Reader A4 with touch, frontlight controls, and USB Drive support. Picco also supports its slide switch and tilt page turns.
+- Connect a reader to a computer running a compatible version of Inky to sync reading progress over USB. Reading stats and clippings can also sync using the computer’s internet connection.
+- Sync a selected EPUB’s progress or XTC’s reading stats from Library or File Browser. Sync Books under File Transfer covers the entire SD card. Both folder and whole-card sync include XTC stats, and compatible servers batch folder requests.
+- Use `Sync Reading Stats` or `Sync Clippings` to sync those independently of reading progress. After the initial catch-up, stats uploads send only changed books. Clippings sync both ways across local EPUBs.
+- Configure the sync server type and custom authentication headers. Compatible servers can receive ISBN, ASIN, and series metadata when sharing is enabled.
+- Track active reading time by local day and see today’s total and a 7-day average under This Device. CrossPoint Sync can combine daily reading and streaks from multiple devices while keeping local totals separate.
+- Browse OPDS 2 JSON catalogs, groups, facets, descriptions, and indirect EPUB links alongside Atom feeds. OAuth and LCP fulfillment are outside the supported subset (CrossPoint #3629).
+- Preview scrollable OPDS book descriptions before downloading and discover searches through linked OpenSearch descriptions. Search can use Basic authentication when requested, with credentials withheld from the initial request.
+- Set each OPDS server’s download folder and optionally use its filenames to match reading progress across devices. Downloads fall back to the chosen filename format when the option is off or the server supplies an unsafe or missing name.
+- Enable SD card plugins in `Settings > System` and open Plugins from Home. Plugins support browser interfaces, on-device catalogs, sign-in, and download folders. The optional Plugin Hub discovers, installs, and updates compatible plugins. Hold Confirm or long-press an installed plugin to open its uninstall prompt (CrossPoint #4100).
+- Install and edit interface language packs from SD. Missing strings fall back to English. Browser editors and release downloads use a versioned English template and compatibility catalog.
+- Download Azerbaijani, Bosnian, Bulgarian, Indonesian, Norwegian Bokmål, and Persian for the interface. Only English is built in.
+- Install, update, or remove EPUB hyphenation packs. English is built in, and affected book layouts rebuild after a pack changes.
+- On your first upgrade to v2.0.0, What’s New explains how to install interface languages and hyphenation packs. It also shows where to enable SD card plugins and sync reading stats and clippings with CrossPoint Sync. Reopen the screen from `Settings > System > Release Notes`.
+- On ESP32-S3 readers, install static OpenType fonts from SD or the web uploader, including CFF fonts with .otf or .ttf extensions. EPUBs can also use embedded publisher fonts, including Adobe-obfuscated fonts, through `Off`, `Ignore Body Font`, and `All Text` modes. Variable fonts and collections remain unsupported (CrossPoint #3646, #3717).
+- Render EPUB drop caps, borders, shading, fieldsets that span pages, preserved whitespace, and more CSS selectors. Scalable fonts support mixed sizes within a line, and X3/X4 scale their loaded bitmap fonts for larger publisher text (CrossPoint #3891).
+- Choose grayscale or black-and-white EPUB images independently of text smoothing, globally or per book. EPUBs also display non-interlaced GIFs, using the first frame of an animation. The web uploader can keep embedded fonts when optimizing an EPUB.
+- Choose Normal, Dark, or Darker text with smooth edges and add ruled lines in three shades to EPUB and plain-text books. EEGO has a two-tone text option.
+- Adjust word spacing from −4 to +4 and character spacing from −5 to +5, with live previews in Reader settings and the in-book Font menu. When `All Text` is set for Publisher Fonts, the font name is displayed as the reader Font Family.
+- Drag EPUB text selection handles on touch devices and use the floating Look Up and Clip toolbar.
+- StarDict dictionaries can be read directly from compressed files with a matching uncompressed index, including alternate spellings and long definitions.
+- Open chapter selection from a shortcut, Quick Action, or touch gesture in EPUB and XTC. See the current chapter in the button reader menu and X4 Pro drawer, jump to a percentage in XTC/XTCH, and quickly see finished EPUBs and XTCs by their checkmarked icons in the File Browser.
+- Set text size and choose Icon + %, Icon Only, or % Only for each status bar. Hide either reader bar while keeping its slots, or center its items in one row with a separator. Chapter Progress Percentage is available for either bar on-device and in web settings.
+- Calibrate screen edges in `Settings > Display > Screen Calibration` to keep content clear of the bezel. Calibration stays with the device when changing SD cards.
+- Use Home/Reader shortcuts on touch devices, assign separate long-press actions to the front Left and Right buttons, and assign Rotate Page 180° to more buttons and chords. Existing shared long-press assignments carry over.
+- Option to toggle menu navigation to the old legacy mode vs. the new directional mode.
+- On supported devices, adjust Tilt Sensitivity or use either tilt direction to advance one page.
+- Swipe left on File Browser, Library, or bookmark rows to reveal Delete. The reader asks before removing an item (adapted from CrossPoint #3712).
+- Use a UI Fallback Font for missing menu and dialog characters, independently of the reading font.
+- Layer a transparent sleep image over the current book cover with Cover Overlay (CrossPoint #3770).
+- See hardware, display, firmware, FreeInk SDK revision, storage, and memory details in About. Export local support JSON with selected diagnostics and preferences. Optional EPUB overrides are anonymized, and identifiers, credentials, and reading history are excluded.
+- Choose whether holding a word opens its definition, saves a clipping, or shows the action toolbar. Dictionary lookup tries other installed dictionaries when the selected one has no match (#966).
+
+### Changed
+
+- `Settings > System > KOReader Sync` is now `Sync Server`. Reading Stats and Clippings are opt-in under `What to Sync` and require server support.
+- English is the only built-in interface language. Download other languages through Language settings. On PSRAM-equipped devices with small factory data partitions, including X4 Pro, language and hyphenation packs can use an SD cache without repartitioning.
+- Battery display is now set per status bar and carries over the old Hide Battery % preference.
+- Page buttons act on press when they have no long-press action. The reader’s long-press threshold is now 600 ms (down from 700 ms).
+- Home appears with fewer refreshes after wake, closing a book, or leaving a menu. Cover grids use less temporary memory and refresh once after missing covers are prepared. Home, Library, and sleep screens avoid unnecessary reading-progress cache writes (adapted from CrossPoint #3848).
+- Large EPUBs index, open, and resume faster through fewer SD reads, larger writes, quicker stylesheet and font preparation, and smaller chapter-cache directories. CJK books benefit from faster SD-font preparation. Percentage jumps skip preceding-chapter scans, and S3 defaults to Incremental indexing while honoring saved choices.
+- EPUB layout reuses CSS and font data and uses less temporary memory for parsing, line breaks, and chapter anchors. X3/X4 read fewer glyphs from SD, S3 can prepare upcoming text while idle, and TXT indexing releases its scratch memory when done (CrossPoint #3948, #4040, #4118, #4126).
+- Decode monochrome covers, boot images, and sleep images faster. Lyra Carousel can reuse one cover decode for both background thumbnails. EPUB pages without text skip text smoothing, and display-sized optimized images skip a redundant copy. PSRAM devices can decode JPEGs and PNGs without temporary SD extraction when memory permits.
+- Save EPUB progress with fewer SD writes. Periodic reading-stat checkpoints run after five minutes of active reading and wait for a one-second pause after page input and rendering. Session-end, sleep, and restart saves still run.
+- Move OPDS Browser into File Transfer. Refresh Calibre upload progress every four seconds and reserve two WebSocket connections for File Transfer.
+- Use clearer web dialogs, dropdowns, and upload feedback. Plugin files skip redundant transfers through ETags, and plugin automation waits until a job starts to allocate job storage (CrossPoint #3984, #4090, #4193, adapted from CrossPoint #4085 and #4288).
+- Make dictionary lookups quicker, move definition pagination to the bottom right, and add a close button on touch devices. Use side-by-side number pads in landscape and consistent labels for covers, time sync, shortcuts, and loading.
+- Reduce font lookup and kerning memory use and validate TTFs faster. Tuned firmware builds omit unused Arduino, Bluetooth, and Zigbee components (adapted from serialx and CrossPoint #3831, #3838, #3857).
+- Reopen EPUBs with many chapters faster by reading cached chapter offsets together.
+
+### Fixed
+
+- Fix an occasional reboot when putting an X3 or X4 to sleep with plugins enabled (#973).
+- Index EPUBs faster when many table-of-contents entries point to the same chapter file or chapter files are stored out of reading order.
+- Credit EPUB and XTC reading to the correct local day across midnight. Preserve live stats if a save fails, retry updates after SD errors, and finish pending saves before sleep, reader restart, or USB Drive handoff.
+- Preserve unreadable stats and offer to restore them from a verified backup. Keep daily, manual, and clockless backups separate and prune numbered backups in the correct order beyond 999.
+- Sync EPUB positions more accurately in bare body text, nested markup, deep chapters, and the first chapter. Use the configured Document Matching method and each book’s render-mode cache, accept percentage-only positions, and skip uploads when a position cannot be mapped. Return to the original Library or File Browser view after context-menu sync (CrossPoint #3923 and #4472, CrossInk #853).
+- Keep highlights tied to the original EPUB passage after changing font, spacing, orientation, or layout, including tight line spacing. Sync stable source positions, upgrade verifiable older clippings, and preserve nearby text and ruled lines (#893, #931).
+- Preserve words split across styles at high character spacing and keep authored hyphens in partial EPUB clippings (#968).
+- Use less temporary memory when assembling EPUB clippings, with no change to saved text.
+- Preserve clippings and bookmarks across failed loads and interrupted rewrites. Open long bookmark lists with less memory and recover missing book titles and authors after moving EPUBs to Read (#892, #945).
+- Keep publisher CSS working in low memory. Preserve spacing in long paragraphs, center chapter ornaments and image-only paragraphs as intended, align grouped headings and subtitles, and honor hidden section breaks (CrossPoint #3875 and #4032, CrossInk #856 and #940).
+- Fix EPUB drop caps with nested spans or mixed-case selectors and keep words intact as text returns to full width. Honor body text size, align fallback glyphs, and draw image-backed dividers (adapted from CrossPoint #4173, and CrossInk #962).
+- Keep words intact across EPUB text chunks and nested quotes or headings, with the latter adapted from yassine-cc (CrossInk #844 and #886). Wrap at dashes without splitting dash runs (adapted from Phạm Bình An, CrossPoint #3883) and render thin, hair, and other Unicode spaces without missing-character boxes.
+- Match TrueType, OpenType, and SD-font measurements to the drawn text and preserve CrossPoint’s normal word spacing on import. Honor more publisher heading sizes within the SD-font memory budget and avoid repeated reads when indexing mixed-size text. Affected EPUB layouts rebuild automatically (CrossPoint #3985 and #4431, the latter adapted from gkaindl, and CrossInk #952 and #954).
+- Keep the selected SD font after temporary load failures, retry font downloads by touch or button, and report incomplete lists. Damaged glyphs display as blanks with a reinstall warning. Builds without a custom font host download from GitHub Releases (CrossPoint #4091 and #4101, CrossInk #855).
+- Include more currency and letterlike symbols, the minus sign, and combining accents in generated Latin-ext SD fonts (Stefan VanBuren, CrossPoint #3801, and CrossPoint #4358).
+- Prevent page-turn crashes while EPUB chapters load or at the end of a book. Open EPUB Contents at the current subchapter, resolve links to chapters with duplicate filenames, and keep protected EPUBs readable after moving or renaming (adapted from CrossPoint #3946, #4472).
+- Keep EPUB images detailed in Dark Mode and on redraw. Preserve pale artwork, inline PNGs, and text edges on illustrated pages, and use portrait dimensions in the web uploader. Retry image sizing with a lower-memory fallback, discard failed image cache writes, and regenerate affected progressive JPEG covers (YACP 4bfcfb4, CrossPoint #3918, and CrossInk #907).
+- Fit and crop custom sleep BMPs correctly, including small images on X3, and preserve detail when scaling large sleep and boot images. The sleep shuffle picks up new files after SD or USB copies and cycles through the entire set without immediate repeats, including across sleep and restart (adapted from CrossPoint #4185 for CrossInk #925).
+- Preserve Dark Mode in Page Overlay sleep and suppress the extra shortcut it could trigger. Clear retained sleep images when X3 wakes without a Quick Resume frame, limit Sunlight Fading Fix to supported X3/X4 panels, and fall back to a full refresh on SSD2677 Sticky displays when previous-frame memory is unavailable.
+- Avoid an X4 Pro startup crash after KOReader sync and stabilize X4 battery readings across page turns (#904, #938).
+- Restore bottom-edge Home swipes outside books, allow page-turn taps near reader screen edges, and carry a touch selection onto the next page when a held finger drifts slightly. Add a touch Select button to the Nearby File Transfer folder picker (#850).
+- Recognize French contractions and distinguish dictionary words or alternate spellings that share long prefixes. Honor page-turn power shortcuts in definitions and keep book text clear of button hints.
+- Keep reader previews usable in landscape and on touch devices, measure top margins from the header, and keep settings clear of the version footer.
+- Show Sleeping and slow-open Loading feedback, keep the reader awake for slow OPDS download results, and prevent redraw races during Calibre naming, OPDS navigation, and settings popups.
+- Keep device and web settings in sync for Cover Grid availability and show complete web shortcut lists. Confirm Reset TTF Defaults and report save failures. Ask before setting a sleep cover from the image viewer and show complete translated prompts (CrossPoint #3994, #4097).
+- Keep system resource folders out of Library regardless of name casing while retaining ordinary TXT and Markdown books.
+- Make large and interrupted book, font, and WebDAV transfers more reliable. Resume or restart safely, use less memory during HTTPS and OPDS downloads, and restore the X3/X4 catalog position after completion or cancellation. OPDS releases partial catalogs on errors and explains authentication, cross-origin, server, and connection failures (adapted from FreeInk SDK #154 and #155 via CrossPoint #4167, and CrossPoint #3872).
+- Connect to TLS 1.3 servers using SHA-384 certificate signatures.
+- Keep File Transfer responsive when uploads or browser requests stall or fail. Remove incomplete uploads, preserve files after failed WebDAV replacements, report failed copies and web settings saves, and route captive-portal probes without intercepting WebDAV writes (CrossPoint #4472).
+- Keep web dialogs open when a selection drag ends outside them, keep font notifications visible while scrolling, and normalize accented filenames on upload and duplicate checks (adapted from CrossPoint #3931, #3961, #3984).
+- Retry saved Wi-Fi after scanning, and show clear Forget and Cancel choices on button devices.
+- Keep multibyte network names and masked password previews intact (CrossPoint #4079, #4106).
+- Keep Nearby and firmware transfers responsive during storage checks and let USB waits yield to other tasks. Preserve serial screenshots and pre-crash logs, including after low-power USB interruptions (CrossPoint #3737).
+- Hide tilt controls when the sensor cannot support page turning or fails its startup check, while keeping saved preferences (CrossPoint 8fc2b66 and #4078).
+- Make EPUB highlight handles easier to grab and keep them following your finger across lines during e-ink refreshes, including when you lift to look up or clip the selection.
+- Reduce repeated SD card reads when indexing EPUBs with ruled lines and a custom reader font.
+- Dither EPUB illustrations only after resizing, with separate output for Gray and B&W (including Night Mode).
+- Readest and other plugins can send several queued reading sessions on one sleep instead of one per sleep.
+- Preserve existing books, fonts, settings, and reading positions when SD saves or transfers are interrupted. Keep USB Drive mounted while the computer sleeps and finish pending writes before ejecting.
+- Explain SD card startup errors and show how to reconnect the card or check its filesystem.
+- Make reading progress sync more reliable on large SD libraries. Reuse saved book paths to avoid repeatedly scanning the card.
+- Keep large EPUB drop caps sharp by drawing them at their intended size.
+- Show the Back button hint while viewing EPUB footnotes on button-only readers.
+- Releasing Power after starting Picco no longer selects a menu item on the first screen.
+
 ## [v1.6.1] - 2026-10-03
 
 ### Added
@@ -35,6 +136,8 @@
 - The on-screen keyboard now uses wider outlined keys with clearer spacing on touch and button devices.
 - Long status titles shorten faster when they do not fit the screen.
 - Leaving an EPUB or TXT reader releases rebuildable font buffers for other screens.
+- Global reader spacing and margin controls now show a live text preview on touch and button devices; the font preview also includes the Latin sample text.
+- Font previews now separate the sample text from the font name with a horizontal line.
 - Menu buttons now follow the device layout: Left/Right switch tabs and Up/Down select rows in reader menus and global settings.
 - The KOReader Sync progress choice now shows remote and local progress as clear cards with large percentages, progress bars, and an "Ahead" marker on the further position.
 - Saving unchanged reading statistics and session state avoids unnecessary SD card writes.
@@ -50,6 +153,7 @@
 
 ### Fixed
 
+- Touch keyboards keep up with faster typing by polling during screen updates and avoiding extra key-highlight redraws.
 - File Transfer choices no longer appear preselected when opened on a touch device.
 - EPUB paragraphs now inherit first-line indentation from HTML and body styles while retaining paragraph-level overrides.
 - Saved clipping lists now show a scrollbar when more clippings are available below the visible rows.
@@ -75,6 +179,12 @@
 - Changing global font or page layout settings from the pull-down panel on touch devices now updates the open book when it inherits those settings.
 - KOReader authentication now rejects unexpectedly large server responses to avoid crashes.
 - EPUBs rewritten with alternate XML namespace prefixes now open normally instead of jumping straight to End of Book.
+- Global font previews load all letters and punctuation in the Latin sample instead of showing missing-character diamonds.
+- Touch keyboard key hit-testing no longer waits for a screen refresh on devices with TTF support.
+- Touch keyboards show consistent brief key feedback while keeping fast typing responsive.
+- Server connection errors during manual stats uploads no longer appear as Wi-Fi failures.
+- Folder progress sync follows the global Smart or Ask setting and rebuilds missing book metadata instead of silently skipping saved progress.
+- Skip a failed book during folder sync and continue with the remaining books, with failed books counted in the summary.
 - Carousel Home screen reuses cached cover artwork after reading and prepares other positions only when viewed, while keeping progress, reading time, and menu choices current.
 - Sleep entry skips unnecessary pauses. PSRAM devices show independent sleep screens before saving reader progress, and Direct grayscale images skip an unused decode.
 - Renaming books in the web portal preserves reading progress, stats, bookmarks, clippings, reader settings, and cached content.
@@ -110,6 +220,7 @@
 - Support the second X4 Classic display panel variant.
 - The frontlight drawer stays within the screen at large UI scales.
 - Nested EPUB paragraphs and blocks keep inherited bold and italic styles.
+- Sync Progress from the File Browser shows one loading notice and returns to the same folder and selection.
 - Keep saved clock and date status-bar positions when the clock is temporarily unavailable at startup.
 - Stay in Settings if there is not enough memory to open TTF Rendering.
 - Translate month names in Library date headings and device dates.
@@ -303,7 +414,7 @@
 - EPUBs with book-specific built-in fonts no longer load an unnecessary global SD-card font, and custom fonts retain ligatures.
 - EPUB styling choices apply before style caches load; CSS-heavy books use less temporary memory; and disabling Embedded Style consistently skips unused stylesheet work.
 - EPUB layout now keeps CJK ruby and spaces, Russian paragraph continuations, Focus Reading, underline/strikethrough runs, and right-to-left text correct.
-- EPUBs with flowing `<br>` elements, image-led or decorative chapter headings, unsupported images, and dense final pages now lay out without excess gaps, clipping, dropped images, or misleading low-memory warnings.
+- EPUBs with flowing `<br> ` elements, image-led or decorative chapter headings, unsupported images, and dense final pages now lay out without excess gaps, clipping, dropped images, or misleading low-memory warnings.
 - EPUB footnote and cross-reference previews now show complete notes, including targets in the middle of a paragraph.
 - Saved EPUB positions, clipping highlights, and selections now stay accurate after font, orientation, or indexing changes; selections also remain readable in dark mode and on memory-tight pages.
 - Dictionary misses can switch dictionaries without leaving the reader, and dictionary read failures now report an error instead of a false “not found.”
@@ -413,8 +524,8 @@
 
 ### Added
 
-- `File Browser Display` in `Settings > System > Files & Cache` for choosing one-line or two-line file browser rows across all themes, while preserving Minimal users' existing two-line display on upgrade.
-- `Hide File Extension` in `Settings > System > Files & Cache` for expanding file-browser filenames by hiding the right-side extension label.
+- `File Browser Display` in `Settings >  System >  Files & Cache` for choosing one-line or two-line file browser rows across all themes, while preserving Minimal users' existing two-line display on upgrade.
+- `Hide File Extension` in `Settings >  System >  Files & Cache` for expanding file-browser filenames by hiding the right-side extension label.
 - Device Name in Settings > System > Device for customizing the KOReader Sync and Nearby Stats Sync device label.
 - Additional shortcut options and new ability to add custom shortcuts for Long-press Back Action.
 - Delete Reading Stats actions in the EPUB reader and book action menus for clearing one book's stats without deleting its cache.
@@ -522,7 +633,7 @@
 
 ### Changed
 
-- Modified upstream "page-as-sleep" behavior into a new `Sleep Screen > Quick Resume` option, which also keeps `Quick Resume on Timeout` on, and renamed the timeout-only toggle.
+- Modified upstream "page-as-sleep" behavior into a new `Sleep Screen >  Quick Resume` option, which also keeps `Quick Resume on Timeout` on, and renamed the timeout-only toggle.
 - Improved reader and browser menu behavior by moving the Footnotes shortcut above Select Chapter, wrapping long book titles in action menus, and reducing progress-screen repaint work during OPDS and SD font downloads.
 
 ## [v1.2.11.1] - 2026-05-15
@@ -574,7 +685,7 @@
 - More flexible reader controls, including orientation-aware front/side button settings, nav-only or all-button front inversion, tilt page turn shortcuts, and side-button long-press rotation actions.
 - Per-session auto page turn interval picker with values from 5 to 120 seconds.
 - File Browser Home/Back long-press action for toggling hidden files and folders.
-- EPUB rendering and diagnostics improvements, including visible `<hr>` separators and heap logs around section rebuilds, image extraction, page serialization, and sleep-cache rebuilds.
+- EPUB rendering and diagnostics improvements, including visible `<hr> ` separators and heap logs around section rebuilds, image extraction, page serialization, and sleep-cache rebuilds.
 - Reader font coverage for block redactions, black-square ornaments, Greek category letters, and turned-comma punctuation (PR #104).
 - Simulator tools for testing sleep/wake behavior and smoke-testing common screens and EPUB reader menus.
 
@@ -591,7 +702,7 @@
 - RoundedRaff home-menu, keyboard, and button-hint rendering issues so Settings remains reachable and compact labels no longer overlap or disappear.
 - Font and glyph handling now reduces persistent SD-card font advance-cache memory, releases optional font caches before image extraction only when heap is tight, and shows a visible replacement symbol when compact UI fonts lack `U+FFFD`.
 - KOReader Sync authentication diagnostics and an in-reader sync crash, including clearer handling when a server or proxy returns non-JSON content.
-- EPUB text rendering for redactions, whitespace-only XHTML text nodes, simple black CSS span backgrounds, list bullets in `<li><p>...</p></li>` items, and very long base64-like text runs.
+- EPUB text rendering for redactions, whitespace-only XHTML text nodes, simple black CSS span backgrounds, list bullets in `<li> <p> ...</p> </li> ` items, and very long base64-like text runs.
 - EPUB image, thumbnail, and section-rebuild stability so image-heavy chapters use less temporary memory, scale images more reliably, avoid stale dimensions, and suppress optional image work earlier under heap pressure.
 - EPUB low-memory and cache safety now skips optional next-chapter indexing and sleep-page cache rebuilds when heap is tight, fails safely with a malformed-book warning and Home exit path, rebuilds incompatible fork-written caches, and handles low-memory CSS parsing, truncated SD writes, invalid serialized strings, and failed temp-cache promotion.
 - Home no longer crashes after clearing reading cache when the source EPUB cache is missing.

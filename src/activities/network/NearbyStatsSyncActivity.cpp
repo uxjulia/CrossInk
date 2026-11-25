@@ -1,5 +1,7 @@
 #include "NearbyStatsSyncActivity.h"
 
+#include <FilePublication.h>
+
 #include "components/TouchHeaderBackButton.h"
 
 #ifdef SIMULATOR
@@ -35,7 +37,7 @@ void NearbyStatsSyncActivity::render(RenderLock&&) {
   const auto pageHeight = renderer.getScreenHeight();
 
   renderer.clearScreen();
-  const Rect header{0, metrics.topPadding, pageWidth, TouchHeaderBackButton::height(metrics, mappedInput)};
+  const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput);
   if (mappedInput.hasTouchHardware()) {
     TouchHeaderBackButton::draw(renderer, header, tr(STR_NEARBY_STATS_SYNC), false);
   } else {
@@ -89,7 +91,6 @@ namespace {
 
 constexpr const char* LOG_TAG = "NSYNC";
 constexpr const char* CROSSPOINT_ROOT = "/.crosspoint";
-constexpr const char* GLOBAL_STATS_PATH = "/.crosspoint/global_stats.bin";
 constexpr const char* SYNCED_STATS_DIR = "/.crosspoint/synced_stats";
 constexpr uint8_t ESPNOW_CHANNEL = 1;
 constexpr uint8_t PROTOCOL_VERSION = 1;
@@ -140,7 +141,7 @@ std::string syncedStatsPathForDeviceMac(const std::array<uint8_t, 6>& mac) {
 bool isZeroMac(const std::array<uint8_t, 6>& mac) { return mac == std::array<uint8_t, 6>{}; }
 
 bool isValidStatsPayload(const uint8_t* data, const uint8_t size) {
-  return (size == MIN_STATS_BYTES && data[0] == 1) || (size == 17 && data[0] == 2) ||
+  return (size == MIN_STATS_BYTES && data[0] == 1) || (size == 17 && data[0] == 2) || (size == 159 && data[0] == 3) ||
          (size == MAX_STATS_BYTES && data[0] == GlobalReadingStats::CURRENT_FILE_VERSION);
 }
 
@@ -169,37 +170,15 @@ bool readSmallFile(const char* path, std::array<uint8_t, MAX_STATS_BYTES>& out, 
 bool writeSyncedStatsFile(const std::string& path, const uint8_t* data, const uint8_t size) {
   if (!isValidStatsPayload(data, size) || !ensureSyncedStatsDirectory()) return false;
 
-  const std::string tmpPath = path + ".part";
-  if (Storage.exists(tmpPath.c_str())) Storage.remove(tmpPath.c_str());
-
+  std::string staged;
+  if (!FilePublication::stagePath(path, "nearby-stats", staged)) return false;
   FsFile file;
-  if (!Storage.openFileForWrite(LOG_TAG, tmpPath, file)) return false;
-  const size_t written = file.write(data, size);
-  if (written != size) {
-    file.close();
-    Storage.remove(tmpPath.c_str());
-    return false;
-  }
-  file.flush();
-  if (!file.sync()) {
-    file.close();
-    Storage.remove(tmpPath.c_str());
-    return false;
-  }
-  if (!file.close()) {
-    Storage.remove(tmpPath.c_str());
-    return false;
-  }
-
-  if (Storage.exists(path.c_str()) && !Storage.remove(path.c_str())) {
-    Storage.remove(tmpPath.c_str());
-    return false;
-  }
-  if (!Storage.rename(tmpPath.c_str(), path.c_str())) {
-    Storage.remove(tmpPath.c_str());
-    return false;
-  }
-  return true;
+  if (!Storage.openFileForWrite(LOG_TAG, staged, file)) return false;
+  const bool saved = file.write(data, size) == size && file.sync();
+  const bool closed = file.close();
+  if (saved && closed && FilePublication::publish(staged.c_str(), path.c_str())) return true;
+  Storage.remove(staged.c_str());
+  return false;
 }
 
 void onEspNowReceive(const esp_now_recv_info_t* info, const uint8_t* data, int length) {
@@ -325,11 +304,12 @@ bool NearbyStatsSyncActivity::prepareLocalStats() {
   // Ensure a valid local stats payload exists before exchanging stats.
   GlobalReadingStats::load().save();
 
-  if (!readSmallFile(GLOBAL_STATS_PATH, localStats_, localStatsSize_)) {
+  if (!GlobalReadingStats::exportLocal(localStats_.data(), localStats_.size())) {
     setError("local stats unavailable");
     return false;
   }
 
+  localStatsSize_ = static_cast<uint8_t>(GlobalReadingStats::CURRENT_FILE_SIZE);
   localStatsReady_ = true;
   return true;
 }
@@ -631,7 +611,7 @@ void NearbyStatsSyncActivity::render(RenderLock&&) {
   const auto pageHeight = renderer.getScreenHeight();
 
   renderer.clearScreen();
-  const Rect header{0, metrics.topPadding, pageWidth, TouchHeaderBackButton::height(metrics, mappedInput)};
+  const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput);
   if (mappedInput.hasTouchHardware()) {
     TouchHeaderBackButton::draw(renderer, header, tr(STR_NEARBY_STATS_SYNC), false);
   } else {
@@ -645,7 +625,7 @@ void NearbyStatsSyncActivity::render(RenderLock&&) {
 
   switch (state_) {
     case State::STARTING:
-      primary = tr(STR_LOADING_POPUP);
+      primary = tr(STR_LOADING);
       break;
     case State::READY:
       primary = tr(STR_NEARBY_STATS_READY);
@@ -680,11 +660,10 @@ void NearbyStatsSyncActivity::render(RenderLock&&) {
     renderReady(primary, detailPrimary, detailSecondary);
     if (mappedInput.hasTouch()) {
       const auto actions = touchActionLayout(renderer);
-      const char* actionLabels[] = {tr(STR_NEARBY_STATS_SYNC_BUTTON), tr(STR_CANCEL)};
+      const char* actionLabels[] = {tr(STR_SYNC), tr(STR_CANCEL)};
       TouchActionButtons::draw(renderer, actions, actionLabels, 0, -1, UI_10_FONT_ID);
     } else {
-      const auto labels =
-          mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), tr(STR_NEARBY_STATS_SYNC_BUTTON), "", "");
+      const auto labels = mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), tr(STR_SYNC), "", "");
       GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
     }
     renderer.displayBuffer(screenTransitionRefresh_.modeFor(static_cast<uint8_t>(state_)));
@@ -709,8 +688,7 @@ void NearbyStatsSyncActivity::render(RenderLock&&) {
 void NearbyStatsSyncActivity::renderReady(const std::string& primary, const std::string& detailPrimary,
                                           const std::string& detailSecondary) const {
   const auto& metrics = UITheme::getInstance().getMetrics();
-  const int contentTop =
-      metrics.topPadding + TouchHeaderBackButton::height(metrics, mappedInput) + metrics.verticalSpacing;
+  const int contentTop = TouchHeaderBackButton::contentTop(renderer, mappedInput) + metrics.verticalSpacing;
   const Rect textArea{metrics.contentSidePadding, 0, renderer.getScreenWidth() - metrics.contentSidePadding * 2,
                       renderer.getScreenHeight()};
   int y = contentTop + 70;

@@ -284,7 +284,7 @@ def _scan_idx(idx_data: bytes, idx_oft_path: Path, word: str) -> tuple[int, int]
     """
     target = word.encode("utf-8")
     start_pos = 0
-    end_pos = len(idx_data)
+    folded_target = target.lower()
 
     # Try .cspt first; on bad magic / truncation, fall through to .oft.
     cspt_used = False
@@ -296,25 +296,28 @@ def _scan_idx(idx_data: bytes, idx_oft_path: Path, word: str) -> tuple[int, int]
             entry_count = struct.unpack_from("<I", cspt_data, 8)[0]
             entry_size = prefix_len + 4
 
-            if entry_count > 0:
+            if 0 < prefix_len <= 128 and entry_count and _CSPT_HEADER_SIZE + entry_count * entry_size <= len(cspt_data):
                 lo, hi = 0, entry_count - 1
                 while lo < hi:
                     mid = lo + (hi - lo + 1) // 2
                     off = _CSPT_HEADER_SIZE + mid * entry_size
-                    prefix = cspt_data[off:off + prefix_len].rstrip(b"\x00")
-                    if prefix.lower() > target.lower():
+                    prefix = cspt_data[off:off + prefix_len].rstrip(b"\x00").lower()
+                    if len(prefix) == prefix_len and prefix == folded_target[:prefix_len]:
+                        sample_pos = struct.unpack_from("<I", cspt_data, off + prefix_len)[0]
+                        end = idx_data.find(b"\x00", sample_pos)
+                        if end < 0:
+                            break
+                        prefix = idx_data[sample_pos:end].lower()
+                    if prefix >= folded_target:
                         hi = mid - 1
                     else:
                         lo = mid
-
-                off = _CSPT_HEADER_SIZE + lo * entry_size
-                start_pos = struct.unpack_from("<I", cspt_data, off + prefix_len)[0]
-                if lo + 1 < entry_count:
-                    next_off = _CSPT_HEADER_SIZE + (lo + 1) * entry_size
-                    end_pos = struct.unpack_from("<I", cspt_data, next_off + prefix_len)[0]
                 else:
-                    end_pos = len(idx_data)
-            cspt_used = True
+                    off = _CSPT_HEADER_SIZE + lo * entry_size
+                    sample_pos = struct.unpack_from("<I", cspt_data, off + prefix_len)[0]
+                    if sample_pos < len(idx_data):
+                        start_pos = sample_pos
+                        cspt_used = True
 
     if not cspt_used and idx_oft_path.exists():
         oft_data = idx_oft_path.read_bytes()
@@ -329,14 +332,14 @@ def _scan_idx(idx_data: bytes, idx_oft_path: Path, word: str) -> tuple[int, int]
                 null = idx_data.index(b"\x00", pos)
             except ValueError:
                 break
-            if idx_data[pos:null].lower() <= target.lower():
+            if idx_data[pos:null].lower() < folded_target:
                 best = pos
             else:
                 break
         start_pos = best
 
     pos = start_pos
-    while pos < end_pos:
+    while pos < len(idx_data):
         try:
             null = idx_data.index(b"\x00", pos)
         except ValueError:
@@ -345,6 +348,8 @@ def _scan_idx(idx_data: bytes, idx_oft_path: Path, word: str) -> tuple[int, int]
         entry_offset, entry_size = struct.unpack_from(">II", idx_data, null + 1)
         pos = null + 1 + 8
 
+        if entry_word.lower() > folded_target:
+            break
         if entry_word == target:
             return entry_offset, entry_size
 

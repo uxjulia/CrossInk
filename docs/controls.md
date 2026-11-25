@@ -5,49 +5,81 @@ nav_order: 6
 
 # Controls
 
-The Controls menu lets you customize front buttons, side buttons, and reader shortcuts.
+The **Controls** menu lets you decide what each button does and, on touchscreen
+devices, what each tap and swipe does while you read. You do not need to change
+anything to start reading. The defaults work for most people.
+
+To open it, go to **Settings > Controls**. Some entries only appear on devices
+that have the matching hardware:
+
+| Entry | Where it appears |
+| ----- | ---------------- |
+| **Home Button** | Xteink X4 Pro (it has a Home key) |
+| **Power Button** | All devices |
+| **Front Buttons** | Button devices (Xteink X3 and X4) |
+| **Side Buttons** | All devices |
+| **Quick Actions** | All devices |
+| **Taps & Gestures** | Touchscreen devices (Sticky and X4 Pro) |
+| **Tilt Page Turn**, **Tilt Direction** | Devices with a tilt sensor (X3 and Sticky) |
+| **Menu navigation** | Button devices |
 
 ## Settings Menu Layout
 
+### Home Button
+
+X4 Pro only. See [Home Button (X4 Pro)](#home-button-x4-pro) below.
+
 ### Power Button
 
-- Short-press action
-- Long-press action
-- Power + Up action
+- **Short-press** action
+- **Long-press** action
+- **Power + Up Combo** action
+- **Quick-return from Footnotes** (appears only after you assign **Footnotes** to a button)
 
 ### Front Buttons
 
-- Remap front buttons
-- Remap front buttons while reading
-- Orientation aware
-- Long-press behavior (in-reader only)
-- Long-press back action (in-reader only)
-- Long-press menu action (in-reader only)
+- **Remap Buttons**
+- **Remap Buttons (Reader)**
+- **Orientation Aware** (**No**, **Nav Buttons**, or **All Buttons**)
+- **Long-press** behavior (in the reader only): **Off**, **Chapter Skip**, **Change Font Size**, or **Orientation Change**
+- **Long-press Back** action (in the reader only)
+- **Long-press Menu** action (in the reader only)
 
-Note: Even though some actions assigned to the front buttons could be used globally, they are restricted to apply within the reader only due to the dynamic nature of the front buttons (they can mean different things based on the screen you're on).
+> [!NOTE]
+> Some of these actions could work everywhere, but the front buttons mean
+> different things on different screens. So these actions only apply inside the
+> reader.
 
 ### Side Buttons
 
-- Orientation aware
-- Side-button chord (where supported)
-- Left/Up short-press and long-press actions
-- Right/Down short-press and long-press actions
+- **Orientation Aware**
+- **Up + Down Combo** (X4 and touchscreen devices except EEGO)
+- **Left/Up** short-press and long-press actions
+- **Right/Down** short-press and long-press actions
 
 ### Taps & Gestures
 
-- Next Page
-- Previous Page
-- Pinch to Resize Font (on supported multi-touch devices)
-- Two-finger Screen Rotation (on supported multi-touch devices)
-- Tap to Hide Status Bar
-- Two-finger Swipe (on supported multi-touch devices)
-- Edge Gestures
+Touchscreen devices only. The two-finger entries need a screen that can
+detect more than one finger at a time.
+
+- **Next Page**
+- **Previous Page**
+- **Pinch to Resize Font** (multi-touch only)
+- **Two-finger Screen Rotation** (multi-touch only)
+- **Tap to Hide Status Bar**
+- **Two-finger Swipe** (multi-touch only)
+- **Edge Gestures**
+
+### Menu navigation
+
+Button devices only. **Directional** is the default. Choose **Legacy** to get
+the older button behavior back in Settings and the Reader Menu.
 
 ### Next Page and Previous Page Gestures
 
 On touchscreen devices, **Next Page** and **Previous Page** are in
-**Settings > Controls > Taps & Gestures**. They change page-turn gestures while
-reading and can be configured independently. In left-to-right books, **Next
+**Settings > Controls > Taps & Gestures**. They decide how you turn pages with
+your finger, and you can set each one on its own. In left-to-right books, **Next
 Page** controls taps and left swipes; **Previous Page** controls taps and right
 swipes. Right-to-left EPUBs reverse the normal tap zones and horizontal swipe
 directions to follow reading order.
@@ -62,23 +94,26 @@ Both settings offer the same options:
 | **Inverted Tap** | Enabled, with reversed tap zones | Disabled |
 | **Disabled** | Disabled | Disabled |
 
-When both directions allow taps, the normal zones are the left third for the
-previous page and the right two-thirds for the next page. If either of those
-settings is **Inverted Tap**, the shared zones become the left two-thirds for
-the next page and the right third for the previous page. If only one direction
-allows taps, taps across the page turn in that direction. The top and bottom
-gesture bands are reserved for vertical gestures, so taps there do not turn
-pages. A **Previous Page** setting that does not allow swipes also prevents a
-rightward edge swipe from being treated as Back/Home while reading.
+By default, tap the left third of the page to go back and the right two-thirds
+to go forward.
+
+> [!NOTE]
+> If either setting is **Inverted Tap**, the zones flip: the left
+> two-thirds go forward and the right third goes back. If only one direction
+> allows taps, a tap anywhere on the page turns in that direction. The top and
+> bottom bands of the screen are kept for vertical gestures, so taps there do
+> not turn pages. A **Previous Page** setting that does not allow swipes also
+> stops a right swipe from the left edge from acting as Back/Home while you
+> read.
 
 ## Pinch to Resize Font
 
-On touchscreen devices with multi-touch support, enable **Pinch to Resize Font**
-in **Settings > Controls > Taps & Gestures**. While reading an EPUB or TXT
-book, move two fingers apart to increase the font or together to decrease it.
-Each completed pinch changes one available font-size step. Pinch resizing also
-requires reader touch input to be enabled. XTC pages are pre-rendered,
-so this option cannot resize them.
+**Pinch to Resize Font** is on by default on touchscreens that detect two
+fingers. While reading an EPUB or TXT book, move two fingers apart to make the
+text bigger, or together to make it smaller. Each pinch changes the font by one
+size step. You can turn it off in **Settings > Controls > Taps & Gestures**.
+It needs **Touch Reader Controls** to be on. It cannot resize XTC books,
+because their pages are saved as images.
 
 ## Two-finger Screen Rotation
 
@@ -92,65 +127,73 @@ read; the four-way **Reading Orientation** setting still works.
 
 ## Tap to Hide Status Bar
 
-**Tap to Hide Status Bar** is enabled by default. When it is enabled, tap the
-visible status-bar area while reading to show or hide the entire bar for the
-current reading session. The toggle does not change page layout or page breaks;
-tap the same status-bar region again to restore a hidden bar. Use **Status
-Bars** to choose which items the top and bottom bars contain. The tap is available while reader touch input
-is enabled. For XTC books, when an XTC status bar is
-enabled, tap its configured top or bottom edge both to hide and to restore it.
+**Tap to Hide Status Bar** is on by default. While reading, tap the status bar
+to hide it, and tap the same spot again to bring it back. Hiding it does not
+change page layout or page breaks, and it only lasts for the current reading
+session. To choose what the top and bottom bars show, see **Status Bars** in
+[Reader Features](./reader-features.md#reader-status-bars). The tap works while
+**Touch Reader Controls** is on. In XTC books with an XTC status bar turned on,
+tap its top or bottom edge to hide and restore it.
 
 ## Two-finger Swipe Actions
 
-On touchscreen devices with multi-touch support, open **Settings > Controls >
-Taps & Gestures > Two-finger Swipe** to assign actions to the four swipe
-directions. During reading, place two fingers on the page and move them
-together in the configured direction. Use **Not Set** to leave a direction
-unassigned.
+On touchscreens that detect two fingers, you can give each of the four swipe
+directions a job. To set them up, open **Settings > Controls > Taps & Gestures
+> Two-finger Swipe** and choose an action for **Swipe Up**, **Swipe Down**,
+**Swipe Left**, and **Swipe Right**. To use one, put two fingers on the page
+and move them together in that direction. **Not Set** leaves a direction
+unused (this is the default for all four).
 
-Each action can be assigned to only one direction. If you assign an action to a
-new direction, CrossInk clears its previous direction automatically.
+Each action can be assigned to only one direction. If you give an action to a
+new direction, CrossInk clears it from the old one.
 
-Available actions depend on the device and reader:
+Available actions depend on the device and the book:
 
 | Action | Availability |
 | --- | --- |
-| Increase Brightness / Decrease Brightness | Devices with a frontlight |
-| Increase Warmth / Decrease Warmth | Devices with an adjustable warm/cool frontlight |
-| Next Chapter / Previous Chapter | EPUB readers |
-| Increase Font Size / Decrease Font Size | EPUB and TXT readers |
+| **Increase Brightness** / **Decrease Brightness** | Devices with a frontlight |
+| **Increase Warmth** / **Decrease Warmth** | Devices with an adjustable warm/cool frontlight |
+| **Select Chapter** | EPUB and XTC books with a chapter list |
+| **Next Chapter** / **Previous Chapter** | EPUB books |
+| **Increase Font Size** / **Decrease Font Size** | EPUB and TXT books |
+| **Back/Home** | Goes back one screen, or to the Home screen if there is nowhere to go back to |
+| **Home/Reader** | From a book, goes to the Home screen. From a screen opened on top of a book (such as the Reader Menu), returns to the book |
 
-Brightness and warmth respond while you drag, with longer swipes allowing
-finer one-point adjustments. Use a clear, mostly straight motion so both
-contacts are recognized as one gesture. Configured two-finger swipes are
-handled separately from the ordinary one-finger page-turn mapping. On image-based XTC books, chapter and font-size
-actions are consumed but cannot change the pre-rendered pages.
+Brightness and warmth change while you drag, and a longer swipe gives finer
+adjustments. Use a clear, mostly straight motion so both fingers are read as
+one gesture. **Select Chapter** opens the chapter list. In XTC books, the
+chapter and font-size actions do nothing, because the pages are saved
+images.
 
 ## Edge Gestures
 
 On touchscreen devices, open **Settings > Controls > Taps & Gestures > Edge
-Gestures**. Assign actions separately to **Left Edge Up**, **Left Edge Down**,
-**Right Edge Up**, and **Right Edge Down**. Start with one finger close to the
-chosen screen edge and slide vertically while staying along that edge. All four
-start as **Not Set**.
+Gestures**. You can give a job to each of **Left Edge Up**, **Left Edge Down**,
+**Right Edge Up**, and **Right Edge Down**. To use one, put one finger close to
+the left or right edge of the screen and slide up or down along that edge. All
+four start as **Not Set**.
 
-The available actions match [Two-finger Swipe Actions](#two-finger-swipe-actions):
-brightness and warmth on supported hardware, chapter changes in EPUBs, and
-font-size changes in EPUB/TXT books. Edge slides do not require multi-touch.
-Brightness and warmth respond while you drag; a longer slide gives finer
-one-point adjustments. Chapter and font-size actions run when you lift your
-finger. XTC pages cannot be resized or use the EPUB chapter actions.
+The available actions are the same as in
+[Two-finger Swipe Actions](#two-finger-swipe-actions): brightness and warmth on
+supported hardware, **Select Chapter**, chapter changes, font-size changes, and
+**Back/Home** and **Home/Reader**. Unlike two-finger swipes, edge slides need
+only one finger, and the same action can be used on more than one edge.
+Brightness and warmth change while you drag. Other actions run when you lift
+your finger. XTC books cannot be resized or use the EPUB chapter actions.
 
 ## Side Button Actions
 
-Open **Settings > Controls > Side Buttons** to assign a **Short-press Action**
-and **Long-press Action** independently to **Left/Up** and **Right/Down**.
-These actions apply while reading. A short action runs on release; a configured
-long action runs after a hold of about **0.7 seconds**, without also running
-the short action. Existing side-button layouts are converted to matching
-individual actions when you update.
+Open **Settings > Controls > Side Buttons** to give each side button a
+**Short-press** action (a quick press) and a **Long-press** action (hold for
+about 0.7 seconds). You can set **Left/Up** and **Right/Down** separately.
+These actions apply while reading. A long press does not also run the short
+action.
 
-Alongside the usual reader shortcuts, you can choose:
+By default, **Left/Up** goes to the previous page (long press: previous
+chapter) and **Right/Down** goes to the next page (long press: next chapter).
+
+Alongside the shortcut actions listed [below](#power-back-and-menu-button-actions),
+you can choose:
 
 - **Previous Page** or **Next Page** to swap page-turn directions or make both
   buttons advance.
@@ -160,78 +203,114 @@ Alongside the usual reader shortcuts, you can choose:
   orientation changes. The labels describe the direction the page turns.
 - **Ignore** to leave a press unassigned.
 
-XTC books have pre-rendered pages, so font-size and page-rotation actions do not
-apply. **Orientation aware** remains a separate option for side-button mapping.
+XTC books have pages saved as images, so font-size and page-rotation actions do not
+apply. **Orientation Aware** is a separate switch that makes the buttons follow
+the way you hold the device.
 
 ## Power, Back, and Menu Button Actions
 
+These settings let you put a shortcut on a button press you would not
+otherwise use.
+
 Defaults:
 
-- Short-press Power Button Action: Ignore
-- Long-press Power Button Action: Sleep/Wake
-- Long-press Back Button Action: Browse Files
-- Long Press Menu Button Action: Ignore
+- Power **Short-press**: **Ignore**
+- Power **Long-press**: **Sleep/Wake**
+- **Long-press Back** (button devices, in the reader): **Browse Files**
+- **Long-press Menu** (button devices, in the reader): **Ignore**
+- **Power + Up Combo**: off
 
 Available actions include:
 
-- Ignore
-- Sleep (also available to chord and Home-button shortcuts)
-- Sleep/Wake or Wake (Power button only)
-- Next Page
-- Refresh Screen
-- Change Font
-- Guide Dots
-- Focus Reading
-- Toggle Bookmark
-- Sync Progress
-- Mark as Finished
-- Reading Stats
-- Take Screenshot
-- Auto Page Turn Interval
-- File Transfer
-- Calibre Wireless
-- Join a Network
-- Create Hotspot
-- Tilt Page Turn (X3 only)
-- Footnotes
-- Dark Mode
-- Browse Files
-- Library
-- Create Clipping
-- Look Up Word
-- Quick Lock
-- Quick Actions
-- Toggle Frontlight (on supported devices)
-- Toggle Touchscreen (on supported devices)
+- **Ignore**
+- **Sleep** (also available to the combo shortcuts and the Home button). On the
+  Power button this appears as **Sleep/Wake**, together with **Sleep** and
+  **Wake**, which do only one of the two.
+- **Next Page**, **Previous Page**
+- **Select Chapter**
+- **Toggle Bookmark**
+- **Reading Stats** (only when reading stats tracking is on)
+- **Mark as Finished**
+- **Refresh Screen**
+- **Change Font**, **Guide Dots**, **Focus Reading**, **Dark Mode**
+- **Auto Page Turn**
+- **Tilt Page Turn** (devices with a tilt sensor)
+- **Sync Book**, **Nearby Position Sync**
+- **Library**, **Browse Files**
+- **File Transfer**, **Calibre Wireless**, **Join a Network**, **Create Hotspot**
+- **Take Screenshot**
+- **Footnotes**
+- **Create Clipping**, **Look Up Word**
+- **Quick Lock**, **Quick Actions**
+- **Back/Home**, **Home/Reader**
+- **Toggle Frontlight** (devices with a frontlight)
+- **Toggle Touchscreen** (touchscreen devices)
+
+Not every list offers every action. For example, **Long-press Back** and
+**Long-press Menu** have no **Next Page**, **Previous Page**, or **Nearby
+Position Sync**, and the **Power + Up Combo** has no **Tilt Page Turn**. Actions
+for hardware your device does not have are hidden.
 
 Power short- and long-press actions are separate. A short press wakes the
-device only when its **Short-press Action** is **Sleep/Wake** or **Wake**.
-**Sleep** only puts an awake device to sleep; **Wake** does nothing while it is
-awake. Holding Power always wakes the sleeping device. For the full startup
-instructions, see [Power On / Off](./user-guide.md#power-on--off).
+device only when its **Short-press** action is **Sleep/Wake** or **Wake**.
+**Sleep** only puts an awake device to sleep; **Wake** does nothing while the
+device is awake. Holding Power always wakes a sleeping device. For the full
+startup instructions, see [Power On / Off](./user-guide.md#power-on--off).
 
-Assign **Library** to a Power, Back/Menu long-press, chord, Home-button, or
-Quick Actions shortcut to open the book list directly, where that shortcut is
-supported.
+Assign **Library** to the Power button, **Long-press Back** or **Long-press
+Menu**, the combo shortcuts, the Home button, or Quick Actions to open the book
+list directly.
 
 ## Power + Up Shortcut
 
 The **Power + Up** shortcut runs the action selected in **Settings > Controls >
-Power Button > Power + Up**. It is disabled by default. Press the **Power** and **Volume Up**
-buttons together to trigger it, then release both buttons before using another
-shortcut.
+Power Button > Power + Up Combo**. It is off by default. Press the **Power** and
+**Volume Up** buttons together to use it, then release both before using
+another shortcut.
 
-The shortcut can run many of the same actions available for the Power button,
-including **Quick Lock**. The existing **Power + Volume Down** screenshot
-shortcut is unchanged.
+It can run most of the same actions as the Power button, including **Quick
+Lock**. The **Power + Volume Down** screenshot shortcut is separate and always
+works.
+
+## Up + Down Shortcut
+
+On the Xteink X4 and on touchscreen devices other than EEGO, **Settings >
+Controls > Side Buttons > Up + Down Combo** runs an action when you press both side buttons
+together. It is off by default. On a touchscreen device, if you have turned the
+reader touchscreen off, this combo does something else instead: it opens a menu
+so you can always turn the touchscreen back on.
+
+On **EEGO**, Up + Down is reserved for the device's hardware reset. It is not
+offered as a shortcut or Quick Actions trigger, on the device or in web settings.
+Previously saved Up + Down assignments do not run. If you disable the
+touchscreen, restarting the EEGO re-enables it automatically. This reboot
+recovery behavior applies only to EEGO.
+
+## Home Button (X4 Pro)
+
+The X4 Pro has a Home key. Open **Settings > Controls > Home Button** to set:
+
+- **In Reader**: **Enabled** or **Disabled**. When disabled, the Home key is
+  locked while you read, which helps avoid accidental presses.
+- **Tap** (default **Back/Home**)
+- **Double Tap** (default **Toggle Frontlight**)
+- **Long-press** (default **Reader Menu**)
+
+Each can also run any of the shortcut actions above, plus **Reader Menu**.
 
 ## Quick Actions Triggers
 
-In **Settings > Quick Actions**, assign the menu to one shortcut. Available
-triggers include short- or long-press Power, **Power + Up**, and on X4 Pro,
-**Tap Home**, **Long-Press Home**, or **Double Tap Home**. Selecting a trigger
-there replaces any previous Quick Actions trigger; it does not change the five
-actions in the menu.
+**Quick Actions** is a small menu of five actions you pick yourself. Open
+it from **Settings > Controls > Quick Actions**, choose one **Shortcut** to open
+the menu, and choose the five actions. **Quick Lock** and **Quick Actions**
+themselves cannot go in the menu.
+
+A shortcut can only belong to one thing. Choosing a trigger for Quick Actions
+replaces whatever that button press did before. The available triggers are
+short- or long-press Power, **Power + Up Combo**, **Up + Down Combo**, each
+side-button short or long press, and on X4 Pro, **Tap Home**, **Long-Press
+Home**, or **Double Tap Home**. Button devices can also use **Long-press Back**
+and **Long-press Menu**. EEGO does not offer **Up + Down Combo** as a trigger.
 
 ## Quick Lock
 
@@ -240,11 +319,11 @@ leaving the current screen visible. A lock badge appears on the display while
 the device is locked. It is useful when carrying the reader or setting it down
 while reading.
 
-Quick Lock can be assigned to **Power + Up**, short- or long-press **Power**,
-or long-press **Back** or **Menu**. Trigger the assigned action to toggle the
-lock. While locked, repeat that same shortcut to unlock; all other buttons,
-including **Power + Volume Down** screenshots, and touchscreen input stay
-locked.
+You can assign Quick Lock to any shortcut, such as **Power + Up**, a Power
+button press, a side button, or a long press of **Back** or **Menu**. Use the
+shortcut to lock. While locked, only that same shortcut unlocks; all other
+buttons (including **Power + Volume Down** screenshots) and the touchscreen
+stay locked.
 
 Quick Lock still follows the regular **Time to Sleep** setting. If the timeout
 expires, the device sleeps and restores the lock when it wakes. Reading timers

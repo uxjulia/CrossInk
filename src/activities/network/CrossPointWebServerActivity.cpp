@@ -11,6 +11,7 @@
 #include <cstddef>
 
 #include "CrossPointState.h"
+#include "FilenameFontSystem.h"
 #include "MappedInputManager.h"
 #include "NetworkModeSelectionActivity.h"
 #include "SdCardFontSystem.h"
@@ -18,10 +19,12 @@
 #include "WifiSelectionActivity.h"
 #include "activities/ActivityManager.h"
 #include "activities/network/CalibreConnectActivity.h"
+#include "activities/network/StatsUploadActivity.h"
 #include "components/CompactHeader.h"
 #include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
+#include "util/PluginEvents.h"
 #include "util/QrUtils.h"
 
 namespace {
@@ -67,6 +70,9 @@ int barsForRssi(int rssi, int currentBars) {
 }  // namespace
 
 void CrossPointWebServerActivity::onEnter() {
+  // The server can replace the selected font through HTTP/WebDAV. Keep it
+  // closed throughout this activity and its Wi-Fi/password child screens.
+  filenameFontSystem.suspend(renderer);
   Activity::onEnter();
   // Build or refresh the compact on-disk font index before Wi-Fi starts. The
   // C3 has substantially more contiguous heap here than while serving HTTP.
@@ -101,6 +107,7 @@ void CrossPointWebServerActivity::onEnter() {
 }
 
 void CrossPointWebServerActivity::onExit() {
+  pluginevents::refreshSubscriptions();
   library::invalidateLibraryIndex();
   Activity::onExit();
 
@@ -144,23 +151,62 @@ void CrossPointWebServerActivity::onExit() {
   }
 
   LOG_DBG("WEBACT", "Free heap at onExit end: %d bytes", ESP.getFreeHeap());
+  filenameFontSystem.resume();
 }
 
 void CrossPointWebServerActivity::onNetworkModeSelected(const NetworkMode mode) {
   const char* modeName = "Join Network";
   if (mode == NetworkMode::CONNECT_CALIBRE) {
     modeName = "Connect to Calibre";
+  } else if (mode == NetworkMode::OPDS_BROWSER) {
+    modeName = "OPDS Browser";
   } else if (mode == NetworkMode::CREATE_HOTSPOT) {
     modeName = "Create Hotspot";
   } else if (mode == NetworkMode::NEARBY_STATS_SYNC) {
-    modeName = "Sync Stats";
+    modeName = "Nearby Stats Sync";
   } else if (mode == NetworkMode::NEARBY_BOOK_RECEIVE) {
     modeName = "Receive File";
+  } else if (mode == NetworkMode::SYNC_BOOKS) {
+    modeName = "Sync Books";
+  } else if (mode == NetworkMode::SYNC_READING_STATS) {
+    modeName = "Sync Reading Stats";
+  } else if (mode == NetworkMode::SYNC_CLIPPINGS) {
+    modeName = "Sync Clippings";
   }
   LOG_DBG("WEBACT", "Network mode selected: %s", modeName);
 
   if (mode == NetworkMode::USB_DRIVE) {
     activityManager.goToUsbDrive();
+    return;
+  }
+
+  if (mode == NetworkMode::SYNC_BOOKS || mode == NetworkMode::SYNC_READING_STATS ||
+      mode == NetworkMode::SYNC_CLIPPINGS) {
+    // Sync Books asks first; the targeted uploads start straight away. Each
+    // brings up Wi-Fi itself, like Sync Folder.
+    const auto scope = mode == NetworkMode::SYNC_BOOKS           ? StatsUploadActivity::Scope::Library
+                       : mode == NetworkMode::SYNC_READING_STATS ? StatsUploadActivity::Scope::ReadingStats
+                                                                 : StatsUploadActivity::Scope::Clippings;
+    auto sync = makeUniqueNoThrow<StatsUploadActivity>(renderer, mappedInput, std::string{}, scope,
+                                                       scope != StatsUploadActivity::Scope::Library);
+    if (!sync) {
+      LOG_ERR("WEBACT", "Cannot allocate sync activity");
+      exitToOrigin();
+      return;
+    }
+    sync->setReturnToFileTransfer(returnBookPath, networkBootReady);
+    // Back here after a cancelled Join Network, the radio can still be on; drop
+    // it so leaving this screen does not reboot before the sync runs. The sync
+    // reboots on leave itself when this is the minimal network boot.
+    if (WiFi.getMode() != WIFI_MODE_NULL) {
+      WiFi.disconnect(false);
+      WiFi.mode(WIFI_OFF);
+    }
+    activityManager.replaceActivity(std::move(sync));
+    return;
+  }
+  if (mode == NetworkMode::OPDS_BROWSER) {
+    activityManager.goToBrowser();
     return;
   }
 
@@ -190,8 +236,12 @@ void CrossPointWebServerActivity::onNetworkModeSelected(const NetworkMode mode) 
       case NetworkMode::USB_DRIVE:
         activityManager.goToUsbDrive();
         break;
+      case NetworkMode::OPDS_BROWSER:
       case NetworkMode::NEARBY_STATS_SYNC:
       case NetworkMode::NEARBY_BOOK_RECEIVE:
+      case NetworkMode::SYNC_BOOKS:
+      case NetworkMode::SYNC_READING_STATS:
+      case NetworkMode::SYNC_CLIPPINGS:
         break;
     }
     return;
@@ -509,11 +559,12 @@ bool CrossPointWebServerActivity::exitRequested() const {
 
 void CrossPointWebServerActivity::renderServerRunning() const {
   const auto& metrics = UITheme::getInstance().getMetrics();
-  const auto pageWidth = renderer.getScreenWidth();
+  const auto safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
+  const int pageWidth = safe.width;
 
   renderHeader();
-  const int subHeaderTop = CompactHeader::contentTop(metrics);
-  GUI.drawSubHeader(renderer, Rect{0, subHeaderTop, pageWidth, metrics.tabBarHeight}, connectedSSID.c_str());
+  const int subHeaderTop = CompactHeader::contentTop(renderer);
+  GUI.drawSubHeader(renderer, Rect{safe.x, subHeaderTop, pageWidth, metrics.tabBarHeight}, connectedSSID.c_str());
 
   if (!isApMode) {
     renderWifiIndicator(subHeaderTop);
@@ -523,24 +574,24 @@ void CrossPointWebServerActivity::renderServerRunning() const {
   int height10 = renderer.getLineHeight(UI_10_FONT_ID);
   if (isApMode) {
     // AP mode display
-    renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding, startY, tr(STR_CONNECT_WIFI_HINT), true,
+    renderer.drawText(UI_10_FONT_ID, safe.x + metrics.contentSidePadding, startY, tr(STR_CONNECT_WIFI_HINT), true,
                       EpdFontFamily::BOLD);
     startY += height10 + metrics.verticalSpacing * 2;
 
     // Show QR code for Wifi
     // follows spec at https://github.com/zxing/zxing/wiki/Barcode-Contents#wi-fi-network-config-android-ios-11
     const std::string wifiConfig = std::string("WIFI:T:nopass;S:") + connectedSSID + ";;";
-    const Rect qrBoundsWifi(metrics.contentSidePadding, startY, QR_CODE_WIDTH, QR_CODE_HEIGHT);
+    const Rect qrBoundsWifi(safe.x + metrics.contentSidePadding, startY, QR_CODE_WIDTH, QR_CODE_HEIGHT);
     QrUtils::drawQrCode(renderer, qrBoundsWifi, wifiConfig);
 
     // Show network name
-    renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding + QR_CODE_WIDTH + metrics.verticalSpacing, startY + 80,
-                      connectedSSID.c_str());
+    renderer.drawText(UI_10_FONT_ID, safe.x + metrics.contentSidePadding + QR_CODE_WIDTH + metrics.verticalSpacing,
+                      startY + 80, connectedSSID.c_str());
 
     startY += QR_CODE_HEIGHT + 2 * metrics.verticalSpacing;
 
     // Show primary URL (hostname)
-    renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding, startY, tr(STR_OPEN_URL_HINT), true,
+    renderer.drawText(UI_10_FONT_ID, safe.x + metrics.contentSidePadding, startY, tr(STR_OPEN_URL_HINT), true,
                       EpdFontFamily::BOLD);
     startY += height10 + metrics.verticalSpacing * 2;
 
@@ -548,14 +599,14 @@ void CrossPointWebServerActivity::renderServerRunning() const {
     std::string ipUrl = tr(STR_OR_HTTP_PREFIX) + connectedIP + "/";
 
     // Show QR code for URL
-    const Rect qrBoundsUrl(metrics.contentSidePadding, startY, QR_CODE_WIDTH, QR_CODE_HEIGHT);
+    const Rect qrBoundsUrl(safe.x + metrics.contentSidePadding, startY, QR_CODE_WIDTH, QR_CODE_HEIGHT);
     QrUtils::drawQrCode(renderer, qrBoundsUrl, hostnameUrl);
 
     // Show IP address as fallback
-    renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding + QR_CODE_WIDTH + metrics.verticalSpacing, startY + 80,
-                      hostnameUrl.c_str());
-    renderer.drawText(SMALL_FONT_ID, metrics.contentSidePadding + QR_CODE_WIDTH + metrics.verticalSpacing, startY + 100,
-                      ipUrl.c_str());
+    renderer.drawText(UI_10_FONT_ID, safe.x + metrics.contentSidePadding + QR_CODE_WIDTH + metrics.verticalSpacing,
+                      startY + 80, hostnameUrl.c_str());
+    renderer.drawText(SMALL_FONT_ID, safe.x + metrics.contentSidePadding + QR_CODE_WIDTH + metrics.verticalSpacing,
+                      startY + 100, ipUrl.c_str());
   } else {
     startY += metrics.verticalSpacing * 2;
 
@@ -568,7 +619,7 @@ void CrossPointWebServerActivity::renderServerRunning() const {
 
     // Show QR code for URL
     std::string webInfo = "http://" + connectedIP + "/";
-    const Rect qrBounds((pageWidth - QR_CODE_WIDTH) / 2, startY, QR_CODE_WIDTH, QR_CODE_HEIGHT);
+    const Rect qrBounds(safe.x + (pageWidth - QR_CODE_WIDTH) / 2, startY, QR_CODE_WIDTH, QR_CODE_HEIGHT);
     QrUtils::drawQrCode(renderer, qrBounds, webInfo);
     startY += QR_CODE_HEIGHT + metrics.verticalSpacing * 2;
 
@@ -592,7 +643,8 @@ void CrossPointWebServerActivity::renderWifiIndicator(int subHeaderTop) const {
   constexpr int ICON_HEIGHT = 14;
   const auto& metrics = UITheme::getInstance().getMetrics();
   const int iconWidth = BAR_COUNT * BAR_WIDTH + (BAR_COUNT - 1) * BAR_GAP;
-  const int iconRight = renderer.getScreenWidth() - metrics.contentSidePadding;
+  const auto safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
+  const int iconRight = safe.x + safe.width - metrics.contentSidePadding;
   const int iconLeft = iconRight - iconWidth;
   const int iconBottom = subHeaderTop + metrics.tabBarHeight - metrics.verticalSpacing;
 

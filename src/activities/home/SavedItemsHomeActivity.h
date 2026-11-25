@@ -29,6 +29,9 @@ class SavedItemsHomeActivity final : public Activity {
   void render(RenderLock&&) override;
 
  private:
+#ifdef SIMULATOR
+  friend struct BookmarkListSmokeTest;
+#endif
   std::vector<SavedBookEntry> books;
   ButtonNavigator buttonNavigator;
   int selectedIndex = 0;

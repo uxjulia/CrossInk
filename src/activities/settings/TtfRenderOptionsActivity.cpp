@@ -139,8 +139,8 @@ const char* TtfRenderOptionsActivity::rowLabel(const Row row) {
 }
 
 const char* TtfRenderOptionsActivity::rowValue(const Row row, const TtfRenderProfile& profile) {
-  if (row == Row::StemDarkening) return profile.stemDarkening ? tr(STR_STATE_ON) : tr(STR_STATE_OFF);
-  if (row == Row::Reset) return ">";
+  if (row == Row::StemDarkening) return profile.stemDarkening ? tr(STR_ON) : tr(STR_OFF);
+  if (row == Row::Reset) return "";
   const auto* options = optionLabels(row);
   if (options == nullptr || options->empty()) return "";
   const size_t index = std::min<size_t>(selectedOption(profile, row), options->size() - 1);
@@ -175,13 +175,14 @@ void TtfRenderOptionsActivity::rebuildRows() {
   selectedIndex_ = std::clamp(selectedIndex_, 0, static_cast<int>(rows_.size()) - 1);
 }
 
-void TtfRenderOptionsActivity::save() {
-  if (profile_ == TTF_RENDER_PROFILES.profileFor(family_.c_str())) return;
+bool TtfRenderOptionsActivity::save() {
+  if (profile_ == TTF_RENDER_PROFILES.profileFor(family_.c_str())) return true;
   if (!TTF_RENDER_PROFILES.setProfile(family_.c_str(), profile_)) {
     LOG_ERR("TTFUI", "Failed to save rendering profile for %s", family_.c_str());
-    return;
+    return false;
   }
   changed_ = profile_ != initialProfile_;
+  return true;
 }
 
 void TtfRenderOptionsActivity::finishWithResult() {
@@ -209,9 +210,13 @@ void TtfRenderOptionsActivity::activateSelected() {
     profile_.stemDarkening = !profile_.stemDarkening;
     save();
   } else if (row == Row::Reset) {
+    const TtfRenderProfile previous = profile_;
     profile_ = {};
+    const bool saved = save();
+    if (!saved) profile_ = previous;
     rebuildRows();
-    save();
+    static constexpr StrId options[] = {StrId::STR_OK};
+    optionPopup_.show(saved ? StrId::STR_TTF_DEFAULTS_RESET : StrId::STR_TTF_RESET_FAILED, options, 1, 0, nullptr);
   } else {
     showOptions(row);
   }
@@ -270,10 +275,11 @@ void TtfRenderOptionsActivity::onRowEvent(const fui::ActionEvent& event, void* u
 void TtfRenderOptionsActivity::buildOptionsScreen(UiApp::ScreenType& screen) {
   const auto& metrics = UITheme::getInstance().getMetrics();
   const Rect safe = UITheme::getInstance().getScreenSafeArea(renderer, !mappedInput.hasTouchHardware(), false);
-  screen.setContentMargin(fui::Insets{
-      static_cast<int16_t>(safe.y + metrics.topPadding + TouchHeaderBackButton::height(metrics, mappedInput)),
-      static_cast<int16_t>(renderer.getScreenWidth() - safe.x - safe.width),
-      static_cast<int16_t>(renderer.getScreenHeight() - safe.y - safe.height), static_cast<int16_t>(safe.x)});
+  setUiContentMargin(screen, renderer,
+                     fui::Insets{static_cast<int16_t>(TouchHeaderBackButton::contentTop(renderer, mappedInput, safe.y)),
+                                 static_cast<int16_t>(renderer.getScreenWidth() - safe.x - safe.width),
+                                 static_cast<int16_t>(renderer.getScreenHeight() - safe.y - safe.height),
+                                 static_cast<int16_t>(safe.x)});
   screen.spacer(static_cast<int16_t>(metrics.verticalSpacing));
 
   fui::TextStyle familyStyle = screen.theme().smallText;
@@ -328,7 +334,7 @@ void TtfRenderOptionsActivity::render(RenderLock&&) {
     GUI.drawHeader(renderer, header, tr(STR_TTF_RENDERING), nullptr, true);
   }
   uiReady_ = false;
-  app_.render();
+  renderUiApp(app_, uiTarget_);
   uiReady_ = true;
   const auto labels =
       mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));

@@ -5,7 +5,7 @@ nav_order: 1.5
 
 # CrossInk User Guide
 
-This guide covers day-to-day device use. For focused reference material, see [Reader Features](./reader-features.md), [Controls](./controls.md), [SD Card Fonts](./sd-card-fonts.md), [File Transfer](./webserver.md), and [Troubleshooting](./troubleshooting.md). For Dashboard and Minimal Home-screen gestures, see [Touch Navigation](./touch-navigation.md).
+This guide covers day-to-day device use. Your books, settings, and reading progress are stored on the SD card, the small memory card inside the device. For focused reference material, see [Reader Features](./reader-features.md), [Controls](./controls.md), [SD Card Fonts](./sd-card-fonts.md), [File Transfer](./webserver.md), [Plugins](./sd-plugins.md), and [Troubleshooting](./troubleshooting.md). For Dashboard and Minimal Home-screen gestures, see [Touch Navigation](./touch-navigation.md).
 
 - [CrossInk User Guide](#crossink-user-guide)
   - [1. Hardware Overview](#1-hardware-overview)
@@ -28,10 +28,10 @@ This guide covers day-to-day device use. For focused reference material, see [Re
       - [3.6.4 System](#364-system)
       - [3.6.5 OPDS Servers (Multiple Libraries)](#365-opds-servers-multiple-libraries)
       - [3.6.6 Web Settings (Wi-Fi + OPDS)](#366-web-settings-wi-fi--opds)
-      - [3.6.7 KOReader Sync Quick Setup](#367-koreader-sync-quick-setup)
+      - [3.6.7 Sync Server Quick Setup](#367-sync-server-quick-setup)
         - [Option A: CrossPoint Sync Server (`sync.crosspointreader.com`, default)](#option-a-crosspoint-sync-server-synccrosspointreadercom-default)
-        - [Option B: Legacy Public KOReader Server (`sync.koreader.rocks`)](#option-b-legacy-public-koreader-server-synckoreaderrocks)
-        - [Option C: Self-Hosted Server (Docker Compose)](#option-c-self-hosted-server-docker-compose)
+        - [Option B: Existing KOReader Account](#option-b-existing-koreader-account)
+        - [Option C: Your Own Sync Server](#option-c-your-own-sync-server)
     - [3.7 Sleep Screen](#37-sleep-screen)
       - [Cover settings](#cover-settings)
       - [Custom images](#custom-images)
@@ -43,16 +43,20 @@ This guide covers day-to-day device use. For focused reference material, see [Re
     - [Auto Page Turn](#auto-page-turn)
     - [Tilt Page Turn (X3 and Sticky)](#tilt-page-turn-x3-and-sticky)
     - [Touch Reader Controls](#touch-reader-controls)
+    - [Slider Controls](#slider-controls)
     - [Footnote Navigation](#footnote-navigation)
     - [System Navigation](#system-navigation)
     - [Supported Languages](#supported-languages)
   - [5. Reader Menu](#5-reader-menu)
     - [5.1 Chapter Selection](#51-chapter-selection)
     - [5.2 Bookmarks](#52-bookmarks)
+    - [5.3 Dictionary](#53-dictionary)
   - [6. Current Limitations & Roadmap](#6-current-limitations--roadmap)
   - [7. Troubleshooting Issues & Escaping Bootloop](#7-troubleshooting-issues--escaping-bootloop)
 
 ## 1. Hardware Overview
+
+### Button Layout
 
 CrossInk supports many devices with various button layouts. For the X3/X4 devices with front buttons, by default they will use the following layout from left to right, and this guide will refer to them by those names.
 
@@ -83,9 +87,9 @@ Button layout can be customized in **Settings > Controls**.
 
 ### Taking a Screenshot
 
-When the Power Button and Down button are pressed at the same time, it will take a screenshot and save it in the folder `screenshots/`.
+Press the **Power** and **Down** buttons at the same time to take a screenshot. It is saved as a `.bmp` image in the `screenshots` folder on the SD card.
 
-Alternatively, while reading a book, press the **Confirm** button to open the reader menu and select **Take screenshot**.
+You can also open the Reader Menu while reading, go to the **Bookmarks** tab, and choose **Take Screenshot**, or assign **Screenshot** to a Power button action.
 
 ---
 
@@ -93,16 +97,16 @@ Alternatively, while reading a book, press the **Confirm** button to open the re
 
 ### Power On / Off
 
-By default, **press and hold the Power button for approximately half a second** to put the device to sleep or wake it. In **Settings > Controls > Power Button**, you can configure the short-press and long-press actions separately. A short press wakes the device only when **Short-press Action** is set to **Sleep/Wake** or **Wake**; otherwise, hold Power for about half a second to wake it. See [Controls](#363-controls) for details.
+By default, **press and hold the Power button for about half a second** to put the device to sleep or wake it. In **Settings > Controls > Power Button** you can set the short-press and long-press actions separately. A short press wakes the device only when the short-press action is **Sleep/Wake** or **Wake**; otherwise, hold Power for about half a second to wake it. See [Controls](#363-controls) for details.
 
-To reboot the device (for example after a firmware update or if it's frozen), press and release the Reset button, and then quickly press and hold the Power button for a few seconds.
+If the device freezes, or after a firmware update, restart it: press and release the **Reset** button, then quickly press and hold **Power** for a few seconds. If the device keeps restarting, see [Escaping a bootloop](#7-troubleshooting-issues--escaping-bootloop).
 
 ### First Launch
 
 Upon turning the device on for the first time, you will be placed on the **[Home](#31-home-screen)** screen.
 
 > [!NOTE]
-> On subsequent restarts, the firmware will automatically reopen the last book you were reading.
+> On subsequent restarts, CrossInk will automatically reopen the last book you were reading.
 
 ---
 
@@ -110,7 +114,11 @@ Upon turning the device on for the first time, you will be placed on the **[Home
 
 ### 3.1 Home Screen
 
-The Home screen is the main entry point to the firmware. From here you can navigate to **[Reading Mode](#4-reading-mode)** with the most recently read book, the **[Browse Files](#33-browse-files-screen)** screen, the **[Library](#34-library-screen)** screen, the **[File Transfer](#35-file-transfer-screen)** screen, or **[Settings](#36-settings)**.
+The Home screen is the main menu. It shows the book you are reading and these entries: **[Browse Files](#33-browse-files-screen)**, **[Library](#34-library-screen)**, **OPDS Browser** (once you have added an OPDS server), **Reading Stats** and **Bookmarks**/**Clippings** (when there is something to show), **[File Transfer](#35-file-transfer-screen)**, and **[Settings](#36-settings)**. The layout depends on your **UI Theme**. To start reading, see **[Reading Mode](#4-reading-mode)**.
+
+To add extra services, enable **Settings > System > Plugins**, then open
+**Home > Plugins**. See [Plugins](./sd-plugins.md) for Plugin Hub, manual
+installation, sign-in, updates, and removal.
 
 ### 3.2 Reading Mode
 
@@ -118,16 +126,16 @@ See [Reading Mode](#4-reading-mode) below for more information.
 
 ### 3.3 Browse Files Screen
 
-The Browse Files screen acts as a file and folder browser. The full path to the current directory is shown at the top of the screen. File extensions are displayed alongside each filename, and directories are shown with brackets (e.g. `[folder-name]`). Hidden directories can be shown from settings.
+The Browse Files screen lets you look through the folders on the SD card. The full path to the current folder is shown at the top of the screen. File extensions are shown next to each filename, and folders are shown in brackets (for example `[folder-name]`). Folders and files that start with a dot are hidden; to show them, turn on **Settings > System > Files & Cache > Show Hidden Files**.
 
 - **Navigate List:** Use **Left** (or **Up**), or **Right** (or **Down**) to move the selection cursor up and down through folders and books. You can also long-press these buttons to scroll a full page up or down.
 - **Open Selection:** Press **Confirm** to open a folder or start reading a selected book. Selecting a `.bmp` file will open the image viewer.
 - **Delete Files or Folders:** Hold and release **Confirm** to open the selected file or folder action menu, then choose **Delete**. You will be given an option to either confirm or cancel. Folder deletion is limited to empty folders.
-- **Book Actions:** EPUB and XTC files can also show options such as **Delete Cache**, **Mark Finished**, and **Track Reading Stats** from the same action menu. Turning tracking off for a book keeps its saved stats; it only stops new tracking for that book.
+- **Book Actions:** EPUB and XTC files can also show options such as **Delete Cache**, **Mark Finished**, and **Track Reading Stats** from the same action menu. Turning tracking off for a book keeps its saved stats; it only stops new tracking for that book. Other actions in the menu include renaming and, for books, sending to another nearby reader.
 
 ### 3.4 Library Screen
 
-**Library** replaces Recent Books and lists supported books across the SD card.
+**Library** lists the supported books across the whole SD card.
 The first visit reads the card to build the list; later visits reuse it and
 refresh after file changes or transfers.
 
@@ -143,7 +151,7 @@ refresh after file changes or transfers.
 - **Touch:** Tap a book to open it, hold it for book actions, and swipe to scroll.
   Use the search, settings, refresh, and sort controls at the top.
 - **Library Settings:** Open Library's **Settings** to choose embedded EPUB
-  metadata or filenames, compact or expanded rows, and a list or cover grid
+  book titles and authors or filenames, compact or expanded rows, and a list or cover grid
   for **Recently Opened View**. You can also hide finished books, show series
   and genre, and filter which book formats appear.
 - **Book actions:** EPUB and XTC books can offer **Reading Stats** without
@@ -170,9 +178,15 @@ The web interface also supports **WebDAV**, allowing you to mount the device as 
 
 Download links for files already on the device are available in the web interface, so you can retrieve books or screenshots over Wi-Fi without connecting a cable.
 
-A **Wi-Fi signal strength indicator** (dBm) is displayed on-screen during joined-network web server sessions.
+A **Wi-Fi signal strength indicator** is displayed on-screen during joined-network web server sessions.
 
-The same screen also has **Receive File**, which receives a supported
+The **Sync Server** section syncs with your sync server account (set up in
+**Settings > System > Sync Server**): **Sync Books** syncs progress, reading
+stats, and clippings for every book, while **Sync Reading Stats** and **Sync
+Clippings** upload only that data. The last two appear when that data is turned
+on under **What to Sync**. See [Reading Stats Sync](./reading-stats-sync.md#ways-to-sync).
+
+Below it, the **Nearby Device** section has **Receive File**, which receives a supported
 book or image directly from another nearby CrossInk reader without joining a
 Wi-Fi network. See [Nearby File Transfer](./nearby-file-transfer.md) for the
 complete sender and receiver workflow.
@@ -181,11 +195,6 @@ On X4 Pro, the screen also includes **USB Drive**. This exposes the reader's SD
 card to a computer over USB for direct file management. See the
 [USB Drive instructions](./installation.md#usb-drive) for the safe-eject and
 disconnect behavior.
-
-> [!TIP]
-> Advanced users can manage files programmatically with the same HTTP endpoints
-> used by the web interface. The browser interface is the supported path for
-> normal file management.
 
 ### 3.5.1 Calibre Wireless Transfers
 
@@ -207,77 +216,40 @@ device model and build.
 
 #### 3.6.1 Display
 
-- **Sleep Screen**: Which sleep screen to display when the device sleeps:
-  - "Dark" (default) - The default dark CrossInk logo sleep screen
-  - "Light" - The same default sleep screen, on a white background
-  - "Custom" - Custom images from the SD card; see [Sleep Screen](#37-sleep-screen) below for more information
-  - "Cover" - The book cover image (Note: this is experimental and may not work as expected)
-  - "None" - A blank screen
-  - "Cover + Custom" - The book cover image while actively reading, falls back to "Custom" behavior otherwise
-  - "Page Overlay" - Uses an image to overlay on top of the current page. Best used with transparent `.png` files or black and white `.bmp` files.
-  - "Reading Stats" - Recent reading stats on the sleep screen; falls back to **Minimal** while tracking is off for the device or recent book
-  - "Minimal" - A minimal sleep screen
-  - "Minimal Stats" - A minimal stats sleep screen on supported devices; falls back to **Minimal** while tracking is off for the device or recent book
-  - "Dashboard" - A dashboard-style sleep screen based on the Dashboard theme
-  - "Quick Resume" - Keeps the current content visible while sleeping
+- **Sleep Screen**: Opens a submenu with **Wallpaper** (the sleep screen mode), **Cover Mode**, **Cover Filter**, and **Quick Resume on Timeout**. Every mode and setting is explained in [Sleep Screen](#37-sleep-screen).
 
-- **Sleep Screen Cover Mode**: How to display the book cover when "Cover" sleep screen is selected:
-  - "Fit" (default) - Scale the image down to fit centered on the screen, padding with white borders as necessary
-  - "Crop" - Scale the image down and crop as necessary to try to fill the screen (Note: this is experimental and may not work as expected)
+- **Frontlight** (devices with a frontlight): Opens **Restore Light on Wake** and, on devices with a real-time clock, a daily **Frontlight Schedule**.
+  - **Restore Light on Wake**: When on, a frontlight that was on before sleep turns back on when the device wakes. If the light was off before sleep, a complete schedule can still decide whether it turns on.
+  - **Frontlight Schedule**: Turn on the daily schedule, then set **Start** and **End** in local time, in one-minute steps. The schedule includes the Start time and excludes the End time, and it can cross midnight (for example, 9:00 PM to 7:00 AM). Start and End must both be set and different; otherwise the schedule does nothing.
+  - The schedule is checked when the device starts or wakes, not while it is already awake. **Restore Light on Wake** takes precedence when the light was on before sleep. Set the device's time and UTC offset under **Settings > System > Device** so the schedule uses the right clock. An unset time shows as `--`; saved times are kept for when you turn the schedule back on.
 
-- **Sleep Screen Cover Filter**: What filter will be applied to the book cover when "Cover" sleep screen is selected:
-  - "None" (default) - The cover image will be converted to a grayscale image and displayed as it is
-  - "Contrast" - The image will be displayed as a black & white image without grayscale conversion
-  - "Inverted" - The image will be inverted as in white & black and will be displayed without grayscale conversion
+- **Status Bar**: Choose what the bar at the top of menus and the Library shows. It has a left, center, and right slot. Clock and Date need a device with a real-time clock. **Battery** sets how the battery appears: "Icon + %" (default), "Icon Only", or "% Only", and **Status Bar Text Size** sets the text size. Reading bars are set separately under **Status Bars** in the Reader settings.
 
-- **Quick Resume on Timeout**: Whether to enable the "Quick Resume" sleep screen when the device goes to sleep due to inactivity (System > Time to Sleep). This is useful for quickly resuming reading without waiting for the device to fully wake up and load the book. This overwrites the Sleep Screen Cover Mode when enabled.
+- **Screen Calibration**: If the edge of the screen looks cut off by the bezel, adjust each edge until the border is fully visible. **Reset to Defaults** undoes your changes.
 
-- **Hide Battery %**: Configure where to suppress the battery percentage display in the status bar; the battery icon will still be shown:
-  - "Never" (default) - Always show battery percentage
-  - "In Reader" - Show battery percentage everywhere except in reading mode
-  - "Always" - Always hide battery percentage
+- **Refresh Frequency**: How often the screen does a full refresh while reading, to reduce ghosting (faint leftovers of the previous page). Choose every 1, 5, 10, 15, or 30 pages. Devices with a frontlight also offer **Never**.
 
-- **Hide Clock**: On devices with a real-time clock, choose whether the clock is
-  shown everywhere, hidden only in the reader, or always hidden.
+- **Dark Mode**: Show the screen with inverted colors (light text on a dark background).
 
-- **Refresh Frequency**: Set how often the screen does a full refresh while reading to reduce ghosting; options are every 1, 5, 10, 15, or 30 pages.
-
-- **UI Theme**: Set which UI theme to use:
-  - "Classic" - The original CrossInk theme
+- **UI Theme**: Set the look of the Home screen and menus (the default is "Lyra"):
+  - "Classic" - The original CrossInk theme (button devices only)
   - "Minimal" - A minimal theme with a large book cover
   - "Dashboard" - A dashboard-style home layout
   - "Lyra" - A theme with simple icons featuring your current book
   - "Lyra Extended" - Lyra, but displays 3 books instead of 1 on the **[Home Screen](#31-home-screen)**
   - "Lyra Carousel" - A carousel-based Lyra home layout
-  - "RoundedRaff" - A rounded theme with additional visual styling
-  - "Cover Grid" (PSRAM devices, such as Sticky and X4 Pro) - Shows the current
-    book and up to six additional book covers; tap a cover to open that book
+  - "RoundedRaff" - A rounded theme with additional visual styling (button devices only)
+  - "Cover Grid" (supported devices, such as Sticky and X4 Pro) - Shows the current book and up to six additional book covers; tap a cover to open that book
 
   Themes that show reading stats hide those stats while **Track Reading Stats** is off.
 
-- Library display and filtering options are now in **Library > Settings**; see
-  [Library Screen](#34-library-screen).
+- **Swap Library/File Browser** (Minimal and Dashboard themes): Swaps the places of **Library** and **Browse Files** in these themes.
 
-- **Sunlight Fading Fix**: Configure whether to enable a software-fix for the issue where white X4 models may fade when used in direct sunlight:
-  - "OFF" (default) - Disable the fix
-  - "ON" - Enable the fix
+- **UI Scale**: **Small** or **Large** menus and text.
 
-- **Frontlight and wake schedule** (on supported devices with a frontlight and
-  real-time clock): Open **Settings > Display > Frontlight**.
-  - **Restore Light on Wake**: When enabled, a frontlight that was on before
-    sleep is turned back on when the device wakes. If the light was off before
-    sleep, a complete schedule can still decide whether it should turn on.
-  - **Frontlight Schedule**: Enable the daily wake schedule, then set **Start**
-    and **End** in local time. Times use one-minute increments. The schedule
-    includes the Start time and excludes the End time, and it can cross
-    midnight (for example, 9:00 PM to 7:00 AM). Start and End must both be set
-    and different; otherwise the schedule is inactive.
-  - The schedule is checked when the device boots or wakes, not continuously
-    while it is already awake. Restore on Wake takes precedence when the light
-    was on before sleep. Set the device's local time and UTC offset under
-    **Settings > System > Device** so the schedule uses the expected clock.
-    When the schedule is disabled or an endpoint is unset, the endpoint value
-    is shown as `--`; saved endpoint times are retained for later re-enabling.
+- **Sunlight Fading Fix** (button devices): A software fix for white X4 models that may fade in direct sunlight. "OFF" (default) or "ON".
+
+Library display and filtering options are in **Library > Settings**; see [Library Screen](#34-library-screen).
 
 > [!NOTE]
 > A battery charging indicator is shown on the battery icon whenever the device is actively charging.
@@ -303,68 +275,39 @@ bookmarks, clippings, and stats, and does not reset your other books or global
 settings. Older saved books may need this reset before they can inherit
 individual global changes. **Delete Book Cache** does not reset these choices.
 
-- **Reader Font Family**: Choose the font used for reading:
-  - "Lexend Deca" (default)
-  - "Bitter"
+- **Font Options**: Opens a submenu with the font and text spacing choices:
+  - **Font Family**: The font used for reading. "Lexend Deca" (default) and "Bitter" are built in; fonts you add to the SD card appear here too (see [Custom Fonts](#39-custom-fonts-sd-card)).
+  - **Font Size**: The sizes depend on your device and font. X3/X4 devices offer 10, 12, 14, and 16 pt. X4 Classic, X4 Pro, and Sticky use scalable fonts with every whole point size from **8-22 pt**; see [Scalable Fonts](./scalable-fonts.md). The default is 14 pt.
+  - **TTF Rendering** (scalable-font devices): Fine-tune how TrueType fonts are drawn.
+  - **Dictionary Font** and **Dictionary Font Size** (when a dictionary is installed): The font used in word lookups. The default is to use the reader font.
+  - **Line Spacing**: The gap between lines, as a percentage from 70% to 200% (default 100%).
+  - **Word Spacing**: In EPUB books, a slider from -4 (tighter) to +4 (wider) with a live preview; 0 is normal. You can also reach it in the Reader Menu under **Font > Line/Word Spacing**. Changing it reflows the current book, so page positions may change.
+  - **Character Spacing**: A slider from -5 (tighter) to +5 (wider) with a live preview; 0 is normal. It is also in the Reader Menu under **Font > Reader Font**.
+  - **Text Anti-Aliasing**: Smooths the edges of text using shades of gray.
+  - **Download Fonts**: Download font families over Wi-Fi. **Download Font Size Range** sets which sizes are downloaded to save space (8-12pt, 10-16pt, 14-20pt, or 8-20pt).
 
-- **Reader Font Size**: Choose from the sizes available for the selected font
-  and firmware build. ESP32-S3 readers use scalable TTF fonts with every whole
-  point size from **8–22 pt**; see [Scalable TTF Fonts](./scalable-fonts.md).
+- **Page Layout**: Opens a submenu with these choices:
+  - **Orientation**: How the screen is turned while reading: "Portrait" (default), "Landscape CW", "Portrait 180°", or "Landscape CCW".
+  - **Screen Margins**: Opens **Top/Bottom** and **Left/Right** sliders. Each goes from 5 to 150 pixels with a live preview (default 5).
+  - **Paragraph Alignment**: "Justify" (default), "Left", "Center", "Right", or "Book's Style".
+  - **Hyphenation**: Whether long words are split with a hyphen at the end of a line. The default is OFF. Korean text wraps at spaces when OFF; when ON, a Korean word may also split at a line end without a hyphen. **Hyphenation Packs** installs per-language rules from Wi-Fi or SD, including compatible packs outside the download catalog. See [Hyphenation packs](./languages.md#hyphenation-packs).
+  - **Extra Paragraph Spacing**: ON (default) adds vertical space between paragraphs. OFF removes it and shows the book's first-line indentation when it has one.
+  - **Force Paragraph Indents**: Indents every paragraph, whatever the book's own formatting; see [Reader Features](./reader-features.md#force-paragraph-indents).
 
-- **Reader Line Spacing**: Adjust the line height as a percentage.
+- **Publisher Page Numbers**: Show page numbers supplied by the EPUB when the book includes them. This reserves 5 pixels of left margin for the numbers, which is only noticeable when your left/right margin is 5. If a page has no publisher page number, your margins may look uneven.
 
-- **Word Spacing**: In EPUB books, choose **Normal** or one of four wider
-  spacing levels between words. Open the reader menu, then select **Font >
-  Line/Word Spacing > Word Spacing**. Changing it reflows the current
-  book, so page positions may change; it is not available for TXT books.
+- **Embedded Style**, **Images** (including **Display (B&W)**), **Focus Reading**, **Guide Dots**, **Dictionary**, and **Indexing Method** are also in the Reader settings. See [Reader Features](./reader-features.md) for what they do, including the [Focus Reading](./reader-features.md#focus-reading) guide.
 
-- **Reader Screen Margin**: Controls the screen margins in Reading Mode between 5 and 40 pixels in 5-pixel increments.
+- **Disable Touchscreen** (touch devices): Block screen-touch input while a book is open, while leaving touch available in reader menus so you can turn it back on. On EEGO, restarting the device also re-enables the touchscreen automatically. To disable only touch page turns, use **Next Page** and **Previous Page** in **Settings > Controls > Taps & Gestures**.
 
-- **Reader Paragraph Alignment**: Set the alignment of paragraphs; options are "Justified" (default), "Left", "Center", "Right", or "Book's Style".
-
-- **Publisher Page Numbers**: Show page numbers supplied by the EPUB when the
-  book includes them.
-
-  Note: This reserves 5px of left margin to your screen to provide space for the page numbers. This is only noticeable if your `Left/Right` margins are set to `5`. If the page has no publisher page number, your margins may appear uneven.
-
-- **Hyphenation**: Whether to hyphenate text in Reading Mode; options are "ON" or "OFF". Korean text wraps at spaces when "OFF"; when "ON", a Korean word may also split at a line end without drawing a hyphen.
-
-- **Reading Orientation**: Set the screen orientation for reading EPUB files:
-  - "Portrait" (default) - Standard portrait orientation
-  - "Landscape CW" - Landscape, rotated clockwise
-  - "Portrait 180" - Portrait, upside down
-  - "Landscape CCW" - Landscape, rotated counter-clockwise
-
-- **Extra Paragraph Spacing**: Set how to handle paragraph breaks:
-  - "ON" - Vertical space will be added between paragraphs in Reading Mode
-  - "OFF" - Paragraphs will not have vertical space added; source-defined first-line indentation is shown when available
-
-- **Embedded Style**, **Images**, **Focus Reading**, and
-  **Guide Dots** are directly available from the Reader settings. See
-  [Reader Features](./reader-features.md) for their behavior, including the
-  [Focus Reading](./reader-features.md#focus-reading) guide.
-
-- **Disable Touchscreen**: Block screen-touch input while a book is open,
-  while leaving touch available in reader menus so you can turn it back on.
-  To disable only touch page turns, use **Next Page** and **Previous Page**
-  in **Settings > Controls > Taps & Gestures**.
-
-- **Status Bars**: Configure top and bottom bars separately for EPUB, TXT, and
-  XTC reading. Open **Settings > Reader > Status Bars**, or the EPUB Reader
-  Menu's **Settings > Status Bars**. Select a bar to preview it at its reading
-  position and choose its items:
-  - Top and bottom bars each have three left slots, one center slot, and three right slots.
-  - Stable Page Numbers - Add a reference-page count to a slot when an EPUB has
-    CrossInk reference metadata; see [Stable Page Numbers](./reader-features.md#stable-page-numbers)
-  - Chapter Page Count - Show/Hide the current page in the chapter (ex: 5/25). Page count may change based on the font size and margins set.
-  - Book Progress Percentage - Show/Hide the current percent progress in the book.
-  - Percentage Format - Show book progress as `10%` (default), `10.1%`, or `10.12%`.
-  - Progress Bar - Show/Hide a progress bar for either the book or chapter.
-  - Progress Bar Thickness - Set the thickness of the progress bar
-  - Title - Display the chapter or book title
-  - Time Left - Display the estimated reading time left for the book or chapter
-  - Battery - Show/Hide the battery indicator
-  - XTC Status Bar - Show/Hide a status bar for XTC files
+- **Status Bars**: Set up the bars shown while reading. Open **Settings > Reader > Status Bars**, or the Reader Menu's **Settings** tab > **Status Bars**. A preview shows the result at its reading position.
+  - **Top Status Bar** and **Bottom Status Bar** (EPUB and TXT): Each has three left slots, one center slot, and three right slots. Fill a slot with any of: Clock and Date (devices with a clock), Battery, Time Left (book or chapter), Chapter Page Count (for example 5/25; it changes with font size and margins), Stable Page Numbers (needs page reference information in the EPUB; see [Stable Page Numbers](./reader-features.md#stable-page-numbers)), Book Progress Percentage, Title (book or chapter), or Empty.
+  - **Battery**: Show the battery as "Icon + %" (default), "Icon Only", or "% Only".
+  - **Percentage Format**: Show book progress as `10%` (default), `10.1%`, or `10.12%`.
+  - **Progress Bar**: Hide it, or show a progress bar for the **Book** or the **Chapter**. **Progress Bar Thickness** can be Thin, Medium, or Thick.
+  - **Hide**: Turn a whole bar off.
+  - **XTC Status Bar**: For XTC books, choose **Hide**, **Bottom**, **Top**, or **Both**.
+  - **Status Bar Text Size**: **Small**, **Medium**, or **Large** for all bars.
 
 On touchscreen readers, when **Tap to Hide Status Bar** is enabled (the default
 in **Settings > Controls > Taps & Gestures**), tap the status-bar area while
@@ -376,33 +319,27 @@ which status-bar items are shown.
 
 #### 3.6.3 Controls
 
-- **Power Button**: Configure short-press and long-press actions independently. On supported devices, you can also configure the **Power + Up** shortcut.
+Which entries you see depends on your device. Button devices show **Front Buttons** and **Menu navigation**; touch devices show **Taps & Gestures**; X4 Pro also has **Home Button**; devices with a motion sensor show **Tilt Page Turn** and **Tilt Direction**. For the full reference, see [Controls](./controls.md).
 
-- **Front Buttons**: Configure front-button remapping, orientation awareness,
-  reader-only long-press behavior, Back action, and Menu action.
-
-- **Side Buttons**: Assign a **Short-press Action** and **Long-press Action**
-  separately for **Left/Up** and **Right/Down** while reading. Choose page or
-  chapter turns, font-size changes, **Rotate Page CCW**, **Rotate Page CW**,
-  **Rotate Page 180°**, or other available shortcuts. Set an action to **Ignore**
-  to leave that press unassigned. Existing layouts migrate to equivalent
-  individual actions. **Orientation aware** and the side-button chord setting
-  remain available on supported devices. Rotation and font-size actions apply
-  to EPUB/TXT text; they cannot rotate or resize pre-rendered XTC pages.
-
-- **Long-press Behavior**: Set whether long-pressing front page-turn buttons does nothing, skips to the next/previous chapter, or changes reader orientation.
-
-- **Power Short-press Action / Long-press Action**: Choose what a short press or a hold of about 0.4 seconds does. Available actions include:
+- **Power Button**: Set what a short press and a long press (about 0.4 seconds) of the Power button do. On supported devices you can also set the **Power + Up Combo** shortcut. Available actions include:
   - "Ignore" (default short-press action) - Do nothing for this press length
-  - "Sleep/Wake" (default long-press action) - Put the awake device to sleep; when selected as **Short-press Action**, also allow a short press to wake it
+  - "Sleep/Wake" (default long-press action) - Put the awake device to sleep; when selected as the short-press action, a short press also wakes it
   - "Sleep" - Put the awake device to sleep without enabling short-press wake
-  - "Wake" - When selected as **Short-press Action**, allow a short press to wake the device; does nothing while the device is awake
+  - "Wake" - When selected as the short-press action, a short press wakes the device; does nothing while the device is awake
   - "Next Page" - Turn to the next page while reading
-  - "Toggle Bookmark", "Reading Stats", "Mark Finished", "Refresh", "Change Font", "Guide Dots", "Focus Reading", "Auto Page Turn", "Sync Progress", "File Transfer", "Calibre Wireless", "Join a Network", "Create Hotspot", "Screenshot", "Dark Mode", "Browse Files", "Library", or "Save Clipping" - Run the matching action
-  - "Footnotes" - Select a footnote reference on the current page, with a list
-    fallback when needed; see [Footnote Navigation](#footnote-navigation).
+  - "Toggle Bookmark", "Reading Stats", "Mark Finished", "Refresh", "Change Font", "Guide Dots", "Focus Reading", "Auto Page Turn", "Sync Book", "File Transfer", "Calibre Wireless", "Join a Network", "Create Hotspot", "Screenshot", "Dark Mode", "Browse Files", "Library", or "Save Clipping" - Run the matching action
+  - "Footnotes" - Select a footnote reference on the current page, with a list fallback when needed; see [Footnote Navigation](#footnote-navigation).
 
-- **Quick-return from Footnotes**: This setting appears under **Settings > Controls > Power Button** after you assign **Footnotes** to the short- or long-press Power action, or to the long-press Back or Menu action. When enabled, a short Power press returns from a footnote page to the original reading page.
+  **Quick-return from Footnotes** appears in this menu after you assign **Footnotes** to the short- or long-press Power action, or to **Long-press Back** or **Long-press Menu**. When it is on, a short Power press returns from a footnote page to the page you were reading.
+
+- **Front Buttons** (devices with front buttons): **Remap Buttons** and **Remap Buttons (Reader)** let you choose which physical button does what. **Orientation Aware** can make the front buttons follow the screen orientation (**No**, **Nav Buttons**, or **All Buttons**). The other three set what holding a button does while you read:
+  - **Long-press** (default **Off**): what holding a page-turn button does - **Chapter Skip** (next or previous chapter), **Change Font Size**, or **Orientation Change**.
+  - **Long-press Back** (default **Browse Files**): the action for holding **Back**.
+  - **Long-press Menu** (default **Off**): the action for holding **Confirm** (the menu button). Choose any of the shortcut actions above, such as **Sync Book** or **Library**.
+
+- **Side Buttons**: Assign a **Short-press** and **Long-press** action separately for **Left/Up** and **Right/Down** while reading. Choose page or chapter turns, font-size changes, **Rotate Page CCW**, **Rotate Page CW**, **Rotate Page 180°**, or other shortcuts. Set an action to **Ignore** to leave that press unassigned. **Orientation Aware** and the **Up + Down Combo** shortcut are also here on supported devices. Rotation and font-size actions apply to EPUB and TXT text; they cannot rotate or resize pre-rendered XTC pages.
+
+- **Quick Actions**: Pick a small menu of up to five actions and a shortcut that opens it; see [Quick Actions](./controls.md#quick-actions-triggers).
 
 - **Taps & Gestures** (touchscreen devices): Configure the touch interactions
   available while reading from **Settings > Controls > Taps & Gestures**. The
@@ -428,50 +365,32 @@ which status-bar items are shown.
 
 #### 3.6.4 System
 
-- **Time to Sleep**: Set the duration of inactivity before the device automatically goes to sleep. Values are in minutes, with a "Never" option at the end of the range.
+- **Device**: Opens a submenu with **Device Name**, **Time to Sleep**, **Custom Boot Screen**, **Language**, **Keyboard layouts**, and, on devices with a scalable-font reader, **UI Fallback Font**. Devices with a real-time clock also show **Clock Format**, **Clock UTC Offset**, **Date Format**, **Date Separator**, and **Sync Date/Time**.
+  - **Time to Sleep**: How long the device stays idle before it goes to sleep on its own, in minutes, or **Never**.
+  - **Custom Boot Screen**: On by default. When it is off, CrossInk shows the standard logo at startup and keeps the current sleep screen visible when you wake it with the Power button, even if a custom image or boot-screen folder is set up. Turning it off does not delete your image or folders; turn it back on to use them again. See [Boot Screen](#38-boot-screen).
+  - **UI Fallback Font**: Fill characters missing from the built-in font throughout menus, filenames, and other interface text. Put one static regular `.ttf` or `.otf` font, plus optional bold, in a family folder under `/.crossink/languages/fonts/`. Supported characters and your reading font stay unchanged. See [UI fallback fonts](./languages.md#add-missing-characters-with-ui-fallback-font).
 
-- **Custom Boot Screen**: Enable or disable custom boot screens (enabled by
-  default). When disabled, CrossInk uses the standard logo on cold boot and keeps the current sleep
-  screen visible on power-button wake, even if a custom image or boot-screen
-  folder is configured. Disabling this does not remove the selected image or
-  the folders; turn it back on to use them again.
+- **Files & Cache**: **Show Hidden Files**, **Hide File Extension**, **File Browser Display** (1 or 2 lines per file), **Clear Finished Books from History**, **Move Finished Books to Read Folder**, and **Clear Reading Cache** (frees space and fixes books that look wrong; your progress and bookmarks are kept).
 
-- **Device**: Set the device name and time-to-sleep timeout. Devices with a
-  real-time clock also expose clock format, UTC offset, and a sync action.
+- **Reading Stats**: Turn device-wide stats tracking on or off with **Track Reading Stats**. When tracking is on, you also get **Idle Time Threshold** and **All-time Stats** (**Automatic Backups** on devices with a clock, **Backup Now**, and **Reset All-time Stats**). Turning tracking off pauses new per-book and all-time stats but keeps the history and Time Left pace estimates already saved on the device. Stats entries and recorded-stat displays in menus and themes are hidden while tracking is off; the Dashboard can still show a saved Time Left estimate. Turn tracking back on to see the saved history and resume recording. Time and pages from the off period are not added later. See [Reader Features](./reader-features.md#turn-tracking-on-or-off) for per-book controls.
 
-- **Files & Cache**: Configure hidden files, file extensions, file-browser view,
-  finished-book behavior, and clear the reading cache.
+- **WiFi Networks**: Save the Wi-Fi networks the device uses for file transfers and firmware updates.
 
-- **Reading Stats**: Turn device-wide stats tracking on or off, configure
-  idle-time filtering, and access all-time stats backup/reset actions. Turning
-  tracking off pauses new per-book and all-time stats but keeps the history
-  and Time Left pace estimates already saved on the device. Stats entries and
-  recorded-stat displays in menus and themes are hidden while tracking is off;
-  the Dashboard can still show a saved Time Left estimate. Turn tracking back
-  on to see the saved history and resume recording. Time and pages from the off
-  period are not added later. See [Reader Features](./reader-features.md#turn-tracking-on-or-off)
-  for per-book controls.
+- **Sync Server**: Account and options for syncing book progress with CrossPoint Sync or a KOReader-compatible server, plus reading stats and clippings on CrossPoint Sync. The sync actions themselves are in [File Transfer](#35-file-transfer-screen). See [Reading Stats Sync](reading-stats-sync.md). **Smart sync** is the default for new setups and settles simple cases for you. Setups migrated from older versions keep **Ask on conflicts**; you can switch **Sync Behavior** at any time.
 
-- **Wi-Fi Networks**: Connect to Wi-Fi networks for file transfers and firmware updates.
+- **OPDS Servers**: Manage one or more OPDS [(Open Publication Distribution System)](https://en.wikipedia.org/wiki/Open_Publication_Distribution_System) libraries (online book catalogs) for browsing and downloading books. See [OPDS Servers (Multiple Libraries)](#365-opds-servers-multiple-libraries) below.
 
-- **KOReader Sync**: Options for setting up KOReader for syncing book progress. **Smart sync** is the default for new configurations and auto-resolves simple push/pull decisions. Existing credential files retain **Ask every time** when migrated; you can switch Sync Behavior at any time if you prefer manual confirmation.
+- **Check for Updates** and **SD Card Firmware Update**: Check for new firmware over Wi-Fi, or install a `firmware.bin` file you placed on the SD card.
 
-- **OPDS Servers**: Manage one or more OPDS [(Open Publication Distribution System)](https://en.wikipedia.org/wiki/Open_Publication_Distribution_System) libraries for browsing and downloading books. See [OPDS Servers (Multiple Libraries)](#365-opds-servers-multiple-libraries) below.
+- **About**: Shows the device model, software version, screen, storage, and memory details. Use the buttons or swipe to scroll; **Back** returns to Settings. The figures are captured when the screen opens; reopen it for a fresh snapshot. See [Troubleshooting](./troubleshooting.md#device-information). You can also choose **Export** to save a support file (`/crossink-support.json`) to the SD card, with device and global settings alone or with the last opened EPUB's saved settings without its title or filename. Nothing is uploaded. See [export coverage and privacy](./troubleshooting.md#export-support-information).
 
-- **Check for Updates** and **SD Firmware Update**: Check for firmware updates
-  over Wi-Fi or install a `firmware.bin` placed on the SD card.
-
-- **Language**: Set the UI language. CrossInk supports 28 languages: English,
-  Spanish, French, German, Czech, Brazilian Portuguese, Russian, Swedish,
-  Romanian, Catalan, Ukrainian, Belarusian, Italian, Polish, Finnish, Danish,
-  Dutch, Turkish, Kazakh, Hungarian, Lithuanian, Slovenian, Valencian, Hebrew,
-  Vietnamese, Slovak, Portuguese (Portugal), and Arabic.
+- **Language** (in **Device**): Set the menu language. English is included. Download other interface languages on the reader or install them from SD; see [Languages](./languages.md). Text that has not been translated appears in English.
 
 #### 3.6.5 OPDS Servers (Multiple Libraries)
 
 CrossInk supports saving multiple OPDS servers and switching between them when browsing catalogs.
 
-1. Open **Settings -> System -> OPDS Servers**.
+1. Open **Settings > System > OPDS Servers**.
 
 2. Select **Add Server** to create a new entry, or select an existing server to edit it.
 
@@ -491,185 +410,131 @@ Behavior notes:
 
 You can also manage OPDS servers from the web interface while in File Transfer mode:
 
-1. Connect to the device web UI.
-2. Open `http://<device-ip>/settings`.
+1. Open the web address shown on the reader in your browser.
+2. Select the **Settings** tab.
 3. Use the **OPDS Servers** card to add, edit, or delete entries.
 
 For web-based Wi-Fi network management, see [File Transfer](./webserver.md).
+
+Each server also has a **Download Folder** setting:
+
+- **Use default** follows **Default Folder** on the OPDS Servers screen. Existing servers use this automatically.
+- **SD Root** downloads directly to the SD card root, even when the default points elsewhere.
+- **Custom folder** opens the keyboard for a folder such as `/Books/Calibre`.
+
+The web portal offers the same choices and previews the destination. Save the shared default with **Save default**, and each server with its **Save** button. Folder changes affect future downloads; existing books are not moved. Missing folders, including nested folders, are created when downloading. If the destination cannot be used, the download reports an error rather than saving elsewhere.
+
+Keep folder names short and simple, for example `/Books/Calibre`.
+
+The OPDS Browser supports browsing, searching, and downloading from compatible
+online catalogs. Some catalogs require an account. Buying books and signing in
+through services that need a separate approval flow are not supported here.
 
 #### 3.6.6 Web Settings (Wi-Fi + OPDS)
 
 While in **File Transfer** mode, the web settings page includes management cards for both **Wi-Fi Networks** and **OPDS Servers**.
 
 1. On device: open **File Transfer** and connect through **Join a Network** or **Create Hotspot**.
-2. In a browser, open `http://<device-ip>/settings` or `http://crosspoint.local/settings`.
-3. In **Wi-Fi Networks**, add, edit, or delete saved network entries (SSID + optional password).
+2. Open the web address shown on the reader and select **Settings**.
+3. In **Wi-Fi Networks**, add, edit, or delete saved network entries (network name and optional password).
 4. In **OPDS Servers**, add, edit, or delete OPDS catalogs.
 
 Behavior notes:
 
 - Passwords are never shown back in the web UI after saving.
 - Leaving Password blank while editing keeps the existing saved password unchanged.
-- The web UI can save hidden-network SSIDs, but connecting to hidden networks still depends on the device-side Wi-Fi connection flow.
+- The web UI can save hidden-network names, but connecting to hidden networks still depends on the device-side Wi-Fi connection flow.
 
-#### 3.6.7 KOReader Sync Quick Setup
+#### 3.6.7 Sync Server Quick Setup
 
-CrossInk can sync reading progress with KOReader-compatible sync servers.
-It also interoperates with KOReader apps/devices when they use the same server and credentials.
+CrossInk can sync your reading progress between devices using a sync server. It also works with KOReader apps and devices that use the same server and account.
+
+Use the same server and account on every device you want to sync.
+
+**Server Type** should match the service you use:
+
+- **CrossPoint** for CrossPoint Sync, including your own hosted copy.
+- **KOSync** for `sync.koreader.rocks` or another standard KOReader sync server.
+- **Other** only if your service's setup instructions ask for it.
+
+Reading stats and clippings also need a compatible CrossPoint Sync server and
+must be turned on separately. See [Reading Stats Sync](./reading-stats-sync.md).
 
 ##### Option A: CrossPoint Sync Server (`sync.crosspointreader.com`, default)
 
-When **Sync Server URL** is left empty, CrossInk uses the free CrossPoint sync server at `https://sync.crosspointreader.com`. It speaks the standard KOReader sync protocol (so KOReader apps can use it too) and additionally stores an exact spine/page position for lossless CrossInk-to-CrossInk sync.
+1. Open **Settings > System > Sync Server**.
+2. Enter a **Username** and **Password**. Use the same details on every reader.
+3. Leave **Sync Server URL** empty to use `https://sync.crosspointreader.com`,
+   and choose **CrossPoint** as the server type.
+4. On your first device, select **Sign Up** to create an account. On other
+   devices, select **Authenticate**.
 
-1. On each CrossInk device:
-   - Go to **Settings -> System -> KOReader Sync**.
+An account from a different sync server does not transfer automatically. Create
+one on this server or keep using your existing server as described below.
 
-   - Set **Username** and **Password** (enter the plain password; CrossInk computes MD5 internally, and use the same values on all devices).
+##### Option B: Existing KOReader Account
 
-   - Leave **Sync Server URL** empty (or set it to `https://sync.crosspointreader.com`).
+1. Open **Settings > System > Sync Server**.
+2. Set **Sync Server URL** to `https://sync.koreader.rocks` and choose **KOSync**
+   as the server type.
+3. Enter your existing KOReader sync username and password.
+4. Select **Authenticate**. If you need a new account, choose **Sign Up** first.
 
-   - On the first device, run **Sign Up** once to create the account directly from the device. On every other device, just run **Authenticate**.
+##### Option C: Your Own Sync Server
 
-Accounts are per server. Existing `sync.koreader.rocks` credentials do not exist on the CrossPoint server; either sign up again with the same username/password or use Option B to keep using the legacy server.
+If you already run a sync server, enter its full address, choose the matching
+**Server Type**, then enter your account details and select **Authenticate**.
+Ask the server administrator for the address and account setup instructions.
+Use an HTTPS address and a password you do not reuse for other accounts.
 
-##### Option B: Legacy Public KOReader Server (`sync.koreader.rocks`)
-
-Use this if you already sync KOReader devices against the official public server.
-
-1. On each CrossInk device:
-   - Go to **Settings -> System -> KOReader Sync**.
-
-   - Set **Sync Server URL** to `https://sync.koreader.rocks` (required; an empty URL now points at the CrossPoint server instead).
-
-   - Set **Username** and **Password** to your existing KOReader Sync credentials.
-
-   - Run **Authenticate**.
-
-2. If you do not have an account yet, run **Sign Up** on the device, or register once with curl:
-
-```bash
-USERNAME="user"
-PASSWORD="pass"
-PASSWORD_MD5="$(printf '%s' "$PASSWORD" | openssl md5 | awk '{print $2}')"
-
-curl -i "https://sync.koreader.rocks/users/create" \
-  -H "Accept: application/vnd.koreader.v1+json" \
-  -H "Content-Type: application/json" \
-  --data "{\"username\":\"$USERNAME\",\"password\":\"$PASSWORD_MD5\"}"
-```
-
-When this returns `HTTP 402` with `{"code":2002,"message":"Username is already registered."}`, pick a different username or use that existing account.
-
-##### Option C: Self-Hosted Server (Docker Compose)
-
-1. Start a sync server:
-
-```bash
-mkdir -p kosync-quickstart
-cd kosync-quickstart
-
-cat > compose.yaml <<'YAML'
-services:
-  kosync:
-    image: koreader/kosync:latest
-    ports:
-      - "7200:7200"
-      - "17200:17200"
-    volumes:
-      - ./data/redis:/var/lib/redis
-    environment:
-      - ENABLE_USER_REGISTRATION=true
-    restart: unless-stopped
-YAML
-
-# Docker
-docker compose up -d
-
-# Podman (alternative)
-podman compose up -d
-```
-
-> [!NOTE]
-> `ENABLE_USER_REGISTRATION=true` is convenient for first setup. After creating your users, set it to `false` (or remove it) to avoid unexpected registrations.
-
-2. Verify the server:
-
-```bash
-curl -H "Accept: application/vnd.koreader.v1+json" "http://<server-ip>:17200/healthcheck"
-# Expected: {"state":"OK"}
-```
-
-3. Register a user once.
-   CrossInk authenticates against KOReader Sync (`koreader/kosync`) using an MD5 key, so register using the MD5 of your password:
-
-> [!WARNING]
-> Sending a reusable MD5-derived password over plain HTTP is insecure.
-> Create unique sync-only credentials and do not reuse main account passwords.
-> Prefer `https://<server-ip>:7200` whenever traffic leaves a fully trusted LAN or when using untrusted networks.
-> Use `curl -k` only for self-signed certificate testing.
-
-```bash
-USERNAME="user"
-PASSWORD="pass"
-PASSWORD_MD5="$(printf '%s' "$PASSWORD" | openssl md5 | awk '{print $2}')"
-
-curl -i "http://<server-ip>:17200/users/create" \
-  -H "Accept: application/vnd.koreader.v1+json" \
-  -H "Content-Type: application/json" \
-  --data "{\"username\":\"$USERNAME\",\"password\":\"$PASSWORD_MD5\"}"
-```
-
-If this returns `HTTP 402` with `{"code":2002,"message":"Username is already registered."}`, the account already exists.
-
-4. On each device:
-   - Go to **Settings -> System -> KOReader Sync**.
-
-   - Set **Username** and **Password** (enter the plain password; CrossInk computes MD5 internally, and use the same values on all devices).
-
-   - Set **Sync Server URL** to `http://<server-ip>:17200`.
-
-   - Run **Authenticate**.
-
-If you use the HTTPS listener, use `https://<server-ip>:7200` (`curl -k` only for self-signed certificate testing).
+If your service requires **Custom Header 1/2**, copy the complete values from
+its setup instructions. These settings can usually be left empty. Clear a row
+to remove it; saved values are hidden.
 
 ##### Syncing While Reading
 
-Once any of the options above is set up, press **Confirm** while reading to open the reader menu, then select **Sync Progress**. Alternatively, set **Settings -> Controls -> Long-press Menu** to **KOSync** and hold Confirm to launch sync directly.
+Once any of the options above is set up, press **Confirm** while reading to open the Reader Menu and select **Sync Book** (on button devices it is in the **Bookmarks** tab). You can also set **Settings > Controls > Front Buttons > Long-press Menu** to **Sync Book** (or assign **Sync Book** to a Power button action) and hold **Confirm** to start a sync directly.
 
-- With **Sync Behavior** set to **Ask every time**, choose **Apply Remote** to jump to remote progress or **Upload Local** to push current progress.
+- With **Sync Behavior** set to **Ask on conflicts**, CrossInk asks only when the server's position differs from yours: choose **Apply Remote** to jump to remote progress or **Upload Local** to push current progress. With no remote position it uploads without asking, and matching positions show **Already synced**.
 - With **Sync Behavior** set to **Smart sync**, CrossInk auto-resolves simple cases: upload when no remote progress exists, confirm and leave both unchanged when local and remote progress are already synchronized, upload when local progress is further ahead, or apply remote when remote progress is further ahead.
 
 ### 3.7 Sleep Screen
 
-The **Sleep Screen** setting controls what is displayed when the device goes to sleep:
+The sleep screen is what the display shows while the device sleeps. To change it, open **Settings > Display > Sleep Screen**. The **Wallpaper** row picks the mode:
 
 | Mode               | Behavior                                                                                                                                               |
 | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **None**           | A blank screen.                                                                                                                                        |
 | **Dark** (default) | The CrossInk logo on a dark background.                                                                                                                |
 | **Light**          | The CrossInk logo on a white background.                                                                                                               |
 | **Custom**         | A custom image from the SD card (see below). Falls back to **Dark** if no custom image is found.                                                       |
 | **Cover**          | The cover of the currently open book. Falls back to **Dark** if no book is open.                                                                       |
 | **Cover + Custom** | The cover of the currently open book, shown only while actively reading. Falls back to **Custom** behavior when not reading.                           |
+| **Cover Overlay** | Draws a transparent sleep image over the current book cover. Uses the cover alone if no overlay is available, or a white background if no cover is available. |
 | **Page Overlay**   | Keeps the current reader page visible and draws a sleep wallpaper over it. If no wallpaper is available, the page remains visible while reading.       |
+| **Reading Stats**  | Recent reading stats. Falls back to **Minimal** while tracking is off for the device or recent book. Hidden while **Track Reading Stats** is off.      |
 | **Minimal**        | A compact sleep screen based on the Minimal home layout.                                                                                               |
 | **Minimal Stats**  | A compact sleep screen with recent reading stats, on supported devices; falls back to **Minimal** while tracking is off for the device or recent book. |
-| **None**           | A blank screen.                                                                                                                                        |
+| **Dashboard**      | A dashboard-style sleep screen based on the Dashboard theme.                                                                                           |
+| **Quick Resume**   | Keeps whatever was on the screen (a page or a menu) visible while the device sleeps.                                                                   |
+
+The same screen also has **Quick Resume on Timeout**. When it is on, the device uses **Quick Resume** whenever it falls asleep from inactivity (see **Time to Sleep** in [Settings > System > Device](#364-system)), whatever mode you chose above. Pressing Power to sleep still uses your chosen mode.
 
 #### Cover settings
 
-When using **Cover** or **Cover + Custom**, two additional settings apply:
+When using **Cover**, **Cover + Custom**, or **Cover Overlay**, two more settings apply:
 
-- **Sleep Screen Cover Mode**: **Fit** (scale to fit, white borders) or **Crop** (scale and crop to fill the screen).
-- **Sleep Screen Cover Filter**: **None** (grayscale), **Contrast** (black & white), or **Inverted** (inverted black & white).
+- **Cover Mode**: **Fit** (default; scales the cover to fit, with white borders) or **Crop** (scales and crops the cover to fill the screen).
+- **Cover Filter**: **None** (default; grayscale), **Contrast** (black and white), or **Inverted** (inverted black and white).
 
 #### Custom images
 
-To use custom sleep images, set the sleep screen mode to **Custom**, **Cover + Custom**, or **Page Overlay**, then place images on the SD card:
+To use custom sleep images, set the sleep screen to **Custom**, **Cover + Custom**, **Page Overlay**, or **Cover Overlay**, then place images on the SD card:
 
-- **Multiple Images (recommended):** Create a `.sleep` directory in the root of the SD card and place any number of `.bmp` images inside. In **Page Overlay** mode, `.png` images are also supported. One image will be randomly selected each time the device sleeps. (A directory named `sleep` is also accepted as a fallback.)
-- **Single Image:** Place a file named `sleep.bmp` in the root directory. In **Page Overlay** mode, `sleep.png` is also supported. These files are used as fallbacks if no valid image is found in the `.sleep`/`sleep` directory.
+- **Multiple Images (recommended):** Create a `.sleep` directory in the root of the SD card and place any number of `.bmp` images inside. In **Page Overlay** and **Cover Overlay** modes, `.png` images are also supported. One image will be randomly selected each time the device sleeps. (A directory named `sleep` is also accepted as a fallback.)
+- **Single Image:** Place a file named `sleep.bmp` in the root directory. In **Page Overlay** and **Cover Overlay** modes, `sleep.png` is also supported. These files are used as fallbacks if no valid image is found in the `.sleep`/`sleep` directory.
 
-In **Page Overlay** mode, white BMP pixels and transparent PNG pixels let the current reader page show through; the remaining wallpaper pixels are drawn over the page. PNG wallpapers are supported only in this mode.
+In **Page Overlay** mode, white BMP pixels and transparent PNG pixels let the current reader page show through; the remaining wallpaper pixels are drawn over the page. **Cover Overlay** uses the same image selection over the current book cover. PNG alpha transparency preserves cover grayscale on supported panels; BMP white pixels are transparent and other pixels form a black mask.
 
 > [!TIP]
 > For best results:
@@ -679,13 +544,13 @@ In **Page Overlay** mode, white BMP pixels and transparent PNG pixels let the cu
 > - X3: Use a resolution of 528x792 pixels to match the device's screen resolution.
 
 > [!TIP]
-> You can set an image as the sleep screen cover directly from the BMP image viewer in the **[Browse Files](#33-browse-files-screen)** screen.
+> You can set an image as the sleep screen cover from the image viewer in **[Browse Files](#33-browse-files-screen)**. The viewer asks for confirmation before saving your selection.
 
 ---
 
 ### 3.8 Boot Screen
 
-The **Custom Boot Screen** toggle is in **Settings -> System** and is enabled by
+The **Custom Boot Screen** toggle is in **Settings > System > Device** and is enabled by
 default. When it is on, you can replace the default CrossInk logo shown during
 a cold boot with BMP images stored on the SD card. A configured custom boot
 screen is also shown after a power-button wake. This is separate from the
@@ -704,30 +569,15 @@ CrossInk supports two ways to choose a custom boot screen:
   `/bootscreen` folder is also supported. Folder names are case-insensitive; if
   both folders exist, `/.bootscreen` takes priority.
 
-CrossInk caches folder contents for faster startup. If you add BMP files
-directly to an already-used folder while the device is off, the new files may
-not be selected until the index is rebuilt. Upload them through the **File
-Transfer** web file manager or **Nearby File Transfer** to invalidate the
-index automatically.
+If you keep both boot-screen folders, `/.bootscreen` takes priority even when
+it is empty. Remove or rename it to use `/bootscreen` instead.
 
-The selection and fallback order is:
+If an image cannot be opened, CrossInk uses another available boot image or its
+standard logo. With no custom image or boot-screen folder, waking normally
+keeps the sleep screen visible.
 
-1. A selected BMP set with **Set Boot Screen**.
-2. A usable BMP selected from the active root-level boot-screen folder.
-3. The standard CrossInk logo.
-
-On a cold boot, if a selected image or the active folder is missing, unreadable,
-empty, or contains no usable BMP, CrossInk falls back to the next option in the
-order above. If both folder names exist, `/.bootscreen` masks `/bootscreen`
-even when the hidden folder is empty or unusable; remove or rename it to use
-`/bootscreen` instead.
-
-On a power-button wake, an existing selected BMP or boot-screen folder (even
-an empty or unusable folder) runs the boot-screen flow and then falls back to
-the standard logo if no image can be shown. If the selected file was removed
-and no boot-screen folder exists, the wake is splashless and keeps the current
-sleep screen visible. With no selected image or boot-screen folder, a
-power-button wake is also splashless.
+If new images are not being picked, upload them through **File Transfer** or
+**Nearby File Transfer** so the reader notices the change.
 
 > [!TIP]
 > Use an uncompressed BMP at your device's screen resolution for the best result: 480x800 pixels on X4 or 528x792 pixels on X3. Images with other dimensions are centered and scaled down as needed.
@@ -736,15 +586,15 @@ power-button wake is also splashless.
 
 ### 3.9 Custom Fonts (SD Card)
 
-CrossInk supports loading additional fonts from the SD card, extending beyond the built-in Lexend Deca and Bitter families. Custom fonts can include extended Unicode coverage, enabling CJK (Chinese, Japanese, Korean) and other scripts.
+CrossInk can load extra fonts from the SD card, beyond the built-in Lexend Deca and Bitter families. Custom fonts can cover more scripts, including CJK (Chinese, Japanese, Korean).
 
 There are three ways to install fonts:
 
 1. **Manual SD card copy (recommended):** Download font files from [Inky](https://inky.crossink.dev/#downloads) and copy them to `/.fonts/` (preferred) or `/fonts/` on your SD card.
-2. **Download from device:** Go to **Settings -> Reader -> Font Options -> Manage Fonts**, browse the available font families, and select one to download over Wi-Fi. Note that downloading over Wi-Fi can be unstable. If you experience download errors, please use one of the alternate methods.
+2. **Download from device:** Go to **Settings > Reader > Font Options > Download Fonts**, browse the available font families, and select one to download over Wi-Fi. Note that downloading over Wi-Fi can be unstable. If you see download errors, use one of the other methods.
 3. **Upload via web interface:** While in **File Transfer** mode, open the web UI in a browser and navigate to the **Fonts** tab to upload `.cpfont` files. For supported devices, `.ttf` font files can also be uploaded.
 
-Once installed, custom fonts appear in **Settings -> Reader -> Font Options -> Font Family** alongside the built-in fonts.
+Once installed, custom fonts appear in **Settings > Reader > Font Options > Font Family** alongside the built-in fonts.
 
 See [SD Card Fonts](./sd-card-fonts.md) for full installation details and SD card folder structure.
 
@@ -763,16 +613,14 @@ Once you have opened a book, the button layout changes to facilitate reading.
 
 Change the individual side-button actions in **Settings > Controls > Side Buttons**.
 
-If the **Short-press Action** setting is set to "Next Page", you can also turn to the next page by briefly pressing the Power button.
+If the Power button's short-press action is set to "Next Page", you can also turn to the next page by briefly pressing the Power button.
 
 ### Chapter Navigation
 
-- **Next Chapter:** Press and **hold** the **Right** (or **Down**) button briefly, then release.
-- **Previous Chapter:** Press and **hold** the **Left** (or **Up**) button briefly, then release.
+- **Next Chapter:** Press and **hold** the **Right** (or **Down**) side button briefly, then release.
+- **Previous Chapter:** Press and **hold** the **Left** (or **Up**) side button briefly, then release.
 
-These are the default chapter-skip actions. Change front-button long presses in
-**Settings > Controls > Front Buttons**, or assign each side-button hold
-separately in **Settings > Controls > Side Buttons**.
+These are the default side-button holds. Front buttons do nothing on a long press until you set **Long-press** to **Chapter Skip** in **Settings > Controls > Front Buttons**. You can also assign each side-button hold separately in **Settings > Controls > Side Buttons**.
 
 ### Auto Page Turn
 
@@ -780,7 +628,7 @@ Auto Page Turn automatically advances pages at a set interval, useful for hands-
 
 ### Tilt Page Turn (X3 and Sticky)
 
-On the **Xteink X3** and **Sticky**, the gyroscope can be used to turn pages by tilting the device. This feature and its left-right or forward-back direction are available in **Settings -> Controls**.
+On devices with a motion sensor, currently the **Xteink X3** and **Sticky**, you can turn pages by tilting the device. Turn it on and choose the tilt direction (**Left-Right** or **Forward-Back**) in **Settings > Controls**.
 
 ### Touch Reader Controls
 
@@ -819,7 +667,7 @@ For **EPUB readers**, vertical gestures depend on the device:
 - On other touchscreen devices, swipe down to open the reader menu and swipe up
   to return Home.
 
-**XTC** and **TXT** readers use narrower, format-specific vertical routing. For
+**XTC** and **TXT** books have fewer swipe shortcuts. For
 example, Sticky TXT has the down-swipe reader-details/frontlight panel but no
 swipe-to-menu or swipe-to-Home action; on X4 Pro, XTC keeps the swipe-up reader
 menu while its down-swipe frontlight panel is top-edge only, and TXT has no
@@ -830,7 +678,11 @@ Choose **Disabled** in **Next Page** or **Previous Page** to stop touch page
 turns in that direction without disabling the touchscreen's vertical reader-menu
 or frontlight gestures. **Disable Touchscreen**, in **Settings > Reader**,
 prevents screen-touch input while a book is open but keeps it available in
-reader menus. For the different touch selection gestures used by [dictionary
+reader menus. On **EEGO**, Up + Down is reserved for hardware reset and is
+unavailable as a shortcut or Quick Actions trigger. Restarting the EEGO
+automatically re-enables touch, even if it was disabled before the restart;
+other devices keep their existing touch setting. For the different touch
+selection gestures used by [dictionary
 lookup](./dictionary.md#looking-up-a-word) and [clippings](./reader-features.md#clippings-and-highlights), see those feature guides.
 
 On devices with multi-touch support, you can also assign actions to two-finger
@@ -838,13 +690,13 @@ swipes from **Settings > Controls > Taps & Gestures > Two-finger Swipe**. Set an
 action for **Swipe Up**, **Swipe Down**, **Swipe Left**, or **Swipe Right**, then
 move two fingers together in that direction while reading. Available actions
 are **Not Set**, **Increase Brightness**, **Decrease Brightness**, **Increase
-Warmth**, **Decrease Warmth**, **Next Chapter**, **Previous Chapter**, **Increase
+Warmth**, **Decrease Warmth**, **Select Chapter**, **Next Chapter**, **Previous Chapter**, **Increase
 Font Size**, and **Decrease Font Size**. Brightness and warmth options appear
-only when the hardware supports them; chapter options apply to EPUBs, and font
+only when the hardware supports them; Select Chapter opens the chapter list in EPUB and XTC books, Next/Previous Chapter apply to EPUBs, and font
 size options apply to EPUB and TXT books. Each direction starts as **Not Set**,
 and each action can be assigned to only one direction; choosing it again moves
-it to the new direction. On image-based XTC books, chapter and font-size actions
-are consumed but cannot change the pre-rendered pages. See [Two-finger Swipe
+it to the new direction. On image-based XTC books, Next/Previous Chapter and font-size actions
+do nothing because those pages are saved as images. See [Two-finger Swipe
 Actions](./controls.md#two-finger-swipe-actions) for the complete list and
 reader-specific limitations.
 
@@ -875,17 +727,17 @@ After following an in-book link to a full chapter, sleeping or closing the book 
 
 - **Return to Home:** Press the **Back** button to close the book and return to the **[Home](#31-home-screen)** screen.
 - **Return to Browse Files:** Press and hold the **Back** button to close the book and return to the **[Browse Files](#33-browse-files-screen)** screen.
-- **Reader Menu:** Press **Confirm** to open the **[Reader Menu](#5-reader-menu)**, which includes chapter navigation, reading options, and more.
+- **Reader Menu:** Press **Confirm** to open the **[Reader Menu](#5-reader-menu)**, which includes chapter navigation, reading options, and more. On touch devices you can also open it with a swipe; see [Touch Reader Controls](#touch-reader-controls).
 
 ### Supported Languages
 
-CrossInk renders text using the following Unicode character blocks, enabling support for a wide range of languages:
+The built-in reading fonts support many languages:
 
-- **Latin Script (Basic, Supplement, Extended-A/B):** Covers English, German, French, Spanish, Portuguese, Italian, Dutch, Swedish, Norwegian, Danish, Finnish, Polish, Czech, Hungarian, Romanian, Slovak, Slovenian, Turkish, Catalan, and others.
-- **Cyrillic Script (Standard and Extended):** Covers Russian, Ukrainian, Belarusian, Bulgarian, Serbian, Macedonian, Kazakh, Kyrgyz, Mongolian, and others.
-- **Vietnamese:** Supported via extended Latin glyph coverage in the built-in reader fonts.
+- **Latin alphabet:** Covers English, German, French, Spanish, Portuguese, Italian, Dutch, Swedish, Norwegian, Danish, Finnish, Polish, Czech, Hungarian, Romanian, Slovak, Slovenian, Turkish, Catalan, and others.
+- **Cyrillic alphabet:** Covers Russian, Ukrainian, Belarusian, Bulgarian, Serbian, Macedonian, Kazakh, Kyrgyz, Mongolian, and others.
+- **Vietnamese:** Supported by the built-in reading fonts.
 
-What is not supported with built-in reader fonts: Chinese, Japanese, Korean, Arabic, Greek, Hebrew, and Farsi. However, **CJK, Hebrew, Greek, and other extended scripts can be enabled by installing custom SD card fonts** — see [Custom Fonts (SD Card)](#39-custom-fonts-sd-card).
+What is not supported with built-in reader fonts: Chinese, Japanese, Korean, Arabic, Greek, Hebrew, and Farsi. However, **CJK, Hebrew, Greek, and other extended scripts can be enabled by installing custom SD card fonts**; see [Custom Fonts (SD Card)](#39-custom-fonts-sd-card).
 
 ---
 
@@ -897,10 +749,10 @@ EPUB books use the same five icon tabs on touch and button devices:
 
 | Tab (icon)               | Main options                                                                                                                                                    |
 | ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Font** (letters)       | Reader Font, Dictionary Font, Line/Word Spacing, text anti-aliasing, Focus Reading, Guide Dots                                                                  |
+| **Font** (letters)       | Reader Font (family, size, character spacing), Dictionary Font, Line/Word Spacing, Text Anti-Aliasing, Focus Reading, Guide Dots                                |
 | **Layout** (text lines)  | Margins, Orientation, Alignment, Images, Hyphenation, Publisher Page Numbers, paragraph spacing and publisher styling                                           |
 | **More** (three dots)    | Word lookup, Select Chapter, Go to %, Go to Stable Page when available, Auto Page Turn, Footnotes; Reading Stats on button devices when tracking is enabled     |
-| **Bookmarks** (bookmark) | Add/remove and view bookmarks, create/view clippings, screenshot, position QR; Sync Progress, Nearby Position Sync, and Send Nearby Book on button devices      |
+| **Bookmarks** (bookmark) | Add/remove and view bookmarks, create/view clippings, screenshot, position QR; Sync Book, Nearby Position Sync, and Send Nearby Book on button devices          |
 | **Settings** (gear)      | Status Bars, Controls, Book Dictionary, EPUB Render Mode, Indexing Method, finished status, Track Reading Stats, cache/stats resets, Reset Book Reader Settings |
 
 Some actions appear only when the book or device supports them. On touch
@@ -932,13 +784,13 @@ In EPUB books, open the Reader Menu's **More** tab and select **Select Chapter**
 
 ### 5.2 Bookmarks
 
-Bookmarks can be created to quickly save and restore your place in a book.
+Bookmarks save your place in an EPUB so you can return to it later.
 
-To create a bookmark, hold **Confirm** for 1 second while inside a book. A popup will appear letting you know a bookmark was created. The popup message will automatically disappear in a couple of seconds.
+To add or remove a bookmark: press **Confirm** to open the Reader Menu, open the **Bookmarks** tab, and choose **Add Bookmark** (or **Remove Bookmark** if the page already has one). A short popup confirms the change. You can also assign **Toggle Bookmark** to a button; see [Controls](#363-controls).
 
-To open bookmarks, press **Confirm** while inside a book. Then navigate to the **Bookmarks** menu. Bookmarks can be opened by navigating to them and pressing **Confirm**, which will redirect you to that place in the book. You can delete bookmarks by holding **Confirm** for 1 second, and then pressing **Confirm** again to confirm deletion, or **Back** to cancel.
+To go to a bookmark: open the Reader Menu, open the **Bookmarks** tab, choose **View Bookmarks**, select a bookmark, and press **Confirm**. To delete all of a book's bookmarks, choose **Clear Bookmark List** in the same tab; you will be asked to confirm.
 
-Bookmarks are stored as per-book `.bin` files in the `.crosspoint/bookmarks` folder.
+Each book's bookmarks are saved on the SD card in the `.crosspoint/bookmarks` folder.
 
 ### 5.3 Dictionary
 
@@ -946,63 +798,28 @@ Dictionary lookup supports word selection, recent per-book history, chained look
 
 ## 6. Current Limitations & Roadmap
 
-Please note that this firmware is currently in active development. The following features are **not yet supported** but are planned for future updates:
+CrossInk is in active development. These are the current limits:
 
-- **Cover Images:** Large cover images embedded into EPUB can take several
-  seconds to convert for the sleep screen and home-screen thumbnail. Use the
-  built-in [EPUB optimization](./webserver.md#epub-optimization) before upload
-  if a book is slow or memory-sensitive.
-- **Unsupported Image Formats:** Most JPG and PNG images in EPUBs render correctly. GIFs and progressive JPEGs are not supported and will fall back to an `[Image]` placeholder.
+- **Cover images:** Large cover images embedded in an EPUB can take several
+  seconds to convert for the sleep screen and Home-screen thumbnail. If a book
+  is slow to open, use the built-in [EPUB optimization](./webserver.md#epub-optimization)
+  before uploading it.
+- **Image formats:** Most JPG, PNG, and non-interlaced GIF images in EPUBs display correctly. GIF covers and thumbnails are supported; animated GIFs show their first frame. Damaged, oversized, interlaced GIFs and progressive JPEGs are not supported.
+- **Built-in reader fonts:** Chinese, Japanese, Korean, Arabic, Greek, Hebrew, and Farsi need a custom SD card font; see [Supported Languages](#supported-languages).
 
 ---
 
 ## 7. Troubleshooting Issues & Escaping Bootloop
 
-If an issue or crash is encountered while using CrossInk, feel free to raise an issue ticket and attach the logs.
+For network, upload, and settings problems, see [Troubleshooting](./troubleshooting.md).
 
-**Crash reports on SD card:** After a crash, CrossInk automatically saves a crash report to the SD card (no USB connection needed). Check the root of the SD card for a crash log file and include it with any bug report.
+**Reporting a bug or crash:** If something goes wrong, [open an issue](https://github.com/uxjulia/CrossInk/issues) and describe what you were doing. After a crash, CrossInk shows a **System Crash** screen and saves a report to the SD card. Look for `crash_report.txt` in the top (root) folder of the SD card and attach it to your report. Press **Back** (or tap the screen) to leave the crash screen. You can also open **Settings > System > About** and choose **Export** to save a settings summary you can share; nothing is uploaded. See [Export Support Information](./troubleshooting.md#export-support-information).
 
-**Serial monitor logs:** For more detailed debugging, connect the device to a computer and run the custom debugging monitor script (requires Python 3 with `pyserial`, `colorama`, and `matplotlib`; install via `pip3 install pyserial colorama matplotlib`):
+**If the device keeps restarting (a "bootloop"):**
 
-```
-python3 scripts/debugging_monitor.py
-```
+1. Press and release the **Reset** button.
+2. Right after, press and hold the **Back** button and the **Power** button. This skips reopening your last book and goes to the **Home** screen.
 
-The script auto-detects the serial port. You can also specify one explicitly:
+**If the Home screen also fails**, the saved settings or cache may be damaged. Turn the device off, put the SD card in a computer, and delete the `.crosspoint` folder on the SD card. This resets settings, reading progress, bookmarks, and caches (see [Data and Cache](./data-cache.md)). To lose less, delete only `crossink-settings.json`, `settings.json`, `state.json`, or the `epub_*` folders inside `.crosspoint/`.
 
-```
-python3 scripts/debugging_monitor.py /dev/ttyACM0        # Linux
-python3 scripts/debugging_monitor.py /dev/tty.usbmodem1  # macOS
-python3 scripts/debugging_monitor.py COM7                # Windows
-```
-
-**Features:**
-
-- Color-coded log output by category (errors, memory, display, EPUB parsing, etc.)
-- Live memory usage graph (free RAM, total RAM, max contiguous allocation) updated every second
-- Interactive command prompt — type a command and press Enter to send it to the device
-- Screenshot capture — saves the current display to `screenshot.bmp` when triggered by the device
-
-**Options:**
-
-| Option               | Description                                               |
-| -------------------- | --------------------------------------------------------- |
-| `--baud RATE`        | Baud rate (default: 115200)                               |
-| `--filter KEYWORD`   | Show only lines containing the keyword (case-insensitive) |
-| `--suppress KEYWORD` | Hide lines containing the keyword (case-insensitive)      |
-
-**Examples:**
-
-```
-# Show only memory-related log lines
-python3 scripts/debugging_monitor.py --filter MEM
-
-# Hide noisy SD card log lines
-python3 scripts/debugging_monitor.py --suppress "[SD]"
-```
-
-Press **Ctrl-C** or close the graph window to exit.
-
-If the device is stuck in a bootloop, press and release the Reset button. Then, press and hold on to the configured Back button and the Power Button to boot to the Home Screen.
-
-There can be issues with broken cache or config. In this case, delete the `.crosspoint` directory on your SD card (or consider deleting only `settings.json`, `state.json`, or `epub_*` cache directories in the `.crosspoint/` folder).
+**If a firmware update went wrong:** Put a working `firmware.bin` on the root of the SD card, turn the device off, then hold **Power** and **Up** while turning it on (use **Down** instead of **Up** on X4 Pro and X4 Classic). CrossInk opens a screen where you pick the `.bin` file to install. You can also reflash over USB; see [Installation](./installation.md).

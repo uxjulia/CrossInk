@@ -23,19 +23,21 @@ void HalTiltSensor::begin() {
   return;
 #endif
 
-  _available = _sdkImu.begin();
-  if (_available) {
-    _initMs = millis();
-    _lastPollMs = millis();
-    // begin() leaves the sensors sampling; stand them by until tilt page turn
-    // actually wakes them, so a disabled IMU doesn't drain the battery.
-    if (!_sdkImu.sleep()) {
-      LOG_ERR("GYR", "IMU standby failed");
-    }
-    LOG_INF("GYR", "SDK IMU initialized");
+  _available = false;
+  if (!_sdkImu.begin()) {
+    LOG_ERR("GYR", "SDK IMU not found");
     return;
   }
-  LOG_ERR("GYR", "SDK IMU not found");
+  // Stand by even accelerometer-only parts; they cannot drive gyro page turns.
+  if (!_sdkImu.sleep()) LOG_ERR("GYR", "IMU standby failed");
+  _available = _sdkImu.hasGyroscope();
+  if (!_available) {
+    LOG_INF("GYR", "IMU has no gyroscope");
+    return;
+  }
+  _initMs = millis();
+  _lastPollMs = millis();
+  LOG_INF("GYR", "SDK IMU initialized");
 }
 
 bool HalTiltSensor::wake() {
@@ -72,7 +74,7 @@ bool HalTiltSensor::deepSleep() {
 }
 
 void HalTiltSensor::update(const uint8_t enabled, const uint8_t direction, const uint8_t orientation,
-                           const bool inReader) {
+                           const bool inReader, const uint8_t sensitivity) {
   if (!_available) {
     return;
   }
@@ -137,6 +139,12 @@ void HalTiltSensor::update(const uint8_t enabled, const uint8_t direction, const
     tiltAxis = -tiltAxis;
   }
 
+  // Keep Normal's existing board calibration. Low stays below the Sticky's
+  // ±245 dps range; High accepts gentler flicks without changing rearm/cooldown.
+  float rateThreshold = RATE_THRESHOLD_DPS;
+  if (sensitivity == TiltSensitivity::LOW_SENSITIVITY) rateThreshold *= 1.15f;
+  if (sensitivity == TiltSensitivity::HIGH_SENSITIVITY) rateThreshold *= 0.75f;
+
   if (_inTilt) {
     // Wait for device to return to neutral before allowing next trigger
     if (fabsf(tiltAxis) < NEUTRAL_RATE_DPS) {
@@ -145,13 +153,13 @@ void HalTiltSensor::update(const uint8_t enabled, const uint8_t direction, const
   } else {
     // Check for new tilt gesture (with cooldown)
     if ((now - _lastTiltMs) >= COOLDOWN_MS) {
-      if (tiltAxis > RATE_THRESHOLD_DPS) {
+      if (tiltAxis > rateThreshold) {
         _tiltForwardEvent = true;
         _hadActivity = true;
         _inTilt = true;
         _lastTiltMs = now;
         LOG_INF("GYR", "Forward Trigger=(%.1f) dps", tiltAxis);
-      } else if (tiltAxis < -RATE_THRESHOLD_DPS) {
+      } else if (tiltAxis < -rateThreshold) {
         _tiltBackEvent = true;
         _hadActivity = true;
         _inTilt = true;
