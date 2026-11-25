@@ -76,10 +76,6 @@ struct AssetDownloadActivity : Activity {
   struct Popup {
     void clear() { events.push_back("popup"); }
   } popup_;
-  struct Catalog {
-    ~Catalog() { events.push_back("catalog"); }
-  };
-  std::unique_ptr<Catalog> catalog_;
   bool catalogReady_ = false;
   void onExit();
 };
@@ -160,17 +156,14 @@ int main() {
   assert(restarts == 0 && !activityManager.pending);
 
   // Asset downloads must restore normal boot even if Wi-Fi was cancelled or
-  // setup failed before the catalog was allocated/populated.
+  // setup failed before the catalog selection was ready.
   for (bool loaded : {false, true}) {
     events.clear();
     AssetDownloadActivity assets;
-    if (loaded) assets.catalog_ = std::make_unique<AssetDownloadActivity::Catalog>();
     assets.catalogReady_ = loaded;
     assets.onExit();
-    assert(!assets.catalog_ && !assets.catalogReady_);
-    std::vector<std::string> expected{"popup"};
-    if (loaded) expected.push_back("catalog");
-    expected.insert(expected.end(), {"disconnect", "off"});
+    assert(!assets.catalogReady_);
+    std::vector<std::string> expected{"popup", "disconnect", "off"};
 #ifdef SIMULATOR
     expected.push_back("fonts");
 #endif

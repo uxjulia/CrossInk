@@ -97,7 +97,15 @@ struct Section {
 struct Epub { std::string getCachePath() const { return "/cache"; } };
 struct ReaderViewportLayout { int marginLeft = 0, marginTop = 0, marginBottom = 0; };
 ReaderViewportLayout computeReaderViewportLayout(GfxRenderer&, bool) { return {}; }
-struct BookReaderSettingsData { std::string dictionarySdFontFamilyName; int dictionaryFontPointSize = 0; };
+struct CrossPointSettings {
+  static constexpr uint8_t WORD_HOLD_USE_GLOBAL = 3;
+  uint8_t wordHoldAction = 0;
+} SETTINGS;
+struct BookReaderSettingsData {
+  std::string dictionarySdFontFamilyName;
+  int dictionaryFontPointSize = 0;
+  uint8_t wordHoldAction = CrossPointSettings::WORD_HOLD_USE_GLOBAL;
+};
 BookReaderSettingsData loadBookReaderSettingsFile(const std::string&) { return {}; }
 struct DictionaryClippingRequest {};
 struct ActivityResult { std::variant<std::monostate, DictionaryClippingRequest> data; };

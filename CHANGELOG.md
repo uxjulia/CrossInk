@@ -1,4 +1,4 @@
-## [v2.0.0] - 2026-11-19
+## [v2.0.0] - 2026-11-24
 
 ### Added
 
@@ -17,7 +17,7 @@
 - Install, update, or remove EPUB hyphenation packs. English is built in, and affected book layouts rebuild after a pack changes.
 - On your first upgrade to v2.0.0, What’s New explains how to install interface languages and hyphenation packs. It also shows where to enable SD card plugins and sync reading stats and clippings with CrossPoint Sync. Reopen the screen from `Settings > System > Release Notes`.
 - On ESP32-S3 readers, install static OpenType fonts from SD or the web uploader, including CFF fonts with .otf or .ttf extensions. EPUBs can also use embedded publisher fonts, including Adobe-obfuscated fonts, through `Off`, `Ignore Body Font`, and `All Text` modes. Variable fonts and collections remain unsupported (CrossPoint #3646, #3717).
-- Render EPUB drop caps, borders, shading, fieldsets that span pages, preserved whitespace, and more CSS selectors. Scalable fonts support mixed sizes within a line, and X3/X4 use available bitmap sizes for headings and other publisher sizes (CrossPoint #3891).
+- Render EPUB drop caps, borders, shading, fieldsets that span pages, preserved whitespace, and more CSS selectors. Scalable fonts support mixed sizes within a line, and X3/X4 scale their loaded bitmap fonts for larger publisher text (CrossPoint #3891).
 - Choose grayscale or black-and-white EPUB images independently of text smoothing, globally or per book. EPUBs also display non-interlaced GIFs, using the first frame of an animation. The web uploader can keep embedded fonts when optimizing an EPUB.
 - Choose Normal, Dark, or Darker text with smooth edges and add ruled lines in three shades to EPUB and plain-text books. EEGO has a two-tone text option.
 - Adjust word spacing from −4 to +4 and character spacing from −5 to +5, with live previews in Reader settings and the in-book Font menu. When `All Text` is set for Publisher Fonts, the font name is displayed as the reader Font Family.
@@ -83,17 +83,19 @@
 - Connect to TLS 1.3 servers using SHA-384 certificate signatures.
 - Keep File Transfer responsive when uploads or browser requests stall or fail. Remove incomplete uploads, preserve files after failed WebDAV replacements, report failed copies and web settings saves, and route captive-portal probes without intercepting WebDAV writes (CrossPoint #4472).
 - Keep web dialogs open when a selection drag ends outside them, keep font notifications visible while scrolling, and normalize accented filenames on upload and duplicate checks (adapted from CrossPoint #3931, #3961, #3984).
-- Retry saved Wi-Fi after scanning, show clear Forget and Cancel choices on button devices
+- Retry saved Wi-Fi after scanning, and show clear Forget and Cancel choices on button devices.
 - Keep multibyte network names and masked password previews intact (CrossPoint #4079, #4106).
 - Keep Nearby and firmware transfers responsive during storage checks and let USB waits yield to other tasks. Preserve serial screenshots and pre-crash logs, including after low-power USB interruptions (CrossPoint #3737).
 - Hide tilt controls when the sensor cannot support page turning or fails its startup check, while keeping saved preferences (CrossPoint 8fc2b66 and #4078).
-- Make EPUB highlight handles easier to grab and drag across lines on touch readers.
+- Make EPUB highlight handles easier to grab and keep them following your finger across lines during e-ink refreshes, including when you lift to look up or clip the selection.
 - Reduce repeated SD card reads when indexing EPUBs with ruled lines and a custom reader font.
 - Dither EPUB illustrations only after resizing, with separate output for Gray and B&W (including Night Mode).
 - Readest and other plugins can send several queued reading sessions on one sleep instead of one per sleep.
-- Keep EPUB text selection following your finger across lines during e-ink refreshes, including when you lift to look up or clip the selection.
 - Preserve existing books, fonts, settings, and reading positions when SD saves or transfers are interrupted. Keep USB Drive mounted while the computer sleeps and finish pending writes before ejecting.
 - Explain SD card startup errors and show how to reconnect the card or check its filesystem.
+- Make reading progress sync more reliable on large SD libraries. Reuse saved book paths to avoid repeatedly scanning the card.
+- Keep large EPUB drop caps sharp by drawing them at their intended size.
+- Show the Back button hint while viewing EPUB footnotes on button-only readers.
 
 ## [v1.6.1] - 2026-10-03
 

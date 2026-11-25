@@ -6957,7 +6957,7 @@ class SimulatorSmokeTest {
     const std::string path = "/ruled-font-size.xhtml";
     if (!Storage.writeFile(path.c_str(),
                            "<html><body><p>Heading control</p>"
-                           "<h2 style=\"font-size:1.45em; margin:0\">Heading enlarged</h2>"
+                           "<h2 style=\"font-size:1.45em; margin:0\">Heading</h2>"
                            "<p>Next paragraph</p></body></html>"))
       fail("Cannot write ruled heading fixture");
     Epub book("/ruled-font-size.epub", "/.crosspoint");
@@ -6993,7 +6993,9 @@ class SimulatorSmokeTest {
             const int font = block.resolvedFontId(renderer, bodyFont);
             const unsigned expected = rows == 1 ? 23 : 16;
             if (renderer.getFontPointSize(font) != expected || rowTop < previousBottom || rowBottom > height)
-              fail("Incorrect ruled heading layout after cache reload");
+              fail("%s row %u (%s): %u pt, expected %u pt, row [%d, %d), previous bottom %d, viewport %d", captureName,
+                   rows, block.wordText(0), unsigned(renderer.getFontPointSize(font)), expected, rowTop, rowBottom,
+                   previousBottom, height);
             const int x = line.xPos + block.wordXpos(0) + 20;
             const int y = rowTop + 20;
             const int wordWidth = renderer.getTextAdvanceX(font, block.wordText(0), block.wordStyle(0));
