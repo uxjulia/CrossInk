@@ -96,6 +96,7 @@
 - Make reading progress sync more reliable on large SD libraries. Reuse saved book paths to avoid repeatedly scanning the card.
 - Keep large EPUB drop caps sharp by drawing them at their intended size.
 - Show the Back button hint while viewing EPUB footnotes on button-only readers.
+- Releasing Power after starting Picco no longer selects a menu item on the first screen.
 
 ## [v1.6.1] - 2026-10-03
 

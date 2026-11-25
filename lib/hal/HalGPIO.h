@@ -147,6 +147,10 @@ class HalGPIO {
 #endif
   void setSharedConfirmPowerShortPressEmitsPower(bool enabled);
 
+#if FREEINK_DEVICE_PICCO && !defined(SIMULATOR)
+  bool isPowerButtonPhysicallyPressed() const { return inputMgr.isPowerButtonPhysicallyPressed(); }
+#endif
+
   // Verify the physical power button through debounce, then require a long
   // hold when the saved shortcut does not permit short-press wake.
   // Returns true if verification succeeded, false if device should return to sleep.
