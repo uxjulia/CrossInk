@@ -894,17 +894,19 @@ void contentSizeChecks(const std::string& path) {
   }
   GfxRenderer renderer;
   SdCardFontManager manager;
+  manager.setContentSizeScales({192, 128});
   // Manager admission must read each selected file exactly once. The prior
   // separate preflight added a second scan of every optional glyph table.
-  int expectedReads = 0;
-  for (const uint8_t size : {12, 24, 8}) {
+  int expectedReads = 0, bodyReads = 0;
+  for (const uint8_t size : {16, 12, 8}) {
     SdCardFont font;
     readCalls = 0;
-    assert(font.load(family.findFile(size)->path.c_str(), size == 12 ? 0 : limit));
+    assert(font.load(family.findFile(size)->path.c_str(), size == 16 ? 0 : limit));
+    if (size == 16) bodyReads = readCalls;
     expectedReads += readCalls;
   }
   readCalls = 0;
-  assert(manager.loadFamilyClosest(family, renderer, 12));
+  assert(manager.loadFamilyClosest(family, renderer, 16));
   assert(readCalls == expectedReads);
   const int highId = manager.getFontId(family.name);
   size_t scratchOwners = 0, scratchBorrowers = 0;
@@ -918,7 +920,7 @@ void contentSizeChecks(const std::string& path) {
   for (const auto& [id, font] : renderer.getFontMap()) assert(font.sizeFamilyId() == highId);
   // Reordered/rounded CSS hints request the same installed sizes. A low-heap
   // reentry must reuse this live profile instead of rerunning admission.
-  assert(manager.setContentSizeScales({192, 512}));
+  assert(manager.setContentSizeScales({128, 192}));
   const int reads = readCalls;
   freeHeap = 97 * 1024;
   maxAllocHeap = 49 * 1024;
@@ -926,40 +928,40 @@ void contentSizeChecks(const std::string& path) {
   assert(manager.getFontId(family.name) == highId && readCalls == reads);
   freeHeap = maxAllocHeap = 1024 * 1024;
   manager.unloadAll(renderer);
-  assert(manager.loadFamilyClosest(family, renderer, 12));
+  assert(manager.loadFamilyClosest(family, renderer, 16));
   assert(manager.getFontId(family.name) == highId);  // Same set, opposite load order.
-  assert(manager.setContentSizeScales({191, 513}));
+  assert(manager.setContentSizeScales({127, 193}));
   assert(manager.matchesContentSizeRequests(family));
   manager.setContentSizeScales({341, 299});
   assert(!manager.matchesContentSizeRequests(family));
-  manager.setContentSizeScales({512, 192});
+  manager.setContentSizeScales({192, 128});
   manager.unloadAll(renderer);
   assert(renderer.getFontMap().empty() && renderer.getSdCardFonts().empty());
   assert(arrayBytes() == 0);
   freeHeap = 97 * 1024;  // Enough for body, below reserve plus actual optional bytes.
-  assert(manager.loadFamilyClosest(family, renderer, 12));
+  assert(manager.loadFamilyClosest(family, renderer, 16));
   const int lowId = manager.getFontId(family.name);
   assert(lowId != highId && renderer.getFontMap().size() == 1);
   assert(manager.matchesContentSizeRequests(family));  // Remembers skipped requests too.
-  manager.setContentSizeScales({192, 512});
+  manager.setContentSizeScales({128, 192});
   freeHeap = 1024 * 1024;
   assert(manager.matchesContentSizeRequests(family) && manager.getFontId(family.name) == lowId);
-  manager.setContentSizeScales({512, 192});
+  manager.setContentSizeScales({192, 128});
   manager.unloadAll(renderer);
   freeHeap = 1024 * 1024;
   maxAllocHeap = 49 * 1024;  // Fragmented heap must also decline optional sizes.
-  assert(manager.loadFamilyClosest(family, renderer, 12));
+  assert(manager.loadFamilyClosest(family, renderer, 16));
   assert(manager.getFontId(family.name) == lowId && renderer.getFontMap().size() == 1);
   manager.unloadAll(renderer);
   maxAllocHeap = 1024 * 1024;
-  assert(manager.loadFamilyClosest(family, renderer, 12));
+  assert(manager.loadFamilyClosest(family, renderer, 16));
   assert(manager.getFontId(family.name) == highId);
   manager.unloadAll(renderer);
   // Real byte costs admit small fonts that the old fixed 12KB allowance
   // rejected, while still leaving the full 96KB/48KB reserves.
   freeHeap = 110 * 1024;
   maxAllocHeap = 62 * 1024;
-  assert(manager.loadFamilyClosest(family, renderer, 12));
+  assert(manager.loadFamilyClosest(family, renderer, 16));
   assert(manager.getFontId(family.name) == highId && renderer.getFontMap().size() == 3);
   const size_t optionalBytes = arrayBytes() - sizeof(SdCardFont::PerStyle::BmpInterval16) +
                                2 * (sizeof(SdCardFont) + 512);  // Objects and registration overhead.
@@ -971,64 +973,47 @@ void contentSizeChecks(const std::string& path) {
   freeHeapProbe = []() -> uint32_t {
     return arrayBytes() > sizeof(SdCardFont::PerStyle::BmpInterval16) ? 95U * 1024U : freeHeap;
   };
-  assert(manager.loadFamilyClosest(family, renderer, 12));
+  assert(manager.loadFamilyClosest(family, renderer, 16));
   assert(manager.getFontId(family.name) == lowId && renderer.getFontMap().size() == 1);
   manager.unloadAll(renderer);
   freeHeapProbe = nullptr;
-  // Book-aware content choices remain limited to two budgeted font objects.
-  // Changing the preferences changes the identity, and a dictionary-style
-  // unload/reload must restore that same identity and actual size set.
-  assert(manager.setContentSizeScales({341, 299}));
-  assert(!manager.matchesContentSizeRequests(family));
-  assert(!manager.setContentSizeScales({341, 299}));
-  assert((manager.contentSizeTargetsForBody(12) == std::array<uint8_t, 2>{16, 14}));
-  assert(manager.loadFamilyClosest(family, renderer, 12));
+  // A CSS enlargement cannot cause a file read, even with a matching
+  // 24pt file installed and ample RAM. Smaller sizes can still load.
+  assert(manager.setContentSizeScales({384, 160}));
+  assert(manager.loadFamilyClosest(family, renderer, 16));
   const int bookId = manager.getFontId(family.name);
-  assert(bookId != highId && renderer.getFontMap().size() == 3);
+  assert(bookId != highId && renderer.getFontMap().size() == 2);
   for (const auto& [id, font] : renderer.getFontMap()) {
     assert(font.sizeFamilyId() == bookId);
-    assert(font.pointSize() == 12 || font.pointSize() == 14 || font.pointSize() == 16);
+    assert(font.pointSize() == 10 || font.pointSize() == 16);
   }
+  assert(manager.setContentSizeScales({512, 160}));
+  assert(manager.matchesContentSizeRequests(family));  // Only the larger hint changed.
   manager.unloadAll(renderer);
-  assert(manager.loadFamilyClosest(family, renderer, 12));
+  assert(manager.loadFamilyClosest(family, renderer, 16));
   assert(manager.getFontId(family.name) == bookId);
   manager.unloadAll(renderer);
-  freeHeap = 97 * 1024;
-  assert(manager.loadFamilyClosest(family, renderer, 12));
-  assert(renderer.getFontMap().size() == 1 && manager.getFontId(family.name) == lowId);
+  assert(manager.setContentSizeScales({384, 224}));
+  // Dictionary return uses these same targets before it searches the SD card.
+  assert((manager.contentSizeTargetsForBody(16) == std::array<uint8_t, 2>{0, 14}));
+  assert(manager.loadFamilyClosest(family, renderer, 16));
+  assert(renderer.getFontMap().size() == 2);
   manager.unloadAll(renderer);
-  freeHeap = 1024 * 1024;
-  assert(manager.loadFamilyClosest(family, renderer, 10));
-  assert(renderer.getFontMap().size() == 3);
-  // An even-only family rounds the 13pt growth target up, consistently with
-  // the renderer, while retaining the exact 12pt subheading size.
-  for (const auto& [id, font] : renderer.getFontMap())
-    assert(font.pointSize() == 10 || font.pointSize() == 12 || font.pointSize() == 14);
+  assert(manager.setContentSizeScales({384, 320}));
+  readCalls = 0;
+  assert(manager.loadFamilyClosest(family, renderer, 16));
+  assert(readCalls == bodyReads);
+  assert(manager.getFontId(family.name) == lowId && renderer.getFontMap().size() == 1);
   manager.unloadAll(renderer);
-  manager.setContentSizeScales({512, 192});
-  // Variant replacement must invalidate the body identity even at the same size.
+  manager.setContentSizeScales({192, 128});
+  // Replacing a smaller variant must still invalidate the body identity.
   {
-    std::fstream out(family.files.back().path, std::ios::in | std::ios::out | std::ios::binary);
+    std::fstream out(family.findFile(8)->path, std::ios::in | std::ios::out | std::ios::binary);
     out.seekp(32 + 12);
     out.put(21);
   }
-  assert(manager.loadFamilyClosest(family, renderer, 12));
+  assert(manager.loadFamilyClosest(family, renderer, 16));
   assert(manager.getFontId(family.name) != highId);
-  manager.unloadAll(renderer);
-  assert(arrayBytes() == 0 && openFiles == 0);
-  // A tied but unsupported 45pt file must not displace supported 43pt growth.
-  for (const uint8_t size : {22, 43, 45}) {
-    const std::string file = path + std::to_string(size);
-    fixture(file, {{0, table({{0x41, 0x5A}})}});
-    family.files.push_back({file, size, 0});
-  }
-  assert(manager.loadFamilyClosest(family, renderer, 22));
-  bool found43 = false;
-  for (const auto& [id, font] : renderer.getFontMap()) {
-    assert(font.pointSize() != 45);
-    found43 |= font.pointSize() == 43;
-  }
-  assert(found43);
   manager.unloadAll(renderer);
   assert(arrayBytes() == 0 && openFiles == 0);
   for (const auto& file : family.files) std::filesystem::remove(file.path);

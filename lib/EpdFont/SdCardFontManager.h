@@ -22,7 +22,7 @@ class SdCardFontManager {
 
   // Load the closest body file, plus up to two budgeted content sizes for bitmap fonts.
   bool loadFamilyClosest(const SdCardFontFamilyInfo& family, GfxRenderer& renderer, uint8_t targetPointSize);
-  // Shared by registry loads and bounded dictionary-return discovery.
+  // Shared by registry loads and bounded dictionary-return discovery. Zero skips a file lookup.
   static std::array<uint8_t, 2> contentSizeTargets(uint8_t bodySize, std::array<uint16_t, 2> scales = {512, 192});
   bool setContentSizeScales(std::array<uint16_t, 2> scales) {
     if (contentSizeScales_ == scales) return false;

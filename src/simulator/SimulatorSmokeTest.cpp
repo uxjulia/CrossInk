@@ -37,6 +37,7 @@
 #include "util/WordSelectNavigator.h"
 #if CROSSINK_SCALABLE_FONTS
 #include <HalScalableFont.h>
+#include <ScalableBuiltins.h>
 #include <builtinFonts/bitter_12_regular.h>
 
 #include <fstream>
@@ -100,6 +101,7 @@
 #include "activities/reader/QrDisplayActivity.h"
 #include "activities/reader/ReaderButtonShortcuts.h"
 #include "activities/reader/ReaderFontLoading.h"
+#include "activities/reader/ReaderRuling.h"
 #include "activities/reader/ReaderUtils.h"
 #include "activities/reader/TxtReaderActivity.h"
 #include "activities/reader/XtcReaderActivity.h"
@@ -6492,8 +6494,50 @@ class SimulatorSmokeTest {
   }
 
 #if CROSSINK_SCALABLE_FONTS
+  void verifyScalableDropCaps() {
+    const std::string htmlPath = "/scalable-drop-cap.xhtml";
+    if (!Storage.writeFile(htmlPath.c_str(),
+                           "<html><body><p><span style=\"float:left;font-size:2em\">R</span>"
+                           "eading should start with a sharp letter. This paragraph wraps alongside the opening "
+                           "letter for two lines before returning to the left margin.</p></body></html>"))
+      fail("Cannot write scalable drop-cap excerpt");
+
+    Epub book("/scalable-drop-cap.epub", "/.crosspoint");
+    CssParser css(book.getCachePath());
+    ensureScalableBuiltinFamily(renderer, CrossPointSettings::BITTER);
+    for (const uint8_t points : {14, 16, 22}) {
+      const int body = scalableBuiltinReaderFontId(CrossPointSettings::BITTER, points);
+      if (renderer.getFontPointSize(body) != points) fail("Bitter body font is unavailable at %u pt", unsigned(points));
+      const unsigned expected = points == 14 ? 42 : ScalableContentMaxPointSize;
+      unsigned caps = 0;
+      ChapterHtmlSlimParser parser(
+          book, htmlPath, renderer, body, 1.0f, false, false, CrossPointSettings::BOOK_STYLE,
+          renderer.getScreenWidth() - 40, renderer.getScreenHeight() - 40, false, false, false, 0,
+          [&](std::unique_ptr<Page> page, uint16_t, uint16_t, uint32_t, uint32_t) {
+            for (const auto& element : page->elements) {
+              if (element->getTag() != TAG_PageDropCap) continue;
+              const auto& cap = static_cast<const PageDropCap&>(*element);
+              if (std::strcmp(cap.getText(), "R") || cap.getFontSize() != expected)
+                fail("Bitter %u pt drop cap used a %u pt glyph, expected %u pt", unsigned(points),
+                     unsigned(cap.getFontSize()), expected);
+              ++caps;
+            }
+            renderer.setRenderMode(GfxRenderer::BW);
+            renderer.clearScreen();
+            page->renderText(renderer, body, 20, 20);
+            char name[32];
+            std::snprintf(name, sizeof(name), "bitter-drop-cap-%u-pt", unsigned(points));
+            captureStatusBarScreen(name);
+          },
+          true, "", "", 0, {}, nullptr, &css);
+      if (!parser.parseAndBuildPages() || caps != 1) fail("Expected one Bitter %u pt drop cap", unsigned(points));
+    }
+    LOG_INF("SMOKE", "Bitter drop caps use 42/44/44 pt glyphs at 14/16/22 pt body sizes");
+  }
+
   void verifyPublisherFonts() {
     RenderLock lock;
+    verifyScalableDropCaps();
     const auto savedMode = SETTINGS.publisherFonts;
     if (savedMode != static_cast<uint8_t>(PublisherFonts::Accents))
       fail("Fresh settings did not default to Ignore Body Font");
@@ -6805,7 +6849,13 @@ class SimulatorSmokeTest {
     const int body = SETTINGS.getReaderFontId();
     if (renderer.getFontPointSize(body) != 10 || renderer.getFontPointSize(renderer.getFontIdForSize(body, 13)) != 13 ||
         renderer.getFontPointSize(renderer.getFontIdForSize(body, 12)) != 12)
-      fail("Publisher heading sizes did not replace the fixed 2x target");
+      fail("Publisher heading sizes did not match the stylesheet");
+#if !CROSSINK_SCALABLE_FONTS
+    // The fixture has larger sizes available on SD. The heading IDs must
+    // resolve for measurement and drawing without registering those files.
+    if (renderer.getSdCardFonts().size() != 1 || !renderer.isSdCardFont(renderer.getFontIdForSize(body, 13)))
+      fail("Publisher heading did not reuse the loaded SD font");
+#endif
     const std::string htmlPath = "/cpfont-headings.xhtml";
     if (!Storage.writeFile(htmlPath.c_str(),
                            "<html><body><h1>Chapter Length</h1>"
@@ -6901,6 +6951,73 @@ class SimulatorSmokeTest {
     LOG_INF("SMOKE", "Font identity: equivalent requests reuse fonts/pages; changed sets and files reload");
   }
 
+#if !CROSSINK_SCALABLE_FONTS
+  void verifyEnlargedRuledHeading(const int bodyFont, const char* captureName) {
+    RenderLock lock;
+    const std::string path = "/ruled-font-size.xhtml";
+    if (!Storage.writeFile(path.c_str(),
+                           "<html><body><p>Heading control</p>"
+                           "<h2 style=\"font-size:1.45em; margin:0\">Heading enlarged</h2>"
+                           "<p>Next paragraph</p></body></html>"))
+      fail("Cannot write ruled heading fixture");
+    Epub book("/ruled-font-size.epub", "/.crosspoint");
+    CssParser css("/.crosspoint/ruled-font-size");
+    unsigned rows = 0;
+    const int width = renderer.getScreenWidth() - 40;
+    const int height = renderer.getScreenHeight() - 40;
+    ChapterHtmlSlimParser parser(
+        book, path, renderer, bodyFont, 1.0f, false, false, 1, width, height, false, false, false, 0,
+        [&](std::unique_ptr<Page> page, uint16_t, uint16_t, uint32_t, uint32_t) {
+          constexpr const char* pagePath = "/ruled-font-page";
+          FsFile file;
+          if (!Storage.openFileForWrite("SMOKE", pagePath, file) || !page->serialize(file))
+            fail("Cannot save ruled heading page");
+          file.close();
+          if (!Storage.openFileForRead("SMOKE", pagePath, file)) fail("Cannot read ruled heading page");
+          auto restored = Page::deserialize(file);
+          file.close();
+          if (!restored) fail("Cannot restore ruled heading page");
+
+          renderer.setRenderMode(GfxRenderer::BW);
+          renderer.clearScreen();
+          restored->renderText(renderer, bodyFont, 20, 20);
+          int previousBottom = 0;
+          int bodyInkHeight = 0;
+          for (const auto& element : restored->elements) {
+            if (element->getTag() != TAG_PageLine) continue;
+            const auto& line = static_cast<const PageLine&>(*element);
+            const auto& block = *line.getBlock();
+            const auto& style = block.getBlockStyle();
+            const int rowTop = line.yPos - style.ruledTextOffset;
+            const int rowBottom = rowTop + style.lineHeight;
+            const int font = block.resolvedFontId(renderer, bodyFont);
+            const unsigned expected = rows == 1 ? 23 : 16;
+            if (renderer.getFontPointSize(font) != expected || rowTop < previousBottom || rowBottom > height)
+              fail("Incorrect ruled heading layout after cache reload");
+            const int x = line.xPos + block.wordXpos(0) + 20;
+            const int y = rowTop + 20;
+            const int wordWidth = renderer.getTextAdvanceX(font, block.wordText(0), block.wordStyle(0));
+            int top = y, bottom = y + style.lineHeight;
+            while (top < bottom && !renderer.hasBlackPixels(x, top, wordWidth, 1)) ++top;
+            while (bottom > top && !renderer.hasBlackPixels(x, bottom - 1, wordWidth, 1)) --bottom;
+            if (rows == 0) bodyInkHeight = bottom - top;
+            if (rows == 1 && (bodyInkHeight <= 0 || bottom - top <= bodyInkHeight))
+              fail("Ruled heading glyphs did not get taller");
+            previousBottom = rowBottom;
+            ++rows;
+          }
+          ReaderRuling{1, 20, width, height + 20, 100}.drawPage(renderer, *restored, bodyFont, 20);
+          captureStatusBarScreen(captureName);
+          Storage.remove(pagePath);
+        },
+        true, "", "", 0, {}, nullptr, &css);
+    parser.setRuled(true);
+    if (!parser.parseAndBuildPages() || rows != 3) fail("Ruled heading did not render all three rows");
+    Storage.remove(path.c_str());
+    LOG_INF("SMOKE", "Ruled heading: 16pt body, 23pt heading, cache and visible glyph height passed");
+  }
+#endif
+
   void verifyBitmapFontSizes() {
     const auto orientation = renderer.getOrientation();
 #if CROSSINK_SCALABLE_FONTS
@@ -6908,11 +7025,13 @@ class SimulatorSmokeTest {
 #else
     for (const int base : {BITTER_12_FONT_ID, LEXENDDECA_12_FONT_ID}) {
       if (renderer.getFontPointSize(base) != 12) fail("Bitmap body size missing");
-      for (const auto pair : {std::pair<uint8_t, uint8_t>{8, 10}, {11, 10}, {13, 14}, {15, 16}, {44, 16}}) {
+      for (const auto pair : {std::pair<uint8_t, uint8_t>{8, 10}, {11, 10}, {13, 14}, {15, 16}, {44, 44}}) {
         const int chosen = renderer.getFontIdForSize(base, pair.first);
         if (renderer.getFontPointSize(chosen) != pair.second) fail("Bitmap size snapping failed");
       }
       renderer.setOrientation(GfxRenderer::Portrait);
+      verifyEnlargedRuledHeading(renderer.getFontIdForSize(base, 16),
+                                 base == BITTER_12_FONT_ID ? "c3-bitter-ruled-heading" : "c3-lexend-ruled-heading");
       verifyBlockFontSizes(base, base == BITTER_12_FONT_ID ? "c3-bitter" : "c3-lexend");
       renderer.setOrientation(GfxRenderer::LandscapeClockwise);
       verifyBlockFontSizes(base, base == BITTER_12_FONT_ID ? "c3-bitter-landscape" : "c3-lexend-landscape");

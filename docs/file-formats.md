@@ -1166,6 +1166,10 @@ through cache cleanup, so measurement and drawing use the same glyph substitutio
 The new identity rebuilds existing full and partial layouts for these families;
 body-only and built-in font identities stay unchanged. No binary payload changes.
 
+On X3 and X4, larger EPUB text uses the loaded bitmap. A larger SD font no
+longer participates in the reader font identity, so cached layouts that used
+one rebuild automatically.
+
 ## Inline EPUB image pixel cache (`.pxc`)
 
 Inline images use separate target-sized Gray (`_gray_v4.pxc`) and monochrome
@@ -1180,6 +1184,10 @@ and at their exact dimensions; mismatches fall back to the source EPUB image.
 ### Version 118 (current release)
 
 Complete sections use version 118 and partial sections use `0xE7`. Block-styled spans can affect pagination. In the optional per-word font-size byte, bits 0–5 store the point size, bit 6 marks a black background on the preceding space, and bit 7 hides the glyphs while retaining their layout width.
+
+The stored word-layout identity also rebuilds older non-Light layouts on
+bitmap-only devices and older publisher-styled, non-Light layouts on
+scalable-font devices. The header and page payloads keep the same format.
 
 ### Version 115
 
