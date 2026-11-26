@@ -515,6 +515,24 @@ The final field is the WebSocket upload port.
 Calibre Wireless starts the same web server in STA mode and displays setup
 instructions plus WebSocket upload progress on the device screen.
 
+## Browser plugin downloads
+
+### `POST /api/fetch`
+
+Requires Plugins to be enabled. The JSON request accepts `{plugin, url, dest, headers?, offset?, maxBytes?}`.
+`offset` is the number of bytes already staged (zero starts a new download).
+`maxBytes`, when nonzero, limits a normal response segment to at most 4 MiB.
+A resumed request sends HTTP Range. If the source replies with HTTP 200 instead
+of honoring Range, the reader discards the staged prefix and streams that full
+response from byte zero, bypassing the segment limit for this request. That
+request can take longer than a normal segment.
+
+The JSON result contains `{status, bytes, complete, total?}` on success. When
+`complete` is false and there is no error, use `bytes` as the next `offset`.
+Check the JSON body for errors even if the HTTP response is 200: long requests
+may already have started a chunked response before a later failure. The existing
+destination stays intact until the complete staged download is published.
+
 ## Plugin protected-book support
 
 These endpoints require Plugins to be enabled.

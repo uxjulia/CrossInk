@@ -125,13 +125,17 @@ def main():
                 elif self.path in ('/book/Caf%C3%A9%20stories', '/bundle/Caf%C3%A9%20scripts/plugin.js'):
                     encoded_downloads.add(self.path)
                     data = b'fixture book contents\n'
+                elif self.path in ('/ignore-range', '/ignore-range-empty'):
+                    data = (b'' if self.path == '/ignore-range-empty' and self.headers.get('Range')
+                            else b'full body from byte zero\n' if self.headers.get('Range')
+                            else b'old staged prefix differs\n')
                 elif self.path == '/echo':
                     data = json.dumps({'authorization': self.headers.get('Authorization')}).encode()
                 else:
                     data = b'fixture book contents\n'
                 status = 200
                 total = len(data)
-                if self.headers.get('Range'):
+                if self.headers.get('Range') and self.path not in ('/ignore-range', '/ignore-range-empty'):
                     offset = int(self.headers['Range'].split('=')[1].split('-')[0])
                     data = data[offset:]
                     status = 206
@@ -341,6 +345,23 @@ def main():
                 result, _ = request('/api/fetch', {'url': origin + '/missing', 'dest': '/Books/browser.txt'})
                 assert json.loads(result).get('error') or not json.loads(result)['complete']
                 assert (sd / 'Books/browser.txt').read_bytes() == b'fixture book contents\n'
+                for endpoint, succeeds in [('ignore-range', True), ('ignore-range-empty', False)]:
+                    dest = '/Books/range-fallback.txt'
+                    published = sd / dest.lstrip('/')
+                    write(dest, 'original installed book')
+                    args = {'url': f'{origin}/{endpoint}', 'dest': dest, 'maxBytes': 5}
+                    body, _ = request('/api/fetch', args)
+                    first = json.loads(body)
+                    assert not first['complete'] and first['bytes'] == 5, first
+                    assert published.read_bytes() == b'original installed book'
+                    args['offset'] = first['bytes']
+                    body, _ = request('/api/fetch', args, expected=200 if succeeds else 502)
+                    result = json.loads(body)
+                    assert result['complete'] == succeeds, result
+                    assert published.read_bytes() == (b'full body from byte zero\n' if succeeds
+                                                      else b'original installed book')
+                    if succeeds:
+                        assert result['status'] == 200 and result['bytes'] == len(published.read_bytes()), result
                 boundary = 'plugin-test-boundary'
                 multipart = (f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="file"\r\n'
                              'Content-Type: application/octet-stream\r\n\r\nupdated\r\n'

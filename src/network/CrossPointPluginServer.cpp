@@ -525,7 +525,7 @@ void CrossPointWebServer::handleFetch() {
   size_t nextHeapLog = written;
   bool sdFull = false;
   bool segmentBoundary = false;
-  bool rangeUnsupported = false;
+  bool restartedSegmentedFetch = false;
   const unsigned long fetchStartedAt = millis();
   unsigned long lastBrowserHeartbeat = fetchStartedAt;
   bool browserResponseStarted = false;
@@ -562,7 +562,7 @@ void CrossPointWebServer::handleFetch() {
   freeink::FetchSink sink;
   sink.write = [&](const uint8_t* data, size_t len) {
     resetTaskWatchdogIfSubscribed();
-    const size_t writeLen = segmentLimit > 0 ? std::min(len, requestedOffset + segmentLimit - written) : len;
+    const size_t writeLen = segmentLimit > 0 ? std::min(len, segmentLimit - (written - requestedOffset)) : len;
     if (!FsHelpers::writeAndCheckpoint(file, data, writeLen)) {
       sdFull = true;
       return false;
@@ -584,15 +584,21 @@ void CrossPointWebServer::handleFetch() {
     return true;
   };
   sink.rewind = [&] {
-    // Range ignored: the body restarts from byte 0, which only a transfer
-    // that has not yet reported progress to the browser can follow.
-    if (requestedOffset > 0) {
-      rangeUnsupported = true;
+    // The SDK only rewinds for an HTTP 200 received in response to Range.
+    // Once a browser resume is ignored, finish this response from byte zero:
+    // returning another partial segment would make the browser repeat it.
+    if (!file.close() || !Storage.openFileForWrite("PLG", part, file)) {
+      sdFull = true;
       return false;
     }
-    file.close();
+    if (requestedOffset > 0) {
+      segmentLimit = 0;
+      restartedSegmentedFetch = true;
+      LOG_INF("WEB", "Fetch Range ignored at %u; restarting from byte zero", (unsigned)requestedOffset);
+    }
     written = 0;
-    return Storage.openFileForWrite("PLG", part, file);
+    nextHeapLog = 0;
+    return true;
   };
   const auto shouldAbort = [&] {
     resetTaskWatchdogIfSubscribed();
@@ -624,17 +630,19 @@ void CrossPointWebServer::handleFetch() {
   }
   const int status = result.status;
   const size_t totalExpected = result.total;
-  bool complete = !sdFull && (result.complete || (segmentBoundary && totalExpected > 0 && written >= totalExpected));
+  // An empty full response cannot replace a download that already had data.
+  bool complete = !sdFull && !result.aborted && (!restartedSegmentedFetch || written > 0) &&
+                  (result.complete || (segmentBoundary && totalExpected > 0 && written >= totalExpected));
 
   const bool ok2xx = status >= 200 && status < 300;
   // A bounded segment ended mid-body: the browser requests the next one, so
   // the .part stays and nothing is installed yet.
-  const bool midSegment = segmentBoundary && !sdFull && !complete && ok2xx;
+  const bool midSegment = segmentBoundary && !sdFull && !result.aborted && !complete && ok2xx;
 
   if (!complete && ok2xx && !midSegment) {
     Storage.remove(part.c_str());
     char msg[96];
-    const char* error = sdFull ? "sd write failed" : rangeUnsupported ? "range unsupported" : "download truncated";
+    const char* error = sdFull ? "sd write failed" : "download truncated";
     // complete:false matters once the heartbeat has committed HTTP 200 chunked:
     // it is the only signal fetchToSd()'s resume loop still sees on this path
     // (it then detects zero progress and throws instead of returning success).

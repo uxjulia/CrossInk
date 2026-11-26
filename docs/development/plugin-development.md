@@ -192,7 +192,11 @@ CrossPoint.registerPlugin(async (container, api) => {
 | `api.pluginFile(filename)` | URL for a file in this plugin's folder. |
 | `api.registerAction(name, fn)` | Register a browser action callable through the job queue. |
 
-Relay bodies are limited to 32 KiB; larger downloads use `fetchToSd`. File uploads
+Relay bodies are limited to 32 KiB; larger downloads use `fetchToSd`.
+If the remote server ignores a request to resume, the reader restarts the staged file
+from byte zero and downloads it in one longer request without changing the destination
+until it is complete. See the [download endpoint reference](../webserver-endpoints.md#browser-plugin-downloads).
+File uploads
 are limited to 256 KiB. Plugin requests reject HTTP framing headers and control
 characters. Credentials are not forwarded to another origin on redirects or
 through remote catalog links. Network requests use the existing SecureNet TLS
