@@ -33,7 +33,7 @@
 - Keep the EPUB’s Time Left estimate visible while relearning after a layout change.
 - Turn off the frontlight as soon as sleep starts, including when plugins or Sync on Sleep are still working.
 - Use font filenames to pick the correct styles when scalable SD fonts have incorrect style metadata (adapted from CrossPoint #4325).
-- Fix Protected Content activation for accounts that use legacy-encrypted certificates (#976).
+- Fix Protected Content activation with legacy-encrypted certificates or when Show Hidden Files is off (#976).
 
 ## [v2.0.0] - 2026-11-24
 

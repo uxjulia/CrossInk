@@ -183,6 +183,11 @@ def main():
         write('/plugins/installed/plugin.js', 'old')
         write('/plugins/installed/.config.json', {'keep': True})
         write('/plugins/installed/.secrets/value', 'preserve')
+        content_plugin_dir = '/.crosspoint/plugins/protected-content'
+        write(content_plugin_dir + '/plugin.js', 'CrossPoint.registerPlugin(() => {});')
+        write(content_plugin_dir + '/other.json', {'unrelated': True})
+        write('/.crosspoint/content.key', 'legacy fixture')
+        write('/.hidden/content.key', 'unrelated fixture')
         write('/.crosspoint/wifi.json', {'private': True})
         with socket.socket() as port_probe:
             port_probe.bind(('127.0.0.1', 0)); port = port_probe.getsockname()[1]
@@ -279,6 +284,27 @@ def main():
 
                 request('/api/fetch', {'url': origin + '/book', 'dest': '/.crosspoint/wifi.json'}, expected=400)
                 request('/download?path=/.crosspoint/wifi.json', expected=403)
+                # Match the plugin's two-step read with Show Hidden Files off.
+                body, _ = request('/api/files?path=/')
+                assert '.crosspoint' not in {row['name'] for row in json.loads(body)}
+                body, _ = request(f'/api/files?path={content_plugin_dir}')
+                assert json.loads(body) == []
+                body, _ = request('/api/files?path=/.crosspoint')
+                assert {row['name'] for row in json.loads(body)} == {'content.key'}
+                body, _ = request('/download?path=/.crosspoint/content.key')
+                assert body == b'legacy fixture'
+                for name in ('content.key', 'activation.json'):
+                    write(f'{content_plugin_dir}/{name}', 'current fixture')
+                    body, _ = request(f'/download?path={content_plugin_dir}/{name}')
+                    assert body == b'current fixture'
+                body, _ = request(f'/api/files?path={content_plugin_dir}')
+                assert {row['name'] for row in json.loads(body)} == {'content.key', 'activation.json'}
+                request(f'/download?path={content_plugin_dir}/other.json', expected=403)
+                request('/api/files?path=/.hidden', expected=403)
+                request('/download?path=/.hidden/content.key', expected=403)
+                write(content_plugin_dir + '/.installing', '')
+                request('/download?path=/.crosspoint/content.key', expected=403)
+                (sd / (content_plugin_dir + '/.installing').lstrip('/')).unlink()
                 write('/Books/browser.txt', 'old book')
                 offset = 0
                 for _ in range(20):

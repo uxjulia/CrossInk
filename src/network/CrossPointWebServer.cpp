@@ -40,6 +40,7 @@
 #include <cctype>
 #include <cstring>
 #include <iterator>
+#include <string_view>
 
 #include "AppVersion.h"
 #include "CrossPointSettings.h"
@@ -67,6 +68,7 @@
 #include "util/BookMoveUtils.h"
 #include "util/FontFamilyLabel.h"
 #include "util/OpdsDownloadFolder.h"
+#include "util/PluginLocations.h"
 #include "util/ReaderStatusBarJson.h"
 #include "util/StringUtils.h"
 
@@ -394,6 +396,28 @@ bool isProtectedPath(const String& path) {
   }
 
   return false;
+}
+
+// The existing Protected Content plugin reads these files through the web File Manager.
+// Scope the hidden-path exception to its installed folder and legacy storage location.
+std::string_view protectedContentActivationFilename(const std::string_view directory) {
+  constexpr char PLUGIN_NAME[] = "protected-content";
+  constexpr std::string_view LEGACY_DIRECTORY = "/.crosspoint";
+  const size_t slash = directory.rfind('/');
+  if (directory != LEGACY_DIRECTORY &&
+      (slash == std::string_view::npos || directory.substr(slash + 1) != PLUGIN_NAME)) {
+    return {};
+  }
+
+  const auto pluginDirectory = PluginLocations::findPluginDir(PLUGIN_NAME);
+  if (pluginDirectory.empty() || !Storage.exists((pluginDirectory + "/plugin.js").c_str())) return {};
+  if (directory == LEGACY_DIRECTORY) return "content-activation.json";
+  if (directory == pluginDirectory) return "activation.json";
+  return {};
+}
+
+bool isProtectedContentStateFile(const std::string_view name, const std::string_view activationFilename) {
+  return !activationFilename.empty() && (name == "content.key" || name == activationFilename);
 }
 }  // namespace
 
@@ -991,9 +1015,15 @@ void CrossPointWebServer::handleFileListData() const {
     currentPath = normalizeWebPath(server->arg("path"));
   }
 
+  std::string_view activationFilename;
   if (isProtectedPath(currentPath)) {
-    server->send(403, "application/json", "[]");
-    return;
+    if (!protectedpaths::isSensitivePath(currentPath.c_str())) {
+      activationFilename = protectedContentActivationFilename(currentPath.c_str());
+    }
+    if (activationFilename.empty()) {
+      server->send(403, "application/json", "[]");
+      return;
+    }
   }
 
   // This response runs on the web-server task, so a TCP-sized heap buffer is
@@ -1021,8 +1051,9 @@ void CrossPointWebServer::handleFileListData() const {
     size_t batchLen;
     char* output;
     JsonDocument* doc;
+    std::string_view activationFilename;
     bool seenFirst;
-  } context{server.get(), batch.get(), 0, output, &doc, false};
+  } context{server.get(), batch.get(), 0, output, &doc, activationFilename, false};
 
   if (batch) {
     batch[context.batchLen++] = '[';
@@ -1035,6 +1066,10 @@ void CrossPointWebServer::handleFileListData() const {
       currentPath.c_str(),
       [](const FileInfo& info, void* rawContext) {
         auto& context = *static_cast<FileListContext*>(rawContext);
+        if (!context.activationFilename.empty() &&
+            (info.isDirectory || !isProtectedContentStateFile(info.name.c_str(), context.activationFilename))) {
+          return;
+        }
         context.doc->clear();
         (*context.doc)["name"] = info.name;
         (*context.doc)["size"] = info.size;
@@ -1098,8 +1133,14 @@ void CrossPointWebServer::handleDownload() const {
   }
 
   if (isProtectedPath(itemPath)) {
-    server->send(403, "text/plain", "Access denied to protected path");
-    return;
+    const std::string_view path(itemPath.c_str(), itemPath.length());
+    const size_t slash = path.rfind('/');
+    if (protectedpaths::isSensitivePath(itemPath.c_str()) ||
+        !isProtectedContentStateFile(path.substr(slash + 1),
+                                     protectedContentActivationFilename(path.substr(0, slash)))) {
+      server->send(403, "text/plain", "Access denied to protected path");
+      return;
+    }
   }
 
   if (!Storage.exists(itemPath.c_str())) {
