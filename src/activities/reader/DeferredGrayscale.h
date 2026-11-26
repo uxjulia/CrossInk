@@ -45,7 +45,7 @@ inline bool allocateDeferredGrayscalePlanes(const GfxRenderer& renderer, Deferre
 // the caller takes its blocking path.
 template <typename PlaneFn>
 bool displayDeferredGrayscale(GfxRenderer& renderer, int& pagesUntilFullRefresh, DeferredGrayscalePlanes& planes,
-                              PlaneFn&& renderPlane) {
+                              PlaneFn&& renderPlane, [[maybe_unused]] const bool pairTextPlanes = false) {
   if (pagesUntilFullRefresh <= 1) return false;
   const bool combined = renderer.combinesGrayscaleBase();
   if (!combined && !renderer.supportsDeferredGrayscaleBase()) return false;
@@ -61,14 +61,25 @@ bool displayDeferredGrayscale(GfxRenderer& renderer, int& pagesUntilFullRefresh,
   }
   pagesUntilFullRefresh--;
   bool ok = true;
-  for (const auto mode : {GfxRenderer::GRAYSCALE_LSB, GfxRenderer::GRAYSCALE_MSB}) {
-    if (!ok) break;
-    renderer.setRenderMode(mode);
-    renderer.beginStripTarget(mode == GfxRenderer::GRAYSCALE_LSB ? lsb.get() : msb.get(), 0,
-                              renderer.getDisplayHeight());
+#if defined(BOARD_HAS_PSRAM) || (defined(FREEINK_FB_PSRAM) && FREEINK_FB_PSRAM) || defined(CROSSINK_MEMORY_TEST)
+  if (pairTextPlanes && !renderer.grayPlanesAreAbsolute()) {
+    renderer.setRenderMode(GfxRenderer::GRAYSCALE_LSB);
+    renderer.beginGrayPairTarget(lsb.get(), msb.get());
     renderer.clearScreen(0x00);
     ok = renderPlane();
     renderer.endStripTarget();
+  } else
+#endif
+  {
+    for (const auto mode : {GfxRenderer::GRAYSCALE_LSB, GfxRenderer::GRAYSCALE_MSB}) {
+      if (!ok) break;
+      renderer.setRenderMode(mode);
+      renderer.beginStripTarget(mode == GfxRenderer::GRAYSCALE_LSB ? lsb.get() : msb.get(), 0,
+                                renderer.getDisplayHeight());
+      renderer.clearScreen(0x00);
+      ok = renderPlane();
+      renderer.endStripTarget();
+    }
   }
   renderer.setRenderMode(GfxRenderer::BW);
   if (!combined) renderer.waitRefreshComplete();

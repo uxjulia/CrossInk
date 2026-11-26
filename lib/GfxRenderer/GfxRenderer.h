@@ -138,6 +138,9 @@ class GfxRenderer {
   // operate on a caller-owned scratch holding one horizontal band of physical
   // rows [_stripY0, _stripY0 + _stripRows) instead of the shared framebuffer.
   mutable uint8_t* _stripBuf = nullptr;
+#if defined(BOARD_HAS_PSRAM) || (defined(FREEINK_FB_PSRAM) && FREEINK_FB_PSRAM) || defined(CROSSINK_MEMORY_TEST)
+  mutable uint8_t* grayPairMsb_ = nullptr;
+#endif
   mutable int _stripY0 = 0;
   mutable int _stripRows = 0;
   mutable bool _stripActive = false;
@@ -318,6 +321,12 @@ class GfxRenderer {
   }
 
   void beginStripTarget(uint8_t* scratch, int stripY0, int stripRows) const;
+#if defined(BOARD_HAS_PSRAM) || (defined(FREEINK_FB_PSRAM) && FREEINK_FB_PSRAM) || defined(CROSSINK_MEMORY_TEST)
+  // Overlay masks only. Images and absolute gray use ordinary strip targets.
+  void beginGrayPairTarget(uint8_t* lsb, uint8_t* msb) const;
+  bool isGrayPairTargetActive() const { return grayPairMsb_ != nullptr; }
+  void drawGrayPairFontPixel(int x, int y, uint8_t coverage) const;
+#endif
   void endStripTarget() const;
   bool glyphIntersectsStrip(int x0, int y0, int x1, int y1) const;
   // One immutable page replay, under the renderer's RenderLock. Bounds must not

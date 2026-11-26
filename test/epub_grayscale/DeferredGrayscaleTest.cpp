@@ -162,3 +162,42 @@ TEST_F(DeferredGrayscaleTest, CombinedCleanupTurnsAndMissingPsramKeepExistingFal
   EXPECT_TRUE(renderer.events.empty());
   EXPECT_EQ(cadence, 5);
 }
+
+TEST_F(DeferredGrayscaleTest, PairedPageTraversesOnceWithExistingBuffers) {
+  GfxRenderer renderer(800, 480);
+  ReaderUtils::DeferredGrayscalePlanes planes;
+  int cadence = 5;
+  const auto bw = renderer.bw;
+  int traversals = 0;
+  const auto render = [&] {
+    ++traversals;
+    EXPECT_EQ(renderer.mode, GfxRenderer::GRAYSCALE_LSB);
+    EXPECT_EQ(renderer.pairedTarget, planes.msb.get());
+    renderer.target[1] = 0x24;
+    renderer.pairedTarget[1] = 0x36;
+    return true;
+  };
+  ASSERT_TRUE(ReaderUtils::displayDeferredGrayscale(renderer, cadence, planes, render, /*pairTextPlanes=*/true));
+  EXPECT_EQ(traversals, 1);
+  EXPECT_EQ(renderer.lsb[1], 0x24);
+  EXPECT_EQ(renderer.msb[1], 0x36);
+  EXPECT_EQ(renderer.bw, bw);
+  EXPECT_EQ(renderer.mode, GfxRenderer::BW);
+  EXPECT_FALSE(renderer.active);
+  EXPECT_EQ(fakeheap::external.attempts, 2);
+}
+
+TEST_F(DeferredGrayscaleTest, AbsoluteTargetDeclinesOptionalPairedOverlay) {
+  GfxRenderer renderer;
+  renderer.absolute = true;
+  ReaderUtils::DeferredGrayscalePlanes planes;
+  int cadence = 5;
+  int traversals = 0;
+  const auto render = [&] {
+    ++traversals;
+    EXPECT_EQ(renderer.pairedTarget, nullptr);
+    return true;
+  };
+  ASSERT_TRUE(ReaderUtils::displayDeferredGrayscale(renderer, cadence, planes, render, /*pairTextPlanes=*/true));
+  EXPECT_EQ(traversals, 2);
+}

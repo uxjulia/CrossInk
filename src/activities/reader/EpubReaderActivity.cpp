@@ -8578,10 +8578,13 @@ bool EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int fo
   }
   const bool needsAnyGrayscale = needsTextGrayscale || needsImageGrayscale;
   if (needsAnyGrayscale && !pageHasImages &&
-      ReaderUtils::displayDeferredGrayscale(renderer, pagesUntilFullRefresh, deferredGrayscalePlanes, [&]() {
-        composeGrayscaleBuffer();
-        return true;
-      })) {
+      ReaderUtils::displayDeferredGrayscale(
+          renderer, pagesUntilFullRefresh, deferredGrayscalePlanes,
+          [&]() {
+            composeGrayscaleBuffer();
+            return true;
+          },
+          /*pairTextPlanes=*/!activeFootnotePreview)) {
     presentedPageUsesGrayscale = true;
     return true;
   }

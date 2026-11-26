@@ -166,8 +166,19 @@ bool runTiledGrayscalePass(GfxRenderer& renderer, const Page& page, const int fo
               static_cast<unsigned>(planeBytes), msbPlaneBuf ? 2U : 1U, heap.freeHeap, heap.maxAllocHeap);
 #endif
     }
-    if (!renderPlaneToBuffer(GfxRenderer::GRAYSCALE_LSB, lsbPlaneBuf.get())) return failedImageReplay();
-    if (msbPlaneBuf && !renderPlaneToBuffer(GfxRenderer::GRAYSCALE_MSB, msbPlaneBuf.get())) return failedImageReplay();
+#if defined(BOARD_HAS_PSRAM) || (defined(FREEINK_FB_PSRAM) && FREEINK_FB_PSRAM) || defined(CROSSINK_MEMORY_TEST)
+    if (usePsramPlanes && msbPlaneBuf && needsTextGrayscale && !needsImageGrayscale && !renderer.grayPlanesAreAbsolute()) {
+      renderer.setRenderMode(GfxRenderer::GRAYSCALE_LSB);
+      renderer.beginGrayPairTarget(lsbPlaneBuf.get(), msbPlaneBuf.get());
+      renderer.clearScreen(0x00);
+      page.renderText(renderer, fontId, marginLeft, marginTop, foregroundBlack);
+      renderer.endStripTarget();
+    } else
+#endif
+    {
+      if (!renderPlaneToBuffer(GfxRenderer::GRAYSCALE_LSB, lsbPlaneBuf.get())) return failedImageReplay();
+      if (msbPlaneBuf && !renderPlaneToBuffer(GfxRenderer::GRAYSCALE_MSB, msbPlaneBuf.get())) return failedImageReplay();
+    }
 
     renderer.waitRefreshComplete();
     renderer.writeGrayscalePlaneStrip(true, lsbPlaneBuf.get(), 0, displayHeight);

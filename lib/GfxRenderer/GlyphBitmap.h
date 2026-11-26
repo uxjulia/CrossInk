@@ -133,9 +133,15 @@ inline InkPaint inkPaint(bool twoBit, Plane plane, bool state, bool absolute, ui
 // Absolute gray planes replace nonzero coverage with the complete shade;
 // zero coverage leaves the seeded background untouched.
 // Clipping happens before pixel decoding, so fully hidden glyphs cost nothing.
-inline void draw(const uint8_t* bitmap, int width, int height, bool twoBit, Plane plane, bool state,
-                 const Target& target, Clip clip, bool absolute = false, uint8_t darkness = 0) {
+template <bool Paired>
+inline void drawImpl(const uint8_t* bitmap, int width, int height, bool twoBit, Plane plane, bool state,
+                 const Target& target, Clip clip, bool absolute, uint8_t darkness, uint8_t* msb) {
   const auto [levels, clearLevels] = inkPaint(twoBit, plane, state, absolute, darkness);
+  [[maybe_unused]] const auto second = Paired ? inkPaint(twoBit, Plane::GrayMSB, state, absolute, darkness) : InkPaint{};
+  const auto paintPixel = [&](int destination, uint8_t ink) __attribute__((always_inline)) {
+    paint(target.buffer, destination, ink, levels, clearLevels);
+    if constexpr (Paired) paint(msb, destination, ink, second.levels, second.clearLevels);
+  };
 
   // Intersect with the glyph bounds, then with the panel width and the
   // buffered row band.
@@ -161,17 +167,17 @@ inline void draw(const uint8_t* bitmap, int width, int height, bool twoBit, Plan
     if (twoBit) {
       // Rows are bit-contiguous, not byte-padded. Align after any clipped prefix.
       while (remaining && (source & 3)) {
-        paint(target.buffer, destination, (bitmap[source >> 2] >> (6 - (source & 3) * 2)) & 3, levels, clearLevels);
+        paintPixel(destination, (bitmap[source >> 2] >> (6 - (source & 3) * 2)) & 3);
         ++source;
         destination += stepX;
         --remaining;
       }
       while (remaining >= 4) {
         const uint8_t packed = bitmap[source >> 2];
-        paint(target.buffer, destination, packed >> 6, levels, clearLevels);
-        paint(target.buffer, destination + stepX, (packed >> 4) & 3, levels, clearLevels);
-        paint(target.buffer, destination + 2 * stepX, (packed >> 2) & 3, levels, clearLevels);
-        paint(target.buffer, destination + 3 * stepX, packed & 3, levels, clearLevels);
+        paintPixel(destination, packed >> 6);
+        paintPixel(destination + stepX, (packed >> 4) & 3);
+        paintPixel(destination + 2 * stepX, (packed >> 2) & 3);
+        paintPixel(destination + 3 * stepX, packed & 3);
         source += 4;
         destination += 4 * stepX;
         remaining -= 4;
@@ -181,11 +187,21 @@ inline void draw(const uint8_t* bitmap, int width, int height, bool twoBit, Plan
     while (remaining--) {
       const uint8_t ink = twoBit ? ((bitmap[source >> 2] >> (6 - (source & 3) * 2)) & 3)
                                  : ((bitmap[source >> 3] >> (7 - (source & 7))) & 1);
-      paint(target.buffer, destination, ink, levels, clearLevels);
+      paintPixel(destination, ink);
       ++source;
       destination += stepX;
     }
   }
+}
+
+inline void draw(const uint8_t* bitmap, int width, int height, bool twoBit, Plane plane, bool state,
+                 const Target& target, Clip clip, bool absolute = false, uint8_t darkness = 0) {
+  drawImpl<false>(bitmap, width, height, twoBit, plane, state, target, clip, absolute, darkness, nullptr);
+}
+
+inline void drawGrayPair(const uint8_t* bitmap, int width, int height, bool twoBit, bool state,
+                         const Target& lsb, uint8_t* msb, Clip clip, uint8_t darkness) {
+  drawImpl<true>(bitmap, width, height, twoBit, Plane::GrayLSB, state, lsb, clip, false, darkness, msb);
 }
 
 }  // namespace glyphBitmap

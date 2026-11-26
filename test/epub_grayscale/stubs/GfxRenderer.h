@@ -43,6 +43,7 @@ class GfxRenderer {
   bool supported = true, inverted = false, active = false;
   int origin = 0, rows = 0, placeholders = 0;
   uint8_t* target = nullptr;
+  uint8_t* pairedTarget = nullptr;
   std::vector<uint8_t> bw, lsb, msb;
   std::vector<std::string> events;
   FontCacheManager fonts;
@@ -76,13 +77,21 @@ class GfxRenderer {
     origin = y;
     rows = count;
   }
+  void beginGrayPairTarget(uint8_t* low, uint8_t* high) {
+    beginStripTarget(low, 0, height);
+    pairedTarget = high;
+  }
   void endStripTarget() {
     assert(active);
     active = false;
-    target = nullptr;
+    target = pairedTarget = nullptr;
     origin = rows = 0;
   }
-  void clearScreen(uint8_t c = 0xff) { memset(getWriteTarget(), c, size_t(stride) * getWriteRows()); }
+  void clearScreen(uint8_t c = 0xff) {
+    const auto bytes = size_t(stride) * getWriteRows();
+    memset(getWriteTarget(), c, bytes);
+    if (pairedTarget) memset(pairedTarget, c, bytes);
+  }
   bool combinesGrayscaleBase() const { return combinedBase && !inverted; }
   void displayGrayscaleBase(int) { events.push_back("combined-base"); }
   bool supportsDeferredGrayscaleBase() const { return deferredSupported && !inverted; }

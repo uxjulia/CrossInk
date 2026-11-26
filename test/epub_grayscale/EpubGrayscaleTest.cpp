@@ -420,7 +420,10 @@ TEST_F(EpubGrayscaleTest, DisabledImageGrayscaleNeverVisitsImagesWithTextAaOrWit
                                                      scratch.size(), path != 0),
                 text);
       EXPECT_EQ(page.imageVisits, 0);
-      EXPECT_EQ(page.allVisits, text ? (path < 2 ? 14 : 2) : 0);
+      // Disabled images are never visited; when both PSRAM masks fit, the
+      // allowed text-only overlay needs just one traversal.
+      const int expectedTextVisits = path < 2 ? 14 : path == 2 ? 2 : 1;
+      EXPECT_EQ(page.allVisits, text ? expectedTextVisits : 0);
       EXPECT_EQ(r.bw, live);
       EXPECT_EQ(r.mode, GfxRenderer::BW);
       EXPECT_FALSE(r.active);

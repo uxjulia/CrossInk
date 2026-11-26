@@ -1234,3 +1234,82 @@ TEST(EpubTextGrayscaleTest, RubyCacheSlotsRejectLowContiguousHeapAndCanReopen) {
   EXPECT_EQ(loaded->getRubyTexts().front(), "annotation");
   EXPECT_EQ(loaded->getRubyTexts().back(), "annotation");
 }
+
+TEST(EpubTextGrayscaleTest, SdGlyphPrewarmBatchesButLowMemoryFallbackKeepsIdenticalPixels) {
+  std::vector<uint8_t> reference;
+  size_t referenceReads = 0;
+  const char* letters = "ACFJ";
+  for (const bool admitBatch : {false, true}) {
+    fakeheap::reset(true);
+    Storage.reset();
+    RasterFont fixture(12);
+    // Make neighbouring bytes distinct, not just alternate repeated patterns.
+    for (size_t i = 0; i < fixture.pixels.size(); ++i) fixture.pixels[i] = (i * 41 + i / 31) & 255;
+    Storage.put("batch.cpfont", fixture.file());
+    SdCardFont font;
+    ASSERT_TRUE(font.load("batch.cpfont"));
+    if (!admitBatch) fakeheap::external.free = 128 * 1024;
+    auto& file = Storage.data("batch.cpfont");
+    const size_t before = file.readCalls;
+    ASSERT_GE(font.prewarm(letters, 1, /*metadataOnly=*/false, /*includeKerning=*/false), 0);
+    ASSERT_FALSE(font.lastPrewarmFailed());
+    const auto reads = file.readCalls - before;
+    HalDisplay display;
+    GfxRenderer renderer(display);
+    renderer.begin();
+    renderer.insertFont(1, EpdFontFamily(font.getEpdFont()));
+    renderer.registerSdCardFont(1, &font);
+    renderer.clearScreen();
+    renderer.drawText(1, 30, 20, letters);
+    EXPECT_EQ(file.readCalls - before, reads);
+    if (!admitBatch) {
+      referenceReads = reads;
+      reference = display.bw;
+    } else {
+      EXPECT_EQ(reads + 3, referenceReads);  // Four bitmap calls become one, metadata unchanged.
+      EXPECT_EQ(display.bw, reference);
+    }
+  }
+}
+
+TEST(EpubTextGrayscaleTest, PairedRendererPreservesScaledGlyphsAndTextDecorations) {
+  fakeheap::reset(true);
+  RasterFont fixture(12);
+  HalDisplay display;
+  GfxRenderer renderer(display);
+  renderer.begin();
+  renderer.insertFont(1, EpdFontFamily(&fixture.font));
+  const std::vector<uint8_t> bw(display.bw);
+  const size_t size = renderer.getDisplayWidthBytes() * renderer.getDisplayHeight();
+  const auto paint = [&] {
+    renderer.fillRectDither(11, 6, 21, 7, Color::LightGray);
+    renderer.drawText(1, 13, 7, "AaB", true, EpdFontFamily::SMALL_CAPS);
+    renderer.drawScaledCodepoint(1, 'A', EpdFontFamily::REGULAR, 45, 38, 640);
+    renderer.invertRect(60, 20, 3, 11);
+  };
+  for (const auto orientation : {GfxRenderer::Portrait, GfxRenderer::LandscapeClockwise,
+                                 GfxRenderer::PortraitInverted, GfxRenderer::LandscapeCounterClockwise}) {
+    renderer.setOrientation(orientation);
+    for (uint8_t darkness = 0; darkness <= 2; ++darkness) {
+      const GfxRenderer::TextDarknessScope shade(renderer, darkness);
+      std::vector<uint8_t> low(size), high(size), pairLow(size), pairHigh(size);
+      for (const auto mode : {GfxRenderer::GRAYSCALE_LSB, GfxRenderer::GRAYSCALE_MSB}) {
+        renderer.setRenderMode(mode);
+        renderer.beginStripTarget(mode == GfxRenderer::GRAYSCALE_LSB ? low.data() : high.data(), 0,
+                                  renderer.getDisplayHeight());
+        renderer.clearScreen(0x00);
+        paint();
+        renderer.endStripTarget();
+      }
+      renderer.setRenderMode(GfxRenderer::GRAYSCALE_LSB);
+      renderer.beginGrayPairTarget(pairLow.data(), pairHigh.data());
+      renderer.clearScreen(0x00);
+      paint();
+      renderer.endStripTarget();
+      renderer.setRenderMode(GfxRenderer::BW);
+      EXPECT_EQ(pairLow, low);
+      EXPECT_EQ(pairHigh, high);
+      EXPECT_EQ(display.bw, bw);
+    }
+  }
+}

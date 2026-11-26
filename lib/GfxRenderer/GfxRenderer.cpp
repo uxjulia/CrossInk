@@ -113,6 +113,12 @@ int scaled75SourceEnd(const int dst, const int srcLimit) {
 void draw2BitFontPixel(const GfxRenderer& renderer, const GfxRenderer::RenderMode renderMode, const int x, const int y,
                        uint8_t raw, const bool pixelState) {
   if (renderMode != GfxRenderer::BW) raw = textDarkness::coverage(raw, renderer.getTextDarkness());
+#if defined(BOARD_HAS_PSRAM) || (defined(FREEINK_FB_PSRAM) && FREEINK_FB_PSRAM) || defined(CROSSINK_MEMORY_TEST)
+  if (renderer.isGrayPairTargetActive()) {
+    renderer.drawGrayPairFontPixel(x, y, raw);
+    return;
+  }
+#endif
   const uint8_t bmpVal = 3 - raw;
   if (renderer.grayPlanesAreAbsolute() && renderMode != GfxRenderer::BW) {
     if (raw) {
@@ -1055,9 +1061,32 @@ void GfxRenderer::drawGlyphBitmap(const uint8_t* bitmap, const int width, const 
   }
 
   const auto target = glyphTarget(*this, frame, orientation, panelWidth, panelHeight, panelWidthBytes);
+#if defined(BOARD_HAS_PSRAM) || (defined(FREEINK_FB_PSRAM) && FREEINK_FB_PSRAM) || defined(CROSSINK_MEMORY_TEST)
+  if (grayPairMsb_) {
+    glyphBitmap::drawGrayPair(bitmap, width, height, twoBit, state, target, grayPairMsb_, clip, textDarkness_);
+    return;
+  }
+#endif
   glyphBitmap::draw(bitmap, width, height, twoBit, glyphPlane(mode), state, target, clip, absoluteGrayPlanes,
                     textDarkness_);
 }
+
+#if defined(BOARD_HAS_PSRAM) || (defined(FREEINK_FB_PSRAM) && FREEINK_FB_PSRAM) || defined(CROSSINK_MEMORY_TEST)
+void GfxRenderer::drawGrayPairFontPixel(int x, int y, const uint8_t coverage) const {
+  if (coverage == 2) {
+    drawPixel(x, y, false);  // Dark gray writes both overlay masks.
+  } else if (coverage == 1) {
+    // Light gray only updates MSB. Reuse ordinary rotation and clip handling.
+    auto* const low = _stripBuf;
+    auto* const high = grayPairMsb_;
+    _stripBuf = high;
+    grayPairMsb_ = nullptr;
+    drawPixel(x, y, false);
+    grayPairMsb_ = high;
+    _stripBuf = low;
+  }
+}
+#endif
 
 // IMPORTANT: This function is in critical rendering path and is called for every pixel. Please keep it as simple and
 // efficient as possible.
@@ -1149,6 +1178,14 @@ void GfxRenderer::drawPixel(const int x, const int y, const bool state) const {
   // Calculate byte position and bit position
   const uint32_t byteIndex = rowY * panelWidthBytes + (phyX / 8);
   const uint8_t bitPosition = 7 - (phyX % 8);  // MSB first
+#if defined(BOARD_HAS_PSRAM) || (defined(FREEINK_FB_PSRAM) && FREEINK_FB_PSRAM) || defined(CROSSINK_MEMORY_TEST)
+  if (grayPairMsb_) {
+    const uint8_t mask = 1u << bitPosition;
+    if (state) grayPairMsb_[byteIndex] &= static_cast<uint8_t>(~mask);
+    else grayPairMsb_[byteIndex] |= mask;
+  }
+#endif
+
 
   if (state) {
     target[byteIndex] &= ~(1 << bitPosition);  // Clear bit
@@ -1896,6 +1933,19 @@ void GfxRenderer::fillRectDither(const int x, const int y, const int width, cons
 template <Color C>
 void GfxRenderer::fillRectImpl(const int x, const int y, const int width, const int height) const {
   if constexpr (C == Color::Clear) return;
+#if defined(BOARD_HAS_PSRAM) || (defined(FREEINK_FB_PSRAM) && FREEINK_FB_PSRAM) || defined(CROSSINK_MEMORY_TEST)
+  if (grayPairMsb_) {
+    auto* const low = _stripBuf;
+    auto* const high = grayPairMsb_;
+    grayPairMsb_ = nullptr;
+    _stripBuf = high;
+    fillRectImpl<C>(x, y, width, height);
+    _stripBuf = low;
+    fillRectImpl<C>(x, y, width, height);
+    grayPairMsb_ = high;
+    return;
+  }
+#endif
   if (width <= 0 || height <= 0) return;
   if (fontCacheManager_ && fontCacheManager_->isScanning()) return;
 
@@ -2621,6 +2671,9 @@ void GfxRenderer::clearScreen(const uint8_t color) const {
   if (_stripActive) {
     // Clear only the active band's scratch, not the shared framebuffer.
     memset(_stripBuf, color, static_cast<size_t>(panelWidthBytes) * _stripRows);
+#if defined(BOARD_HAS_PSRAM) || (defined(FREEINK_FB_PSRAM) && FREEINK_FB_PSRAM) || defined(CROSSINK_MEMORY_TEST)
+    if (grayPairMsb_) memset(grayPairMsb_, color, static_cast<size_t>(panelWidthBytes) * _stripRows);
+#endif
     return;
   }
   display.clearScreen(color);
@@ -2637,7 +2690,18 @@ void GfxRenderer::beginStripTarget(uint8_t* scratch, int stripY0, int stripRows)
   _stripActive = true;
 }
 
+#if defined(BOARD_HAS_PSRAM) || (defined(FREEINK_FB_PSRAM) && FREEINK_FB_PSRAM) || defined(CROSSINK_MEMORY_TEST)
+void GfxRenderer::beginGrayPairTarget(uint8_t* lsb, uint8_t* msb) const {
+  assert(!absoluteGrayPlanes && renderMode == GRAYSCALE_LSB && msb && lsb != msb);
+  beginStripTarget(lsb, 0, panelHeight);
+  grayPairMsb_ = msb;
+}
+#endif
+
 void GfxRenderer::endStripTarget() const {
+#if defined(BOARD_HAS_PSRAM) || (defined(FREEINK_FB_PSRAM) && FREEINK_FB_PSRAM) || defined(CROSSINK_MEMORY_TEST)
+  grayPairMsb_ = nullptr;
+#endif
   _stripActive = false;
   _stripBuf = nullptr;
   _stripY0 = 0;
@@ -2710,6 +2774,19 @@ void GfxRenderer::invertScreen() const {
 
 void GfxRenderer::invertRect(const int x, const int y, const int width, const int height) const {
   if (frameBuffer == nullptr || width <= 0 || height <= 0) return;
+#if defined(BOARD_HAS_PSRAM) || (defined(FREEINK_FB_PSRAM) && FREEINK_FB_PSRAM) || defined(CROSSINK_MEMORY_TEST)
+  if (grayPairMsb_) {
+    auto* const low = _stripBuf;
+    auto* const high = grayPairMsb_;
+    grayPairMsb_ = nullptr;
+    _stripBuf = high;
+    invertRect(x, y, width, height);
+    _stripBuf = low;
+    invertRect(x, y, width, height);
+    grayPairMsb_ = high;
+    return;
+  }
+#endif
 
   const int lx0 = std::max(0, x);
   const int ly0 = std::max(0, y);
@@ -3497,6 +3574,14 @@ int GfxRenderer::drawScaledCodepoint(int fontId, const uint32_t cp, const EpdFon
   const auto target = glyphTarget(*this, frame, orientation, panelWidth, panelHeight, panelWidthBytes);
   glyphBitmap::drawScaled(bitmap, srcW, srcH, paintScale, fontData->is2Bit, glyphPlane(renderMode), pixelState, target,
                           clip, scaledGlyphGrayscaleBase_, absoluteGrayPlanes, textDarkness_);
+#if defined(BOARD_HAS_PSRAM) || (defined(FREEINK_FB_PSRAM) && FREEINK_FB_PSRAM) || defined(CROSSINK_MEMORY_TEST)
+  if (grayPairMsb_) {
+    auto second = target;
+    second.buffer = grayPairMsb_;
+    glyphBitmap::drawScaled(bitmap, srcW, srcH, paintScale, fontData->is2Bit, glyphBitmap::Plane::GrayMSB, pixelState,
+                            second, clip, scaledGlyphGrayscaleBase_, absoluteGrayPlanes, textDarkness_);
+  }
+#endif
   return advance;
 }
 

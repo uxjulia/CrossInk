@@ -333,3 +333,31 @@ TEST(CpfontStrike, ChoosesNearestLargerOrdinarySizeWithExistingTieBreak) {
   EXPECT_EQ(best(14, 512, {30, 26}), 30);
   EXPECT_EQ(best(14, 512, {120, 64, 22}), 22);
 }
+
+TEST(GlyphBitmap, PairedOverlayMatchesSeparatePlanesAcrossOrientationDarknessAndClip) {
+  const uint8_t bitmap[] = {0x37, 0x6b, 0xf0, 0xe4};
+  constexpr int width = 5, height = 3;
+  for (const auto& frame : {glyphBitmap::Frame{-2, 1, 1, 0, 0, 1}, glyphBitmap::Frame{9, 13, 0, -1, 1, 0},
+                            glyphBitmap::Frame{23, 12, -1, 0, 0, -1}, glyphBitmap::Frame{3, 2, 0, 1, -1, 0}}) {
+    for (const bool twoBit : {false, true}) {
+      for (const bool black : {false, true}) {
+        for (uint8_t darkness = 0; darkness <= 2; ++darkness) {
+          std::array<uint8_t, 16 * 3> low{}, high{};
+          low.fill(0xa5);
+          high.fill(0x5a);
+          auto pairedLow = low;
+          auto pairedHigh = high;
+          const glyphBitmap::Clip clip{1, 0, 5, 3};
+          glyphBitmap::Target target{low.data(), 24, 3, 0, 16, frame};
+          glyphBitmap::draw(bitmap, width, height, twoBit, Plane::GrayLSB, black, target, clip, false, darkness);
+          target.buffer = high.data();
+          glyphBitmap::draw(bitmap, width, height, twoBit, Plane::GrayMSB, black, target, clip, false, darkness);
+          target.buffer = pairedLow.data();
+          glyphBitmap::drawGrayPair(bitmap, width, height, twoBit, black, target, pairedHigh.data(), clip, darkness);
+          EXPECT_EQ(pairedLow, low);
+          EXPECT_EQ(pairedHigh, high);
+        }
+      }
+    }
+  }
+}
