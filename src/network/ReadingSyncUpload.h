@@ -38,7 +38,8 @@ StatsUploadClient::Result globalStats(StatsUploadClient& client, char* payload, 
 // Bounded session-outbox pass, preserving the original IDs and exact acknowledgment.
 StatsUploadClient::Result sessions(size_t maxRecords, bool (*cancel)(void*) = nullptr, void* context = nullptr);
 StatsUploadClient::Result stats(const std::string& path, const std::string& document,
-                                StatsUploadClient::Relay* relay = nullptr);
+                                StatsUploadClient::Relay* relay = nullptr, StatsUploadClient::Cancel cancel = nullptr,
+                                void* context = nullptr, uint32_t timeoutMs = StatsUploadClient::FOREGROUND_TIMEOUT_MS);
 // A book's saved stats when there are any to send (stats tracking on for it).
 // Only a stats-file existence check and one small read; never loads the book.
 bool loadBookStats(const std::string& path, BookReadingStats& stats);

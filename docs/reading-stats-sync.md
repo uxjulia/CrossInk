@@ -70,8 +70,10 @@ remain on the reader.
 On compatible servers, **Bookmarks** under **What to Sync** lets sleep sync
 exchange bookmarks. It is off by default. **Clippings** and **Reading Stats**
 keep their separate opt-ins; when enabled, sleep sync can exchange the book's
-clippings and upload a small batch of pending reading sessions. Larger uploads
-can continue next time.
+clippings, send its saved reading stats, and upload a small batch of pending
+reading sessions. Sleep sync attempts the uploads before downloading bookmarks
+and clippings, within its sleep time budget. Use **Sync Reading Stats** to
+send all-time totals and daily history or catch up on a large backlog.
 
 ## Sync Books
 

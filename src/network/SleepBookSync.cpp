@@ -7,6 +7,7 @@
 
 #include "BookmarkSync.h"
 #include "ClippingsUpload.h"
+#include "CrossPointSettings.h"
 #include "ReadingSyncUpload.h"
 #include "SleepProgressPolicy.h"
 #include "sync/BookSyncFile.h"
@@ -45,15 +46,15 @@ void SleepBookSync::run(const std::string& path, const bool progressSafe, bool (
   uint32_t started = millis();
   const bool bookmarks =
       KOREADER_STORE.getSyncBookmarks() && KOREADER_STORE.getServerType() != KOReaderServerType::KOSYNC;
-  const bool clippings = ReadingSyncUpload::canSyncClippings();
-  const bool sessions = ReadingSyncUpload::canSyncReadingStats();
+  // Like manual Sync Book, try opted-in uploads on an unprobed custom server.
+  // The credential getters already exclude servers known to lack extensions.
+  const bool clippings = KOREADER_STORE.getSyncClippings();
+  const bool stats = KOREADER_STORE.getSyncStats() && SETTINGS.shouldTrackReadingStats();
   KOReaderProgress local{};
   const bool havePosition = progressSafe && ReadingSyncUpload::prepareProgress(path, local, nullptr, true);
-  if (!havePosition && !bookmarks && !clippings && !sessions) return;
-  const std::string document = havePosition             ? local.document
-                               : bookmarks || clippings ? BookSyncFile::documentId(path)
-                                                        : std::string{};
-  if (!havePosition && document.empty() && !sessions) return;
+  if (!havePosition && !bookmarks && !clippings && !stats) return;
+  const std::string document = havePosition ? local.document : BookSyncFile::documentId(path);
+  if (document.empty() && !stats) return;
   if (budgetExpired(&started) || !ensureConnected() || budgetExpired(&started)) return;
   // Do not gate healthy progress on any optional stream or use stale local
   // progress if the last save failed. Each enabled stream can try independently.
@@ -61,17 +62,35 @@ void SleepBookSync::run(const std::string& path, const bool progressSafe, bool (
     syncProgress(local, started);
     local = {};
   }
-  if (bookmarks && !document.empty() && !budgetExpired(&started)) {
+  // Drain a bounded batch before per-book transfers can spend the budget.
+  if (stats && !budgetExpired(&started)) {
+    const auto result = ReadingSyncUpload::sessions(SESSIONS_PER_SLEEP, budgetExpired, &started);
+    LOG_INF("SleepSync", "Sessions result=%d HTTP=%d", static_cast<int>(result), StatsUploadClient::lastHttpCode);
+  }
+  if (document.empty()) return;
+
+  using Client = StatsUploadClient;
+  // One book counter request fits ahead of the potentially long clipping replay.
+  if (stats && !budgetExpired(&started)) {
+    const auto result =
+        ReadingSyncUpload::stats(path, document, nullptr, budgetExpired, &started, Client::SLEEP_TIMEOUT_MS);
+    LOG_INF("SleepSync", "Book stats result=%d HTTP=%d", static_cast<int>(result), Client::lastHttpCode);
+  }
+  bool pullClippings = false;
+  if (clippings && !budgetExpired(&started)) {
+    const auto result =
+        ClippingsUpload::upload(path, document, budgetExpired, &started, nullptr, Client::SLEEP_TIMEOUT_MS);
+    LOG_INF("SleepSync", "Clippings upload result=%d HTTP=%d", static_cast<int>(result), Client::lastHttpCode);
+    pullClippings = Client::settled(result);
+  }
+  if (bookmarks && !budgetExpired(&started)) {
     const auto result = BookmarkSync::run(path, document, budgetExpired, &started);
     LOG_INF("SleepSync", "Bookmarks result=%d", static_cast<int>(result));
   }
-  if (clippings && !document.empty() && !budgetExpired(&started)) {
+  if (pullClippings && !budgetExpired(&started)) {
     const auto result =
-        ClippingsUpload::sync(path, document, budgetExpired, &started, nullptr, StatsUploadClient::SLEEP_TIMEOUT_MS);
-    LOG_INF("SleepSync", "Clippings result=%d", static_cast<int>(result));
+        ClippingsUpload::download(path, document, budgetExpired, &started, nullptr, Client::SLEEP_TIMEOUT_MS);
+    LOG_INF("SleepSync", "Clippings download result=%d HTTP=%d", static_cast<int>(result), Client::lastHttpCode);
   }
-  if (sessions && !budgetExpired(&started)) {
-    const auto result = ReadingSyncUpload::sessions(SESSIONS_PER_SLEEP, budgetExpired, &started);
-    LOG_INF("SleepSync", "Sessions result=%d", static_cast<int>(result));
-  }
+  if (budgetExpired(&started)) LOG_INF("SleepSync", "Time budget used; remaining sync deferred");
 }

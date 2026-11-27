@@ -305,17 +305,20 @@ bool ReadingSyncUpload::canSyncClippings() {
 StatsUploadClient::Result ReadingSyncUpload::sessions(size_t maxRecords, bool (*cancel)(void*), void* context) {
   StatsUploadClient::lastHttpCode = 0;
   using Result = StatsUploadClient::Result;
-  if (!maxRecords || !canSyncReadingStats()) return Result::Skipped;
+  if (!maxRecords || !KOREADER_STORE.hasCredentials() || !KOREADER_STORE.getSyncStats() ||
+      !SETTINGS.shouldTrackReadingStats())
+    return Result::Skipped;
   if (cancel && cancel(context)) return Result::Cancelled;
   auto payload = makeUniqueNoThrow<char[]>(StatsUploadPayload::CAPACITY);
   char deviceId[32];
   if (!payload || !StatsUploadClient::deviceId(deviceId, sizeof(deviceId))) return Result::LowMemory;
-  StatsUploadClient client(nullptr, cancel, context, 4000);
+  StatsUploadClient client(nullptr, cancel, context, StatsUploadClient::SLEEP_TIMEOUT_MS);
   return uploadSessions(client, payload.get(), StatsUploadPayload::CAPACITY, deviceId, maxRecords, cancel, context);
 }
 
 StatsUploadClient::Result ReadingSyncUpload::stats(const std::string& path, const std::string& document,
-                                                   StatsUploadClient::Relay* relay) {
+                                                   StatsUploadClient::Relay* relay, StatsUploadClient::Cancel cancel,
+                                                   void* context, const uint32_t timeoutMs) {
   StatsUploadClient::lastHttpCode = 0;
   using Result = StatsUploadClient::Result;
   BookReadingStats book;
@@ -325,7 +328,7 @@ StatsUploadClient::Result ReadingSyncUpload::stats(const std::string& path, cons
   if (!payload || !StatsUploadClient::deviceId(deviceId, sizeof(deviceId))) return Result::LowMemory;
   if (!StatsUploadPayload::book(payload.get(), StatsUploadPayload::CAPACITY, deviceId, document.c_str(), book))
     return Result::InvalidResponse;
-  StatsUploadClient client(relay);
+  StatsUploadClient client(relay, cancel, context, timeoutMs);
   return client.put("/api/v1/stats/counters/books", payload.get(), 1);
 }
 
