@@ -25,7 +25,9 @@ inline int failWrite = -1;
 inline int failRename = -1;
 inline std::string failRenameToPath;
 inline int failAlloc = -1;
-inline bool failDirectorySeek = false;
+inline unsigned directorySeeks = 0;
+inline std::map<std::string, unsigned> directoryOpensByPath;
+inline std::map<std::string, std::string> directoryLookupAliases;
 inline std::string failDirectoryIterationPath;
 inline std::string failOpenPath;
 inline std::string failClosePath;
@@ -58,7 +60,9 @@ inline void reset() {
   failRename = -1;
   failRenameToPath.clear();
   failAlloc = -1;
-  failDirectorySeek = false;
+  directorySeeks = 0;
+  directoryOpensByPath.clear();
+  directoryLookupAliases.clear();
   failDirectoryIterationPath.clear();
   failOpenPath.clear();
   failClosePath.clear();
@@ -172,7 +176,8 @@ class HalFile {
   size_t position() const { return pos; }
   bool seekSet(const size_t offset) {
     fake::seeks++;
-    if (!node || (node->directory && fake::failDirectorySeek) || (!node->directory && offset > node->bytes.size())) {
+    if (isDirectory()) fake::directorySeeks++;
+    if (!node || (!node->directory && offset > node->bytes.size())) {
       return false;
     }
     pos = offset;
@@ -226,10 +231,12 @@ class HalStorage {
       fake::failureTriggered = true;
       return file;
     }
-    const auto found = fake::files.find(path);
+    const auto alias = fake::directoryLookupAliases.find(path);
+    const auto found = fake::files.find(alias != fake::directoryLookupAliases.end() ? alias->second : path);
     if (found != fake::files.end()) {
       file.node = found->second;
-      file.path = path;
+      file.path = found->first;
+      if (file.isDirectory()) fake::directoryOpensByPath[path]++;
     }
     return file;
   }
