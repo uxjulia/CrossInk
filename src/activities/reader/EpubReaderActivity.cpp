@@ -3304,7 +3304,7 @@ void EpubReaderActivity::runBackgroundSectionBuildStep() {
       requestUpdate();
     } else if (section->currentPage >= 0 && section->currentPage < section->pageCount) {
       if (!queueProgressSave(currentSpineIndex, section->currentPage, section->pageCount)) {
-        pendingSyncSaveError = true;
+        queueProgressSaveError();
       }
       chapterCountRefreshPending = true;
       lastIdleIndexMs = millis();
@@ -4831,8 +4831,9 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuAction action, const 
     case EpubReaderMenuAction::SYNC: {
       if (!KOREADER_STORE.hasCredentials()) {
         pauseReadingPaceTimer("koreader_settings");
-        if (!saveProgressBeforeRestart()) {
+        if (const auto error = checkpointBeforeRestart()) {
           resumeReadingPaceTimer("restart_save_failed");
+          pendingSyncSaveError.store(static_cast<uint32_t>(*error), std::memory_order_relaxed);
           requestUpdate();
           return;
         }
@@ -4846,12 +4847,10 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuAction action, const 
                                    requestUpdate();
                                });
       } else {
-        // Persist current position so the reader resumes at the right page on return.
-        // goToReader() depends on this file, so abort the sync if the write fails.
-        const bool saved = saveProgressBeforeRestart();
-        if (!saved) {
-          LOG_ERR("KOSync", "Aborting sync because current progress could not be saved");
-          pendingSyncSaveError = true;
+        // Network mode restarts without onExit(); keep the live reader if any checkpoint fails.
+        if (const auto error = checkpointBeforeRestart()) {
+          LOG_ERR("KOSync", "Aborting sync because the reader checkpoint failed");
+          pendingSyncSaveError.store(static_cast<uint32_t>(*error), std::memory_order_relaxed);
           requestUpdate();
           return;
         }
@@ -4916,7 +4915,7 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuAction action, const 
 
       if (!saveProgress(currentSpineIndex, currentPage, totalPages)) {
         LOG_ERR("NBPS", "Aborting nearby position sync because current progress could not be saved");
-        pendingSyncSaveError = true;
+        queueProgressSaveError();
         requestUpdate();
         return;
       }
@@ -6882,10 +6881,10 @@ void EpubReaderActivity::render(RenderLock&& lock) {
   }
 
   const auto showPendingSyncSaveError = [this]() {
-    if (!pendingSyncSaveError) return;
-    pendingSyncSaveError = false;
+    const auto error = pendingSyncSaveError.exchange(NO_PENDING_SAVE_ERROR, std::memory_order_relaxed);
+    if (error == NO_PENDING_SAVE_ERROR) return;
     lastPresentedPage = -1;
-    GUI.drawPopup(renderer, tr(STR_SAVE_PROGRESS_FAILED));
+    GUI.drawPopup(renderer, I18n::getInstance().get(static_cast<StrId>(error)));
   };
 
   const auto queueLowMemoryLayoutAlert = [this](const bool goHomeOnBack) {
@@ -7785,7 +7784,7 @@ void EpubReaderActivity::render(RenderLock&& lock) {
     if (progressSaveRequiredAfterRelayout || currentSpineIndex != lastSavedSpineIndex ||
         section->currentPage != lastSavedPage || totalPages != lastSavedPageCount) {
       if (!queueProgressSave(currentSpineIndex, section->currentPage, totalPages, progressSaveRequiredAfterRelayout)) {
-        pendingSyncSaveError = true;
+        queueProgressSaveError();
       } else if (progressSaveRequiredAfterRelayout) {
         progressSaveRequiredAfterRelayout = false;
       }
@@ -9729,19 +9728,25 @@ bool EpubReaderActivity::checkpointReadingStatsBeforeRestart() {
   return saved;
 }
 
-bool EpubReaderActivity::saveProgressBeforeRestart() {
+std::optional<StrId> EpubReaderActivity::checkpointBeforeRestart() {
   // Silent network-mode restarts skip onExit(); coordinate with the render task.
   RenderLock lock(*this);
-  bool saved = checkpointReadingStatsBeforeRestart();
+  // Stats may need to open SD files even if the page position is already saved.
+  // Release both incremental builders' handles before the first checkpoint write.
+  if (section) section->releaseBuildFile();
+  if (nextChapterBuild) nextChapterBuild->releaseBuildFile();
+
+  std::optional<StrId> error;
+  if (!checkpointReadingStatsBeforeRestart()) error = StrId::STR_SAVE_READING_STATS_FAILED;
   if (!saveReadingProgress()) {
     LOG_ERR("READER", "Failed to save progress before restart");
-    saved = false;
+    error = StrId::STR_SAVE_PROGRESS_FAILED;  // The page position takes precedence.
   }
   if (epub && !saveLinkStack()) {
     LOG_ERR("READER", "Failed to save link return stack before restart");
-    saved = false;
+    if (!error) error = StrId::STR_SAVE_FOOTNOTE_RETURN_FAILED;
   }
   // The restart skips loop() and onExit(), so queue the book for sync now.
   flushPendingSyncMark();
-  return saved;
+  return error;
 }

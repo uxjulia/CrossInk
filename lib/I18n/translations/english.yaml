@@ -590,6 +590,8 @@ STR_KOREADER_SYNC_BAD_RESPONSE: "Sync server replied with invalid data. Check th
 STR_KOREADER_SYNC_LOW_MEMORY: "Not enough free memory to finish sync. Please retry."
 STR_UNKNOWN_ERROR: "Unknown error"
 STR_SAVE_PROGRESS_FAILED: "Could not save progress"
+STR_SAVE_READING_STATS_FAILED: "Could not save reading stats"
+STR_SAVE_FOOTNOTE_RETURN_FAILED: "Could not save footnote return"
 STR_SECTION_PREFIX: "Section "
 STR_BOOK_S_STYLE: "Book's Style"
 STR_EMBEDDED_STYLE: "Embedded Style"

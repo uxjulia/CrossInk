@@ -2,6 +2,7 @@
 #include <Epub.h>
 #include <Epub/FootnoteEntry.h>
 #include <Epub/Section.h>
+#include <I18nKeys.h>
 #include <Memory.h>
 
 #include "BackgroundBuildMemoryGuard.h"
@@ -296,7 +297,13 @@ class EpubReaderActivity final : public Activity {
 #endif
   uint16_t pendingClippingIndex = UINT16_MAX;
   bool pendingScreenshot = false;
-  bool pendingSyncSaveError = false;
+  static constexpr uint32_t NO_PENDING_SAVE_ERROR = static_cast<uint32_t>(StrId::_COUNT);
+  std::atomic<uint32_t> pendingSyncSaveError{NO_PENDING_SAVE_ERROR};
+  void queueProgressSaveError() {
+    auto none = NO_PENDING_SAVE_ERROR;
+    pendingSyncSaveError.compare_exchange_strong(none, static_cast<uint32_t>(StrId::STR_SAVE_PROGRESS_FAILED),
+                                                 std::memory_order_relaxed);
+  }
   std::atomic<bool> automaticPageTurnActive{false};
   // Session-only display toggle. Layout continues to reserve the same status
   // lane, so switching it never changes the EPUB's page breaks.
@@ -508,7 +515,8 @@ class EpubReaderActivity final : public Activity {
   bool queueProgressSave(int spineIndex, int currentPage, int pageCount, bool forceSave = false);
   // Caller holds RenderLock, including the render-task low-memory path.
   bool checkpointReadingStatsBeforeRestart();
-  bool saveProgressBeforeRestart();
+  std::optional<StrId> checkpointBeforeRestart();
+  bool saveProgressBeforeRestart() { return !checkpointBeforeRestart(); }
   bool saveReadingProgress();
   bool saveLinkStack() const;
   void loadLinkStack();
