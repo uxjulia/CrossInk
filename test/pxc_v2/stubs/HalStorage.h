@@ -20,6 +20,7 @@ struct HostFileData {
   std::vector<uint8_t> bytes;
   uint32_t modified = 0;
   bool failClose = false;
+  size_t openCalls = 0;
   size_t readCalls = 0;
   size_t writeCalls = 0;
   size_t seekCalls = 0;
@@ -118,7 +119,9 @@ class HalStorage {
 
   HalFile open(const char* path, oflag_t) {
     const auto found = files_.find(path);
-    return found == files_.end() ? HalFile{} : HalFile(found->second);
+    if (found == files_.end()) return {};
+    ++found->second->openCalls;
+    return HalFile(found->second);
   }
   bool openFileForRead(const char*, const std::string& path, HalFile& file) {
     file = open(path.c_str(), O_RDONLY);
@@ -132,6 +135,7 @@ class HalStorage {
   }
 
   size_t writeCalls(const std::string& path) const { return files_.at(path)->writeCalls; }
+  size_t openCalls(const std::string& path) const { return files_.at(path)->openCalls; }
   size_t readCalls(const std::string& path) const { return files_.at(path)->readCalls; }
   size_t seekCalls(const std::string& path) const { return files_.at(path)->seekCalls; }
   void failClose(const std::string& path) { files_.at(path)->failClose = true; }

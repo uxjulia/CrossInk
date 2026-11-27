@@ -119,6 +119,8 @@ class ZipFile {
   bool loadFileStatSlim(const char* filename, FileStatSlim* fileStat);
   long getDataOffset(const FileStatSlim& fileStat);
   bool loadZipDetails();
+  bool streamMember(const char* filename, const FileStatSlim& member, Print& out, size_t chunkSize,
+                    bool allowEarlyStop, uint32_t started);
   bool enumerateFilePathsImpl(void* context, void (*callback)(void*, std::string_view));
 
  public:
@@ -132,6 +134,12 @@ class ZipFile {
   bool close();
   bool loadAllFileStatSlims();
   bool getInflatedFileSize(const char* filename, size_t* size);
+  // A size/read pair for one member of an explicitly open archive. Search in
+  // archive order, even when the central directory can't be cached in RAM.
+  bool findFirstOpenMember(const char* filename, FileStatSlim& member);
+  // Use only a member just found on this still-open archive.
+  bool readOpenMemberToStream(const char* filename, const FileStatSlim& member, Print& out, size_t chunkSize,
+                              bool allowEarlyStop = false);
   // Batch lookup: scan ZIP central dir once and fill sizes for matching targets.
   // targets must be sorted by (hash, len). sizes[target.index] receives uncompressedSize.
   // Returns number of targets matched.

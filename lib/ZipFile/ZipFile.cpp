@@ -705,6 +705,17 @@ bool ZipFile::close() {
   return true;
 }
 
+bool ZipFile::findFirstOpenMember(const char* filename, FileStatSlim& member) {
+  if (!isOpen()) return false;
+  lastCentralDirPosValid = false;
+  return loadFileStatSlim(filename, &member);
+}
+
+bool ZipFile::readOpenMemberToStream(const char* filename, const FileStatSlim& member, Print& out,
+                                     const size_t chunkSize, const bool allowEarlyStop) {
+  return isOpen() && streamMember(filename, member, out, chunkSize, allowEarlyStop, micros());
+}
+
 bool ZipFile::getInflatedFileSize(const char* filename, size_t* size) {
   FileStatSlim fileStat = {};
   if (!loadFileStatSlim(filename, &fileStat)) {
@@ -977,7 +988,11 @@ bool ZipFile::readFileToStream(const char* filename, Print& out, const size_t ch
 
   FileStatSlim fileStat = {};
   if (!loadFileStatSlim(filename, &fileStat)) return false;
+  return streamMember(filename, fileStat, out, chunkSize, allowEarlyStop, started);
+}
 
+bool ZipFile::streamMember(const char* filename, const FileStatSlim& fileStat, Print& out,
+                           const size_t chunkSize, const bool allowEarlyStop, const uint32_t started) {
   const long fileOffset = getDataOffset(fileStat);
   if (fileOffset < 0) return false;
 

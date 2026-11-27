@@ -103,7 +103,9 @@ std::vector<TestEntry> makeEntries() {
 
 struct CountingOutput : Print {
   std::string bytes;
+  size_t limit = SIZE_MAX;
   size_t write(uint8_t value) override {
+    if (bytes.size() == limit) return 0;
     bytes.push_back(static_cast<char>(value));
     return 1;
   }
@@ -334,4 +336,80 @@ TEST_F(ZipCentralDirectory, InvalidLastEntryNeverInstallsPartialCache) {
   size_t size = 0;
   ZipFile(path, &cache).getInflatedFileSize(entries[0].name.c_str(), &size);
   EXPECT_EQ(cache.bytes.get(), nullptr);
+}
+
+TEST_F(ZipCentralDirectory, ColdIndexReusesArchiveAndFirstMemberOnC3AndPsram) {
+  // Metadata and NAV are far apart in the archive, with a duplicate OPF
+  // after NAV that must not be returned by a cursor-relative search.
+  const TestEntry container{"META-INF/container.xml", "container", 0, 0, 1};
+  const TestEntry opf{"OEBPS/book.opf", "first OPF", 0, 0, 2};
+  const TestEntry nav{"OEBPS/nav.xhtml", "navigation", 0, 0, 3};
+  entries.insert(entries.begin(), container);
+  entries.insert(entries.begin() + 10, opf);
+  entries.insert(entries.end() - 2, nav);
+  entries.push_back({opf.name, "wrong duplicate OPF", 0, 0, 4});
+  const auto archive = buildZip(entries);
+
+  for (bool psram : {false, true}) {
+    SCOPED_TRACE(psram);
+    fakeheap::reset(psram);
+    const std::string legacyPath = "legacy.epub";
+    const std::string sharedPath = "shared.epub";
+    Storage.put(legacyPath, archive);
+    Storage.put(sharedPath, archive);
+    ZipDirectoryCache legacyCache;
+    ZipDirectoryCache sharedCache;
+    ZipFile shared(sharedPath, &sharedCache);
+    ASSERT_TRUE(shared.open());
+
+    for (const TestEntry* expected : {&container, &nav, &opf}) {
+      size_t legacySize = 0;
+      CountingOutput legacy;
+      ASSERT_TRUE(ZipFile(legacyPath, &legacyCache).getInflatedFileSize(expected->name.c_str(), &legacySize));
+      ASSERT_TRUE(ZipFile(legacyPath, &legacyCache).readFileToStream(expected->name.c_str(), legacy, 8));
+      ASSERT_EQ(legacy.bytes, expected->data);
+
+      ZipFile::FileStatSlim member{};
+      ASSERT_TRUE(shared.findFirstOpenMember(expected->name.c_str(), member));
+      EXPECT_EQ(member.uncompressedSize, legacySize);
+      CountingOutput output;
+      ASSERT_TRUE(shared.readOpenMemberToStream(expected->name.c_str(), member, output, 8));
+      EXPECT_EQ(output.bytes, legacy.bytes);
+      EXPECT_TRUE(shared.isOpen());
+    }
+
+    EXPECT_EQ(Storage.openCalls(legacyPath), 6u);
+    EXPECT_EQ(Storage.openCalls(sharedPath), 1u);
+    if (psram) {
+      // The old path already serves the directory from PSRAM; here the win
+      // measured at this seam is avoiding physical archive opens.
+      EXPECT_EQ(Storage.readCalls(sharedPath), Storage.readCalls(legacyPath));
+    } else {
+      EXPECT_LT(Storage.readCalls(sharedPath), Storage.readCalls(legacyPath));
+    }
+    EXPECT_EQ(!!sharedCache.bytes, psram);
+    ZipFile::FileStatSlim missing{};
+    EXPECT_FALSE(shared.findFirstOpenMember("absent", missing));
+    EXPECT_TRUE(shared.close());
+  }
+}
+
+TEST_F(ZipCentralDirectory, ColdIndexMemberUsesSameSinkFailureAndEarlyStopRules) {
+  const auto& expected = entries[12];
+  ZipFile zip(path);
+  ZipFile::FileStatSlim member{};
+  EXPECT_FALSE(zip.findFirstOpenMember(expected.name.c_str(), member));
+  ASSERT_TRUE(zip.open());
+  ASSERT_TRUE(zip.findFirstOpenMember(expected.name.c_str(), member));
+
+  CountingOutput fail;
+  fail.limit = 2;
+  EXPECT_FALSE(zip.readOpenMemberToStream(expected.name.c_str(), member, fail, 8));
+  EXPECT_EQ(fail.bytes, expected.data.substr(0, 2));
+  CountingOutput probe;
+  probe.limit = 2;
+  EXPECT_TRUE(zip.readOpenMemberToStream(expected.name.c_str(), member, probe, 8, true));
+  EXPECT_EQ(probe.bytes, fail.bytes);
+  ASSERT_TRUE(zip.close());
+  EXPECT_FALSE(zip.readOpenMemberToStream(expected.name.c_str(), member, probe, 8, true));
 }

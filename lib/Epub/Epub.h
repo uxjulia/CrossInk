@@ -123,14 +123,14 @@ class Epub {
     Complete,
   };
 
-  bool findContentOpfFile(std::string* contentOpfFile) const;
+  bool findContentOpfFile(std::string* contentOpfFile, ZipFile* sharedZip = nullptr) const;
   bool parseContentOpf(BookMetadataCache::BookMetadata& bookMetadata, bool writeSpineEntries = true,
                        bool collectCssFiles = true, bool metadataOnly = false, std::string* seriesIndex = nullptr,
-                       SyncMetadata* syncMetadata = nullptr);
-  bool parseTocNcxFile() const;
-  bool parseTocNavFile() const;
+                       SyncMetadata* syncMetadata = nullptr, ZipFile* sharedZip = nullptr);
+  bool parseTocNcxFile(ZipFile* sharedZip = nullptr) const;
+  bool parseTocNavFile(ZipFile* sharedZip = nullptr) const;
   CssParseStatus parseCssFiles(bool forceRebuild = false, bool preserveExistingPartialOnFailure = false) const;
-  void discoverCssFilesFromZip();
+  void discoverCssFilesFromZip(ZipFile* sharedZip = nullptr);
   void releaseCssFileList();
 
  public:
